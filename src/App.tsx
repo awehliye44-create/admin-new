@@ -18,6 +18,46 @@ import Dispatch from "./pages/Dispatch";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
+import {
+  FleetTracking,
+  ActiveTrips,
+  AutoDispatch,
+  ScheduledRides,
+  MissedCancelled,
+  ManualTrip,
+  DriverProfiles,
+  VehicleTypes,
+  Documents,
+  DriverCategories,
+  PromoCodes,
+  CustomZones,
+  ZonePricing,
+  CorporateFares,
+  FareSimulator,
+  Airports,
+  CorporateAccounts,
+  AccountRequests,
+  CorporateBilling,
+  CorporateReports,
+  CorporateSettings,
+  RiderFeedback,
+  Suspensions,
+  Complaints,
+  Tickets,
+  Categories,
+  Payments,
+  DriverPayouts,
+  Disputes,
+  DisputeSettings,
+  Content,
+  GeneralSettings,
+  Integrations,
+  Webhooks,
+  System,
+  Roles,
+  Notifications,
+} from "./pages/PlaceholderPage";
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -29,78 +69,73 @@ const App = () => (
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <Index />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/dashboard"
-              element={
-                <ProtectedRoute>
-                  <Dashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/drivers"
-              element={
-                <ProtectedRoute>
-                  <Drivers />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/riders"
-              element={
-                <ProtectedRoute>
-                  <Riders />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/vehicles"
-              element={
-                <ProtectedRoute>
-                  <Vehicles />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/regions"
-              element={
-                <ProtectedRoute>
-                  <Regions />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/services"
-              element={
-                <ProtectedRoute>
-                  <Services />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/dispatch"
-              element={
-                <ProtectedRoute>
-                  <Dispatch />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/settings"
-              element={
-                <ProtectedRoute>
-                  <Settings />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
+            <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            
+            {/* Operations & Dispatch */}
+            <Route path="/fleet-tracking" element={<ProtectedRoute><FleetTracking /></ProtectedRoute>} />
+            <Route path="/active-trips" element={<ProtectedRoute><ActiveTrips /></ProtectedRoute>} />
+            <Route path="/auto-dispatch" element={<ProtectedRoute><AutoDispatch /></ProtectedRoute>} />
+            <Route path="/scheduled-rides" element={<ProtectedRoute><ScheduledRides /></ProtectedRoute>} />
+            <Route path="/missed-cancelled" element={<ProtectedRoute><MissedCancelled /></ProtectedRoute>} />
+            <Route path="/manual-trip" element={<ProtectedRoute><ManualTrip /></ProtectedRoute>} />
+            <Route path="/dispatch" element={<ProtectedRoute><Dispatch /></ProtectedRoute>} />
+            
+            {/* Service Areas */}
+            <Route path="/regions" element={<ProtectedRoute><Regions /></ProtectedRoute>} />
+            <Route path="/services" element={<ProtectedRoute><Services /></ProtectedRoute>} />
+            <Route path="/driver-profiles" element={<ProtectedRoute><DriverProfiles /></ProtectedRoute>} />
+            <Route path="/vehicle-types" element={<ProtectedRoute><VehicleTypes /></ProtectedRoute>} />
+            <Route path="/documents" element={<ProtectedRoute><Documents /></ProtectedRoute>} />
+            <Route path="/driver-categories" element={<ProtectedRoute><DriverCategories /></ProtectedRoute>} />
+            
+            {/* Fleet Management */}
+            <Route path="/drivers" element={<ProtectedRoute><Drivers /></ProtectedRoute>} />
+            <Route path="/vehicles" element={<ProtectedRoute><Vehicles /></ProtectedRoute>} />
+            <Route path="/riders" element={<ProtectedRoute><Riders /></ProtectedRoute>} />
+            
+            {/* Pricing & Fares */}
+            <Route path="/promo-codes" element={<ProtectedRoute><PromoCodes /></ProtectedRoute>} />
+            <Route path="/custom-zones" element={<ProtectedRoute><CustomZones /></ProtectedRoute>} />
+            <Route path="/zone-pricing" element={<ProtectedRoute><ZonePricing /></ProtectedRoute>} />
+            <Route path="/corporate-fares" element={<ProtectedRoute><CorporateFares /></ProtectedRoute>} />
+            <Route path="/fare-simulator" element={<ProtectedRoute><FareSimulator /></ProtectedRoute>} />
+            
+            {/* Airports & Terminals */}
+            <Route path="/airports" element={<ProtectedRoute><Airports /></ProtectedRoute>} />
+            
+            {/* Corporate */}
+            <Route path="/corporate-accounts" element={<ProtectedRoute><CorporateAccounts /></ProtectedRoute>} />
+            <Route path="/account-requests" element={<ProtectedRoute><AccountRequests /></ProtectedRoute>} />
+            <Route path="/corporate-billing" element={<ProtectedRoute><CorporateBilling /></ProtectedRoute>} />
+            <Route path="/corporate-reports" element={<ProtectedRoute><CorporateReports /></ProtectedRoute>} />
+            <Route path="/corporate-settings" element={<ProtectedRoute><CorporateSettings /></ProtectedRoute>} />
+            
+            {/* Users & Support */}
+            <Route path="/rider-feedback" element={<ProtectedRoute><RiderFeedback /></ProtectedRoute>} />
+            <Route path="/suspensions" element={<ProtectedRoute><Suspensions /></ProtectedRoute>} />
+            <Route path="/complaints" element={<ProtectedRoute><Complaints /></ProtectedRoute>} />
+            <Route path="/tickets" element={<ProtectedRoute><Tickets /></ProtectedRoute>} />
+            <Route path="/categories" element={<ProtectedRoute><Categories /></ProtectedRoute>} />
+            
+            {/* Finance & Payouts */}
+            <Route path="/payments" element={<ProtectedRoute><Payments /></ProtectedRoute>} />
+            <Route path="/driver-payouts" element={<ProtectedRoute><DriverPayouts /></ProtectedRoute>} />
+            <Route path="/disputes" element={<ProtectedRoute><Disputes /></ProtectedRoute>} />
+            <Route path="/dispute-settings" element={<ProtectedRoute><DisputeSettings /></ProtectedRoute>} />
+            
+            {/* Content & Legal */}
+            <Route path="/content" element={<ProtectedRoute><Content /></ProtectedRoute>} />
+            
+            {/* Settings */}
+            <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+            <Route path="/general-settings" element={<ProtectedRoute><GeneralSettings /></ProtectedRoute>} />
+            <Route path="/integrations" element={<ProtectedRoute><Integrations /></ProtectedRoute>} />
+            <Route path="/webhooks" element={<ProtectedRoute><Webhooks /></ProtectedRoute>} />
+            <Route path="/system" element={<ProtectedRoute><System /></ProtectedRoute>} />
+            <Route path="/roles" element={<ProtectedRoute><Roles /></ProtectedRoute>} />
+            <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
+            
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
