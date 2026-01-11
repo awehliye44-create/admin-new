@@ -66,5 +66,4 @@ export const GeneralSettings = () => <PlaceholderPage title="General & Branding"
 export const Integrations = () => <PlaceholderPage title="Integrations & API" description="Manage third-party integrations" />;
 export const Webhooks = () => <PlaceholderPage title="Webhooks" description="Configure webhook endpoints" />;
 export const System = () => <PlaceholderPage title="System Requirements" description="View system requirements and status" />;
-export const Roles = () => <PlaceholderPage title="Roles & Permissions" description="Manage user roles and permissions" />;
 export const Notifications = () => <PlaceholderPage title="Notifications & Alerts" description="Configure notification settings" />;

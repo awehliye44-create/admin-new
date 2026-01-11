@@ -22,10 +22,12 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     );
   }
 
+  // Not logged in - redirect to auth
   if (!user) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/auth" replace />;
   }
 
+  // Logged in but not admin - show access denied
   if (!isAdmin) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-sidebar p-4">
@@ -36,14 +38,17 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
             </div>
             <CardTitle className="text-2xl font-bold">Access Denied</CardTitle>
             <CardDescription>
-              Admin role required. You don't have permission to access this panel.
+              Your account is not approved for admin access.
             </CardDescription>
           </CardHeader>
-          <CardContent className="text-center">
-            <p className="mb-4 text-sm text-muted-foreground">
-              Logged in as: {user.email}
+          <CardContent className="text-center space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Logged in as: <span className="font-medium">{user.email}</span>
             </p>
-            <Button onClick={signOut} variant="outline">
+            <p className="text-sm text-muted-foreground">
+              Please wait for an administrator to approve your access.
+            </p>
+            <Button onClick={signOut} variant="outline" className="w-full">
               Sign Out
             </Button>
           </CardContent>
