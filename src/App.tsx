@@ -2,11 +2,12 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 
-import Login from "./pages/Login";
+import Auth from "./pages/Auth";
+import AuthReset from "./pages/AuthReset";
 import Index from "./pages/Index";
 import Dashboard from "./pages/Dashboard";
 import Drivers from "./pages/Drivers";
@@ -16,6 +17,7 @@ import Regions from "./pages/Regions";
 import Services from "./pages/Services";
 import Dispatch from "./pages/Dispatch";
 import Settings from "./pages/Settings";
+import RolesPermissions from "./pages/RolesPermissions";
 import NotFound from "./pages/NotFound";
 
 import {
@@ -54,7 +56,6 @@ import {
   Integrations,
   Webhooks,
   System,
-  Roles,
   Notifications,
 } from "./pages/PlaceholderPage";
 
@@ -68,7 +69,12 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
-            <Route path="/login" element={<Login />} />
+            {/* Public Auth Routes */}
+            <Route path="/auth" element={<Auth />} />
+            <Route path="/auth/reset" element={<AuthReset />} />
+            <Route path="/login" element={<Navigate to="/auth" replace />} />
+            
+            {/* Protected Admin Routes */}
             <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             
@@ -133,7 +139,7 @@ const App = () => (
             <Route path="/integrations" element={<ProtectedRoute><Integrations /></ProtectedRoute>} />
             <Route path="/webhooks" element={<ProtectedRoute><Webhooks /></ProtectedRoute>} />
             <Route path="/system" element={<ProtectedRoute><System /></ProtectedRoute>} />
-            <Route path="/roles" element={<ProtectedRoute><Roles /></ProtectedRoute>} />
+            <Route path="/roles" element={<ProtectedRoute><RolesPermissions /></ProtectedRoute>} />
             <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
             
             <Route path="*" element={<NotFound />} />
