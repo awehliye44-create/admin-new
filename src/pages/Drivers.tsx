@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Input } from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -13,7 +14,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, Car, Loader2, Star } from 'lucide-react';
+import { Plus, Car, Loader2, Star, Search, Filter } from 'lucide-react';
 
 interface Driver {
   id: string;
@@ -32,6 +33,7 @@ export default function Drivers() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     async function fetchDrivers() {
@@ -70,9 +72,16 @@ export default function Drivers() {
     }
   };
 
+  const filteredDrivers = drivers.filter(driver => 
+    driver.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    driver.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    driver.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    driver.phone.includes(searchQuery)
+  );
+
   return (
     <AdminLayout 
-      title="Drivers" 
+      title="Driver Profiles" 
       description="Manage your fleet drivers"
     >
       <Card>
@@ -81,10 +90,24 @@ export default function Drivers() {
             <Car className="h-5 w-5 text-primary" />
             All Drivers
           </CardTitle>
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Driver
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search drivers..."
+                className="pl-9 w-[250px]"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            <Button variant="outline" size="icon">
+              <Filter className="h-4 w-4" />
+            </Button>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Driver
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -93,9 +116,9 @@ export default function Drivers() {
             </div>
           ) : error ? (
             <div className="py-8 text-center text-destructive">{error}</div>
-          ) : drivers.length === 0 ? (
+          ) : filteredDrivers.length === 0 ? (
             <div className="py-8 text-center text-muted-foreground">
-              No drivers found.
+              {searchQuery ? 'No drivers found matching your search.' : 'No drivers found.'}
             </div>
           ) : (
             <Table>
@@ -111,7 +134,7 @@ export default function Drivers() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {drivers.map((driver) => (
+                {filteredDrivers.map((driver) => (
                   <TableRow key={driver.id}>
                     <TableCell>
                       <div className="flex items-center gap-3">
