@@ -46,6 +46,7 @@ import {
   Globe
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { ServiceAreaPaymentConfig } from '@/components/payment/ServiceAreaPaymentConfig';
 
 interface VehicleType {
   id: string;
@@ -730,6 +731,16 @@ export default function ServiceAreaPricing() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Payment Methods */}
+      {selectedServiceAreaId && (
+        <div className="mb-6">
+          <ServiceAreaPaymentConfig 
+            serviceAreaId={selectedServiceAreaId} 
+            serviceAreaName={selectedServiceArea?.name}
+          />
+        </div>
+      )}
 
       {/* Service Area Assignments */}
       <Card>
