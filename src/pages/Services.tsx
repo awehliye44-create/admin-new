@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -46,12 +46,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, Navigation, Loader2, MoreHorizontal, Pencil, Trash2, MapPin, Search, Users, DollarSign } from 'lucide-react';
+import { 
+  Plus, Navigation, Loader2, MoreHorizontal, Pencil, Trash2, MapPin, Search, Users, DollarSign,
+  Ruler, Globe, CheckCircle2, XCircle, Eye, Settings, Car, Clock
+} from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
+
+interface Region {
+  id: string;
+  name: string;
+  distance_unit: string;
+  currency_code: string;
+  timezone: string;
+  status: string;
+}
 
 interface ServiceArea {
   id: string;
@@ -60,15 +71,25 @@ interface ServiceArea {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-  region?: {
-    name: string;
-  };
+  region?: Region;
 }
 
-interface Region {
-  id: string;
-  name: string;
+interface PricingStatus {
+  vehicleTypesConfigured: number;
+  totalVehicleTypes: number;
+  hasBaseFare: boolean;
+  hasCancellationFees: boolean;
 }
+
+const CURRENCIES: Record<string, { symbol: string; name: string }> = {
+  GBP: { symbol: '£', name: 'British Pound' },
+  USD: { symbol: '$', name: 'US Dollar' },
+  EUR: { symbol: '€', name: 'Euro' },
+  CAD: { symbol: 'C$', name: 'Canadian Dollar' },
+  AUD: { symbol: 'A$', name: 'Australian Dollar' },
+  INR: { symbol: '₹', name: 'Indian Rupee' },
+  AED: { symbol: 'د.إ', name: 'UAE Dirham' },
+};
 
 export default function Services() {
   const navigate = useNavigate();
@@ -78,33 +99,40 @@ export default function Services() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [regionFilter, setRegionFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
 
   // Dialog states
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [selectedArea, setSelectedArea] = useState<ServiceArea | null>(null);
 
   // Form states
   const [formData, setFormData] = useState({ name: '', region_id: '', is_active: true });
   const [isSaving, setIsSaving] = useState(false);
 
-  // Driver counts per service area
+  // Stats
   const [driverCounts, setDriverCounts] = useState<Record<string, number>>({});
+  const [pricingStatus, setPricingStatus] = useState<Record<string, PricingStatus>>({});
 
   const fetchData = async () => {
     try {
       setIsLoading(true);
       
-      const [areasRes, regionsRes] = await Promise.all([
+      const [areasRes, regionsRes, vehicleTypesRes] = await Promise.all([
         supabase
           .from('service_areas')
-          .select(`*, region:regions(name)`)
+          .select(`*, region:regions(id, name, distance_unit, currency_code, timezone, status)`)
           .order('name', { ascending: true }),
         supabase
           .from('regions')
-          .select('id, name')
+          .select('id, name, distance_unit, currency_code, timezone, status')
           .order('name', { ascending: true }),
+        supabase
+          .from('vehicle_types')
+          .select('id')
+          .eq('is_active', true),
       ]);
 
       if (areasRes.error) throw areasRes.error;
@@ -113,19 +141,42 @@ export default function Services() {
       setServiceAreas(areasRes.data || []);
       setRegions(regionsRes.data || []);
 
-      // Fetch driver counts per service area
-      if (areasRes.data && areasRes.data.length > 0) {
-        const { data: driverServiceAreas } = await supabase
-          .from('driver_service_areas')
-          .select('service_area_id');
+      const totalVehicleTypes = vehicleTypesRes.data?.length || 0;
 
-        if (driverServiceAreas) {
+      // Fetch pricing status and driver counts
+      if (areasRes.data && areasRes.data.length > 0) {
+        const areaIds = areasRes.data.map(a => a.id);
+        
+        const [driverServiceAreasRes, pricingRes, cancellationRes] = await Promise.all([
+          supabase.from('driver_service_areas').select('service_area_id'),
+          supabase.from('service_area_vehicle_pricing').select('service_area_id, is_enabled, base_fare').in('service_area_id', areaIds),
+          supabase.from('service_area_cancellation_fees').select('service_area_id').in('service_area_id', areaIds),
+        ]);
+
+        // Count drivers per area
+        if (driverServiceAreasRes.data) {
           const counts: Record<string, number> = {};
-          driverServiceAreas.forEach(dsa => {
+          driverServiceAreasRes.data.forEach(dsa => {
             counts[dsa.service_area_id] = (counts[dsa.service_area_id] || 0) + 1;
           });
           setDriverCounts(counts);
         }
+
+        // Build pricing status
+        const status: Record<string, PricingStatus> = {};
+        areasRes.data.forEach(area => {
+          const areasPricing = pricingRes.data?.filter(p => p.service_area_id === area.id) || [];
+          const enabledPricing = areasPricing.filter(p => p.is_enabled);
+          const hasCancellation = cancellationRes.data?.some(c => c.service_area_id === area.id) || false;
+          
+          status[area.id] = {
+            vehicleTypesConfigured: enabledPricing.length,
+            totalVehicleTypes,
+            hasBaseFare: enabledPricing.some(p => p.base_fare > 0),
+            hasCancellationFees: hasCancellation,
+          };
+        });
+        setPricingStatus(status);
       }
     } catch (err) {
       console.error('Error fetching data:', err);
@@ -158,12 +209,16 @@ export default function Services() {
           region_id: formData.region_id, 
           is_active: formData.is_active 
         })
-        .select(`*, region:regions(name)`)
+        .select(`*, region:regions(id, name, distance_unit, currency_code, timezone, status)`)
         .single();
 
       if (error) throw error;
 
       setServiceAreas(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+      setPricingStatus(prev => ({
+        ...prev,
+        [data.id]: { vehicleTypesConfigured: 0, totalVehicleTypes: 0, hasBaseFare: false, hasCancellationFees: false }
+      }));
       toast.success('Service area created successfully');
       setIsAddDialogOpen(false);
       setFormData({ name: '', region_id: '', is_active: true });
@@ -191,7 +246,7 @@ export default function Services() {
           is_active: formData.is_active 
         })
         .eq('id', selectedArea.id)
-        .select(`*, region:regions(name)`)
+        .select(`*, region:regions(id, name, distance_unit, currency_code, timezone, status)`)
         .single();
 
       if (error) throw error;
@@ -259,27 +314,57 @@ export default function Services() {
     setIsEditDialogOpen(true);
   };
 
+  const openViewDialog = (area: ServiceArea) => {
+    setSelectedArea(area);
+    setIsViewDialogOpen(true);
+  };
+
   const openDeleteDialog = (area: ServiceArea) => {
     setSelectedArea(area);
     setIsDeleteDialogOpen(true);
   };
 
+  const getCurrencySymbol = (code: string) => CURRENCIES[code]?.symbol || code;
+
+  const getSelectedRegion = () => regions.find(r => r.id === formData.region_id);
+
   const filteredAreas = serviceAreas.filter(area => {
     const matchesSearch = area.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesRegion = regionFilter === 'all' || area.region_id === regionFilter;
-    return matchesSearch && matchesRegion;
+    const matchesStatus = statusFilter === 'all' || 
+      (statusFilter === 'active' && area.is_active) || 
+      (statusFilter === 'inactive' && !area.is_active);
+    return matchesSearch && matchesRegion && matchesStatus;
   });
 
   const activeCount = serviceAreas.filter(a => a.is_active).length;
   const inactiveCount = serviceAreas.filter(a => !a.is_active).length;
+  const configuredCount = Object.values(pricingStatus).filter(p => p.vehicleTypesConfigured > 0).length;
 
   return (
     <AdminLayout 
       title="Service Areas" 
-      description="Manage service zones within your regions"
+      description="Service controls pricing - Configure fares per service area"
     >
+      {/* Key Principle Banner */}
+      <Card className="mb-6 bg-primary/5 border-primary/20">
+        <CardContent className="py-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-full bg-primary/10">
+              <DollarSign className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <p className="font-medium text-primary">Key Principle</p>
+              <p className="text-sm text-muted-foreground">
+                <strong>Region</strong> controls availability. <strong>Service</strong> controls pricing. <strong>Driver</strong> controls supply.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
@@ -298,7 +383,7 @@ export default function Services() {
                 <p className="text-sm text-muted-foreground">Active</p>
                 <p className="text-2xl font-bold text-green-600">{activeCount}</p>
               </div>
-              <MapPin className="h-8 w-8 text-green-500" />
+              <CheckCircle2 className="h-8 w-8 text-green-500" />
             </div>
           </CardContent>
         </Card>
@@ -309,7 +394,18 @@ export default function Services() {
                 <p className="text-sm text-muted-foreground">Inactive</p>
                 <p className="text-2xl font-bold text-gray-600">{inactiveCount}</p>
               </div>
-              <MapPin className="h-8 w-8 text-gray-400" />
+              <XCircle className="h-8 w-8 text-gray-400" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-blue-500/30 bg-blue-500/5">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Pricing Set</p>
+                <p className="text-2xl font-bold text-blue-600">{configuredCount}</p>
+              </div>
+              <DollarSign className="h-8 w-8 text-blue-500" />
             </div>
           </CardContent>
         </Card>
@@ -320,7 +416,7 @@ export default function Services() {
                 <p className="text-sm text-muted-foreground">Regions</p>
                 <p className="text-2xl font-bold">{regions.length}</p>
               </div>
-              <MapPin className="h-8 w-8 text-blue-500 opacity-80" />
+              <Globe className="h-8 w-8 text-purple-500 opacity-80" />
             </div>
           </CardContent>
         </Card>
@@ -328,29 +424,44 @@ export default function Services() {
 
       <Card>
         <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Navigation className="h-5 w-5 text-primary" />
-            All Service Areas
-          </CardTitle>
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Navigation className="h-5 w-5 text-primary" />
+              All Service Areas
+            </CardTitle>
+            <CardDescription>
+              Each service area inherits settings from its region
+            </CardDescription>
+          </div>
           <div className="flex flex-col gap-2 md:flex-row md:items-center">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search areas..."
-                className="pl-9 w-full md:w-[200px]"
+                className="pl-9 w-full md:w-[180px]"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
             <Select value={regionFilter} onValueChange={setRegionFilter}>
-              <SelectTrigger className="w-full md:w-[180px]">
-                <SelectValue placeholder="Filter by region" />
+              <SelectTrigger className="w-full md:w-[160px]">
+                <SelectValue placeholder="All Regions" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Regions</SelectItem>
                 {regions.map(region => (
                   <SelectItem key={region.id} value={region.id}>{region.name}</SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full md:w-[120px]">
+                <SelectValue placeholder="All Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="inactive">Inactive</SelectItem>
               </SelectContent>
             </Select>
             <Button onClick={() => {
@@ -370,86 +481,154 @@ export default function Services() {
           ) : error ? (
             <div className="py-8 text-center text-destructive">{error}</div>
           ) : filteredAreas.length === 0 ? (
-            <div className="py-8 text-center text-muted-foreground">
-              {searchQuery || regionFilter !== 'all' 
-                ? 'No service areas found matching your filters.' 
-                : 'No service areas found. Create your first service area to get started.'}
+            <div className="py-12 text-center">
+              <Navigation className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-medium mb-2">No service areas found</h3>
+              <p className="text-muted-foreground mb-4">
+                {searchQuery || regionFilter !== 'all' || statusFilter !== 'all'
+                  ? 'Try adjusting your filters'
+                  : 'Create your first service area to start configuring pricing'}
+              </p>
+              {!searchQuery && regionFilter === 'all' && statusFilter === 'all' && (
+                <Button onClick={() => {
+                  setFormData({ name: '', region_id: regions[0]?.id || '', is_active: true });
+                  setIsAddDialogOpen(true);
+                }}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Create First Area
+                </Button>
+              )}
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
+                  <TableHead>Service Area</TableHead>
                   <TableHead>Region</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>Inherited Settings</TableHead>
+                  <TableHead>Pricing Status</TableHead>
                   <TableHead>Drivers</TableHead>
-                  <TableHead>Created</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredAreas.map((area) => (
-                  <TableRow key={area.id}>
-                    <TableCell className="font-medium">{area.name}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{area.region?.name || 'Unknown'}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Switch
-                          checked={area.is_active}
-                          onCheckedChange={() => toggleStatus(area)}
-                        />
-                        <Badge
-                          variant={area.is_active ? 'default' : 'secondary'}
-                          className={
-                            area.is_active
-                              ? 'bg-green-500/10 text-green-600'
-                              : 'bg-gray-500/10 text-gray-600'
-                          }
-                        >
-                          {area.is_active ? 'Active' : 'Inactive'}
+                {filteredAreas.map((area) => {
+                  const pricing = pricingStatus[area.id];
+                  return (
+                    <TableRow key={area.id}>
+                      <TableCell>
+                        <div className="font-medium">{area.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          Created {format(new Date(area.created_at), 'MMM d, yyyy')}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={
+                          area.region?.status === 'active' 
+                            ? 'border-green-200 bg-green-50 text-green-700'
+                            : 'border-gray-200 bg-gray-50 text-gray-600'
+                        }>
+                          {area.region?.name || 'Unknown'}
                         </Badge>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Users className="h-4 w-4 text-muted-foreground" />
-                        <span>{driverCounts[area.id] || 0}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {format(new Date(area.created_at), 'MMM d, yyyy')}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => navigate(`/service-area-pricing?id=${area.id}`)}>
-                            <DollarSign className="mr-2 h-4 w-4" />
-                            Configure Pricing
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openEditDialog(area)}>
-                            <Pencil className="mr-2 h-4 w-4" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem 
-                            onClick={() => openDeleteDialog(area)}
-                            className="text-red-600"
+                      </TableCell>
+                      <TableCell>
+                        {area.region && (
+                          <div className="flex flex-col gap-1 text-sm">
+                            <span className="flex items-center gap-1 text-muted-foreground">
+                              <DollarSign className="h-3 w-3" />
+                              {getCurrencySymbol(area.region.currency_code)} {area.region.currency_code}
+                            </span>
+                            <span className="flex items-center gap-1 text-muted-foreground">
+                              <Ruler className="h-3 w-3" />
+                              {area.region.distance_unit === 'mile' ? 'Miles' : 'Kilometers'}
+                            </span>
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {pricing ? (
+                          <div className="space-y-1">
+                            {pricing.vehicleTypesConfigured > 0 ? (
+                              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                <Car className="h-3 w-3 mr-1" />
+                                {pricing.vehicleTypesConfigured} vehicle types
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
+                                <XCircle className="h-3 w-3 mr-1" />
+                                Not configured
+                              </Badge>
+                            )}
+                            {pricing.hasCancellationFees && (
+                              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 ml-1">
+                                <Clock className="h-3 w-3 mr-1" />
+                                Cancellation fees
+                              </Badge>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground text-sm">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <Users className="h-4 w-4 text-muted-foreground" />
+                          <span>{driverCounts[area.id] || 0}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={area.is_active}
+                            onCheckedChange={() => toggleStatus(area)}
+                          />
+                          <Badge
+                            variant={area.is_active ? 'default' : 'secondary'}
+                            className={
+                              area.is_active
+                                ? 'bg-green-500/10 text-green-600'
+                                : 'bg-gray-500/10 text-gray-600'
+                            }
                           >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                            {area.is_active ? 'Active' : 'Inactive'}
+                          </Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => openViewDialog(area)}>
+                              <Eye className="mr-2 h-4 w-4" />
+                              View Details
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => navigate(`/service-area-pricing?id=${area.id}`)}>
+                              <DollarSign className="mr-2 h-4 w-4" />
+                              Configure Pricing
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => openEditDialog(area)}>
+                              <Pencil className="mr-2 h-4 w-4" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem 
+                              onClick={() => openDeleteDialog(area)}
+                              className="text-red-600"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}
@@ -458,20 +637,20 @@ export default function Services() {
 
       {/* Add Service Area Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Navigation className="h-5 w-5" />
               Add New Service Area
             </DialogTitle>
             <DialogDescription>
-              Create a new service area within a region
+              Create a new service area - it will inherit settings from the selected region
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Area Name</Label>
+              <Label htmlFor="name">Area Name *</Label>
               <Input
                 id="name"
                 placeholder="e.g., Central London, North Manchester"
@@ -481,7 +660,7 @@ export default function Services() {
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="region">Region</Label>
+              <Label htmlFor="region">Region *</Label>
               <Select
                 value={formData.region_id}
                 onValueChange={(value) => setFormData(prev => ({ ...prev, region_id: value }))}
@@ -491,14 +670,57 @@ export default function Services() {
                 </SelectTrigger>
                 <SelectContent>
                   {regions.map(region => (
-                    <SelectItem key={region.id} value={region.id}>{region.name}</SelectItem>
+                    <SelectItem key={region.id} value={region.id}>
+                      <span className="flex items-center gap-2">
+                        {region.name}
+                        <span className="text-muted-foreground text-xs">
+                          ({getCurrencySymbol(region.currency_code)}, {region.distance_unit === 'mile' ? 'mi' : 'km'})
+                        </span>
+                      </span>
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="flex items-center justify-between">
-              <Label htmlFor="is_active">Active</Label>
+            {/* Show inherited settings */}
+            {getSelectedRegion() && (
+              <Card className="bg-muted/50">
+                <CardContent className="pt-4">
+                  <p className="text-sm font-medium mb-3">Inherited from Region</p>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="h-4 w-4 text-muted-foreground" />
+                      <span>Currency: <strong>{getCurrencySymbol(getSelectedRegion()!.currency_code)} {getSelectedRegion()!.currency_code}</strong></span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Ruler className="h-4 w-4 text-muted-foreground" />
+                      <span>Distance: <strong>{getSelectedRegion()!.distance_unit === 'mile' ? 'Miles' : 'Kilometers'}</strong></span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-muted-foreground" />
+                      <span>Timezone: <strong>{getSelectedRegion()!.timezone.split('/')[1] || getSelectedRegion()!.timezone}</strong></span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {getSelectedRegion()!.status === 'active' ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <XCircle className="h-4 w-4 text-gray-400" />
+                      )}
+                      <span>Region: <strong className={getSelectedRegion()!.status === 'active' ? 'text-green-600' : 'text-gray-500'}>
+                        {getSelectedRegion()!.status}
+                      </strong></span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            <div className="flex items-center justify-between pt-2">
+              <div>
+                <Label htmlFor="is_active">Active Status</Label>
+                <p className="text-xs text-muted-foreground">Only active areas accept rides</p>
+              </div>
               <Switch
                 id="is_active"
                 checked={formData.is_active}
@@ -530,7 +752,7 @@ export default function Services() {
 
       {/* Edit Service Area Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Pencil className="h-5 w-5" />
@@ -562,14 +784,43 @@ export default function Services() {
                 </SelectTrigger>
                 <SelectContent>
                   {regions.map(region => (
-                    <SelectItem key={region.id} value={region.id}>{region.name}</SelectItem>
+                    <SelectItem key={region.id} value={region.id}>
+                      <span className="flex items-center gap-2">
+                        {region.name}
+                        <span className="text-muted-foreground text-xs">
+                          ({getCurrencySymbol(region.currency_code)}, {region.distance_unit === 'mile' ? 'mi' : 'km'})
+                        </span>
+                      </span>
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
+            {/* Show inherited settings */}
+            {getSelectedRegion() && (
+              <Card className="bg-muted/50">
+                <CardContent className="pt-4">
+                  <p className="text-sm font-medium mb-3">Inherited from Region</p>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="h-4 w-4 text-muted-foreground" />
+                      <span>Currency: <strong>{getCurrencySymbol(getSelectedRegion()!.currency_code)} {getSelectedRegion()!.currency_code}</strong></span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Ruler className="h-4 w-4 text-muted-foreground" />
+                      <span>Distance: <strong>{getSelectedRegion()!.distance_unit === 'mile' ? 'Miles' : 'Kilometers'}</strong></span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <div className="flex items-center justify-between">
-              <Label htmlFor="edit_is_active">Active</Label>
+              <div>
+                <Label htmlFor="edit_is_active">Active Status</Label>
+                <p className="text-xs text-muted-foreground">Only active areas accept rides</p>
+              </div>
               <Switch
                 id="edit_is_active"
                 checked={formData.is_active}
@@ -596,6 +847,126 @@ export default function Services() {
         </DialogContent>
       </Dialog>
 
+      {/* View Service Area Dialog */}
+      <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Navigation className="h-5 w-5" />
+              {selectedArea?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Service area details and inherited settings
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedArea && (
+            <div className="space-y-4">
+              {/* Status */}
+              <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                <span className="font-medium">Status</span>
+                <Badge className={selectedArea.is_active ? 'bg-green-500' : 'bg-gray-500'}>
+                  {selectedArea.is_active ? 'Active' : 'Inactive'}
+                </Badge>
+              </div>
+
+              {/* Region Info */}
+              {selectedArea.region && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium flex items-center gap-2">
+                      <Globe className="h-4 w-4" />
+                      Region: {selectedArea.region.name}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-3 bg-muted/50 rounded-lg">
+                        <p className="text-xs text-muted-foreground">Currency</p>
+                        <p className="font-medium">{getCurrencySymbol(selectedArea.region.currency_code)} {selectedArea.region.currency_code}</p>
+                      </div>
+                      <div className="p-3 bg-muted/50 rounded-lg">
+                        <p className="text-xs text-muted-foreground">Distance Unit</p>
+                        <p className="font-medium">{selectedArea.region.distance_unit === 'mile' ? 'Miles' : 'Kilometers'}</p>
+                      </div>
+                      <div className="p-3 bg-muted/50 rounded-lg">
+                        <p className="text-xs text-muted-foreground">Timezone</p>
+                        <p className="font-medium">{selectedArea.region.timezone}</p>
+                      </div>
+                      <div className="p-3 bg-muted/50 rounded-lg">
+                        <p className="text-xs text-muted-foreground">Region Status</p>
+                        <Badge className={selectedArea.region.status === 'active' ? 'bg-green-500' : 'bg-gray-500'}>
+                          {selectedArea.region.status}
+                        </Badge>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Pricing Status */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    <DollarSign className="h-4 w-4" />
+                    Pricing Configuration
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {pricingStatus[selectedArea.id] ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm">Vehicle Types Configured</span>
+                        <Badge variant="outline">
+                          {pricingStatus[selectedArea.id].vehicleTypesConfigured} / {pricingStatus[selectedArea.id].totalVehicleTypes}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm">Cancellation Fees</span>
+                        {pricingStatus[selectedArea.id].hasCancellationFees ? (
+                          <Badge className="bg-green-500">Configured</Badge>
+                        ) : (
+                          <Badge variant="outline">Not Set</Badge>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No pricing configured yet</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Stats */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <p className="text-sm text-blue-600">Assigned Drivers</p>
+                  <p className="text-2xl font-bold text-blue-700">{driverCounts[selectedArea.id] || 0}</p>
+                </div>
+                <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
+                  <p className="text-sm text-purple-600">Created</p>
+                  <p className="text-sm font-medium text-purple-700">
+                    {format(new Date(selectedArea.created_at), 'MMM d, yyyy')}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsViewDialogOpen(false)}>
+              Close
+            </Button>
+            <Button onClick={() => {
+              setIsViewDialogOpen(false);
+              if (selectedArea) navigate(`/service-area-pricing?id=${selectedArea.id}`);
+            }}>
+              <DollarSign className="mr-2 h-4 w-4" />
+              Configure Pricing
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
@@ -603,7 +974,7 @@ export default function Services() {
             <AlertDialogTitle>Delete Service Area</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to delete "{selectedArea?.name}"? This action cannot be undone.
-              Drivers assigned to this area will be unassigned.
+              All pricing configurations and driver assignments will be removed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
