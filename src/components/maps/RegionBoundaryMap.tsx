@@ -31,9 +31,16 @@ export function RegionBoundaryMap({
   const googleMapRef = useRef<any>(null);
   const polygonRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
+  const clickListenerRef = useRef<any>(null);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [points, setPoints] = useState<LatLng[]>(boundary || []);
   const [isDrawing, setIsDrawing] = useState(!boundary || boundary.length === 0);
+
+  // Use ref to track isDrawing for click handler
+  const isDrawingRef = useRef(isDrawing);
+  useEffect(() => {
+    isDrawingRef.current = isDrawing;
+  }, [isDrawing]);
 
   // Load Google Maps script
   useEffect(() => {
@@ -56,6 +63,13 @@ export function RegionBoundaryMap({
     };
   }, []);
 
+  // Handle map click to add points
+  const handleMapClick = useCallback((e: any) => {
+    if (!isDrawingRef.current) return;
+    const newPoint = { lat: e.latLng.lat(), lng: e.latLng.lng() };
+    setPoints(prev => [...prev, newPoint]);
+  }, []);
+
   // Initialize map
   useEffect(() => {
     if (!isMapLoaded || !mapRef.current) return;
@@ -69,6 +83,12 @@ export function RegionBoundaryMap({
       center,
       zoom: 11,
       mapTypeId: 'roadmap',
+      mapTypeControl: true,
+      mapTypeControlOptions: {
+        style: window.google.maps.MapTypeControlStyle.HORIZONTAL_BAR,
+        position: window.google.maps.ControlPosition.TOP_LEFT,
+      },
+      fullscreenControl: true,
       styles: [
         {
           featureType: 'poi',
@@ -80,19 +100,21 @@ export function RegionBoundaryMap({
 
     // Add click listener for drawing
     if (isEditable) {
-      googleMapRef.current.addListener('click', (e: any) => {
-        if (!isDrawing) return;
-        const newPoint = { lat: e.latLng.lat(), lng: e.latLng.lng() };
-        setPoints(prev => [...prev, newPoint]);
-      });
+      clickListenerRef.current = googleMapRef.current.addListener('click', handleMapClick);
     }
 
-    // Draw existing boundary
+    // Set initial points from boundary
     if (boundary && boundary.length > 0) {
       setPoints(boundary);
       setIsDrawing(false);
     }
-  }, [isMapLoaded, isEditable]);
+
+    return () => {
+      if (clickListenerRef.current) {
+        window.google.maps.event.removeListener(clickListenerRef.current);
+      }
+    };
+  }, [isMapLoaded, isEditable, handleMapClick]);
 
   // Update polygon when points change
   useEffect(() => {
@@ -122,7 +144,7 @@ export function RegionBoundaryMap({
       });
 
       // Listen for polygon edits
-      if (isEditable) {
+      if (isEditable && !isDrawing) {
         const path = polygonRef.current.getPath();
         window.google.maps.event.addListener(path, 'set_at', () => {
           const newPoints = getPolygonPoints();
@@ -135,9 +157,6 @@ export function RegionBoundaryMap({
           onBoundaryChange(newPoints);
         });
       }
-
-      // Notify parent
-      onBoundaryChange(points);
     }
 
     // Add markers for points while drawing
@@ -162,8 +181,20 @@ export function RegionBoundaryMap({
         });
         markersRef.current.push(marker);
       });
+
+      // Draw lines between points while drawing
+      if (points.length >= 2) {
+        const polyline = new window.google.maps.Polyline({
+          path: points,
+          strokeColor: '#3b82f6',
+          strokeOpacity: 0.8,
+          strokeWeight: 2,
+          map: googleMapRef.current,
+        });
+        markersRef.current.push(polyline);
+      }
     }
-  }, [points, isMapLoaded, isDrawing, isEditable]);
+  }, [points, isMapLoaded, isDrawing, isEditable, onBoundaryChange]);
 
   const getPolygonPoints = useCallback((): LatLng[] => {
     if (!polygonRef.current) return [];
@@ -204,7 +235,7 @@ export function RegionBoundaryMap({
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div
         ref={mapRef}
         style={{ height, width: '100%' }}
@@ -212,21 +243,21 @@ export function RegionBoundaryMap({
       />
       
       {isEditable && (
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-2 p-3 bg-muted/50 rounded-lg">
           <div className="text-sm text-muted-foreground">
             {isDrawing ? (
               points.length < 3 ? (
                 <span className="flex items-center gap-1">
-                  <MapPin className="h-4 w-4" />
+                  <MapPin className="h-4 w-4 text-primary" />
                   Click on the map to add points ({points.length}/3 minimum)
                 </span>
               ) : (
-                <span className="text-green-600">
+                <span className="flex items-center gap-1 text-green-600">
                   ✓ {points.length} points added - Ready to finish
                 </span>
               )
             ) : (
-              <span className="text-blue-600">
+              <span className="flex items-center gap-1 text-blue-600">
                 ✓ Boundary set ({points.length} points) - Drag vertices to edit
               </span>
             )}
@@ -250,6 +281,7 @@ export function RegionBoundaryMap({
                   size="sm"
                   onClick={handleFinishDrawing}
                   disabled={points.length < 3}
+                  className="bg-primary hover:bg-primary/90"
                 >
                   Finish Drawing
                 </Button>
