@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -21,9 +21,11 @@ import {
   Layers, 
   Clock, 
   Info,
-  Percent
+  Percent,
+  Timer
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 
 interface DispatchSettings {
   // Core Dispatch Settings
@@ -138,6 +140,31 @@ export default function AutoDispatchRules() {
   const [scheduledTab, setScheduledTab] = useState('booking');
   const [stackedTab, setStackedTab] = useState('general');
   const [isSaving, setIsSaving] = useState(false);
+  const [maxDriverFindTime, setMaxDriverFindTime] = useState(3);
+  const [isLoadingSettings, setIsLoadingSettings] = useState(true);
+
+  // Load dispatch settings from database
+  useEffect(() => {
+    const loadDispatchSettings = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('dispatch_settings')
+          .select('*')
+          .is('service_area_id', null)
+          .single();
+
+        if (data && !error) {
+          setMaxDriverFindTime(data.max_driver_find_time_minutes);
+        }
+      } catch (err) {
+        console.error('Error loading dispatch settings:', err);
+      } finally {
+        setIsLoadingSettings(false);
+      }
+    };
+
+    loadDispatchSettings();
+  }, []);
 
   const updateSetting = <K extends keyof DispatchSettings>(
     key: K,
@@ -148,15 +175,32 @@ export default function AutoDispatchRules() {
 
   const handleReset = () => {
     setSettings(defaultSettings);
+    setMaxDriverFindTime(3);
     toast.info('Settings reset to defaults');
   };
 
   const handleSave = async () => {
     setIsSaving(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setIsSaving(false);
-    toast.success('Auto-dispatch settings saved successfully');
+    try {
+      // Save max driver find time to database
+      const { error } = await supabase
+        .from('dispatch_settings')
+        .upsert({
+          service_area_id: null,
+          max_driver_find_time_minutes: maxDriverFindTime
+        }, {
+          onConflict: 'service_area_id'
+        });
+
+      if (error) throw error;
+
+      toast.success('Auto-dispatch settings saved successfully');
+    } catch (err) {
+      console.error('Error saving settings:', err);
+      toast.error('Failed to save settings');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -194,6 +238,62 @@ export default function AutoDispatchRules() {
       </div>
 
       <div className="space-y-6">
+        {/* Driver Finding Time - Priority Setting */}
+        <Card className="border-primary/50">
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <Timer className="h-5 w-5 text-primary" />
+              <div>
+                <CardTitle>Maximum Time to Find Driver</CardTitle>
+                <CardDescription>
+                  Set how long the system searches for a driver before timing out
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label>Maximum Search Time (minutes)</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="15"
+                  value={maxDriverFindTime}
+                  onChange={(e) => setMaxDriverFindTime(Math.max(1, Math.min(15, parseInt(e.target.value) || 3)))}
+                  disabled={isLoadingSettings}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Default: 3 minutes. Range: 1-15 minutes.
+                </p>
+              </div>
+              <div className="flex items-center">
+                <div className="p-4 bg-muted/50 rounded-lg w-full">
+                  <p className="text-sm font-medium">Current Setting</p>
+                  <p className="text-2xl font-bold text-primary">{maxDriverFindTime} min</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Trips will expire if no driver accepts within this time
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Info box */}
+            <div className="flex items-start gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <Info className="h-4 w-4 text-blue-600 mt-0.5" />
+              <div className="text-sm text-blue-700 dark:text-blue-400">
+                <p className="font-medium">How it works:</p>
+                <ul className="list-disc list-inside mt-1 space-y-1">
+                  <li>Customer sees a countdown timer while searching</li>
+                  <li>If no driver accepts, trip is marked as "No Driver Found"</li>
+                  <li>Customer receives: "No drivers available right now. Please try again."</li>
+                  <li>Late acceptances are blocked after timeout</li>
+                </ul>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Core Dispatch Settings */}
         <Card>
           <CardHeader>
