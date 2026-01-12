@@ -30,11 +30,12 @@ import ScheduledRides from "./pages/ScheduledRides";
 import MissedCancelled from "./pages/MissedCancelled";
 import ManualTrip from "./pages/ManualTrip";
 
+import Documents from "./pages/Documents";
+import DriverCategories from "./pages/DriverCategories";
+import PromoCodes from "./pages/PromoCodes";
+
 import {
   DriverProfiles,
-  Documents,
-  DriverCategories,
-  PromoCodes,
   CustomZones,
   ZonePricing,
   CorporateFares,
