@@ -58,9 +58,11 @@ import {
   UserPlus,
   Pencil,
   Map,
-  Save
+  Save,
+  PawPrint
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { DriverDetailsDialog } from '@/components/drivers/DriverDetailsDialog';
 
 interface Driver {
   id: string;
@@ -76,6 +78,7 @@ interface Driver {
   profile_photo_url: string | null;
   created_at: string;
   region_id: string;
+  is_pet_friendly?: boolean;
 }
 
 interface Vehicle {
@@ -86,6 +89,11 @@ interface Vehicle {
   color: string;
   license_plate: string;
   is_primary: boolean;
+  approval_status: string;
+  rejection_reason: string | null;
+  capacity: number;
+  vehicle_type_id: string | null;
+  driver_id: string;
 }
 
 interface Region {
@@ -185,7 +193,12 @@ export default function Drivers() {
           const vehiclesMap: Record<string, Vehicle[]> = {};
           vehiclesData.forEach(v => {
             if (!vehiclesMap[v.driver_id]) vehiclesMap[v.driver_id] = [];
-            vehiclesMap[v.driver_id].push(v);
+            vehiclesMap[v.driver_id].push({
+              ...v,
+              rejection_reason: v.rejection_reason || null,
+              capacity: v.capacity || 4,
+              vehicle_type_id: v.vehicle_type_id || null,
+            });
           });
           setVehicles(vehiclesMap);
         }
@@ -573,14 +586,21 @@ export default function Drivers() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-3">
-                        <Avatar className="h-9 w-9">
+                        <Avatar className="h-9 w-9 border border-border">
                           <AvatarImage src={driver.profile_photo_url || ''} />
-                          <AvatarFallback>
+                          <AvatarFallback className="bg-primary/10 text-primary text-xs">
                             {driver.first_name[0]}{driver.last_name[0]}
                           </AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="font-medium">{driver.first_name} {driver.last_name}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium">{driver.first_name} {driver.last_name}</p>
+                            {driver.is_pet_friendly && (
+                              <span title="Pet Friendly">
+                                <PawPrint className="h-3.5 w-3.5 text-yellow-600" />
+                              </span>
+                            )}
+                          </div>
                           <p className="text-xs text-muted-foreground">
                             Joined {new Date(driver.created_at).toLocaleDateString()}
                           </p>
@@ -688,172 +708,38 @@ export default function Drivers() {
         </CardContent>
       </Card>
 
-      {/* Driver Details Dialog */}
-      <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Driver Details</DialogTitle>
-            <DialogDescription>
-              View and manage driver information
-            </DialogDescription>
-          </DialogHeader>
-          
-          {selectedDriver && (
-            <div className="space-y-6">
-              {/* Profile Section */}
-              <div className="flex items-start gap-4">
-                <Avatar className="h-20 w-20">
-                  <AvatarImage src={selectedDriver.profile_photo_url || ''} />
-                  <AvatarFallback className="text-2xl">
-                    {selectedDriver.first_name[0]}{selectedDriver.last_name[0]}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1">
-                  <h3 className="text-xl font-semibold">
-                    {selectedDriver.first_name} {selectedDriver.last_name}
-                  </h3>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Badge className={getStatusColor(selectedDriver.approval_status)}>
-                      {selectedDriver.approval_status}
-                    </Badge>
-                    <Badge
-                      className={
-                        selectedDriver.is_online
-                          ? 'bg-green-500/10 text-green-600'
-                          : 'bg-gray-500/10 text-gray-600'
-                      }
-                    >
-                      {selectedDriver.is_online ? 'Online' : 'Offline'}
-                    </Badge>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
-                  <span className="text-lg font-medium">
-                    {selectedDriver.rating?.toFixed(1) || 'N/A'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Contact Info */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                  <Mail className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Email</p>
-                    <p className="text-sm font-medium">{selectedDriver.email}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                  <Phone className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Phone</p>
-                    <p className="text-sm font-medium">{selectedDriver.phone}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                  <MapPin className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Region</p>
-                    <p className="text-sm font-medium">
-                      {regions[selectedDriver.region_id]?.name || 'Unknown'}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                  <Car className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Total Trips</p>
-                    <p className="text-sm font-medium">{selectedDriver.total_trips || 0}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Vehicles */}
-              {vehicles[selectedDriver.id] && vehicles[selectedDriver.id].length > 0 && (
-                <div>
-                  <h4 className="font-medium mb-3">Vehicles</h4>
-                  <div className="space-y-2">
-                    {vehicles[selectedDriver.id].map((vehicle) => (
-                      <div 
-                        key={vehicle.id} 
-                        className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
-                      >
-                        <div className="flex items-center gap-3">
-                          <Car className="h-5 w-5 text-muted-foreground" />
-                          <div>
-                            <p className="font-medium">
-                              {vehicle.year} {vehicle.make} {vehicle.model}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                              {vehicle.color} • {vehicle.license_plate}
-                            </p>
-                          </div>
-                        </div>
-                        {vehicle.is_primary && (
-                          <Badge variant="outline">Primary</Badge>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Actions */}
-              <div className="flex gap-2 pt-4 border-t flex-wrap">
-                <Button 
-                  variant="outline"
-                  onClick={() => {
-                    setIsDetailsOpen(false);
-                    openEditDialog(selectedDriver);
-                  }}
-                >
-                  <Pencil className="mr-2 h-4 w-4" />
-                  Edit Profile
-                </Button>
-                <Button 
-                  variant="outline"
-                  onClick={() => {
-                    setIsDetailsOpen(false);
-                    openServiceAreasDialog(selectedDriver);
-                  }}
-                >
-                  <Map className="mr-2 h-4 w-4" />
-                  Service Areas
-                </Button>
-                {selectedDriver.approval_status !== 'approved' && (
-                  <Button 
-                    onClick={() => updateDriverStatus(selectedDriver.id, 'approved')}
-                    disabled={isUpdating === selectedDriver.id}
-                    className="bg-green-600 hover:bg-green-700"
-                  >
-                    {isUpdating === selectedDriver.id ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <CheckCircle className="mr-2 h-4 w-4" />
-                    )}
-                    Approve
-                  </Button>
-                )}
-                {selectedDriver.approval_status !== 'rejected' && (
-                  <Button 
-                    variant="destructive"
-                    onClick={() => updateDriverStatus(selectedDriver.id, 'rejected')}
-                    disabled={isUpdating === selectedDriver.id}
-                  >
-                    {isUpdating === selectedDriver.id ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <XCircle className="mr-2 h-4 w-4" />
-                    )}
-                    Reject
-                  </Button>
-                )}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Driver Details Dialog - Enhanced */}
+      <DriverDetailsDialog
+        open={isDetailsOpen}
+        onOpenChange={setIsDetailsOpen}
+        driver={selectedDriver}
+        vehicles={Object.values(vehicles).flat()}
+        regions={regions}
+        onDriverUpdate={(updatedDriver) => {
+          setDrivers(prev => prev.map(d => d.id === updatedDriver.id ? updatedDriver : d));
+          setSelectedDriver(updatedDriver);
+        }}
+        onVehicleUpdate={(updatedVehicle) => {
+          setVehicles(prev => {
+            const updated = { ...prev };
+            const driverId = updatedVehicle.driver_id;
+            if (updated[driverId]) {
+              updated[driverId] = updated[driverId].map(v => 
+                v.id === updatedVehicle.id ? updatedVehicle : v
+              );
+            }
+            return updated;
+          });
+        }}
+        onEditProfile={(driver) => {
+          setIsDetailsOpen(false);
+          openEditDialog(driver);
+        }}
+        onManageServiceAreas={(driver) => {
+          setIsDetailsOpen(false);
+          openServiceAreasDialog(driver);
+        }}
+      />
 
       {/* Edit Driver Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={(open) => {
