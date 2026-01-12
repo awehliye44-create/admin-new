@@ -27,49 +27,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .select('role')
         .eq('user_id', userId)
         .eq('role', 'admin')
-        .maybeSingle();
+        .limit(1);
 
       if (error) {
         console.error('Error checking admin role:', error);
         return false;
       }
 
-      return !!data;
+      return (data?.length ?? 0) > 0;
     } catch (err) {
       console.error('Error in checkAdminRole:', err);
       return false;
     }
   };
 
+  const applySession = (nextSession: Session | null) => {
+    setSession(nextSession);
+    setUser(nextSession?.user ?? null);
+  };
+
   useEffect(() => {
     // Set up auth state listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      // Defer admin check to avoid deadlock
-      if (session?.user) {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      applySession(nextSession);
+
+      // IMPORTANT: don't show Access Denied until we've confirmed role
+      setIsLoading(true);
+
+      if (nextSession?.user) {
         setTimeout(() => {
-          checkAdminRole(session.user.id).then(setIsAdmin);
+          checkAdminRole(nextSession.user.id)
+            .then(setIsAdmin)
+            .finally(() => setIsLoading(false));
         }, 0);
       } else {
         setIsAdmin(false);
+        setIsLoading(false);
       }
-      
-      setIsLoading(false);
     });
 
     // THEN check for existing session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        const adminStatus = await checkAdminRole(session.user.id);
-        setIsAdmin(adminStatus);
+    supabase.auth.getSession().then(({ data: { session: existingSession } }) => {
+      applySession(existingSession);
+
+      setIsLoading(true);
+
+      if (existingSession?.user) {
+        checkAdminRole(existingSession.user.id)
+          .then(setIsAdmin)
+          .finally(() => setIsLoading(false));
+      } else {
+        setIsAdmin(false);
+        setIsLoading(false);
       }
-      
-      setIsLoading(false);
     });
 
     return () => subscription.unsubscribe();
