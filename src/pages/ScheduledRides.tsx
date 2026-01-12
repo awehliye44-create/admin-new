@@ -115,7 +115,8 @@ export default function ScheduledRides() {
             driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone)
           `)
           .eq('is_scheduled', true)
-          .in('status', ['pending', 'searching', 'accepted'])
+          // Some scheduled bookings use status = 'scheduled' (and status can be NULL)
+          .or('status.in.(pending,searching,accepted,scheduled),status.is.null')
           .order('scheduled_at', { ascending: true }),
         supabase
           .from('drivers')

@@ -1085,6 +1085,7 @@ export type Database = {
           currency: string | null
           currency_code: string | null
           current_stop_index: number | null
+          dispatch_mode: string | null
           driver_id: string | null
           driver_location_lat: number | null
           driver_location_lng: number | null
@@ -1109,6 +1110,9 @@ export type Database = {
           pickup_longitude: number | null
           qr_session_id: string | null
           scheduled_at: string | null
+          scheduled_broadcast_at: string | null
+          scheduled_convert_at: string | null
+          scheduled_status: string | null
           special_instructions: string | null
           started_at: string | null
           status: string | null
@@ -1126,6 +1130,7 @@ export type Database = {
           currency?: string | null
           currency_code?: string | null
           current_stop_index?: number | null
+          dispatch_mode?: string | null
           driver_id?: string | null
           driver_location_lat?: number | null
           driver_location_lng?: number | null
@@ -1150,6 +1155,9 @@ export type Database = {
           pickup_longitude?: number | null
           qr_session_id?: string | null
           scheduled_at?: string | null
+          scheduled_broadcast_at?: string | null
+          scheduled_convert_at?: string | null
+          scheduled_status?: string | null
           special_instructions?: string | null
           started_at?: string | null
           status?: string | null
@@ -1167,6 +1175,7 @@ export type Database = {
           currency?: string | null
           currency_code?: string | null
           current_stop_index?: number | null
+          dispatch_mode?: string | null
           driver_id?: string | null
           driver_location_lat?: number | null
           driver_location_lng?: number | null
@@ -1191,6 +1200,9 @@ export type Database = {
           pickup_longitude?: number | null
           qr_session_id?: string | null
           scheduled_at?: string | null
+          scheduled_broadcast_at?: string | null
+          scheduled_convert_at?: string | null
+          scheduled_status?: string | null
           special_instructions?: string | null
           started_at?: string | null
           status?: string | null
@@ -1436,6 +1448,18 @@ export type Database = {
       }
     }
     Functions: {
+      can_passenger_view_driver: {
+        Args: { p_driver_id: string }
+        Returns: boolean
+      }
+      can_passenger_view_driver_document: {
+        Args: { p_document_type: string; p_driver_id: string }
+        Returns: boolean
+      }
+      can_passenger_view_vehicle: {
+        Args: { p_driver_id: string }
+        Returns: boolean
+      }
       check_driver_documents_approved: {
         Args: { p_driver_id: string }
         Returns: boolean
