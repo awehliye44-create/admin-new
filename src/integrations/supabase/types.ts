@@ -997,6 +997,59 @@ export type Database = {
           },
         ]
       }
+      trip_stops: {
+        Row: {
+          address: string
+          arrived_at: string | null
+          completed_at: string | null
+          created_at: string
+          id: string
+          lat: number | null
+          lng: number | null
+          status: string
+          stop_index: number
+          trip_id: string
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          address: string
+          arrived_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          lat?: number | null
+          lng?: number | null
+          status?: string
+          stop_index: number
+          trip_id: string
+          type: string
+          updated_at?: string
+        }
+        Update: {
+          address?: string
+          arrived_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          lat?: number | null
+          lng?: number | null
+          status?: string
+          stop_index?: number
+          trip_id?: string
+          type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trip_stops_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trips: {
         Row: {
           client_action_id: string | null
@@ -1004,6 +1057,7 @@ export type Database = {
           created_at: string
           currency: string | null
           currency_code: string | null
+          current_stop_index: number | null
           driver_id: string | null
           driver_location_lat: number | null
           driver_location_lng: number | null
@@ -1033,6 +1087,7 @@ export type Database = {
           status: string | null
           stops: Json | null
           surge_multiplier: number | null
+          total_stops: number | null
           trip_code: string | null
           trip_type: string | null
           updated_at: string
@@ -1043,6 +1098,7 @@ export type Database = {
           created_at?: string
           currency?: string | null
           currency_code?: string | null
+          current_stop_index?: number | null
           driver_id?: string | null
           driver_location_lat?: number | null
           driver_location_lng?: number | null
@@ -1072,6 +1128,7 @@ export type Database = {
           status?: string | null
           stops?: Json | null
           surge_multiplier?: number | null
+          total_stops?: number | null
           trip_code?: string | null
           trip_type?: string | null
           updated_at?: string
@@ -1082,6 +1139,7 @@ export type Database = {
           created_at?: string
           currency?: string | null
           currency_code?: string | null
+          current_stop_index?: number | null
           driver_id?: string | null
           driver_location_lat?: number | null
           driver_location_lng?: number | null
@@ -1111,6 +1169,7 @@ export type Database = {
           status?: string | null
           stops?: Json | null
           surge_multiplier?: number | null
+          total_stops?: number | null
           trip_code?: string | null
           trip_type?: string | null
           updated_at?: string
