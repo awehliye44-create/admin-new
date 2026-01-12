@@ -97,27 +97,141 @@ const DEFAULT_FORM_DATA: RegionFormData = {
 };
 
 const CURRENCIES = [
-  { code: 'GBP', name: 'British Pound', symbol: '£' },
+  // Major World Currencies
   { code: 'USD', name: 'US Dollar', symbol: '$' },
   { code: 'EUR', name: 'Euro', symbol: '€' },
+  { code: 'GBP', name: 'British Pound', symbol: '£' },
+  { code: 'JPY', name: 'Japanese Yen', symbol: '¥' },
+  { code: 'CNY', name: 'Chinese Yuan', symbol: '¥' },
+  { code: 'CHF', name: 'Swiss Franc', symbol: 'CHF' },
+  // Americas
   { code: 'CAD', name: 'Canadian Dollar', symbol: 'C$' },
+  { code: 'MXN', name: 'Mexican Peso', symbol: '$' },
+  { code: 'BRL', name: 'Brazilian Real', symbol: 'R$' },
+  { code: 'ARS', name: 'Argentine Peso', symbol: '$' },
+  { code: 'CLP', name: 'Chilean Peso', symbol: '$' },
+  { code: 'COP', name: 'Colombian Peso', symbol: '$' },
+  { code: 'PEN', name: 'Peruvian Sol', symbol: 'S/' },
+  // Europe
+  { code: 'SEK', name: 'Swedish Krona', symbol: 'kr' },
+  { code: 'NOK', name: 'Norwegian Krone', symbol: 'kr' },
+  { code: 'DKK', name: 'Danish Krone', symbol: 'kr' },
+  { code: 'PLN', name: 'Polish Zloty', symbol: 'zł' },
+  { code: 'CZK', name: 'Czech Koruna', symbol: 'Kč' },
+  { code: 'HUF', name: 'Hungarian Forint', symbol: 'Ft' },
+  { code: 'RON', name: 'Romanian Leu', symbol: 'lei' },
+  { code: 'BGN', name: 'Bulgarian Lev', symbol: 'лв' },
+  { code: 'HRK', name: 'Croatian Kuna', symbol: 'kn' },
+  { code: 'RUB', name: 'Russian Ruble', symbol: '₽' },
+  { code: 'UAH', name: 'Ukrainian Hryvnia', symbol: '₴' },
+  { code: 'TRY', name: 'Turkish Lira', symbol: '₺' },
+  // Asia Pacific
   { code: 'AUD', name: 'Australian Dollar', symbol: 'A$' },
+  { code: 'NZD', name: 'New Zealand Dollar', symbol: 'NZ$' },
   { code: 'INR', name: 'Indian Rupee', symbol: '₹' },
+  { code: 'PKR', name: 'Pakistani Rupee', symbol: '₨' },
+  { code: 'BDT', name: 'Bangladeshi Taka', symbol: '৳' },
+  { code: 'LKR', name: 'Sri Lankan Rupee', symbol: 'Rs' },
+  { code: 'NPR', name: 'Nepalese Rupee', symbol: '₨' },
+  { code: 'KRW', name: 'South Korean Won', symbol: '₩' },
+  { code: 'TWD', name: 'Taiwan Dollar', symbol: 'NT$' },
+  { code: 'HKD', name: 'Hong Kong Dollar', symbol: 'HK$' },
+  { code: 'SGD', name: 'Singapore Dollar', symbol: 'S$' },
+  { code: 'MYR', name: 'Malaysian Ringgit', symbol: 'RM' },
+  { code: 'THB', name: 'Thai Baht', symbol: '฿' },
+  { code: 'VND', name: 'Vietnamese Dong', symbol: '₫' },
+  { code: 'IDR', name: 'Indonesian Rupiah', symbol: 'Rp' },
+  { code: 'PHP', name: 'Philippine Peso', symbol: '₱' },
+  // Middle East
   { code: 'AED', name: 'UAE Dirham', symbol: 'د.إ' },
+  { code: 'SAR', name: 'Saudi Riyal', symbol: '﷼' },
+  { code: 'QAR', name: 'Qatari Riyal', symbol: '﷼' },
+  { code: 'KWD', name: 'Kuwaiti Dinar', symbol: 'د.ك' },
+  { code: 'BHD', name: 'Bahraini Dinar', symbol: '.د.ب' },
+  { code: 'OMR', name: 'Omani Rial', symbol: '﷼' },
+  { code: 'JOD', name: 'Jordanian Dinar', symbol: 'د.ا' },
+  { code: 'ILS', name: 'Israeli Shekel', symbol: '₪' },
+  { code: 'EGP', name: 'Egyptian Pound', symbol: 'E£' },
+  // Africa
+  { code: 'ZAR', name: 'South African Rand', symbol: 'R' },
+  { code: 'NGN', name: 'Nigerian Naira', symbol: '₦' },
+  { code: 'KES', name: 'Kenyan Shilling', symbol: 'KSh' },
+  { code: 'GHS', name: 'Ghanaian Cedi', symbol: '₵' },
+  { code: 'MAD', name: 'Moroccan Dirham', symbol: 'د.م.' },
+  { code: 'TZS', name: 'Tanzanian Shilling', symbol: 'TSh' },
+  { code: 'UGX', name: 'Ugandan Shilling', symbol: 'USh' },
+  { code: 'ETB', name: 'Ethiopian Birr', symbol: 'Br' },
 ];
 
 const TIMEZONES = [
-  { value: 'Europe/London', label: 'London (GMT/BST)' },
-  { value: 'Europe/Paris', label: 'Paris (CET/CEST)' },
-  { value: 'Europe/Berlin', label: 'Berlin (CET/CEST)' },
+  // Americas
   { value: 'America/New_York', label: 'New York (EST/EDT)' },
   { value: 'America/Los_Angeles', label: 'Los Angeles (PST/PDT)' },
   { value: 'America/Chicago', label: 'Chicago (CST/CDT)' },
   { value: 'America/Toronto', label: 'Toronto (EST/EDT)' },
+  { value: 'America/Vancouver', label: 'Vancouver (PST/PDT)' },
+  { value: 'America/Mexico_City', label: 'Mexico City (CST/CDT)' },
+  { value: 'America/Sao_Paulo', label: 'São Paulo (BRT)' },
+  { value: 'America/Buenos_Aires', label: 'Buenos Aires (ART)' },
+  { value: 'America/Lima', label: 'Lima (PET)' },
+  { value: 'America/Bogota', label: 'Bogota (COT)' },
+  // Europe
+  { value: 'Europe/London', label: 'London (GMT/BST)' },
+  { value: 'Europe/Paris', label: 'Paris (CET/CEST)' },
+  { value: 'Europe/Berlin', label: 'Berlin (CET/CEST)' },
+  { value: 'Europe/Madrid', label: 'Madrid (CET/CEST)' },
+  { value: 'Europe/Rome', label: 'Rome (CET/CEST)' },
+  { value: 'Europe/Amsterdam', label: 'Amsterdam (CET/CEST)' },
+  { value: 'Europe/Brussels', label: 'Brussels (CET/CEST)' },
+  { value: 'Europe/Zurich', label: 'Zurich (CET/CEST)' },
+  { value: 'Europe/Vienna', label: 'Vienna (CET/CEST)' },
+  { value: 'Europe/Warsaw', label: 'Warsaw (CET/CEST)' },
+  { value: 'Europe/Prague', label: 'Prague (CET/CEST)' },
+  { value: 'Europe/Stockholm', label: 'Stockholm (CET/CEST)' },
+  { value: 'Europe/Oslo', label: 'Oslo (CET/CEST)' },
+  { value: 'Europe/Copenhagen', label: 'Copenhagen (CET/CEST)' },
+  { value: 'Europe/Helsinki', label: 'Helsinki (EET/EEST)' },
+  { value: 'Europe/Athens', label: 'Athens (EET/EEST)' },
+  { value: 'Europe/Istanbul', label: 'Istanbul (TRT)' },
+  { value: 'Europe/Moscow', label: 'Moscow (MSK)' },
+  { value: 'Europe/Kiev', label: 'Kyiv (EET/EEST)' },
+  // Middle East
   { value: 'Asia/Dubai', label: 'Dubai (GST)' },
+  { value: 'Asia/Riyadh', label: 'Riyadh (AST)' },
+  { value: 'Asia/Qatar', label: 'Doha (AST)' },
+  { value: 'Asia/Kuwait', label: 'Kuwait (AST)' },
+  { value: 'Asia/Bahrain', label: 'Bahrain (AST)' },
+  { value: 'Asia/Jerusalem', label: 'Jerusalem (IST)' },
+  { value: 'Africa/Cairo', label: 'Cairo (EET)' },
+  // Asia
   { value: 'Asia/Kolkata', label: 'India (IST)' },
+  { value: 'Asia/Karachi', label: 'Karachi (PKT)' },
+  { value: 'Asia/Dhaka', label: 'Dhaka (BST)' },
+  { value: 'Asia/Colombo', label: 'Colombo (IST)' },
+  { value: 'Asia/Kathmandu', label: 'Kathmandu (NPT)' },
+  { value: 'Asia/Bangkok', label: 'Bangkok (ICT)' },
+  { value: 'Asia/Jakarta', label: 'Jakarta (WIB)' },
   { value: 'Asia/Singapore', label: 'Singapore (SGT)' },
+  { value: 'Asia/Kuala_Lumpur', label: 'Kuala Lumpur (MYT)' },
+  { value: 'Asia/Manila', label: 'Manila (PHT)' },
+  { value: 'Asia/Ho_Chi_Minh', label: 'Ho Chi Minh (ICT)' },
+  { value: 'Asia/Hong_Kong', label: 'Hong Kong (HKT)' },
+  { value: 'Asia/Shanghai', label: 'Shanghai (CST)' },
+  { value: 'Asia/Taipei', label: 'Taipei (CST)' },
+  { value: 'Asia/Seoul', label: 'Seoul (KST)' },
+  { value: 'Asia/Tokyo', label: 'Tokyo (JST)' },
+  // Australia & Pacific
   { value: 'Australia/Sydney', label: 'Sydney (AEST/AEDT)' },
+  { value: 'Australia/Melbourne', label: 'Melbourne (AEST/AEDT)' },
+  { value: 'Australia/Brisbane', label: 'Brisbane (AEST)' },
+  { value: 'Australia/Perth', label: 'Perth (AWST)' },
+  { value: 'Pacific/Auckland', label: 'Auckland (NZST/NZDT)' },
+  // Africa
+  { value: 'Africa/Johannesburg', label: 'Johannesburg (SAST)' },
+  { value: 'Africa/Lagos', label: 'Lagos (WAT)' },
+  { value: 'Africa/Nairobi', label: 'Nairobi (EAT)' },
+  { value: 'Africa/Casablanca', label: 'Casablanca (WET)' },
+  { value: 'Africa/Accra', label: 'Accra (GMT)' },
 ];
 
 export default function Regions() {
@@ -384,9 +498,10 @@ export default function Regions() {
 
       <TabsContent value="details" className="space-y-4 mt-4">
         <div className="space-y-2">
-          <Label htmlFor="name">Region Name *</Label>
+          <Label htmlFor="region-name">Region Name *</Label>
           <Input
-            id="name"
+            id="region-name"
+            autoFocus
             placeholder="e.g., Milton Keynes, London, Manchester"
             value={formData.name}
             onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
@@ -419,7 +534,7 @@ export default function Regions() {
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="max-h-60">
                 {CURRENCIES.map(currency => (
                   <SelectItem key={currency.code} value={currency.code}>
                     {currency.symbol} {currency.code} - {currency.name}
@@ -440,7 +555,7 @@ export default function Regions() {
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="max-h-60">
                 {TIMEZONES.map(tz => (
                   <SelectItem key={tz.value} value={tz.value}>
                     {tz.label}
