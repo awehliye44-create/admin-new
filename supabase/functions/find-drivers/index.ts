@@ -194,12 +194,13 @@ serve(async (req) => {
       );
     }
 
-    // Step 4: Get online drivers from the eligible list
+    // Step 4: Get online drivers from the eligible list (must have documents approved)
     let driverQuery = supabase
       .from('drivers')
-      .select('id, first_name, last_name, driver_code, is_online, current_lat, current_lng, rating, region_id')
+      .select('id, first_name, last_name, driver_code, is_online, current_lat, current_lng, rating, region_id, documents_approved')
       .eq('is_online', true)
       .eq('approval_status', 'approved')
+      .eq('documents_approved', true) // Only drivers with all documents approved can receive bookings
       .in('id', eligibleDriverIds)
       .not('current_lat', 'is', null)
       .not('current_lng', 'is', null);

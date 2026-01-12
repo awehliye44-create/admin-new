@@ -240,6 +240,13 @@ export type Database = {
             foreignKeyName: "documents_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "documents_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -314,6 +321,13 @@ export type Database = {
             foreignKeyName: "driver_service_areas_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_service_areas_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -377,6 +391,13 @@ export type Database = {
             foreignKeyName: "driver_settings_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: true
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_settings_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -412,6 +433,13 @@ export type Database = {
             foreignKeyName: "driver_vehicle_categories_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_vehicle_categories_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -430,6 +458,7 @@ export type Database = {
           created_at: string
           current_lat: number | null
           current_lng: number | null
+          documents_approved: boolean
           driver_code: string | null
           email: string
           first_name: string
@@ -452,6 +481,7 @@ export type Database = {
           created_at?: string
           current_lat?: number | null
           current_lng?: number | null
+          documents_approved?: boolean
           driver_code?: string | null
           email: string
           first_name: string
@@ -474,6 +504,7 @@ export type Database = {
           created_at?: string
           current_lat?: number | null
           current_lng?: number | null
+          documents_approved?: boolean
           driver_code?: string | null
           email?: string
           first_name?: string
@@ -733,6 +764,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "rider_feedback_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
           {
             foreignKeyName: "rider_feedback_driver_id_fkey"
             columns: ["driver_id"]
@@ -1014,6 +1052,13 @@ export type Database = {
             foreignKeyName: "trips_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -1127,6 +1172,13 @@ export type Database = {
             foreignKeyName: "vehicles_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "vehicles_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -1194,9 +1246,27 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      driver_document_status: {
+        Row: {
+          approval_status: string | null
+          approved_docs: number | null
+          document_status: string | null
+          documents_approved: boolean | null
+          driver_id: string | null
+          first_name: string | null
+          last_name: string | null
+          pending_docs: number | null
+          rejected_docs: number | null
+          required_docs_count: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
+      check_driver_documents_approved: {
+        Args: { p_driver_id: string }
+        Returns: boolean
+      }
       get_region_code: { Args: { p_region_id: string }; Returns: string }
       has_role: {
         Args: {
