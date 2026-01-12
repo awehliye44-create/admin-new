@@ -21,10 +21,10 @@ import Settings from "./pages/Settings";
 import RolesPermissions from "./pages/RolesPermissions";
 import NotFound from "./pages/NotFound";
 import AutoDispatchRules from "./pages/AutoDispatchRules";
+import FleetTracking from "./pages/FleetTracking";
+import ActiveTrips from "./pages/ActiveTrips";
 
 import {
-  FleetTracking,
-  ActiveTrips,
   ScheduledRides,
   MissedCancelled,
   ManualTrip,
