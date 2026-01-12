@@ -163,6 +163,110 @@ export type Database = {
         }
         Relationships: []
       }
+      service_area_cancellation_fees: {
+        Row: {
+          cancellation_fee: number
+          created_at: string
+          currency_code: string
+          free_cancellation_window_minutes: number
+          id: string
+          no_show_fee: number
+          service_area_id: string
+          updated_at: string
+        }
+        Insert: {
+          cancellation_fee?: number
+          created_at?: string
+          currency_code?: string
+          free_cancellation_window_minutes?: number
+          id?: string
+          no_show_fee?: number
+          service_area_id: string
+          updated_at?: string
+        }
+        Update: {
+          cancellation_fee?: number
+          created_at?: string
+          currency_code?: string
+          free_cancellation_window_minutes?: number
+          id?: string
+          no_show_fee?: number
+          service_area_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_area_cancellation_fees_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: true
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      service_area_vehicle_pricing: {
+        Row: {
+          base_fare: number
+          created_at: string
+          currency_code: string
+          distance_pricing: Json
+          id: string
+          is_enabled: boolean
+          minimum_fare: number
+          pickup_waiting_charges: Json
+          service_area_id: string
+          stops_waiting_charges: Json
+          time_pricing: Json
+          updated_at: string
+          vehicle_type_id: string
+        }
+        Insert: {
+          base_fare?: number
+          created_at?: string
+          currency_code?: string
+          distance_pricing?: Json
+          id?: string
+          is_enabled?: boolean
+          minimum_fare?: number
+          pickup_waiting_charges?: Json
+          service_area_id: string
+          stops_waiting_charges?: Json
+          time_pricing?: Json
+          updated_at?: string
+          vehicle_type_id: string
+        }
+        Update: {
+          base_fare?: number
+          created_at?: string
+          currency_code?: string
+          distance_pricing?: Json
+          id?: string
+          is_enabled?: boolean
+          minimum_fare?: number
+          pickup_waiting_charges?: Json
+          service_area_id?: string
+          stops_waiting_charges?: Json
+          time_pricing?: Json
+          updated_at?: string
+          vehicle_type_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_area_vehicle_pricing_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "service_area_vehicle_pricing_vehicle_type_id_fkey"
+            columns: ["vehicle_type_id"]
+            isOneToOne: false
+            referencedRelation: "vehicle_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       service_areas: {
         Row: {
           created_at: string
@@ -344,6 +448,42 @@ export type Database = {
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
+        }
+        Relationships: []
+      }
+      vehicle_types: {
+        Row: {
+          created_at: string
+          description: string | null
+          display_order: number | null
+          icon: string | null
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          display_order?: number | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          display_order?: number | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          updated_at?: string
         }
         Relationships: []
       }

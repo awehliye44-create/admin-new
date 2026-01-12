@@ -48,9 +48,10 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, Navigation, Loader2, MoreHorizontal, Pencil, Trash2, MapPin, Search, Users } from 'lucide-react';
+import { Plus, Navigation, Loader2, MoreHorizontal, Pencil, Trash2, MapPin, Search, Users, DollarSign } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 
 interface ServiceArea {
   id: string;
@@ -70,6 +71,7 @@ interface Region {
 }
 
 export default function Services() {
+  const navigate = useNavigate();
   const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
   const [regions, setRegions] = useState<Region[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -427,6 +429,10 @@ export default function Services() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => navigate(`/service-area-pricing?id=${area.id}`)}>
+                            <DollarSign className="mr-2 h-4 w-4" />
+                            Configure Pricing
+                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => openEditDialog(area)}>
                             <Pencil className="mr-2 h-4 w-4" />
                             Edit

@@ -15,6 +15,7 @@ import Riders from "./pages/Riders";
 import Vehicles from "./pages/Vehicles";
 import Regions from "./pages/Regions";
 import Services from "./pages/Services";
+import ServiceAreaPricing from "./pages/ServiceAreaPricing";
 import Dispatch from "./pages/Dispatch";
 import Settings from "./pages/Settings";
 import RolesPermissions from "./pages/RolesPermissions";
@@ -90,6 +91,7 @@ const App = () => (
             {/* Service Areas */}
             <Route path="/regions" element={<ProtectedRoute><Regions /></ProtectedRoute>} />
             <Route path="/services" element={<ProtectedRoute><Services /></ProtectedRoute>} />
+            <Route path="/service-area-pricing" element={<ProtectedRoute><ServiceAreaPricing /></ProtectedRoute>} />
             <Route path="/driver-profiles" element={<ProtectedRoute><Drivers /></ProtectedRoute>} />
             <Route path="/vehicle-types" element={<ProtectedRoute><VehicleTypes /></ProtectedRoute>} />
             <Route path="/documents" element={<ProtectedRoute><Documents /></ProtectedRoute>} />
