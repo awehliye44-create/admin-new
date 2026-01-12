@@ -19,11 +19,11 @@ import Dispatch from "./pages/Dispatch";
 import Settings from "./pages/Settings";
 import RolesPermissions from "./pages/RolesPermissions";
 import NotFound from "./pages/NotFound";
+import AutoDispatchRules from "./pages/AutoDispatchRules";
 
 import {
   FleetTracking,
   ActiveTrips,
-  AutoDispatch,
   ScheduledRides,
   MissedCancelled,
   ManualTrip,
@@ -81,7 +81,7 @@ const App = () => (
             {/* Operations & Dispatch */}
             <Route path="/fleet-tracking" element={<ProtectedRoute><FleetTracking /></ProtectedRoute>} />
             <Route path="/active-trips" element={<ProtectedRoute><ActiveTrips /></ProtectedRoute>} />
-            <Route path="/auto-dispatch" element={<ProtectedRoute><AutoDispatch /></ProtectedRoute>} />
+            <Route path="/auto-dispatch" element={<ProtectedRoute><AutoDispatchRules /></ProtectedRoute>} />
             <Route path="/scheduled-rides" element={<ProtectedRoute><ScheduledRides /></ProtectedRoute>} />
             <Route path="/missed-cancelled" element={<ProtectedRoute><MissedCancelled /></ProtectedRoute>} />
             <Route path="/manual-trip" element={<ProtectedRoute><ManualTrip /></ProtectedRoute>} />
