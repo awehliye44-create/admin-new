@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -31,8 +31,8 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { 
   History, Loader2, Search, RefreshCw, MapPin, Phone,
-  Eye, CheckCircle, Clock, Route, DollarSign, Calendar,
-  Navigation, User, Car
+  Eye, CheckCircle, Route, DollarSign,
+  Navigation, User, Car, Globe
 } from 'lucide-react';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
@@ -50,6 +50,16 @@ interface TripStop {
   status: string;
   arrived_at: string | null;
   completed_at: string | null;
+}
+
+interface ServiceArea {
+  id: string;
+  name: string;
+  region?: {
+    name: string;
+    currency_code: string;
+    distance_unit: string;
+  } | null;
 }
 
 interface CompletedTrip {
@@ -82,6 +92,7 @@ interface CompletedTrip {
     last_name: string;
     phone: string;
     driver_code: string | null;
+    region_id: string | null;
   } | null;
 }
 
@@ -96,6 +107,7 @@ export default function TripHistory() {
   const [selectedTrip, setSelectedTrip] = useState<CompletedTrip | null>(null);
   const [tripStops, setTripStops] = useState<TripStop[]>([]);
   const [isLoadingStops, setIsLoadingStops] = useState(false);
+  const [selectedServiceArea, setSelectedServiceArea] = useState<ServiceArea | null>(null);
 
   // Map state
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -129,7 +141,7 @@ export default function TripHistory() {
         .from('trips')
         .select(`
           *,
-          driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, driver_code)
+          driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, driver_code, region_id)
         `)
         .eq('status', 'completed')
         .gte('created_at', start.toISOString())
@@ -138,7 +150,7 @@ export default function TripHistory() {
 
       if (error) throw error;
 
-      setTrips(data || []);
+      setTrips((data || []) as CompletedTrip[]);
     } catch (err) {
       console.error('Error fetching completed trips:', err);
       toast.error('Failed to load trip history');
@@ -170,10 +182,58 @@ export default function TripHistory() {
     }
   };
 
+  const fetchServiceArea = async (regionId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('service_areas')
+        .select(`
+          id,
+          name,
+          region:regions(name, currency_code, distance_unit)
+        `)
+        .eq('region_id', regionId)
+        .limit(1)
+        .single();
+
+      if (error) {
+        // Fallback: try to get region directly
+        const { data: regionData } = await supabase
+          .from('regions')
+          .select('id, name, currency_code, distance_unit')
+          .eq('id', regionId)
+          .single();
+        
+        if (regionData) {
+          setSelectedServiceArea({
+            id: regionData.id,
+            name: regionData.name,
+            region: {
+              name: regionData.name,
+              currency_code: regionData.currency_code,
+              distance_unit: regionData.distance_unit,
+            }
+          });
+        }
+        return;
+      }
+      
+      setSelectedServiceArea(data as ServiceArea);
+    } catch (err) {
+      console.error('Error fetching service area:', err);
+      setSelectedServiceArea(null);
+    }
+  };
+
   const handleViewTrip = async (trip: CompletedTrip) => {
     setSelectedTrip(trip);
+    setSelectedServiceArea(null);
     setIsViewOpen(true);
     await fetchTripStops(trip.id);
+    
+    // Fetch service area if driver has region
+    if (trip.driver?.region_id) {
+      await fetchServiceArea(trip.driver.region_id);
+    }
   };
 
   // Initialize map when dialog opens with a trip
@@ -548,194 +608,229 @@ export default function TripHistory() {
       <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <CheckCircle className="h-5 w-5 text-green-500" />
-              Trip Details
-            </DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="text-xl font-bold">
               Trip #{selectedTrip?.trip_code || selectedTrip?.id.slice(0, 8)}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Trip details and route information
             </DialogDescription>
           </DialogHeader>
           {selectedTrip && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Left Column - Details */}
-              <div className="space-y-6">
-                {/* Status Badge */}
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="bg-green-100 text-green-700">
-                    <CheckCircle className="h-3 w-3 mr-1" />
-                    Completed
+            <div className="space-y-4">
+              {/* Status Badges Row */}
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                  <CheckCircle className="h-3 w-3 mr-1" />
+                  Completed
+                </Badge>
+                {selectedTrip.payment_method && (
+                  <Badge variant="secondary">
+                    {selectedTrip.payment_method}
                   </Badge>
-                  {selectedTrip.payment_method && (
-                    <Badge variant="secondary">
-                      {selectedTrip.payment_method}
-                    </Badge>
-                  )}
-                  {selectedTrip.surge_multiplier && selectedTrip.surge_multiplier > 1 && (
-                    <Badge variant="destructive">
-                      {selectedTrip.surge_multiplier}x Surge
-                    </Badge>
-                  )}
-                </div>
-
-                {/* Passenger Info */}
-                <div className="space-y-2">
-                  <h4 className="text-sm font-semibold flex items-center gap-2">
-                    <User className="h-4 w-4" />
-                    Passenger
-                  </h4>
-                  <div className="bg-muted/50 rounded-lg p-3">
-                    <p className="font-medium">{selectedTrip.passenger_name || 'Unknown'}</p>
-                    <p className="text-sm text-muted-foreground">{selectedTrip.passenger_phone || 'No phone'}</p>
-                  </div>
-                </div>
-
-                {/* Driver Info */}
-                {selectedTrip.driver && (
-                  <div className="space-y-2">
-                    <h4 className="text-sm font-semibold flex items-center gap-2">
-                      <Car className="h-4 w-4" />
-                      Driver
-                    </h4>
-                    <div className="bg-muted/50 rounded-lg p-3">
-                      <p className="font-medium">
-                        {selectedTrip.driver.first_name} {selectedTrip.driver.last_name}
-                      </p>
-                      <p className="text-sm text-muted-foreground font-mono">
-                        {selectedTrip.driver.driver_code || 'N/A'}
-                      </p>
-                    </div>
-                  </div>
                 )}
-
-                {/* Route Stops */}
-                <div className="space-y-2">
-                  <h4 className="text-sm font-semibold flex items-center gap-2">
-                    <Route className="h-4 w-4" />
-                    Route ({(tripStops.length || 0) + 2} stops)
-                  </h4>
-                  <div className="space-y-2">
-                    {/* Pickup */}
-                    <div className="flex items-start gap-3 bg-green-500/10 rounded-lg p-3">
-                      <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center shrink-0">
-                        <span className="text-xs font-bold text-white">A</span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-green-700">Pickup</p>
-                        <p className="text-sm truncate">{selectedTrip.pickup_address}</p>
-                      </div>
-                    </div>
-
-                    {/* Intermediate Stops */}
-                    {isLoadingStops ? (
-                      <div className="flex items-center justify-center py-4">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      </div>
-                    ) : (
-                      tripStops
-                        .filter(s => s.type !== 'pickup' && s.type !== 'dropoff')
-                        .map((stop, idx) => (
-                          <div key={stop.id} className="flex items-start gap-3 bg-blue-500/10 rounded-lg p-3">
-                            <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
-                              <span className="text-xs font-bold text-white">{idx + 1}</span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium text-blue-700">Stop {idx + 1}</p>
-                              <p className="text-sm truncate">{stop.address}</p>
-                              {stop.completed_at && (
-                                <p className="text-xs text-muted-foreground">
-                                  Completed: {format(new Date(stop.completed_at), 'HH:mm')}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        ))
-                    )}
-
-                    {/* Dropoff */}
-                    <div className="flex items-start gap-3 bg-red-500/10 rounded-lg p-3">
-                      <div className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center shrink-0">
-                        <span className="text-xs font-bold text-white">B</span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-red-700">Dropoff</p>
-                        <p className="text-sm truncate">{selectedTrip.dropoff_address}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Fare Breakdown */}
-                <div className="space-y-2">
-                  <h4 className="text-sm font-semibold flex items-center gap-2">
-                    <DollarSign className="h-4 w-4" />
-                    Fare Breakdown
-                  </h4>
-                  <div className="bg-muted/50 rounded-lg p-4 space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Estimated Fare</span>
-                      <span>{getCurrencySymbol(selectedTrip.currency_code)}{(selectedTrip.estimated_fare || 0).toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Distance</span>
-                      <span>{selectedTrip.estimated_distance_km ? `${Number(selectedTrip.estimated_distance_km).toFixed(1)} km` : 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Duration</span>
-                      <span>{formatDuration(selectedTrip.estimated_duration_minutes)}</span>
-                    </div>
-                    {selectedTrip.surge_multiplier && selectedTrip.surge_multiplier > 1 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Surge Multiplier</span>
-                        <span className="text-orange-600">{selectedTrip.surge_multiplier}x</span>
-                      </div>
-                    )}
-                    <Separator />
-                    <div className="flex justify-between font-semibold">
-                      <span>Final Fare</span>
-                      <span className="text-green-600">
-                        {getCurrencySymbol(selectedTrip.currency_code)}{(selectedTrip.fare || 0).toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Timestamps */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-muted-foreground text-xs">Started</Label>
-                    <p className="text-sm font-medium">
-                      {selectedTrip.started_at 
-                        ? format(new Date(selectedTrip.started_at), 'PPP p')
-                        : 'N/A'}
-                    </p>
-                  </div>
-                  <div>
-                    <Label className="text-muted-foreground text-xs">Completed</Label>
-                    <p className="text-sm font-medium">
-                      {selectedTrip.completed_at 
-                        ? format(new Date(selectedTrip.completed_at), 'PPP p')
-                        : 'N/A'}
-                    </p>
-                  </div>
-                </div>
+                {selectedServiceArea && (
+                  <Badge variant="outline" className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                    <Globe className="h-3 w-3 mr-1" />
+                    {selectedServiceArea.name}
+                    {selectedServiceArea.region && ` (${selectedServiceArea.region.name})`}
+                  </Badge>
+                )}
+                {selectedTrip.surge_multiplier && selectedTrip.surge_multiplier > 1 && (
+                  <Badge variant="destructive">
+                    {selectedTrip.surge_multiplier}x Surge
+                  </Badge>
+                )}
               </div>
 
-              {/* Right Column - Map */}
-              <div className="space-y-2">
-                <h4 className="text-sm font-semibold flex items-center gap-2">
-                  <MapPin className="h-4 w-4" />
-                  Route Map
-                </h4>
-                <div 
-                  ref={mapContainerRef} 
-                  className="h-[400px] lg:h-full min-h-[400px] rounded-lg border bg-muted"
-                >
-                  {!window.google && (
-                    <div className="flex items-center justify-center h-full text-muted-foreground">
-                      <p className="text-sm">Map loading...</p>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Left Column - Details */}
+                <div className="space-y-5">
+                  {/* Passenger Info */}
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-semibold flex items-center gap-2">
+                      <User className="h-4 w-4" />
+                      Passenger
+                    </h4>
+                    <div className="bg-muted/50 rounded-lg p-3">
+                      <p className="font-medium">{selectedTrip.passenger_name || 'Unknown'}</p>
+                      <p className="text-sm text-muted-foreground">{selectedTrip.passenger_phone || 'No phone'}</p>
+                    </div>
+                  </div>
+
+                  {/* Driver Info */}
+                  {selectedTrip.driver && (
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-semibold flex items-center gap-2">
+                        <Car className="h-4 w-4" />
+                        Driver
+                      </h4>
+                      <div className="bg-muted/50 rounded-lg p-3">
+                        <p className="font-medium">
+                          {selectedTrip.driver.first_name} {selectedTrip.driver.last_name}
+                        </p>
+                        <p className="text-sm text-muted-foreground font-mono">
+                          {selectedTrip.driver.driver_code || 'N/A'}
+                        </p>
+                      </div>
                     </div>
                   )}
+
+                  {/* Route Stops */}
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-semibold flex items-center gap-2">
+                      <Route className="h-4 w-4" />
+                      Route ({(tripStops.filter(s => s.type !== 'pickup' && s.type !== 'dropoff').length) + 2} stops)
+                    </h4>
+                    <div className="space-y-2">
+                      {/* Pickup */}
+                      <div className="flex items-start gap-3 bg-green-500/10 dark:bg-green-900/20 rounded-lg p-3">
+                        <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center shrink-0">
+                          <span className="text-xs font-bold text-white">A</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-medium text-green-700 dark:text-green-400">Pickup</p>
+                            {selectedTrip.started_at && (
+                              <p className="text-xs text-muted-foreground">
+                                {format(new Date(selectedTrip.started_at), 'h:mm a')}
+                              </p>
+                            )}
+                          </div>
+                          <p className="text-sm">{selectedTrip.pickup_address}</p>
+                        </div>
+                      </div>
+
+                      {/* Intermediate Stops */}
+                      {isLoadingStops ? (
+                        <div className="flex items-center justify-center py-4">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        </div>
+                      ) : (
+                        tripStops
+                          .filter(s => s.type !== 'pickup' && s.type !== 'dropoff')
+                          .map((stop, idx) => (
+                            <div key={stop.id} className="flex items-start gap-3 bg-blue-500/10 dark:bg-blue-900/20 rounded-lg p-3">
+                              <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
+                                <span className="text-xs font-bold text-white">{idx + 1}</span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-xs font-medium text-blue-700 dark:text-blue-400">Stop {idx + 1}</p>
+                                  {stop.arrived_at && (
+                                    <p className="text-xs text-muted-foreground">
+                                      Arr: {format(new Date(stop.arrived_at), 'h:mm a')}
+                                    </p>
+                                  )}
+                                </div>
+                                <p className="text-sm">{stop.address}</p>
+                                {stop.completed_at && (
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Left: {format(new Date(stop.completed_at), 'h:mm a')}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          ))
+                      )}
+
+                      {/* Dropoff */}
+                      <div className="flex items-start gap-3 bg-red-500/10 dark:bg-red-900/20 rounded-lg p-3">
+                        <div className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center shrink-0">
+                          <span className="text-xs font-bold text-white">B</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-medium text-red-700 dark:text-red-400">Dropoff</p>
+                            {selectedTrip.completed_at && (
+                              <p className="text-xs text-muted-foreground">
+                                {format(new Date(selectedTrip.completed_at), 'h:mm a')}
+                              </p>
+                            )}
+                          </div>
+                          <p className="text-sm">{selectedTrip.dropoff_address}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Fare Breakdown */}
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-semibold flex items-center gap-2">
+                      <DollarSign className="h-4 w-4" />
+                      Fare Breakdown
+                    </h4>
+                    <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Estimated Fare</span>
+                        <span>{getCurrencySymbol(selectedTrip.currency_code)}{(selectedTrip.estimated_fare || 0).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Distance</span>
+                        <span>
+                          {selectedTrip.estimated_distance_km 
+                            ? selectedServiceArea?.region?.distance_unit === 'mile'
+                              ? `${(Number(selectedTrip.estimated_distance_km) * 0.621371).toFixed(1)} mi`
+                              : `${Number(selectedTrip.estimated_distance_km).toFixed(1)} km`
+                            : 'N/A'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Duration</span>
+                        <span>{formatDuration(selectedTrip.estimated_duration_minutes)}</span>
+                      </div>
+                      {selectedTrip.surge_multiplier && selectedTrip.surge_multiplier > 1 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Surge Multiplier</span>
+                          <span className="text-orange-600">{selectedTrip.surge_multiplier}x</span>
+                        </div>
+                      )}
+                      <Separator />
+                      <div className="flex justify-between font-semibold">
+                        <span>Final Fare</span>
+                        <span className="text-green-600">
+                          {getCurrencySymbol(selectedTrip.currency_code)}{(selectedTrip.fare || 0).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Timestamps */}
+                  <div className="grid grid-cols-2 gap-4 pt-2 border-t">
+                    <div>
+                      <Label className="text-muted-foreground text-xs">Started</Label>
+                      <p className="text-sm font-medium">
+                        {selectedTrip.started_at 
+                          ? format(new Date(selectedTrip.started_at), 'MMMM do, yyyy h:mm a')
+                          : 'N/A'}
+                      </p>
+                    </div>
+                    <div>
+                      <Label className="text-muted-foreground text-xs">Completed</Label>
+                      <p className="text-sm font-medium">
+                        {selectedTrip.completed_at 
+                          ? format(new Date(selectedTrip.completed_at), 'MMMM do, yyyy h:mm a')
+                          : 'N/A'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Column - Map */}
+                <div className="space-y-2">
+                  <h4 className="text-sm font-semibold flex items-center gap-2">
+                    <MapPin className="h-4 w-4" />
+                    Route Map
+                  </h4>
+                  <div 
+                    ref={mapContainerRef} 
+                    className="h-[400px] lg:h-full min-h-[400px] rounded-lg border bg-muted"
+                  >
+                    {typeof window !== 'undefined' && !(window as any).google && (
+                      <div className="flex items-center justify-center h-full text-muted-foreground">
+                        <p className="text-sm">Map loading...</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
