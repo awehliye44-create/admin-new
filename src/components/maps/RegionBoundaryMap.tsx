@@ -224,7 +224,7 @@ export function RegionBoundaryMap({
   };
 
   const handleFinishDrawing = () => {
-    if (points.length >= 3) {
+    if (points.length >= 5) {
       setIsDrawing(false);
       onBoundaryChange(points);
     }
@@ -246,10 +246,10 @@ export function RegionBoundaryMap({
         <div className="flex items-center justify-between gap-2 p-3 bg-muted/50 rounded-lg">
           <div className="text-sm text-muted-foreground">
             {isDrawing ? (
-              points.length < 3 ? (
+              points.length < 5 ? (
                 <span className="flex items-center gap-1">
                   <MapPin className="h-4 w-4 text-primary" />
-                  Click on the map to add points ({points.length}/3 minimum)
+                  Click on the map to add points ({points.length}/5 minimum)
                 </span>
               ) : (
                 <span className="flex items-center gap-1 text-green-600">
@@ -280,7 +280,7 @@ export function RegionBoundaryMap({
                   type="button"
                   size="sm"
                   onClick={handleFinishDrawing}
-                  disabled={points.length < 3}
+                  disabled={points.length < 5}
                   className="bg-primary hover:bg-primary/90"
                 >
                   Finish Drawing
