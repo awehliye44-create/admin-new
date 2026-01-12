@@ -1,0 +1,517 @@
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { AdminLayout } from '@/components/layout/AdminLayout';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { supabase } from '@/integrations/supabase/client';
+import { 
+  MapPin, Loader2, Search, RefreshCw, Car, Users, Circle, 
+  Navigation, Phone, Star, Clock, Wifi, WifiOff
+} from 'lucide-react';
+import { toast } from 'sonner';
+
+interface Driver {
+  id: string;
+  first_name: string;
+  last_name: string;
+  phone: string;
+  email: string;
+  is_online: boolean;
+  rating: number;
+  total_trips: number;
+  approval_status: string;
+  region_id: string;
+  region?: { name: string };
+  current_trip?: {
+    id: string;
+    status: string;
+    pickup_address: string;
+    dropoff_address: string;
+  } | null;
+}
+
+interface Region {
+  id: string;
+  name: string;
+  geo_boundary: any;
+}
+
+declare global {
+  interface Window {
+    google: any;
+  }
+}
+
+export default function FleetTracking() {
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [regions, setRegions] = useState<Region[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [regionFilter, setRegionFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
+  const [isMapLoaded, setIsMapLoaded] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState(new Date());
+  
+  const mapRef = useRef<HTMLDivElement>(null);
+  const googleMapRef = useRef<any>(null);
+  const markersRef = useRef<Map<string, any>>(new Map());
+  const polygonsRef = useRef<Map<string, any>>(new Map());
+
+  // Load Google Maps
+  useEffect(() => {
+    if (window.google?.maps) {
+      setIsMapLoaded(true);
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyD07ibmHaKsBpJB_7yNg4EvL6TuVx83hds&libraries=geometry`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => setIsMapLoaded(true);
+    document.head.appendChild(script);
+  }, []);
+
+  // Initialize map
+  useEffect(() => {
+    if (!isMapLoaded || !mapRef.current || googleMapRef.current) return;
+
+    googleMapRef.current = new window.google.maps.Map(mapRef.current, {
+      center: { lat: 52.0406, lng: -0.7594 },
+      zoom: 10,
+      mapTypeId: 'roadmap',
+      styles: [
+        { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+      ],
+    });
+  }, [isMapLoaded]);
+
+  // Fetch data
+  const fetchData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      
+      const [driversRes, regionsRes, tripsRes] = await Promise.all([
+        supabase
+          .from('drivers')
+          .select('*, region:regions(name)')
+          .eq('approval_status', 'approved')
+          .order('is_online', { ascending: false }),
+        supabase
+          .from('regions')
+          .select('id, name, geo_boundary')
+          .eq('status', 'active'),
+        supabase
+          .from('trips')
+          .select('id, driver_id, status, pickup_address, dropoff_address')
+          .in('status', ['accepted', 'arrived', 'in_progress']),
+      ]);
+
+      if (driversRes.error) throw driversRes.error;
+      if (regionsRes.error) throw regionsRes.error;
+
+      // Map active trips to drivers
+      const activeTrips = tripsRes.data || [];
+      const driversWithTrips = (driversRes.data || []).map(driver => {
+        const currentTrip = activeTrips.find(t => t.driver_id === driver.id);
+        return { ...driver, current_trip: currentTrip || null };
+      });
+
+      setDrivers(driversWithTrips);
+      setRegions(regionsRes.data || []);
+      setLastRefresh(new Date());
+    } catch (err) {
+      console.error('Error fetching fleet data:', err);
+      toast.error('Failed to load fleet data');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+    
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
+
+  // Draw region boundaries on map
+  useEffect(() => {
+    if (!googleMapRef.current || !isMapLoaded) return;
+
+    // Clear existing polygons
+    polygonsRef.current.forEach(polygon => polygon.setMap(null));
+    polygonsRef.current.clear();
+
+    regions.forEach(region => {
+      if (region.geo_boundary && Array.isArray(region.geo_boundary) && region.geo_boundary.length >= 3) {
+        const polygon = new window.google.maps.Polygon({
+          paths: region.geo_boundary,
+          strokeColor: '#3b82f6',
+          strokeOpacity: 0.5,
+          strokeWeight: 2,
+          fillColor: '#3b82f6',
+          fillOpacity: 0.1,
+          map: googleMapRef.current,
+        });
+        polygonsRef.current.set(region.id, polygon);
+      }
+    });
+  }, [regions, isMapLoaded]);
+
+  // Update driver markers (simulated positions for now)
+  useEffect(() => {
+    if (!googleMapRef.current || !isMapLoaded) return;
+
+    // Clear existing markers
+    markersRef.current.forEach(marker => marker.setMap(null));
+    markersRef.current.clear();
+
+    // Filter drivers
+    const filtered = drivers.filter(driver => {
+      const matchesSearch = 
+        `${driver.first_name} ${driver.last_name}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        driver.phone.includes(searchQuery);
+      const matchesRegion = regionFilter === 'all' || driver.region_id === regionFilter;
+      const matchesStatus = statusFilter === 'all' || 
+        (statusFilter === 'online' && driver.is_online) ||
+        (statusFilter === 'offline' && !driver.is_online) ||
+        (statusFilter === 'on_trip' && driver.current_trip);
+      return matchesSearch && matchesRegion && matchesStatus;
+    });
+
+    // Create markers for each driver (using simulated positions based on region)
+    filtered.forEach((driver, index) => {
+      // Simulate driver position (in real app, this would come from driver location updates)
+      const region = regions.find(r => r.id === driver.region_id);
+      let position = { lat: 52.0406 + (Math.random() - 0.5) * 0.1, lng: -0.7594 + (Math.random() - 0.5) * 0.1 };
+      
+      if (region?.geo_boundary?.[0]) {
+        position = {
+          lat: region.geo_boundary[0].lat + (Math.random() - 0.5) * 0.05,
+          lng: region.geo_boundary[0].lng + (Math.random() - 0.5) * 0.05,
+        };
+      }
+
+      const isOnTrip = !!driver.current_trip;
+      const markerColor = !driver.is_online ? '#9ca3af' : isOnTrip ? '#f59e0b' : '#22c55e';
+
+      const marker = new window.google.maps.Marker({
+        position,
+        map: googleMapRef.current,
+        icon: {
+          path: window.google.maps.SymbolPath.CIRCLE,
+          scale: 10,
+          fillColor: markerColor,
+          fillOpacity: 1,
+          strokeColor: '#ffffff',
+          strokeWeight: 2,
+        },
+        title: `${driver.first_name} ${driver.last_name}`,
+      });
+
+      marker.addListener('click', () => {
+        setSelectedDriver(driver);
+      });
+
+      markersRef.current.set(driver.id, marker);
+    });
+  }, [drivers, regions, searchQuery, regionFilter, statusFilter, isMapLoaded]);
+
+  const filteredDrivers = drivers.filter(driver => {
+    const matchesSearch = 
+      `${driver.first_name} ${driver.last_name}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      driver.phone.includes(searchQuery);
+    const matchesRegion = regionFilter === 'all' || driver.region_id === regionFilter;
+    const matchesStatus = statusFilter === 'all' || 
+      (statusFilter === 'online' && driver.is_online) ||
+      (statusFilter === 'offline' && !driver.is_online) ||
+      (statusFilter === 'on_trip' && driver.current_trip);
+    return matchesSearch && matchesRegion && matchesStatus;
+  });
+
+  const onlineCount = drivers.filter(d => d.is_online).length;
+  const offlineCount = drivers.filter(d => !d.is_online).length;
+  const onTripCount = drivers.filter(d => d.current_trip).length;
+
+  return (
+    <AdminLayout 
+      title="Live Fleet Tracking" 
+      description="Monitor your fleet in real-time"
+    >
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Total Drivers</p>
+                <p className="text-2xl font-bold">{drivers.length}</p>
+              </div>
+              <Users className="h-8 w-8 text-primary opacity-80" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-green-500/30 bg-green-500/5">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Online</p>
+                <p className="text-2xl font-bold text-green-600">{onlineCount}</p>
+              </div>
+              <Wifi className="h-8 w-8 text-green-500" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-amber-500/30 bg-amber-500/5">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">On Trip</p>
+                <p className="text-2xl font-bold text-amber-600">{onTripCount}</p>
+              </div>
+              <Car className="h-8 w-8 text-amber-500" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-gray-500/30 bg-gray-500/5">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Offline</p>
+                <p className="text-2xl font-bold text-gray-600">{offlineCount}</p>
+              </div>
+              <WifiOff className="h-8 w-8 text-gray-400" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Map Section */}
+        <div className="lg:col-span-2">
+          <Card className="h-full">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <MapPin className="h-5 w-5 text-primary" />
+                  Live Map
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    Last updated: {lastRefresh.toLocaleTimeString()}
+                  </span>
+                  <Button variant="outline" size="sm" onClick={fetchData} disabled={isLoading}>
+                    <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+                  </Button>
+                </div>
+              </div>
+              {/* Legend */}
+              <div className="flex gap-4 text-xs mt-2">
+                <span className="flex items-center gap-1">
+                  <Circle className="h-3 w-3 fill-green-500 text-green-500" /> Available
+                </span>
+                <span className="flex items-center gap-1">
+                  <Circle className="h-3 w-3 fill-amber-500 text-amber-500" /> On Trip
+                </span>
+                <span className="flex items-center gap-1">
+                  <Circle className="h-3 w-3 fill-gray-400 text-gray-400" /> Offline
+                </span>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div
+                ref={mapRef}
+                className="w-full h-[500px] rounded-lg border border-border overflow-hidden"
+              />
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Driver List */}
+        <div className="lg:col-span-1">
+          <Card className="h-full">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5 text-primary" />
+                Drivers
+              </CardTitle>
+              <CardDescription>{filteredDrivers.length} drivers</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Filters */}
+              <div className="space-y-2">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search drivers..."
+                    className="pl-9"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Select value={regionFilter} onValueChange={setRegionFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Region" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Regions</SelectItem>
+                      {regions.map(region => (
+                        <SelectItem key={region.id} value={region.id}>{region.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="online">Online</SelectItem>
+                      <SelectItem value="on_trip">On Trip</SelectItem>
+                      <SelectItem value="offline">Offline</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Driver List */}
+              <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                {isLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  </div>
+                ) : filteredDrivers.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No drivers found
+                  </div>
+                ) : (
+                  filteredDrivers.map(driver => (
+                    <div
+                      key={driver.id}
+                      className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                        selectedDriver?.id === driver.id 
+                          ? 'border-primary bg-primary/5' 
+                          : 'hover:bg-muted/50'
+                      }`}
+                      onClick={() => setSelectedDriver(driver)}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium truncate">
+                              {driver.first_name} {driver.last_name}
+                            </span>
+                            <Badge 
+                              variant="outline" 
+                              className={
+                                !driver.is_online 
+                                  ? 'bg-gray-100 text-gray-600 border-gray-200'
+                                  : driver.current_trip 
+                                    ? 'bg-amber-100 text-amber-700 border-amber-200'
+                                    : 'bg-green-100 text-green-700 border-green-200'
+                              }
+                            >
+                              {!driver.is_online ? 'Offline' : driver.current_trip ? 'On Trip' : 'Available'}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <Phone className="h-3 w-3" />
+                              {driver.phone}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Star className="h-3 w-3 text-yellow-500" />
+                              {driver.rating?.toFixed(1) || '5.0'}
+                            </span>
+                          </div>
+                          {driver.current_trip && (
+                            <div className="mt-2 text-xs p-2 bg-amber-50 rounded border border-amber-100">
+                              <div className="flex items-center gap-1 text-amber-700">
+                                <Navigation className="h-3 w-3" />
+                                {driver.current_trip.pickup_address?.slice(0, 30)}...
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* Selected Driver Details */}
+      {selectedDriver && (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Car className="h-5 w-5" />
+              {selectedDriver.first_name} {selectedDriver.last_name}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="p-3 bg-muted/50 rounded-lg">
+                <p className="text-xs text-muted-foreground">Phone</p>
+                <p className="font-medium">{selectedDriver.phone}</p>
+              </div>
+              <div className="p-3 bg-muted/50 rounded-lg">
+                <p className="text-xs text-muted-foreground">Rating</p>
+                <p className="font-medium flex items-center gap-1">
+                  <Star className="h-4 w-4 text-yellow-500" />
+                  {selectedDriver.rating?.toFixed(1) || '5.0'}
+                </p>
+              </div>
+              <div className="p-3 bg-muted/50 rounded-lg">
+                <p className="text-xs text-muted-foreground">Total Trips</p>
+                <p className="font-medium">{selectedDriver.total_trips || 0}</p>
+              </div>
+              <div className="p-3 bg-muted/50 rounded-lg">
+                <p className="text-xs text-muted-foreground">Region</p>
+                <p className="font-medium">{selectedDriver.region?.name || 'Unknown'}</p>
+              </div>
+            </div>
+            {selectedDriver.current_trip && (
+              <div className="mt-4 p-4 border rounded-lg bg-amber-50 border-amber-200">
+                <p className="font-medium text-amber-800 mb-2">Current Trip</p>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Pickup</p>
+                    <p>{selectedDriver.current_trip.pickup_address}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Dropoff</p>
+                    <p>{selectedDriver.current_trip.dropoff_address}</p>
+                  </div>
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="mt-3"
+                  onClick={() => window.location.href = '/active-trips'}
+                >
+                  View Trip Details
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </AdminLayout>
+  );
+}
