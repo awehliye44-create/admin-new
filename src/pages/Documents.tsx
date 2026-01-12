@@ -40,7 +40,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { 
   FileText, Loader2, Search, RefreshCw, MoreHorizontal, Eye, 
   CheckCircle2, XCircle, Clock, AlertTriangle, FileCheck, FileClock,
-  FileX, Calendar
+  FileX, Calendar, UserCheck, ShieldCheck
 } from 'lucide-react';
 import { format, isPast, addDays, isBefore } from 'date-fns';
 import { toast } from 'sonner';
@@ -65,16 +65,19 @@ interface Document {
   } | null;
 }
 
+// UK Private Hire Required Documents
 const DOCUMENT_TYPES = [
-  { value: 'drivers_license', label: "Driver's License" },
-  { value: 'vehicle_registration', label: 'Vehicle Registration' },
-  { value: 'insurance', label: 'Insurance Certificate' },
-  { value: 'background_check', label: 'Background Check' },
-  { value: 'profile_photo', label: 'Profile Photo' },
-  { value: 'vehicle_photo', label: 'Vehicle Photo' },
-  { value: 'pco_license', label: 'PCO License' },
-  { value: 'mot_certificate', label: 'MOT Certificate' },
-  { value: 'other', label: 'Other' },
+  { value: 'private_hire_insurance', label: 'Private Hire Insurance Certificate', required: true, hasExpiry: true },
+  { value: 'mot_certificate', label: 'MOT Test Certificate', required: true, hasExpiry: true },
+  { value: 'phv_license', label: 'PHV (Private Hire Vehicle License)', required: true, hasExpiry: true },
+  { value: 'dvla_check_code', label: 'DVLA Electronic Counterpart Check Code', required: true, hasExpiry: false },
+  { value: 'phd_badge', label: 'PHD Badge (Private Hire Driver Badge)', required: true, hasExpiry: true },
+  { value: 'phl_license', label: 'PHL (Private Hire Driver License)', required: true, hasExpiry: true },
+  { value: 'dvla_driving_license', label: 'DVLA Driving License (Pink Card – Front)', required: true, hasExpiry: true },
+  { value: 'profile_photo', label: 'Profile Photo', required: true, hasExpiry: false },
+  { value: 'v5_logbook', label: 'V5 Logbook (Full)', required: true, hasExpiry: false },
+  { value: 'utr_number', label: 'UTR (Unique Taxpayer Reference)', required: true, hasExpiry: false },
+  { value: 'national_insurance', label: 'National Insurance Number', required: true, hasExpiry: false },
 ];
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
@@ -148,6 +151,7 @@ export default function Documents() {
 
       if (error) throw error;
 
+      // The trigger will automatically update the driver's documents_approved status
       toast.success(`Document ${reviewStatus === 'approved' ? 'approved' : 'rejected'} successfully`);
       setIsReviewOpen(false);
       setSelectedDocument(null);
@@ -161,6 +165,9 @@ export default function Documents() {
       setIsSaving(false);
     }
   };
+
+  // Get required document count for stats
+  const requiredDocTypes = DOCUMENT_TYPES.filter(d => d.required).map(d => d.value);
 
   const getDocumentTypeLabel = (type: string) => {
     return DOCUMENT_TYPES.find(t => t.value === type)?.label || type;
@@ -193,8 +200,39 @@ export default function Documents() {
   return (
     <AdminLayout 
       title="Document Management" 
-      description="Review and manage driver documents"
+      description="Review and manage UK Private Hire driver documents. Drivers can only receive bookings after all 11 required documents are approved."
     >
+      {/* Required Documents Info */}
+      <Card className="mb-6 border-primary/20 bg-primary/5">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <ShieldCheck className="h-5 w-5 text-primary" />
+            Required Documents for Driver Approval
+          </CardTitle>
+          <CardDescription>
+            Drivers must have all 11 documents approved before they can receive bookings
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+            {DOCUMENT_TYPES.filter(d => d.required).map((docType) => (
+              <div 
+                key={docType.value} 
+                className="flex items-center gap-2 text-sm p-2 rounded-md bg-background border"
+              >
+                <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                <span className="truncate">{docType.label}</span>
+                {docType.hasExpiry && (
+                  <span title="Has expiry date">
+                    <Calendar className="h-3 w-3 text-orange-500 flex-shrink-0" />
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <Card>
