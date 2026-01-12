@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Label } from '@/components/ui/label';
 import {
   Table,
   TableBody,
@@ -32,7 +33,7 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { 
   MessageSquare, Loader2, Search, Star, RefreshCw,
-  Eye, CheckCircle, XCircle, Clock, Car, User, Filter
+  Eye, CheckCircle, XCircle, Clock, Car, User, Filter, Plus
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
@@ -64,6 +65,27 @@ interface RiderFeedback {
   };
 }
 
+interface Customer {
+  user_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  phone: string | null;
+}
+
+interface Driver {
+  id: string;
+  first_name: string;
+  last_name: string;
+}
+
+interface Trip {
+  id: string;
+  trip_code: string | null;
+  pickup_address: string;
+  dropoff_address: string;
+  passenger_id: string;
+}
+
 const STATUS_OPTIONS = [
   { value: 'pending', label: 'Pending', color: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
   { value: 'reviewed', label: 'Reviewed', color: 'bg-blue-100 text-blue-700 border-blue-200' },
@@ -88,6 +110,21 @@ export default function RiderFeedback() {
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [adminNotes, setAdminNotes] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // New feedback form state
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [newFeedback, setNewFeedback] = useState({
+    customer_id: '',
+    driver_id: '',
+    trip_id: '',
+    rating: 5,
+    comment: '',
+    feedback_type: 'trip',
+  });
+  const [isCreating, setIsCreating] = useState(false);
 
   const fetchFeedback = useCallback(async () => {
     try {
@@ -126,9 +163,77 @@ export default function RiderFeedback() {
     }
   }, []);
 
+  const fetchFormData = useCallback(async () => {
+    try {
+      const [customersRes, driversRes, tripsRes] = await Promise.all([
+        supabase.from('customers').select('user_id, first_name, last_name, phone').order('first_name'),
+        supabase.from('drivers').select('id, first_name, last_name').eq('approval_status', 'approved').order('first_name'),
+        supabase.from('trips').select('id, trip_code, pickup_address, dropoff_address, passenger_id').eq('status', 'completed').order('created_at', { ascending: false }).limit(100),
+      ]);
+
+      if (customersRes.data) setCustomers(customersRes.data);
+      if (driversRes.data) setDrivers(driversRes.data);
+      if (tripsRes.data) setTrips(tripsRes.data);
+    } catch (err) {
+      console.error('Error fetching form data:', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchFeedback();
-  }, [fetchFeedback]);
+    fetchFormData();
+  }, [fetchFeedback, fetchFormData]);
+
+  const handleOpenCreateDialog = () => {
+    setNewFeedback({
+      customer_id: '',
+      driver_id: '',
+      trip_id: '',
+      rating: 5,
+      comment: '',
+      feedback_type: 'trip',
+    });
+    setIsCreateDialogOpen(true);
+  };
+
+  const handleCreateFeedback = async () => {
+    if (!newFeedback.customer_id) {
+      toast.error('Please select a customer');
+      return;
+    }
+
+    try {
+      setIsCreating(true);
+      const { error } = await supabase.from('rider_feedback').insert({
+        customer_id: newFeedback.customer_id,
+        driver_id: newFeedback.driver_id || null,
+        trip_id: newFeedback.trip_id || null,
+        rating: newFeedback.rating,
+        comment: newFeedback.comment || null,
+        feedback_type: newFeedback.feedback_type,
+        status: 'pending',
+      });
+
+      if (error) throw error;
+
+      toast.success('Feedback recorded successfully');
+      setIsCreateDialogOpen(false);
+      fetchFeedback();
+    } catch (err) {
+      console.error('Error creating feedback:', err);
+      toast.error('Failed to record feedback');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleTripSelect = (tripId: string) => {
+    setNewFeedback(prev => ({ ...prev, trip_id: tripId }));
+    const selectedTrip = trips.find(t => t.id === tripId);
+    if (selectedTrip) {
+      setNewFeedback(prev => ({ ...prev, customer_id: selectedTrip.passenger_id }));
+    }
+  };
 
   const handleViewFeedback = (item: RiderFeedback) => {
     setSelectedFeedback(item);
@@ -289,6 +394,10 @@ export default function RiderFeedback() {
               <CardDescription>{filteredFeedback.length} feedback items</CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-3">
+              <Button onClick={handleOpenCreateDialog}>
+                <Plus className="h-4 w-4 mr-2" />
+                Record Feedback
+              </Button>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -523,6 +632,138 @@ export default function RiderFeedback() {
               {isSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               <CheckCircle className="h-4 w-4 mr-2" />
               Resolve
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Feedback Dialog */}
+      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Record Rider Feedback</DialogTitle>
+            <DialogDescription>
+              Submit feedback and rating from a customer
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Trip Selection (optional) */}
+            <div className="space-y-2">
+              <Label>Trip (Optional)</Label>
+              <Select value={newFeedback.trip_id} onValueChange={handleTripSelect}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a completed trip..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {trips.map(trip => (
+                    <SelectItem key={trip.id} value={trip.id}>
+                      {trip.trip_code || trip.id.slice(0, 8)} - {trip.pickup_address.slice(0, 30)}...
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Customer Selection */}
+            <div className="space-y-2">
+              <Label>Customer *</Label>
+              <Select 
+                value={newFeedback.customer_id} 
+                onValueChange={(v) => setNewFeedback(prev => ({ ...prev, customer_id: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select customer..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {customers.map(c => (
+                    <SelectItem key={c.user_id} value={c.user_id}>
+                      {c.first_name || ''} {c.last_name || ''} {c.phone ? `(${c.phone})` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Driver Selection (optional) */}
+            <div className="space-y-2">
+              <Label>Driver (Optional)</Label>
+              <Select 
+                value={newFeedback.driver_id} 
+                onValueChange={(v) => setNewFeedback(prev => ({ ...prev, driver_id: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select driver..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {drivers.map(d => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.first_name} {d.last_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Rating */}
+            <div className="space-y-2">
+              <Label>Rating</Label>
+              <div className="flex items-center gap-1">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    type="button"
+                    onClick={() => setNewFeedback(prev => ({ ...prev, rating: star }))}
+                    className="p-1 hover:scale-110 transition-transform"
+                  >
+                    <Star
+                      className={`h-8 w-8 ${
+                        star <= newFeedback.rating 
+                          ? 'fill-yellow-400 text-yellow-400' 
+                          : 'text-gray-300 hover:text-yellow-300'
+                      }`}
+                    />
+                  </button>
+                ))}
+                <span className="ml-2 text-lg font-medium">{newFeedback.rating}/5</span>
+              </div>
+            </div>
+
+            {/* Feedback Type */}
+            <div className="space-y-2">
+              <Label>Feedback Type</Label>
+              <Select 
+                value={newFeedback.feedback_type} 
+                onValueChange={(v) => setNewFeedback(prev => ({ ...prev, feedback_type: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TYPE_OPTIONS.map(opt => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Comment */}
+            <div className="space-y-2">
+              <Label>Comment</Label>
+              <Textarea
+                placeholder="Customer's feedback or comment..."
+                value={newFeedback.comment}
+                onChange={(e) => setNewFeedback(prev => ({ ...prev, comment: e.target.value }))}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateFeedback} disabled={isCreating}>
+              {isCreating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Submit Feedback
             </Button>
           </DialogFooter>
         </DialogContent>
