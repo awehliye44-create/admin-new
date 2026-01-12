@@ -24,6 +24,7 @@ import AutoDispatchRules from "./pages/AutoDispatchRules";
 import FleetTracking from "./pages/FleetTracking";
 import ActiveTrips from "./pages/ActiveTrips";
 import VehicleTypes from "./pages/VehicleTypes";
+import RiderFeedback from "./pages/RiderFeedback";
 
 import {
   ScheduledRides,
@@ -43,7 +44,6 @@ import {
   CorporateBilling,
   CorporateReports,
   CorporateSettings,
-  RiderFeedback,
   Suspensions,
   Complaints,
   Tickets,

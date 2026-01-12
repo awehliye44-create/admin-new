@@ -252,6 +252,33 @@ export type Database = {
           },
         ]
       }
+      push_subscriptions: {
+        Row: {
+          created_at: string
+          endpoint: string
+          id: string
+          keys: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          endpoint: string
+          id?: string
+          keys: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          endpoint?: string
+          id?: string
+          keys?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       regions: {
         Row: {
           created_at: string
@@ -287,6 +314,63 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      rider_feedback: {
+        Row: {
+          admin_notes: string | null
+          comment: string | null
+          created_at: string
+          customer_id: string
+          driver_id: string | null
+          feedback_type: string | null
+          id: string
+          rating: number
+          status: string | null
+          trip_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          comment?: string | null
+          created_at?: string
+          customer_id: string
+          driver_id?: string | null
+          feedback_type?: string | null
+          id?: string
+          rating: number
+          status?: string | null
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          admin_notes?: string | null
+          comment?: string | null
+          created_at?: string
+          customer_id?: string
+          driver_id?: string | null
+          feedback_type?: string | null
+          id?: string
+          rating?: number
+          status?: string | null
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rider_feedback_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rider_feedback_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       service_area_cancellation_fees: {
         Row: {
