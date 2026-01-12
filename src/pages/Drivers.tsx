@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table,
@@ -20,6 +21,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import {
   DropdownMenu,
@@ -28,6 +30,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { 
   Plus, 
@@ -45,7 +54,8 @@ import {
   UserX,
   Phone,
   Mail,
-  MapPin
+  MapPin,
+  UserPlus
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -90,6 +100,16 @@ export default function Drivers() {
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+  const [regionsList, setRegionsList] = useState<Region[]>([]);
+  const [newDriver, setNewDriver] = useState({
+    first_name: '',
+    last_name: '',
+    email: '',
+    phone: '',
+    region_id: '',
+  });
 
   const fetchDrivers = async () => {
     try {
@@ -108,6 +128,7 @@ export default function Drivers() {
         .select('id, name');
       
       if (regionsData) {
+        setRegionsList(regionsData);
         const regionsMap: Record<string, Region> = {};
         regionsData.forEach(r => { regionsMap[r.id] = r; });
         setRegions(regionsMap);
@@ -206,6 +227,54 @@ export default function Drivers() {
     setIsDetailsOpen(true);
   };
 
+  const resetNewDriverForm = () => {
+    setNewDriver({
+      first_name: '',
+      last_name: '',
+      email: '',
+      phone: '',
+      region_id: '',
+    });
+  };
+
+  const handleAddDriver = async () => {
+    if (!newDriver.first_name || !newDriver.last_name || !newDriver.email || !newDriver.phone || !newDriver.region_id) {
+      toast.error('Please fill in all fields');
+      return;
+    }
+
+    setIsAdding(true);
+    try {
+      // Create driver without user_id (admin-created driver)
+      // We need to generate a placeholder user_id since it's required
+      const { data, error } = await supabase
+        .from('drivers')
+        .insert({
+          first_name: newDriver.first_name,
+          last_name: newDriver.last_name,
+          email: newDriver.email,
+          phone: newDriver.phone,
+          region_id: newDriver.region_id,
+          user_id: crypto.randomUUID(), // Placeholder for admin-created drivers
+          approval_status: 'approved', // Admin-created drivers are auto-approved
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setDrivers(prev => [data, ...prev]);
+      toast.success('Driver added successfully');
+      setIsAddDialogOpen(false);
+      resetNewDriverForm();
+    } catch (err: any) {
+      console.error('Error adding driver:', err);
+      toast.error(err.message || 'Failed to add driver');
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
   return (
     <AdminLayout 
       title="Driver Profiles" 
@@ -275,6 +344,10 @@ export default function Drivers() {
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
+            <Button onClick={() => setIsAddDialogOpen(true)}>
+              <UserPlus className="mr-2 h-4 w-4" />
+              Add Driver
+            </Button>
           </div>
         </CardHeader>
         <CardContent>
@@ -590,6 +663,107 @@ export default function Drivers() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Driver Dialog */}
+      <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
+        setIsAddDialogOpen(open);
+        if (!open) resetNewDriverForm();
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="h-5 w-5" />
+              Add New Driver
+            </DialogTitle>
+            <DialogDescription>
+              Create a new driver profile. Admin-created drivers are auto-approved.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="first_name">First Name</Label>
+                <Input
+                  id="first_name"
+                  placeholder="John"
+                  value={newDriver.first_name}
+                  onChange={(e) => setNewDriver(prev => ({ ...prev, first_name: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="last_name">Last Name</Label>
+                <Input
+                  id="last_name"
+                  placeholder="Doe"
+                  value={newDriver.last_name}
+                  onChange={(e) => setNewDriver(prev => ({ ...prev, last_name: e.target.value }))}
+                />
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="john.doe@example.com"
+                value={newDriver.email}
+                onChange={(e) => setNewDriver(prev => ({ ...prev, email: e.target.value }))}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="phone">Phone</Label>
+              <Input
+                id="phone"
+                type="tel"
+                placeholder="+44 123 456 7890"
+                value={newDriver.phone}
+                onChange={(e) => setNewDriver(prev => ({ ...prev, phone: e.target.value }))}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="region">Region</Label>
+              <Select
+                value={newDriver.region_id}
+                onValueChange={(value) => setNewDriver(prev => ({ ...prev, region_id: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a region" />
+                </SelectTrigger>
+                <SelectContent>
+                  {regionsList.map((region) => (
+                    <SelectItem key={region.id} value={region.id}>
+                      {region.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddDriver} disabled={isAdding}>
+              {isAdding ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Adding...
+                </>
+              ) : (
+                <>
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Add Driver
+                </>
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </AdminLayout>
