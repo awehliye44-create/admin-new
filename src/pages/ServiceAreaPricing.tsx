@@ -118,10 +118,10 @@ export default function ServiceAreaPricing() {
   }, []);
 
   useEffect(() => {
-    if (selectedServiceAreaId) {
+    if (selectedServiceAreaId && vehicleTypes.length > 0) {
       fetchPricingData(selectedServiceAreaId);
     }
-  }, [selectedServiceAreaId]);
+  }, [selectedServiceAreaId, vehicleTypes]);
 
   const fetchInitialData = async () => {
     try {
