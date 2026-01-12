@@ -49,6 +49,12 @@ interface Region {
   geo_boundary: any;
 }
 
+interface ServiceArea {
+  id: string;
+  name: string;
+  region_id: string;
+}
+
 declare global {
   interface Window {
     google: any;
@@ -58,9 +64,12 @@ declare global {
 export default function FleetTracking() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [regions, setRegions] = useState<Region[]>([]);
+  const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
+  const [driverServiceAreasMap, setDriverServiceAreasMap] = useState<Record<string, string[]>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [regionFilter, setRegionFilter] = useState('all');
+  const [serviceAreaFilter, setServiceAreaFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
@@ -105,21 +114,34 @@ export default function FleetTracking() {
     try {
       setIsLoading(true);
       
-      const [driversRes, regionsRes, tripsRes] = await Promise.all([
-        supabase
-          .from('drivers')
-          .select('*, region:regions(name)')
-          .eq('approval_status', 'approved')
-          .order('is_online', { ascending: false }),
-        supabase
-          .from('regions')
-          .select('id, name, geo_boundary')
-          .eq('status', 'active'),
-        supabase
-          .from('trips')
-          .select('id, driver_id, status, pickup_address, dropoff_address')
-          .in('status', ['accepted', 'arrived', 'in_progress']),
-      ]);
+      const driversRes = await supabase
+        .from('drivers')
+        .select('*, region:regions(name)')
+        .eq('approval_status', 'approved')
+        .order('is_online', { ascending: false });
+      
+      const regionsRes = await supabase
+        .from('regions')
+        .select('id, name, geo_boundary')
+        .eq('status', 'active');
+      
+      // Fetch service areas
+      // @ts-expect-error - Type instantiation too deep in generated Supabase types
+      const { data: rawServiceAreas } = await supabase
+        .from('service_areas')
+        .select('id, name, region_id')
+        .eq('status', 'active');
+      
+      const serviceAreasData: ServiceArea[] = (rawServiceAreas || []).map((sa: any) => ({
+        id: sa.id as string,
+        name: sa.name as string,
+        region_id: sa.region_id as string
+      }));
+      
+      const tripsRes = await supabase
+        .from('trips')
+        .select('id, driver_id, status, pickup_address, dropoff_address')
+        .in('status', ['accepted', 'arrived', 'in_progress']);
 
       if (driversRes.error) throw driversRes.error;
       if (regionsRes.error) throw regionsRes.error;
@@ -131,8 +153,29 @@ export default function FleetTracking() {
         return { ...driver, current_trip: currentTrip || null };
       });
 
+      // Fetch driver service area assignments
+      const driverIds = driversWithTrips.map(d => d.id);
+      if (driverIds.length > 0) {
+        const { data: dsaData } = await supabase
+          .from('driver_service_areas')
+          .select('driver_id, service_area_id')
+          .in('driver_id', driverIds);
+        
+        if (dsaData) {
+          const mapping: Record<string, string[]> = {};
+          dsaData.forEach(item => {
+            if (!mapping[item.driver_id]) {
+              mapping[item.driver_id] = [];
+            }
+            mapping[item.driver_id].push(item.service_area_id);
+          });
+          setDriverServiceAreasMap(mapping);
+        }
+      }
+
       setDrivers(driversWithTrips);
       setRegions(regionsRes.data || []);
+      setServiceAreas(serviceAreasData || []);
       setLastRefresh(new Date());
     } catch (err) {
       console.error('Error fetching fleet data:', err);
@@ -228,11 +271,13 @@ export default function FleetTracking() {
         `${driver.first_name} ${driver.last_name}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
         driver.phone.includes(searchQuery);
       const matchesRegion = regionFilter === 'all' || driver.region_id === regionFilter;
+      const matchesServiceArea = serviceAreaFilter === 'all' || 
+        (driverServiceAreasMap[driver.id]?.includes(serviceAreaFilter));
       const matchesStatus = statusFilter === 'all' || 
         (statusFilter === 'online' && driver.is_online) ||
         (statusFilter === 'offline' && !driver.is_online) ||
         (statusFilter === 'on_trip' && driver.current_trip);
-      return matchesSearch && matchesRegion && matchesStatus;
+      return matchesSearch && matchesRegion && matchesServiceArea && matchesStatus;
     });
 
     // Create markers for each driver
@@ -313,18 +358,35 @@ export default function FleetTracking() {
 
       markersRef.current.set(driver.id, marker);
     });
-  }, [drivers, regions, searchQuery, regionFilter, statusFilter, isMapLoaded]);
+  }, [drivers, regions, searchQuery, regionFilter, serviceAreaFilter, statusFilter, isMapLoaded, driverServiceAreasMap]);
+
+  // Filter service areas by selected region
+  const filteredServiceAreas = regionFilter === 'all' 
+    ? serviceAreas 
+    : serviceAreas.filter(sa => sa.region_id === regionFilter);
+
+  // Reset service area filter when region changes
+  useEffect(() => {
+    if (regionFilter !== 'all' && serviceAreaFilter !== 'all') {
+      const isValidServiceArea = filteredServiceAreas.some(sa => sa.id === serviceAreaFilter);
+      if (!isValidServiceArea) {
+        setServiceAreaFilter('all');
+      }
+    }
+  }, [regionFilter, filteredServiceAreas, serviceAreaFilter]);
 
   const filteredDrivers = drivers.filter(driver => {
     const matchesSearch = 
       `${driver.first_name} ${driver.last_name}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
       driver.phone.includes(searchQuery);
     const matchesRegion = regionFilter === 'all' || driver.region_id === regionFilter;
+    const matchesServiceArea = serviceAreaFilter === 'all' || 
+      (driverServiceAreasMap[driver.id]?.includes(serviceAreaFilter));
     const matchesStatus = statusFilter === 'all' || 
       (statusFilter === 'online' && driver.is_online) ||
       (statusFilter === 'offline' && !driver.is_online) ||
       (statusFilter === 'on_trip' && driver.current_trip);
-    return matchesSearch && matchesRegion && matchesStatus;
+    return matchesSearch && matchesRegion && matchesServiceArea && matchesStatus;
   });
 
   const onlineCount = drivers.filter(d => d.is_online).length;
@@ -462,18 +524,33 @@ export default function FleetTracking() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <Select 
+                    value={serviceAreaFilter} 
+                    onValueChange={setServiceAreaFilter}
+                    disabled={filteredServiceAreas.length === 0}
+                  >
                     <SelectTrigger>
-                      <SelectValue placeholder="Status" />
+                      <SelectValue placeholder="Service Area" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Status</SelectItem>
-                      <SelectItem value="online">Online</SelectItem>
-                      <SelectItem value="on_trip">On Trip</SelectItem>
-                      <SelectItem value="offline">Offline</SelectItem>
+                      <SelectItem value="all">All Service Areas</SelectItem>
+                      {filteredServiceAreas.map(area => (
+                        <SelectItem key={area.id} value={area.id}>{area.name}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="online">Online</SelectItem>
+                    <SelectItem value="on_trip">On Trip</SelectItem>
+                    <SelectItem value="offline">Offline</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Driver List */}
