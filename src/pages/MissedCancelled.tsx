@@ -96,7 +96,7 @@ export default function MissedCancelled() {
         .from('trips')
         .select(`
           *,
-          driver:drivers(id, first_name, last_name, phone)
+          driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone)
         `)
         .in('status', ['cancelled', 'no_show', 'missed', 'expired'])
         .gte('created_at', start.toISOString())

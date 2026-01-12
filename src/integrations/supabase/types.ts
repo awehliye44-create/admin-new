@@ -1081,17 +1081,21 @@ export type Database = {
         Row: {
           client_action_id: string | null
           completed_at: string | null
+          confirm_deadline_at: string | null
+          confirmed_driver_id: string | null
           created_at: string
           currency: string | null
           currency_code: string | null
           current_stop_index: number | null
           dispatch_mode: string | null
+          driver_confirm_deadline_at: string | null
           driver_id: string | null
           driver_location_lat: number | null
           driver_location_lng: number | null
           dropoff_address: string
           dropoff_latitude: number | null
           dropoff_longitude: number | null
+          escalation_status: string | null
           estimated_distance_km: number | null
           estimated_duration_minutes: number | null
           estimated_fare: number | null
@@ -1108,6 +1112,7 @@ export type Database = {
           pickup_address: string
           pickup_latitude: number | null
           pickup_longitude: number | null
+          pre_assigned_driver_id: string | null
           qr_session_id: string | null
           scheduled_at: string | null
           scheduled_broadcast_at: string | null
@@ -1126,17 +1131,21 @@ export type Database = {
         Insert: {
           client_action_id?: string | null
           completed_at?: string | null
+          confirm_deadline_at?: string | null
+          confirmed_driver_id?: string | null
           created_at?: string
           currency?: string | null
           currency_code?: string | null
           current_stop_index?: number | null
           dispatch_mode?: string | null
+          driver_confirm_deadline_at?: string | null
           driver_id?: string | null
           driver_location_lat?: number | null
           driver_location_lng?: number | null
           dropoff_address: string
           dropoff_latitude?: number | null
           dropoff_longitude?: number | null
+          escalation_status?: string | null
           estimated_distance_km?: number | null
           estimated_duration_minutes?: number | null
           estimated_fare?: number | null
@@ -1153,6 +1162,7 @@ export type Database = {
           pickup_address: string
           pickup_latitude?: number | null
           pickup_longitude?: number | null
+          pre_assigned_driver_id?: string | null
           qr_session_id?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
@@ -1171,17 +1181,21 @@ export type Database = {
         Update: {
           client_action_id?: string | null
           completed_at?: string | null
+          confirm_deadline_at?: string | null
+          confirmed_driver_id?: string | null
           created_at?: string
           currency?: string | null
           currency_code?: string | null
           current_stop_index?: number | null
           dispatch_mode?: string | null
+          driver_confirm_deadline_at?: string | null
           driver_id?: string | null
           driver_location_lat?: number | null
           driver_location_lng?: number | null
           dropoff_address?: string
           dropoff_latitude?: number | null
           dropoff_longitude?: number | null
+          escalation_status?: string | null
           estimated_distance_km?: number | null
           estimated_duration_minutes?: number | null
           estimated_fare?: number | null
@@ -1198,6 +1212,7 @@ export type Database = {
           pickup_address?: string
           pickup_latitude?: number | null
           pickup_longitude?: number | null
+          pre_assigned_driver_id?: string | null
           qr_session_id?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
@@ -1215,6 +1230,20 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "trips_confirmed_driver_id_fkey"
+            columns: ["confirmed_driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_confirmed_driver_id_fkey"
+            columns: ["confirmed_driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "trips_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
@@ -1224,6 +1253,20 @@ export type Database = {
           {
             foreignKeyName: "trips_driver_id_fkey"
             columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_pre_assigned_driver_id_fkey"
+            columns: ["pre_assigned_driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_pre_assigned_driver_id_fkey"
+            columns: ["pre_assigned_driver_id"]
             isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]

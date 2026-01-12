@@ -43,7 +43,7 @@ export default function Dispatch() {
           .from('trips')
           .select(`
             *,
-            driver:drivers(first_name, last_name, driver_code)
+            driver:drivers!trips_driver_id_fkey(first_name, last_name, driver_code)
           `)
           .order('created_at', { ascending: false })
           .limit(50);

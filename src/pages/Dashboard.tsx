@@ -255,7 +255,7 @@ export default function Dashboard() {
         tripsQuery,
         previousTripsQuery,
         supabase.from('trips')
-          .select('id, passenger_name, pickup_address, dropoff_address, driver:drivers(first_name, last_name)')
+          .select('id, passenger_name, pickup_address, dropoff_address, driver:drivers!trips_driver_id_fkey(first_name, last_name)')
           .order('created_at', { ascending: false })
           .limit(5),
       ]);

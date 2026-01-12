@@ -55,11 +55,19 @@ interface TripStop {
 interface ServiceArea {
   id: string;
   name: string;
+  region_id: string;
   region?: {
     name: string;
     currency_code: string;
     distance_unit: string;
   } | null;
+}
+
+interface Region {
+  id: string;
+  name: string;
+  currency_code: string;
+  distance_unit: string;
 }
 
 interface CompletedTrip {
@@ -102,6 +110,13 @@ export default function TripHistory() {
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('7days');
 
+  // Region and Service Area filters
+  const [regions, setRegions] = useState<Region[]>([]);
+  const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
+  const [selectedRegionId, setSelectedRegionId] = useState<string>('all');
+  const [selectedServiceAreaId, setSelectedServiceAreaId] = useState<string>('all');
+  const [activeRegion, setActiveRegion] = useState<Region | null>(null);
+
   // Dialog states
   const [isViewOpen, setIsViewOpen] = useState(false);
   const [selectedTrip, setSelectedTrip] = useState<CompletedTrip | null>(null);
@@ -131,6 +146,48 @@ export default function TripHistory() {
         return { start: startOfDay(subDays(now, 7)), end: endOfDay(now) };
     }
   }, [dateFilter]);
+
+  // Fetch regions and service areas on mount
+  const fetchRegionsAndServiceAreas = useCallback(async () => {
+    try {
+      const [regionsRes, serviceAreasRes] = await Promise.all([
+        supabase
+          .from('regions')
+          .select('id, name, currency_code, distance_unit')
+          .eq('status', 'active')
+          .order('name'),
+        supabase
+          .from('service_areas')
+          .select('id, name, region_id, region:regions(name, currency_code, distance_unit)')
+          .eq('is_active', true)
+          .order('name'),
+      ]);
+
+      if (regionsRes.error) throw regionsRes.error;
+      if (serviceAreasRes.error) throw serviceAreasRes.error;
+
+      setRegions(regionsRes.data || []);
+      setServiceAreas((serviceAreasRes.data || []) as ServiceArea[]);
+    } catch (err) {
+      console.error('Error fetching regions/service areas:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchRegionsAndServiceAreas();
+  }, [fetchRegionsAndServiceAreas]);
+
+  // Update active region when filter changes
+  useEffect(() => {
+    if (selectedRegionId === 'all') {
+      setActiveRegion(null);
+    } else {
+      const region = regions.find(r => r.id === selectedRegionId);
+      setActiveRegion(region || null);
+    }
+    // Reset service area when region changes
+    setSelectedServiceAreaId('all');
+  }, [selectedRegionId, regions]);
 
   const fetchData = useCallback(async () => {
     try {
@@ -182,20 +239,21 @@ export default function TripHistory() {
     }
   };
 
-  const fetchServiceArea = async (regionId: string) => {
+  const fetchServiceAreaForTrip = async (regionId: string) => {
     try {
       const { data, error } = await supabase
         .from('service_areas')
         .select(`
           id,
           name,
+          region_id,
           region:regions(name, currency_code, distance_unit)
         `)
         .eq('region_id', regionId)
         .limit(1)
-        .single();
+        .maybeSingle();
 
-      if (error) {
+      if (error || !data) {
         // Fallback: try to get region directly
         const { data: regionData } = await supabase
           .from('regions')
@@ -207,6 +265,7 @@ export default function TripHistory() {
           setSelectedServiceArea({
             id: regionData.id,
             name: regionData.name,
+            region_id: regionData.id,
             region: {
               name: regionData.name,
               currency_code: regionData.currency_code,
@@ -232,7 +291,7 @@ export default function TripHistory() {
     
     // Fetch service area if driver has region
     if (trip.driver?.region_id) {
-      await fetchServiceArea(trip.driver.region_id);
+      await fetchServiceAreaForTrip(trip.driver.region_id);
     }
   };
 
@@ -387,6 +446,38 @@ export default function TripHistory() {
     return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
   };
 
+  // Get the active currency symbol (from filter or default)
+  const getActiveCurrencySymbol = () => {
+    if (activeRegion) {
+      return getCurrencySymbol(activeRegion.currency_code);
+    }
+    return '£';
+  };
+
+  // Get the active distance unit (from filter or default)
+  const getActiveDistanceUnit = () => {
+    if (activeRegion) {
+      return activeRegion.distance_unit === 'km' ? 'km' : 'mi';
+    }
+    return 'mi';
+  };
+
+  // Convert km to miles if needed
+  const formatDistance = (distanceKm: number | null) => {
+    if (!distanceKm) return 'N/A';
+    const unit = getActiveDistanceUnit();
+    if (unit === 'mi') {
+      const miles = distanceKm * 0.621371;
+      return `${miles.toFixed(1)} mi`;
+    }
+    return `${distanceKm.toFixed(1)} km`;
+  };
+
+  // Get available service areas for selected region
+  const filteredServiceAreas = selectedRegionId === 'all'
+    ? serviceAreas
+    : serviceAreas.filter(sa => sa.region_id === selectedRegionId);
+
   const filteredTrips = trips.filter(trip => {
     const matchesSearch = 
       trip.trip_code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -396,13 +487,23 @@ export default function TripHistory() {
       trip.driver?.first_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       trip.driver?.last_name?.toLowerCase().includes(searchQuery.toLowerCase());
     
+    // Region filter
+    if (selectedRegionId !== 'all') {
+      if (!trip.driver?.region_id || trip.driver.region_id !== selectedRegionId) {
+        return false;
+      }
+    }
+
+    // Service area filter (check driver's service area assignments if needed)
+    // For now, we filter by region only since trips don't store service_area_id directly
+    
     return matchesSearch;
   });
 
-  // Stats
-  const totalRevenue = trips.reduce((sum, t) => sum + (t.fare || 0), 0);
-  const avgFare = trips.length > 0 ? totalRevenue / trips.length : 0;
-  const multiStopTrips = trips.filter(t => (t.total_stops || 0) > 0).length;
+  // Stats based on filtered trips
+  const totalRevenue = filteredTrips.reduce((sum, t) => sum + (t.fare || 0), 0);
+  const avgFare = filteredTrips.length > 0 ? totalRevenue / filteredTrips.length : 0;
+  const multiStopTrips = filteredTrips.filter(t => (t.total_stops || 0) > 0).length;
 
   return (
     <AdminLayout 
@@ -416,7 +517,7 @@ export default function TripHistory() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Total Trips</p>
-                <p className="text-2xl font-bold">{trips.length}</p>
+                <p className="text-2xl font-bold">{filteredTrips.length}</p>
               </div>
               <CheckCircle className="h-8 w-8 text-green-500 opacity-80" />
             </div>
@@ -428,7 +529,7 @@ export default function TripHistory() {
               <div>
                 <p className="text-sm text-muted-foreground">Total Revenue</p>
                 <p className="text-2xl font-bold text-green-600">
-                  £{totalRevenue.toFixed(2)}
+                  {getActiveCurrencySymbol()}{totalRevenue.toFixed(2)}
                 </p>
               </div>
               <DollarSign className="h-8 w-8 text-green-500" />
@@ -440,7 +541,7 @@ export default function TripHistory() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Average Fare</p>
-                <p className="text-2xl font-bold">£{avgFare.toFixed(2)}</p>
+                <p className="text-2xl font-bold">{getActiveCurrencySymbol()}{avgFare.toFixed(2)}</p>
               </div>
               <Route className="h-8 w-8 text-muted-foreground opacity-80" />
             </div>
@@ -466,22 +567,58 @@ export default function TripHistory() {
               <History className="h-5 w-5 text-primary" />
               Completed Trips
             </CardTitle>
-            <CardDescription>
+            <CardDescription className="flex items-center gap-2 flex-wrap">
               All completed rides with route and payment details
+              {activeRegion && (
+                <Badge variant="outline" className="ml-2 text-xs">
+                  {activeRegion.name} • {getActiveCurrencySymbol()} • {getActiveDistanceUnit()}
+                </Badge>
+              )}
             </CardDescription>
           </div>
-          <div className="flex flex-col gap-2 md:flex-row md:items-center">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center flex-wrap">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search trips..."
-                className="pl-9 w-full md:w-[200px]"
+                className="pl-9 w-full md:w-[180px]"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
-            <Select value={dateFilter} onValueChange={setDateFilter}>
+            <Select value={selectedRegionId} onValueChange={setSelectedRegionId}>
               <SelectTrigger className="w-full md:w-[140px]">
+                <Globe className="h-4 w-4 mr-2 text-muted-foreground" />
+                <SelectValue placeholder="Region" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Regions</SelectItem>
+                {regions.map((region) => (
+                  <SelectItem key={region.id} value={region.id}>
+                    {region.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select 
+              value={selectedServiceAreaId} 
+              onValueChange={setSelectedServiceAreaId}
+              disabled={filteredServiceAreas.length === 0}
+            >
+              <SelectTrigger className="w-full md:w-[150px]">
+                <SelectValue placeholder="Service Area" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Areas</SelectItem>
+                {filteredServiceAreas.map((area) => (
+                  <SelectItem key={area.id} value={area.id}>
+                    {area.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={dateFilter} onValueChange={setDateFilter}>
+              <SelectTrigger className="w-full md:w-[130px]">
                 <SelectValue placeholder="Date Range" />
               </SelectTrigger>
               <SelectContent>
@@ -574,12 +711,12 @@ export default function TripHistory() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {trip.estimated_distance_km 
-                        ? `${Number(trip.estimated_distance_km).toFixed(1)} km` 
-                        : 'N/A'}
+                      {formatDistance(trip.estimated_distance_km)}
                     </TableCell>
                     <TableCell className="font-medium text-green-600">
-                      {getCurrencySymbol(trip.currency_code)}
+                      {trip.currency_code 
+                        ? getCurrencySymbol(trip.currency_code)
+                        : getActiveCurrencySymbol()}
                       {(trip.fare || 0).toFixed(2)}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
