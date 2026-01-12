@@ -1311,6 +1311,17 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: boolean
       }
+      create_driver_vehicle: {
+        Args: {
+          p_color: string
+          p_driver_id: string
+          p_license_plate: string
+          p_make: string
+          p_model: string
+          p_year: number
+        }
+        Returns: string
+      }
       get_region_code: { Args: { p_region_id: string }; Returns: string }
       has_role: {
         Args: {
