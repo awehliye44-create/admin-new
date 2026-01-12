@@ -112,7 +112,7 @@ export default function ScheduledRides() {
           .from('trips')
           .select(`
             *,
-            driver:drivers(id, first_name, last_name, phone)
+            driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone)
           `)
           .eq('is_scheduled', true)
           .in('status', ['pending', 'searching', 'accepted'])
