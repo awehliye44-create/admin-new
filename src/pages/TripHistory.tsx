@@ -1,0 +1,747 @@
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { AdminLayout } from '@/components/layout/AdminLayout';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { supabase } from '@/integrations/supabase/client';
+import { 
+  History, Loader2, Search, RefreshCw, MapPin, Phone,
+  Eye, CheckCircle, Clock, Route, DollarSign, Calendar,
+  Navigation, User, Car
+} from 'lucide-react';
+import { format, subDays, startOfDay, endOfDay } from 'date-fns';
+import { toast } from 'sonner';
+
+/* global google */
+
+interface TripStop {
+  id: string;
+  trip_id: string;
+  stop_index: number;
+  address: string;
+  lat: number | null;
+  lng: number | null;
+  type: string;
+  status: string;
+  arrived_at: string | null;
+  completed_at: string | null;
+}
+
+interface CompletedTrip {
+  id: string;
+  trip_code: string | null;
+  status: string | null;
+  passenger_name: string | null;
+  passenger_phone: string | null;
+  pickup_address: string;
+  pickup_latitude: number | null;
+  pickup_longitude: number | null;
+  dropoff_address: string;
+  dropoff_latitude: number | null;
+  dropoff_longitude: number | null;
+  estimated_fare: number | null;
+  fare: number | null;
+  currency_code: string | null;
+  estimated_distance_km: number | null;
+  estimated_duration_minutes: number | null;
+  total_stops: number | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  payment_method: string | null;
+  surge_multiplier: number | null;
+  driver_id: string | null;
+  driver?: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    phone: string;
+    driver_code: string | null;
+  } | null;
+}
+
+export default function TripHistory() {
+  const [trips, setTrips] = useState<CompletedTrip[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [dateFilter, setDateFilter] = useState('7days');
+
+  // Dialog states
+  const [isViewOpen, setIsViewOpen] = useState(false);
+  const [selectedTrip, setSelectedTrip] = useState<CompletedTrip | null>(null);
+  const [tripStops, setTripStops] = useState<TripStop[]>([]);
+  const [isLoadingStops, setIsLoadingStops] = useState(false);
+
+  // Map state
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<google.maps.Map | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const markersRef = useRef<any[]>([]);
+  const polylineRef = useRef<google.maps.Polyline | null>(null);
+
+  const getDateRange = useCallback(() => {
+    const now = new Date();
+    switch (dateFilter) {
+      case 'today':
+        return { start: startOfDay(now), end: endOfDay(now) };
+      case '7days':
+        return { start: startOfDay(subDays(now, 7)), end: endOfDay(now) };
+      case '30days':
+        return { start: startOfDay(subDays(now, 30)), end: endOfDay(now) };
+      case '90days':
+        return { start: startOfDay(subDays(now, 90)), end: endOfDay(now) };
+      default:
+        return { start: startOfDay(subDays(now, 7)), end: endOfDay(now) };
+    }
+  }, [dateFilter]);
+
+  const fetchData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const { start, end } = getDateRange();
+      
+      const { data, error } = await supabase
+        .from('trips')
+        .select(`
+          *,
+          driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, driver_code)
+        `)
+        .eq('status', 'completed')
+        .gte('created_at', start.toISOString())
+        .lte('created_at', end.toISOString())
+        .order('completed_at', { ascending: false });
+
+      if (error) throw error;
+
+      setTrips(data || []);
+    } catch (err) {
+      console.error('Error fetching completed trips:', err);
+      toast.error('Failed to load trip history');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [getDateRange]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const fetchTripStops = async (tripId: string) => {
+    try {
+      setIsLoadingStops(true);
+      const { data, error } = await supabase
+        .from('trip_stops')
+        .select('*')
+        .eq('trip_id', tripId)
+        .order('stop_index', { ascending: true });
+
+      if (error) throw error;
+      setTripStops(data || []);
+    } catch (err) {
+      console.error('Error fetching trip stops:', err);
+      setTripStops([]);
+    } finally {
+      setIsLoadingStops(false);
+    }
+  };
+
+  const handleViewTrip = async (trip: CompletedTrip) => {
+    setSelectedTrip(trip);
+    setIsViewOpen(true);
+    await fetchTripStops(trip.id);
+  };
+
+  // Initialize map when dialog opens with a trip
+  useEffect(() => {
+    if (!isViewOpen || !selectedTrip || !mapContainerRef.current) return;
+
+    // Wait for dialog to be fully rendered
+    const initTimer = setTimeout(() => {
+      if (!mapContainerRef.current || !window.google) return;
+
+      const center = {
+        lat: selectedTrip.pickup_latitude || 51.5074,
+        lng: selectedTrip.pickup_longitude || -0.1278,
+      };
+
+      mapRef.current = new window.google.maps.Map(mapContainerRef.current, {
+        center,
+        zoom: 13,
+        styles: [
+          { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+          { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+        ],
+      });
+    }, 100);
+
+    return () => {
+      clearTimeout(initTimer);
+      // Cleanup markers and polyline
+      markersRef.current.forEach(m => m.setMap(null));
+      markersRef.current = [];
+      polylineRef.current?.setMap(null);
+      polylineRef.current = null;
+    };
+  }, [isViewOpen, selectedTrip]);
+
+  // Update markers when trip or stops change
+  useEffect(() => {
+    if (!mapRef.current || !selectedTrip) return;
+
+    // Clear existing markers
+    markersRef.current.forEach(m => m.setMap(null));
+    markersRef.current = [];
+    polylineRef.current?.setMap(null);
+
+    const bounds = new window.google.maps.LatLngBounds();
+    const path: google.maps.LatLngLiteral[] = [];
+
+    // Add pickup marker
+    if (selectedTrip.pickup_latitude && selectedTrip.pickup_longitude) {
+      const pickupPos = { lat: selectedTrip.pickup_latitude, lng: selectedTrip.pickup_longitude };
+      path.push(pickupPos);
+      bounds.extend(pickupPos);
+
+      const pickupMarker = new window.google.maps.Marker({
+        position: pickupPos,
+        map: mapRef.current,
+        icon: {
+          path: window.google.maps.SymbolPath.CIRCLE,
+          scale: 10,
+          fillColor: '#22c55e',
+          fillOpacity: 1,
+          strokeColor: '#ffffff',
+          strokeWeight: 2,
+        },
+        title: 'Pickup',
+      });
+      markersRef.current.push(pickupMarker);
+    }
+
+    // Add intermediate stops
+    tripStops
+      .filter(s => s.type !== 'pickup' && s.type !== 'dropoff' && s.lat && s.lng)
+      .forEach((stop, idx) => {
+        const pos = { lat: stop.lat!, lng: stop.lng! };
+        path.push(pos);
+        bounds.extend(pos);
+
+        const marker = new window.google.maps.Marker({
+          position: pos,
+          map: mapRef.current!,
+          label: {
+            text: String(idx + 1),
+            color: '#ffffff',
+            fontSize: '12px',
+            fontWeight: 'bold',
+          },
+          icon: {
+            path: window.google.maps.SymbolPath.CIRCLE,
+            scale: 10,
+            fillColor: '#3b82f6',
+            fillOpacity: 1,
+            strokeColor: '#ffffff',
+            strokeWeight: 2,
+          },
+          title: `Stop ${idx + 1}`,
+        });
+        markersRef.current.push(marker);
+      });
+
+    // Add dropoff marker
+    if (selectedTrip.dropoff_latitude && selectedTrip.dropoff_longitude) {
+      const dropoffPos = { lat: selectedTrip.dropoff_latitude, lng: selectedTrip.dropoff_longitude };
+      path.push(dropoffPos);
+      bounds.extend(dropoffPos);
+
+      const dropoffMarker = new window.google.maps.Marker({
+        position: dropoffPos,
+        map: mapRef.current,
+        icon: {
+          path: window.google.maps.SymbolPath.CIRCLE,
+          scale: 10,
+          fillColor: '#ef4444',
+          fillOpacity: 1,
+          strokeColor: '#ffffff',
+          strokeWeight: 2,
+        },
+        title: 'Dropoff',
+      });
+      markersRef.current.push(dropoffMarker);
+    }
+
+    // Draw route polyline
+    if (path.length >= 2) {
+      polylineRef.current = new window.google.maps.Polyline({
+        path,
+        geodesic: true,
+        strokeColor: '#6366f1',
+        strokeOpacity: 0.8,
+        strokeWeight: 4,
+      });
+      polylineRef.current.setMap(mapRef.current);
+    }
+
+    // Fit bounds
+    if (path.length > 0) {
+      mapRef.current.fitBounds(bounds, 50);
+    }
+  }, [selectedTrip, tripStops]);
+
+  const getCurrencySymbol = (code: string | null) => {
+    const symbols: Record<string, string> = {
+      GBP: '£', USD: '$', EUR: '€', INR: '₹', AED: 'د.إ'
+    };
+    return symbols[code?.toUpperCase() || 'GBP'] || code || '£';
+  };
+
+  const formatDuration = (minutes: number | null) => {
+    if (!minutes) return 'N/A';
+    const hrs = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+  };
+
+  const filteredTrips = trips.filter(trip => {
+    const matchesSearch = 
+      trip.trip_code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      trip.passenger_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      trip.passenger_phone?.includes(searchQuery) ||
+      trip.pickup_address?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      trip.driver?.first_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      trip.driver?.last_name?.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    return matchesSearch;
+  });
+
+  // Stats
+  const totalRevenue = trips.reduce((sum, t) => sum + (t.fare || 0), 0);
+  const avgFare = trips.length > 0 ? totalRevenue / trips.length : 0;
+  const multiStopTrips = trips.filter(t => (t.total_stops || 0) > 0).length;
+
+  return (
+    <AdminLayout 
+      title="Trip History" 
+      description="View all completed trips with route and fare details"
+    >
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Total Trips</p>
+                <p className="text-2xl font-bold">{trips.length}</p>
+              </div>
+              <CheckCircle className="h-8 w-8 text-green-500 opacity-80" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-green-500/30 bg-green-500/5">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Total Revenue</p>
+                <p className="text-2xl font-bold text-green-600">
+                  £{totalRevenue.toFixed(2)}
+                </p>
+              </div>
+              <DollarSign className="h-8 w-8 text-green-500" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Average Fare</p>
+                <p className="text-2xl font-bold">£{avgFare.toFixed(2)}</p>
+              </div>
+              <Route className="h-8 w-8 text-muted-foreground opacity-80" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-blue-500/30 bg-blue-500/5">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Multi-Stop Trips</p>
+                <p className="text-2xl font-bold text-blue-600">{multiStopTrips}</p>
+              </div>
+              <Navigation className="h-8 w-8 text-blue-500" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <History className="h-5 w-5 text-primary" />
+              Completed Trips
+            </CardTitle>
+            <CardDescription>
+              All completed rides with route and payment details
+            </CardDescription>
+          </div>
+          <div className="flex flex-col gap-2 md:flex-row md:items-center">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search trips..."
+                className="pl-9 w-full md:w-[200px]"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            <Select value={dateFilter} onValueChange={setDateFilter}>
+              <SelectTrigger className="w-full md:w-[140px]">
+                <SelectValue placeholder="Date Range" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="today">Today</SelectItem>
+                <SelectItem value="7days">Last 7 Days</SelectItem>
+                <SelectItem value="30days">Last 30 Days</SelectItem>
+                <SelectItem value="90days">Last 90 Days</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" onClick={fetchData} disabled={isLoading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          ) : filteredTrips.length === 0 ? (
+            <div className="py-12 text-center">
+              <History className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-medium mb-2">No completed trips</h3>
+              <p className="text-muted-foreground">
+                {searchQuery 
+                  ? 'Try adjusting your search' 
+                  : 'No trips completed in the selected time period'}
+              </p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Trip</TableHead>
+                  <TableHead>Passenger</TableHead>
+                  <TableHead>Route</TableHead>
+                  <TableHead>Driver</TableHead>
+                  <TableHead>Stops</TableHead>
+                  <TableHead>Distance</TableHead>
+                  <TableHead>Fare</TableHead>
+                  <TableHead>Completed</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredTrips.map((trip) => (
+                  <TableRow key={trip.id}>
+                    <TableCell>
+                      <div className="font-mono text-sm font-medium text-primary">
+                        {trip.trip_code || trip.id.slice(0, 8)}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div>
+                        <div className="font-medium">{trip.passenger_name || 'Unknown'}</div>
+                        <div className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Phone className="h-3 w-3" />
+                          {trip.passenger_phone || 'N/A'}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="max-w-[180px]">
+                        <div className="flex items-start gap-1 text-xs">
+                          <MapPin className="h-3 w-3 text-green-500 mt-0.5 shrink-0" />
+                          <span className="truncate">{trip.pickup_address?.slice(0, 25)}...</span>
+                        </div>
+                        <div className="flex items-start gap-1 text-xs mt-1">
+                          <MapPin className="h-3 w-3 text-red-500 mt-0.5 shrink-0" />
+                          <span className="truncate">{trip.dropoff_address?.slice(0, 25)}...</span>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {trip.driver ? (
+                        <div className="text-sm">
+                          <div className="font-medium">{trip.driver.first_name} {trip.driver.last_name}</div>
+                          <div className="text-xs text-muted-foreground font-mono">
+                            {trip.driver.driver_code || 'N/A'}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">N/A</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="bg-blue-500/10 text-blue-600">
+                        {(trip.total_stops || 0) + 2}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {trip.estimated_distance_km 
+                        ? `${Number(trip.estimated_distance_km).toFixed(1)} km` 
+                        : 'N/A'}
+                    </TableCell>
+                    <TableCell className="font-medium text-green-600">
+                      {getCurrencySymbol(trip.currency_code)}
+                      {(trip.fare || 0).toFixed(2)}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {trip.completed_at 
+                        ? format(new Date(trip.completed_at), 'MMM d, HH:mm')
+                        : 'N/A'}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => handleViewTrip(trip)}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Trip Details Dialog */}
+      <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-green-500" />
+              Trip Details
+            </DialogTitle>
+            <DialogDescription>
+              Trip #{selectedTrip?.trip_code || selectedTrip?.id.slice(0, 8)}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedTrip && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Left Column - Details */}
+              <div className="space-y-6">
+                {/* Status Badge */}
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="bg-green-100 text-green-700">
+                    <CheckCircle className="h-3 w-3 mr-1" />
+                    Completed
+                  </Badge>
+                  {selectedTrip.payment_method && (
+                    <Badge variant="secondary">
+                      {selectedTrip.payment_method}
+                    </Badge>
+                  )}
+                  {selectedTrip.surge_multiplier && selectedTrip.surge_multiplier > 1 && (
+                    <Badge variant="destructive">
+                      {selectedTrip.surge_multiplier}x Surge
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Passenger Info */}
+                <div className="space-y-2">
+                  <h4 className="text-sm font-semibold flex items-center gap-2">
+                    <User className="h-4 w-4" />
+                    Passenger
+                  </h4>
+                  <div className="bg-muted/50 rounded-lg p-3">
+                    <p className="font-medium">{selectedTrip.passenger_name || 'Unknown'}</p>
+                    <p className="text-sm text-muted-foreground">{selectedTrip.passenger_phone || 'No phone'}</p>
+                  </div>
+                </div>
+
+                {/* Driver Info */}
+                {selectedTrip.driver && (
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-semibold flex items-center gap-2">
+                      <Car className="h-4 w-4" />
+                      Driver
+                    </h4>
+                    <div className="bg-muted/50 rounded-lg p-3">
+                      <p className="font-medium">
+                        {selectedTrip.driver.first_name} {selectedTrip.driver.last_name}
+                      </p>
+                      <p className="text-sm text-muted-foreground font-mono">
+                        {selectedTrip.driver.driver_code || 'N/A'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Route Stops */}
+                <div className="space-y-2">
+                  <h4 className="text-sm font-semibold flex items-center gap-2">
+                    <Route className="h-4 w-4" />
+                    Route ({(tripStops.length || 0) + 2} stops)
+                  </h4>
+                  <div className="space-y-2">
+                    {/* Pickup */}
+                    <div className="flex items-start gap-3 bg-green-500/10 rounded-lg p-3">
+                      <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center shrink-0">
+                        <span className="text-xs font-bold text-white">A</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-green-700">Pickup</p>
+                        <p className="text-sm truncate">{selectedTrip.pickup_address}</p>
+                      </div>
+                    </div>
+
+                    {/* Intermediate Stops */}
+                    {isLoadingStops ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      </div>
+                    ) : (
+                      tripStops
+                        .filter(s => s.type !== 'pickup' && s.type !== 'dropoff')
+                        .map((stop, idx) => (
+                          <div key={stop.id} className="flex items-start gap-3 bg-blue-500/10 rounded-lg p-3">
+                            <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
+                              <span className="text-xs font-bold text-white">{idx + 1}</span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium text-blue-700">Stop {idx + 1}</p>
+                              <p className="text-sm truncate">{stop.address}</p>
+                              {stop.completed_at && (
+                                <p className="text-xs text-muted-foreground">
+                                  Completed: {format(new Date(stop.completed_at), 'HH:mm')}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                    )}
+
+                    {/* Dropoff */}
+                    <div className="flex items-start gap-3 bg-red-500/10 rounded-lg p-3">
+                      <div className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center shrink-0">
+                        <span className="text-xs font-bold text-white">B</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-red-700">Dropoff</p>
+                        <p className="text-sm truncate">{selectedTrip.dropoff_address}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Fare Breakdown */}
+                <div className="space-y-2">
+                  <h4 className="text-sm font-semibold flex items-center gap-2">
+                    <DollarSign className="h-4 w-4" />
+                    Fare Breakdown
+                  </h4>
+                  <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Estimated Fare</span>
+                      <span>{getCurrencySymbol(selectedTrip.currency_code)}{(selectedTrip.estimated_fare || 0).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Distance</span>
+                      <span>{selectedTrip.estimated_distance_km ? `${Number(selectedTrip.estimated_distance_km).toFixed(1)} km` : 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Duration</span>
+                      <span>{formatDuration(selectedTrip.estimated_duration_minutes)}</span>
+                    </div>
+                    {selectedTrip.surge_multiplier && selectedTrip.surge_multiplier > 1 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Surge Multiplier</span>
+                        <span className="text-orange-600">{selectedTrip.surge_multiplier}x</span>
+                      </div>
+                    )}
+                    <Separator />
+                    <div className="flex justify-between font-semibold">
+                      <span>Final Fare</span>
+                      <span className="text-green-600">
+                        {getCurrencySymbol(selectedTrip.currency_code)}{(selectedTrip.fare || 0).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Timestamps */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-muted-foreground text-xs">Started</Label>
+                    <p className="text-sm font-medium">
+                      {selectedTrip.started_at 
+                        ? format(new Date(selectedTrip.started_at), 'PPP p')
+                        : 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-muted-foreground text-xs">Completed</Label>
+                    <p className="text-sm font-medium">
+                      {selectedTrip.completed_at 
+                        ? format(new Date(selectedTrip.completed_at), 'PPP p')
+                        : 'N/A'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column - Map */}
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold flex items-center gap-2">
+                  <MapPin className="h-4 w-4" />
+                  Route Map
+                </h4>
+                <div 
+                  ref={mapContainerRef} 
+                  className="h-[400px] lg:h-full min-h-[400px] rounded-lg border bg-muted"
+                >
+                  {!window.google && (
+                    <div className="flex items-center justify-center h-full text-muted-foreground">
+                      <p className="text-sm">Map loading...</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </AdminLayout>
+  );
+}

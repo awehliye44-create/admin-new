@@ -45,6 +45,7 @@ import {
   Bell,
   FolderOpen,
   UserCircle,
+  History,
 } from 'lucide-react';
 import {
   Collapsible,
@@ -189,6 +190,12 @@ export function AdminSidebar() {
                 icon={<XCircle className="h-4 w-4" />}
                 label="Missed & Canceled"
                 active={currentPath === '/missed-cancelled'}
+              />
+              <NavItem
+                to="/trip-history"
+                icon={<History className="h-4 w-4" />}
+                label="Trip History"
+                active={currentPath === '/trip-history'}
               />
               <NavItem
                 to="/manual-trip"

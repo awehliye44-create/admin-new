@@ -29,6 +29,7 @@ import RiderFeedback from "./pages/RiderFeedback";
 import ScheduledRides from "./pages/ScheduledRides";
 import MissedCancelled from "./pages/MissedCancelled";
 import ManualTrip from "./pages/ManualTrip";
+import TripHistory from "./pages/TripHistory";
 
 import Documents from "./pages/Documents";
 import DriverCategories from "./pages/DriverCategories";
@@ -87,6 +88,7 @@ const App = () => (
             <Route path="/auto-dispatch" element={<ProtectedRoute><AutoDispatchRules /></ProtectedRoute>} />
             <Route path="/scheduled-rides" element={<ProtectedRoute><ScheduledRides /></ProtectedRoute>} />
             <Route path="/missed-cancelled" element={<ProtectedRoute><MissedCancelled /></ProtectedRoute>} />
+            <Route path="/trip-history" element={<ProtectedRoute><TripHistory /></ProtectedRoute>} />
             <Route path="/manual-trip" element={<ProtectedRoute><ManualTrip /></ProtectedRoute>} />
             <Route path="/dispatch" element={<ProtectedRoute><Dispatch /></ProtectedRoute>} />
             
