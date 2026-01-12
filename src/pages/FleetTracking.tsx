@@ -29,6 +29,11 @@ interface Driver {
   total_trips: number;
   approval_status: string;
   region_id: string;
+  current_lat: number | null;
+  current_lng: number | null;
+  heading: number | null;
+  speed: number | null;
+  last_location_updated_at: string | null;
   region?: { name: string };
   current_trip?: {
     id: string;
@@ -145,6 +150,46 @@ export default function FleetTracking() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
+  // Real-time driver location updates
+  useEffect(() => {
+    const channel = supabase
+      .channel('driver-location-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'drivers',
+        },
+        (payload) => {
+          const updatedDriver = payload.new as any;
+          console.log('Driver location update received:', updatedDriver.id, updatedDriver.current_lat, updatedDriver.current_lng);
+          
+          setDrivers(prev => prev.map(driver => {
+            if (driver.id === updatedDriver.id) {
+              return {
+                ...driver,
+                current_lat: updatedDriver.current_lat,
+                current_lng: updatedDriver.current_lng,
+                heading: updatedDriver.heading,
+                speed: updatedDriver.speed,
+                is_online: updatedDriver.is_online,
+                last_location_updated_at: updatedDriver.last_location_updated_at,
+              };
+            }
+            return driver;
+          }));
+          
+          setLastRefresh(new Date());
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
   // Draw region boundaries on map
   useEffect(() => {
     if (!googleMapRef.current || !isMapLoaded) return;
@@ -169,7 +214,7 @@ export default function FleetTracking() {
     });
   }, [regions, isMapLoaded]);
 
-  // Update driver markers (simulated positions for now)
+  // Update driver markers with real GPS coordinates
   useEffect(() => {
     if (!googleMapRef.current || !isMapLoaded) return;
 
@@ -190,38 +235,65 @@ export default function FleetTracking() {
       return matchesSearch && matchesRegion && matchesStatus;
     });
 
-    // Create markers for each driver (using simulated positions based on region)
-    filtered.forEach((driver, index) => {
-      // Simulate driver position (in real app, this would come from driver location updates)
-      const region = regions.find(r => r.id === driver.region_id);
-      let position = { lat: 52.0406 + (Math.random() - 0.5) * 0.1, lng: -0.7594 + (Math.random() - 0.5) * 0.1 };
+    // Create markers for each driver
+    filtered.forEach((driver) => {
+      // Use real GPS coordinates if available, otherwise fallback to region center
+      let position: { lat: number; lng: number } | null = null;
       
-      if (region?.geo_boundary?.[0]) {
-        position = {
-          lat: region.geo_boundary[0].lat + (Math.random() - 0.5) * 0.05,
-          lng: region.geo_boundary[0].lng + (Math.random() - 0.5) * 0.05,
-        };
+      if (driver.current_lat && driver.current_lng) {
+        // Real GPS coordinates
+        position = { lat: driver.current_lat, lng: driver.current_lng };
+      } else {
+        // Fallback: use region center if no GPS data
+        const region = regions.find(r => r.id === driver.region_id);
+        if (region?.geo_boundary?.[0]) {
+          position = {
+            lat: region.geo_boundary[0].lat,
+            lng: region.geo_boundary[0].lng,
+          };
+        }
       }
 
+      // Skip if no position available
+      if (!position) return;
+
       const isOnTrip = !!driver.current_trip;
-      const markerColor = !driver.is_online ? '#9ca3af' : isOnTrip ? '#f59e0b' : '#22c55e';
+      const isStale = driver.last_location_updated_at 
+        ? (Date.now() - new Date(driver.last_location_updated_at).getTime()) > 60000 // 1 minute
+        : true;
+      
+      // Color based on status: green = available with recent location, amber = on trip, gray = offline/stale
+      const markerColor = !driver.is_online 
+        ? '#9ca3af' 
+        : isOnTrip 
+          ? '#f59e0b' 
+          : isStale 
+            ? '#6b7280' 
+            : '#22c55e';
 
       const marker = new window.google.maps.Marker({
         position,
         map: googleMapRef.current,
         icon: {
-          path: window.google.maps.SymbolPath.CIRCLE,
-          scale: 10,
+          path: window.google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+          scale: 6,
           fillColor: markerColor,
           fillOpacity: 1,
           strokeColor: '#ffffff',
           strokeWeight: 2,
+          rotation: driver.heading || 0,
         },
-        title: `${driver.first_name} ${driver.last_name}`,
+        title: `${driver.first_name} ${driver.last_name}${driver.speed ? ` (${Math.round(driver.speed * 3.6)} km/h)` : ''}`,
       });
 
       marker.addListener('click', () => {
         setSelectedDriver(driver);
+        
+        // Pan to driver location
+        if (googleMapRef.current && position) {
+          googleMapRef.current.panTo(position);
+          googleMapRef.current.setZoom(15);
+        }
       });
 
       markersRef.current.set(driver.id, marker);
@@ -317,12 +389,15 @@ export default function FleetTracking() {
                 </div>
               </div>
               {/* Legend */}
-              <div className="flex gap-4 text-xs mt-2">
+              <div className="flex flex-wrap gap-4 text-xs mt-2">
                 <span className="flex items-center gap-1">
-                  <Circle className="h-3 w-3 fill-green-500 text-green-500" /> Available
+                  <Navigation className="h-3 w-3 text-green-500" /> Live Tracking
                 </span>
                 <span className="flex items-center gap-1">
-                  <Circle className="h-3 w-3 fill-amber-500 text-amber-500" /> On Trip
+                  <Navigation className="h-3 w-3 text-amber-500" /> On Trip
+                </span>
+                <span className="flex items-center gap-1">
+                  <Navigation className="h-3 w-3 text-gray-500" /> Stale Location
                 </span>
                 <span className="flex items-center gap-1">
                   <Circle className="h-3 w-3 fill-gray-400 text-gray-400" /> Offline
@@ -465,7 +540,7 @@ export default function FleetTracking() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               <div className="p-3 bg-muted/50 rounded-lg">
                 <p className="text-xs text-muted-foreground">Phone</p>
                 <p className="font-medium">{selectedDriver.phone}</p>
@@ -484,6 +559,28 @@ export default function FleetTracking() {
               <div className="p-3 bg-muted/50 rounded-lg">
                 <p className="text-xs text-muted-foreground">Region</p>
                 <p className="font-medium">{selectedDriver.region?.name || 'Unknown'}</p>
+              </div>
+              <div className="p-3 bg-muted/50 rounded-lg">
+                <p className="text-xs text-muted-foreground">GPS Location</p>
+                {selectedDriver.current_lat && selectedDriver.current_lng ? (
+                  <div>
+                    <p className="font-medium text-xs">
+                      {selectedDriver.current_lat.toFixed(5)}, {selectedDriver.current_lng.toFixed(5)}
+                    </p>
+                    {selectedDriver.last_location_updated_at && (
+                      <p className="text-[10px] text-muted-foreground">
+                        Updated: {new Date(selectedDriver.last_location_updated_at).toLocaleTimeString()}
+                      </p>
+                    )}
+                    {selectedDriver.speed !== null && selectedDriver.speed !== undefined && (
+                      <p className="text-[10px] text-muted-foreground">
+                        Speed: {Math.round(selectedDriver.speed * 3.6)} km/h
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="font-medium text-muted-foreground">No GPS data</p>
+                )}
               </div>
             </div>
             {selectedDriver.current_trip && (

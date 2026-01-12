@@ -84,15 +84,20 @@ export type Database = {
         Row: {
           approval_status: string
           created_at: string
+          current_lat: number | null
+          current_lng: number | null
           email: string
           first_name: string
+          heading: number | null
           id: string
           is_online: boolean
+          last_location_updated_at: string | null
           last_name: string
           phone: string
           profile_photo_url: string | null
           rating: number | null
           region_id: string
+          speed: number | null
           total_trips: number | null
           updated_at: string
           user_id: string
@@ -100,15 +105,20 @@ export type Database = {
         Insert: {
           approval_status?: string
           created_at?: string
+          current_lat?: number | null
+          current_lng?: number | null
           email: string
           first_name: string
+          heading?: number | null
           id?: string
           is_online?: boolean
+          last_location_updated_at?: string | null
           last_name: string
           phone: string
           profile_photo_url?: string | null
           rating?: number | null
           region_id: string
+          speed?: number | null
           total_trips?: number | null
           updated_at?: string
           user_id: string
@@ -116,15 +126,20 @@ export type Database = {
         Update: {
           approval_status?: string
           created_at?: string
+          current_lat?: number | null
+          current_lng?: number | null
           email?: string
           first_name?: string
+          heading?: number | null
           id?: string
           is_online?: boolean
+          last_location_updated_at?: string | null
           last_name?: string
           phone?: string
           profile_photo_url?: string | null
           rating?: number | null
           region_id?: string
+          speed?: number | null
           total_trips?: number | null
           updated_at?: string
           user_id?: string
@@ -557,6 +572,16 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      update_driver_location: {
+        Args: {
+          p_driver_id: string
+          p_heading?: number
+          p_lat: number
+          p_lng: number
+          p_speed?: number
+        }
+        Returns: Json
       }
     }
     Enums: {
