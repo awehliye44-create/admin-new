@@ -157,6 +157,38 @@ export type Database = {
         }
         Relationships: []
       }
+      dispatch_settings: {
+        Row: {
+          created_at: string
+          id: string
+          max_driver_find_time_minutes: number
+          service_area_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          max_driver_find_time_minutes?: number
+          service_area_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          max_driver_find_time_minutes?: number
+          service_area_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dispatch_settings_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: true
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       documents: {
         Row: {
           created_at: string

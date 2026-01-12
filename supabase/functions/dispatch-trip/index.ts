@@ -17,6 +17,7 @@ interface DispatchRequest {
   pickup_lng: number;
   vehicle_type_id?: string;
   max_distance_km?: number;
+  timeout_seconds?: number;
 }
 
 // Point-in-polygon algorithm (Ray casting)
@@ -65,9 +66,60 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const body: DispatchRequest = await req.json();
-    const { trip_id, pickup_lat, pickup_lng, vehicle_type_id, max_distance_km = 10 } = body;
+    const { trip_id, pickup_lat, pickup_lng, vehicle_type_id, max_distance_km = 10, timeout_seconds } = body;
 
-    console.log('Dispatching trip:', { trip_id, pickup_lat, pickup_lng });
+    console.log('Dispatching trip:', { trip_id, pickup_lat, pickup_lng, timeout_seconds });
+
+    // Check if trip is already expired or cancelled (late acceptance block)
+    const { data: tripCheck } = await supabase
+      .from('trips')
+      .select('status, created_at')
+      .eq('id', trip_id)
+      .single();
+
+    if (tripCheck) {
+      const blockedStatuses = ['no_drivers', 'cancelled', 'expired', 'completed'];
+      if (blockedStatuses.includes(tripCheck.status)) {
+        console.log('Trip already in terminal state, blocking dispatch:', tripCheck.status);
+        return new Response(
+          JSON.stringify({
+            success: false,
+            dispatched: false,
+            error: 'Trip is no longer available',
+            message: 'This trip is no longer available.',
+            subtext: 'The request may have expired or been cancelled.'
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Check if trip has exceeded timeout based on created_at
+      if (timeout_seconds) {
+        const tripCreatedAt = new Date(tripCheck.created_at);
+        const now = new Date();
+        const elapsedSeconds = (now.getTime() - tripCreatedAt.getTime()) / 1000;
+        
+        if (elapsedSeconds > timeout_seconds) {
+          // Mark trip as expired
+          await supabase
+            .from('trips')
+            .update({ status: 'no_drivers' })
+            .eq('id', trip_id);
+
+          console.log('Trip expired due to timeout');
+          return new Response(
+            JSON.stringify({
+              success: false,
+              dispatched: false,
+              error: 'Trip expired',
+              message: 'No drivers available right now.',
+              subtext: 'Please try again in a few minutes or adjust your pickup location.'
+            }),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+      }
+    }
 
     if (!trip_id || !pickup_lat || !pickup_lng) {
       return new Response(
