@@ -129,6 +129,7 @@ export type Database = {
       }
       customers: {
         Row: {
+          active_trip_id: string | null
           created_at: string
           first_name: string | null
           id: string
@@ -138,6 +139,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          active_trip_id?: string | null
           created_at?: string
           first_name?: string | null
           id?: string
@@ -147,6 +149,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          active_trip_id?: string | null
           created_at?: string
           first_name?: string | null
           id?: string
@@ -155,7 +158,15 @@ export type Database = {
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "customers_active_trip_id_fkey"
+            columns: ["active_trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       dispatch_settings: {
         Row: {
@@ -458,6 +469,7 @@ export type Database = {
           created_at: string
           current_lat: number | null
           current_lng: number | null
+          current_trip_id: string | null
           documents_approved: boolean
           driver_code: string | null
           email: string
@@ -482,6 +494,7 @@ export type Database = {
           created_at?: string
           current_lat?: number | null
           current_lng?: number | null
+          current_trip_id?: string | null
           documents_approved?: boolean
           driver_code?: string | null
           email: string
@@ -506,6 +519,7 @@ export type Database = {
           created_at?: string
           current_lat?: number | null
           current_lng?: number | null
+          current_trip_id?: string | null
           documents_approved?: boolean
           driver_code?: string | null
           email?: string
@@ -526,6 +540,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "drivers_current_trip_id_fkey"
+            columns: ["current_trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "drivers_region_id_fkey"
             columns: ["region_id"]
