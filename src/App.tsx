@@ -26,10 +26,11 @@ import ActiveTrips from "./pages/ActiveTrips";
 import VehicleTypes from "./pages/VehicleTypes";
 import RiderFeedback from "./pages/RiderFeedback";
 
+import ScheduledRides from "./pages/ScheduledRides";
+import MissedCancelled from "./pages/MissedCancelled";
+import ManualTrip from "./pages/ManualTrip";
+
 import {
-  ScheduledRides,
-  MissedCancelled,
-  ManualTrip,
   DriverProfiles,
   Documents,
   DriverCategories,
