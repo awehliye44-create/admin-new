@@ -612,6 +612,50 @@ export type Database = {
         }
         Relationships: []
       }
+      region_payment_methods: {
+        Row: {
+          apple_pay_enabled: boolean
+          card_enabled: boolean
+          cash_enabled: boolean
+          created_at: string
+          google_pay_enabled: boolean
+          id: string
+          region_id: string
+          updated_at: string
+          wallet_enabled: boolean
+        }
+        Insert: {
+          apple_pay_enabled?: boolean
+          card_enabled?: boolean
+          cash_enabled?: boolean
+          created_at?: string
+          google_pay_enabled?: boolean
+          id?: string
+          region_id: string
+          updated_at?: string
+          wallet_enabled?: boolean
+        }
+        Update: {
+          apple_pay_enabled?: boolean
+          card_enabled?: boolean
+          cash_enabled?: boolean
+          created_at?: string
+          google_pay_enabled?: boolean
+          id?: string
+          region_id?: string
+          updated_at?: string
+          wallet_enabled?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "region_payment_methods_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: true
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       regions: {
         Row: {
           created_at: string

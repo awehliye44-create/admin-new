@@ -50,10 +50,11 @@ import { RegionBoundaryMap } from '@/components/maps/RegionBoundaryMap';
 import { supabase } from '@/integrations/supabase/client';
 import { 
   Plus, MapPin, Loader2, MoreHorizontal, Pencil, Trash2, Globe, Users, Map,
-  DollarSign, Clock, Ruler, CheckCircle2, XCircle, Eye, Settings
+  DollarSign, Clock, Ruler, CheckCircle2, XCircle, Eye, Settings, CreditCard
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { PaymentMethodsConfig } from '@/components/payment/PaymentMethodsConfig';
 
 interface LatLng {
   lat: number;
@@ -373,11 +374,12 @@ export default function Regions() {
   const totalServiceAreas = Object.values(regionStats).reduce((sum, s) => sum + s.serviceAreas, 0);
   const activeRegions = regions.filter(r => r.status === 'active').length;
 
-  const RegionFormContent = ({ isNew = false }: { isNew?: boolean }) => (
+  const RegionFormContent = ({ isNew = false, regionId }: { isNew?: boolean; regionId?: string }) => (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-      <TabsList className="grid w-full grid-cols-2">
+      <TabsList className={`grid w-full ${isNew ? 'grid-cols-2' : 'grid-cols-3'}`}>
         <TabsTrigger value="details">Details</TabsTrigger>
         <TabsTrigger value="boundary">Boundary</TabsTrigger>
+        {!isNew && <TabsTrigger value="payments">Payment Methods</TabsTrigger>}
       </TabsList>
 
       <TabsContent value="details" className="space-y-4 mt-4">
@@ -511,6 +513,12 @@ export default function Regions() {
           </div>
         )}
       </TabsContent>
+
+      {!isNew && regionId && (
+        <TabsContent value="payments" className="mt-4">
+          <PaymentMethodsConfig regionId={regionId} regionName={formData.name} />
+        </TabsContent>
+      )}
     </Tabs>
   );
 
@@ -777,7 +785,7 @@ export default function Regions() {
             </DialogDescription>
           </DialogHeader>
           
-          <RegionFormContent />
+          <RegionFormContent regionId={selectedRegion?.id} />
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
@@ -799,7 +807,7 @@ export default function Regions() {
 
       {/* View Region Dialog */}
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <MapPin className="h-5 w-5" />
@@ -852,6 +860,11 @@ export default function Regions() {
                   <p className="text-sm text-purple-600">Service Areas</p>
                   <p className="text-2xl font-bold text-purple-700">{regionStats[selectedRegion.id]?.serviceAreas || 0}</p>
                 </div>
+              </div>
+
+              {/* Payment Methods Section in View Dialog */}
+              <div className="pt-2">
+                <PaymentMethodsConfig regionId={selectedRegion.id} regionName={selectedRegion.name} />
               </div>
             </div>
           )}
