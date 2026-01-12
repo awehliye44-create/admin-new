@@ -64,6 +64,7 @@ import { toast } from 'sonner';
 
 interface Driver {
   id: string;
+  driver_code: string | null;
   first_name: string;
   last_name: string;
   email: string;
@@ -551,6 +552,7 @@ export default function Drivers() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>Driver ID</TableHead>
                   <TableHead>Driver</TableHead>
                   <TableHead>Contact</TableHead>
                   <TableHead>Region</TableHead>
@@ -564,6 +566,11 @@ export default function Drivers() {
               <TableBody>
                 {filteredDrivers.map((driver) => (
                   <TableRow key={driver.id}>
+                    <TableCell>
+                      <div className="font-mono text-sm font-medium text-primary">
+                        {driver.driver_code || driver.id.slice(0, 8)}
+                      </div>
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-9 w-9">

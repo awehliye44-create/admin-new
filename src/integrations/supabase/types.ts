@@ -398,6 +398,7 @@ export type Database = {
           created_at: string
           current_lat: number | null
           current_lng: number | null
+          driver_code: string | null
           email: string
           first_name: string
           heading: number | null
@@ -419,6 +420,7 @@ export type Database = {
           created_at?: string
           current_lat?: number | null
           current_lng?: number | null
+          driver_code?: string | null
           email: string
           first_name: string
           heading?: number | null
@@ -440,6 +442,7 @@ export type Database = {
           created_at?: string
           current_lat?: number | null
           current_lng?: number | null
+          driver_code?: string | null
           email?: string
           first_name?: string
           heading?: number | null
@@ -465,6 +468,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      id_sequences: {
+        Row: {
+          created_at: string
+          current_value: number
+          id: string
+          region_id: string
+          sequence_type: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          current_value?: number
+          id?: string
+          region_id: string
+          sequence_type: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          current_value?: number
+          id?: string
+          region_id?: string
+          sequence_type?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       promo_codes: {
         Row: {
@@ -1091,6 +1121,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_region_code: { Args: { p_region_id: string }; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
