@@ -1,0 +1,532 @@
+import { useEffect, useState, useCallback } from 'react';
+import { AdminLayout } from '@/components/layout/AdminLayout';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { supabase } from '@/integrations/supabase/client';
+import { 
+  MessageSquare, Loader2, Search, Star, RefreshCw,
+  Eye, CheckCircle, XCircle, Clock, Car, User, Filter
+} from 'lucide-react';
+import { format, formatDistanceToNow } from 'date-fns';
+import { toast } from 'sonner';
+
+interface RiderFeedback {
+  id: string;
+  trip_id: string | null;
+  customer_id: string;
+  driver_id: string | null;
+  rating: number;
+  comment: string | null;
+  feedback_type: string;
+  status: string;
+  admin_notes: string | null;
+  created_at: string;
+  updated_at: string;
+  customer?: {
+    first_name: string | null;
+    last_name: string | null;
+    phone: string | null;
+  };
+  driver?: {
+    first_name: string;
+    last_name: string;
+  };
+  trip?: {
+    pickup_address: string;
+    dropoff_address: string;
+  };
+}
+
+const STATUS_OPTIONS = [
+  { value: 'pending', label: 'Pending', color: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
+  { value: 'reviewed', label: 'Reviewed', color: 'bg-blue-100 text-blue-700 border-blue-200' },
+  { value: 'resolved', label: 'Resolved', color: 'bg-green-100 text-green-700 border-green-200' },
+  { value: 'dismissed', label: 'Dismissed', color: 'bg-gray-100 text-gray-600 border-gray-200' },
+];
+
+const TYPE_OPTIONS = [
+  { value: 'trip', label: 'Trip Feedback' },
+  { value: 'app', label: 'App Issue' },
+  { value: 'support', label: 'Support Request' },
+  { value: 'general', label: 'General' },
+];
+
+export default function RiderFeedback() {
+  const [feedback, setFeedback] = useState<RiderFeedback[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [selectedFeedback, setSelectedFeedback] = useState<RiderFeedback | null>(null);
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
+  const [adminNotes, setAdminNotes] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const fetchFeedback = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      
+      const { data, error } = await supabase
+        .from('rider_feedback')
+        .select(`
+          *,
+          driver:drivers(first_name, last_name),
+          trip:trips(pickup_address, dropoff_address)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      // Fetch customer info separately since customer_id references auth.users
+      const feedbackWithCustomers = await Promise.all(
+        (data || []).map(async (item) => {
+          const { data: customer } = await supabase
+            .from('customers')
+            .select('first_name, last_name, phone')
+            .eq('user_id', item.customer_id)
+            .single();
+          
+          return { ...item, customer };
+        })
+      );
+
+      setFeedback(feedbackWithCustomers);
+    } catch (err) {
+      console.error('Error fetching feedback:', err);
+      toast.error('Failed to load feedback');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchFeedback();
+  }, [fetchFeedback]);
+
+  const handleViewFeedback = (item: RiderFeedback) => {
+    setSelectedFeedback(item);
+    setAdminNotes(item.admin_notes || '');
+    setIsViewDialogOpen(true);
+  };
+
+  const handleUpdateStatus = async (newStatus: string) => {
+    if (!selectedFeedback) return;
+
+    try {
+      setIsSaving(true);
+      const { error } = await supabase
+        .from('rider_feedback')
+        .update({ 
+          status: newStatus,
+          admin_notes: adminNotes,
+        })
+        .eq('id', selectedFeedback.id);
+
+      if (error) throw error;
+
+      setFeedback(prev => prev.map(f => 
+        f.id === selectedFeedback.id 
+          ? { ...f, status: newStatus, admin_notes: adminNotes }
+          : f
+      ));
+      
+      toast.success(`Feedback marked as ${newStatus}`);
+      setIsViewDialogOpen(false);
+    } catch (err) {
+      console.error('Error updating feedback:', err);
+      toast.error('Failed to update feedback');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const getCustomerName = (customer: RiderFeedback['customer']) => {
+    if (customer?.first_name || customer?.last_name) {
+      return `${customer.first_name || ''} ${customer.last_name || ''}`.trim();
+    }
+    return 'Unknown';
+  };
+
+  const getDriverName = (driver: RiderFeedback['driver']) => {
+    if (driver) {
+      return `${driver.first_name} ${driver.last_name}`;
+    }
+    return 'N/A';
+  };
+
+  const getStatusBadge = (status: string) => {
+    const option = STATUS_OPTIONS.find(o => o.value === status);
+    return option || STATUS_OPTIONS[0];
+  };
+
+  const renderStars = (rating: number) => {
+    return (
+      <div className="flex items-center gap-0.5">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <Star
+            key={star}
+            className={`h-4 w-4 ${
+              star <= rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'
+            }`}
+          />
+        ))}
+      </div>
+    );
+  };
+
+  const filteredFeedback = feedback.filter(item => {
+    const customerName = getCustomerName(item.customer).toLowerCase();
+    const driverName = getDriverName(item.driver).toLowerCase();
+    const query = searchQuery.toLowerCase();
+    
+    const matchesSearch = customerName.includes(query) || 
+                          driverName.includes(query) ||
+                          item.comment?.toLowerCase().includes(query);
+    const matchesStatus = statusFilter === 'all' || item.status === statusFilter;
+    const matchesType = typeFilter === 'all' || item.feedback_type === typeFilter;
+    
+    return matchesSearch && matchesStatus && matchesType;
+  });
+
+  const pendingCount = feedback.filter(f => f.status === 'pending').length;
+  const avgRating = feedback.length > 0 
+    ? (feedback.reduce((sum, f) => sum + f.rating, 0) / feedback.length).toFixed(1)
+    : '0.0';
+  const lowRatingCount = feedback.filter(f => f.rating <= 2).length;
+
+  return (
+    <AdminLayout 
+      title="Rider Feedback" 
+      description="Customer reviews and feedback from trips"
+    >
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Total Feedback</p>
+                <p className="text-2xl font-bold">{feedback.length}</p>
+              </div>
+              <MessageSquare className="h-8 w-8 text-primary opacity-80" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-yellow-500/30 bg-yellow-500/5">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Pending Review</p>
+                <p className="text-2xl font-bold text-yellow-600">{pendingCount}</p>
+              </div>
+              <Clock className="h-8 w-8 text-yellow-500" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-amber-500/30 bg-amber-500/5">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Avg Rating</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-2xl font-bold text-amber-600">{avgRating}</p>
+                  <Star className="h-5 w-5 fill-yellow-400 text-yellow-400" />
+                </div>
+              </div>
+              <Star className="h-8 w-8 text-amber-500" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-red-500/30 bg-red-500/5">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Low Ratings (≤2)</p>
+                <p className="text-2xl font-bold text-red-600">{lowRatingCount}</p>
+              </div>
+              <XCircle className="h-8 w-8 text-red-500" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Main Table */}
+      <Card>
+        <CardHeader className="pb-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <MessageSquare className="h-5 w-5 text-primary" />
+                All Feedback
+              </CardTitle>
+              <CardDescription>{filteredFeedback.length} feedback items</CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search..."
+                  className="pl-9 w-[180px]"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-[130px]">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  {STATUS_OPTIONS.map(opt => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger className="w-[130px]">
+                  <SelectValue placeholder="Type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  {TYPE_OPTIONS.map(opt => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="icon" onClick={fetchFeedback}>
+                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : filteredFeedback.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              {feedback.length === 0 
+                ? 'No feedback submitted yet. Feedback will appear here when customers rate their trips.'
+                : 'No feedback matches your filters'
+              }
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Customer</TableHead>
+                  <TableHead>Rating</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Comment</TableHead>
+                  <TableHead>Driver</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredFeedback.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Avatar className="h-8 w-8">
+                          <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                            {getCustomerName(item.customer).charAt(0)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="font-medium">{getCustomerName(item.customer)}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>{renderStars(item.rating)}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline">
+                        {TYPE_OPTIONS.find(t => t.value === item.feedback_type)?.label || item.feedback_type}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="max-w-[200px]">
+                      <p className="truncate text-sm text-muted-foreground">
+                        {item.comment || '—'}
+                      </p>
+                    </TableCell>
+                    <TableCell>
+                      {item.driver ? (
+                        <div className="flex items-center gap-1">
+                          <Car className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-sm">{getDriverName(item.driver)}</span>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={getStatusBadge(item.status).color}>
+                        {getStatusBadge(item.status).label}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {formatDistanceToNow(new Date(item.created_at), { addSuffix: true })}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => handleViewFeedback(item)}
+                      >
+                        <Eye className="h-4 w-4 mr-1" />
+                        View
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* View/Update Dialog */}
+      <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Feedback Details</DialogTitle>
+            <DialogDescription>
+              Review and respond to customer feedback
+            </DialogDescription>
+          </DialogHeader>
+          {selectedFeedback && (
+            <div className="space-y-4">
+              {/* Customer & Rating */}
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <Avatar className="h-12 w-12">
+                    <AvatarFallback className="bg-primary/10 text-primary">
+                      {getCustomerName(selectedFeedback.customer).charAt(0)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <p className="font-medium">{getCustomerName(selectedFeedback.customer)}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {format(new Date(selectedFeedback.created_at), 'MMM d, yyyy h:mm a')}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  {renderStars(selectedFeedback.rating)}
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {selectedFeedback.rating}/5 stars
+                  </p>
+                </div>
+              </div>
+
+              {/* Comment */}
+              {selectedFeedback.comment && (
+                <div className="p-3 bg-muted/50 rounded-lg">
+                  <p className="text-sm font-medium mb-1">Customer Comment</p>
+                  <p className="text-sm">{selectedFeedback.comment}</p>
+                </div>
+              )}
+
+              {/* Trip & Driver Info */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-muted/50 rounded-lg">
+                  <p className="text-xs text-muted-foreground mb-1">Driver</p>
+                  <p className="font-medium text-sm">{getDriverName(selectedFeedback.driver)}</p>
+                </div>
+                <div className="p-3 bg-muted/50 rounded-lg">
+                  <p className="text-xs text-muted-foreground mb-1">Type</p>
+                  <p className="font-medium text-sm">
+                    {TYPE_OPTIONS.find(t => t.value === selectedFeedback.feedback_type)?.label}
+                  </p>
+                </div>
+              </div>
+
+              {selectedFeedback.trip && (
+                <div className="p-3 bg-muted/50 rounded-lg">
+                  <p className="text-xs text-muted-foreground mb-1">Trip Details</p>
+                  <p className="text-sm">
+                    <span className="font-medium">From:</span> {selectedFeedback.trip.pickup_address}
+                  </p>
+                  <p className="text-sm">
+                    <span className="font-medium">To:</span> {selectedFeedback.trip.dropoff_address}
+                  </p>
+                </div>
+              )}
+
+              {/* Admin Notes */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Admin Notes</label>
+                <Textarea
+                  value={adminNotes}
+                  onChange={(e) => setAdminNotes(e.target.value)}
+                  placeholder="Add internal notes about this feedback..."
+                  rows={3}
+                />
+              </div>
+
+              {/* Status Actions */}
+              <div className="flex items-center justify-between pt-2">
+                <Badge variant="outline" className={getStatusBadge(selectedFeedback.status).color}>
+                  Current: {getStatusBadge(selectedFeedback.status).label}
+                </Badge>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="flex-wrap gap-2">
+            <Button 
+              variant="outline" 
+              onClick={() => handleUpdateStatus('dismissed')}
+              disabled={isSaving}
+            >
+              <XCircle className="h-4 w-4 mr-2" />
+              Dismiss
+            </Button>
+            <Button 
+              variant="outline"
+              onClick={() => handleUpdateStatus('reviewed')}
+              disabled={isSaving}
+            >
+              <Eye className="h-4 w-4 mr-2" />
+              Mark Reviewed
+            </Button>
+            <Button 
+              onClick={() => handleUpdateStatus('resolved')}
+              disabled={isSaving}
+            >
+              {isSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              <CheckCircle className="h-4 w-4 mr-2" />
+              Resolve
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </AdminLayout>
+  );
+}
