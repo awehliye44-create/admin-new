@@ -465,6 +465,7 @@ export type Database = {
           heading: number | null
           id: string
           is_online: boolean
+          is_pet_friendly: boolean
           last_location_updated_at: string | null
           last_name: string
           phone: string
@@ -488,6 +489,7 @@ export type Database = {
           heading?: number | null
           id?: string
           is_online?: boolean
+          is_pet_friendly?: boolean
           last_location_updated_at?: string | null
           last_name: string
           phone: string
@@ -511,6 +513,7 @@ export type Database = {
           heading?: number | null
           id?: string
           is_online?: boolean
+          is_pet_friendly?: boolean
           last_location_updated_at?: string | null
           last_name?: string
           phone?: string
@@ -1177,6 +1180,7 @@ export type Database = {
       vehicles: {
         Row: {
           approval_status: string
+          capacity: number
           color: string
           created_at: string
           driver_id: string
@@ -1185,11 +1189,14 @@ export type Database = {
           license_plate: string
           make: string
           model: string
+          rejection_reason: string | null
           updated_at: string
+          vehicle_type_id: string | null
           year: number
         }
         Insert: {
           approval_status?: string
+          capacity?: number
           color: string
           created_at?: string
           driver_id: string
@@ -1198,11 +1205,14 @@ export type Database = {
           license_plate: string
           make: string
           model: string
+          rejection_reason?: string | null
           updated_at?: string
+          vehicle_type_id?: string | null
           year: number
         }
         Update: {
           approval_status?: string
+          capacity?: number
           color?: string
           created_at?: string
           driver_id?: string
@@ -1211,7 +1221,9 @@ export type Database = {
           license_plate?: string
           make?: string
           model?: string
+          rejection_reason?: string | null
           updated_at?: string
+          vehicle_type_id?: string | null
           year?: number
         }
         Relationships: [
@@ -1227,6 +1239,13 @@ export type Database = {
             columns: ["driver_id"]
             isOneToOne: false
             referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vehicles_vehicle_type_id_fkey"
+            columns: ["vehicle_type_id"]
+            isOneToOne: false
+            referencedRelation: "vehicle_types"
             referencedColumns: ["id"]
           },
         ]
