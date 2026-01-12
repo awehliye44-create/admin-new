@@ -271,19 +271,34 @@ export default function FleetTracking() {
             ? '#6b7280' 
             : '#22c55e';
 
+      // Create rotated car marker using canvas
+      const carImage = new Image();
+      carImage.src = '/car-marker.png';
+      
+      const createRotatedIcon = (heading: number) => {
+        const canvas = document.createElement('canvas');
+        const size = 40;
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.translate(size / 2, size / 2);
+          ctx.rotate((heading * Math.PI) / 180);
+          ctx.drawImage(carImage, -size / 2, -size / 2, size, size);
+        }
+        return canvas.toDataURL();
+      };
+
       const marker = new window.google.maps.Marker({
         position,
         map: googleMapRef.current,
         icon: {
-          path: window.google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-          scale: 6,
-          fillColor: markerColor,
-          fillOpacity: 1,
-          strokeColor: '#ffffff',
-          strokeWeight: 2,
-          rotation: driver.heading || 0,
+          url: createRotatedIcon(driver.heading || 0),
+          scaledSize: new window.google.maps.Size(40, 40),
+          anchor: new window.google.maps.Point(20, 20),
         },
         title: `${driver.first_name} ${driver.last_name}${driver.speed ? ` (${Math.round(driver.speed * 3.6)} km/h)` : ''}`,
+        optimized: false,
       });
 
       marker.addListener('click', () => {
