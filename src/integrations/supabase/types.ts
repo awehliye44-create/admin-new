@@ -80,6 +80,104 @@ export type Database = {
           },
         ]
       }
+      driver_settings: {
+        Row: {
+          accept_cash: boolean
+          auto_accept: boolean
+          created_at: string
+          driver_id: string
+          id: string
+          max_pickup_distance_miles: number
+          preferred_map_service: string
+          sound_alerts: boolean
+          theme: string
+          towards_destination_active: boolean
+          towards_destination_last_reset: string | null
+          towards_destination_uses_today: number
+          updated_at: string
+        }
+        Insert: {
+          accept_cash?: boolean
+          auto_accept?: boolean
+          created_at?: string
+          driver_id: string
+          id?: string
+          max_pickup_distance_miles?: number
+          preferred_map_service?: string
+          sound_alerts?: boolean
+          theme?: string
+          towards_destination_active?: boolean
+          towards_destination_last_reset?: string | null
+          towards_destination_uses_today?: number
+          updated_at?: string
+        }
+        Update: {
+          accept_cash?: boolean
+          auto_accept?: boolean
+          created_at?: string
+          driver_id?: string
+          id?: string
+          max_pickup_distance_miles?: number
+          preferred_map_service?: string
+          sound_alerts?: boolean
+          theme?: string
+          towards_destination_active?: boolean
+          towards_destination_last_reset?: string | null
+          towards_destination_uses_today?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_settings_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      driver_vehicle_categories: {
+        Row: {
+          created_at: string
+          driver_id: string
+          id: string
+          is_enabled: boolean
+          updated_at: string
+          vehicle_type_id: string
+        }
+        Insert: {
+          created_at?: string
+          driver_id: string
+          id?: string
+          is_enabled?: boolean
+          updated_at?: string
+          vehicle_type_id: string
+        }
+        Update: {
+          created_at?: string
+          driver_id?: string
+          id?: string
+          is_enabled?: boolean
+          updated_at?: string
+          vehicle_type_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_vehicle_categories_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_vehicle_categories_vehicle_type_id_fkey"
+            columns: ["vehicle_type_id"]
+            isOneToOne: false
+            referencedRelation: "vehicle_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       drivers: {
         Row: {
           approval_status: string
