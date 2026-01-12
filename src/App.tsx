@@ -90,7 +90,7 @@ const App = () => (
             {/* Service Areas */}
             <Route path="/regions" element={<ProtectedRoute><Regions /></ProtectedRoute>} />
             <Route path="/services" element={<ProtectedRoute><Services /></ProtectedRoute>} />
-            <Route path="/driver-profiles" element={<ProtectedRoute><DriverProfiles /></ProtectedRoute>} />
+            <Route path="/driver-profiles" element={<ProtectedRoute><Drivers /></ProtectedRoute>} />
             <Route path="/vehicle-types" element={<ProtectedRoute><VehicleTypes /></ProtectedRoute>} />
             <Route path="/documents" element={<ProtectedRoute><Documents /></ProtectedRoute>} />
             <Route path="/driver-categories" element={<ProtectedRoute><DriverCategories /></ProtectedRoute>} />
