@@ -89,7 +89,11 @@ interface ServiceArea {
   name: string;
   region_id: string;
   is_active: boolean;
-  region?: { name: string };
+  region?: { 
+    name: string;
+    currency_code: string;
+    distance_unit: string;
+  };
 }
 
 export default function ServiceAreaPricing() {
@@ -113,6 +117,11 @@ export default function ServiceAreaPricing() {
   const [hasChanges, setHasChanges] = useState(false);
 
   const selectedServiceArea = serviceAreas.find(sa => sa.id === selectedServiceAreaId);
+  
+  // Get region settings with fallbacks
+  const regionCurrency = selectedServiceArea?.region?.currency_code || 'GBP';
+  const regionDistanceUnit = selectedServiceArea?.region?.distance_unit || 'mile';
+  const distanceLabel = regionDistanceUnit === 'km' ? 'km' : 'mi';
 
   useEffect(() => {
     fetchInitialData();
@@ -130,7 +139,7 @@ export default function ServiceAreaPricing() {
       const [areasRes, typesRes] = await Promise.all([
         supabase
           .from('service_areas')
-          .select('id, name, region_id, is_active, region:regions(name)')
+          .select('id, name, region_id, is_active, region:regions(name, currency_code, distance_unit)')
           .order('name'),
         supabase
           .from('vehicle_types')
@@ -192,13 +201,17 @@ export default function ServiceAreaPricing() {
             isExpanded: existingPricing.is_enabled,
           };
         } else {
+          // Get region currency for defaults
+          const serviceArea = serviceAreas.find(sa => sa.id === serviceAreaId);
+          const defaultCurrency = serviceArea?.region?.currency_code || 'GBP';
+          
           pricingMap[vt.id] = {
             vehicle_type_id: vt.id,
             is_enabled: false,
             base_fare: 3,
             minimum_fare: 5,
             commission_percentage: 20,
-            currency_code: 'GBP',
+            currency_code: defaultCurrency,
             distance_pricing: [{ from_km: 0, rate: 1.5 }],
             time_pricing: [{ from_min: 0, rate: 0.25 }],
             pickup_waiting_charges: [{ from_min: 0, rate: 0.2 }],
@@ -218,11 +231,15 @@ export default function ServiceAreaPricing() {
           currency_code: feesRes.data.currency_code,
         });
       } else {
+        // Get region currency for defaults
+        const serviceArea = serviceAreas.find(sa => sa.id === serviceAreaId);
+        const defaultCurrency = serviceArea?.region?.currency_code || 'GBP';
+        
         setCancellationFees({
           free_cancellation_window_minutes: 5,
           cancellation_fee: 5,
           no_show_fee: 10,
-          currency_code: 'GBP',
+          currency_code: defaultCurrency,
         });
       }
       
@@ -513,7 +530,7 @@ export default function ServiceAreaPricing() {
                       {/* Base Fare, Minimum Fare & Commission */}
                       <div className="grid grid-cols-3 gap-4">
                         <div className="space-y-2">
-                          <Label>Base Fare ({pricing.currency_code})</Label>
+                          <Label>Base Fare ({getCurrencySymbol(regionCurrency)})</Label>
                           <Input
                             type="number"
                             step="0.01"
@@ -522,7 +539,7 @@ export default function ServiceAreaPricing() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label>Minimum Fare ({pricing.currency_code})</Label>
+                          <Label>Minimum Fare ({getCurrencySymbol(regionCurrency)})</Label>
                           <Input
                             type="number"
                             step="0.01"
@@ -547,11 +564,12 @@ export default function ServiceAreaPricing() {
                       {/* Distance Pricing */}
                       <PricingTierSection
                         title="Distance Pricing"
-                        description="Rate per km at different distance ranges"
+                        description={`Rate per ${distanceLabel} at different distance ranges`}
                         tiers={pricing.distance_pricing}
-                        fromLabel="From km:"
+                        fromLabel={`From ${distanceLabel}:`}
                         fromField="from_km"
-                        rateUnit="/km"
+                        rateUnit={`/${distanceLabel}`}
+                        currencySymbol={getCurrencySymbol(regionCurrency)}
                         onAdd={() => addPricingTier(vt.id, 'distance_pricing')}
                         onRemove={(index) => removePricingTier(vt.id, 'distance_pricing', index)}
                         onUpdate={(index, field, value) => updatePricingTier(vt.id, 'distance_pricing', index, field, value)}
@@ -565,6 +583,7 @@ export default function ServiceAreaPricing() {
                         fromLabel="From min:"
                         fromField="from_min"
                         rateUnit="/min"
+                        currencySymbol={getCurrencySymbol(regionCurrency)}
                         onAdd={() => addPricingTier(vt.id, 'time_pricing')}
                         onRemove={(index) => removePricingTier(vt.id, 'time_pricing', index)}
                         onUpdate={(index, field, value) => updatePricingTier(vt.id, 'time_pricing', index, field, value)}
@@ -578,6 +597,7 @@ export default function ServiceAreaPricing() {
                         fromLabel="From min:"
                         fromField="from_min"
                         rateUnit="/min"
+                        currencySymbol={getCurrencySymbol(regionCurrency)}
                         onAdd={() => addPricingTier(vt.id, 'pickup_waiting_charges')}
                         onRemove={(index) => removePricingTier(vt.id, 'pickup_waiting_charges', index)}
                         onUpdate={(index, field, value) => updatePricingTier(vt.id, 'pickup_waiting_charges', index, field, value)}
@@ -591,6 +611,7 @@ export default function ServiceAreaPricing() {
                         fromLabel="From min:"
                         fromField="from_min"
                         rateUnit="/min"
+                        currencySymbol={getCurrencySymbol(regionCurrency)}
                         onAdd={() => addPricingTier(vt.id, 'stops_waiting_charges')}
                         onRemove={(index) => removePricingTier(vt.id, 'stops_waiting_charges', index)}
                         onUpdate={(index, field, value) => updatePricingTier(vt.id, 'stops_waiting_charges', index, field, value)}
@@ -640,7 +661,7 @@ export default function ServiceAreaPricing() {
               <p className="text-xs text-muted-foreground">No fee if cancelled within this time</p>
             </div>
             <div className="space-y-2">
-              <Label>Cancellation Fee ({cancellationFees.currency_code})</Label>
+              <Label>Cancellation Fee ({getCurrencySymbol(regionCurrency)})</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -656,7 +677,7 @@ export default function ServiceAreaPricing() {
               <p className="text-xs text-muted-foreground">Fee after free window expires</p>
             </div>
             <div className="space-y-2">
-              <Label>No-Show Fee ({cancellationFees.currency_code})</Label>
+              <Label>No-Show Fee ({getCurrencySymbol(regionCurrency)})</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -719,6 +740,7 @@ interface PricingTierSectionProps {
   fromLabel: string;
   fromField: 'from_km' | 'from_min';
   rateUnit: string;
+  currencySymbol: string;
   onAdd: () => void;
   onRemove: (index: number) => void;
   onUpdate: (index: number, field: string, value: number) => void;
@@ -730,7 +752,8 @@ function PricingTierSection({
   tiers, 
   fromLabel, 
   fromField, 
-  rateUnit, 
+  rateUnit,
+  currencySymbol,
   onAdd, 
   onRemove, 
   onUpdate 
@@ -761,6 +784,7 @@ function PricingTierSection({
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Rate:</span>
+            <span className="text-sm font-medium">{currencySymbol}</span>
             <Input
               type="number"
               step="0.01"
