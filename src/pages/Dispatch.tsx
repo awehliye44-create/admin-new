@@ -16,6 +16,7 @@ import { format } from 'date-fns';
 
 interface Trip {
   id: string;
+  trip_code: string | null;
   pickup_address: string;
   dropoff_address: string;
   status: string | null;
@@ -26,6 +27,7 @@ interface Trip {
   driver?: {
     first_name: string;
     last_name: string;
+    driver_code: string | null;
   } | null;
 }
 
@@ -41,7 +43,7 @@ export default function Dispatch() {
           .from('trips')
           .select(`
             *,
-            driver:drivers(first_name, last_name)
+            driver:drivers(first_name, last_name, driver_code)
           `)
           .order('created_at', { ascending: false })
           .limit(50);
@@ -104,6 +106,7 @@ export default function Dispatch() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>Trip ID</TableHead>
                   <TableHead>Passenger</TableHead>
                   <TableHead>Route</TableHead>
                   <TableHead>Driver</TableHead>
@@ -115,6 +118,11 @@ export default function Dispatch() {
               <TableBody>
                 {trips.map((trip) => (
                   <TableRow key={trip.id}>
+                    <TableCell>
+                      <div className="font-mono text-sm font-medium text-primary">
+                        {trip.trip_code || trip.id.slice(0, 8)}
+                      </div>
+                    </TableCell>
                     <TableCell className="font-medium">
                       {trip.passenger_name || 'Unknown'}
                     </TableCell>
@@ -131,9 +139,18 @@ export default function Dispatch() {
                       </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {trip.driver
-                        ? `${trip.driver.first_name} ${trip.driver.last_name}`
-                        : 'Unassigned'}
+                      {trip.driver ? (
+                        <div>
+                          <div className="font-medium text-foreground">
+                            {trip.driver.first_name} {trip.driver.last_name}
+                          </div>
+                          <div className="text-xs font-mono">
+                            {trip.driver.driver_code || 'N/A'}
+                          </div>
+                        </div>
+                      ) : (
+                        'Unassigned'
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge

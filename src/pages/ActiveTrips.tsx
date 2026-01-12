@@ -79,6 +79,7 @@ interface Trip {
 
 interface Driver {
   id: string;
+  driver_code: string | null;
   first_name: string;
   last_name: string;
   phone: string;
@@ -130,7 +131,7 @@ export default function ActiveTrips() {
           .order('created_at', { ascending: false }),
         supabase
           .from('drivers')
-          .select('id, first_name, last_name, phone, is_online, rating')
+          .select('id, driver_code, first_name, last_name, phone, is_online, rating')
           .eq('is_online', true)
           .eq('approval_status', 'approved'),
       ]);
