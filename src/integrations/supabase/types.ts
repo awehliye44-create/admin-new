@@ -14,6 +14,119 @@ export type Database = {
   }
   public: {
     Tables: {
+      corporate_fare_rules: {
+        Row: {
+          applies_to_regions: string[] | null
+          applies_to_vehicle_types: string[] | null
+          booking_restrictions: Json | null
+          corporate_account_id: string | null
+          created_at: string
+          description: string | null
+          discount_percentage: number | null
+          fare_cap: number | null
+          fixed_rate: number | null
+          id: string
+          is_active: boolean
+          name: string
+          priority: number | null
+          rule_type: string
+          time_restrictions: Json | null
+          updated_at: string
+          valid_from: string | null
+          valid_until: string | null
+        }
+        Insert: {
+          applies_to_regions?: string[] | null
+          applies_to_vehicle_types?: string[] | null
+          booking_restrictions?: Json | null
+          corporate_account_id?: string | null
+          created_at?: string
+          description?: string | null
+          discount_percentage?: number | null
+          fare_cap?: number | null
+          fixed_rate?: number | null
+          id?: string
+          is_active?: boolean
+          name: string
+          priority?: number | null
+          rule_type?: string
+          time_restrictions?: Json | null
+          updated_at?: string
+          valid_from?: string | null
+          valid_until?: string | null
+        }
+        Update: {
+          applies_to_regions?: string[] | null
+          applies_to_vehicle_types?: string[] | null
+          booking_restrictions?: Json | null
+          corporate_account_id?: string | null
+          created_at?: string
+          description?: string | null
+          discount_percentage?: number | null
+          fare_cap?: number | null
+          fixed_rate?: number | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          priority?: number | null
+          rule_type?: string
+          time_restrictions?: Json | null
+          updated_at?: string
+          valid_from?: string | null
+          valid_until?: string | null
+        }
+        Relationships: []
+      }
+      custom_zones: {
+        Row: {
+          color: string | null
+          created_at: string
+          description: string | null
+          geo_boundary: Json | null
+          id: string
+          is_active: boolean
+          name: string
+          priority: number | null
+          region_id: string | null
+          updated_at: string
+          zone_type: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          description?: string | null
+          geo_boundary?: Json | null
+          id?: string
+          is_active?: boolean
+          name: string
+          priority?: number | null
+          region_id?: string | null
+          updated_at?: string
+          zone_type?: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          description?: string | null
+          geo_boundary?: Json | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          priority?: number | null
+          region_id?: string | null
+          updated_at?: string
+          zone_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "custom_zones_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customers: {
         Row: {
           created_at: string
@@ -906,6 +1019,66 @@ export type Database = {
             columns: ["driver_id"]
             isOneToOne: false
             referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      zone_pricing_rules: {
+        Row: {
+          applies_to: string
+          created_at: string
+          id: string
+          is_active: boolean
+          max_fare: number | null
+          min_fare: number | null
+          rule_type: string
+          time_restrictions: Json | null
+          updated_at: string
+          value: number
+          vehicle_type_id: string | null
+          zone_id: string
+        }
+        Insert: {
+          applies_to?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          max_fare?: number | null
+          min_fare?: number | null
+          rule_type?: string
+          time_restrictions?: Json | null
+          updated_at?: string
+          value?: number
+          vehicle_type_id?: string | null
+          zone_id: string
+        }
+        Update: {
+          applies_to?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          max_fare?: number | null
+          min_fare?: number | null
+          rule_type?: string
+          time_restrictions?: Json | null
+          updated_at?: string
+          value?: number
+          vehicle_type_id?: string | null
+          zone_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "zone_pricing_rules_vehicle_type_id_fkey"
+            columns: ["vehicle_type_id"]
+            isOneToOne: false
+            referencedRelation: "vehicle_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "zone_pricing_rules_zone_id_fkey"
+            columns: ["zone_id"]
+            isOneToOne: false
+            referencedRelation: "custom_zones"
             referencedColumns: ["id"]
           },
         ]
