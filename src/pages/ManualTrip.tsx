@@ -480,12 +480,12 @@ export default function ManualTrip() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Select value={selectedDriverId} onValueChange={setSelectedDriverId}>
+                <Select value={selectedDriverId || 'auto'} onValueChange={(val) => setSelectedDriverId(val === 'auto' ? '' : val)}>
                   <SelectTrigger>
                     <SelectValue placeholder="Auto-dispatch (no driver)" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Auto-dispatch</SelectItem>
+                    <SelectItem value="auto">Auto-dispatch</SelectItem>
                     {drivers.map(driver => (
                       <SelectItem key={driver.id} value={driver.id}>
                         <div className="flex items-center gap-2">
