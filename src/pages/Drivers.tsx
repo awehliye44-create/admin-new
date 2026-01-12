@@ -59,7 +59,8 @@ import {
   Pencil,
   Map,
   Save,
-  PawPrint
+  PawPrint,
+  Globe
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DriverDetailsDialog } from '@/components/drivers/DriverDetailsDialog';
@@ -128,6 +129,12 @@ export default function Drivers() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [regionsList, setRegionsList] = useState<Region[]>([]);
+
+  // Region and Service Area filter state
+  const [selectedRegionFilter, setSelectedRegionFilter] = useState<string>('all');
+  const [selectedServiceAreaFilter, setSelectedServiceAreaFilter] = useState<string>('all');
+  const [driverServiceAreasMap, setDriverServiceAreasMap] = useState<Record<string, string[]>>({});
+
   const [newDriver, setNewDriver] = useState({
     first_name: '',
     last_name: '',
@@ -184,14 +191,20 @@ export default function Drivers() {
       // Fetch vehicles for all drivers
       if (data && data.length > 0) {
         const driverIds = data.map(d => d.id);
-        const { data: vehiclesData } = await supabase
-          .from('vehicles')
-          .select('*')
-          .in('driver_id', driverIds);
+        const [vehiclesRes, driverServiceAreasRes] = await Promise.all([
+          supabase
+            .from('vehicles')
+            .select('*')
+            .in('driver_id', driverIds),
+          supabase
+            .from('driver_service_areas')
+            .select('driver_id, service_area_id')
+            .in('driver_id', driverIds),
+        ]);
         
-        if (vehiclesData) {
+        if (vehiclesRes.data) {
           const vehiclesMap: Record<string, Vehicle[]> = {};
-          vehiclesData.forEach(v => {
+          vehiclesRes.data.forEach(v => {
             if (!vehiclesMap[v.driver_id]) vehiclesMap[v.driver_id] = [];
             vehiclesMap[v.driver_id].push({
               ...v,
@@ -201,6 +214,16 @@ export default function Drivers() {
             });
           });
           setVehicles(vehiclesMap);
+        }
+
+        // Build driver -> service areas map
+        if (driverServiceAreasRes.data) {
+          const dsaMap: Record<string, string[]> = {};
+          driverServiceAreasRes.data.forEach(dsa => {
+            if (!dsaMap[dsa.driver_id]) dsaMap[dsa.driver_id] = [];
+            dsaMap[dsa.driver_id].push(dsa.service_area_id);
+          });
+          setDriverServiceAreasMap(dsaMap);
         }
       }
     } catch (err) {
@@ -255,16 +278,34 @@ export default function Drivers() {
     }
   };
 
+  // Get service areas for selected region filter
+  const filteredServiceAreasForFilter = selectedRegionFilter === 'all'
+    ? serviceAreas
+    : serviceAreas.filter(sa => sa.region_id === selectedRegionFilter);
+
+  // Reset service area filter when region changes
+  useEffect(() => {
+    setSelectedServiceAreaFilter('all');
+  }, [selectedRegionFilter]);
+
   const filteredDrivers = drivers.filter(driver => {
     const matchesSearch = 
       driver.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       driver.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       driver.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      driver.phone.includes(searchQuery);
+      driver.phone.includes(searchQuery) ||
+      driver.driver_code?.toLowerCase().includes(searchQuery.toLowerCase());
     
     const matchesStatus = statusFilter === 'all' || driver.approval_status === statusFilter;
     
-    return matchesSearch && matchesStatus;
+    // Region filter
+    const matchesRegion = selectedRegionFilter === 'all' || driver.region_id === selectedRegionFilter;
+    
+    // Service area filter - check if driver is assigned to this service area
+    const matchesServiceArea = selectedServiceAreaFilter === 'all' || 
+      (driverServiceAreasMap[driver.id]?.includes(selectedServiceAreaFilter));
+    
+    return matchesSearch && matchesStatus && matchesRegion && matchesServiceArea;
   });
 
   const statusCounts = {
@@ -516,16 +557,47 @@ export default function Drivers() {
             <Car className="h-5 w-5 text-primary" />
             All Drivers
           </CardTitle>
-          <div className="flex flex-col gap-2 md:flex-row md:items-center">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center flex-wrap">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search drivers..."
-                className="pl-9 w-full md:w-[250px]"
+                className="pl-9 w-full md:w-[200px]"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
+            <Select value={selectedRegionFilter} onValueChange={setSelectedRegionFilter}>
+              <SelectTrigger className="w-full md:w-[140px]">
+                <Globe className="h-4 w-4 mr-2 text-muted-foreground" />
+                <SelectValue placeholder="Region" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Regions</SelectItem>
+                {regionsList.map((region) => (
+                  <SelectItem key={region.id} value={region.id}>
+                    {region.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select 
+              value={selectedServiceAreaFilter} 
+              onValueChange={setSelectedServiceAreaFilter}
+              disabled={filteredServiceAreasForFilter.length === 0}
+            >
+              <SelectTrigger className="w-full md:w-[150px]">
+                <SelectValue placeholder="Service Area" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Areas</SelectItem>
+                {filteredServiceAreasForFilter.map((area) => (
+                  <SelectItem key={area.id} value={area.id}>
+                    {area.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button onClick={() => setIsAddDialogOpen(true)}>
               <UserPlus className="mr-2 h-4 w-4" />
               Add Driver
