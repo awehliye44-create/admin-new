@@ -1176,6 +1176,7 @@ export type Database = {
       }
       vehicles: {
         Row: {
+          approval_status: string
           color: string
           created_at: string
           driver_id: string
@@ -1188,6 +1189,7 @@ export type Database = {
           year: number
         }
         Insert: {
+          approval_status?: string
           color: string
           created_at?: string
           driver_id: string
@@ -1200,6 +1202,7 @@ export type Database = {
           year: number
         }
         Update: {
+          approval_status?: string
           color?: string
           created_at?: string
           driver_id?: string
