@@ -43,7 +43,7 @@ export function RegionBoundaryMap({
     }
 
     const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyCminSfJrGFp0mDvMI2hnk0xHVg_Du6Srg&libraries=drawing,geometry`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyD07ibmHaKsBpJB_7yNg4EvL6TuVx83hds&libraries=drawing,geometry`;
     script.async = true;
     script.defer = true;
     script.onload = () => {
