@@ -17,8 +17,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(true); // Default to true to avoid flash
+  const [isLoading, setIsLoading] = useState(false); // No loading state
+  const [isInitialized, setIsInitialized] = useState(false);
 
   const checkAdminRole = async (userId: string) => {
     try {
@@ -41,44 +42,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const applySession = (nextSession: Session | null) => {
-    setSession(nextSession);
-    setUser(nextSession?.user ?? null);
-  };
-
   useEffect(() => {
-    // Set up auth state listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
-      applySession(nextSession);
+    // Immediately get session synchronously from localStorage cache
+    supabase.auth.getSession().then(async ({ data: { session: existingSession } }) => {
+      setSession(existingSession);
+      setUser(existingSession?.user ?? null);
 
-      // IMPORTANT: don't show Access Denied until we've confirmed role
-      setIsLoading(true);
+      if (existingSession?.user) {
+        const adminStatus = await checkAdminRole(existingSession.user.id);
+        setIsAdmin(adminStatus);
+      } else {
+        setIsAdmin(false);
+      }
+      setIsInitialized(true);
+    });
+
+    // Set up auth state listener for future changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      setSession(nextSession);
+      setUser(nextSession?.user ?? null);
 
       if (nextSession?.user) {
         setTimeout(() => {
-          checkAdminRole(nextSession.user.id)
-            .then(setIsAdmin)
-            .finally(() => setIsLoading(false));
+          checkAdminRole(nextSession.user.id).then(setIsAdmin);
         }, 0);
       } else {
         setIsAdmin(false);
-        setIsLoading(false);
-      }
-    });
-
-    // THEN check for existing session
-    supabase.auth.getSession().then(({ data: { session: existingSession } }) => {
-      applySession(existingSession);
-
-      setIsLoading(true);
-
-      if (existingSession?.user) {
-        checkAdminRole(existingSession.user.id)
-          .then(setIsAdmin)
-          .finally(() => setIsLoading(false));
-      } else {
-        setIsAdmin(false);
-        setIsLoading(false);
       }
     });
 
