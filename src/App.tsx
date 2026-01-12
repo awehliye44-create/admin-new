@@ -23,13 +23,13 @@ import NotFound from "./pages/NotFound";
 import AutoDispatchRules from "./pages/AutoDispatchRules";
 import FleetTracking from "./pages/FleetTracking";
 import ActiveTrips from "./pages/ActiveTrips";
+import VehicleTypes from "./pages/VehicleTypes";
 
 import {
   ScheduledRides,
   MissedCancelled,
   ManualTrip,
   DriverProfiles,
-  VehicleTypes,
   Documents,
   DriverCategories,
   PromoCodes,

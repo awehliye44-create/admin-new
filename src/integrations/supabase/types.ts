@@ -480,9 +480,12 @@ export type Database = {
       }
       vehicle_types: {
         Row: {
+          capacity: number
+          categories: string[] | null
           created_at: string
           description: string | null
           display_order: number | null
+          features: string[] | null
           icon: string | null
           id: string
           is_active: boolean
@@ -491,9 +494,12 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          capacity?: number
+          categories?: string[] | null
           created_at?: string
           description?: string | null
           display_order?: number | null
+          features?: string[] | null
           icon?: string | null
           id?: string
           is_active?: boolean
@@ -502,9 +508,12 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          capacity?: number
+          categories?: string[] | null
           created_at?: string
           description?: string | null
           display_order?: number | null
+          features?: string[] | null
           icon?: string | null
           id?: string
           is_active?: boolean
