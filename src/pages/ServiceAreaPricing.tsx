@@ -465,8 +465,6 @@ export default function ServiceAreaPricing() {
             const pricing = vehiclePricing[vt.id];
             if (!pricing) return null;
 
-            const currencySymbol = getCurrencySymbol(pricing.currency_code);
-
             if (!pricing.is_enabled) {
               return (
                 <div 
@@ -506,7 +504,16 @@ export default function ServiceAreaPricing() {
                     </div>
                     <div className="flex items-center gap-3">
                       <Badge variant="outline" className="bg-primary/5">
-                        {currencySymbol}{pricing.base_fare.toFixed(2)} base
+                        {getCurrencySymbol(regionCurrency)}{pricing.base_fare.toFixed(2)} base
+                      </Badge>
+                      <Badge variant="outline" className="bg-muted">
+                        {getCurrencySymbol(regionCurrency)}{(pricing.distance_pricing[0]?.rate || 0).toFixed(2)}/{distanceLabel}
+                      </Badge>
+                      <Badge variant="outline" className="bg-muted">
+                        {getCurrencySymbol(regionCurrency)}{(pricing.time_pricing[0]?.rate || 0).toFixed(2)}/min
+                      </Badge>
+                      <Badge variant="secondary">
+                        {pricing.commission_percentage}% comm.
                       </Badge>
                       <CollapsibleTrigger asChild>
                         <Button variant="ghost" size="sm">
@@ -557,7 +564,35 @@ export default function ServiceAreaPricing() {
                             value={pricing.commission_percentage}
                             onChange={e => updatePricing(vt.id, 'commission_percentage', parseFloat(e.target.value) || 0)}
                           />
-                          <p className="text-xs text-muted-foreground">Platform fee per trip</p>
+                          <p className="text-xs text-muted-foreground">Deducted from driver earnings</p>
+                        </div>
+                      </div>
+
+                      {/* Fare Breakdown Summary */}
+                      <div className="p-4 bg-muted/30 rounded-lg border">
+                        <p className="text-sm font-medium mb-3">Fare Breakdown Summary</p>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div>
+                            <p className="text-muted-foreground">Base Fare</p>
+                            <p className="font-semibold">{getCurrencySymbol(regionCurrency)}{pricing.base_fare.toFixed(2)}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Per {distanceLabel}</p>
+                            <p className="font-semibold">{getCurrencySymbol(regionCurrency)}{(pricing.distance_pricing[0]?.rate || 0).toFixed(2)}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Per Minute</p>
+                            <p className="font-semibold">{getCurrencySymbol(regionCurrency)}{(pricing.time_pricing[0]?.rate || 0).toFixed(2)}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Minimum Fare</p>
+                            <p className="font-semibold">{getCurrencySymbol(regionCurrency)}{pricing.minimum_fare.toFixed(2)}</p>
+                          </div>
+                        </div>
+                        <div className="mt-3 pt-3 border-t border-border/50">
+                          <p className="text-xs text-muted-foreground">
+                            <span className="font-medium">Commission:</span> {pricing.commission_percentage}% is deducted from total fare — driver receives {(100 - pricing.commission_percentage).toFixed(1)}% of fare
+                          </p>
                         </div>
                       </div>
 
