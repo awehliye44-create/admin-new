@@ -142,23 +142,35 @@ export type Database = {
       regions: {
         Row: {
           created_at: string
+          currency_code: string
+          distance_unit: string
+          geo_boundary: Json | null
           id: string
           name: string
           status: string
+          timezone: string
           updated_at: string
         }
         Insert: {
           created_at?: string
+          currency_code?: string
+          distance_unit?: string
+          geo_boundary?: Json | null
           id?: string
           name: string
           status?: string
+          timezone?: string
           updated_at?: string
         }
         Update: {
           created_at?: string
+          currency_code?: string
+          distance_unit?: string
+          geo_boundary?: Json | null
           id?: string
           name?: string
           status?: string
+          timezone?: string
           updated_at?: string
         }
         Relationships: []
