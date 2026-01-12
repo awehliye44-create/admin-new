@@ -125,7 +125,7 @@ export default function ActiveTrips() {
           .from('trips')
           .select(`
             *,
-            driver:drivers(id, first_name, last_name, phone)
+            driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone)
           `)
           .in('status', ['pending', 'searching', 'accepted', 'arrived', 'in_progress'])
           .order('created_at', { ascending: false }),
