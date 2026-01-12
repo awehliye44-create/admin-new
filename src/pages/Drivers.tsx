@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Table,
   TableBody,
@@ -39,7 +40,6 @@ import {
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { 
-  Plus, 
   Car, 
   Loader2, 
   Star, 
@@ -55,7 +55,10 @@ import {
   Phone,
   Mail,
   MapPin,
-  UserPlus
+  UserPlus,
+  Pencil,
+  Map,
+  Save
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -89,6 +92,19 @@ interface Region {
   name: string;
 }
 
+interface ServiceArea {
+  id: string;
+  name: string;
+  region_id: string;
+  is_active: boolean;
+}
+
+interface DriverServiceArea {
+  id: string;
+  driver_id: string;
+  service_area_id: string;
+}
+
 export default function Drivers() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [vehicles, setVehicles] = useState<Record<string, Vehicle[]>>({});
@@ -111,6 +127,18 @@ export default function Drivers() {
     region_id: '',
   });
 
+  // Edit driver state
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editDriver, setEditDriver] = useState<Driver | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  // Service areas state
+  const [isServiceAreasDialogOpen, setIsServiceAreasDialogOpen] = useState(false);
+  const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
+  const [driverServiceAreas, setDriverServiceAreas] = useState<DriverServiceArea[]>([]);
+  const [selectedServiceAreas, setSelectedServiceAreas] = useState<string[]>([]);
+  const [isSavingServiceAreas, setIsSavingServiceAreas] = useState(false);
+
   const fetchDrivers = async () => {
     try {
       setIsLoading(true);
@@ -132,6 +160,16 @@ export default function Drivers() {
         const regionsMap: Record<string, Region> = {};
         regionsData.forEach(r => { regionsMap[r.id] = r; });
         setRegions(regionsMap);
+      }
+
+      // Fetch service areas
+      const { data: serviceAreasData } = await supabase
+        .from('service_areas')
+        .select('*')
+        .eq('is_active', true);
+      
+      if (serviceAreasData) {
+        setServiceAreas(serviceAreasData);
       }
 
       // Fetch vehicles for all drivers
@@ -177,7 +215,7 @@ export default function Drivers() {
         prev.map(d => d.id === driverId ? { ...d, approval_status: newStatus } : d)
       );
       
-      toast.success(`Driver ${newStatus === 'approved' ? 'approved' : 'rejected'} successfully`);
+      toast.success(`Driver ${newStatus === 'approved' ? 'approved' : newStatus === 'rejected' ? 'rejected' : 'set to pending'} successfully`);
       
       if (selectedDriver?.id === driverId) {
         setSelectedDriver(prev => prev ? { ...prev, approval_status: newStatus } : null);
@@ -245,8 +283,6 @@ export default function Drivers() {
 
     setIsAdding(true);
     try {
-      // Create driver without user_id (admin-created driver)
-      // We need to generate a placeholder user_id since it's required
       const { data, error } = await supabase
         .from('drivers')
         .insert({
@@ -255,8 +291,8 @@ export default function Drivers() {
           email: newDriver.email,
           phone: newDriver.phone,
           region_id: newDriver.region_id,
-          user_id: crypto.randomUUID(), // Placeholder for admin-created drivers
-          approval_status: 'approved', // Admin-created drivers are auto-approved
+          user_id: crypto.randomUUID(),
+          approval_status: 'approved',
         })
         .select()
         .single();
@@ -273,6 +309,138 @@ export default function Drivers() {
     } finally {
       setIsAdding(false);
     }
+  };
+
+  // Edit driver functions
+  const openEditDialog = (driver: Driver) => {
+    setEditDriver({ ...driver });
+    setIsEditDialogOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editDriver) return;
+
+    if (!editDriver.first_name || !editDriver.last_name || !editDriver.email || !editDriver.phone) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
+    setIsSavingEdit(true);
+    try {
+      const { error } = await supabase
+        .from('drivers')
+        .update({
+          first_name: editDriver.first_name,
+          last_name: editDriver.last_name,
+          email: editDriver.email,
+          phone: editDriver.phone,
+          region_id: editDriver.region_id,
+        })
+        .eq('id', editDriver.id);
+
+      if (error) throw error;
+
+      setDrivers(prev => 
+        prev.map(d => d.id === editDriver.id ? { ...d, ...editDriver } : d)
+      );
+      
+      if (selectedDriver?.id === editDriver.id) {
+        setSelectedDriver(editDriver);
+      }
+      
+      toast.success('Driver updated successfully');
+      setIsEditDialogOpen(false);
+      setEditDriver(null);
+    } catch (err: any) {
+      console.error('Error updating driver:', err);
+      toast.error(err.message || 'Failed to update driver');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  // Service areas functions
+  const openServiceAreasDialog = async (driver: Driver) => {
+    setSelectedDriver(driver);
+    setIsSavingServiceAreas(true);
+    
+    try {
+      // Fetch current service areas for this driver
+      const { data, error } = await supabase
+        .from('driver_service_areas')
+        .select('*')
+        .eq('driver_id', driver.id);
+
+      if (error) throw error;
+
+      setDriverServiceAreas(data || []);
+      setSelectedServiceAreas((data || []).map(d => d.service_area_id));
+    } catch (err) {
+      console.error('Error fetching driver service areas:', err);
+      toast.error('Failed to load service areas');
+    } finally {
+      setIsSavingServiceAreas(false);
+      setIsServiceAreasDialogOpen(true);
+    }
+  };
+
+  const toggleServiceArea = (serviceAreaId: string) => {
+    setSelectedServiceAreas(prev => 
+      prev.includes(serviceAreaId) 
+        ? prev.filter(id => id !== serviceAreaId)
+        : [...prev, serviceAreaId]
+    );
+  };
+
+  const handleSaveServiceAreas = async () => {
+    if (!selectedDriver) return;
+
+    setIsSavingServiceAreas(true);
+    try {
+      // Get current assignments
+      const currentIds = driverServiceAreas.map(d => d.service_area_id);
+      const toAdd = selectedServiceAreas.filter(id => !currentIds.includes(id));
+      const toRemove = currentIds.filter(id => !selectedServiceAreas.includes(id));
+
+      // Remove unselected
+      if (toRemove.length > 0) {
+        const { error: deleteError } = await supabase
+          .from('driver_service_areas')
+          .delete()
+          .eq('driver_id', selectedDriver.id)
+          .in('service_area_id', toRemove);
+
+        if (deleteError) throw deleteError;
+      }
+
+      // Add new selections
+      if (toAdd.length > 0) {
+        const newAssignments = toAdd.map(service_area_id => ({
+          driver_id: selectedDriver.id,
+          service_area_id,
+        }));
+
+        const { error: insertError } = await supabase
+          .from('driver_service_areas')
+          .insert(newAssignments);
+
+        if (insertError) throw insertError;
+      }
+
+      toast.success('Service areas updated successfully');
+      setIsServiceAreasDialogOpen(false);
+    } catch (err: any) {
+      console.error('Error saving service areas:', err);
+      toast.error(err.message || 'Failed to update service areas');
+    } finally {
+      setIsSavingServiceAreas(false);
+    }
+  };
+
+  // Get service areas for the selected driver's region
+  const getFilteredServiceAreas = () => {
+    if (!selectedDriver) return serviceAreas;
+    return serviceAreas.filter(sa => sa.region_id === selectedDriver.region_id);
   };
 
   return (
@@ -466,6 +634,14 @@ export default function Drivers() {
                             <Eye className="mr-2 h-4 w-4" />
                             View Details
                           </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => openEditDialog(driver)}>
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Edit Profile
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => openServiceAreasDialog(driver)}>
+                            <Map className="mr-2 h-4 w-4" />
+                            Assign Service Areas
+                          </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           {driver.approval_status !== 'approved' && (
                             <DropdownMenuItem 
@@ -617,7 +793,27 @@ export default function Drivers() {
               )}
 
               {/* Actions */}
-              <div className="flex gap-2 pt-4 border-t">
+              <div className="flex gap-2 pt-4 border-t flex-wrap">
+                <Button 
+                  variant="outline"
+                  onClick={() => {
+                    setIsDetailsOpen(false);
+                    openEditDialog(selectedDriver);
+                  }}
+                >
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Edit Profile
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={() => {
+                    setIsDetailsOpen(false);
+                    openServiceAreasDialog(selectedDriver);
+                  }}
+                >
+                  <Map className="mr-2 h-4 w-4" />
+                  Service Areas
+                </Button>
                 {selectedDriver.approval_status !== 'approved' && (
                   <Button 
                     onClick={() => updateDriverStatus(selectedDriver.id, 'approved')}
@@ -629,7 +825,7 @@ export default function Drivers() {
                     ) : (
                       <CheckCircle className="mr-2 h-4 w-4" />
                     )}
-                    Approve Driver
+                    Approve
                   </Button>
                 )}
                 {selectedDriver.approval_status !== 'rejected' && (
@@ -643,26 +839,205 @@ export default function Drivers() {
                     ) : (
                       <XCircle className="mr-2 h-4 w-4" />
                     )}
-                    Reject Driver
-                  </Button>
-                )}
-                {selectedDriver.approval_status === 'approved' && (
-                  <Button 
-                    variant="outline"
-                    onClick={() => updateDriverStatus(selectedDriver.id, 'pending')}
-                    disabled={isUpdating === selectedDriver.id}
-                  >
-                    {isUpdating === selectedDriver.id ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Clock className="mr-2 h-4 w-4" />
-                    )}
-                    Suspend (Set Pending)
+                    Reject
                   </Button>
                 )}
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Driver Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={(open) => {
+        setIsEditDialogOpen(open);
+        if (!open) setEditDriver(null);
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5" />
+              Edit Driver Profile
+            </DialogTitle>
+            <DialogDescription>
+              Update driver information
+            </DialogDescription>
+          </DialogHeader>
+          
+          {editDriver && (
+            <div className="space-y-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit_first_name">First Name</Label>
+                  <Input
+                    id="edit_first_name"
+                    value={editDriver.first_name}
+                    onChange={(e) => setEditDriver(prev => prev ? { ...prev, first_name: e.target.value } : null)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit_last_name">Last Name</Label>
+                  <Input
+                    id="edit_last_name"
+                    value={editDriver.last_name}
+                    onChange={(e) => setEditDriver(prev => prev ? { ...prev, last_name: e.target.value } : null)}
+                  />
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="edit_email">Email</Label>
+                <Input
+                  id="edit_email"
+                  type="email"
+                  value={editDriver.email}
+                  onChange={(e) => setEditDriver(prev => prev ? { ...prev, email: e.target.value } : null)}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="edit_phone">Phone</Label>
+                <Input
+                  id="edit_phone"
+                  type="tel"
+                  value={editDriver.phone}
+                  onChange={(e) => setEditDriver(prev => prev ? { ...prev, phone: e.target.value } : null)}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="edit_region">Region</Label>
+                <Select
+                  value={editDriver.region_id}
+                  onValueChange={(value) => setEditDriver(prev => prev ? { ...prev, region_id: value } : null)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a region" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {regionsList.map((region) => (
+                      <SelectItem key={region.id} value={region.id}>
+                        {region.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit_status">Approval Status</Label>
+                <Select
+                  value={editDriver.approval_status}
+                  onValueChange={(value) => setEditDriver(prev => prev ? { ...prev, approval_status: value } : null)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="approved">Approved</SelectItem>
+                    <SelectItem value="rejected">Rejected</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveEdit} disabled={isSavingEdit}>
+              {isSavingEdit ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="mr-2 h-4 w-4" />
+                  Save Changes
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Service Areas Dialog */}
+      <Dialog open={isServiceAreasDialogOpen} onOpenChange={setIsServiceAreasDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Map className="h-5 w-5" />
+              Assign Service Areas
+            </DialogTitle>
+            <DialogDescription>
+              {selectedDriver && (
+                <>Select service areas for {selectedDriver.first_name} {selectedDriver.last_name}</>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4">
+            {getFilteredServiceAreas().length === 0 ? (
+              <div className="text-center text-muted-foreground py-8">
+                No service areas available for this region
+              </div>
+            ) : (
+              <div className="space-y-3 max-h-[300px] overflow-y-auto">
+                {getFilteredServiceAreas().map((area) => (
+                  <div
+                    key={area.id}
+                    className="flex items-center space-x-3 p-3 border rounded-lg hover:bg-muted/50 cursor-pointer"
+                    onClick={() => toggleServiceArea(area.id)}
+                  >
+                    <Checkbox
+                      id={area.id}
+                      checked={selectedServiceAreas.includes(area.id)}
+                      onCheckedChange={() => toggleServiceArea(area.id)}
+                    />
+                    <div className="flex-1">
+                      <label
+                        htmlFor={area.id}
+                        className="text-sm font-medium cursor-pointer"
+                      >
+                        {area.name}
+                      </label>
+                    </div>
+                    {selectedServiceAreas.includes(area.id) && (
+                      <CheckCircle className="h-4 w-4 text-green-500" />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            <div className="mt-4 p-3 bg-muted/50 rounded-lg">
+              <p className="text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">{selectedServiceAreas.length}</span> service area(s) selected
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsServiceAreasDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveServiceAreas} disabled={isSavingServiceAreas}>
+              {isSavingServiceAreas ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="mr-2 h-4 w-4" />
+                  Save Service Areas
+                </>
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
