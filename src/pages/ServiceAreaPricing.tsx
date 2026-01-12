@@ -68,6 +68,7 @@ interface VehiclePricing {
   is_enabled: boolean;
   base_fare: number;
   minimum_fare: number;
+  commission_percentage: number;
   currency_code: string;
   distance_pricing: PricingTier[];
   time_pricing: PricingTier[];
@@ -182,6 +183,7 @@ export default function ServiceAreaPricing() {
             is_enabled: existingPricing.is_enabled,
             base_fare: Number(existingPricing.base_fare),
             minimum_fare: Number(existingPricing.minimum_fare),
+            commission_percentage: Number(existingPricing.commission_percentage ?? 20),
             currency_code: existingPricing.currency_code,
             distance_pricing: (existingPricing.distance_pricing as unknown as PricingTier[]) || [{ from_km: 0, rate: 1.5 }],
             time_pricing: (existingPricing.time_pricing as unknown as PricingTier[]) || [{ from_min: 0, rate: 0.25 }],
@@ -195,6 +197,7 @@ export default function ServiceAreaPricing() {
             is_enabled: false,
             base_fare: 3,
             minimum_fare: 5,
+            commission_percentage: 20,
             currency_code: 'GBP',
             distance_pricing: [{ from_km: 0, rate: 1.5 }],
             time_pricing: [{ from_min: 0, rate: 0.25 }],
@@ -309,6 +312,7 @@ export default function ServiceAreaPricing() {
             is_enabled: pricing.is_enabled,
             base_fare: pricing.base_fare,
             minimum_fare: pricing.minimum_fare,
+            commission_percentage: pricing.commission_percentage,
             currency_code: pricing.currency_code,
             distance_pricing: JSON.parse(JSON.stringify(pricing.distance_pricing)),
             time_pricing: JSON.parse(JSON.stringify(pricing.time_pricing)),
@@ -506,8 +510,8 @@ export default function ServiceAreaPricing() {
 
                   <CollapsibleContent>
                     <div className="p-6 space-y-6 border-t">
-                      {/* Base Fare & Minimum Fare */}
-                      <div className="grid grid-cols-2 gap-4">
+                      {/* Base Fare, Minimum Fare & Commission */}
+                      <div className="grid grid-cols-3 gap-4">
                         <div className="space-y-2">
                           <Label>Base Fare ({pricing.currency_code})</Label>
                           <Input
@@ -525,6 +529,18 @@ export default function ServiceAreaPricing() {
                             value={pricing.minimum_fare}
                             onChange={e => updatePricing(vt.id, 'minimum_fare', parseFloat(e.target.value) || 0)}
                           />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Commission (%)</Label>
+                          <Input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="100"
+                            value={pricing.commission_percentage}
+                            onChange={e => updatePricing(vt.id, 'commission_percentage', parseFloat(e.target.value) || 0)}
+                          />
+                          <p className="text-xs text-muted-foreground">Platform fee per trip</p>
                         </div>
                       </div>
 

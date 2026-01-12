@@ -687,6 +687,7 @@ export type Database = {
       service_area_vehicle_pricing: {
         Row: {
           base_fare: number
+          commission_percentage: number
           created_at: string
           currency_code: string
           distance_pricing: Json
@@ -702,6 +703,7 @@ export type Database = {
         }
         Insert: {
           base_fare?: number
+          commission_percentage?: number
           created_at?: string
           currency_code?: string
           distance_pricing?: Json
@@ -717,6 +719,7 @@ export type Database = {
         }
         Update: {
           base_fare?: number
+          commission_percentage?: number
           created_at?: string
           currency_code?: string
           distance_pricing?: Json
