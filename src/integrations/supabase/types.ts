@@ -828,6 +828,50 @@ export type Database = {
           },
         ]
       }
+      service_area_payment_methods: {
+        Row: {
+          apple_pay_enabled: boolean
+          card_enabled: boolean
+          cash_enabled: boolean
+          created_at: string
+          google_pay_enabled: boolean
+          id: string
+          service_area_id: string
+          updated_at: string
+          wallet_enabled: boolean
+        }
+        Insert: {
+          apple_pay_enabled?: boolean
+          card_enabled?: boolean
+          cash_enabled?: boolean
+          created_at?: string
+          google_pay_enabled?: boolean
+          id?: string
+          service_area_id: string
+          updated_at?: string
+          wallet_enabled?: boolean
+        }
+        Update: {
+          apple_pay_enabled?: boolean
+          card_enabled?: boolean
+          cash_enabled?: boolean
+          created_at?: string
+          google_pay_enabled?: boolean
+          id?: string
+          service_area_id?: string
+          updated_at?: string
+          wallet_enabled?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_area_payment_methods_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: true
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       service_area_vehicle_pricing: {
         Row: {
           base_fare: number
