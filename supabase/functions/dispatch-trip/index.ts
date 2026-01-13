@@ -134,19 +134,31 @@ serve(async (req) => {
 
     const pickupPoint: LatLng = { lat: pickup_lat, lng: pickup_lng };
 
-    // Get active regions with geo_boundary
+    // Get active regions with geo_boundary and settings
     const { data: regions, error: regError } = await supabase
       .from('regions')
-      .select('id, name, geo_boundary')
+      .select('id, name, geo_boundary, currency_code, distance_unit, timezone')
       .eq('status', 'active');
 
     if (regError) throw regError;
 
     // Find matching region for pickup
-    let matchingRegion: { id: string; name: string } | null = null;
+    let matchingRegion: { 
+      id: string; 
+      name: string;
+      currency_code: string;
+      distance_unit: string;
+      timezone: string;
+    } | null = null;
     for (const region of regions || []) {
       if (region.geo_boundary && isPointInPolygon(pickupPoint, region.geo_boundary as LatLng[])) {
-        matchingRegion = { id: region.id, name: region.name };
+        matchingRegion = { 
+          id: region.id, 
+          name: region.name,
+          currency_code: region.currency_code,
+          distance_unit: region.distance_unit,
+          timezone: region.timezone,
+        };
         break;
       }
     }
@@ -305,7 +317,7 @@ serve(async (req) => {
       );
     }
 
-    // Assign trip to nearest driver
+    // Assign trip to nearest driver and set currency from region
     const selectedDriver = eligibleDrivers[0];
     
     const { error: updateError } = await supabase
@@ -314,7 +326,9 @@ serve(async (req) => {
         driver_id: selectedDriver.id,
         status: 'offered',
         driver_location_lat: selectedDriver.current_lat,
-        driver_location_lng: selectedDriver.current_lng
+        driver_location_lng: selectedDriver.current_lng,
+        currency_code: matchingRegion.currency_code,
+        currency: matchingRegion.currency_code,
       })
       .eq('id', trip_id);
 
@@ -335,7 +349,12 @@ serve(async (req) => {
           distance_km: selectedDriver.distance_km,
           rating: selectedDriver.rating
         },
-        eligible_drivers_count: eligibleDrivers.length
+        eligible_drivers_count: eligibleDrivers.length,
+        settings: {
+          currency_code: matchingRegion.currency_code,
+          distance_unit: matchingRegion.distance_unit,
+          timezone: matchingRegion.timezone,
+        }
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

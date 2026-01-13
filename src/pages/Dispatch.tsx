@@ -13,6 +13,7 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { Navigation, Loader2, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
+import { getCurrencySymbol } from '@/lib/regionSettings';
 
 interface Trip {
   id: string;
@@ -22,6 +23,7 @@ interface Trip {
   status: string | null;
   fare: number | null;
   estimated_fare: number | null;
+  currency_code: string | null;
   passenger_name: string | null;
   created_at: string;
   driver?: {
@@ -161,7 +163,7 @@ export default function Dispatch() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      ${(trip.fare || trip.estimated_fare || 0).toFixed(2)}
+                      {getCurrencySymbol(trip.currency_code || 'GBP')}{(trip.fare || trip.estimated_fare || 0).toFixed(2)}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {format(new Date(trip.created_at), 'MMM d, HH:mm')}
