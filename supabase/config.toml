@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.dispatch-trip]
 verify_jwt = false
+
+[functions.resolve-service-area]
+verify_jwt = false

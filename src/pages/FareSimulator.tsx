@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { AdminLayout } from "@/components/layout/AdminLayout";
@@ -12,6 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { Calculator, MapPin, Navigation, Car, Clock, Percent, DollarSign, ArrowRight, RotateCcw, Info, TrendingUp, Building2 } from "lucide-react";
+import { getCurrencySymbol, getDistanceUnitShort, formatDistance, convertDistance } from "@/lib/regionSettings";
 
 interface VehicleType {
   id: string;
@@ -23,6 +24,13 @@ interface ServiceArea {
   id: string;
   name: string;
   region_id: string;
+}
+
+interface Region {
+  id: string;
+  name: string;
+  currency_code: string;
+  distance_unit: string;
 }
 
 interface VehiclePricing {
@@ -65,6 +73,8 @@ interface FareBreakdown {
   minimumFare: number;
   finalFare: number;
   appliedRules: string[];
+  currencyCode: string;
+  distanceUnit: string;
 }
 
 export default function FareSimulator() {
@@ -111,6 +121,28 @@ export default function FareSimulator() {
       return data as ServiceArea[];
     },
   });
+
+  const { data: regions = [] } = useQuery({
+    queryKey: ['regions'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('regions')
+        .select('id, name, currency_code, distance_unit')
+        .eq('status', 'active');
+      if (error) throw error;
+      return data as Region[];
+    },
+  });
+
+  // Get current region settings based on selected service area
+  const currentRegionSettings = useMemo(() => {
+    const selectedArea = serviceAreas.find(sa => sa.id === formData.service_area_id);
+    const region = regions.find(r => r.id === selectedArea?.region_id);
+    return {
+      currencyCode: region?.currency_code || 'GBP',
+      distanceUnit: region?.distance_unit || 'mile',
+    };
+  }, [formData.service_area_id, serviceAreas, regions]);
 
   const { data: vehiclePricing = [] } = useQuery({
     queryKey: ['vehicle-pricing'],
@@ -290,6 +322,8 @@ export default function FareSimulator() {
         minimumFare,
         finalFare,
         appliedRules,
+        currencyCode: currentRegionSettings.currencyCode,
+        distanceUnit: currentRegionSettings.distanceUnit,
       });
 
       setIsCalculating(false);

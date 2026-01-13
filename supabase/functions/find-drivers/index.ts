@@ -112,10 +112,10 @@ serve(async (req) => {
       throw saError;
     }
 
-    // Step 2: Get regions with geo_boundary to check if pickup is within region
+    // Step 2: Get regions with geo_boundary and settings to check if pickup is within region
     const { data: regions, error: regError } = await supabase
       .from('regions')
-      .select('id, name, geo_boundary')
+      .select('id, name, geo_boundary, currency_code, distance_unit, timezone')
       .eq('status', 'active');
 
     if (regError) {
@@ -124,11 +124,23 @@ serve(async (req) => {
     }
 
     // Find which region the pickup point is in
-    let matchingRegion: { id: string; name: string } | null = null;
+    let matchingRegion: { 
+      id: string; 
+      name: string; 
+      currency_code: string;
+      distance_unit: string;
+      timezone: string;
+    } | null = null;
     for (const region of regions || []) {
       if (region.geo_boundary && isPointInPolygon(pickupPoint, region.geo_boundary as LatLng[])) {
-        matchingRegion = { id: region.id, name: region.name };
-        console.log('Pickup is in region:', region.name);
+        matchingRegion = { 
+          id: region.id, 
+          name: region.name,
+          currency_code: region.currency_code,
+          distance_unit: region.distance_unit,
+          timezone: region.timezone,
+        };
+        console.log('Pickup is in region:', region.name, 'Currency:', region.currency_code, 'Unit:', region.distance_unit);
         break;
       }
     }
@@ -284,7 +296,12 @@ serve(async (req) => {
         success: true,
         drivers: eligibleDrivers,
         service_area_ids: serviceAreaIds,
-        region: matchingRegion
+        region: matchingRegion,
+        settings: {
+          currency_code: matchingRegion.currency_code,
+          distance_unit: matchingRegion.distance_unit,
+          timezone: matchingRegion.timezone,
+        }
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
