@@ -54,6 +54,7 @@ import {
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
+import { getCurrencySymbol } from '@/lib/regionSettings';
 
 interface Trip {
   id: string;
@@ -288,12 +289,7 @@ export default function ActiveTrips() {
     setIsViewOpen(true);
   };
 
-  const getCurrencySymbol = (code: string) => {
-    const symbols: Record<string, string> = {
-      GBP: '£', USD: '$', EUR: '€', INR: '₹', AED: 'د.إ'
-    };
-    return symbols[code] || code;
-  };
+  // getCurrencySymbol is now imported from @/lib/regionSettings
 
   const filteredTrips = trips.filter(trip => {
     const matchesSearch = 

@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
+import { getCurrencySymbol } from '@/lib/regionSettings';
 
 interface CancelledTrip {
   id: string;
@@ -118,12 +119,7 @@ export default function MissedCancelled() {
     fetchData();
   }, [fetchData]);
 
-  const getCurrencySymbol = (code: string | null) => {
-    const symbols: Record<string, string> = {
-      GBP: '£', USD: '$', EUR: '€', INR: '₹', AED: 'د.إ'
-    };
-    return symbols[code || 'GBP'] || code || '£';
-  };
+  // getCurrencySymbol is now imported from @/lib/regionSettings
 
   const getStatusConfig = (status: string | null) => {
     switch (status) {
