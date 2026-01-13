@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
+import { getCurrencySymbol, formatDistance as formatDistanceUtil, getDistanceUnitShort } from '@/lib/regionSettings';
 
 /* global google */
 
@@ -432,13 +433,6 @@ export default function TripHistory() {
     }
   }, [selectedTrip, tripStops]);
 
-  const getCurrencySymbol = (code: string | null) => {
-    const symbols: Record<string, string> = {
-      GBP: '£', USD: '$', EUR: '€', INR: '₹', AED: 'د.إ'
-    };
-    return symbols[code?.toUpperCase() || 'GBP'] || code || '£';
-  };
-
   const formatDuration = (minutes: number | null) => {
     if (!minutes) return 'N/A';
     const hrs = Math.floor(minutes / 60);
@@ -451,26 +445,22 @@ export default function TripHistory() {
     if (activeRegion) {
       return getCurrencySymbol(activeRegion.currency_code);
     }
-    return '£';
+    return getCurrencySymbol('GBP');
   };
 
   // Get the active distance unit (from filter or default)
   const getActiveDistanceUnit = () => {
     if (activeRegion) {
-      return activeRegion.distance_unit === 'km' ? 'km' : 'mi';
+      return activeRegion.distance_unit || 'mile';
     }
-    return 'mi';
+    return 'mile';
   };
 
   // Convert km to miles if needed
   const formatDistance = (distanceKm: number | null) => {
     if (!distanceKm) return 'N/A';
     const unit = getActiveDistanceUnit();
-    if (unit === 'mi') {
-      const miles = distanceKm * 0.621371;
-      return `${miles.toFixed(1)} mi`;
-    }
-    return `${distanceKm.toFixed(1)} km`;
+    return formatDistanceUtil(distanceKm, unit);
   };
 
   // Get available service areas for selected region

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { format, addHours } from 'date-fns';
 import { toast } from 'sonner';
+import { getCurrencySymbol } from '@/lib/regionSettings';
 
 interface Driver {
   id: string;
