@@ -58,9 +58,9 @@ import {
   Disputes,
   DisputeSettings,
   Content,
-  GeneralSettings,
   System,
 } from "./pages/PlaceholderPage";
+import GeneralSettings from "./pages/GeneralSettings";
 import Notifications from "./pages/Notifications";
 import SystemRequirements from "./pages/SystemRequirements";
 
