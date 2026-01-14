@@ -17,6 +17,7 @@ import {
   Navigation, Phone, Star, Clock, Wifi, WifiOff
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { getOneCabCarIcon, preloadMarkerImage } from '@/lib/mapMarkers';
 
 interface Driver {
   id: string;
@@ -79,6 +80,11 @@ export default function FleetTracking() {
   const googleMapRef = useRef<any>(null);
   const markersRef = useRef<Map<string, any>>(new Map());
   const polygonsRef = useRef<Map<string, any>>(new Map());
+
+  // Preload marker image
+  useEffect(() => {
+    preloadMarkerImage();
+  }, []);
 
   // Load Google Maps
   useEffect(() => {
@@ -302,48 +308,18 @@ export default function FleetTracking() {
       // Skip if no position available
       if (!position) return;
 
-      const isOnTrip = !!driver.current_trip;
-      const isStale = driver.last_location_updated_at 
-        ? (Date.now() - new Date(driver.last_location_updated_at).getTime()) > 60000 // 1 minute
-        : true;
-      
-      // Color based on status: green = available with recent location, amber = on trip, gray = offline/stale
-      const markerColor = !driver.is_online 
-        ? '#9ca3af' 
-        : isOnTrip 
-          ? '#f59e0b' 
-          : isStale 
-            ? '#6b7280' 
-            : '#22c55e';
-
-      // Create rotated car marker using canvas
-      const carImage = new Image();
-      carImage.src = '/car-marker.png';
-      
-      const createRotatedIcon = (heading: number) => {
-        const canvas = document.createElement('canvas');
-        const size = 40;
-        canvas.width = size;
-        canvas.height = size;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.translate(size / 2, size / 2);
-          ctx.rotate((heading * Math.PI) / 180);
-          ctx.drawImage(carImage, -size / 2, -size / 2, size, size);
-        }
-        return canvas.toDataURL();
-      };
+      // Determine if this driver is selected
+      const isSelected = selectedDriver?.id === driver.id;
+      const markerSize = isSelected ? 64 : 32;
+      const zIndex = isSelected ? 1000 : driver.current_trip ? 100 : 1;
 
       const marker = new window.google.maps.Marker({
         position,
         map: googleMapRef.current,
-        icon: {
-          url: createRotatedIcon(driver.heading || 0),
-          scaledSize: new window.google.maps.Size(40, 40),
-          anchor: new window.google.maps.Point(20, 20),
-        },
+        icon: getOneCabCarIcon(markerSize as 32 | 64, driver.heading || 0),
         title: `${driver.first_name} ${driver.last_name}${driver.speed ? ` (${Math.round(driver.speed * 3.6)} km/h)` : ''}`,
         optimized: false,
+        zIndex,
       });
 
       marker.addListener('click', () => {
@@ -358,7 +334,7 @@ export default function FleetTracking() {
 
       markersRef.current.set(driver.id, marker);
     });
-  }, [drivers, regions, searchQuery, regionFilter, serviceAreaFilter, statusFilter, isMapLoaded, driverServiceAreasMap]);
+  }, [drivers, regions, searchQuery, regionFilter, serviceAreaFilter, statusFilter, isMapLoaded, driverServiceAreasMap, selectedDriver]);
 
   // Filter service areas by selected region
   const filteredServiceAreas = regionFilter === 'all' 
