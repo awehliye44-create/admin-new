@@ -632,6 +632,8 @@ export type Database = {
           total_trips: number | null
           updated_at: string
           user_id: string
+          vehicle_edit_request_status: string | null
+          vehicle_locked: boolean
         }
         Insert: {
           approval_status?: string
@@ -657,6 +659,8 @@ export type Database = {
           total_trips?: number | null
           updated_at?: string
           user_id: string
+          vehicle_edit_request_status?: string | null
+          vehicle_locked?: boolean
         }
         Update: {
           approval_status?: string
@@ -682,6 +686,8 @@ export type Database = {
           total_trips?: number | null
           updated_at?: string
           user_id?: string
+          vehicle_edit_request_status?: string | null
+          vehicle_locked?: boolean
         }
         Relationships: [
           {
@@ -1411,6 +1417,79 @@ export type Database = {
         }
         Relationships: []
       }
+      vehicle_change_requests: {
+        Row: {
+          admin_notes: string | null
+          created_at: string
+          driver_id: string
+          id: string
+          requested_color: string
+          requested_license_plate: string
+          requested_make: string
+          requested_model: string
+          requested_year: number
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          updated_at: string
+          vehicle_id: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          created_at?: string
+          driver_id: string
+          id?: string
+          requested_color: string
+          requested_license_plate: string
+          requested_make: string
+          requested_model: string
+          requested_year: number
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          updated_at?: string
+          vehicle_id: string
+        }
+        Update: {
+          admin_notes?: string | null
+          created_at?: string
+          driver_id?: string
+          id?: string
+          requested_color?: string
+          requested_license_plate?: string
+          requested_make?: string
+          requested_model?: string
+          requested_year?: number
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          updated_at?: string
+          vehicle_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vehicle_change_requests_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "vehicle_change_requests_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vehicle_change_requests_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vehicle_types: {
         Row: {
           capacity: number
@@ -1608,6 +1687,10 @@ export type Database = {
       }
     }
     Functions: {
+      can_driver_edit_vehicle: {
+        Args: { p_driver_id: string }
+        Returns: boolean
+      }
       can_passenger_view_driver: {
         Args: { p_driver_id: string }
         Returns: boolean
@@ -1643,6 +1726,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      lock_driver_vehicle: { Args: { p_driver_id: string }; Returns: undefined }
       update_driver_location: {
         Args: {
           p_driver_id: string
