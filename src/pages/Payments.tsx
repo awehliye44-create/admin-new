@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -8,16 +8,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { 
   CreditCard, 
   Search, 
   Download, 
   DollarSign,
   TrendingUp,
-  TrendingDown,
   Eye,
   RefreshCw,
   ArrowUpRight,
@@ -25,137 +23,94 @@ import {
   Wallet,
   Clock,
   CheckCircle2,
-  XCircle,
-  Calendar
+  XCircle
 } from 'lucide-react';
 
 interface Transaction {
   id: string;
-  transaction_id: string;
-  type: 'payment' | 'refund' | 'payout' | 'adjustment';
+  trip_code: string | null;
+  type: 'payment' | 'refund';
   amount: number;
   currency: string;
-  status: 'completed' | 'pending' | 'failed' | 'processing';
+  status: string;
   description: string;
   customer_name: string | null;
   driver_name: string | null;
-  trip_id: string | null;
+  trip_id: string;
   payment_method: string;
   created_at: string;
 }
 
-const defaultTransactions: Transaction[] = [
-  {
-    id: '1',
-    transaction_id: 'TXN-2024-0001',
-    type: 'payment',
-    amount: 45.50,
-    currency: 'USD',
-    status: 'completed',
-    description: 'Trip payment - Downtown to Airport',
-    customer_name: 'John Smith',
-    driver_name: 'Mike Johnson',
-    trip_id: 'TRIP-001',
-    payment_method: 'Credit Card',
-    created_at: '2024-01-14T10:30:00Z',
-  },
-  {
-    id: '2',
-    transaction_id: 'TXN-2024-0002',
-    type: 'payment',
-    amount: 28.00,
-    currency: 'USD',
-    status: 'completed',
-    description: 'Trip payment - Office to Home',
-    customer_name: 'Sarah Davis',
-    driver_name: 'Alex Turner',
-    trip_id: 'TRIP-002',
-    payment_method: 'Apple Pay',
-    created_at: '2024-01-14T09:15:00Z',
-  },
-  {
-    id: '3',
-    transaction_id: 'TXN-2024-0003',
-    type: 'refund',
-    amount: -15.00,
-    currency: 'USD',
-    status: 'completed',
-    description: 'Partial refund - Trip cancellation',
-    customer_name: 'Emily Chen',
-    driver_name: null,
-    trip_id: 'TRIP-003',
-    payment_method: 'Credit Card',
-    created_at: '2024-01-14T08:45:00Z',
-  },
-  {
-    id: '4',
-    transaction_id: 'TXN-2024-0004',
-    type: 'payment',
-    amount: 120.00,
-    currency: 'USD',
-    status: 'pending',
-    description: 'Corporate trip - Client meeting',
-    customer_name: 'TechCorp Solutions',
-    driver_name: 'James Wilson',
-    trip_id: 'TRIP-004',
-    payment_method: 'Invoice',
-    created_at: '2024-01-14T07:30:00Z',
-  },
-  {
-    id: '5',
-    transaction_id: 'TXN-2024-0005',
-    type: 'payout',
-    amount: -350.00,
-    currency: 'USD',
-    status: 'processing',
-    description: 'Weekly driver payout',
-    customer_name: null,
-    driver_name: 'Mike Johnson',
-    trip_id: null,
-    payment_method: 'Bank Transfer',
-    created_at: '2024-01-13T18:00:00Z',
-  },
-  {
-    id: '6',
-    transaction_id: 'TXN-2024-0006',
-    type: 'payment',
-    amount: 55.75,
-    currency: 'USD',
-    status: 'failed',
-    description: 'Trip payment - Failed card',
-    customer_name: 'Robert Brown',
-    driver_name: 'Lisa Anderson',
-    trip_id: 'TRIP-005',
-    payment_method: 'Credit Card',
-    created_at: '2024-01-13T16:20:00Z',
-  },
-];
-
 export default function Payments() {
-  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [dateFilter, setDateFilter] = useState<string>('all');
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
 
-  const { data: transactions = [], isLoading } = useQuery({
+  // Fetch real trip payment data
+  const { data: transactions = [], isLoading, refetch } = useQuery({
     queryKey: ['payments-transactions'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('admin_settings')
-        .select('*')
-        .eq('setting_key', 'payments_transactions')
-        .maybeSingle();
+      const { data: trips, error } = await supabase
+        .from('trips')
+        .select(`
+          id,
+          trip_code,
+          fare,
+          estimated_fare,
+          currency_code,
+          payment_status,
+          payment_method,
+          pickup_address,
+          dropoff_address,
+          passenger_name,
+          created_at,
+          status,
+          driver_id
+        `)
+        .not('fare', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(100);
       
       if (error) throw error;
-      return (data?.setting_value as unknown as Transaction[]) || defaultTransactions;
+
+      // Get driver names for trips with drivers
+      const driverIds = [...new Set(trips?.filter(t => t.driver_id).map(t => t.driver_id) || [])];
+      let driversMap: Record<string, string> = {};
+      
+      if (driverIds.length > 0) {
+        const { data: drivers } = await supabase
+          .from('drivers')
+          .select('id, first_name, last_name')
+          .in('id', driverIds);
+        
+        driversMap = (drivers || []).reduce((acc, d) => {
+          acc[d.id] = `${d.first_name} ${d.last_name}`;
+          return acc;
+        }, {} as Record<string, string>);
+      }
+
+      return (trips || []).map(trip => ({
+        id: trip.id,
+        trip_code: trip.trip_code,
+        type: 'payment' as const,
+        amount: trip.fare || trip.estimated_fare || 0,
+        currency: trip.currency_code?.toUpperCase() || 'GBP',
+        status: trip.payment_status || 'pending',
+        description: `${trip.pickup_address?.substring(0, 30)}... → ${trip.dropoff_address?.substring(0, 30)}...`,
+        customer_name: trip.passenger_name || 'Guest',
+        driver_name: trip.driver_id ? driversMap[trip.driver_id] || 'Unknown' : null,
+        trip_id: trip.id,
+        payment_method: trip.payment_method || 'cash',
+        created_at: trip.created_at,
+      }));
     },
   });
 
   const getStatusBadge = (status: string) => {
     const config: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline', icon: React.ReactNode }> = {
       completed: { variant: 'default', icon: <CheckCircle2 className="h-3 w-3 mr-1" /> },
+      paid: { variant: 'default', icon: <CheckCircle2 className="h-3 w-3 mr-1" /> },
       pending: { variant: 'secondary', icon: <Clock className="h-3 w-3 mr-1" /> },
       processing: { variant: 'outline', icon: <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> },
       failed: { variant: 'destructive', icon: <XCircle className="h-3 w-3 mr-1" /> },
@@ -173,8 +128,6 @@ export default function Payments() {
     const config: Record<string, { className: string, icon: React.ReactNode }> = {
       payment: { className: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100', icon: <ArrowDownLeft className="h-3 w-3 mr-1" /> },
       refund: { className: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100', icon: <ArrowUpRight className="h-3 w-3 mr-1" /> },
-      payout: { className: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100', icon: <Wallet className="h-3 w-3 mr-1" /> },
-      adjustment: { className: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100', icon: <DollarSign className="h-3 w-3 mr-1" /> },
     };
     const { className, icon } = config[type] || { className: '', icon: null };
     return (
@@ -185,21 +138,38 @@ export default function Payments() {
     );
   };
 
+  const getPaymentMethodDisplay = (method: string) => {
+    const methods: Record<string, string> = {
+      cash: 'Cash',
+      card: 'Card',
+      apple_pay: 'Apple Pay',
+      google_pay: 'Google Pay',
+      wallet: 'Wallet',
+    };
+    return methods[method] || method;
+  };
+
   const filteredTransactions = transactions.filter(tx => {
-    const matchesSearch = tx.transaction_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         tx.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         tx.customer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         tx.driver_name?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = 
+      tx.trip_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      tx.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      tx.customer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      tx.driver_name?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || tx.status === statusFilter;
     const matchesTab = activeTab === 'all' || tx.type === activeTab;
     return matchesSearch && matchesStatus && matchesTab;
   });
 
-  // Stats
-  const totalRevenue = transactions.filter(t => t.type === 'payment' && t.status === 'completed').reduce((sum, t) => sum + t.amount, 0);
-  const totalRefunds = Math.abs(transactions.filter(t => t.type === 'refund').reduce((sum, t) => sum + t.amount, 0));
-  const pendingAmount = transactions.filter(t => t.status === 'pending').reduce((sum, t) => sum + Math.abs(t.amount), 0);
-  const todayTransactions = transactions.filter(t => new Date(t.created_at).toDateString() === new Date().toDateString()).length;
+  // Stats from real data
+  const totalRevenue = transactions
+    .filter(t => t.type === 'payment' && (t.status === 'completed' || t.status === 'paid'))
+    .reduce((sum, t) => sum + t.amount, 0);
+  const pendingAmount = transactions
+    .filter(t => t.status === 'pending')
+    .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+  const todayTransactions = transactions
+    .filter(t => new Date(t.created_at).toDateString() === new Date().toDateString()).length;
+  const totalTransactions = transactions.length;
 
   if (isLoading) {
     return (
@@ -225,24 +195,21 @@ export default function Payments() {
               <DollarSign className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-500">${totalRevenue.toFixed(2)}</div>
+              <div className="text-2xl font-bold text-green-500">£{totalRevenue.toFixed(2)}</div>
               <p className="text-xs text-muted-foreground flex items-center gap-1">
                 <TrendingUp className="h-3 w-3 text-green-500" />
-                +12% from last week
+                From completed trips
               </p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Refunds</CardTitle>
-              <ArrowUpRight className="h-4 w-4 text-red-500" />
+              <CardTitle className="text-sm font-medium">Total Transactions</CardTitle>
+              <CreditCard className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-500">${totalRefunds.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <TrendingDown className="h-3 w-3 text-green-500" />
-                -5% from last week
-              </p>
+              <div className="text-2xl font-bold">{totalTransactions}</div>
+              <p className="text-xs text-muted-foreground">All time</p>
             </CardContent>
           </Card>
           <Card>
@@ -251,14 +218,14 @@ export default function Payments() {
               <Clock className="h-4 w-4 text-amber-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-amber-500">${pendingAmount.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground">Awaiting processing</p>
+              <div className="text-2xl font-bold text-amber-500">£{pendingAmount.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">Awaiting payment</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Today's Transactions</CardTitle>
-              <CreditCard className="h-4 w-4 text-muted-foreground" />
+              <Wallet className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{todayTransactions}</div>
@@ -270,10 +237,9 @@ export default function Payments() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <div className="flex flex-col sm:flex-row justify-between gap-4">
             <TabsList>
-              <TabsTrigger value="all">All</TabsTrigger>
+              <TabsTrigger value="all">All ({transactions.length})</TabsTrigger>
               <TabsTrigger value="payment">Payments</TabsTrigger>
               <TabsTrigger value="refund">Refunds</TabsTrigger>
-              <TabsTrigger value="payout">Payouts</TabsTrigger>
             </TabsList>
 
             <div className="flex gap-2">
@@ -293,11 +259,14 @@ export default function Payments() {
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="paid">Paid</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="processing">Processing</SelectItem>
                   <SelectItem value="failed">Failed</SelectItem>
                 </SelectContent>
               </Select>
+              <Button variant="outline" size="icon" onClick={() => refetch()}>
+                <RefreshCw className="h-4 w-4" />
+              </Button>
               <Button variant="outline">
                 <Download className="h-4 w-4 mr-2" />
                 Export
@@ -311,9 +280,9 @@ export default function Payments() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Transaction ID</TableHead>
+                      <TableHead>Trip Code</TableHead>
                       <TableHead>Type</TableHead>
-                      <TableHead>Description</TableHead>
+                      <TableHead>Route</TableHead>
                       <TableHead>Amount</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Method</TableHead>
@@ -331,21 +300,21 @@ export default function Payments() {
                     ) : (
                       filteredTransactions.map((tx) => (
                         <TableRow key={tx.id}>
-                          <TableCell className="font-mono text-sm">{tx.transaction_id}</TableCell>
+                          <TableCell className="font-mono text-sm">{tx.trip_code || tx.id.substring(0, 8)}</TableCell>
                           <TableCell>{getTypeBadge(tx.type)}</TableCell>
                           <TableCell>
                             <div>
-                              <p className="text-sm">{tx.description}</p>
+                              <p className="text-sm truncate max-w-[200px]">{tx.description}</p>
                               <p className="text-xs text-muted-foreground">
-                                {tx.customer_name || tx.driver_name}
+                                {tx.customer_name} {tx.driver_name && `• ${tx.driver_name}`}
                               </p>
                             </div>
                           </TableCell>
                           <TableCell className={`font-medium ${tx.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {tx.amount >= 0 ? '+' : ''}{tx.currency} {tx.amount.toFixed(2)}
+                            {tx.currency} {tx.amount.toFixed(2)}
                           </TableCell>
                           <TableCell>{getStatusBadge(tx.status)}</TableCell>
-                          <TableCell>{tx.payment_method}</TableCell>
+                          <TableCell>{getPaymentMethodDisplay(tx.payment_method)}</TableCell>
                           <TableCell className="text-sm text-muted-foreground">
                             {new Date(tx.created_at).toLocaleDateString()}
                           </TableCell>
@@ -373,7 +342,7 @@ export default function Payments() {
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>Transaction Details</DialogTitle>
-              <DialogDescription>{viewingTransaction?.transaction_id}</DialogDescription>
+              <DialogDescription>{viewingTransaction?.trip_code || viewingTransaction?.id}</DialogDescription>
             </DialogHeader>
             {viewingTransaction && (
               <div className="space-y-4 py-4">
@@ -394,8 +363,8 @@ export default function Payments() {
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Description</p>
-                  <p>{viewingTransaction.description}</p>
+                  <p className="text-sm text-muted-foreground">Route</p>
+                  <p className="text-sm">{viewingTransaction.description}</p>
                 </div>
                 <div className="grid gap-4 grid-cols-2">
                   <div>
@@ -410,19 +379,13 @@ export default function Payments() {
                 <div className="grid gap-4 grid-cols-2">
                   <div>
                     <p className="text-sm text-muted-foreground">Payment Method</p>
-                    <p>{viewingTransaction.payment_method}</p>
+                    <p>{getPaymentMethodDisplay(viewingTransaction.payment_method)}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Date</p>
                     <p>{new Date(viewingTransaction.created_at).toLocaleString()}</p>
                   </div>
                 </div>
-                {viewingTransaction.trip_id && (
-                  <div>
-                    <p className="text-sm text-muted-foreground">Trip ID</p>
-                    <p className="font-mono">{viewingTransaction.trip_id}</p>
-                  </div>
-                )}
               </div>
             )}
             <DialogFooter>
