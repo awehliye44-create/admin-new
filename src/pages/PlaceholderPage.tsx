@@ -44,7 +44,7 @@ export const DriverCategories = () => <PlaceholderPage title="Driver Categories"
 export const PromoCodes = () => <PlaceholderPage title="Promo Codes" description="Create and manage promotional codes" />;
 // CustomZones, ZonePricing, CorporateFares, FareSimulator moved to dedicated files
 export const Airports = () => <PlaceholderPage title="Manage Airports" description="Configure airport pickup and dropoff zones" />;
-export const CorporateSettings = () => <PlaceholderPage title="Corporate Settings" description="Configure corporate settings" />;
+
 export const RiderFeedback = () => <PlaceholderPage title="Rider Feedback" description="View and manage rider feedback" />;
 export const Suspensions = () => <PlaceholderPage title="Account Suspension" description="Manage suspended accounts" />;
 export const Complaints = () => <PlaceholderPage title="Complaints Dashboard" description="Handle customer complaints" />;
