@@ -57,6 +57,7 @@ export function useSidebarCounts() {
         pendingFeedbackResult,
         pendingDocumentsResult,
         activePromoCodesResult,
+        accountRequestsResult,
       ] = await Promise.all([
         // Active trips (status is pending, accepted, arrived, in_progress)
         supabase
@@ -88,7 +89,23 @@ export function useSidebarCounts() {
           .from('promo_codes')
           .select('id', { count: 'exact', head: true })
           .eq('is_active', true),
+        
+        // Pending account requests from admin_settings JSON
+        supabase
+          .from('admin_settings')
+          .select('setting_value')
+          .eq('setting_key', 'account_requests')
+          .maybeSingle(),
       ]);
+
+      // Parse account requests from JSON
+      let pendingAccountRequests = 0;
+      if (accountRequestsResult.data?.setting_value) {
+        const requests = accountRequestsResult.data.setting_value as any[];
+        pendingAccountRequests = Array.isArray(requests) 
+          ? requests.filter((r: any) => r.status === 'pending').length 
+          : 0;
+      }
 
       const newCounts: SidebarCounts = {
         activeTrips: activeTripsResult.count || 0,
@@ -96,7 +113,7 @@ export function useSidebarCounts() {
         pendingFeedback: pendingFeedbackResult.count || 0,
         pendingDocuments: pendingDocumentsResult.count || 0,
         activePromoCodes: activePromoCodesResult.count || 0,
-        pendingAccountRequests: 0, // No table yet
+        pendingAccountRequests,
       };
 
       setCounts(newCounts);

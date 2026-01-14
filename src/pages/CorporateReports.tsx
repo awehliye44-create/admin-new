@@ -44,45 +44,19 @@ interface ReportData {
   usage_by_time: { hour: string; trips: number }[];
 }
 
-const defaultReportData: ReportData = {
+// Empty defaults - no placeholder data
+const emptyReportData: ReportData = {
   corporate_summary: {
-    total_accounts: 15,
-    active_accounts: 12,
-    total_trips: 2450,
-    total_revenue: 125000,
-    avg_trip_cost: 51.02,
-    top_accounts: [
-      { name: 'Global Finance Ltd', trips: 520, revenue: 35000 },
-      { name: 'TechCorp Solutions', trips: 380, revenue: 22000 },
-      { name: 'Healthcare Solutions LLC', trips: 290, revenue: 18500 },
-      { name: 'Legal Partners LLP', trips: 210, revenue: 15000 },
-      { name: 'Marketing Pros Inc', trips: 180, revenue: 12000 },
-    ],
+    total_accounts: 0,
+    active_accounts: 0,
+    total_trips: 0,
+    total_revenue: 0,
+    avg_trip_cost: 0,
+    top_accounts: [],
   },
-  monthly_trends: [
-    { month: 'Aug', trips: 180, revenue: 9200 },
-    { month: 'Sep', trips: 210, revenue: 10800 },
-    { month: 'Oct', trips: 245, revenue: 12500 },
-    { month: 'Nov', trips: 220, revenue: 11200 },
-    { month: 'Dec', trips: 195, revenue: 10000 },
-    { month: 'Jan', trips: 260, revenue: 13300 },
-  ],
-  trip_distribution: [
-    { category: 'Executive', value: 35 },
-    { category: 'Standard', value: 45 },
-    { category: 'Airport', value: 15 },
-    { category: 'Events', value: 5 },
-  ],
-  usage_by_time: [
-    { hour: '6AM', trips: 45 },
-    { hour: '8AM', trips: 180 },
-    { hour: '10AM', trips: 120 },
-    { hour: '12PM', trips: 90 },
-    { hour: '2PM', trips: 75 },
-    { hour: '4PM', trips: 85 },
-    { hour: '6PM', trips: 160 },
-    { hour: '8PM', trips: 95 },
-  ],
+  monthly_trends: [],
+  trip_distribution: [],
+  usage_by_time: [],
 };
 
 const COLORS = ['hsl(var(--primary))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))'];
@@ -92,20 +66,121 @@ export default function CorporateReports() {
   const [dateRange, setDateRange] = useState('last30');
   const [selectedAccount, setSelectedAccount] = useState<string>('all');
 
-  // Fetch report data
-  const { data: reportData = defaultReportData, isLoading } = useQuery({
-    queryKey: ['corporate-reports', dateRange, selectedAccount],
+  // Fetch corporate accounts for dropdown
+  const { data: accounts = [] } = useQuery({
+    queryKey: ['corporate-accounts-for-reports'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('admin_settings')
         .select('*')
-        .eq('setting_key', 'corporate_reports')
+        .eq('setting_key', 'corporate_accounts')
         .maybeSingle();
       
       if (error) throw error;
-      return (data?.setting_value as unknown as ReportData) || defaultReportData;
+      return (data?.setting_value as any[]) || [];
     },
   });
+
+  // Fetch real trip data for reports
+  const { data: tripData = [], isLoading } = useQuery({
+    queryKey: ['corporate-trip-reports', dateRange],
+    queryFn: async () => {
+      const now = new Date();
+      let startDate = new Date();
+      
+      switch (dateRange) {
+        case 'last7': startDate.setDate(now.getDate() - 7); break;
+        case 'last30': startDate.setDate(now.getDate() - 30); break;
+        case 'last90': startDate.setDate(now.getDate() - 90); break;
+        case 'thisYear': startDate = new Date(now.getFullYear(), 0, 1); break;
+        case 'lastYear': startDate = new Date(now.getFullYear() - 1, 0, 1); break;
+        default: startDate.setDate(now.getDate() - 30);
+      }
+
+      const { data: trips, error } = await supabase
+        .from('trips')
+        .select('id, fare, created_at, trip_type')
+        .eq('status', 'completed')
+        .gte('created_at', startDate.toISOString());
+      
+      if (error) throw error;
+      return trips || [];
+    },
+  });
+
+  // Calculate report data from real trips
+  const calculateMonthlyTrends = (trips: any[]) => {
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthData: Record<string, { trips: number; revenue: number }> = {};
+    
+    trips.forEach(trip => {
+      const date = new Date(trip.created_at);
+      const key = `${date.getFullYear()}-${String(date.getMonth()).padStart(2, '0')}`;
+      if (!monthData[key]) monthData[key] = { trips: 0, revenue: 0 };
+      monthData[key].trips++;
+      monthData[key].revenue += trip.fare || 0;
+    });
+
+    return Object.entries(monthData)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-6)
+      .map(([key, data]) => ({
+        month: monthNames[parseInt(key.split('-')[1])],
+        trips: data.trips,
+        revenue: Math.round(data.revenue),
+      }));
+  };
+
+  const calculateTripDistribution = (trips: any[]) => {
+    if (!trips.length) return [];
+    const distribution: Record<string, number> = { 'Standard': 0, 'Premium': 0 };
+    trips.forEach(trip => {
+      const type = trip.trip_type === 'executive' ? 'Premium' : 'Standard';
+      distribution[type]++;
+    });
+    
+    const total = trips.length;
+    return Object.entries(distribution)
+      .filter(([_, count]) => count > 0)
+      .map(([category, count]) => ({
+        category,
+        value: Math.round((count / total) * 100),
+      }));
+  };
+
+  const calculateUsageByTime = (trips: any[]) => {
+    const hourData: Record<number, number> = {};
+    trips.forEach(trip => {
+      const hour = new Date(trip.created_at).getHours();
+      const roundedHour = Math.floor(hour / 2) * 2;
+      hourData[roundedHour] = (hourData[roundedHour] || 0) + 1;
+    });
+
+    return [6, 8, 10, 12, 14, 16, 18, 20].map(h => ({
+      hour: `${h > 12 ? h - 12 : h}${h >= 12 ? 'PM' : 'AM'}`,
+      trips: hourData[h] || 0,
+    }));
+  };
+
+  const totalRevenue = tripData.reduce((sum, t) => sum + (t.fare || 0), 0);
+  
+  const reportData: ReportData = {
+    corporate_summary: {
+      total_accounts: accounts.length,
+      active_accounts: accounts.filter((a: any) => a.status === 'active').length,
+      total_trips: tripData.length,
+      total_revenue: totalRevenue,
+      avg_trip_cost: tripData.length ? totalRevenue / tripData.length : 0,
+      top_accounts: accounts.slice(0, 5).map((a: any) => ({
+        name: a.company_name || 'Unknown',
+        trips: 0,
+        revenue: a.current_balance || 0
+      })),
+    },
+    monthly_trends: calculateMonthlyTrends(tripData),
+    trip_distribution: calculateTripDistribution(tripData),
+    usage_by_time: calculateUsageByTime(tripData),
+  };
 
   const handleExportReport = (reportType: string) => {
     toast.success(`${reportType} report exported successfully`);
