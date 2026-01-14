@@ -98,7 +98,7 @@ export default function CustomZones() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const drawingManagerRef = useRef<any>(null);
   const currentShapeRef = useRef<any>(null);
-  const zoneOverlaysRef = useRef<Map<string, any>>(new Map());
+  const zoneOverlaysRef = useRef<globalThis.Map<string, any>>(new globalThis.Map());
 
   const [activeTab, setActiveTab] = useState<'PRICING' | 'GEOFENCE'>('PRICING');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
