@@ -60,7 +60,6 @@ export const Disputes = () => <PlaceholderPage title="Disputes & Adjustments" de
 export const DisputeSettings = () => <PlaceholderPage title="Dispute Settings" description="Configure dispute handling rules" />;
 export const Content = () => <PlaceholderPage title="Manage Content" description="Edit app content and legal documents" />;
 export const GeneralSettings = () => <PlaceholderPage title="General & Branding" description="Configure general settings and branding" />;
-export const Integrations = () => <PlaceholderPage title="Integrations & API" description="Manage third-party integrations" />;
-export const Webhooks = () => <PlaceholderPage title="Webhooks" description="Configure webhook endpoints" />;
+// Integrations and Webhooks moved to dedicated files
 export const System = () => <PlaceholderPage title="System Requirements" description="View system requirements and status" />;
 export const Notifications = () => <PlaceholderPage title="Notifications & Alerts" description="Configure notification settings" />;
