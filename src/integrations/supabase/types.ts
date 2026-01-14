@@ -1727,6 +1727,7 @@ export type Database = {
       service_areas: {
         Row: {
           created_at: string
+          geo_boundary: Json | null
           id: string
           is_active: boolean
           name: string
@@ -1735,6 +1736,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          geo_boundary?: Json | null
           id?: string
           is_active?: boolean
           name: string
@@ -1743,6 +1745,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          geo_boundary?: Json | null
           id?: string
           is_active?: boolean
           name?: string
