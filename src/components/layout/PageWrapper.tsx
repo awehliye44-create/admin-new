@@ -1,17 +1,16 @@
 import { ReactNode } from 'react';
 
-interface AdminLayoutProps {
+interface PageWrapperProps {
   children: ReactNode;
   title: string;
   description?: string;
 }
 
 /**
- * AdminLayout now only provides page content structure.
- * The sidebar shell is handled by AdminShell at the route level.
- * This prevents re-mounting the sidebar on every page change.
+ * Page wrapper for consistent page structure.
+ * Used inside pages instead of AdminLayout to avoid re-mounting sidebar.
  */
-export function AdminLayout({ children, title, description }: AdminLayoutProps) {
+export function PageWrapper({ children, title, description }: PageWrapperProps) {
   return (
     <div className="p-8 min-h-full">
       <div className="mb-8">
