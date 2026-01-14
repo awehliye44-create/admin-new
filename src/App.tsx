@@ -39,6 +39,10 @@ import ZonePricing from "./pages/ZonePricing";
 import CorporateFares from "./pages/CorporateFares";
 import FareSimulator from "./pages/FareSimulator";
 import Integrations from "./pages/Integrations";
+import CorporateAccounts from "./pages/CorporateAccounts";
+import AccountRequests from "./pages/AccountRequests";
+import CorporateBilling from "./pages/CorporateBilling";
+import CorporateReports from "./pages/CorporateReports";
 import Webhooks from "./pages/Webhooks";
 
 import {

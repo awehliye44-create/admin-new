@@ -147,7 +147,7 @@ export default function CorporateAccounts() {
     city: '',
     country: '',
     tax_id: '',
-    status: 'pending' as const,
+    status: 'pending' as 'active' | 'suspended' | 'pending' | 'inactive',
     payment_terms: 'net30',
     credit_limit: 10000,
     discount_percentage: 0,
