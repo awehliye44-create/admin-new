@@ -59,117 +59,7 @@ interface Payment {
   transaction_id: string;
 }
 
-const defaultInvoices: Invoice[] = [
-  {
-    id: '1',
-    invoice_number: 'INV-2024-001',
-    company_id: '1',
-    company_name: 'TechCorp Solutions',
-    amount: 5000,
-    tax: 500,
-    total: 5500,
-    status: 'paid',
-    issue_date: '2024-01-01T00:00:00Z',
-    due_date: '2024-01-31T00:00:00Z',
-    paid_date: '2024-01-15T00:00:00Z',
-    payment_method: 'Bank Transfer',
-    items: [
-      { description: 'Corporate Rides - January 2024', quantity: 150, unit_price: 33.33, total: 5000 }
-    ],
-    notes: 'Thank you for your business!'
-  },
-  {
-    id: '2',
-    invoice_number: 'INV-2024-002',
-    company_id: '2',
-    company_name: 'Global Finance Ltd',
-    amount: 12000,
-    tax: 1200,
-    total: 13200,
-    status: 'sent',
-    issue_date: '2024-01-10T00:00:00Z',
-    due_date: '2024-02-09T00:00:00Z',
-    paid_date: null,
-    payment_method: null,
-    items: [
-      { description: 'Executive Rides - January 2024', quantity: 80, unit_price: 100, total: 8000 },
-      { description: 'Airport Transfers', quantity: 20, unit_price: 200, total: 4000 }
-    ],
-    notes: 'Payment due within 30 days'
-  },
-  {
-    id: '3',
-    invoice_number: 'INV-2024-003',
-    company_id: '1',
-    company_name: 'TechCorp Solutions',
-    amount: 4500,
-    tax: 450,
-    total: 4950,
-    status: 'overdue',
-    issue_date: '2023-12-01T00:00:00Z',
-    due_date: '2023-12-31T00:00:00Z',
-    paid_date: null,
-    payment_method: null,
-    items: [
-      { description: 'Corporate Rides - December 2023', quantity: 135, unit_price: 33.33, total: 4500 }
-    ],
-    notes: 'OVERDUE - Please remit payment immediately'
-  },
-  {
-    id: '4',
-    invoice_number: 'INV-2024-004',
-    company_id: '3',
-    company_name: 'Startup Hub Inc',
-    amount: 800,
-    tax: 80,
-    total: 880,
-    status: 'draft',
-    issue_date: '2024-01-14T00:00:00Z',
-    due_date: '2024-02-13T00:00:00Z',
-    paid_date: null,
-    payment_method: null,
-    items: [
-      { description: 'Standard Rides - January 2024', quantity: 40, unit_price: 20, total: 800 }
-    ],
-    notes: ''
-  },
-];
-
-const defaultPayments: Payment[] = [
-  {
-    id: '1',
-    payment_number: 'PAY-2024-001',
-    company_name: 'TechCorp Solutions',
-    invoice_number: 'INV-2024-001',
-    amount: 5500,
-    payment_method: 'Bank Transfer',
-    status: 'completed',
-    payment_date: '2024-01-15T10:30:00Z',
-    transaction_id: 'TXN-ABC123456',
-  },
-  {
-    id: '2',
-    payment_number: 'PAY-2024-002',
-    company_name: 'Global Finance Ltd',
-    invoice_number: 'INV-2023-050',
-    amount: 15000,
-    payment_method: 'Credit Card',
-    status: 'completed',
-    payment_date: '2024-01-10T14:20:00Z',
-    transaction_id: 'TXN-DEF789012',
-  },
-  {
-    id: '3',
-    payment_number: 'PAY-2024-003',
-    company_name: 'Startup Hub Inc',
-    invoice_number: 'INV-2023-048',
-    amount: 500,
-    payment_method: 'Credit Card',
-    status: 'refunded',
-    payment_date: '2024-01-05T09:00:00Z',
-    transaction_id: 'TXN-GHI345678',
-  },
-];
+// No default placeholder data - start with empty lists
 
 export default function CorporateBilling() {
   const queryClient = useQueryClient();
@@ -178,7 +68,7 @@ export default function CorporateBilling() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null);
 
-  // Fetch data
+  // Fetch data - no default placeholder data
   const { data: invoices = [], isLoading: loadingInvoices } = useQuery({
     queryKey: ['corporate-invoices'],
     queryFn: async () => {
@@ -189,7 +79,7 @@ export default function CorporateBilling() {
         .maybeSingle();
       
       if (error) throw error;
-      return (data?.setting_value as unknown as Invoice[]) || defaultInvoices;
+      return (data?.setting_value as unknown as Invoice[]) || [];
     },
   });
 
@@ -203,7 +93,7 @@ export default function CorporateBilling() {
         .maybeSingle();
       
       if (error) throw error;
-      return (data?.setting_value as unknown as Payment[]) || defaultPayments;
+      return (data?.setting_value as unknown as Payment[]) || [];
     },
   });
 

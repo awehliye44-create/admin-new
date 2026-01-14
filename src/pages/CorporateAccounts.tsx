@@ -60,74 +60,7 @@ interface CorporateAccount {
   updated_at: string;
 }
 
-const defaultAccounts: CorporateAccount[] = [
-  {
-    id: '1',
-    company_name: 'TechCorp Solutions',
-    contact_name: 'John Smith',
-    contact_email: 'john@techcorp.com',
-    contact_phone: '+1 555-0101',
-    billing_email: 'billing@techcorp.com',
-    address: '123 Tech Ave',
-    city: 'San Francisco',
-    country: 'USA',
-    tax_id: 'TC-123456',
-    status: 'active',
-    payment_terms: 'net30',
-    credit_limit: 50000,
-    current_balance: 12500,
-    discount_percentage: 15,
-    notes: 'Premium client since 2022',
-    employee_count: 250,
-    monthly_budget: 10000,
-    created_at: '2023-01-15T10:00:00Z',
-    updated_at: '2024-01-10T14:30:00Z',
-  },
-  {
-    id: '2',
-    company_name: 'Global Finance Ltd',
-    contact_name: 'Sarah Johnson',
-    contact_email: 'sarah@globalfinance.com',
-    contact_phone: '+1 555-0102',
-    billing_email: 'accounts@globalfinance.com',
-    address: '456 Wall Street',
-    city: 'New York',
-    country: 'USA',
-    tax_id: 'GF-789012',
-    status: 'active',
-    payment_terms: 'net15',
-    credit_limit: 100000,
-    current_balance: 45000,
-    discount_percentage: 20,
-    notes: 'VIP account - priority support',
-    employee_count: 500,
-    monthly_budget: 25000,
-    created_at: '2022-06-20T09:00:00Z',
-    updated_at: '2024-01-12T11:00:00Z',
-  },
-  {
-    id: '3',
-    company_name: 'Startup Hub Inc',
-    contact_name: 'Mike Chen',
-    contact_email: 'mike@startuphub.io',
-    contact_phone: '+1 555-0103',
-    billing_email: 'mike@startuphub.io',
-    address: '789 Innovation Blvd',
-    city: 'Austin',
-    country: 'USA',
-    tax_id: 'SH-345678',
-    status: 'pending',
-    payment_terms: 'prepaid',
-    credit_limit: 10000,
-    current_balance: 0,
-    discount_percentage: 5,
-    notes: 'New account - awaiting verification',
-    employee_count: 50,
-    monthly_budget: 3000,
-    created_at: '2024-01-05T16:00:00Z',
-    updated_at: '2024-01-05T16:00:00Z',
-  },
-];
+// No default placeholder data - start with empty list
 
 export default function CorporateAccounts() {
   const queryClient = useQueryClient();
@@ -156,7 +89,7 @@ export default function CorporateAccounts() {
     monthly_budget: 1000,
   });
 
-  // Fetch accounts from database
+  // Fetch accounts from database - no default placeholder data
   const { data: accounts = [], isLoading } = useQuery({
     queryKey: ['corporate-accounts'],
     queryFn: async () => {
@@ -167,7 +100,7 @@ export default function CorporateAccounts() {
         .maybeSingle();
       
       if (error) throw error;
-      return (data?.setting_value as unknown as CorporateAccount[]) || defaultAccounts;
+      return (data?.setting_value as unknown as CorporateAccount[]) || [];
     },
   });
 

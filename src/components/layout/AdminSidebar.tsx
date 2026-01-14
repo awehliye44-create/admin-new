@@ -433,6 +433,7 @@ export function AdminSidebar() {
                 icon={<FileText className="h-4 w-4" />}
                 label="Account Requests"
                 active={currentPath === '/account-requests'}
+                badge={counts.pendingAccountRequests}
                 collapsed={isCollapsed}
               />
               <NavItem

@@ -46,72 +46,7 @@ interface AccountRequest {
   created_at: string;
 }
 
-const defaultRequests: AccountRequest[] = [
-  {
-    id: '1',
-    company_name: 'Digital Marketing Pro',
-    contact_name: 'Emily Davis',
-    contact_email: 'emily@digitalmarketingpro.com',
-    contact_phone: '+1 555-0201',
-    company_size: '50-100',
-    industry: 'Marketing',
-    estimated_monthly_rides: 200,
-    message: 'We need corporate transportation for our sales team who travels frequently to client meetings.',
-    status: 'pending',
-    admin_notes: '',
-    reviewed_by: null,
-    reviewed_at: null,
-    created_at: '2024-01-14T09:00:00Z',
-  },
-  {
-    id: '2',
-    company_name: 'Healthcare Solutions LLC',
-    contact_name: 'Dr. Robert Wilson',
-    contact_email: 'robert@healthcaresolutions.com',
-    contact_phone: '+1 555-0202',
-    company_size: '100-500',
-    industry: 'Healthcare',
-    estimated_monthly_rides: 500,
-    message: 'Looking for reliable transportation for our medical staff and patient transport services.',
-    status: 'under_review',
-    admin_notes: 'Verified company registration. Checking insurance requirements.',
-    reviewed_by: null,
-    reviewed_at: null,
-    created_at: '2024-01-12T14:30:00Z',
-  },
-  {
-    id: '3',
-    company_name: 'Tech Innovators Inc',
-    contact_name: 'Alex Thompson',
-    contact_email: 'alex@techinnovators.io',
-    contact_phone: '+1 555-0203',
-    company_size: '10-50',
-    industry: 'Technology',
-    estimated_monthly_rides: 100,
-    message: 'Startup looking for employee transportation benefits.',
-    status: 'approved',
-    admin_notes: 'Approved - Standard corporate package assigned.',
-    reviewed_by: 'Admin User',
-    reviewed_at: '2024-01-10T11:00:00Z',
-    created_at: '2024-01-08T10:00:00Z',
-  },
-  {
-    id: '4',
-    company_name: 'Unknown Corp',
-    contact_name: 'John Doe',
-    contact_email: 'suspicious@email.com',
-    contact_phone: '+1 555-0000',
-    company_size: '1-10',
-    industry: 'Other',
-    estimated_monthly_rides: 5,
-    message: 'Need rides.',
-    status: 'rejected',
-    admin_notes: 'Rejected - Unable to verify company information. Suspicious request.',
-    reviewed_by: 'Admin User',
-    reviewed_at: '2024-01-11T09:00:00Z',
-    created_at: '2024-01-09T16:00:00Z',
-  },
-];
+// No default placeholder data - start with empty list
 
 export default function AccountRequests() {
   const queryClient = useQueryClient();
@@ -120,7 +55,7 @@ export default function AccountRequests() {
   const [selectedRequest, setSelectedRequest] = useState<AccountRequest | null>(null);
   const [adminNotes, setAdminNotes] = useState('');
 
-  // Fetch requests from database
+  // Fetch requests from database - no default placeholder data
   const { data: requests = [], isLoading } = useQuery({
     queryKey: ['account-requests'],
     queryFn: async () => {
@@ -131,7 +66,7 @@ export default function AccountRequests() {
         .maybeSingle();
       
       if (error) throw error;
-      return (data?.setting_value as unknown as AccountRequest[]) || defaultRequests;
+      return (data?.setting_value as unknown as AccountRequest[]) || [];
     },
   });
 
