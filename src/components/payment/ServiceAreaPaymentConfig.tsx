@@ -59,7 +59,10 @@ export function ServiceAreaPaymentConfig({ serviceAreaId, serviceAreaName }: Ser
           Payment Methods
         </CardTitle>
         <CardDescription>
-          Configure which payment methods are available for customers in {serviceAreaName || 'this service area'}
+          Configure which payment methods are available for customers in {serviceAreaName || 'this service area'}.
+          <span className="block mt-1 text-xs text-primary font-medium">
+            ✓ Service Area is the single source of truth for payment configuration.
+          </span>
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

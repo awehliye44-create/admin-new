@@ -90,6 +90,7 @@ export function useServiceAreaPaymentMethods(serviceAreaId?: string) {
     setIsSaving(true);
 
     try {
+      // Update payment methods
       const { error } = await supabase
         .from('service_area_payment_methods')
         .upsert({
@@ -104,6 +105,13 @@ export function useServiceAreaPaymentMethods(serviceAreaId?: string) {
         });
 
       if (error) throw error;
+
+      // Also update service_area.updated_at to trigger real-time sync for customer apps
+      await supabase
+        .from('service_areas')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', serviceAreaId);
+        
     } catch (err) {
       console.error('Error updating service area payment method:', err);
       setPaymentConfig(paymentConfig);

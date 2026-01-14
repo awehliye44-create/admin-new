@@ -1,6 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
+/**
+ * @deprecated Region payment methods are deprecated.
+ * Use useServiceAreaPaymentMethods instead - Service Area is the single source of truth for payment methods.
+ */
 export type PaymentMethodType = 'cash' | 'card' | 'wallet' | 'apple_pay' | 'google_pay';
 
 export interface PaymentMethod {
