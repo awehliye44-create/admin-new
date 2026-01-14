@@ -375,6 +375,7 @@ export type Database = {
           priority: number | null
           radius_meters: number | null
           region_id: string | null
+          service_area_id: string | null
           shape_type: string
           updated_at: string
           zone_type: string
@@ -393,6 +394,7 @@ export type Database = {
           priority?: number | null
           radius_meters?: number | null
           region_id?: string | null
+          service_area_id?: string | null
           shape_type?: string
           updated_at?: string
           zone_type?: string
@@ -411,6 +413,7 @@ export type Database = {
           priority?: number | null
           radius_meters?: number | null
           region_id?: string | null
+          service_area_id?: string | null
           shape_type?: string
           updated_at?: string
           zone_type?: string
@@ -421,6 +424,13 @@ export type Database = {
             columns: ["region_id"]
             isOneToOne: false
             referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "custom_zones_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
             referencedColumns: ["id"]
           },
         ]
