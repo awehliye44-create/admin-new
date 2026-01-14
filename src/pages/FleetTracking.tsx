@@ -313,10 +313,11 @@ export default function FleetTracking() {
       const markerSize = isSelected ? 64 : 32;
       const zIndex = isSelected ? 1000 : driver.current_trip ? 100 : 1;
 
+      const isOnTrip = !!driver.current_trip;
       const marker = new window.google.maps.Marker({
         position,
         map: googleMapRef.current,
-        icon: getEnhancedCarIcon(markerSize as 32 | 64, driver.heading || 0),
+        icon: getEnhancedCarIcon(markerSize as 32 | 64, driver.heading || 0, isOnTrip),
         title: `${driver.first_name} ${driver.last_name}${driver.speed ? ` (${Math.round(driver.speed * 3.6)} km/h)` : ''}`,
         optimized: false,
         zIndex,
