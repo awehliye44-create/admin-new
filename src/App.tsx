@@ -62,6 +62,7 @@ import {
   System,
 } from "./pages/PlaceholderPage";
 import Notifications from "./pages/Notifications";
+import SystemRequirements from "./pages/SystemRequirements";
 
 const queryClient = new QueryClient();
 
@@ -144,7 +145,7 @@ const App = () => (
             <Route path="/general-settings" element={<ProtectedRoute><GeneralSettings /></ProtectedRoute>} />
             <Route path="/integrations" element={<ProtectedRoute><Integrations /></ProtectedRoute>} />
             <Route path="/webhooks" element={<ProtectedRoute><Webhooks /></ProtectedRoute>} />
-            <Route path="/system" element={<ProtectedRoute><System /></ProtectedRoute>} />
+            <Route path="/system" element={<ProtectedRoute><SystemRequirements /></ProtectedRoute>} />
             <Route path="/roles" element={<ProtectedRoute><RolesPermissions /></ProtectedRoute>} />
             <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
             
