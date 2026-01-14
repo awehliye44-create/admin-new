@@ -50,10 +50,6 @@ export const Suspensions = () => <PlaceholderPage title="Account Suspension" des
 export const Complaints = () => <PlaceholderPage title="Complaints Dashboard" description="Handle customer complaints" />;
 export const Tickets = () => <PlaceholderPage title="Tickets" description="Manage support tickets" />;
 export const Categories = () => <PlaceholderPage title="Categories" description="Manage ticket and complaint categories" />;
-export const Payments = () => <PlaceholderPage title="Payments & Payouts" description="View and manage payments" />;
-export const DriverPayouts = () => <PlaceholderPage title="Driver Payouts & Settlements" description="Process driver payouts" />;
-export const Disputes = () => <PlaceholderPage title="Disputes & Adjustments" description="Handle payment disputes" />;
-export const DisputeSettings = () => <PlaceholderPage title="Dispute Settings" description="Configure dispute handling rules" />;
 export const Content = () => <PlaceholderPage title="Manage Content" description="Edit app content and legal documents" />;
 // GeneralSettings, Integrations and Webhooks moved to dedicated files
 export const System = () => <PlaceholderPage title="System Requirements" description="View system requirements and status" />;
