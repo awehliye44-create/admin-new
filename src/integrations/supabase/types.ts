@@ -106,41 +106,56 @@ export type Database = {
       }
       custom_zones: {
         Row: {
+          center_lat: number | null
+          center_lng: number | null
           color: string | null
           created_at: string
           description: string | null
           geo_boundary: Json | null
           id: string
           is_active: boolean
+          metadata: Json | null
           name: string
           priority: number | null
+          radius_meters: number | null
           region_id: string | null
+          shape_type: string
           updated_at: string
           zone_type: string
         }
         Insert: {
+          center_lat?: number | null
+          center_lng?: number | null
           color?: string | null
           created_at?: string
           description?: string | null
           geo_boundary?: Json | null
           id?: string
           is_active?: boolean
+          metadata?: Json | null
           name: string
           priority?: number | null
+          radius_meters?: number | null
           region_id?: string | null
+          shape_type?: string
           updated_at?: string
           zone_type?: string
         }
         Update: {
+          center_lat?: number | null
+          center_lng?: number | null
           color?: string | null
           created_at?: string
           description?: string | null
           geo_boundary?: Json | null
           id?: string
           is_active?: boolean
+          metadata?: Json | null
           name?: string
           priority?: number | null
+          radius_meters?: number | null
           region_id?: string | null
+          shape_type?: string
           updated_at?: string
           zone_type?: string
         }
@@ -702,6 +717,68 @@ export type Database = {
             columns: ["region_id"]
             isOneToOne: false
             referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      geofence_events: {
+        Row: {
+          created_at: string
+          driver_id: string
+          event_type: string
+          id: string
+          lat: number
+          lng: number
+          trip_id: string | null
+          zone_id: string
+        }
+        Insert: {
+          created_at?: string
+          driver_id: string
+          event_type: string
+          id?: string
+          lat: number
+          lng: number
+          trip_id?: string | null
+          zone_id: string
+        }
+        Update: {
+          created_at?: string
+          driver_id?: string
+          event_type?: string
+          id?: string
+          lat?: number
+          lng?: number
+          trip_id?: string | null
+          zone_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "geofence_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "geofence_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "geofence_events_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "geofence_events_zone_id_fkey"
+            columns: ["zone_id"]
+            isOneToOne: false
+            referencedRelation: "custom_zones"
             referencedColumns: ["id"]
           },
         ]
@@ -1365,6 +1442,7 @@ export type Database = {
           dropoff_address: string
           dropoff_latitude: number | null
           dropoff_longitude: number | null
+          dropoff_zone_id: string | null
           escalation_status: string | null
           estimated_distance_km: number | null
           estimated_duration_minutes: number | null
@@ -1382,12 +1460,14 @@ export type Database = {
           pickup_address: string
           pickup_latitude: number | null
           pickup_longitude: number | null
+          pickup_zone_id: string | null
           pre_assigned_driver_id: string | null
           qr_session_id: string | null
           scheduled_at: string | null
           scheduled_broadcast_at: string | null
           scheduled_convert_at: string | null
           scheduled_status: string | null
+          service_area_id: string | null
           special_instructions: string | null
           started_at: string | null
           status: string | null
@@ -1415,6 +1495,7 @@ export type Database = {
           dropoff_address: string
           dropoff_latitude?: number | null
           dropoff_longitude?: number | null
+          dropoff_zone_id?: string | null
           escalation_status?: string | null
           estimated_distance_km?: number | null
           estimated_duration_minutes?: number | null
@@ -1432,12 +1513,14 @@ export type Database = {
           pickup_address: string
           pickup_latitude?: number | null
           pickup_longitude?: number | null
+          pickup_zone_id?: string | null
           pre_assigned_driver_id?: string | null
           qr_session_id?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
           scheduled_convert_at?: string | null
           scheduled_status?: string | null
+          service_area_id?: string | null
           special_instructions?: string | null
           started_at?: string | null
           status?: string | null
@@ -1465,6 +1548,7 @@ export type Database = {
           dropoff_address?: string
           dropoff_latitude?: number | null
           dropoff_longitude?: number | null
+          dropoff_zone_id?: string | null
           escalation_status?: string | null
           estimated_distance_km?: number | null
           estimated_duration_minutes?: number | null
@@ -1482,12 +1566,14 @@ export type Database = {
           pickup_address?: string
           pickup_latitude?: number | null
           pickup_longitude?: number | null
+          pickup_zone_id?: string | null
           pre_assigned_driver_id?: string | null
           qr_session_id?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
           scheduled_convert_at?: string | null
           scheduled_status?: string | null
+          service_area_id?: string | null
           special_instructions?: string | null
           started_at?: string | null
           status?: string | null
@@ -1528,6 +1614,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "trips_dropoff_zone_id_fkey"
+            columns: ["dropoff_zone_id"]
+            isOneToOne: false
+            referencedRelation: "custom_zones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_pickup_zone_id_fkey"
+            columns: ["pickup_zone_id"]
+            isOneToOne: false
+            referencedRelation: "custom_zones"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "trips_pre_assigned_driver_id_fkey"
             columns: ["pre_assigned_driver_id"]
             isOneToOne: false
@@ -1539,6 +1639,13 @@ export type Database = {
             columns: ["pre_assigned_driver_id"]
             isOneToOne: false
             referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
             referencedColumns: ["id"]
           },
         ]
@@ -1874,6 +1981,35 @@ export type Database = {
         Returns: boolean
       }
       lock_driver_vehicle: { Args: { p_driver_id: string }; Returns: undefined }
+      point_in_circle: {
+        Args: {
+          center_lat: number
+          center_lng: number
+          point_lat: number
+          point_lng: number
+          radius_meters: number
+        }
+        Returns: boolean
+      }
+      point_in_polygon: {
+        Args: { point_lat: number; point_lng: number; polygon_geojson: Json }
+        Returns: boolean
+      }
+      resolve_zone: {
+        Args: {
+          p_region_id: string
+          p_zone_type?: string
+          point_lat: number
+          point_lng: number
+        }
+        Returns: {
+          metadata: Json
+          priority: number
+          zone_id: string
+          zone_name: string
+          zone_type: string
+        }[]
+      }
       update_driver_location: {
         Args: {
           p_driver_id: string
