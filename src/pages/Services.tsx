@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table,
   TableBody,
@@ -46,14 +47,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { ServiceAreaBoundaryMap } from '@/components/maps/ServiceAreaBoundaryMap';
 import { supabase } from '@/integrations/supabase/client';
 import { 
   Plus, Navigation, Loader2, MoreHorizontal, Pencil, Trash2, MapPin, Search, Users, DollarSign,
-  Ruler, Globe, CheckCircle2, XCircle, Eye, Settings, Car, Clock
+  Ruler, Globe, CheckCircle2, XCircle, Eye, Settings, Car, Clock, Map
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
+
+interface LatLng {
+  lat: number;
+  lng: number;
+}
+
+interface GeoJSON {
+  type: string;
+  coordinates: number[][][];
+}
 
 interface Region {
   id: string;
@@ -62,6 +74,7 @@ interface Region {
   currency_code: string;
   timezone: string;
   status: string;
+  geo_boundary?: any;
 }
 
 interface ServiceArea {
@@ -69,6 +82,7 @@ interface ServiceArea {
   name: string;
   region_id: string;
   is_active: boolean;
+  geo_boundary?: any;
   created_at: string;
   updated_at: string;
   region?: Region;
@@ -109,8 +123,14 @@ export default function Services() {
   const [selectedArea, setSelectedArea] = useState<ServiceArea | null>(null);
 
   // Form states
-  const [formData, setFormData] = useState({ name: '', region_id: '', is_active: true });
+  const [formData, setFormData] = useState<{ name: string; region_id: string; is_active: boolean; geo_boundary: any }>({ 
+    name: '', 
+    region_id: '', 
+    is_active: true,
+    geo_boundary: null,
+  });
   const [isSaving, setIsSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState('details');
 
   // Stats
   const [driverCounts, setDriverCounts] = useState<Record<string, number>>({});
@@ -123,11 +143,11 @@ export default function Services() {
       const [areasRes, regionsRes, vehicleTypesRes] = await Promise.all([
         supabase
           .from('service_areas')
-          .select(`*, region:regions(id, name, distance_unit, currency_code, timezone, status)`)
+          .select(`*, region:regions(id, name, distance_unit, currency_code, timezone, status, geo_boundary)`)
           .order('name', { ascending: true }),
         supabase
           .from('regions')
-          .select('id, name, distance_unit, currency_code, timezone, status')
+          .select('id, name, distance_unit, currency_code, timezone, status, geo_boundary')
           .order('name', { ascending: true }),
         supabase
           .from('vehicle_types')
@@ -207,9 +227,10 @@ export default function Services() {
         .insert({ 
           name: formData.name, 
           region_id: formData.region_id, 
-          is_active: formData.is_active 
+          is_active: formData.is_active,
+          geo_boundary: formData.geo_boundary,
         })
-        .select(`*, region:regions(id, name, distance_unit, currency_code, timezone, status)`)
+        .select(`*, region:regions(id, name, distance_unit, currency_code, timezone, status, geo_boundary)`)
         .single();
 
       if (error) throw error;
@@ -221,7 +242,8 @@ export default function Services() {
       }));
       toast.success('Service area created successfully');
       setIsAddDialogOpen(false);
-      setFormData({ name: '', region_id: '', is_active: true });
+      setFormData({ name: '', region_id: '', is_active: true, geo_boundary: null });
+      setActiveTab('details');
     } catch (err: any) {
       console.error('Error creating service area:', err);
       toast.error(err.message || 'Failed to create service area');
@@ -243,10 +265,11 @@ export default function Services() {
         .update({ 
           name: formData.name, 
           region_id: formData.region_id, 
-          is_active: formData.is_active 
+          is_active: formData.is_active,
+          geo_boundary: formData.geo_boundary,
         })
         .eq('id', selectedArea.id)
-        .select(`*, region:regions(id, name, distance_unit, currency_code, timezone, status)`)
+        .select(`*, region:regions(id, name, distance_unit, currency_code, timezone, status, geo_boundary)`)
         .single();
 
       if (error) throw error;
@@ -257,6 +280,7 @@ export default function Services() {
       toast.success('Service area updated successfully');
       setIsEditDialogOpen(false);
       setSelectedArea(null);
+      setActiveTab('details');
     } catch (err: any) {
       console.error('Error updating service area:', err);
       toast.error(err.message || 'Failed to update service area');
@@ -310,7 +334,8 @@ export default function Services() {
 
   const openEditDialog = (area: ServiceArea) => {
     setSelectedArea(area);
-    setFormData({ name: area.name, region_id: area.region_id, is_active: area.is_active });
+    setFormData({ name: area.name, region_id: area.region_id, is_active: area.is_active, geo_boundary: area.geo_boundary || null });
+    setActiveTab('details');
     setIsEditDialogOpen(true);
   };
 
@@ -465,7 +490,8 @@ export default function Services() {
               </SelectContent>
             </Select>
             <Button onClick={() => {
-              setFormData({ name: '', region_id: regions[0]?.id || '', is_active: true });
+              setFormData({ name: '', region_id: regions[0]?.id || '', is_active: true, geo_boundary: null });
+              setActiveTab('details');
               setIsAddDialogOpen(true);
             }}>
               <Plus className="mr-2 h-4 w-4" />
@@ -491,7 +517,8 @@ export default function Services() {
               </p>
               {!searchQuery && regionFilter === 'all' && statusFilter === 'all' && (
                 <Button onClick={() => {
-                  setFormData({ name: '', region_id: regions[0]?.id || '', is_active: true });
+                  setFormData({ name: '', region_id: regions[0]?.id || '', is_active: true, geo_boundary: null });
+                  setActiveTab('details');
                   setIsAddDialogOpen(true);
                 }}>
                   <Plus className="mr-2 h-4 w-4" />
@@ -637,97 +664,129 @@ export default function Services() {
 
       {/* Add Service Area Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Navigation className="h-5 w-5" />
               Add New Service Area
             </DialogTitle>
             <DialogDescription>
-              Create a new service area - it will inherit settings from the selected region
+              Create a new service area with boundary - it will inherit settings from the selected region
             </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Area Name *</Label>
-              <Input
-                id="name"
-                placeholder="e.g., Central London, North Manchester"
-                value={formData.name}
-                onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-              />
-            </div>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="details">Details</TabsTrigger>
+              <TabsTrigger value="boundary" disabled={!formData.region_id}>
+                <Map className="h-4 w-4 mr-2" />
+                Boundary
+              </TabsTrigger>
+            </TabsList>
             
-            <div className="space-y-2">
-              <Label htmlFor="region">Region *</Label>
-              <Select
-                value={formData.region_id}
-                onValueChange={(value) => setFormData(prev => ({ ...prev, region_id: value }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a region" />
-                </SelectTrigger>
-                <SelectContent>
-                  {regions.map(region => (
-                    <SelectItem key={region.id} value={region.id}>
-                      <span className="flex items-center gap-2">
-                        {region.name}
-                        <span className="text-muted-foreground text-xs">
-                          ({getCurrencySymbol(region.currency_code)}, {region.distance_unit === 'mile' ? 'mi' : 'km'})
-                        </span>
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Show inherited settings */}
-            {getSelectedRegion() && (
-              <Card className="bg-muted/50">
-                <CardContent className="pt-4">
-                  <p className="text-sm font-medium mb-3">Inherited from Region</p>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div className="flex items-center gap-2">
-                      <DollarSign className="h-4 w-4 text-muted-foreground" />
-                      <span>Currency: <strong>{getCurrencySymbol(getSelectedRegion()!.currency_code)} {getSelectedRegion()!.currency_code}</strong></span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Ruler className="h-4 w-4 text-muted-foreground" />
-                      <span>Distance: <strong>{getSelectedRegion()!.distance_unit === 'mile' ? 'Miles' : 'Kilometers'}</strong></span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-muted-foreground" />
-                      <span>Timezone: <strong>{getSelectedRegion()!.timezone.split('/')[1] || getSelectedRegion()!.timezone}</strong></span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {getSelectedRegion()!.status === 'active' ? (
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
-                      ) : (
-                        <XCircle className="h-4 w-4 text-gray-400" />
-                      )}
-                      <span>Region: <strong className={getSelectedRegion()!.status === 'active' ? 'text-green-600' : 'text-gray-500'}>
-                        {getSelectedRegion()!.status}
-                      </strong></span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            <div className="flex items-center justify-between pt-2">
-              <div>
-                <Label htmlFor="is_active">Active Status</Label>
-                <p className="text-xs text-muted-foreground">Only active areas accept rides</p>
+            <TabsContent value="details" className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Area Name *</Label>
+                <Input
+                  id="name"
+                  placeholder="e.g., Central London, North Manchester"
+                  value={formData.name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                />
               </div>
-              <Switch
-                id="is_active"
-                checked={formData.is_active}
-                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_active: checked }))}
-              />
-            </div>
-          </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="region">Region *</Label>
+                <Select
+                  value={formData.region_id}
+                  onValueChange={(value) => setFormData(prev => ({ ...prev, region_id: value, geo_boundary: null }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a region" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {regions.map(region => (
+                      <SelectItem key={region.id} value={region.id}>
+                        <span className="flex items-center gap-2">
+                          {region.name}
+                          <span className="text-muted-foreground text-xs">
+                            ({getCurrencySymbol(region.currency_code)}, {region.distance_unit === 'mile' ? 'mi' : 'km'})
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Show inherited settings */}
+              {getSelectedRegion() && (
+                <Card className="bg-muted/50">
+                  <CardContent className="pt-4">
+                    <p className="text-sm font-medium mb-3">Inherited from Region</p>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className="flex items-center gap-2">
+                        <DollarSign className="h-4 w-4 text-muted-foreground" />
+                        <span>Currency: <strong>{getCurrencySymbol(getSelectedRegion()!.currency_code)} {getSelectedRegion()!.currency_code}</strong></span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Ruler className="h-4 w-4 text-muted-foreground" />
+                        <span>Distance: <strong>{getSelectedRegion()!.distance_unit === 'mile' ? 'Miles' : 'Kilometers'}</strong></span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-muted-foreground" />
+                        <span>Timezone: <strong>{getSelectedRegion()!.timezone.split('/')[1] || getSelectedRegion()!.timezone}</strong></span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {getSelectedRegion()!.status === 'active' ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <XCircle className="h-4 w-4 text-gray-400" />
+                        )}
+                        <span>Region: <strong className={getSelectedRegion()!.status === 'active' ? 'text-green-600' : 'text-gray-500'}>
+                          {getSelectedRegion()!.status}
+                        </strong></span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              <div className="flex items-center justify-between pt-2">
+                <div>
+                  <Label htmlFor="is_active">Active Status</Label>
+                  <p className="text-xs text-muted-foreground">Only active areas accept rides</p>
+                </div>
+                <Switch
+                  id="is_active"
+                  checked={formData.is_active}
+                  onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_active: checked }))}
+                />
+              </div>
+            </TabsContent>
+            
+            <TabsContent value="boundary" className="py-4">
+              {getSelectedRegion() && (
+                <ServiceAreaBoundaryMap
+                  boundary={formData.geo_boundary}
+                  region={getSelectedRegion() ? { 
+                    id: getSelectedRegion()!.id, 
+                    name: getSelectedRegion()!.name, 
+                    geo_boundary: getSelectedRegion()!.geo_boundary 
+                  } : null}
+                  onBoundaryChange={(boundary) => setFormData(prev => ({ ...prev, geo_boundary: boundary }))}
+                  isEditable={true}
+                  height="400px"
+                />
+              )}
+              {!getSelectedRegion() && (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Map className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>Please select a region first to draw the boundary</p>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
@@ -752,82 +811,103 @@ export default function Services() {
 
       {/* Edit Service Area Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Pencil className="h-5 w-5" />
               Edit Service Area
             </DialogTitle>
             <DialogDescription>
-              Update service area information
+              Update service area information and boundary
             </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="edit_name">Area Name</Label>
-              <Input
-                id="edit_name"
-                value={formData.name}
-                onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-              />
-            </div>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="details">Details</TabsTrigger>
+              <TabsTrigger value="boundary">
+                <Map className="h-4 w-4 mr-2" />
+                Boundary
+              </TabsTrigger>
+            </TabsList>
             
-            <div className="space-y-2">
-              <Label htmlFor="edit_region">Region</Label>
-              <Select
-                value={formData.region_id}
-                onValueChange={(value) => setFormData(prev => ({ ...prev, region_id: value }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {regions.map(region => (
-                    <SelectItem key={region.id} value={region.id}>
-                      <span className="flex items-center gap-2">
-                        {region.name}
-                        <span className="text-muted-foreground text-xs">
-                          ({getCurrencySymbol(region.currency_code)}, {region.distance_unit === 'mile' ? 'mi' : 'km'})
-                        </span>
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Show inherited settings */}
-            {getSelectedRegion() && (
-              <Card className="bg-muted/50">
-                <CardContent className="pt-4">
-                  <p className="text-sm font-medium mb-3">Inherited from Region</p>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div className="flex items-center gap-2">
-                      <DollarSign className="h-4 w-4 text-muted-foreground" />
-                      <span>Currency: <strong>{getCurrencySymbol(getSelectedRegion()!.currency_code)} {getSelectedRegion()!.currency_code}</strong></span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Ruler className="h-4 w-4 text-muted-foreground" />
-                      <span>Distance: <strong>{getSelectedRegion()!.distance_unit === 'mile' ? 'Miles' : 'Kilometers'}</strong></span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="edit_is_active">Active Status</Label>
-                <p className="text-xs text-muted-foreground">Only active areas accept rides</p>
+            <TabsContent value="details" className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit_name">Area Name</Label>
+                <Input
+                  id="edit_name"
+                  value={formData.name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                />
               </div>
-              <Switch
-                id="edit_is_active"
-                checked={formData.is_active}
-                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_active: checked }))}
-              />
-            </div>
-          </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="edit_region">Region</Label>
+                <Select
+                  value={formData.region_id}
+                  onValueChange={(value) => setFormData(prev => ({ ...prev, region_id: value, geo_boundary: null }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {regions.map(region => (
+                      <SelectItem key={region.id} value={region.id}>
+                        <span className="flex items-center gap-2">
+                          {region.name}
+                          <span className="text-muted-foreground text-xs">
+                            ({getCurrencySymbol(region.currency_code)}, {region.distance_unit === 'mile' ? 'mi' : 'km'})
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {getSelectedRegion() && (
+                <Card className="bg-muted/50">
+                  <CardContent className="pt-4">
+                    <p className="text-sm font-medium mb-3">Inherited from Region</p>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className="flex items-center gap-2">
+                        <DollarSign className="h-4 w-4 text-muted-foreground" />
+                        <span>Currency: <strong>{getCurrencySymbol(getSelectedRegion()!.currency_code)} {getSelectedRegion()!.currency_code}</strong></span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Ruler className="h-4 w-4 text-muted-foreground" />
+                        <span>Distance: <strong>{getSelectedRegion()!.distance_unit === 'mile' ? 'Miles' : 'Kilometers'}</strong></span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="edit_is_active">Active Status</Label>
+                  <p className="text-xs text-muted-foreground">Only active areas accept rides</p>
+                </div>
+                <Switch
+                  id="edit_is_active"
+                  checked={formData.is_active}
+                  onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_active: checked }))}
+                />
+              </div>
+            </TabsContent>
+            
+            <TabsContent value="boundary" className="py-4">
+              {getSelectedRegion() && (
+                <ServiceAreaBoundaryMap
+                  boundary={formData.geo_boundary}
+                  region={{ id: getSelectedRegion()!.id, name: getSelectedRegion()!.name, geo_boundary: getSelectedRegion()!.geo_boundary }}
+                  onBoundaryChange={(boundary) => setFormData(prev => ({ ...prev, geo_boundary: boundary }))}
+                  isEditable={true}
+                  height="400px"
+                />
+              )}
+            </TabsContent>
+          </Tabs>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
