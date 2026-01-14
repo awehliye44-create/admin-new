@@ -41,6 +41,180 @@ export type Database = {
         }
         Relationships: []
       }
+      corporate_account_requests: {
+        Row: {
+          address: string | null
+          city: string | null
+          company_name: string
+          contact_email: string
+          contact_name: string
+          contact_phone: string | null
+          country: string | null
+          created_at: string
+          employee_count: number | null
+          estimated_monthly_trips: number | null
+          id: string
+          notes: string | null
+          region_id: string | null
+          rejection_reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          service_area_id: string | null
+          status: string
+          tax_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          address?: string | null
+          city?: string | null
+          company_name: string
+          contact_email: string
+          contact_name: string
+          contact_phone?: string | null
+          country?: string | null
+          created_at?: string
+          employee_count?: number | null
+          estimated_monthly_trips?: number | null
+          id?: string
+          notes?: string | null
+          region_id?: string | null
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          service_area_id?: string | null
+          status?: string
+          tax_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          address?: string | null
+          city?: string | null
+          company_name?: string
+          contact_email?: string
+          contact_name?: string
+          contact_phone?: string | null
+          country?: string | null
+          created_at?: string
+          employee_count?: number | null
+          estimated_monthly_trips?: number | null
+          id?: string
+          notes?: string | null
+          region_id?: string | null
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          service_area_id?: string | null
+          status?: string
+          tax_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "corporate_account_requests_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "corporate_account_requests_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      corporate_accounts: {
+        Row: {
+          address: string | null
+          billing_email: string | null
+          city: string | null
+          company_name: string
+          contact_email: string
+          contact_name: string
+          contact_phone: string | null
+          country: string | null
+          created_at: string
+          credit_limit: number | null
+          current_balance: number | null
+          discount_percentage: number | null
+          employee_count: number | null
+          id: string
+          monthly_budget: number | null
+          notes: string | null
+          payment_terms: string | null
+          region_id: string | null
+          service_area_id: string | null
+          status: string
+          tax_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          address?: string | null
+          billing_email?: string | null
+          city?: string | null
+          company_name: string
+          contact_email: string
+          contact_name: string
+          contact_phone?: string | null
+          country?: string | null
+          created_at?: string
+          credit_limit?: number | null
+          current_balance?: number | null
+          discount_percentage?: number | null
+          employee_count?: number | null
+          id?: string
+          monthly_budget?: number | null
+          notes?: string | null
+          payment_terms?: string | null
+          region_id?: string | null
+          service_area_id?: string | null
+          status?: string
+          tax_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          address?: string | null
+          billing_email?: string | null
+          city?: string | null
+          company_name?: string
+          contact_email?: string
+          contact_name?: string
+          contact_phone?: string | null
+          country?: string | null
+          created_at?: string
+          credit_limit?: number | null
+          current_balance?: number | null
+          discount_percentage?: number | null
+          employee_count?: number | null
+          id?: string
+          monthly_budget?: number | null
+          notes?: string | null
+          payment_terms?: string | null
+          region_id?: string | null
+          service_area_id?: string | null
+          status?: string
+          tax_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "corporate_accounts_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "corporate_accounts_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       corporate_fare_rules: {
         Row: {
           applies_to_regions: string[] | null
@@ -103,6 +277,88 @@ export type Database = {
           valid_until?: string | null
         }
         Relationships: []
+      }
+      corporate_invoices: {
+        Row: {
+          amount: number
+          billing_period_end: string | null
+          billing_period_start: string | null
+          corporate_account_id: string
+          created_at: string
+          due_date: string
+          id: string
+          invoice_number: string
+          notes: string | null
+          paid_at: string | null
+          region_id: string | null
+          service_area_id: string | null
+          status: string
+          tax_amount: number | null
+          total_amount: number
+          trip_count: number | null
+          updated_at: string
+        }
+        Insert: {
+          amount?: number
+          billing_period_end?: string | null
+          billing_period_start?: string | null
+          corporate_account_id: string
+          created_at?: string
+          due_date: string
+          id?: string
+          invoice_number: string
+          notes?: string | null
+          paid_at?: string | null
+          region_id?: string | null
+          service_area_id?: string | null
+          status?: string
+          tax_amount?: number | null
+          total_amount?: number
+          trip_count?: number | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          billing_period_end?: string | null
+          billing_period_start?: string | null
+          corporate_account_id?: string
+          created_at?: string
+          due_date?: string
+          id?: string
+          invoice_number?: string
+          notes?: string | null
+          paid_at?: string | null
+          region_id?: string | null
+          service_area_id?: string | null
+          status?: string
+          tax_amount?: number | null
+          total_amount?: number
+          trip_count?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "corporate_invoices_corporate_account_id_fkey"
+            columns: ["corporate_account_id"]
+            isOneToOne: false
+            referencedRelation: "corporate_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "corporate_invoices_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "corporate_invoices_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       custom_zones: {
         Row: {

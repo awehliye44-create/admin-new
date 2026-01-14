@@ -5,12 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -25,50 +23,25 @@ import {
   MapPin, 
   Phone, 
   Mail,
-  Globe,
-  Calendar,
   DollarSign,
-  TrendingUp,
   Eye,
   MoreHorizontal,
   RefreshCw,
   Download,
-  FileText
+  Loader2
 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-
-interface CorporateAccount {
-  id: string;
-  company_name: string;
-  contact_name: string;
-  contact_email: string;
-  contact_phone: string;
-  billing_email: string;
-  address: string;
-  city: string;
-  country: string;
-  tax_id: string;
-  status: 'active' | 'suspended' | 'pending' | 'inactive';
-  payment_terms: string;
-  credit_limit: number;
-  current_balance: number;
-  discount_percentage: number;
-  notes: string;
-  employee_count: number;
-  monthly_budget: number;
-  created_at: string;
-  updated_at: string;
-}
-
-// No default placeholder data - start with empty list
+import { format } from 'date-fns';
 
 export default function CorporateAccounts() {
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [regionFilter, setRegionFilter] = useState<string>('all');
+  const [serviceAreaFilter, setServiceAreaFilter] = useState<string>('all');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingAccount, setEditingAccount] = useState<CorporateAccount | null>(null);
-  const [viewingAccount, setViewingAccount] = useState<CorporateAccount | null>(null);
+  const [editingAccount, setEditingAccount] = useState<any>(null);
+  const [viewingAccount, setViewingAccount] = useState<any>(null);
 
   const [formData, setFormData] = useState({
     company_name: '',
@@ -80,108 +53,149 @@ export default function CorporateAccounts() {
     city: '',
     country: '',
     tax_id: '',
-    status: 'pending' as 'active' | 'suspended' | 'pending' | 'inactive',
+    status: 'pending',
     payment_terms: 'net30',
     credit_limit: 10000,
     discount_percentage: 0,
     notes: '',
     employee_count: 10,
     monthly_budget: 1000,
+    region_id: '',
+    service_area_id: '',
   });
 
-  // Fetch accounts from database - no default placeholder data
-  const { data: accounts = [], isLoading } = useQuery({
-    queryKey: ['corporate-accounts'],
+  // Fetch regions
+  const { data: regions = [] } = useQuery({
+    queryKey: ['regions'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('admin_settings')
-        .select('*')
-        .eq('setting_key', 'corporate_accounts')
-        .maybeSingle();
-      
+      const { data, error } = await supabase.from('regions').select('*').order('name');
       if (error) throw error;
-      return (data?.setting_value as unknown as CorporateAccount[]) || [];
+      return data;
     },
   });
 
-  // Save mutation
-  const saveMutation = useMutation({
-    mutationFn: async (newAccounts: CorporateAccount[]) => {
-      const { error } = await supabase
-        .from('admin_settings')
-        .upsert([{
-          setting_key: 'corporate_accounts',
-          setting_value: JSON.parse(JSON.stringify(newAccounts)),
-          description: 'Corporate accounts data',
-          updated_at: new Date().toISOString(),
-        }], { onConflict: 'setting_key' });
+  // Fetch service areas
+  const { data: serviceAreas = [] } = useQuery({
+    queryKey: ['service-areas'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('service_areas').select('*, region:regions(name)').order('name');
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  // Filter service areas by selected region
+  const filteredServiceAreas = serviceAreas.filter(
+    (sa: any) => regionFilter === 'all' || sa.region_id === regionFilter
+  );
+
+  // Fetch accounts from database
+  const { data: accounts = [], isLoading } = useQuery({
+    queryKey: ['corporate-accounts', regionFilter, serviceAreaFilter],
+    queryFn: async () => {
+      let query = supabase
+        .from('corporate_accounts')
+        .select('*, region:regions(name), service_area:service_areas(name)')
+        .order('created_at', { ascending: false });
       
+      if (regionFilter !== 'all') {
+        query = query.eq('region_id', regionFilter);
+      }
+      if (serviceAreaFilter !== 'all') {
+        query = query.eq('service_area_id', serviceAreaFilter);
+      }
+      
+      const { data, error } = await query;
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  // Create/Update mutation
+  const saveMutation = useMutation({
+    mutationFn: async (account: any) => {
+      if (editingAccount) {
+        const { error } = await supabase
+          .from('corporate_accounts')
+          .update(account)
+          .eq('id', editingAccount.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('corporate_accounts')
+          .insert([account]);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['corporate-accounts'] });
+      toast.success(editingAccount ? 'Account updated successfully' : 'Account created successfully');
+      setIsDialogOpen(false);
+      resetForm();
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to save account');
+    },
+  });
+
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('corporate_accounts').delete().eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['corporate-accounts'] });
+      toast.success('Account deleted successfully');
     },
   });
 
   const handleSave = async () => {
-    const newAccount: CorporateAccount = {
-      id: editingAccount?.id || crypto.randomUUID(),
+    const accountData = {
       company_name: formData.company_name,
       contact_name: formData.contact_name,
       contact_email: formData.contact_email,
-      contact_phone: formData.contact_phone,
-      billing_email: formData.billing_email,
-      address: formData.address,
-      city: formData.city,
-      country: formData.country,
-      tax_id: formData.tax_id,
-      status: formData.status as 'active' | 'suspended' | 'pending' | 'inactive',
+      contact_phone: formData.contact_phone || null,
+      billing_email: formData.billing_email || null,
+      address: formData.address || null,
+      city: formData.city || null,
+      country: formData.country || null,
+      tax_id: formData.tax_id || null,
+      status: formData.status,
       payment_terms: formData.payment_terms,
       credit_limit: formData.credit_limit,
       discount_percentage: formData.discount_percentage,
-      notes: formData.notes,
+      notes: formData.notes || null,
       employee_count: formData.employee_count,
       monthly_budget: formData.monthly_budget,
-      current_balance: editingAccount?.current_balance || 0,
-      created_at: editingAccount?.created_at || new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      region_id: formData.region_id || null,
+      service_area_id: formData.service_area_id || null,
     };
 
-    const updatedAccounts = editingAccount
-      ? accounts.map(a => a.id === editingAccount.id ? newAccount : a)
-      : [...accounts, newAccount];
-
-    await saveMutation.mutateAsync(updatedAccounts);
-    toast.success(editingAccount ? 'Account updated successfully' : 'Account created successfully');
-    setIsDialogOpen(false);
-    resetForm();
+    saveMutation.mutate(accountData);
   };
 
-  const handleDelete = async (id: string) => {
-    const updatedAccounts = accounts.filter(a => a.id !== id);
-    await saveMutation.mutateAsync(updatedAccounts);
-    toast.success('Account deleted successfully');
-  };
-
-  const handleEdit = (account: CorporateAccount) => {
+  const handleEdit = (account: any) => {
     setEditingAccount(account);
     setFormData({
       company_name: account.company_name,
       contact_name: account.contact_name,
       contact_email: account.contact_email,
-      contact_phone: account.contact_phone,
-      billing_email: account.billing_email,
-      address: account.address,
-      city: account.city,
-      country: account.country,
-      tax_id: account.tax_id,
+      contact_phone: account.contact_phone || '',
+      billing_email: account.billing_email || '',
+      address: account.address || '',
+      city: account.city || '',
+      country: account.country || '',
+      tax_id: account.tax_id || '',
       status: account.status,
-      payment_terms: account.payment_terms,
-      credit_limit: account.credit_limit,
-      discount_percentage: account.discount_percentage,
-      notes: account.notes,
-      employee_count: account.employee_count,
-      monthly_budget: account.monthly_budget,
+      payment_terms: account.payment_terms || 'net30',
+      credit_limit: account.credit_limit || 10000,
+      discount_percentage: account.discount_percentage || 0,
+      notes: account.notes || '',
+      employee_count: account.employee_count || 0,
+      monthly_budget: account.monthly_budget || 0,
+      region_id: account.region_id || '',
+      service_area_id: account.service_area_id || '',
     });
     setIsDialogOpen(true);
   };
@@ -205,10 +219,12 @@ export default function CorporateAccounts() {
       notes: '',
       employee_count: 10,
       monthly_budget: 1000,
+      region_id: '',
+      service_area_id: '',
     });
   };
 
-  const filteredAccounts = accounts.filter(account => {
+  const filteredAccounts = accounts.filter((account: any) => {
     const matchesSearch = account.company_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          account.contact_email.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || account.status === statusFilter;
@@ -226,19 +242,9 @@ export default function CorporateAccounts() {
   };
 
   const totalAccounts = accounts.length;
-  const activeAccounts = accounts.filter(a => a.status === 'active').length;
-  const totalBalance = accounts.reduce((sum, a) => sum + a.current_balance, 0);
-  const totalCreditLimit = accounts.reduce((sum, a) => sum + a.credit_limit, 0);
-
-  if (isLoading) {
-    return (
-      <AdminLayout title="Corporate Accounts" description="Manage corporate client accounts">
-        <div className="flex items-center justify-center h-64">
-          <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      </AdminLayout>
-    );
-  }
+  const activeAccounts = accounts.filter((a: any) => a.status === 'active').length;
+  const totalBalance = accounts.reduce((sum: number, a: any) => sum + (a.current_balance || 0), 0);
+  const totalCreditLimit = accounts.reduce((sum: number, a: any) => sum + (a.credit_limit || 0), 0);
 
   return (
     <AdminLayout 
@@ -264,7 +270,7 @@ export default function CorporateAccounts() {
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${totalBalance.toLocaleString()}</div>
+              <div className="text-2xl font-bold">£{totalBalance.toLocaleString()}</div>
               <p className="text-xs text-muted-foreground">Outstanding</p>
             </CardContent>
           </Card>
@@ -274,7 +280,7 @@ export default function CorporateAccounts() {
               <CreditCard className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${totalCreditLimit.toLocaleString()}</div>
+              <div className="text-2xl font-bold">£{totalCreditLimit.toLocaleString()}</div>
               <p className="text-xs text-muted-foreground">Total available</p>
             </CardContent>
           </Card>
@@ -284,15 +290,15 @@ export default function CorporateAccounts() {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{accounts.reduce((sum, a) => sum + a.employee_count, 0)}</div>
+              <div className="text-2xl font-bold">{accounts.reduce((sum: number, a: any) => sum + (a.employee_count || 0), 0)}</div>
               <p className="text-xs text-muted-foreground">Total riders</p>
             </CardContent>
           </Card>
         </div>
 
         {/* Toolbar */}
-        <div className="flex flex-col sm:flex-row gap-4 justify-between">
-          <div className="flex gap-2 flex-1">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col sm:flex-row gap-2 flex-wrap">
             <div className="relative flex-1 max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input 
@@ -302,8 +308,30 @@ export default function CorporateAccounts() {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
+            <Select value={regionFilter} onValueChange={(v) => { setRegionFilter(v); setServiceAreaFilter('all'); }}>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="All Regions" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Regions</SelectItem>
+                {regions.map((region: any) => (
+                  <SelectItem key={region.id} value={region.id}>{region.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={serviceAreaFilter} onValueChange={setServiceAreaFilter}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="All Service Areas" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Service Areas</SelectItem>
+                {filteredServiceAreas.map((sa: any) => (
+                  <SelectItem key={sa.id} value={sa.id}>{sa.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[150px]">
+              <SelectTrigger className="w-[130px]">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
@@ -315,7 +343,7 @@ export default function CorporateAccounts() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 justify-end">
             <Button variant="outline">
               <Download className="h-4 w-4 mr-2" />
               Export
@@ -358,6 +386,35 @@ export default function CorporateAccounts() {
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
+                      <Label>Region</Label>
+                      <Select value={formData.region_id} onValueChange={(v) => setFormData({ ...formData, region_id: v, service_area_id: '' })}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select region" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {regions.map((region: any) => (
+                            <SelectItem key={region.id} value={region.id}>{region.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Service Area</Label>
+                      <Select value={formData.service_area_id} onValueChange={(v) => setFormData({ ...formData, service_area_id: v })}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select service area" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {serviceAreas.filter((sa: any) => !formData.region_id || sa.region_id === formData.region_id).map((sa: any) => (
+                            <SelectItem key={sa.id} value={sa.id}>{sa.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
                       <Label htmlFor="contact_name">Contact Name *</Label>
                       <Input
                         id="contact_name"
@@ -372,7 +429,7 @@ export default function CorporateAccounts() {
                         id="contact_phone"
                         value={formData.contact_phone}
                         onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })}
-                        placeholder="+1 555-0100"
+                        placeholder="+44 20 1234 5678"
                       />
                     </div>
                   </div>
@@ -434,7 +491,7 @@ export default function CorporateAccounts() {
                   <div className="grid gap-4 md:grid-cols-3">
                     <div className="space-y-2">
                       <Label htmlFor="status">Status</Label>
-                      <Select value={formData.status} onValueChange={(value: any) => setFormData({ ...formData, status: value })}>
+                      <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value })}>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
@@ -454,6 +511,7 @@ export default function CorporateAccounts() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="prepaid">Prepaid</SelectItem>
+                          <SelectItem value="net7">Net 7</SelectItem>
                           <SelectItem value="net15">Net 15</SelectItem>
                           <SelectItem value="net30">Net 30</SelectItem>
                           <SelectItem value="net45">Net 45</SelectItem>
@@ -462,35 +520,18 @@ export default function CorporateAccounts() {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="employee_count">Employee Count</Label>
+                      <Label htmlFor="credit_limit">Credit Limit (£)</Label>
                       <Input
-                        id="employee_count"
+                        id="credit_limit"
                         type="number"
-                        value={formData.employee_count}
-                        onChange={(e) => setFormData({ ...formData, employee_count: parseInt(e.target.value) || 0 })}
+                        min="0"
+                        value={formData.credit_limit}
+                        onChange={(e) => setFormData({ ...formData, credit_limit: parseFloat(e.target.value) || 0 })}
                       />
                     </div>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="credit_limit">Credit Limit ($)</Label>
-                      <Input
-                        id="credit_limit"
-                        type="number"
-                        value={formData.credit_limit}
-                        onChange={(e) => setFormData({ ...formData, credit_limit: parseInt(e.target.value) || 0 })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="monthly_budget">Monthly Budget ($)</Label>
-                      <Input
-                        id="monthly_budget"
-                        type="number"
-                        value={formData.monthly_budget}
-                        onChange={(e) => setFormData({ ...formData, monthly_budget: parseInt(e.target.value) || 0 })}
-                      />
-                    </div>
                     <div className="space-y-2">
                       <Label htmlFor="discount_percentage">Discount (%)</Label>
                       <Input
@@ -499,7 +540,27 @@ export default function CorporateAccounts() {
                         min="0"
                         max="100"
                         value={formData.discount_percentage}
-                        onChange={(e) => setFormData({ ...formData, discount_percentage: parseInt(e.target.value) || 0 })}
+                        onChange={(e) => setFormData({ ...formData, discount_percentage: parseFloat(e.target.value) || 0 })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="employee_count">Employee Count</Label>
+                      <Input
+                        id="employee_count"
+                        type="number"
+                        min="1"
+                        value={formData.employee_count}
+                        onChange={(e) => setFormData({ ...formData, employee_count: parseInt(e.target.value) || 0 })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="monthly_budget">Monthly Budget (£)</Label>
+                      <Input
+                        id="monthly_budget"
+                        type="number"
+                        min="0"
+                        value={formData.monthly_budget}
+                        onChange={(e) => setFormData({ ...formData, monthly_budget: parseFloat(e.target.value) || 0 })}
                       />
                     </div>
                   </div>
@@ -516,10 +577,9 @@ export default function CorporateAccounts() {
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => { setIsDialogOpen(false); resetForm(); }}>
-                    Cancel
-                  </Button>
-                  <Button onClick={handleSave} disabled={!formData.company_name || !formData.contact_email}>
+                  <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+                  <Button onClick={handleSave} disabled={saveMutation.isPending}>
+                    {saveMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                     {editingAccount ? 'Update Account' : 'Create Account'}
                   </Button>
                 </DialogFooter>
@@ -528,47 +588,63 @@ export default function CorporateAccounts() {
           </div>
         </div>
 
-        {/* Accounts Table */}
+        {/* Table */}
         <Card>
           <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Company</TableHead>
-                  <TableHead>Contact</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Credit Limit</TableHead>
-                  <TableHead>Balance</TableHead>
-                  <TableHead>Discount</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredAccounts.length === 0 ? (
+            {isLoading ? (
+              <div className="flex items-center justify-center h-64">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : filteredAccounts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+                <Building2 className="h-12 w-12 mb-4" />
+                <p>No corporate accounts found</p>
+                <p className="text-sm">Create your first account to get started</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                      No accounts found
-                    </TableCell>
+                    <TableHead>Company</TableHead>
+                    <TableHead>Contact</TableHead>
+                    <TableHead>Region</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Credit Limit</TableHead>
+                    <TableHead>Balance</TableHead>
+                    <TableHead>Employees</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                ) : (
-                  filteredAccounts.map((account) => (
+                </TableHeader>
+                <TableBody>
+                  {filteredAccounts.map((account: any) => (
                     <TableRow key={account.id}>
                       <TableCell>
-                        <div>
-                          <p className="font-medium">{account.company_name}</p>
-                          <p className="text-sm text-muted-foreground">{account.city}, {account.country}</p>
-                        </div>
+                        <div className="font-medium">{account.company_name}</div>
+                        <div className="text-xs text-muted-foreground">{account.city}, {account.country}</div>
                       </TableCell>
                       <TableCell>
-                        <div>
-                          <p className="text-sm">{account.contact_name}</p>
-                          <p className="text-sm text-muted-foreground">{account.contact_email}</p>
+                        <div className="flex items-center gap-1">
+                          <Mail className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-sm">{account.contact_email}</span>
                         </div>
+                        {account.contact_phone && (
+                          <div className="flex items-center gap-1 text-muted-foreground">
+                            <Phone className="h-3 w-3" />
+                            <span className="text-xs">{account.contact_phone}</span>
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <MapPin className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-sm">{account.region?.name || '—'}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">{account.service_area?.name || '—'}</div>
                       </TableCell>
                       <TableCell>{getStatusBadge(account.status)}</TableCell>
-                      <TableCell>${account.credit_limit.toLocaleString()}</TableCell>
-                      <TableCell>${account.current_balance.toLocaleString()}</TableCell>
-                      <TableCell>{account.discount_percentage}%</TableCell>
+                      <TableCell>£{(account.credit_limit || 0).toLocaleString()}</TableCell>
+                      <TableCell>£{(account.current_balance || 0).toLocaleString()}</TableCell>
+                      <TableCell>{account.employee_count || 0}</TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -586,8 +662,8 @@ export default function CorporateAccounts() {
                               Edit
                             </DropdownMenuItem>
                             <DropdownMenuItem 
-                              onClick={() => handleDelete(account.id)}
-                              className="text-destructive"
+                              className="text-destructive" 
+                              onClick={() => { if (confirm('Delete this account?')) deleteMutation.mutate(account.id); }}
                             >
                               <Trash2 className="h-4 w-4 mr-2" />
                               Delete
@@ -596,62 +672,76 @@ export default function CorporateAccounts() {
                         </DropdownMenu>
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
 
-        {/* View Account Dialog */}
+        {/* View Details Dialog */}
         <Dialog open={!!viewingAccount} onOpenChange={() => setViewingAccount(null)}>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>{viewingAccount?.company_name}</DialogTitle>
-              <DialogDescription>Account Details</DialogDescription>
+              <DialogDescription>Corporate Account Details</DialogDescription>
             </DialogHeader>
             {viewingAccount && (
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Contact</p>
-                    <p className="font-medium">{viewingAccount.contact_name}</p>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-muted-foreground">Status</Label>
+                    <div className="mt-1">{getStatusBadge(viewingAccount.status)}</div>
                   </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Status</p>
-                    {getStatusBadge(viewingAccount.status)}
-                  </div>
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Email</p>
-                    <p>{viewingAccount.contact_email}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Phone</p>
-                    <p>{viewingAccount.contact_phone}</p>
+                  <div>
+                    <Label className="text-muted-foreground">Payment Terms</Label>
+                    <p className="font-medium">{viewingAccount.payment_terms}</p>
                   </div>
                 </div>
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Credit Limit</p>
-                    <p className="font-medium">${viewingAccount.credit_limit.toLocaleString()}</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-muted-foreground">Credit Limit</Label>
+                    <p className="font-medium">£{(viewingAccount.credit_limit || 0).toLocaleString()}</p>
                   </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Current Balance</p>
-                    <p className="font-medium">${viewingAccount.current_balance.toLocaleString()}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Discount</p>
-                    <p className="font-medium">{viewingAccount.discount_percentage}%</p>
+                  <div>
+                    <Label className="text-muted-foreground">Current Balance</Label>
+                    <p className="font-medium">£{(viewingAccount.current_balance || 0).toLocaleString()}</p>
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">Notes</p>
-                  <p>{viewingAccount.notes || 'No notes'}</p>
+                <div>
+                  <Label className="text-muted-foreground">Contact</Label>
+                  <p className="font-medium">{viewingAccount.contact_name}</p>
+                  <p className="text-sm text-muted-foreground">{viewingAccount.contact_email}</p>
+                  {viewingAccount.contact_phone && <p className="text-sm text-muted-foreground">{viewingAccount.contact_phone}</p>}
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Location</Label>
+                  <p className="text-sm">{viewingAccount.address}</p>
+                  <p className="text-sm">{viewingAccount.city}, {viewingAccount.country}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-muted-foreground">Region</Label>
+                    <p className="font-medium">{viewingAccount.region?.name || '—'}</p>
+                  </div>
+                  <div>
+                    <Label className="text-muted-foreground">Service Area</Label>
+                    <p className="font-medium">{viewingAccount.service_area?.name || '—'}</p>
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Created</Label>
+                  <p className="text-sm">{format(new Date(viewingAccount.created_at), 'PPP')}</p>
                 </div>
               </div>
             )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setViewingAccount(null)}>Close</Button>
+              <Button onClick={() => { handleEdit(viewingAccount); setViewingAccount(null); }}>
+                <Edit className="h-4 w-4 mr-2" />
+                Edit
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
