@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { AdminLayout } from "@/components/layout/AdminLayout";
@@ -13,15 +13,13 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
+import { ZoneBoundaryMap } from "@/components/maps/ZoneBoundaryMap";
 import { 
-  Plus, Edit, Trash2, MapPin, Target, CircleDollarSign, Search, Filter, 
-  TrendingUp, Navigation, AlertTriangle, Circle, Hexagon, Map, Eye, 
-  Radar, DollarSign, Bell, ChevronRight, RefreshCw, Loader2, Settings2
+  Plus, Edit, Trash2, Target, Search, 
+  Map, Radar, DollarSign, RefreshCw, Loader2, Circle, Hexagon
 } from "lucide-react";
-import { format } from "date-fns";
 
 // Types
 interface CustomZone {
@@ -45,12 +43,10 @@ interface CustomZone {
 }
 
 interface ZoneMetadata {
-  // PRICING zone metadata
   pickup_fee?: number;
   dropoff_fee?: number;
   surge_multiplier?: number;
   min_fare_override?: number;
-  // GEOFENCE zone metadata
   trigger_on_enter?: boolean;
   trigger_on_exit?: boolean;
   staging_zone?: boolean;
@@ -78,37 +74,22 @@ const ZONE_TYPE_CONFIG = {
   }
 };
 
-const SHAPE_TYPE_CONFIG = {
-  polygon: { label: 'Polygon', icon: Hexagon },
-  circle: { label: 'Circle', icon: Circle }
-};
-
 const PRESET_COLORS = [
   '#EF4444', '#F97316', '#F59E0B', '#84CC16', '#22C55E',
   '#14B8A6', '#06B6D4', '#3B82F6', '#6366F1', '#8B5CF6',
   '#A855F7', '#D946EF', '#EC4899', '#F43F5E',
 ];
 
-const DEFAULT_CENTER = { lat: 51.5074, lng: -0.1278 }; // London
-
 export default function CustomZones() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const mapRef = useRef<any>(null);
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const drawingManagerRef = useRef<any>(null);
-  const currentShapeRef = useRef<any>(null);
-  const zoneOverlaysRef = useRef<globalThis.Map<string, any>>(new globalThis.Map());
 
   const [activeTab, setActiveTab] = useState<'PRICING' | 'GEOFENCE'>('PRICING');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isMapDialogOpen, setIsMapDialogOpen] = useState(false);
   const [editingZone, setEditingZone] = useState<CustomZone | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [regionFilter, setRegionFilter] = useState<string>("all");
-  const [isMapLoaded, setIsMapLoaded] = useState(false);
-  const [isDrawing, setIsDrawing] = useState(false);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -240,240 +221,42 @@ export default function CustomZones() {
     },
   });
 
-  // Initialize map
-  const initMap = useCallback(() => {
-    if (!mapContainerRef.current || !window.google) return;
+  // Callback handlers for ZoneBoundaryMap
+  const handlePolygonChange = useCallback((boundary: any) => {
+    setFormData(prev => ({
+      ...prev,
+      geo_boundary: boundary,
+      center_lat: null,
+      center_lng: null,
+      radius_meters: null,
+    }));
+  }, []);
 
-    const selectedRegion = regions.find(r => r.id === formData.region_id);
-    let center = DEFAULT_CENTER;
-    
-    if (selectedRegion?.geo_boundary?.coordinates?.[0]?.[0]) {
-      const coords = selectedRegion.geo_boundary.coordinates[0];
-      const avgLat = coords.reduce((sum: number, c: number[]) => sum + c[1], 0) / coords.length;
-      const avgLng = coords.reduce((sum: number, c: number[]) => sum + c[0], 0) / coords.length;
-      center = { lat: avgLat, lng: avgLng };
-    }
+  const handleCircleChange = useCallback((center_lat: number | null, center_lng: number | null, radius_meters: number | null) => {
+    setFormData(prev => ({
+      ...prev,
+      center_lat,
+      center_lng,
+      radius_meters,
+      geo_boundary: null,
+    }));
+  }, []);
 
-    mapRef.current = new google.maps.Map(mapContainerRef.current, {
-      center,
-      zoom: 12,
-      mapTypeControl: true,
-      streetViewControl: false,
-      fullscreenControl: true,
-    });
+  const handleShapeTypeChange = useCallback((type: 'polygon' | 'circle') => {
+    setFormData(prev => ({
+      ...prev,
+      shape_type: type,
+      geo_boundary: null,
+      center_lat: null,
+      center_lng: null,
+      radius_meters: 500,
+    }));
+  }, []);
 
-    // Draw region boundary if selected
-    if (selectedRegion?.geo_boundary?.coordinates?.[0]) {
-      const regionPath = selectedRegion.geo_boundary.coordinates[0].map((coord: number[]) => ({
-        lat: coord[1],
-        lng: coord[0]
-      }));
-      
-      new google.maps.Polygon({
-        paths: regionPath,
-        strokeColor: '#6B7280',
-        strokeOpacity: 0.8,
-        strokeWeight: 2,
-        fillColor: '#6B7280',
-        fillOpacity: 0.1,
-        map: mapRef.current,
-      });
-    }
-
-    // Initialize drawing manager
-    drawingManagerRef.current = new google.maps.drawing.DrawingManager({
-      drawingMode: null,
-      drawingControl: true,
-      drawingControlOptions: {
-        position: google.maps.ControlPosition.TOP_CENTER,
-        drawingModes: [
-          google.maps.drawing.OverlayType.POLYGON,
-          google.maps.drawing.OverlayType.CIRCLE,
-        ],
-      },
-      polygonOptions: {
-        fillColor: formData.color,
-        fillOpacity: 0.3,
-        strokeColor: formData.color,
-        strokeWeight: 2,
-        editable: true,
-        draggable: true,
-      },
-      circleOptions: {
-        fillColor: formData.color,
-        fillOpacity: 0.3,
-        strokeColor: formData.color,
-        strokeWeight: 2,
-        editable: true,
-        draggable: true,
-      },
-    });
-
-    drawingManagerRef.current.setMap(mapRef.current);
-
-    // Handle polygon complete
-    google.maps.event.addListener(drawingManagerRef.current, 'polygoncomplete', (polygon: google.maps.Polygon) => {
-      if (currentShapeRef.current) {
-        currentShapeRef.current.setMap(null);
-      }
-      currentShapeRef.current = polygon;
-      setFormData(prev => ({
-        ...prev,
-        shape_type: 'polygon',
-        geo_boundary: getPolygonGeoJSON(polygon),
-        center_lat: null,
-        center_lng: null,
-        radius_meters: null,
-      }));
-      setIsDrawing(false);
-      drawingManagerRef.current?.setDrawingMode(null);
-
-      // Add edit listeners
-      google.maps.event.addListener(polygon.getPath(), 'set_at', () => {
-        setFormData(prev => ({ ...prev, geo_boundary: getPolygonGeoJSON(polygon) }));
-      });
-      google.maps.event.addListener(polygon.getPath(), 'insert_at', () => {
-        setFormData(prev => ({ ...prev, geo_boundary: getPolygonGeoJSON(polygon) }));
-      });
-    });
-
-    // Handle circle complete
-    google.maps.event.addListener(drawingManagerRef.current, 'circlecomplete', (circle: google.maps.Circle) => {
-      if (currentShapeRef.current) {
-        currentShapeRef.current.setMap(null);
-      }
-      currentShapeRef.current = circle;
-      const center = circle.getCenter();
-      setFormData(prev => ({
-        ...prev,
-        shape_type: 'circle',
-        center_lat: center?.lat() || null,
-        center_lng: center?.lng() || null,
-        radius_meters: circle.getRadius(),
-        geo_boundary: null,
-      }));
-      setIsDrawing(false);
-      drawingManagerRef.current?.setDrawingMode(null);
-
-      // Add edit listeners
-      google.maps.event.addListener(circle, 'radius_changed', () => {
-        setFormData(prev => ({ ...prev, radius_meters: circle.getRadius() }));
-      });
-      google.maps.event.addListener(circle, 'center_changed', () => {
-        const newCenter = circle.getCenter();
-        setFormData(prev => ({
-          ...prev,
-          center_lat: newCenter?.lat() || null,
-          center_lng: newCenter?.lng() || null,
-        }));
-      });
-    });
-
-    // Load existing shape if editing
-    if (editingZone) {
-      if (editingZone.shape_type === 'polygon' && editingZone.geo_boundary) {
-        const coords = editingZone.geo_boundary.coordinates?.[0] || editingZone.geo_boundary;
-        const path = coords.map((c: number[]) => ({ lat: c[1], lng: c[0] }));
-        const polygon = new google.maps.Polygon({
-          paths: path,
-          fillColor: editingZone.color || formData.color,
-          fillOpacity: 0.3,
-          strokeColor: editingZone.color || formData.color,
-          strokeWeight: 2,
-          editable: true,
-          draggable: true,
-          map: mapRef.current,
-        });
-        currentShapeRef.current = polygon;
-
-        // Fit bounds to polygon
-        const bounds = new google.maps.LatLngBounds();
-        path.forEach((p: google.maps.LatLngLiteral) => bounds.extend(p));
-        mapRef.current.fitBounds(bounds);
-
-        google.maps.event.addListener(polygon.getPath(), 'set_at', () => {
-          setFormData(prev => ({ ...prev, geo_boundary: getPolygonGeoJSON(polygon) }));
-        });
-        google.maps.event.addListener(polygon.getPath(), 'insert_at', () => {
-          setFormData(prev => ({ ...prev, geo_boundary: getPolygonGeoJSON(polygon) }));
-        });
-      } else if (editingZone.shape_type === 'circle' && editingZone.center_lat && editingZone.center_lng) {
-        const circle = new google.maps.Circle({
-          center: { lat: editingZone.center_lat, lng: editingZone.center_lng },
-          radius: editingZone.radius_meters || 500,
-          fillColor: editingZone.color || formData.color,
-          fillOpacity: 0.3,
-          strokeColor: editingZone.color || formData.color,
-          strokeWeight: 2,
-          editable: true,
-          draggable: true,
-          map: mapRef.current,
-        });
-        currentShapeRef.current = circle;
-        mapRef.current.setCenter({ lat: editingZone.center_lat, lng: editingZone.center_lng });
-        mapRef.current.setZoom(14);
-
-        google.maps.event.addListener(circle, 'radius_changed', () => {
-          setFormData(prev => ({ ...prev, radius_meters: circle.getRadius() }));
-        });
-        google.maps.event.addListener(circle, 'center_changed', () => {
-          const newCenter = circle.getCenter();
-          setFormData(prev => ({
-            ...prev,
-            center_lat: newCenter?.lat() || null,
-            center_lng: newCenter?.lng() || null,
-          }));
-        });
-      }
-    }
-
-    setIsMapLoaded(true);
-  }, [formData.region_id, formData.color, editingZone, regions]);
-
-  // Get GeoJSON from polygon
-  const getPolygonGeoJSON = (polygon: google.maps.Polygon) => {
-    const path = polygon.getPath();
-    const coordinates: number[][] = [];
-    for (let i = 0; i < path.getLength(); i++) {
-      const point = path.getAt(i);
-      coordinates.push([point.lng(), point.lat()]);
-    }
-    // Close the polygon
-    if (coordinates.length > 0) {
-      coordinates.push(coordinates[0]);
-    }
-    return {
-      type: 'Polygon',
-      coordinates: [coordinates]
-    };
-  };
-
-  // Load Google Maps script
-  useEffect(() => {
-    if (isMapDialogOpen && !window.google) {
-      const script = document.createElement('script');
-      script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyCminSfLNkCWsLdVgGGPP-lEY-8uP8VZUA&libraries=drawing`;
-      script.async = true;
-      script.defer = true;
-      script.onload = () => initMap();
-      document.head.appendChild(script);
-    } else if (isMapDialogOpen && window.google) {
-      setTimeout(initMap, 100);
-    }
-  }, [isMapDialogOpen, initMap]);
-
-  // Clean up map on dialog close
-  useEffect(() => {
-    if (!isMapDialogOpen) {
-      if (currentShapeRef.current) {
-        currentShapeRef.current.setMap(null);
-        currentShapeRef.current = null;
-      }
-      mapRef.current = null;
-      drawingManagerRef.current = null;
-      setIsMapLoaded(false);
-    }
-  }, [isMapDialogOpen]);
+  const getSelectedRegion = useCallback(() => {
+    if (!formData.region_id) return null;
+    return regions.find(r => r.id === formData.region_id) || null;
+  }, [formData.region_id, regions]);
 
   const resetForm = () => {
     setFormData({
@@ -493,7 +276,6 @@ export default function CustomZones() {
     });
     setEditingZone(null);
     setIsDialogOpen(false);
-    setIsMapDialogOpen(false);
   };
 
   const handleEdit = (zone: CustomZone) => {
@@ -576,19 +358,6 @@ export default function CustomZones() {
     activeGeofence: zones.filter(z => z.zone_type === 'GEOFENCE' && z.is_active).length,
   };
 
-  const clearShape = () => {
-    if (currentShapeRef.current) {
-      currentShapeRef.current.setMap(null);
-      currentShapeRef.current = null;
-    }
-    setFormData(prev => ({
-      ...prev,
-      geo_boundary: null,
-      center_lat: null,
-      center_lng: null,
-      radius_meters: 500,
-    }));
-  };
 
   return (
     <AdminLayout title="Custom Zones & Geofencing">
@@ -833,40 +602,28 @@ export default function CustomZones() {
 
                 {/* Map Drawing Section */}
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label>Zone Boundary</Label>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setIsMapDialogOpen(true)}
-                      disabled={!formData.region_id}
-                    >
-                      <Map className="h-4 w-4 mr-2" />
-                      {formData.geo_boundary || formData.center_lat ? 'Edit on Map' : 'Draw on Map'}
-                    </Button>
-                  </div>
-                  
-                  {!formData.region_id && (
-                    <p className="text-sm text-muted-foreground">Select a region first to draw the zone boundary</p>
-                  )}
-                  
-                  {(formData.geo_boundary || formData.center_lat) && (
-                    <div className="flex items-center gap-2 p-3 rounded-lg bg-muted">
-                      {formData.shape_type === 'polygon' ? (
-                        <>
-                          <Hexagon className="h-4 w-4 text-primary" />
-                          <span className="text-sm">Polygon drawn ({formData.geo_boundary?.coordinates?.[0]?.length - 1 || 0} points)</span>
-                        </>
-                      ) : (
-                        <>
-                          <Circle className="h-4 w-4 text-primary" />
-                          <span className="text-sm">
-                            Circle at ({formData.center_lat?.toFixed(4)}, {formData.center_lng?.toFixed(4)}) - {formData.radius_meters}m radius
-                          </span>
-                        </>
-                      )}
+                  <Label className="text-base font-medium">Zone Boundary *</Label>
+                  {!formData.region_id ? (
+                    <div className="flex items-center gap-2 p-4 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/30">
+                      <Map className="h-5 w-5 text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground">Select a region above to enable map drawing</p>
                     </div>
+                  ) : (
+                    <ZoneBoundaryMap
+                      shapeType={formData.shape_type}
+                      existingPolygon={formData.geo_boundary}
+                      existingCircle={{
+                        center_lat: formData.center_lat,
+                        center_lng: formData.center_lng,
+                        radius_meters: formData.radius_meters
+                      }}
+                      region={getSelectedRegion()}
+                      color={formData.color}
+                      onPolygonChange={handlePolygonChange}
+                      onCircleChange={handleCircleChange}
+                      onShapeTypeChange={handleShapeTypeChange}
+                      height="350px"
+                    />
                   )}
                 </div>
 
@@ -1025,44 +782,6 @@ export default function CustomZones() {
           </DialogContent>
         </Dialog>
 
-        {/* Map Drawing Dialog */}
-        <Dialog open={isMapDialogOpen} onOpenChange={setIsMapDialogOpen}>
-          <DialogContent className="max-w-4xl h-[80vh]">
-            <DialogHeader>
-              <DialogTitle>Draw Zone Boundary</DialogTitle>
-              <DialogDescription>
-                Use the drawing tools to draw a polygon or circle on the map. The zone will be validated against the region boundary.
-              </DialogDescription>
-            </DialogHeader>
-            
-            <div className="flex-1 relative h-[calc(80vh-200px)]">
-              <div ref={mapContainerRef} className="absolute inset-0 rounded-lg" />
-              {!isMapLoaded && (
-                <div className="absolute inset-0 flex items-center justify-center bg-muted rounded-lg">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between pt-4">
-              <Button type="button" variant="outline" onClick={clearShape}>
-                Clear Drawing
-              </Button>
-              <div className="flex gap-2">
-                <Button type="button" variant="outline" onClick={() => setIsMapDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button 
-                  type="button" 
-                  onClick={() => setIsMapDialogOpen(false)}
-                  disabled={!formData.geo_boundary && !formData.center_lat}
-                >
-                  Confirm Boundary
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
     </AdminLayout>
   );
