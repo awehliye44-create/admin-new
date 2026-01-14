@@ -63,6 +63,7 @@ import SupportCategories from "./pages/SupportCategories";
 import GeneralSettings from "./pages/GeneralSettings";
 import Notifications from "./pages/Notifications";
 import SystemRequirements from "./pages/SystemRequirements";
+import AdminProfile from "./pages/AdminProfile";
 
 const queryClient = new QueryClient();
 
@@ -149,6 +150,7 @@ const App = () => (
               <Route path="system" element={<SystemRequirements />} />
               <Route path="roles" element={<RolesPermissions />} />
               <Route path="notifications" element={<Notifications />} />
+              <Route path="profile" element={<AdminProfile />} />
             </Route>
             
             <Route path="*" element={<NotFound />} />
