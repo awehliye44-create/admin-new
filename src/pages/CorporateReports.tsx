@@ -1,9 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -26,64 +24,88 @@ import {
   MapPin,
   Building2,
   PieChart,
-  LineChart
+  LineChart,
+  Globe
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart as RechartsLineChart, Line, PieChart as RechartsPieChart, Pie, Cell } from 'recharts';
 
-interface ReportData {
-  corporate_summary: {
-    total_accounts: number;
-    active_accounts: number;
-    total_trips: number;
-    total_revenue: number;
-    avg_trip_cost: number;
-    top_accounts: { name: string; trips: number; revenue: number }[];
-  };
-  monthly_trends: { month: string; trips: number; revenue: number }[];
-  trip_distribution: { category: string; value: number }[];
-  usage_by_time: { hour: string; trips: number }[];
+interface Region {
+  id: string;
+  name: string;
 }
 
-// Empty defaults - no placeholder data
-const emptyReportData: ReportData = {
-  corporate_summary: {
-    total_accounts: 0,
-    active_accounts: 0,
-    total_trips: 0,
-    total_revenue: 0,
-    avg_trip_cost: 0,
-    top_accounts: [],
-  },
-  monthly_trends: [],
-  trip_distribution: [],
-  usage_by_time: [],
-};
+interface ServiceArea {
+  id: string;
+  name: string;
+  region_id: string;
+}
 
 const COLORS = ['hsl(var(--primary))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))'];
 
 export default function CorporateReports() {
   const [activeTab, setActiveTab] = useState('overview');
   const [dateRange, setDateRange] = useState('last30');
+  const [regionFilter, setRegionFilter] = useState<string>('all');
+  const [serviceAreaFilter, setServiceAreaFilter] = useState<string>('all');
   const [selectedAccount, setSelectedAccount] = useState<string>('all');
 
-  // Fetch corporate accounts for dropdown
-  const { data: accounts = [] } = useQuery({
-    queryKey: ['corporate-accounts-for-reports'],
+  // Fetch regions
+  const { data: regions = [] } = useQuery({
+    queryKey: ['regions'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('admin_settings')
-        .select('*')
-        .eq('setting_key', 'corporate_accounts')
-        .maybeSingle();
-      
+        .from('regions')
+        .select('id, name')
+        .order('name');
       if (error) throw error;
-      return (data?.setting_value as any[]) || [];
+      return data as Region[];
     },
   });
 
-  // Fetch real trip data for reports
-  const { data: tripData = [], isLoading } = useQuery({
-    queryKey: ['corporate-trip-reports', dateRange],
+  // Fetch service areas based on region filter
+  const { data: serviceAreas = [] } = useQuery({
+    queryKey: ['service-areas', regionFilter],
+    queryFn: async () => {
+      let query = supabase.from('service_areas').select('id, name, region_id').order('name');
+      if (regionFilter !== 'all') {
+        query = query.eq('region_id', regionFilter);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      return data as ServiceArea[];
+    },
+  });
+
+  // Reset service area filter when region changes
+  useEffect(() => {
+    setServiceAreaFilter('all');
+  }, [regionFilter]);
+
+  // Fetch corporate accounts
+  const { data: accounts = [] } = useQuery({
+    queryKey: ['corporate-accounts-for-reports', regionFilter, serviceAreaFilter],
+    queryFn: async () => {
+      let query = supabase
+        .from('corporate_accounts')
+        .select('*')
+        .order('company_name');
+      
+      if (regionFilter !== 'all') {
+        query = query.eq('region_id', regionFilter);
+      }
+      if (serviceAreaFilter !== 'all') {
+        query = query.eq('service_area_id', serviceAreaFilter);
+      }
+      
+      const { data, error } = await query;
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Fetch invoices for revenue data
+  const { data: invoices = [] } = useQuery({
+    queryKey: ['corporate-invoices-for-reports', regionFilter, serviceAreaFilter, dateRange],
     queryFn: async () => {
       const now = new Date();
       let startDate = new Date();
@@ -97,18 +119,57 @@ export default function CorporateReports() {
         default: startDate.setDate(now.getDate() - 30);
       }
 
-      const { data: trips, error } = await supabase
+      let query = supabase
+        .from('corporate_invoices')
+        .select('*')
+        .gte('created_at', startDate.toISOString());
+      
+      if (regionFilter !== 'all') {
+        query = query.eq('region_id', regionFilter);
+      }
+      if (serviceAreaFilter !== 'all') {
+        query = query.eq('service_area_id', serviceAreaFilter);
+      }
+      
+      const { data, error } = await query;
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Fetch trip data for reports
+  const { data: tripData = [], isLoading } = useQuery({
+    queryKey: ['corporate-trip-reports', dateRange, regionFilter, serviceAreaFilter],
+    queryFn: async () => {
+      const now = new Date();
+      let startDate = new Date();
+      
+      switch (dateRange) {
+        case 'last7': startDate.setDate(now.getDate() - 7); break;
+        case 'last30': startDate.setDate(now.getDate() - 30); break;
+        case 'last90': startDate.setDate(now.getDate() - 90); break;
+        case 'thisYear': startDate = new Date(now.getFullYear(), 0, 1); break;
+        case 'lastYear': startDate = new Date(now.getFullYear() - 1, 0, 1); break;
+        default: startDate.setDate(now.getDate() - 30);
+      }
+
+      let query = supabase
         .from('trips')
-        .select('id, fare, created_at, trip_type')
+        .select('id, fare, created_at, trip_type, service_area_id')
         .eq('status', 'completed')
         .gte('created_at', startDate.toISOString());
       
+      if (serviceAreaFilter !== 'all') {
+        query = query.eq('service_area_id', serviceAreaFilter);
+      }
+      
+      const { data: trips, error } = await query;
       if (error) throw error;
       return trips || [];
     },
   });
 
-  // Calculate report data from real trips
+  // Calculate report data from real data
   const calculateMonthlyTrends = (trips: any[]) => {
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const monthData: Record<string, { trips: number; revenue: number }> = {};
@@ -162,25 +223,13 @@ export default function CorporateReports() {
     }));
   };
 
-  const totalRevenue = tripData.reduce((sum, t) => sum + (t.fare || 0), 0);
-  
-  const reportData: ReportData = {
-    corporate_summary: {
-      total_accounts: accounts.length,
-      active_accounts: accounts.filter((a: any) => a.status === 'active').length,
-      total_trips: tripData.length,
-      total_revenue: totalRevenue,
-      avg_trip_cost: tripData.length ? totalRevenue / tripData.length : 0,
-      top_accounts: accounts.slice(0, 5).map((a: any) => ({
-        name: a.company_name || 'Unknown',
-        trips: 0,
-        revenue: a.current_balance || 0
-      })),
-    },
-    monthly_trends: calculateMonthlyTrends(tripData),
-    trip_distribution: calculateTripDistribution(tripData),
-    usage_by_time: calculateUsageByTime(tripData),
-  };
+  const totalRevenue = invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + (i.total_amount || 0), 0);
+  const totalTrips = tripData.length;
+  const avgTripCost = totalTrips > 0 ? totalRevenue / totalTrips : 0;
+  const activeAccounts = accounts.filter((a: any) => a.status === 'active').length;
+  const monthlyTrends = calculateMonthlyTrends(tripData);
+  const tripDistribution = calculateTripDistribution(tripData);
+  const usageByTime = calculateUsageByTime(tripData);
 
   const handleExportReport = (reportType: string) => {
     toast.success(`${reportType} report exported successfully`);
@@ -208,7 +257,7 @@ export default function CorporateReports() {
       <div className="space-y-6">
         {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-4 justify-between">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Select value={dateRange} onValueChange={setDateRange}>
               <SelectTrigger className="w-[180px]">
                 <Calendar className="h-4 w-4 mr-2" />
@@ -222,6 +271,30 @@ export default function CorporateReports() {
                 <SelectItem value="lastYear">Last Year</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={regionFilter} onValueChange={setRegionFilter}>
+              <SelectTrigger className="w-[160px]">
+                <Globe className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Region" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Regions</SelectItem>
+                {regions.map((region) => (
+                  <SelectItem key={region.id} value={region.id}>{region.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={serviceAreaFilter} onValueChange={setServiceAreaFilter}>
+              <SelectTrigger className="w-[170px]">
+                <MapPin className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Service Area" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Areas</SelectItem>
+                {serviceAreas.map((area) => (
+                  <SelectItem key={area.id} value={area.id}>{area.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={selectedAccount} onValueChange={setSelectedAccount}>
               <SelectTrigger className="w-[200px]">
                 <Building2 className="h-4 w-4 mr-2" />
@@ -229,8 +302,8 @@ export default function CorporateReports() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Accounts</SelectItem>
-                {reportData.corporate_summary.top_accounts.map((acc) => (
-                  <SelectItem key={acc.name} value={acc.name}>{acc.name}</SelectItem>
+                {accounts.map((acc: any) => (
+                  <SelectItem key={acc.id} value={acc.id}>{acc.company_name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -255,10 +328,10 @@ export default function CorporateReports() {
               <Building2 className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{reportData.corporate_summary.total_accounts}</div>
+              <div className="text-2xl font-bold">{accounts.length}</div>
               <p className="text-xs text-muted-foreground flex items-center gap-1">
                 <TrendingUp className="h-3 w-3 text-green-500" />
-                {reportData.corporate_summary.active_accounts} active
+                {activeAccounts} active
               </p>
             </CardContent>
           </Card>
@@ -268,11 +341,8 @@ export default function CorporateReports() {
               <Car className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{reportData.corporate_summary.total_trips.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <TrendingUp className="h-3 w-3 text-green-500" />
-                +12% from last period
-              </p>
+              <div className="text-2xl font-bold">{totalTrips.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground">In selected period</p>
             </CardContent>
           </Card>
           <Card>
@@ -281,11 +351,8 @@ export default function CorporateReports() {
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${reportData.corporate_summary.total_revenue.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <TrendingUp className="h-3 w-3 text-green-500" />
-                +8% from last period
-              </p>
+              <div className="text-2xl font-bold">${totalRevenue.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground">From paid invoices</p>
             </CardContent>
           </Card>
           <Card>
@@ -294,11 +361,8 @@ export default function CorporateReports() {
               <BarChart3 className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${reportData.corporate_summary.avg_trip_cost.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <TrendingDown className="h-3 w-3 text-red-500" />
-                -3% from last period
-              </p>
+              <div className="text-2xl font-bold">${avgTripCost.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">Per trip</p>
             </CardContent>
           </Card>
           <Card>
@@ -308,7 +372,7 @@ export default function CorporateReports() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {Math.round(reportData.corporate_summary.total_trips / reportData.corporate_summary.active_accounts)}
+                {activeAccounts > 0 ? Math.round(totalTrips / activeAccounts) : 0}
               </div>
               <p className="text-xs text-muted-foreground">Average per active account</p>
             </CardContent>
@@ -341,25 +405,31 @@ export default function CorporateReports() {
               <Card>
                 <CardHeader>
                   <CardTitle>Monthly Revenue</CardTitle>
-                  <CardDescription>Revenue trend over the past 6 months</CardDescription>
+                  <CardDescription>Revenue trend over the past months</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={reportData.monthly_trends}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                        <XAxis dataKey="month" className="text-xs" />
-                        <YAxis className="text-xs" />
-                        <Tooltip 
-                          formatter={(value: number) => [`$${value.toLocaleString()}`, 'Revenue']}
-                          contentStyle={{ 
-                            backgroundColor: 'hsl(var(--background))', 
-                            border: '1px solid hsl(var(--border))' 
-                          }}
-                        />
-                        <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
+                    {monthlyTrends.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={monthlyTrends}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                          <XAxis dataKey="month" className="text-xs" />
+                          <YAxis className="text-xs" />
+                          <Tooltip 
+                            formatter={(value: number) => [`$${value.toLocaleString()}`, 'Revenue']}
+                            contentStyle={{ 
+                              backgroundColor: 'hsl(var(--background))', 
+                              border: '1px solid hsl(var(--border))' 
+                            }}
+                          />
+                          <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-muted-foreground">
+                        No data available for the selected period
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -372,36 +442,44 @@ export default function CorporateReports() {
                 </CardHeader>
                 <CardContent>
                   <div className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <RechartsPieChart>
-                        <Pie
-                          data={reportData.trip_distribution}
-                          cx="50%"
-                          cy="50%"
-                          outerRadius={100}
-                          fill="hsl(var(--primary))"
-                          dataKey="value"
-                          label={({ category, value }) => `${category}: ${value}%`}
-                        >
-                          {reportData.trip_distribution.map((_, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip />
-                      </RechartsPieChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="flex flex-wrap justify-center gap-4 mt-4">
-                    {reportData.trip_distribution.map((item, index) => (
-                      <div key={item.category} className="flex items-center gap-2">
-                        <div 
-                          className="w-3 h-3 rounded-full" 
-                          style={{ backgroundColor: COLORS[index % COLORS.length] }} 
-                        />
-                        <span className="text-sm">{item.category}</span>
+                    {tripDistribution.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <RechartsPieChart>
+                          <Pie
+                            data={tripDistribution}
+                            cx="50%"
+                            cy="50%"
+                            outerRadius={100}
+                            fill="hsl(var(--primary))"
+                            dataKey="value"
+                            label={({ category, value }) => `${category}: ${value}%`}
+                          >
+                            {tripDistribution.map((_, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip />
+                        </RechartsPieChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-muted-foreground">
+                        No data available for the selected period
                       </div>
-                    ))}
+                    )}
                   </div>
+                  {tripDistribution.length > 0 && (
+                    <div className="flex flex-wrap justify-center gap-4 mt-4">
+                      {tripDistribution.map((item, index) => (
+                        <div key={item.category} className="flex items-center gap-2">
+                          <div 
+                            className="w-3 h-3 rounded-full" 
+                            style={{ backgroundColor: COLORS[index % COLORS.length] }} 
+                          />
+                          <span className="text-sm">{item.category}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -415,46 +493,42 @@ export default function CorporateReports() {
               </CardHeader>
               <CardContent>
                 <div className="h-[400px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RechartsLineChart data={reportData.monthly_trends}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis dataKey="month" className="text-xs" />
-                      <YAxis yAxisId="left" className="text-xs" />
-                      <YAxis yAxisId="right" orientation="right" className="text-xs" />
-                      <Tooltip 
-                        contentStyle={{ 
-                          backgroundColor: 'hsl(var(--background))', 
-                          border: '1px solid hsl(var(--border))' 
-                        }}
-                      />
-                      <Line 
-                        yAxisId="left" 
-                        type="monotone" 
-                        dataKey="trips" 
-                        stroke="hsl(var(--primary))" 
-                        strokeWidth={2}
-                        dot={{ fill: 'hsl(var(--primary))' }}
-                      />
-                      <Line 
-                        yAxisId="right" 
-                        type="monotone" 
-                        dataKey="revenue" 
-                        stroke="hsl(var(--chart-2))" 
-                        strokeWidth={2}
-                        dot={{ fill: 'hsl(var(--chart-2))' }}
-                      />
-                    </RechartsLineChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="flex justify-center gap-6 mt-4">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-primary" />
-                    <span className="text-sm">Trips</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-2))' }} />
-                    <span className="text-sm">Revenue ($)</span>
-                  </div>
+                  {monthlyTrends.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RechartsLineChart data={monthlyTrends}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis dataKey="month" className="text-xs" />
+                        <YAxis yAxisId="left" className="text-xs" />
+                        <YAxis yAxisId="right" orientation="right" className="text-xs" />
+                        <Tooltip 
+                          contentStyle={{ 
+                            backgroundColor: 'hsl(var(--background))', 
+                            border: '1px solid hsl(var(--border))' 
+                          }}
+                        />
+                        <Line 
+                          yAxisId="left" 
+                          type="monotone" 
+                          dataKey="trips" 
+                          stroke="hsl(var(--primary))" 
+                          strokeWidth={2}
+                          name="Trips"
+                        />
+                        <Line 
+                          yAxisId="right" 
+                          type="monotone" 
+                          dataKey="revenue" 
+                          stroke="hsl(var(--chart-2))" 
+                          strokeWidth={2}
+                          name="Revenue ($)"
+                        />
+                      </RechartsLineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-muted-foreground">
+                      No data available for the selected period
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -463,36 +537,42 @@ export default function CorporateReports() {
           <TabsContent value="accounts" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Top Corporate Accounts</CardTitle>
-                <CardDescription>Ranked by total revenue</CardDescription>
+                <CardTitle>Corporate Accounts</CardTitle>
+                <CardDescription>Account overview and balances</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-0">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Rank</TableHead>
-                      <TableHead>Account</TableHead>
-                      <TableHead className="text-right">Trips</TableHead>
-                      <TableHead className="text-right">Revenue</TableHead>
-                      <TableHead className="text-right">Avg/Trip</TableHead>
-                      <TableHead className="text-right">Share</TableHead>
+                      <TableHead>Company</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Credit Limit</TableHead>
+                      <TableHead>Current Balance</TableHead>
+                      <TableHead>Discount</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {reportData.corporate_summary.top_accounts.map((account, index) => (
-                      <TableRow key={account.name}>
-                        <TableCell>
-                          <Badge variant={index < 3 ? 'default' : 'outline'}>#{index + 1}</Badge>
-                        </TableCell>
-                        <TableCell className="font-medium">{account.name}</TableCell>
-                        <TableCell className="text-right">{account.trips.toLocaleString()}</TableCell>
-                        <TableCell className="text-right font-medium">${account.revenue.toLocaleString()}</TableCell>
-                        <TableCell className="text-right">${(account.revenue / account.trips).toFixed(2)}</TableCell>
-                        <TableCell className="text-right">
-                          {((account.revenue / reportData.corporate_summary.total_revenue) * 100).toFixed(1)}%
+                    {accounts.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                          No corporate accounts found
                         </TableCell>
                       </TableRow>
-                    ))}
+                    ) : (
+                      accounts.map((account: any) => (
+                        <TableRow key={account.id}>
+                          <TableCell className="font-medium">{account.company_name}</TableCell>
+                          <TableCell>
+                            <Badge variant={account.status === 'active' ? 'default' : 'secondary'}>
+                              {account.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>${(account.credit_limit || 0).toLocaleString()}</TableCell>
+                          <TableCell>${(account.current_balance || 0).toLocaleString()}</TableCell>
+                          <TableCell>{account.discount_percentage || 0}%</TableCell>
+                        </TableRow>
+                      ))
+                    )}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -503,32 +583,30 @@ export default function CorporateReports() {
             <Card>
               <CardHeader>
                 <CardTitle>Usage by Time of Day</CardTitle>
-                <CardDescription>Peak hours for corporate trips</CardDescription>
+                <CardDescription>When corporate trips are most common</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="h-[400px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={reportData.usage_by_time}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis dataKey="hour" className="text-xs" />
-                      <YAxis className="text-xs" />
-                      <Tooltip 
-                        formatter={(value: number) => [value, 'Trips']}
-                        contentStyle={{ 
-                          backgroundColor: 'hsl(var(--background))', 
-                          border: '1px solid hsl(var(--border))' 
-                        }}
-                      />
-                      <Bar dataKey="trips" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="mt-4 p-4 bg-muted rounded-lg">
-                  <p className="text-sm font-medium">Peak Hours Analysis</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Morning rush (8AM) and evening commute (6PM) show highest demand. 
-                    Consider surge pricing adjustments during these periods.
-                  </p>
+                <div className="h-[300px]">
+                  {usageByTime.some(u => u.trips > 0) ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={usageByTime}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis dataKey="hour" className="text-xs" />
+                        <YAxis className="text-xs" />
+                        <Tooltip 
+                          contentStyle={{ 
+                            backgroundColor: 'hsl(var(--background))', 
+                            border: '1px solid hsl(var(--border))' 
+                          }}
+                        />
+                        <Bar dataKey="trips" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-muted-foreground">
+                      No data available for the selected period
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

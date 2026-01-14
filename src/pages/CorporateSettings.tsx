@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,8 +24,22 @@ import {
   Building2,
   DollarSign,
   Users,
-  Mail
+  Mail,
+  Globe,
+  MapPin
 } from 'lucide-react';
+
+interface Region {
+  id: string;
+  name: string;
+  currency_code: string;
+}
+
+interface ServiceArea {
+  id: string;
+  name: string;
+  region_id: string;
+}
 
 interface CorporateSettingsData {
   billing: {
@@ -78,9 +92,9 @@ const defaultSettings: CorporateSettingsData = {
     invoice_due_reminder_days: 7,
     auto_generate_invoices: true,
     invoice_generation_day: 1,
-    tax_rate: 10,
+    tax_rate: 20,
     tax_name: 'VAT',
-    currency: 'USD',
+    currency: 'GBP',
   },
   discounts: {
     enable_volume_discounts: true,
@@ -123,14 +137,54 @@ const defaultSettings: CorporateSettingsData = {
 export default function CorporateSettings() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('billing');
+  const [regionFilter, setRegionFilter] = useState<string>('all');
+  const [serviceAreaFilter, setServiceAreaFilter] = useState<string>('all');
+  const [formData, setFormData] = useState<CorporateSettingsData>(defaultSettings);
+
+  // Fetch regions
+  const { data: regions = [] } = useQuery({
+    queryKey: ['regions'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('regions')
+        .select('id, name, currency_code')
+        .order('name');
+      if (error) throw error;
+      return data as Region[];
+    },
+  });
+
+  // Fetch service areas based on region filter
+  const { data: serviceAreas = [] } = useQuery({
+    queryKey: ['service-areas', regionFilter],
+    queryFn: async () => {
+      let query = supabase.from('service_areas').select('id, name, region_id').order('name');
+      if (regionFilter !== 'all') {
+        query = query.eq('region_id', regionFilter);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      return data as ServiceArea[];
+    },
+  });
+
+  // Reset service area filter when region changes
+  useEffect(() => {
+    setServiceAreaFilter('all');
+  }, [regionFilter]);
+
+  // Build settings key based on filters
+  const settingsKey = regionFilter !== 'all' 
+    ? (serviceAreaFilter !== 'all' ? `corporate_settings_${serviceAreaFilter}` : `corporate_settings_region_${regionFilter}`)
+    : 'corporate_settings_config';
 
   const { data: settings = defaultSettings, isLoading } = useQuery({
-    queryKey: ['corporate-settings'],
+    queryKey: ['corporate-settings', settingsKey],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('admin_settings')
         .select('*')
-        .eq('setting_key', 'corporate_settings_config')
+        .eq('setting_key', settingsKey)
         .maybeSingle();
       
       if (error) throw error;
@@ -138,21 +192,19 @@ export default function CorporateSettings() {
     },
   });
 
-  const [formData, setFormData] = useState<CorporateSettingsData>(settings);
-
-  // Update form when data loads
-  useState(() => {
+  // Update form when settings or filters change
+  useEffect(() => {
     setFormData(settings);
-  });
+  }, [settings]);
 
   const saveMutation = useMutation({
     mutationFn: async (newSettings: CorporateSettingsData) => {
       const { error } = await supabase
         .from('admin_settings')
         .upsert([{
-          setting_key: 'corporate_settings_config',
+          setting_key: settingsKey,
           setting_value: JSON.parse(JSON.stringify(newSettings)),
-          description: 'Corporate account settings configuration',
+          description: `Corporate account settings${regionFilter !== 'all' ? ` for ${regions.find(r => r.id === regionFilter)?.name || 'region'}` : ''}${serviceAreaFilter !== 'all' ? ` - ${serviceAreas.find(a => a.id === serviceAreaFilter)?.name || 'area'}` : ''}`,
           updated_at: new Date().toISOString(),
         }], { onConflict: 'setting_key' });
       
@@ -227,16 +279,56 @@ export default function CorporateSettings() {
       description="Configure payment terms, discounts, and billing rules"
     >
       <div className="space-y-6">
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={handleReset}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Reset to Defaults
-          </Button>
-          <Button onClick={handleSave} disabled={saveMutation.isPending}>
-            <Save className="h-4 w-4 mr-2" />
-            {saveMutation.isPending ? 'Saving...' : 'Save Changes'}
-          </Button>
+        {/* Region/Service Area Filters */}
+        <div className="flex flex-col sm:flex-row gap-4 justify-between">
+          <div className="flex gap-2">
+            <Select value={regionFilter} onValueChange={setRegionFilter}>
+              <SelectTrigger className="w-[180px]">
+                <Globe className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="All Regions" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Global Settings</SelectItem>
+                {regions.map((region) => (
+                  <SelectItem key={region.id} value={region.id}>{region.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={serviceAreaFilter} onValueChange={setServiceAreaFilter} disabled={regionFilter === 'all'}>
+              <SelectTrigger className="w-[180px]">
+                <MapPin className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="All Service Areas" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Service Areas</SelectItem>
+                {serviceAreas.map((area) => (
+                  <SelectItem key={area.id} value={area.id}>{area.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={handleReset}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Reset to Defaults
+            </Button>
+            <Button onClick={handleSave} disabled={saveMutation.isPending}>
+              <Save className="h-4 w-4 mr-2" />
+              {saveMutation.isPending ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </div>
         </div>
+
+        {regionFilter !== 'all' && (
+          <Card className="border-primary/50 bg-primary/5">
+            <CardContent className="py-3">
+              <p className="text-sm text-primary">
+                Editing settings for: <strong>{regions.find(r => r.id === regionFilter)?.name}</strong>
+                {serviceAreaFilter !== 'all' && <> / <strong>{serviceAreas.find(a => a.id === serviceAreaFilter)?.name}</strong></>}
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList className="grid w-full grid-cols-5">
@@ -311,9 +403,9 @@ export default function CorporateSettings() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="GBP">GBP (£)</SelectItem>
                         <SelectItem value="USD">USD ($)</SelectItem>
                         <SelectItem value="EUR">EUR (€)</SelectItem>
-                        <SelectItem value="GBP">GBP (£)</SelectItem>
                         <SelectItem value="CAD">CAD ($)</SelectItem>
                         <SelectItem value="AUD">AUD ($)</SelectItem>
                       </SelectContent>
@@ -472,7 +564,7 @@ export default function CorporateSettings() {
                     onChange={(e) => updateDiscounts('max_discount_percentage', parseFloat(e.target.value) || 0)}
                     className="w-[200px]"
                   />
-                  <p className="text-sm text-muted-foreground">Combined discounts will not exceed this percentage</p>
+                  <p className="text-sm text-muted-foreground">Cap for combined volume + loyalty discounts</p>
                 </div>
               </CardContent>
             </Card>
@@ -481,54 +573,41 @@ export default function CorporateSettings() {
           <TabsContent value="onboarding" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Account Requirements</CardTitle>
-                <CardDescription>Required information for new corporate accounts</CardDescription>
+                <CardTitle>Application Requirements</CardTitle>
+                <CardDescription>Define what information is required for new corporate accounts</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="space-y-0.5">
-                      <Label>Require Tax ID</Label>
-                      <p className="text-sm text-muted-foreground">Company must provide tax identification number</p>
-                    </div>
-                    <Switch
-                      checked={formData.onboarding.require_tax_id}
-                      onCheckedChange={(checked) => updateOnboarding('require_tax_id', checked)}
-                    />
+                <div className="flex items-center justify-between p-4 border rounded-lg">
+                  <div className="space-y-0.5">
+                    <Label>Require Tax ID / VAT Number</Label>
+                    <p className="text-sm text-muted-foreground">Applicants must provide a valid tax identification number</p>
                   </div>
+                  <Switch
+                    checked={formData.onboarding.require_tax_id}
+                    onCheckedChange={(checked) => updateOnboarding('require_tax_id', checked)}
+                  />
+                </div>
 
-                  <div className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="space-y-0.5">
-                      <Label>Require Billing Address</Label>
-                      <p className="text-sm text-muted-foreground">Company must provide a billing address</p>
-                    </div>
-                    <Switch
-                      checked={formData.onboarding.require_billing_address}
-                      onCheckedChange={(checked) => updateOnboarding('require_billing_address', checked)}
-                    />
+                <div className="flex items-center justify-between p-4 border rounded-lg">
+                  <div className="space-y-0.5">
+                    <Label>Require Billing Address</Label>
+                    <p className="text-sm text-muted-foreground">Complete billing address is mandatory</p>
                   </div>
+                  <Switch
+                    checked={formData.onboarding.require_billing_address}
+                    onCheckedChange={(checked) => updateOnboarding('require_billing_address', checked)}
+                  />
+                </div>
 
-                  <div className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="space-y-0.5">
-                      <Label>Require Company Registration</Label>
-                      <p className="text-sm text-muted-foreground">Company must provide registration documents</p>
-                    </div>
-                    <Switch
-                      checked={formData.onboarding.require_company_registration}
-                      onCheckedChange={(checked) => updateOnboarding('require_company_registration', checked)}
-                    />
+                <div className="flex items-center justify-between p-4 border rounded-lg">
+                  <div className="space-y-0.5">
+                    <Label>Require Company Registration</Label>
+                    <p className="text-sm text-muted-foreground">Proof of company registration document required</p>
                   </div>
-
-                  <div className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="space-y-0.5">
-                      <Label>Auto-Approve Accounts</Label>
-                      <p className="text-sm text-muted-foreground">Automatically approve new account requests</p>
-                    </div>
-                    <Switch
-                      checked={formData.onboarding.auto_approve_accounts}
-                      onCheckedChange={(checked) => updateOnboarding('auto_approve_accounts', checked)}
-                    />
-                  </div>
+                  <Switch
+                    checked={formData.onboarding.require_company_registration}
+                    onCheckedChange={(checked) => updateOnboarding('require_company_registration', checked)}
+                  />
                 </div>
 
                 <div className="space-y-2">
@@ -542,11 +621,30 @@ export default function CorporateSettings() {
                     className="w-[200px]"
                   />
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Auto-Approval</CardTitle>
+                <CardDescription>Configure automatic approval settings</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between p-4 border rounded-lg">
+                  <div className="space-y-0.5">
+                    <Label>Auto-Approve Accounts</Label>
+                    <p className="text-sm text-muted-foreground">Automatically approve accounts that meet all requirements</p>
+                  </div>
+                  <Switch
+                    checked={formData.onboarding.auto_approve_accounts}
+                    onCheckedChange={(checked) => updateOnboarding('auto_approve_accounts', checked)}
+                  />
+                </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="welcome_email">Welcome Email Template</Label>
+                  <Label htmlFor="welcome_template">Welcome Email Template</Label>
                   <Textarea
-                    id="welcome_email"
+                    id="welcome_template"
                     value={formData.onboarding.welcome_email_template}
                     onChange={(e) => updateOnboarding('welcome_email_template', e.target.value)}
                     rows={4}
@@ -560,13 +658,13 @@ export default function CorporateSettings() {
             <Card>
               <CardHeader>
                 <CardTitle>Email Notifications</CardTitle>
-                <CardDescription>Configure automated email notifications</CardDescription>
+                <CardDescription>Configure automated email settings</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between p-4 border rounded-lg">
                   <div className="space-y-0.5">
                     <Label>Send Invoice Emails</Label>
-                    <p className="text-sm text-muted-foreground">Email invoices to billing contacts automatically</p>
+                    <p className="text-sm text-muted-foreground">Automatically email invoices when generated</p>
                   </div>
                   <Switch
                     checked={formData.notifications.send_invoice_emails}
@@ -577,7 +675,7 @@ export default function CorporateSettings() {
                 <div className="flex items-center justify-between p-4 border rounded-lg">
                   <div className="space-y-0.5">
                     <Label>Send Payment Reminders</Label>
-                    <p className="text-sm text-muted-foreground">Remind clients about upcoming and overdue payments</p>
+                    <p className="text-sm text-muted-foreground">Send reminders before invoice due dates</p>
                   </div>
                   <Switch
                     checked={formData.notifications.send_payment_reminders}
@@ -588,7 +686,7 @@ export default function CorporateSettings() {
                 <div className="flex items-center justify-between p-4 border rounded-lg">
                   <div className="space-y-0.5">
                     <Label>Send Usage Reports</Label>
-                    <p className="text-sm text-muted-foreground">Send periodic usage reports to corporate contacts</p>
+                    <p className="text-sm text-muted-foreground">Periodic usage summaries to corporate contacts</p>
                   </div>
                   <Switch
                     checked={formData.notifications.send_usage_reports}
@@ -598,7 +696,7 @@ export default function CorporateSettings() {
 
                 {formData.notifications.send_usage_reports && (
                   <div className="space-y-2">
-                    <Label htmlFor="report_frequency">Usage Report Frequency</Label>
+                    <Label>Report Frequency</Label>
                     <Select 
                       value={formData.notifications.usage_report_frequency} 
                       onValueChange={(value) => updateNotifications('usage_report_frequency', value)}
@@ -608,7 +706,6 @@ export default function CorporateSettings() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="weekly">Weekly</SelectItem>
-                        <SelectItem value="biweekly">Bi-weekly</SelectItem>
                         <SelectItem value="monthly">Monthly</SelectItem>
                         <SelectItem value="quarterly">Quarterly</SelectItem>
                       </SelectContent>
@@ -623,7 +720,6 @@ export default function CorporateSettings() {
                     type="email"
                     value={formData.notifications.admin_notification_email}
                     onChange={(e) => updateNotifications('admin_notification_email', e.target.value)}
-                    placeholder="admin@company.com"
                     className="max-w-md"
                   />
                 </div>
@@ -634,49 +730,66 @@ export default function CorporateSettings() {
           <TabsContent value="limits" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Credit & Budget Limits</CardTitle>
-                <CardDescription>Default limits for new corporate accounts</CardDescription>
+                <CardTitle>Credit Limits</CardTitle>
+                <CardDescription>Default credit settings for new accounts</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="default_credit">Default Credit Limit ($)</Label>
-                    <Input
-                      id="default_credit"
-                      type="number"
-                      min="0"
-                      value={formData.limits.default_credit_limit}
-                      onChange={(e) => updateLimits('default_credit_limit', parseInt(e.target.value) || 0)}
-                    />
+                    <Label htmlFor="default_credit">Default Credit Limit</Label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">£</span>
+                      <Input
+                        id="default_credit"
+                        type="number"
+                        min="0"
+                        value={formData.limits.default_credit_limit}
+                        onChange={(e) => updateLimits('default_credit_limit', parseInt(e.target.value) || 0)}
+                      />
+                    </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="max_credit">Maximum Credit Limit ($)</Label>
-                    <Input
-                      id="max_credit"
-                      type="number"
-                      min="0"
-                      value={formData.limits.max_credit_limit}
-                      onChange={(e) => updateLimits('max_credit_limit', parseInt(e.target.value) || 0)}
-                    />
+                    <Label htmlFor="max_credit">Maximum Credit Limit</Label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">£</span>
+                      <Input
+                        id="max_credit"
+                        type="number"
+                        min="0"
+                        value={formData.limits.max_credit_limit}
+                        onChange={(e) => updateLimits('max_credit_limit', parseInt(e.target.value) || 0)}
+                      />
+                    </div>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
 
+            <Card>
+              <CardHeader>
+                <CardTitle>Budget Settings</CardTitle>
+                <CardDescription>Monthly spending limits and alerts</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="default_budget">Default Monthly Budget ($)</Label>
-                  <Input
-                    id="default_budget"
-                    type="number"
-                    min="0"
-                    value={formData.limits.default_monthly_budget}
-                    onChange={(e) => updateLimits('default_monthly_budget', parseInt(e.target.value) || 0)}
-                    className="w-[250px]"
-                  />
+                  <Label htmlFor="default_budget">Default Monthly Budget</Label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground">£</span>
+                    <Input
+                      id="default_budget"
+                      type="number"
+                      min="0"
+                      value={formData.limits.default_monthly_budget}
+                      onChange={(e) => updateLimits('default_monthly_budget', parseInt(e.target.value) || 0)}
+                      className="w-[200px]"
+                    />
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-between p-4 border rounded-lg">
                   <div className="space-y-0.5">
                     <Label>Enable Budget Alerts</Label>
-                    <p className="text-sm text-muted-foreground">Notify when accounts approach budget limits</p>
+                    <p className="text-sm text-muted-foreground">Send alerts when accounts approach their budget limit</p>
                   </div>
                   <Switch
                     checked={formData.limits.enable_budget_alerts}
@@ -690,13 +803,13 @@ export default function CorporateSettings() {
                     <Input
                       id="alert_threshold"
                       type="number"
-                      min="1"
+                      min="50"
                       max="100"
                       value={formData.limits.budget_alert_threshold}
                       onChange={(e) => updateLimits('budget_alert_threshold', parseInt(e.target.value) || 80)}
                       className="w-[200px]"
                     />
-                    <p className="text-sm text-muted-foreground">Alert when budget usage reaches this percentage</p>
+                    <p className="text-sm text-muted-foreground">Alert when usage exceeds this percentage of budget</p>
                   </div>
                 )}
               </CardContent>
