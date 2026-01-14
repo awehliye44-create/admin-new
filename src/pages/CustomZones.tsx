@@ -29,6 +29,7 @@ interface CustomZone {
   zone_type: 'PRICING' | 'GEOFENCE';
   shape_type: 'polygon' | 'circle';
   region_id: string | null;
+  service_area_id: string | null;
   geo_boundary: any;
   center_lat: number | null;
   center_lng: number | null;
@@ -40,6 +41,7 @@ interface CustomZone {
   created_at: string;
   updated_at: string;
   region?: { id: string; name: string };
+  service_area?: { id: string; name: string; geo_boundary: any };
 }
 
 interface ZoneMetadata {
@@ -57,6 +59,14 @@ interface Region {
   id: string;
   name: string;
   geo_boundary: any;
+}
+
+interface ServiceArea {
+  id: string;
+  name: string;
+  region_id: string;
+  geo_boundary: any;
+  is_active: boolean;
 }
 
 const ZONE_TYPE_CONFIG = {
@@ -90,6 +100,7 @@ export default function CustomZones() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [regionFilter, setRegionFilter] = useState<string>("all");
+  const [serviceAreaFilter, setServiceAreaFilter] = useState<string>("all");
 
   const [formData, setFormData] = useState({
     name: "",
@@ -97,6 +108,7 @@ export default function CustomZones() {
     zone_type: "PRICING" as 'PRICING' | 'GEOFENCE',
     shape_type: "polygon" as 'polygon' | 'circle',
     region_id: "",
+    service_area_id: "",
     color: "#3B82F6",
     priority: 0,
     is_active: true,
@@ -113,7 +125,7 @@ export default function CustomZones() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('custom_zones')
-        .select('*, region:regions(id, name)')
+        .select('*, region:regions(id, name), service_area:service_areas(id, name, geo_boundary)')
         .order('priority', { ascending: false });
       if (error) throw error;
       return data as CustomZone[];
@@ -134,6 +146,31 @@ export default function CustomZones() {
     },
   });
 
+  // Fetch service areas
+  const { data: serviceAreas = [] } = useQuery({
+    queryKey: ['service-areas-for-zones', regionFilter],
+    queryFn: async () => {
+      let query = supabase
+        .from('service_areas')
+        .select('id, name, region_id, geo_boundary, is_active')
+        .eq('is_active', true)
+        .order('name');
+      
+      if (regionFilter && regionFilter !== 'all') {
+        query = query.eq('region_id', regionFilter);
+      }
+      
+      const { data, error } = await query;
+      if (error) throw error;
+      return data as ServiceArea[];
+    },
+  });
+
+  // Get service areas for form based on selected region
+  const formServiceAreas = serviceAreas.filter(sa => 
+    !formData.region_id || sa.region_id === formData.region_id
+  );
+
   // Create mutation
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
@@ -143,6 +180,7 @@ export default function CustomZones() {
         zone_type: data.zone_type,
         shape_type: data.shape_type,
         region_id: data.region_id || null,
+        service_area_id: data.service_area_id || null,
         color: data.color,
         priority: data.priority,
         is_active: data.is_active,
@@ -173,6 +211,7 @@ export default function CustomZones() {
         zone_type: data.zone_type,
         shape_type: data.shape_type,
         region_id: data.region_id || null,
+        service_area_id: data.service_area_id || null,
         color: data.color,
         priority: data.priority,
         is_active: data.is_active,
@@ -265,6 +304,7 @@ export default function CustomZones() {
       zone_type: activeTab,
       shape_type: "polygon",
       region_id: "",
+      service_area_id: "",
       color: "#3B82F6",
       priority: 0,
       is_active: true,
@@ -286,6 +326,7 @@ export default function CustomZones() {
       zone_type: zone.zone_type,
       shape_type: zone.shape_type,
       region_id: zone.region_id || "",
+      service_area_id: zone.service_area_id || "",
       color: zone.color || "#3B82F6",
       priority: zone.priority || 0,
       is_active: zone.is_active,
@@ -333,10 +374,23 @@ export default function CustomZones() {
   };
 
   const getRegionName = (regionId: string | null) => {
-    if (!regionId) return "All Regions";
+    if (!regionId) return "—";
     const region = regions.find(r => r.id === regionId);
     return region?.name || "Unknown";
   };
+
+  const getServiceAreaName = (zone: CustomZone) => {
+    if (zone.service_area?.name) return zone.service_area.name;
+    if (!zone.service_area_id) return "—";
+    const sa = serviceAreas.find(s => s.id === zone.service_area_id);
+    return sa?.name || "Unknown";
+  };
+
+  // Get the selected service area for boundary validation
+  const getSelectedServiceArea = useCallback(() => {
+    if (!formData.service_area_id) return null;
+    return serviceAreas.find(sa => sa.id === formData.service_area_id) || null;
+  }, [formData.service_area_id, serviceAreas]);
 
   // Filter zones
   const filteredZones = zones.filter(zone => {
@@ -347,7 +401,8 @@ export default function CustomZones() {
       (statusFilter === "active" && zone.is_active) ||
       (statusFilter === "inactive" && !zone.is_active);
     const matchesRegion = regionFilter === "all" || zone.region_id === regionFilter;
-    return matchesTab && matchesSearch && matchesStatus && matchesRegion;
+    const matchesServiceArea = serviceAreaFilter === "all" || zone.service_area_id === serviceAreaFilter;
+    return matchesTab && matchesSearch && matchesStatus && matchesRegion && matchesServiceArea;
   });
 
   // Stats
@@ -457,11 +512,15 @@ export default function CustomZones() {
                   setStatusFilter={setStatusFilter}
                   regionFilter={regionFilter}
                   setRegionFilter={setRegionFilter}
+                  serviceAreaFilter={serviceAreaFilter}
+                  setServiceAreaFilter={setServiceAreaFilter}
                   regions={regions}
+                  serviceAreas={serviceAreas}
                   onEdit={handleEdit}
                   onDelete={(id) => deleteMutation.mutate(id)}
                   onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, is_active: status })}
                   getRegionName={getRegionName}
+                  getServiceAreaName={getServiceAreaName}
                   zoneType="PRICING"
                 />
               </CardContent>
@@ -486,11 +545,15 @@ export default function CustomZones() {
                   setStatusFilter={setStatusFilter}
                   regionFilter={regionFilter}
                   setRegionFilter={setRegionFilter}
+                  serviceAreaFilter={serviceAreaFilter}
+                  setServiceAreaFilter={setServiceAreaFilter}
                   regions={regions}
+                  serviceAreas={serviceAreas}
                   onEdit={handleEdit}
                   onDelete={(id) => deleteMutation.mutate(id)}
                   onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, is_active: status })}
                   getRegionName={getRegionName}
+                  getServiceAreaName={getServiceAreaName}
                   zoneType="GEOFENCE"
                 />
               </CardContent>
@@ -525,10 +588,14 @@ export default function CustomZones() {
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label>Region *</Label>
+                    <Label>Region</Label>
                     <Select
                       value={formData.region_id || "none"}
-                      onValueChange={(value) => setFormData({ ...formData, region_id: value === "none" ? "" : value })}
+                      onValueChange={(value) => setFormData({ 
+                        ...formData, 
+                        region_id: value === "none" ? "" : value,
+                        service_area_id: "" // Reset service area when region changes
+                      })}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select Region" />
@@ -543,6 +610,30 @@ export default function CustomZones() {
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
+
+                {/* Service Area Selection - Required for zones */}
+                <div className="grid gap-2">
+                  <Label>Service Area *</Label>
+                  <Select
+                    value={formData.service_area_id || "none"}
+                    onValueChange={(value) => setFormData({ ...formData, service_area_id: value === "none" ? "" : value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Service Area" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Select a service area</SelectItem>
+                      {formServiceAreas.map((sa) => (
+                        <SelectItem key={sa.id} value={sa.id}>
+                          {sa.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Zones must be within a service area boundary
+                  </p>
                 </div>
 
                 <div className="grid gap-2">
@@ -603,10 +694,10 @@ export default function CustomZones() {
                 {/* Map Drawing Section */}
                 <div className="space-y-3">
                   <Label className="text-base font-medium">Zone Boundary *</Label>
-                  {!formData.region_id ? (
+                  {!formData.service_area_id ? (
                     <div className="flex items-center gap-2 p-4 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/30">
                       <Map className="h-5 w-5 text-muted-foreground" />
-                      <p className="text-sm text-muted-foreground">Select a region above to enable map drawing</p>
+                      <p className="text-sm text-muted-foreground">Select a service area above to enable map drawing</p>
                     </div>
                   ) : (
                     <ZoneBoundaryMap
@@ -617,7 +708,7 @@ export default function CustomZones() {
                         center_lng: formData.center_lng,
                         radius_meters: formData.radius_meters
                       }}
-                      region={getSelectedRegion()}
+                      region={getSelectedServiceArea()}
                       color={formData.color}
                       onPolygonChange={handlePolygonChange}
                       onCircleChange={handleCircleChange}
@@ -797,11 +888,15 @@ interface ZoneTableProps {
   setStatusFilter: (s: string) => void;
   regionFilter: string;
   setRegionFilter: (r: string) => void;
+  serviceAreaFilter: string;
+  setServiceAreaFilter: (s: string) => void;
   regions: Region[];
+  serviceAreas: ServiceArea[];
   onEdit: (zone: CustomZone) => void;
   onDelete: (id: string) => void;
   onToggleStatus: (id: string, status: boolean) => void;
   getRegionName: (id: string | null) => string;
+  getServiceAreaName: (zone: CustomZone) => string;
   zoneType: 'PRICING' | 'GEOFENCE';
 }
 
@@ -814,18 +909,22 @@ function ZoneTable({
   setStatusFilter,
   regionFilter,
   setRegionFilter,
+  serviceAreaFilter,
+  setServiceAreaFilter,
   regions,
+  serviceAreas,
   onEdit,
   onDelete,
   onToggleStatus,
   getRegionName,
+  getServiceAreaName,
   zoneType,
 }: ZoneTableProps) {
   return (
     <div className="space-y-4">
       {/* Filters */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center">
-        <div className="relative flex-1">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center flex-wrap">
+        <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search zones..."
@@ -835,7 +934,7 @@ function ZoneTable({
           />
         </div>
         <Select value={regionFilter} onValueChange={setRegionFilter}>
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="w-[160px]">
             <Map className="mr-2 h-4 w-4" />
             <SelectValue placeholder="Region" />
           </SelectTrigger>
@@ -846,8 +945,20 @@ function ZoneTable({
             ))}
           </SelectContent>
         </Select>
+        <Select value={serviceAreaFilter} onValueChange={setServiceAreaFilter}>
+          <SelectTrigger className="w-[180px]">
+            <Target className="mr-2 h-4 w-4" />
+            <SelectValue placeholder="Service Area" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Service Areas</SelectItem>
+            {serviceAreas.map((sa) => (
+              <SelectItem key={sa.id} value={sa.id}>{sa.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[150px]">
+          <SelectTrigger className="w-[130px]">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
@@ -875,7 +986,7 @@ function ZoneTable({
             <TableHeader>
               <TableRow>
                 <TableHead>Zone</TableHead>
-                <TableHead>Region</TableHead>
+                <TableHead>Service Area</TableHead>
                 <TableHead>Shape</TableHead>
                 <TableHead>Priority</TableHead>
                 <TableHead>{zoneType === 'PRICING' ? 'Rules' : 'Triggers'}</TableHead>
@@ -902,7 +1013,12 @@ function ZoneTable({
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell>{getRegionName(zone.region_id)}</TableCell>
+                  <TableCell>
+                    <div>
+                      <p className="text-sm">{getServiceAreaName(zone)}</p>
+                      <p className="text-xs text-muted-foreground">{getRegionName(zone.region_id)}</p>
+                    </div>
+                  </TableCell>
                   <TableCell>
                     <Badge variant="outline" className="gap-1">
                       {zone.shape_type === 'polygon' ? (
