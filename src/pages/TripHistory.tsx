@@ -488,13 +488,21 @@ export default function TripHistory() {
     return 'mile';
   };
 
-  // Convert km to miles if needed
+  // Convert km to the correct distance unit
   const formatTripDistance = (distanceKm: number | null, trip?: CompletedTrip) => {
     if (!distanceKm) return 'N/A';
-    // Use trip's currency/region unit if available, otherwise use active filter unit
-    const unit = trip?.driver?.region_id 
-      ? (regions.find(r => r.id === trip.driver?.region_id)?.distance_unit || getActiveDistanceUnit())
-      : getActiveDistanceUnit();
+    // Use trip's driver region unit if available, otherwise use active filter unit, default to 'mile'
+    let unit = 'mile'; // Default to miles
+    
+    if (trip?.driver?.region_id) {
+      const driverRegion = regions.find(r => r.id === trip.driver?.region_id);
+      if (driverRegion) {
+        unit = driverRegion.distance_unit || 'mile';
+      }
+    } else if (activeRegion) {
+      unit = activeRegion.distance_unit || 'mile';
+    }
+    
     return formatDistanceUtil(distanceKm, unit);
   };
 
@@ -550,6 +558,13 @@ export default function TripHistory() {
       if (calculatedDistance > 0) return calculatedDistance;
     }
     return trip.estimated_distance_km;
+  };
+
+  // Format distance for dialog (uses selectedServiceArea or defaults to mile)
+  const formatDialogDistance = (distanceKm: number | null) => {
+    if (!distanceKm) return 'N/A';
+    const unit = selectedServiceArea?.region?.distance_unit || activeRegion?.distance_unit || 'mile';
+    return formatDistanceUtil(distanceKm, unit);
   };
 
   // Get available service areas for selected region
@@ -903,13 +918,11 @@ export default function TripHistory() {
                     <h4 className="text-sm font-semibold flex items-center gap-2">
                       <Route className="h-4 w-4" />
                       Route ({tripStops.length || 2} stops)
-                      {tripStops.length > 0 && (
-                        <Badge variant="secondary" className="text-xs">
-                          {calculateRouteDistance(tripStops) > 0 
-                            ? formatTripDistance(calculateRouteDistance(tripStops), selectedTrip)
-                            : formatTripDistance(selectedTrip.estimated_distance_km, selectedTrip)}
-                        </Badge>
-                      )}
+                      <Badge variant="secondary" className="text-xs">
+                        {tripStops.length >= 2 && calculateRouteDistance(tripStops) > 0 
+                          ? formatDialogDistance(calculateRouteDistance(tripStops))
+                          : formatDialogDistance(selectedTrip.estimated_distance_km)}
+                      </Badge>
                     </h4>
                     <div className="space-y-2">
                       {isLoadingStops ? (
@@ -1053,13 +1066,13 @@ export default function TripHistory() {
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Estimated Distance</span>
-                        <span>{formatTripDistance(selectedTrip.estimated_distance_km, selectedTrip)}</span>
+                        <span>{formatDialogDistance(selectedTrip.estimated_distance_km)}</span>
                       </div>
                       {tripStops.length >= 2 && calculateRouteDistance(tripStops) > 0 && (
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">Actual Distance</span>
                           <span className="font-medium text-primary">
-                            {formatTripDistance(calculateRouteDistance(tripStops), selectedTrip)}
+                            {formatDialogDistance(calculateRouteDistance(tripStops))}
                           </span>
                         </div>
                       )}
