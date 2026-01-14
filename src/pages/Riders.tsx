@@ -14,13 +14,6 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -38,14 +31,16 @@ import {
 } from '@/components/ui/alert-dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { 
-  Plus, Users, Loader2, Search, MoreVertical, Eye, 
-  Trash2, Phone, Mail, Calendar, MapPin, Car, Star,
-  RefreshCw, UserCheck, UserX, Clock
+  Users, Loader2, Search, MoreVertical, Eye, 
+  Trash2, Phone, Car,
+  RefreshCw, UserCheck, UserX, Clock, Calendar
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
+import { RiderDetailsDialog } from '@/components/riders/RiderDetailsDialog';
 
-interface Customer {
+// Rider-specific interface - NO driver fields (no vehicles, documents, service areas, etc.)
+interface Rider {
   id: string;
   user_id: string;
   first_name: string | null;
@@ -55,50 +50,54 @@ interface Customer {
   updated_at: string;
   trip_count?: number;
   last_trip_at?: string | null;
+  status?: 'active' | 'suspended';
+  wallet_balance?: number;
+  default_payment_method?: string | null;
 }
 
 export default function Riders() {
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [riders, setRiders] = useState<Rider[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [selectedRider, setSelectedRider] = useState<Rider | null>(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
+  const [riderToDelete, setRiderToDelete] = useState<Rider | null>(null);
 
-  const fetchCustomers = useCallback(async () => {
+  const fetchRiders = useCallback(async () => {
     try {
       setIsLoading(true);
       
-      // Fetch customers
-      const { data: customersData, error: customersError } = await supabase
+      // Fetch riders from customers table (NOT drivers table)
+      const { data: ridersData, error: ridersError } = await supabase
         .from('customers')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (customersError) throw customersError;
+      if (ridersError) throw ridersError;
 
-      // Fetch trip counts for each customer
-      const customersWithStats = await Promise.all(
-        (customersData || []).map(async (customer) => {
+      // Fetch trip counts for each rider
+      const ridersWithStats = await Promise.all(
+        (ridersData || []).map(async (rider) => {
           const { count, data: trips } = await supabase
             .from('trips')
             .select('id, created_at', { count: 'exact' })
-            .eq('passenger_id', customer.user_id)
+            .eq('passenger_id', rider.user_id)
             .order('created_at', { ascending: false })
             .limit(1);
 
           return {
-            ...customer,
+            ...rider,
             trip_count: count || 0,
             last_trip_at: trips?.[0]?.created_at || null,
+            status: 'active' as const,
           };
         })
       );
 
-      setCustomers(customersWithStats);
+      setRiders(ridersWithStats);
     } catch (err) {
-      console.error('Error fetching customers:', err);
+      console.error('Error fetching riders:', err);
       toast.error('Failed to load riders');
     } finally {
       setIsLoading(false);
@@ -106,39 +105,44 @@ export default function Riders() {
   }, []);
 
   useEffect(() => {
-    fetchCustomers();
-  }, [fetchCustomers]);
+    fetchRiders();
+  }, [fetchRiders]);
 
-  const handleViewCustomer = (customer: Customer) => {
-    setSelectedCustomer(customer);
+  const handleViewRider = (rider: Rider) => {
+    setSelectedRider(rider);
     setIsViewDialogOpen(true);
   };
 
-  const handleDeleteClick = (customer: Customer) => {
-    setCustomerToDelete(customer);
+  const handleDeleteClick = (rider: Rider) => {
+    setRiderToDelete(rider);
     setIsDeleteDialogOpen(true);
   };
 
   const handleDeleteConfirm = async () => {
-    if (!customerToDelete) return;
+    if (!riderToDelete) return;
 
     try {
       const { error } = await supabase
         .from('customers')
         .delete()
-        .eq('id', customerToDelete.id);
+        .eq('id', riderToDelete.id);
 
       if (error) throw error;
 
-      setCustomers(prev => prev.filter(c => c.id !== customerToDelete.id));
+      setRiders(prev => prev.filter(r => r.id !== riderToDelete.id));
       toast.success('Rider deleted successfully');
     } catch (err) {
-      console.error('Error deleting customer:', err);
+      console.error('Error deleting rider:', err);
       toast.error('Failed to delete rider');
     } finally {
       setIsDeleteDialogOpen(false);
-      setCustomerToDelete(null);
+      setRiderToDelete(null);
     }
+  };
+
+  const handleRiderUpdate = (updatedRider: Rider) => {
+    setRiders(prev => prev.map(r => r.id === updatedRider.id ? updatedRider : r));
+    setSelectedRider(updatedRider);
   };
 
   const getInitials = (firstName: string | null, lastName: string | null) => {
@@ -147,24 +151,24 @@ export default function Riders() {
     return first + last || '?';
   };
 
-  const getFullName = (customer: Customer) => {
-    if (customer.first_name || customer.last_name) {
-      return `${customer.first_name || ''} ${customer.last_name || ''}`.trim();
+  const getFullName = (rider: Rider) => {
+    if (rider.first_name || rider.last_name) {
+      return `${rider.first_name || ''} ${rider.last_name || ''}`.trim();
     }
     return 'Unknown';
   };
 
-  const filteredCustomers = customers.filter(customer => {
-    const fullName = getFullName(customer).toLowerCase();
-    const phone = customer.phone?.toLowerCase() || '';
+  const filteredRiders = riders.filter(rider => {
+    const fullName = getFullName(rider).toLowerCase();
+    const phone = rider.phone?.toLowerCase() || '';
     const query = searchQuery.toLowerCase();
     return fullName.includes(query) || phone.includes(query);
   });
 
-  const totalRiders = customers.length;
-  const activeRiders = customers.filter(c => c.trip_count && c.trip_count > 0).length;
-  const newThisMonth = customers.filter(c => {
-    const created = new Date(c.created_at);
+  const totalRiders = riders.length;
+  const activeRiders = riders.filter(r => r.trip_count && r.trip_count > 0).length;
+  const newThisMonth = riders.filter(r => {
+    const created = new Date(r.created_at);
     const now = new Date();
     return created.getMonth() === now.getMonth() && created.getFullYear() === now.getFullYear();
   }).length;
@@ -172,9 +176,9 @@ export default function Riders() {
   return (
     <AdminLayout 
       title="Riders" 
-      description="Manage registered customers from your apps"
+      description="Manage registered riders (customers) from your apps"
     >
-      {/* Stats Cards */}
+      {/* Stats Cards - Rider-specific stats only */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <Card>
           <CardContent className="pt-6">
@@ -231,7 +235,7 @@ export default function Riders() {
                 <Users className="h-5 w-5 text-primary" />
                 All Riders
               </CardTitle>
-              <CardDescription>{filteredCustomers.length} riders</CardDescription>
+              <CardDescription>{filteredRiders.length} riders</CardDescription>
             </div>
             <div className="flex items-center gap-3">
               <div className="relative">
@@ -243,7 +247,7 @@ export default function Riders() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
-              <Button variant="outline" size="icon" onClick={fetchCustomers}>
+              <Button variant="outline" size="icon" onClick={fetchRiders}>
                 <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               </Button>
             </div>
@@ -254,7 +258,7 @@ export default function Riders() {
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
-          ) : filteredCustomers.length === 0 ? (
+          ) : filteredRiders.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               {searchQuery ? 'No riders match your search' : 'No riders registered yet'}
             </div>
@@ -271,43 +275,43 @@ export default function Riders() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredCustomers.map((customer) => (
-                  <TableRow key={customer.id}>
+                {filteredRiders.map((rider) => (
+                  <TableRow key={rider.id}>
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-9 w-9">
                           <AvatarFallback className="bg-primary/10 text-primary text-sm">
-                            {getInitials(customer.first_name, customer.last_name)}
+                            {getInitials(rider.first_name, rider.last_name)}
                           </AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="font-medium">{getFullName(customer)}</p>
+                          <p className="font-medium">{getFullName(rider)}</p>
                           <p className="text-xs text-muted-foreground">
-                            ID: {customer.id.slice(0, 8)}...
+                            ID: {rider.id.slice(0, 8)}...
                           </p>
                         </div>
                       </div>
                     </TableCell>
                     <TableCell>
-                      {customer.phone ? (
+                      {rider.phone ? (
                         <div className="flex items-center gap-1">
                           <Phone className="h-3 w-3 text-muted-foreground" />
-                          <span>{customer.phone}</span>
+                          <span>{rider.phone}</span>
                         </div>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={customer.trip_count && customer.trip_count > 0 ? 'default' : 'secondary'}>
+                      <Badge variant={rider.trip_count && rider.trip_count > 0 ? 'default' : 'secondary'}>
                         <Car className="h-3 w-3 mr-1" />
-                        {customer.trip_count || 0}
+                        {rider.trip_count || 0}
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {customer.last_trip_at ? (
+                      {rider.last_trip_at ? (
                         <span className="text-sm">
-                          {formatDistanceToNow(new Date(customer.last_trip_at), { addSuffix: true })}
+                          {formatDistanceToNow(new Date(rider.last_trip_at), { addSuffix: true })}
                         </span>
                       ) : (
                         <span className="text-muted-foreground text-sm">Never</span>
@@ -316,7 +320,7 @@ export default function Riders() {
                     <TableCell>
                       <div className="flex items-center gap-1 text-sm text-muted-foreground">
                         <Clock className="h-3 w-3" />
-                        {format(new Date(customer.created_at), 'MMM d, yyyy')}
+                        {format(new Date(rider.created_at), 'MMM d, yyyy')}
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
@@ -327,12 +331,12 @@ export default function Riders() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleViewCustomer(customer)}>
+                          <DropdownMenuItem onClick={() => handleViewRider(rider)}>
                             <Eye className="h-4 w-4 mr-2" />
                             View Details
                           </DropdownMenuItem>
                           <DropdownMenuItem 
-                            onClick={() => handleDeleteClick(customer)}
+                            onClick={() => handleDeleteClick(rider)}
                             className="text-destructive"
                           >
                             <Trash2 className="h-4 w-4 mr-2" />
@@ -349,77 +353,13 @@ export default function Riders() {
         </CardContent>
       </Card>
 
-      {/* View Dialog */}
-      <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rider Details</DialogTitle>
-            <DialogDescription>
-              Customer information and activity
-            </DialogDescription>
-          </DialogHeader>
-          {selectedCustomer && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-4">
-                <Avatar className="h-16 w-16">
-                  <AvatarFallback className="bg-primary/10 text-primary text-xl">
-                    {getInitials(selectedCustomer.first_name, selectedCustomer.last_name)}
-                  </AvatarFallback>
-                </Avatar>
-                <div>
-                  <h3 className="text-xl font-semibold">{getFullName(selectedCustomer)}</h3>
-                  <p className="text-muted-foreground text-sm">
-                    Member since {format(new Date(selectedCustomer.created_at), 'MMMM yyyy')}
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-3 bg-muted/50 rounded-lg">
-                  <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                    <Phone className="h-4 w-4" />
-                    <span className="text-xs">Phone</span>
-                  </div>
-                  <p className="font-medium">{selectedCustomer.phone || 'Not provided'}</p>
-                </div>
-                <div className="p-3 bg-muted/50 rounded-lg">
-                  <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                    <Car className="h-4 w-4" />
-                    <span className="text-xs">Total Trips</span>
-                  </div>
-                  <p className="font-medium">{selectedCustomer.trip_count || 0}</p>
-                </div>
-                <div className="p-3 bg-muted/50 rounded-lg">
-                  <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                    <Calendar className="h-4 w-4" />
-                    <span className="text-xs">Last Trip</span>
-                  </div>
-                  <p className="font-medium">
-                    {selectedCustomer.last_trip_at 
-                      ? format(new Date(selectedCustomer.last_trip_at), 'MMM d, yyyy')
-                      : 'Never'
-                    }
-                  </p>
-                </div>
-                <div className="p-3 bg-muted/50 rounded-lg">
-                  <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                    <Clock className="h-4 w-4" />
-                    <span className="text-xs">Last Updated</span>
-                  </div>
-                  <p className="font-medium">
-                    {format(new Date(selectedCustomer.updated_at), 'MMM d, yyyy')}
-                  </p>
-                </div>
-              </div>
-
-              <div className="p-3 bg-muted/30 rounded-lg">
-                <p className="text-xs text-muted-foreground mb-1">User ID</p>
-                <p className="font-mono text-sm">{selectedCustomer.user_id}</p>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Rider Details Dialog - Rider-specific only */}
+      <RiderDetailsDialog
+        open={isViewDialogOpen}
+        onOpenChange={setIsViewDialogOpen}
+        rider={selectedRider}
+        onRiderUpdate={handleRiderUpdate}
+      />
 
       {/* Delete Confirmation */}
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
@@ -427,7 +367,7 @@ export default function Riders() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Rider</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete {customerToDelete && getFullName(customerToDelete)}? 
+              Are you sure you want to delete {riderToDelete && getFullName(riderToDelete)}? 
               This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>

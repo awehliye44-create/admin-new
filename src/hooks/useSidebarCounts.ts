@@ -8,6 +8,7 @@ export interface SidebarCounts {
   pendingDocuments: number;
   activePromoCodes: number;
   pendingAccountRequests: number;
+  pendingDrivers: number;
 }
 
 const CACHE_KEY = 'sidebar-counts-cache';
@@ -25,6 +26,7 @@ const defaultCounts: SidebarCounts = {
   pendingDocuments: 0,
   activePromoCodes: 0,
   pendingAccountRequests: 0,
+  pendingDrivers: 0,
 };
 
 export function useSidebarCounts() {
@@ -58,6 +60,7 @@ export function useSidebarCounts() {
         pendingDocumentsResult,
         activePromoCodesResult,
         accountRequestsResult,
+        pendingDriversResult,
       ] = await Promise.all([
         // Active trips (status is pending, accepted, arrived, in_progress)
         supabase
@@ -96,6 +99,12 @@ export function useSidebarCounts() {
           .select('setting_value')
           .eq('setting_key', 'account_requests')
           .maybeSingle(),
+        
+        // Pending drivers (approval_status = pending)
+        supabase
+          .from('drivers')
+          .select('id', { count: 'exact', head: true })
+          .eq('approval_status', 'pending'),
       ]);
 
       // Parse account requests from JSON
@@ -114,6 +123,7 @@ export function useSidebarCounts() {
         pendingDocuments: pendingDocumentsResult.count || 0,
         activePromoCodes: activePromoCodesResult.count || 0,
         pendingAccountRequests,
+        pendingDrivers: pendingDriversResult.count || 0,
       };
 
       setCounts(newCounts);

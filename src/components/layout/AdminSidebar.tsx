@@ -310,6 +310,50 @@ export function AdminSidebar() {
             </div>
           </div>
 
+          {/* FLEET MANAGEMENT - Drivers & Vehicles */}
+          <div>
+            <NavSection label="Fleet Management" collapsed={isCollapsed} />
+            <div className="space-y-1">
+              <NavItem
+                to="/drivers"
+                icon={<UserCircle className="h-4 w-4" />}
+                label="Driver List"
+                active={currentPath === '/drivers' || currentPath === '/driver-profiles'}
+                badge={counts.pendingDrivers > 0 ? counts.pendingDrivers : undefined}
+                collapsed={isCollapsed}
+              />
+              <NavItem
+                to="/vehicles"
+                icon={<Car className="h-4 w-4" />}
+                label="Vehicle List"
+                active={currentPath === '/vehicles'}
+                collapsed={isCollapsed}
+              />
+              <NavItem
+                to="/vehicle-types"
+                icon={<CarTaxiFront className="h-4 w-4" />}
+                label="Vehicle Types"
+                active={currentPath === '/vehicle-types'}
+                collapsed={isCollapsed}
+              />
+              <NavItem
+                to="/documents"
+                icon={<FolderOpen className="h-4 w-4" />}
+                label="Driver Documents"
+                active={currentPath === '/documents'}
+                badge={counts.pendingDocuments > 0 ? counts.pendingDocuments : undefined}
+                collapsed={isCollapsed}
+              />
+              <NavItem
+                to="/driver-categories"
+                icon={<Grid3X3 className="h-4 w-4" />}
+                label="Driver Categories"
+                active={currentPath === '/driver-categories'}
+                collapsed={isCollapsed}
+              />
+            </div>
+          </div>
+
           {/* SERVICE AREAS */}
           <div>
             <NavSection label="Service Areas" collapsed={isCollapsed} />
@@ -326,35 +370,6 @@ export function AdminSidebar() {
                 icon={<Map className="h-4 w-4" />}
                 label="Services"
                 active={currentPath === '/services'}
-                collapsed={isCollapsed}
-              />
-              <NavItem
-                to="/driver-profiles"
-                icon={<UserCircle className="h-4 w-4" />}
-                label="Driver Profiles"
-                active={currentPath === '/driver-profiles'}
-                collapsed={isCollapsed}
-              />
-              <NavItem
-                to="/vehicle-types"
-                icon={<CarTaxiFront className="h-4 w-4" />}
-                label="Vehicle Types"
-                active={currentPath === '/vehicle-types'}
-                collapsed={isCollapsed}
-              />
-              <NavItem
-                to="/documents"
-                icon={<FolderOpen className="h-4 w-4" />}
-                label="Document Management"
-                active={currentPath === '/documents'}
-                badge={counts.pendingDocuments > 0 ? counts.pendingDocuments : undefined}
-                collapsed={isCollapsed}
-              />
-              <NavItem
-                to="/driver-categories"
-                icon={<Grid3X3 className="h-4 w-4" />}
-                label="Driver Categories"
-                active={currentPath === '/driver-categories'}
                 collapsed={isCollapsed}
               />
             </div>
@@ -460,14 +475,14 @@ export function AdminSidebar() {
             </div>
           </div>
 
-          {/* USERS & SUPPORT */}
+          {/* RIDER MANAGEMENT */}
           <div>
-            <NavSection label="Users & Support" collapsed={isCollapsed} />
+            <NavSection label="Rider Management" collapsed={isCollapsed} />
             <div className="space-y-1">
               <NavItem
                 to="/riders"
                 icon={<Users className="h-4 w-4" />}
-                label="Rider Profiles"
+                label="Rider List"
                 active={currentPath === '/riders'}
                 collapsed={isCollapsed}
               />
@@ -479,6 +494,13 @@ export function AdminSidebar() {
                 badge={counts.pendingFeedback > 0 ? counts.pendingFeedback : undefined}
                 collapsed={isCollapsed}
               />
+            </div>
+          </div>
+
+          {/* SUPPORT */}
+          <div>
+            <NavSection label="Support" collapsed={isCollapsed} />
+            <div className="space-y-1">
               <NavItem
                 to="/suspensions"
                 icon={<UserX className="h-4 w-4" />}
@@ -503,7 +525,7 @@ export function AdminSidebar() {
               <NavItem
                 to="/categories"
                 icon={<Grid3X3 className="h-4 w-4" />}
-                label="Categories"
+                label="Support Categories"
                 active={currentPath === '/categories'}
                 collapsed={isCollapsed}
               />
