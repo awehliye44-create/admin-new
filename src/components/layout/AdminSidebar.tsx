@@ -52,7 +52,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import { useState } from 'react';
+import { useState, memo, useCallback } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -64,7 +64,8 @@ interface NavItemProps {
   badge?: number;
 }
 
-function NavItem({ to, icon, label, active, badge }: NavItemProps) {
+// Memoized nav item to prevent unnecessary re-renders
+const NavItem = memo(function NavItem({ to, icon, label, active, badge }: NavItemProps) {
   return (
     <Link
       to={to}
@@ -86,7 +87,7 @@ function NavItem({ to, icon, label, active, badge }: NavItemProps) {
       )}
     </Link>
   );
-}
+});
 
 interface NavGroupProps {
   label: string;
@@ -129,7 +130,7 @@ export function AdminSidebar() {
   const currentPath = location.pathname;
 
   return (
-    <aside className="flex h-screen w-64 flex-col bg-sidebar border-r border-sidebar-border">
+    <aside className="flex h-screen w-64 min-w-64 max-w-64 flex-col bg-sidebar border-r border-sidebar-border shrink-0">
       {/* Logo */}
       <div className="flex h-16 items-center gap-3 border-b border-sidebar-border px-4 shrink-0">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
