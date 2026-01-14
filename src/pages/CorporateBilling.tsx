@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -27,87 +27,119 @@ import {
   Receipt,
   Banknote,
   TrendingUp,
-  Building2
+  Building2,
+  MapPin,
+  Globe
 } from 'lucide-react';
 
 interface Invoice {
   id: string;
   invoice_number: string;
-  company_id: string;
-  company_name: string;
+  corporate_account_id: string;
   amount: number;
-  tax: number;
-  total: number;
-  status: 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled';
-  issue_date: string;
+  tax_amount: number | null;
+  total_amount: number;
+  status: string;
   due_date: string;
-  paid_date: string | null;
-  payment_method: string | null;
-  items: { description: string; quantity: number; unit_price: number; total: number }[];
-  notes: string;
+  paid_at: string | null;
+  billing_period_start: string | null;
+  billing_period_end: string | null;
+  trip_count: number | null;
+  notes: string | null;
+  created_at: string;
+  region_id: string | null;
+  service_area_id: string | null;
+  corporate_account?: { id: string; company_name: string } | null;
+  region?: { id: string; name: string } | null;
+  service_area?: { id: string; name: string } | null;
 }
 
-interface Payment {
+interface Region {
   id: string;
-  payment_number: string;
-  company_name: string;
-  invoice_number: string;
-  amount: number;
-  payment_method: string;
-  status: 'completed' | 'pending' | 'failed' | 'refunded';
-  payment_date: string;
-  transaction_id: string;
+  name: string;
 }
 
-// No default placeholder data - start with empty lists
+interface ServiceArea {
+  id: string;
+  name: string;
+  region_id: string;
+}
 
 export default function CorporateBilling() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('invoices');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [regionFilter, setRegionFilter] = useState<string>('all');
+  const [serviceAreaFilter, setServiceAreaFilter] = useState<string>('all');
   const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null);
 
-  // Fetch data - no default placeholder data
+  // Fetch regions
+  const { data: regions = [] } = useQuery({
+    queryKey: ['regions'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('regions')
+        .select('id, name')
+        .order('name');
+      if (error) throw error;
+      return data as Region[];
+    },
+  });
+
+  // Fetch service areas based on region filter
+  const { data: serviceAreas = [] } = useQuery({
+    queryKey: ['service-areas', regionFilter],
+    queryFn: async () => {
+      let query = supabase.from('service_areas').select('id, name, region_id').order('name');
+      if (regionFilter !== 'all') {
+        query = query.eq('region_id', regionFilter);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      return data as ServiceArea[];
+    },
+  });
+
+  // Reset service area filter when region changes
+  useEffect(() => {
+    setServiceAreaFilter('all');
+  }, [regionFilter]);
+
+  // Fetch invoices from database
   const { data: invoices = [], isLoading: loadingInvoices } = useQuery({
-    queryKey: ['corporate-invoices'],
+    queryKey: ['corporate-invoices', regionFilter, serviceAreaFilter],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('admin_settings')
-        .select('*')
-        .eq('setting_key', 'corporate_invoices')
-        .maybeSingle();
+      let query = supabase
+        .from('corporate_invoices')
+        .select(`
+          *,
+          corporate_account:corporate_accounts(id, company_name),
+          region:regions(id, name),
+          service_area:service_areas(id, name)
+        `)
+        .order('created_at', { ascending: false });
       
+      if (regionFilter !== 'all') {
+        query = query.eq('region_id', regionFilter);
+      }
+      if (serviceAreaFilter !== 'all') {
+        query = query.eq('service_area_id', serviceAreaFilter);
+      }
+      
+      const { data, error } = await query;
       if (error) throw error;
-      return (data?.setting_value as unknown as Invoice[]) || [];
+      return data as Invoice[];
     },
   });
 
-  const { data: payments = [], isLoading: loadingPayments } = useQuery({
-    queryKey: ['corporate-payments'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('admin_settings')
-        .select('*')
-        .eq('setting_key', 'corporate_payments')
-        .maybeSingle();
-      
-      if (error) throw error;
-      return (data?.setting_value as unknown as Payment[]) || [];
-    },
-  });
-
-  // Save mutations
-  const saveInvoicesMutation = useMutation({
-    mutationFn: async (newInvoices: Invoice[]) => {
+  // Update invoice mutation
+  const updateInvoiceMutation = useMutation({
+    mutationFn: async ({ id, updates }: { id: string; updates: Partial<Invoice> }) => {
       const { error } = await supabase
-        .from('admin_settings')
-        .upsert([{
-          setting_key: 'corporate_invoices',
-          setting_value: JSON.parse(JSON.stringify(newInvoices)),
-          description: 'Corporate invoices',
-          updated_at: new Date().toISOString(),
-        }], { onConflict: 'setting_key' });
+        .from('corporate_invoices')
+        .update(updates)
+        .eq('id', id);
       
       if (error) throw error;
     },
@@ -117,20 +149,18 @@ export default function CorporateBilling() {
   });
 
   const handleSendInvoice = async (invoice: Invoice) => {
-    const updatedInvoices = invoices.map(inv => 
-      inv.id === invoice.id ? { ...inv, status: 'sent' as const } : inv
-    );
-    await saveInvoicesMutation.mutateAsync(updatedInvoices);
-    toast.success(`Invoice ${invoice.invoice_number} sent to ${invoice.company_name}`);
+    await updateInvoiceMutation.mutateAsync({ 
+      id: invoice.id, 
+      updates: { status: 'sent' } 
+    });
+    toast.success(`Invoice ${invoice.invoice_number} sent to ${invoice.corporate_account?.company_name}`);
   };
 
   const handleMarkPaid = async (invoice: Invoice) => {
-    const updatedInvoices = invoices.map(inv => 
-      inv.id === invoice.id 
-        ? { ...inv, status: 'paid' as const, paid_date: new Date().toISOString(), payment_method: 'Manual' } 
-        : inv
-    );
-    await saveInvoicesMutation.mutateAsync(updatedInvoices);
+    await updateInvoiceMutation.mutateAsync({ 
+      id: invoice.id, 
+      updates: { status: 'paid', paid_at: new Date().toISOString() } 
+    });
     toast.success(`Invoice ${invoice.invoice_number} marked as paid`);
   };
 
@@ -146,38 +176,20 @@ export default function CorporateBilling() {
     return <Badge variant={variant} className={className}>{status}</Badge>;
   };
 
-  const getPaymentStatusBadge = (status: string) => {
-    const config: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
-      completed: { variant: 'default' },
-      pending: { variant: 'secondary' },
-      failed: { variant: 'destructive' },
-      refunded: { variant: 'outline' },
-    };
-    return <Badge variant={config[status]?.variant || 'outline'}>{status}</Badge>;
-  };
-
   const filteredInvoices = invoices.filter(invoice => {
     const matchesSearch = invoice.invoice_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         invoice.company_name.toLowerCase().includes(searchTerm.toLowerCase());
+                         invoice.corporate_account?.company_name?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || invoice.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
-  const filteredPayments = payments.filter(payment => {
-    const matchesSearch = payment.payment_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         payment.company_name.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesSearch;
-  });
-
   // Stats
-  const totalRevenue = payments.filter(p => p.status === 'completed').reduce((sum, p) => sum + p.amount, 0);
-  const pendingInvoices = invoices.filter(i => i.status === 'sent').reduce((sum, i) => sum + i.total, 0);
-  const overdueAmount = invoices.filter(i => i.status === 'overdue').reduce((sum, i) => sum + i.total, 0);
+  const totalRevenue = invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + i.total_amount, 0);
+  const pendingInvoices = invoices.filter(i => i.status === 'sent').reduce((sum, i) => sum + i.total_amount, 0);
+  const overdueAmount = invoices.filter(i => i.status === 'overdue').reduce((sum, i) => sum + i.total_amount, 0);
   const draftCount = invoices.filter(i => i.status === 'draft').length;
 
-  const isLoading = loadingInvoices || loadingPayments;
-
-  if (isLoading) {
+  if (loadingInvoices) {
     return (
       <AdminLayout title="Corporate Billing" description="Manage corporate billing and invoices">
         <div className="flex items-center justify-center h-64">
@@ -202,7 +214,7 @@ export default function CorporateBilling() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-500">${totalRevenue.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground">This month</p>
+              <p className="text-xs text-muted-foreground">From paid invoices</p>
             </CardContent>
           </Card>
           <Card>
@@ -244,13 +256,9 @@ export default function CorporateBilling() {
                 <Receipt className="h-4 w-4" />
                 Invoices
               </TabsTrigger>
-              <TabsTrigger value="payments" className="flex items-center gap-2">
-                <Banknote className="h-4 w-4" />
-                Payments
-              </TabsTrigger>
             </TabsList>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input 
@@ -260,20 +268,42 @@ export default function CorporateBilling() {
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              {activeTab === 'invoices' && (
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-[130px]">
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="draft">Draft</SelectItem>
-                    <SelectItem value="sent">Sent</SelectItem>
-                    <SelectItem value="paid">Paid</SelectItem>
-                    <SelectItem value="overdue">Overdue</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
+              <Select value={regionFilter} onValueChange={setRegionFilter}>
+                <SelectTrigger className="w-[150px]">
+                  <Globe className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Region" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Regions</SelectItem>
+                  {regions.map((region) => (
+                    <SelectItem key={region.id} value={region.id}>{region.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={serviceAreaFilter} onValueChange={setServiceAreaFilter}>
+                <SelectTrigger className="w-[160px]">
+                  <MapPin className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Service Area" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Areas</SelectItem>
+                  {serviceAreas.map((area) => (
+                    <SelectItem key={area.id} value={area.id}>{area.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-[130px]">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="draft">Draft</SelectItem>
+                  <SelectItem value="sent">Sent</SelectItem>
+                  <SelectItem value="paid">Paid</SelectItem>
+                  <SelectItem value="overdue">Overdue</SelectItem>
+                </SelectContent>
+              </Select>
               <Button variant="outline">
                 <Download className="h-4 w-4 mr-2" />
                 Export
@@ -289,9 +319,9 @@ export default function CorporateBilling() {
                     <TableRow>
                       <TableHead>Invoice #</TableHead>
                       <TableHead>Company</TableHead>
+                      <TableHead>Region</TableHead>
                       <TableHead>Amount</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Issue Date</TableHead>
                       <TableHead>Due Date</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -310,12 +340,17 @@ export default function CorporateBilling() {
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <Building2 className="h-4 w-4 text-muted-foreground" />
-                              {invoice.company_name}
+                              {invoice.corporate_account?.company_name || 'Unknown'}
                             </div>
                           </TableCell>
-                          <TableCell className="font-medium">${invoice.total.toLocaleString()}</TableCell>
+                          <TableCell>
+                            <span className="text-sm">
+                              {invoice.region?.name || '—'}
+                              {invoice.service_area?.name && <span className="text-muted-foreground"> / {invoice.service_area.name}</span>}
+                            </span>
+                          </TableCell>
+                          <TableCell className="font-medium">${invoice.total_amount.toLocaleString()}</TableCell>
                           <TableCell>{getInvoiceStatusBadge(invoice.status)}</TableCell>
-                          <TableCell>{new Date(invoice.issue_date).toLocaleDateString()}</TableCell>
                           <TableCell>{new Date(invoice.due_date).toLocaleDateString()}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-2">
@@ -354,47 +389,6 @@ export default function CorporateBilling() {
               </CardContent>
             </Card>
           </TabsContent>
-
-          <TabsContent value="payments">
-            <Card>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Payment #</TableHead>
-                      <TableHead>Company</TableHead>
-                      <TableHead>Invoice</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Method</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Date</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredPayments.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                          No payments found
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredPayments.map((payment) => (
-                        <TableRow key={payment.id}>
-                          <TableCell className="font-medium">{payment.payment_number}</TableCell>
-                          <TableCell>{payment.company_name}</TableCell>
-                          <TableCell className="text-muted-foreground">{payment.invoice_number}</TableCell>
-                          <TableCell className="font-medium">${payment.amount.toLocaleString()}</TableCell>
-                          <TableCell>{payment.payment_method}</TableCell>
-                          <TableCell>{getPaymentStatusBadge(payment.status)}</TableCell>
-                          <TableCell>{new Date(payment.payment_date).toLocaleDateString()}</TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent>
         </Tabs>
 
         {/* Invoice Detail Dialog */}
@@ -402,7 +396,7 @@ export default function CorporateBilling() {
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>Invoice {viewingInvoice?.invoice_number}</DialogTitle>
-              <DialogDescription>{viewingInvoice?.company_name}</DialogDescription>
+              <DialogDescription>{viewingInvoice?.corporate_account?.company_name}</DialogDescription>
             </DialogHeader>
             {viewingInvoice && (
               <div className="space-y-4 py-4">
@@ -412,59 +406,60 @@ export default function CorporateBilling() {
                     {getInvoiceStatusBadge(viewingInvoice.status)}
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Issue Date</p>
-                    <p className="font-medium">{new Date(viewingInvoice.issue_date).toLocaleDateString()}</p>
-                  </div>
-                  <div>
                     <p className="text-sm text-muted-foreground">Due Date</p>
                     <p className="font-medium">{new Date(viewingInvoice.due_date).toLocaleDateString()}</p>
                   </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Trip Count</p>
+                    <p className="font-medium">{viewingInvoice.trip_count || '—'}</p>
+                  </div>
                 </div>
 
-                <div className="border rounded-lg overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Description</TableHead>
-                        <TableHead className="text-right">Qty</TableHead>
-                        <TableHead className="text-right">Unit Price</TableHead>
-                        <TableHead className="text-right">Total</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {viewingInvoice.items.map((item, idx) => (
-                        <TableRow key={idx}>
-                          <TableCell>{item.description}</TableCell>
-                          <TableCell className="text-right">{item.quantity}</TableCell>
-                          <TableCell className="text-right">${item.unit_price.toFixed(2)}</TableCell>
-                          <TableCell className="text-right">${item.total.toFixed(2)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Region</p>
+                    <p className="font-medium">{viewingInvoice.region?.name || 'Not specified'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Service Area</p>
+                    <p className="font-medium">{viewingInvoice.service_area?.name || 'Not specified'}</p>
+                  </div>
                 </div>
 
-                <div className="flex justify-end">
-                  <div className="w-64 space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Subtotal</span>
-                      <span>${viewingInvoice.amount.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Tax</span>
-                      <span>${viewingInvoice.tax.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between font-bold text-lg border-t pt-2">
-                      <span>Total</span>
-                      <span>${viewingInvoice.total.toFixed(2)}</span>
-                    </div>
+                {viewingInvoice.billing_period_start && viewingInvoice.billing_period_end && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Billing Period</p>
+                    <p className="font-medium">
+                      {new Date(viewingInvoice.billing_period_start).toLocaleDateString()} - {new Date(viewingInvoice.billing_period_end).toLocaleDateString()}
+                    </p>
+                  </div>
+                )}
+
+                <div className="border rounded-lg p-4 space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Subtotal</span>
+                    <span>${viewingInvoice.amount.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Tax</span>
+                    <span>${(viewingInvoice.tax_amount || 0).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between font-bold border-t pt-2">
+                    <span>Total</span>
+                    <span>${viewingInvoice.total_amount.toLocaleString()}</span>
                   </div>
                 </div>
 
                 {viewingInvoice.notes && (
-                  <div className="bg-muted p-3 rounded-md">
+                  <div>
                     <p className="text-sm text-muted-foreground">Notes</p>
-                    <p className="text-sm">{viewingInvoice.notes}</p>
+                    <p className="text-sm bg-muted p-3 rounded-md">{viewingInvoice.notes}</p>
+                  </div>
+                )}
+
+                {viewingInvoice.paid_at && (
+                  <div className="text-sm text-muted-foreground">
+                    Paid on {new Date(viewingInvoice.paid_at).toLocaleString()}
                   </div>
                 )}
               </div>
@@ -473,10 +468,18 @@ export default function CorporateBilling() {
               <Button variant="outline" onClick={() => setViewingInvoice(null)}>
                 Close
               </Button>
-              <Button variant="outline">
-                <Download className="h-4 w-4 mr-2" />
-                Download PDF
-              </Button>
+              {viewingInvoice?.status === 'draft' && (
+                <Button onClick={() => { handleSendInvoice(viewingInvoice); setViewingInvoice(null); }}>
+                  <Send className="h-4 w-4 mr-2" />
+                  Send Invoice
+                </Button>
+              )}
+              {(viewingInvoice?.status === 'sent' || viewingInvoice?.status === 'overdue') && (
+                <Button onClick={() => { handleMarkPaid(viewingInvoice); setViewingInvoice(null); }}>
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                  Mark as Paid
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>

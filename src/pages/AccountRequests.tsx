@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,7 +26,9 @@ import {
   RefreshCw,
   AlertCircle,
   CheckCircle2,
-  XCircle
+  XCircle,
+  MapPin,
+  Globe
 } from 'lucide-react';
 
 interface AccountRequest {
@@ -34,79 +36,128 @@ interface AccountRequest {
   company_name: string;
   contact_name: string;
   contact_email: string;
-  contact_phone: string;
-  company_size: string;
-  industry: string;
-  estimated_monthly_rides: number;
-  message: string;
-  status: 'pending' | 'approved' | 'rejected' | 'under_review';
-  admin_notes: string;
+  contact_phone: string | null;
+  employee_count: number | null;
+  estimated_monthly_trips: number | null;
+  notes: string | null;
+  status: string;
+  rejection_reason: string | null;
   reviewed_by: string | null;
   reviewed_at: string | null;
   created_at: string;
+  region_id: string | null;
+  service_area_id: string | null;
+  region?: { id: string; name: string } | null;
+  service_area?: { id: string; name: string } | null;
 }
 
-// No default placeholder data - start with empty list
+interface Region {
+  id: string;
+  name: string;
+}
+
+interface ServiceArea {
+  id: string;
+  name: string;
+  region_id: string;
+}
 
 export default function AccountRequests() {
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [regionFilter, setRegionFilter] = useState<string>('all');
+  const [serviceAreaFilter, setServiceAreaFilter] = useState<string>('all');
   const [selectedRequest, setSelectedRequest] = useState<AccountRequest | null>(null);
-  const [adminNotes, setAdminNotes] = useState('');
+  const [rejectionReason, setRejectionReason] = useState('');
 
-  // Fetch requests from database - no default placeholder data
-  const { data: requests = [], isLoading } = useQuery({
-    queryKey: ['account-requests'],
+  // Fetch regions
+  const { data: regions = [] } = useQuery({
+    queryKey: ['regions'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('admin_settings')
-        .select('*')
-        .eq('setting_key', 'account_requests')
-        .maybeSingle();
-      
+        .from('regions')
+        .select('id, name')
+        .order('name');
       if (error) throw error;
-      return (data?.setting_value as unknown as AccountRequest[]) || [];
+      return data as Region[];
     },
   });
 
-  // Save mutation
-  const saveMutation = useMutation({
-    mutationFn: async (newRequests: AccountRequest[]) => {
+  // Fetch service areas based on region filter
+  const { data: serviceAreas = [] } = useQuery({
+    queryKey: ['service-areas', regionFilter],
+    queryFn: async () => {
+      let query = supabase.from('service_areas').select('id, name, region_id').order('name');
+      if (regionFilter !== 'all') {
+        query = query.eq('region_id', regionFilter);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      return data as ServiceArea[];
+    },
+  });
+
+  // Reset service area filter when region changes
+  useEffect(() => {
+    setServiceAreaFilter('all');
+  }, [regionFilter]);
+
+  // Fetch requests from database
+  const { data: requests = [], isLoading } = useQuery({
+    queryKey: ['corporate-account-requests', regionFilter, serviceAreaFilter],
+    queryFn: async () => {
+      let query = supabase
+        .from('corporate_account_requests')
+        .select(`
+          *,
+          region:regions(id, name),
+          service_area:service_areas(id, name)
+        `)
+        .order('created_at', { ascending: false });
+      
+      if (regionFilter !== 'all') {
+        query = query.eq('region_id', regionFilter);
+      }
+      if (serviceAreaFilter !== 'all') {
+        query = query.eq('service_area_id', serviceAreaFilter);
+      }
+      
+      const { data, error } = await query;
+      if (error) throw error;
+      return data as AccountRequest[];
+    },
+  });
+
+  // Update request status mutation
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, status, rejection_reason }: { id: string; status: string; rejection_reason?: string }) => {
       const { error } = await supabase
-        .from('admin_settings')
-        .upsert([{
-          setting_key: 'account_requests',
-          setting_value: JSON.parse(JSON.stringify(newRequests)),
-          description: 'Corporate account requests',
-          updated_at: new Date().toISOString(),
-        }], { onConflict: 'setting_key' });
+        .from('corporate_account_requests')
+        .update({
+          status,
+          rejection_reason: rejection_reason || null,
+          reviewed_at: new Date().toISOString(),
+          reviewed_by: 'Admin User',
+        })
+        .eq('id', id);
       
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['account-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['corporate-account-requests'] });
     },
   });
 
-  const handleStatusChange = async (requestId: string, newStatus: AccountRequest['status']) => {
-    const updatedRequests = requests.map(r => {
-      if (r.id === requestId) {
-        return {
-          ...r,
-          status: newStatus,
-          admin_notes: adminNotes || r.admin_notes,
-          reviewed_by: 'Admin User',
-          reviewed_at: new Date().toISOString(),
-        };
-      }
-      return r;
+  const handleStatusChange = async (requestId: string, newStatus: string) => {
+    await updateMutation.mutateAsync({ 
+      id: requestId, 
+      status: newStatus,
+      rejection_reason: newStatus === 'rejected' ? rejectionReason : undefined
     });
-
-    await saveMutation.mutateAsync(updatedRequests);
     toast.success(`Request ${newStatus === 'approved' ? 'approved' : newStatus === 'rejected' ? 'rejected' : 'updated'}`);
     setSelectedRequest(null);
-    setAdminNotes('');
+    setRejectionReason('');
   };
 
   const filteredRequests = requests.filter(request => {
@@ -208,6 +259,30 @@ export default function AccountRequests() {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
+          <Select value={regionFilter} onValueChange={setRegionFilter}>
+            <SelectTrigger className="w-[180px]">
+              <Globe className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="All Regions" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Regions</SelectItem>
+              {regions.map((region) => (
+                <SelectItem key={region.id} value={region.id}>{region.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={serviceAreaFilter} onValueChange={setServiceAreaFilter}>
+            <SelectTrigger className="w-[180px]">
+              <MapPin className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="All Service Areas" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Service Areas</SelectItem>
+              {serviceAreas.map((area) => (
+                <SelectItem key={area.id} value={area.id}>{area.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="Filter by status" />
@@ -230,9 +305,10 @@ export default function AccountRequests() {
                 <TableRow>
                   <TableHead>Company</TableHead>
                   <TableHead>Contact</TableHead>
-                  <TableHead>Industry</TableHead>
-                  <TableHead>Company Size</TableHead>
-                  <TableHead>Est. Rides/Mo</TableHead>
+                  <TableHead>Region</TableHead>
+                  <TableHead>Service Area</TableHead>
+                  <TableHead>Employees</TableHead>
+                  <TableHead>Est. Trips/Mo</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Submitted</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -241,7 +317,7 @@ export default function AccountRequests() {
               <TableBody>
                 {filteredRequests.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                       No requests found
                     </TableCell>
                   </TableRow>
@@ -260,9 +336,14 @@ export default function AccountRequests() {
                           <p className="text-xs text-muted-foreground">{request.contact_email}</p>
                         </div>
                       </TableCell>
-                      <TableCell>{request.industry}</TableCell>
-                      <TableCell>{request.company_size}</TableCell>
-                      <TableCell>{request.estimated_monthly_rides}</TableCell>
+                      <TableCell>
+                        <span className="text-sm">{request.region?.name || '—'}</span>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-sm">{request.service_area?.name || '—'}</span>
+                      </TableCell>
+                      <TableCell>{request.employee_count || '—'}</TableCell>
+                      <TableCell>{request.estimated_monthly_trips || '—'}</TableCell>
                       <TableCell>{getStatusBadge(request.status)}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {new Date(request.created_at).toLocaleDateString()}
@@ -274,7 +355,7 @@ export default function AccountRequests() {
                             size="sm"
                             onClick={() => {
                               setSelectedRequest(request);
-                              setAdminNotes(request.admin_notes);
+                              setRejectionReason(request.rejection_reason || '');
                             }}
                           >
                             <Eye className="h-4 w-4 mr-1" />
@@ -294,7 +375,9 @@ export default function AccountRequests() {
                                 variant="ghost" 
                                 size="icon"
                                 className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                                onClick={() => handleStatusChange(request.id, 'rejected')}
+                                onClick={() => {
+                                  setSelectedRequest(request);
+                                }}
                               >
                                 <X className="h-4 w-4" />
                               </Button>
@@ -311,7 +394,7 @@ export default function AccountRequests() {
         </Card>
 
         {/* Review Dialog */}
-        <Dialog open={!!selectedRequest} onOpenChange={() => { setSelectedRequest(null); setAdminNotes(''); }}>
+        <Dialog open={!!selectedRequest} onOpenChange={() => { setSelectedRequest(null); setRejectionReason(''); }}>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>Review Request: {selectedRequest?.company_name}</DialogTitle>
@@ -327,8 +410,13 @@ export default function AccountRequests() {
                     <p className="font-medium">{selectedRequest.company_name}</p>
                   </div>
                   <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Industry</p>
-                    <p className="font-medium">{selectedRequest.industry}</p>
+                    <p className="text-sm text-muted-foreground flex items-center gap-1">
+                      <Globe className="h-3 w-3" /> Region / Service Area
+                    </p>
+                    <p className="font-medium">
+                      {selectedRequest.region?.name || 'Not specified'}
+                      {selectedRequest.service_area?.name && ` / ${selectedRequest.service_area.name}`}
+                    </p>
                   </div>
                 </div>
 
@@ -344,18 +432,18 @@ export default function AccountRequests() {
                     <p className="text-sm text-muted-foreground flex items-center gap-1">
                       <Phone className="h-3 w-3" /> Phone
                     </p>
-                    <p>{selectedRequest.contact_phone}</p>
+                    <p>{selectedRequest.contact_phone || 'Not provided'}</p>
                   </div>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-3">
                   <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Company Size</p>
-                    <p className="font-medium">{selectedRequest.company_size} employees</p>
+                    <p className="text-sm text-muted-foreground">Employee Count</p>
+                    <p className="font-medium">{selectedRequest.employee_count || 'Not specified'}</p>
                   </div>
                   <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Est. Monthly Rides</p>
-                    <p className="font-medium">{selectedRequest.estimated_monthly_rides}</p>
+                    <p className="text-sm text-muted-foreground">Est. Monthly Trips</p>
+                    <p className="font-medium">{selectedRequest.estimated_monthly_trips || 'Not specified'}</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Status</p>
@@ -363,21 +451,25 @@ export default function AccountRequests() {
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">Message</p>
-                  <p className="bg-muted p-3 rounded-md text-sm">{selectedRequest.message}</p>
-                </div>
+                {selectedRequest.notes && (
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Notes</p>
+                    <p className="bg-muted p-3 rounded-md text-sm">{selectedRequest.notes}</p>
+                  </div>
+                )}
 
-                <div className="space-y-2">
-                  <Label htmlFor="admin_notes">Admin Notes</Label>
-                  <Textarea
-                    id="admin_notes"
-                    value={adminNotes}
-                    onChange={(e) => setAdminNotes(e.target.value)}
-                    placeholder="Add notes about this application..."
-                    rows={3}
-                  />
-                </div>
+                {(selectedRequest.status === 'pending' || selectedRequest.status === 'under_review') && (
+                  <div className="space-y-2">
+                    <Label htmlFor="rejection_reason">Rejection Reason (if rejecting)</Label>
+                    <Textarea
+                      id="rejection_reason"
+                      value={rejectionReason}
+                      onChange={(e) => setRejectionReason(e.target.value)}
+                      placeholder="Enter reason for rejection..."
+                      rows={3}
+                    />
+                  </div>
+                )}
 
                 {selectedRequest.reviewed_at && (
                   <div className="text-sm text-muted-foreground">
