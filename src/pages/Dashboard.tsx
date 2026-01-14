@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar } from 'recharts';
-import { getOneCabCarIcon, preloadMarkerImage } from '@/lib/mapMarkers';
+import { getEnhancedCarIcon, preloadMarkerImage } from '@/lib/mapMarkers';
 
 interface Stats {
   totalDrivers: number;
@@ -169,7 +169,7 @@ export default function Dashboard() {
       const marker = new window.google.maps.Marker({
         position,
         map: googleMapRef.current,
-        icon: getOneCabCarIcon(32, driver.heading || 0),
+        icon: getEnhancedCarIcon(32, driver.heading || 0),
         title: `${driver.first_name} ${driver.last_name}`,
         optimized: false,
         zIndex,

@@ -17,7 +17,7 @@ import {
   Navigation, Phone, Star, Clock, Wifi, WifiOff
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { getOneCabCarIcon, preloadMarkerImage } from '@/lib/mapMarkers';
+import { getOneCabCarIcon, getEnhancedCarIcon, preloadMarkerImage } from '@/lib/mapMarkers';
 
 interface Driver {
   id: string;
@@ -316,7 +316,7 @@ export default function FleetTracking() {
       const marker = new window.google.maps.Marker({
         position,
         map: googleMapRef.current,
-        icon: getOneCabCarIcon(markerSize as 32 | 64, driver.heading || 0),
+        icon: getEnhancedCarIcon(markerSize as 32 | 64, driver.heading || 0),
         title: `${driver.first_name} ${driver.last_name}${driver.speed ? ` (${Math.round(driver.speed * 3.6)} km/h)` : ''}`,
         optimized: false,
         zIndex,
