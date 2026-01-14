@@ -45,6 +45,10 @@ import CorporateBilling from "./pages/CorporateBilling";
 import CorporateReports from "./pages/CorporateReports";
 import Webhooks from "./pages/Webhooks";
 import CorporateSettings from "./pages/CorporateSettings";
+import Payments from "./pages/Payments";
+import DriverPayouts from "./pages/DriverPayouts";
+import Disputes from "./pages/Disputes";
+import DisputeSettings from "./pages/DisputeSettings";
 
 import {
   Airports,
@@ -52,10 +56,6 @@ import {
   Complaints,
   Tickets,
   Categories,
-  Payments,
-  DriverPayouts,
-  Disputes,
-  DisputeSettings,
   Content,
   System,
 } from "./pages/PlaceholderPage";
