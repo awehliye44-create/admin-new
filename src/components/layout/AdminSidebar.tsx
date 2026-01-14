@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
+import { useSidebarCounts } from '@/hooks/useSidebarCounts';
 import {
   LayoutDashboard,
   Users,
@@ -171,6 +172,7 @@ function NavSection({ label, collapsed }: NavSectionProps) {
 export function AdminSidebar() {
   const location = useLocation();
   const { signOut, user } = useAuth();
+  const { counts } = useSidebarCounts();
   const currentPath = location.pathname;
   
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -266,7 +268,7 @@ export function AdminSidebar() {
                 icon={<Radio className="h-4 w-4" />}
                 label="Active Trips (Real-time)"
                 active={currentPath === '/active-trips'}
-                badge={3}
+                badge={counts.activeTrips > 0 ? counts.activeTrips : undefined}
                 collapsed={isCollapsed}
               />
               <NavItem
@@ -281,7 +283,7 @@ export function AdminSidebar() {
                 icon={<Calendar className="h-4 w-4" />}
                 label="Scheduled Rides"
                 active={currentPath === '/scheduled-rides'}
-                badge={12}
+                badge={counts.scheduledRides > 0 ? counts.scheduledRides : undefined}
                 collapsed={isCollapsed}
               />
               <NavItem
@@ -345,6 +347,7 @@ export function AdminSidebar() {
                 icon={<FolderOpen className="h-4 w-4" />}
                 label="Document Management"
                 active={currentPath === '/documents'}
+                badge={counts.pendingDocuments > 0 ? counts.pendingDocuments : undefined}
                 collapsed={isCollapsed}
               />
               <NavItem
@@ -366,7 +369,7 @@ export function AdminSidebar() {
                 icon={<Tag className="h-4 w-4" />}
                 label="Promo Codes"
                 active={currentPath === '/promo-codes'}
-                badge={5}
+                badge={counts.activePromoCodes > 0 ? counts.activePromoCodes : undefined}
                 collapsed={isCollapsed}
               />
               <NavItem
@@ -430,7 +433,6 @@ export function AdminSidebar() {
                 icon={<FileText className="h-4 w-4" />}
                 label="Account Requests"
                 active={currentPath === '/account-requests'}
-                badge={1}
                 collapsed={isCollapsed}
               />
               <NavItem
@@ -473,7 +475,7 @@ export function AdminSidebar() {
                 icon={<MessageSquare className="h-4 w-4" />}
                 label="Rider Feedback"
                 active={currentPath === '/rider-feedback'}
-                badge={8}
+                badge={counts.pendingFeedback > 0 ? counts.pendingFeedback : undefined}
                 collapsed={isCollapsed}
               />
               <NavItem
@@ -488,7 +490,6 @@ export function AdminSidebar() {
                 icon={<AlertTriangle className="h-4 w-4" />}
                 label="Complaints Dashboard"
                 active={currentPath === '/complaints'}
-                badge={2}
                 collapsed={isCollapsed}
               />
               <NavItem
@@ -496,7 +497,6 @@ export function AdminSidebar() {
                 icon={<Ticket className="h-4 w-4" />}
                 label="Tickets"
                 active={currentPath === '/tickets'}
-                badge={15}
                 collapsed={isCollapsed}
               />
               <NavItem
@@ -525,7 +525,6 @@ export function AdminSidebar() {
                 icon={<DollarSign className="h-4 w-4" />}
                 label="Driver Payouts & Settlements"
                 active={currentPath === '/driver-payouts'}
-                badge={99}
                 collapsed={isCollapsed}
               />
               <NavItem
