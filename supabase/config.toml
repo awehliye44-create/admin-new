@@ -6,5 +6,11 @@ verify_jwt = false
 [functions.dispatch-trip]
 verify_jwt = false
 
+[functions.accept-trip]
+verify_jwt = false
+
+[functions.decline-trip]
+verify_jwt = false
+
 [functions.resolve-service-area]
 verify_jwt = false

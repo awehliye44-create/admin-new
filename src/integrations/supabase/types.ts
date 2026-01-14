@@ -1847,6 +1847,70 @@ export type Database = {
           },
         ]
       }
+      trip_offers: {
+        Row: {
+          created_at: string
+          distance_km: number | null
+          driver_id: string
+          expires_at: string
+          id: string
+          offered_at: string
+          priority_score: number | null
+          responded_at: string | null
+          status: string
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          distance_km?: number | null
+          driver_id: string
+          expires_at: string
+          id?: string
+          offered_at?: string
+          priority_score?: number | null
+          responded_at?: string | null
+          status?: string
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          distance_km?: number | null
+          driver_id?: string
+          expires_at?: string
+          id?: string
+          offered_at?: string
+          priority_score?: number | null
+          responded_at?: string | null
+          status?: string
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trip_offers_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_offers_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_offers_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trip_stops: {
         Row: {
           address: string
