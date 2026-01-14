@@ -359,17 +359,62 @@ export type Database = {
           },
         ]
       }
+      document_types: {
+        Row: {
+          created_at: string
+          description: string | null
+          display_order: number | null
+          has_expiry: boolean
+          id: string
+          is_active: boolean
+          is_required: boolean
+          name: string
+          reminder_days_before_expiry: number[]
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          display_order?: number | null
+          has_expiry?: boolean
+          id?: string
+          is_active?: boolean
+          is_required?: boolean
+          name: string
+          reminder_days_before_expiry?: number[]
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          display_order?: number | null
+          has_expiry?: boolean
+          id?: string
+          is_active?: boolean
+          is_required?: boolean
+          name?: string
+          reminder_days_before_expiry?: number[]
+          slug?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       documents: {
         Row: {
           created_at: string
           document_name: string
           document_type: string
+          document_type_id: string | null
           driver_id: string
           expiry_date: string | null
           file_url: string | null
           id: string
+          last_reminded_at: string | null
           notes: string | null
           rejection_reason: string | null
+          reminder_sent_days: number[] | null
           reviewed_at: string | null
           reviewed_by: string | null
           status: string
@@ -379,12 +424,15 @@ export type Database = {
           created_at?: string
           document_name: string
           document_type: string
+          document_type_id?: string | null
           driver_id: string
           expiry_date?: string | null
           file_url?: string | null
           id?: string
+          last_reminded_at?: string | null
           notes?: string | null
           rejection_reason?: string | null
+          reminder_sent_days?: number[] | null
           reviewed_at?: string | null
           reviewed_by?: string | null
           status?: string
@@ -394,18 +442,28 @@ export type Database = {
           created_at?: string
           document_name?: string
           document_type?: string
+          document_type_id?: string | null
           driver_id?: string
           expiry_date?: string | null
           file_url?: string | null
           id?: string
+          last_reminded_at?: string | null
           notes?: string | null
           rejection_reason?: string | null
+          reminder_sent_days?: number[] | null
           reviewed_at?: string | null
           reviewed_by?: string | null
           status?: string
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "documents_document_type_id_fkey"
+            columns: ["document_type_id"]
+            isOneToOne: false
+            referencedRelation: "document_types"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "documents_driver_id_fkey"
             columns: ["driver_id"]
@@ -466,6 +524,80 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      driver_inbox_messages: {
+        Row: {
+          body: string
+          created_at: string
+          document_id: string | null
+          document_type_id: string | null
+          driver_id: string
+          expiry_date: string | null
+          id: string
+          is_read: boolean
+          metadata: Json | null
+          title: string
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          document_id?: string | null
+          document_type_id?: string | null
+          driver_id: string
+          expiry_date?: string | null
+          id?: string
+          is_read?: boolean
+          metadata?: Json | null
+          title: string
+          type?: string
+          updated_at?: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          document_id?: string | null
+          document_type_id?: string | null
+          driver_id?: string
+          expiry_date?: string | null
+          id?: string
+          is_read?: boolean
+          metadata?: Json | null
+          title?: string
+          type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_inbox_messages_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_inbox_messages_document_type_id_fkey"
+            columns: ["document_type_id"]
+            isOneToOne: false
+            referencedRelation: "document_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_inbox_messages_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_inbox_messages_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       driver_service_areas: {
         Row: {
