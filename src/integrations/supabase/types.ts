@@ -197,25 +197,142 @@ export type Database = {
       }
       dispatch_settings: {
         Row: {
+          accept_timeout_seconds: number
+          auto_reassign_enabled: boolean
+          auto_retry_attempts: number
+          batch_mode: string
+          block_multiple_active_rides: boolean
+          cancel_protection: boolean
+          cascade_batch_size: number
+          cascade_step_delay_seconds: number
+          cooldown_after_reject_seconds: number
           created_at: string
+          driver_fare_display: string
+          enable_logging: boolean
+          global_timeout_minutes: number
           id: string
+          instant_retry_enabled: boolean
+          max_advance_days: number
+          max_cancel_rate: number
+          max_concurrent_offers_per_driver: number
           max_driver_find_time_minutes: number
+          max_offer_hops: number
+          max_offers_per_request: number
+          max_stacked_rides: number
+          min_advance_time_minutes: number
+          minimum_rating: number
+          offer_expiry_seconds: number
+          priority_order: string
+          scheduled_ride_incentives_enabled: boolean
+          scheduled_rides_enabled: boolean
+          search_radius_meters: number
           service_area_id: string | null
+          simulate_mode: boolean
+          stacked_allow_rider_opt_out: boolean
+          stacked_driver_incentive: number
+          stacked_max_detour_minutes: number
+          stacked_min_trip_distance_km: number
+          stacked_offer_window_minutes: number
+          stacked_priority_mode: string
+          stacked_rider_discount: number
+          stacked_rides_enabled: boolean
+          stacked_search_radius_meters: number
+          stacked_show_eta_to_driver: boolean
+          suppress_recent_offers_seconds: number
           updated_at: string
+          waiting_time_grace_period_minutes: number
         }
         Insert: {
+          accept_timeout_seconds?: number
+          auto_reassign_enabled?: boolean
+          auto_retry_attempts?: number
+          batch_mode?: string
+          block_multiple_active_rides?: boolean
+          cancel_protection?: boolean
+          cascade_batch_size?: number
+          cascade_step_delay_seconds?: number
+          cooldown_after_reject_seconds?: number
           created_at?: string
+          driver_fare_display?: string
+          enable_logging?: boolean
+          global_timeout_minutes?: number
           id?: string
+          instant_retry_enabled?: boolean
+          max_advance_days?: number
+          max_cancel_rate?: number
+          max_concurrent_offers_per_driver?: number
           max_driver_find_time_minutes?: number
+          max_offer_hops?: number
+          max_offers_per_request?: number
+          max_stacked_rides?: number
+          min_advance_time_minutes?: number
+          minimum_rating?: number
+          offer_expiry_seconds?: number
+          priority_order?: string
+          scheduled_ride_incentives_enabled?: boolean
+          scheduled_rides_enabled?: boolean
+          search_radius_meters?: number
           service_area_id?: string | null
+          simulate_mode?: boolean
+          stacked_allow_rider_opt_out?: boolean
+          stacked_driver_incentive?: number
+          stacked_max_detour_minutes?: number
+          stacked_min_trip_distance_km?: number
+          stacked_offer_window_minutes?: number
+          stacked_priority_mode?: string
+          stacked_rider_discount?: number
+          stacked_rides_enabled?: boolean
+          stacked_search_radius_meters?: number
+          stacked_show_eta_to_driver?: boolean
+          suppress_recent_offers_seconds?: number
           updated_at?: string
+          waiting_time_grace_period_minutes?: number
         }
         Update: {
+          accept_timeout_seconds?: number
+          auto_reassign_enabled?: boolean
+          auto_retry_attempts?: number
+          batch_mode?: string
+          block_multiple_active_rides?: boolean
+          cancel_protection?: boolean
+          cascade_batch_size?: number
+          cascade_step_delay_seconds?: number
+          cooldown_after_reject_seconds?: number
           created_at?: string
+          driver_fare_display?: string
+          enable_logging?: boolean
+          global_timeout_minutes?: number
           id?: string
+          instant_retry_enabled?: boolean
+          max_advance_days?: number
+          max_cancel_rate?: number
+          max_concurrent_offers_per_driver?: number
           max_driver_find_time_minutes?: number
+          max_offer_hops?: number
+          max_offers_per_request?: number
+          max_stacked_rides?: number
+          min_advance_time_minutes?: number
+          minimum_rating?: number
+          offer_expiry_seconds?: number
+          priority_order?: string
+          scheduled_ride_incentives_enabled?: boolean
+          scheduled_rides_enabled?: boolean
+          search_radius_meters?: number
           service_area_id?: string | null
+          simulate_mode?: boolean
+          stacked_allow_rider_opt_out?: boolean
+          stacked_driver_incentive?: number
+          stacked_max_detour_minutes?: number
+          stacked_min_trip_distance_km?: number
+          stacked_offer_window_minutes?: number
+          stacked_priority_mode?: string
+          stacked_rider_discount?: number
+          stacked_rides_enabled?: boolean
+          stacked_search_radius_meters?: number
+          stacked_show_eta_to_driver?: boolean
+          suppress_recent_offers_seconds?: number
           updated_at?: string
+          waiting_time_grace_period_minutes?: number
         }
         Relationships: [
           {
