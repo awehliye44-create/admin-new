@@ -34,13 +34,13 @@ import TripHistory from "./pages/TripHistory";
 import Documents from "./pages/Documents";
 import DriverCategories from "./pages/DriverCategories";
 import PromoCodes from "./pages/PromoCodes";
+import CustomZones from "./pages/CustomZones";
+import ZonePricing from "./pages/ZonePricing";
+import CorporateFares from "./pages/CorporateFares";
+import FareSimulator from "./pages/FareSimulator";
 
 import {
   DriverProfiles,
-  CustomZones,
-  ZonePricing,
-  CorporateFares,
-  FareSimulator,
   Airports,
   CorporateAccounts,
   AccountRequests,

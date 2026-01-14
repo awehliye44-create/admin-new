@@ -42,10 +42,7 @@ export const VehicleTypes = () => <PlaceholderPage title="Vehicle Types" descrip
 export const Documents = () => <PlaceholderPage title="Document Management" description="Manage driver and vehicle documents" />;
 export const DriverCategories = () => <PlaceholderPage title="Driver Categories" description="Manage driver categories" />;
 export const PromoCodes = () => <PlaceholderPage title="Promo Codes" description="Create and manage promotional codes" />;
-export const CustomZones = () => <PlaceholderPage title="Custom Zones" description="Configure custom pricing zones" />;
-export const ZonePricing = () => <PlaceholderPage title="Geofence & Zone Pricing" description="Set up geofenced pricing areas" />;
-export const CorporateFares = () => <PlaceholderPage title="Corporate Fare Rules" description="Manage corporate fare rules" />;
-export const FareSimulator = () => <PlaceholderPage title="Fare Simulator" description="Test and simulate fare calculations" />;
+// CustomZones, ZonePricing, CorporateFares, FareSimulator moved to dedicated files
 export const Airports = () => <PlaceholderPage title="Manage Airports" description="Configure airport pickup and dropoff zones" />;
 export const CorporateAccounts = () => <PlaceholderPage title="Corporate Accounts" description="Manage corporate client accounts" />;
 export const AccountRequests = () => <PlaceholderPage title="Account Requests" description="Review and approve account requests" />;
