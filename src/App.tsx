@@ -44,11 +44,10 @@ import AccountRequests from "./pages/AccountRequests";
 import CorporateBilling from "./pages/CorporateBilling";
 import CorporateReports from "./pages/CorporateReports";
 import Webhooks from "./pages/Webhooks";
+import CorporateSettings from "./pages/CorporateSettings";
 
 import {
-  DriverProfiles,
   Airports,
-  CorporateSettings,
   Suspensions,
   Complaints,
   Tickets,
