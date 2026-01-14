@@ -616,13 +616,19 @@ export function AdminSidebar() {
           <div className="flex flex-col items-center gap-2">
             <Tooltip delayDuration={0}>
               <TooltipTrigger asChild>
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-sidebar-accent cursor-pointer">
+                <Link 
+                  to="/profile"
+                  className={cn(
+                    "flex h-9 w-9 items-center justify-center rounded-full bg-sidebar-accent cursor-pointer transition-colors hover:bg-sidebar-accent/80",
+                    currentPath === '/profile' && "ring-2 ring-primary"
+                  )}
+                >
                   <Users className="h-4 w-4 text-sidebar-foreground" />
-                </div>
+                </Link>
               </TooltipTrigger>
               <TooltipContent side="right">
-                <p className="font-medium">{user?.email || 'Admin'}</p>
-                <p className="text-xs text-muted-foreground">Administrator</p>
+                <p className="font-medium">{user?.user_metadata?.display_name || user?.email || 'Admin'}</p>
+                <p className="text-xs text-muted-foreground">Administrator - Click to edit profile</p>
               </TooltipContent>
             </Tooltip>
             <Tooltip delayDuration={0}>
@@ -641,17 +647,23 @@ export function AdminSidebar() {
           </div>
         ) : (
           <>
-            <div className="mb-3 flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-sidebar-accent shrink-0">
-                <Users className="h-4 w-4 text-sidebar-foreground" />
+            <Link 
+              to="/profile"
+              className={cn(
+                "mb-3 flex items-center gap-3 rounded-lg p-2 -mx-2 transition-colors hover:bg-sidebar-accent",
+                currentPath === '/profile' && "bg-sidebar-accent"
+              )}
+            >
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 shrink-0">
+                <Users className="h-4 w-4 text-primary" />
               </div>
               <div className="flex-1 truncate">
                 <p className="text-sm font-medium text-sidebar-foreground truncate">
-                  {user?.email || 'Admin'}
+                  {user?.user_metadata?.display_name || user?.email || 'Admin'}
                 </p>
                 <p className="text-xs text-[hsl(var(--sidebar-muted))]">Administrator</p>
               </div>
-            </div>
+            </Link>
             <button
               onClick={signOut}
               className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
