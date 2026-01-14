@@ -52,13 +52,13 @@ import DisputeSettings from "./pages/DisputeSettings";
 
 import {
   Airports,
-  Suspensions,
-  Complaints,
-  Tickets,
-  Categories,
   Content,
   System,
 } from "./pages/PlaceholderPage";
+import AccountSuspension from "./pages/AccountSuspension";
+import ComplaintsDashboard from "./pages/ComplaintsDashboard";
+import Tickets from "./pages/Tickets";
+import SupportCategories from "./pages/SupportCategories";
 import GeneralSettings from "./pages/GeneralSettings";
 import Notifications from "./pages/Notifications";
 import SystemRequirements from "./pages/SystemRequirements";
@@ -125,10 +125,10 @@ const App = () => (
             
             {/* Users & Support */}
             <Route path="/rider-feedback" element={<ProtectedRoute><RiderFeedback /></ProtectedRoute>} />
-            <Route path="/suspensions" element={<ProtectedRoute><Suspensions /></ProtectedRoute>} />
-            <Route path="/complaints" element={<ProtectedRoute><Complaints /></ProtectedRoute>} />
+            <Route path="/suspensions" element={<ProtectedRoute><AccountSuspension /></ProtectedRoute>} />
+            <Route path="/complaints" element={<ProtectedRoute><ComplaintsDashboard /></ProtectedRoute>} />
             <Route path="/tickets" element={<ProtectedRoute><Tickets /></ProtectedRoute>} />
-            <Route path="/categories" element={<ProtectedRoute><Categories /></ProtectedRoute>} />
+            <Route path="/categories" element={<ProtectedRoute><SupportCategories /></ProtectedRoute>} />
             
             {/* Finance & Payouts */}
             <Route path="/payments" element={<ProtectedRoute><Payments /></ProtectedRoute>} />
