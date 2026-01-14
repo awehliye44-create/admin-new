@@ -435,6 +435,36 @@ export type Database = {
           },
         ]
       }
+      customer_push_tokens: {
+        Row: {
+          app_type: string
+          created_at: string
+          id: string
+          platform: string
+          token: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          app_type?: string
+          created_at?: string
+          id?: string
+          platform: string
+          token: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          app_type?: string
+          created_at?: string
+          id?: string
+          platform?: string
+          token?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       customers: {
         Row: {
           active_trip_id: string | null
@@ -1438,6 +1468,51 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      push_tokens: {
+        Row: {
+          app_type: string
+          created_at: string
+          driver_id: string
+          id: string
+          platform: string
+          token: string
+          updated_at: string
+        }
+        Insert: {
+          app_type?: string
+          created_at?: string
+          driver_id: string
+          id?: string
+          platform: string
+          token: string
+          updated_at?: string
+        }
+        Update: {
+          app_type?: string
+          created_at?: string
+          driver_id?: string
+          id?: string
+          platform?: string
+          token?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "push_tokens_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "push_tokens_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       region_payment_methods: {
         Row: {
