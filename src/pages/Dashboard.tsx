@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar } from 'recharts';
+import { getOneCabCarIcon, preloadMarkerImage } from '@/lib/mapMarkers';
 
 interface Stats {
   totalDrivers: number;
@@ -115,6 +116,11 @@ export default function Dashboard() {
   const googleMapRef = useRef<any>(null);
   const markersRef = useRef<Map<string, any>>(new Map());
 
+  // Preload marker image
+  useEffect(() => {
+    preloadMarkerImage();
+  }, []);
+
   // Load Google Maps
   useEffect(() => {
     if (window.google?.maps) {
@@ -158,26 +164,15 @@ export default function Dashboard() {
 
       const position = { lat: driver.current_lat, lng: driver.current_lng };
       const isOnTrip = !!driver.current_trip_id;
-      
-      const markerColor = !driver.is_online 
-        ? '#9ca3af' 
-        : isOnTrip 
-          ? '#f59e0b' 
-          : '#22c55e';
+      const zIndex = isOnTrip ? 100 : 1;
 
       const marker = new window.google.maps.Marker({
         position,
         map: googleMapRef.current,
-        icon: {
-          path: window.google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-          scale: 6,
-          fillColor: markerColor,
-          fillOpacity: 1,
-          strokeWeight: 2,
-          strokeColor: '#ffffff',
-          rotation: driver.heading || 0,
-        },
+        icon: getOneCabCarIcon(32, driver.heading || 0),
         title: `${driver.first_name} ${driver.last_name}`,
+        optimized: false,
+        zIndex,
       });
 
       markersRef.current.set(driver.id, marker);
