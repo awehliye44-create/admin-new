@@ -59,7 +59,6 @@ export const DriverPayouts = () => <PlaceholderPage title="Driver Payouts & Sett
 export const Disputes = () => <PlaceholderPage title="Disputes & Adjustments" description="Handle payment disputes" />;
 export const DisputeSettings = () => <PlaceholderPage title="Dispute Settings" description="Configure dispute handling rules" />;
 export const Content = () => <PlaceholderPage title="Manage Content" description="Edit app content and legal documents" />;
-export const GeneralSettings = () => <PlaceholderPage title="General & Branding" description="Configure general settings and branding" />;
-// Integrations and Webhooks moved to dedicated files
+// GeneralSettings, Integrations and Webhooks moved to dedicated files
 export const System = () => <PlaceholderPage title="System Requirements" description="View system requirements and status" />;
 export const Notifications = () => <PlaceholderPage title="Notifications & Alerts" description="Configure notification settings" />;
