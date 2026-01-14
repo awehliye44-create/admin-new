@@ -38,6 +38,8 @@ import CustomZones from "./pages/CustomZones";
 import ZonePricing from "./pages/ZonePricing";
 import CorporateFares from "./pages/CorporateFares";
 import FareSimulator from "./pages/FareSimulator";
+import Integrations from "./pages/Integrations";
+import Webhooks from "./pages/Webhooks";
 
 import {
   DriverProfiles,
@@ -57,8 +59,6 @@ import {
   DisputeSettings,
   Content,
   GeneralSettings,
-  Integrations,
-  Webhooks,
   System,
 } from "./pages/PlaceholderPage";
 import Notifications from "./pages/Notifications";
