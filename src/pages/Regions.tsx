@@ -54,7 +54,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { PaymentMethodsConfig } from '@/components/payment/PaymentMethodsConfig';
+
 
 interface LatLng {
   lat: number;
@@ -490,10 +490,9 @@ export default function Regions() {
 
   const RegionFormContent = ({ isNew = false, regionId }: { isNew?: boolean; regionId?: string }) => (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-      <TabsList className={`grid w-full ${isNew ? 'grid-cols-2' : 'grid-cols-3'}`}>
+      <TabsList className="grid w-full grid-cols-2">
         <TabsTrigger value="details">Details</TabsTrigger>
         <TabsTrigger value="boundary">Boundary</TabsTrigger>
-        {!isNew && <TabsTrigger value="payments">Payment Methods</TabsTrigger>}
       </TabsList>
 
       <TabsContent value="details" className="space-y-4 mt-4">
@@ -601,6 +600,20 @@ export default function Regions() {
             <li>• <strong>Status:</strong> Only active regions accept new rides</li>
           </ul>
         </div>
+
+        {/* Payment Methods Notice */}
+        <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4 text-sm">
+          <div className="flex items-start gap-3">
+            <CreditCard className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+            <div>
+              <p className="font-medium text-blue-800 dark:text-blue-300 mb-1">Payment Methods</p>
+              <p className="text-blue-700 dark:text-blue-400">
+                Payment methods are now configured per <strong>Service Area</strong> for granular control.
+                Go to <strong>Services → Configure Pricing</strong> to manage payment methods for each service area.
+              </p>
+            </div>
+          </div>
+        </div>
       </TabsContent>
 
       <TabsContent value="boundary" className="space-y-4 mt-4">
@@ -628,12 +641,6 @@ export default function Regions() {
           </div>
         )}
       </TabsContent>
-
-      {!isNew && regionId && (
-        <TabsContent value="payments" className="mt-4">
-          <PaymentMethodsConfig regionId={regionId} regionName={formData.name} />
-        </TabsContent>
-      )}
     </Tabs>
   );
 
@@ -977,9 +984,17 @@ export default function Regions() {
                 </div>
               </div>
 
-              {/* Payment Methods Section in View Dialog */}
-              <div className="pt-2">
-                <PaymentMethodsConfig regionId={selectedRegion.id} regionName={selectedRegion.name} />
+              {/* Payment Methods Notice */}
+              <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4 text-sm">
+                <div className="flex items-start gap-3">
+                  <CreditCard className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-medium text-blue-800 dark:text-blue-300 mb-1">Payment Methods</p>
+                    <p className="text-blue-700 dark:text-blue-400">
+                      Payment methods are configured per Service Area. Go to <strong>Services → Configure Pricing</strong> to manage.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           )}
