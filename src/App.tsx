@@ -60,8 +60,8 @@ import {
   Integrations,
   Webhooks,
   System,
-  Notifications,
 } from "./pages/PlaceholderPage";
+import Notifications from "./pages/Notifications";
 
 const queryClient = new QueryClient();
 

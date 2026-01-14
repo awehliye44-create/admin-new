@@ -733,6 +733,153 @@ export type Database = {
         }
         Relationships: []
       }
+      notification_settings: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          setting_key: string
+          setting_value: Json
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          setting_key: string
+          setting_value?: Json
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          setting_key?: string
+          setting_value?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      notification_templates: {
+        Row: {
+          category: string
+          created_at: string
+          id: string
+          is_active: boolean
+          message_template: string
+          name: string
+          priority: string
+          title_template: string
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          category?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          message_template: string
+          name: string
+          priority?: string
+          title_template: string
+          type?: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          message_template?: string
+          name?: string
+          priority?: string
+          title_template?: string
+          type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      notifications: {
+        Row: {
+          action_label: string | null
+          action_url: string | null
+          category: string
+          created_at: string
+          created_by: string | null
+          expires_at: string | null
+          id: string
+          is_dismissed: boolean
+          is_read: boolean
+          message: string
+          metadata: Json | null
+          priority: string
+          target_audience: string
+          target_region_id: string | null
+          target_service_area_id: string | null
+          target_user_id: string | null
+          title: string
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          action_label?: string | null
+          action_url?: string | null
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          id?: string
+          is_dismissed?: boolean
+          is_read?: boolean
+          message: string
+          metadata?: Json | null
+          priority?: string
+          target_audience?: string
+          target_region_id?: string | null
+          target_service_area_id?: string | null
+          target_user_id?: string | null
+          title: string
+          type?: string
+          updated_at?: string
+        }
+        Update: {
+          action_label?: string | null
+          action_url?: string | null
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          id?: string
+          is_dismissed?: boolean
+          is_read?: boolean
+          message?: string
+          metadata?: Json | null
+          priority?: string
+          target_audience?: string
+          target_region_id?: string | null
+          target_service_area_id?: string | null
+          target_user_id?: string | null
+          title?: string
+          type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_target_region_id_fkey"
+            columns: ["target_region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_target_service_area_id_fkey"
+            columns: ["target_service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       promo_codes: {
         Row: {
           applicable_vehicle_types: string[] | null
