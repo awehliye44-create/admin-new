@@ -46,10 +46,6 @@ export const PromoCodes = () => <PlaceholderPage title="Promo Codes" description
 export const Airports = () => <PlaceholderPage title="Manage Airports" description="Configure airport pickup and dropoff zones" />;
 
 export const RiderFeedback = () => <PlaceholderPage title="Rider Feedback" description="View and manage rider feedback" />;
-export const Suspensions = () => <PlaceholderPage title="Account Suspension" description="Manage suspended accounts" />;
-export const Complaints = () => <PlaceholderPage title="Complaints Dashboard" description="Handle customer complaints" />;
-export const Tickets = () => <PlaceholderPage title="Tickets" description="Manage support tickets" />;
-export const Categories = () => <PlaceholderPage title="Categories" description="Manage ticket and complaint categories" />;
 export const Content = () => <PlaceholderPage title="Manage Content" description="Edit app content and legal documents" />;
 // GeneralSettings, Integrations and Webhooks moved to dedicated files
 export const System = () => <PlaceholderPage title="System Requirements" description="View system requirements and status" />;
