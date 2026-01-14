@@ -317,11 +317,41 @@ export default function AutoDispatchRules() {
     try {
       const dbData = mapSettingsToDb(settings, serviceAreaId);
 
-      const { error } = await supabase
+      // Check if a record already exists for this service area
+      let existingQuery = supabase
         .from('dispatch_settings')
-        .upsert(dbData, {
-          onConflict: 'service_area_id'
-        });
+        .select('id');
+
+      if (serviceAreaId === null) {
+        existingQuery = existingQuery.is('service_area_id', null);
+      } else {
+        existingQuery = existingQuery.eq('service_area_id', serviceAreaId);
+      }
+
+      const { data: existing } = await existingQuery.maybeSingle();
+
+      let error;
+      if (existing) {
+        // Update existing record
+        let updateQuery = supabase
+          .from('dispatch_settings')
+          .update(dbData);
+
+        if (serviceAreaId === null) {
+          updateQuery = updateQuery.is('service_area_id', null);
+        } else {
+          updateQuery = updateQuery.eq('service_area_id', serviceAreaId);
+        }
+
+        const result = await updateQuery;
+        error = result.error;
+      } else {
+        // Insert new record
+        const result = await supabase
+          .from('dispatch_settings')
+          .insert(dbData);
+        error = result.error;
+      }
 
       if (error) throw error;
 

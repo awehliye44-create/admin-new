@@ -338,7 +338,7 @@ export type Database = {
           {
             foreignKeyName: "dispatch_settings_service_area_id_fkey"
             columns: ["service_area_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "service_areas"
             referencedColumns: ["id"]
           },
