@@ -370,6 +370,25 @@ serve(async (req) => {
     // Calculate offer expiry time
     const expiresAt = new Date(Date.now() + offer_timeout_seconds * 1000).toISOString();
 
+    // Generate trip number atomically using service area
+    let tripNumber = null;
+    let sequenceNo = null;
+    let serviceAreaCode = null;
+
+    if (matchedServiceAreaIds[0]) {
+      const { data: seqData, error: seqError } = await supabase
+        .rpc('generate_trip_number', { p_service_area_id: matchedServiceAreaIds[0] });
+      
+      if (!seqError && seqData && seqData.length > 0) {
+        tripNumber = seqData[0].trip_number;
+        sequenceNo = seqData[0].sequence_no;
+        serviceAreaCode = seqData[0].service_area_code;
+        console.log(`[dispatch-trip] Generated trip number: ${tripNumber}`);
+      } else {
+        console.warn('[dispatch-trip] Could not generate trip number:', seqError);
+      }
+    }
+
     // Create offers for selected drivers (BROADCAST)
     const offers = nearbyDrivers.map(driver => ({
       trip_id,
@@ -393,15 +412,23 @@ serve(async (req) => {
 
     console.log(`[dispatch-trip] Created ${createdOffers?.length} offers for broadcast`);
 
-    // Update trip status to 'offered' and set deadline
+    // Update trip status to 'offered' and set deadline with trip number
+    const tripUpdate: Record<string, any> = {
+      status: 'offered',
+      confirm_deadline_at: expiresAt,
+      currency: matchedRegion.currency_code,
+      service_area_id: matchedServiceAreaIds[0]
+    };
+
+    if (tripNumber) {
+      tripUpdate.trip_code = tripNumber;
+      tripUpdate.service_area_code = serviceAreaCode;
+      tripUpdate.sequence_no = sequenceNo;
+    }
+
     const { error: tripUpdateError } = await supabase
       .from('trips')
-      .update({
-        status: 'offered',
-        confirm_deadline_at: expiresAt,
-        currency: matchedRegion.currency_code,
-        service_area_id: matchedServiceAreaIds[0]
-      })
+      .update(tripUpdate)
       .eq('id', trip_id);
 
     if (tripUpdateError) {
@@ -414,6 +441,7 @@ serve(async (req) => {
       success: true,
       dispatched: true,
       broadcast: true,
+      trip_number: tripNumber,
       offers_sent: nearbyDrivers.length,
       expires_at: expiresAt,
       timeout_seconds: offer_timeout_seconds,

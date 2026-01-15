@@ -1810,6 +1810,44 @@ export type Database = {
           },
         ]
       }
+      service_area_sequences: {
+        Row: {
+          created_at: string
+          current_value: number
+          id: string
+          sequence_type: string
+          service_area_code: string
+          service_area_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          current_value?: number
+          id?: string
+          sequence_type?: string
+          service_area_code: string
+          service_area_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          current_value?: number
+          id?: string
+          sequence_type?: string
+          service_area_code?: string
+          service_area_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_area_sequences_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       service_area_vehicle_pricing: {
         Row: {
           base_fare: number
@@ -1878,30 +1916,45 @@ export type Database = {
       }
       service_areas: {
         Row: {
+          code: string | null
+          country: string | null
           created_at: string
+          currency_code: string | null
+          distance_unit: string | null
           geo_boundary: Json | null
           id: string
           is_active: boolean
           name: string
           region_id: string
+          timezone: string | null
           updated_at: string
         }
         Insert: {
+          code?: string | null
+          country?: string | null
           created_at?: string
+          currency_code?: string | null
+          distance_unit?: string | null
           geo_boundary?: Json | null
           id?: string
           is_active?: boolean
           name: string
           region_id: string
+          timezone?: string | null
           updated_at?: string
         }
         Update: {
+          code?: string | null
+          country?: string | null
           created_at?: string
+          currency_code?: string | null
+          distance_unit?: string | null
           geo_boundary?: Json | null
           id?: string
           is_active?: boolean
           name?: string
           region_id?: string
+          timezone?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -2079,6 +2132,8 @@ export type Database = {
           scheduled_broadcast_at: string | null
           scheduled_convert_at: string | null
           scheduled_status: string | null
+          sequence_no: number | null
+          service_area_code: string | null
           service_area_id: string | null
           special_instructions: string | null
           started_at: string | null
@@ -2137,6 +2192,8 @@ export type Database = {
           scheduled_broadcast_at?: string | null
           scheduled_convert_at?: string | null
           scheduled_status?: string | null
+          sequence_no?: number | null
+          service_area_code?: string | null
           service_area_id?: string | null
           special_instructions?: string | null
           started_at?: string | null
@@ -2195,6 +2252,8 @@ export type Database = {
           scheduled_broadcast_at?: string | null
           scheduled_convert_at?: string | null
           scheduled_status?: string | null
+          sequence_no?: number | null
+          service_area_code?: string | null
           service_area_id?: string | null
           special_instructions?: string | null
           started_at?: string | null
@@ -2603,6 +2662,14 @@ export type Database = {
         Returns: Json
       }
       expire_stale_offers: { Args: never; Returns: Json }
+      generate_trip_number: {
+        Args: { p_service_area_id: string }
+        Returns: {
+          sequence_no: number
+          service_area_code: string
+          trip_number: string
+        }[]
+      }
       get_region_code: { Args: { p_region_id: string }; Returns: string }
       has_role: {
         Args: {

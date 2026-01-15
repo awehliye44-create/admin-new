@@ -80,6 +80,11 @@ interface Region {
 interface ServiceArea {
   id: string;
   name: string;
+  code: string | null;
+  country: string | null;
+  timezone: string;
+  currency_code: string;
+  distance_unit: string;
   region_id: string;
   is_active: boolean;
   geo_boundary?: any;
@@ -101,9 +106,33 @@ const CURRENCIES: Record<string, { symbol: string; name: string }> = {
   EUR: { symbol: '€', name: 'Euro' },
   CAD: { symbol: 'C$', name: 'Canadian Dollar' },
   AUD: { symbol: 'A$', name: 'Australian Dollar' },
+  NZD: { symbol: 'NZ$', name: 'New Zealand Dollar' },
   INR: { symbol: '₹', name: 'Indian Rupee' },
   AED: { symbol: 'د.إ', name: 'UAE Dirham' },
+  NGN: { symbol: '₦', name: 'Nigerian Naira' },
+  KES: { symbol: 'KSh', name: 'Kenyan Shilling' },
+  ZAR: { symbol: 'R', name: 'South African Rand' },
+  SGD: { symbol: 'S$', name: 'Singapore Dollar' },
+  JPY: { symbol: '¥', name: 'Japanese Yen' },
 };
+
+const TIMEZONES = [
+  { value: 'Europe/London', label: 'London (GMT/BST)' },
+  { value: 'Europe/Paris', label: 'Paris (CET/CEST)' },
+  { value: 'Europe/Berlin', label: 'Berlin (CET/CEST)' },
+  { value: 'America/New_York', label: 'New York (EST/EDT)' },
+  { value: 'America/Chicago', label: 'Chicago (CST/CDT)' },
+  { value: 'America/Los_Angeles', label: 'Los Angeles (PST/PDT)' },
+  { value: 'Africa/Lagos', label: 'Lagos (WAT)' },
+  { value: 'Africa/Nairobi', label: 'Nairobi (EAT)' },
+  { value: 'Africa/Johannesburg', label: 'Johannesburg (SAST)' },
+  { value: 'Asia/Dubai', label: 'Dubai (GST)' },
+  { value: 'Asia/Singapore', label: 'Singapore (SGT)' },
+  { value: 'Asia/Tokyo', label: 'Tokyo (JST)' },
+  { value: 'Australia/Sydney', label: 'Sydney (AEST/AEDT)' },
+  { value: 'Australia/Perth', label: 'Perth (AWST)' },
+  { value: 'Pacific/Auckland', label: 'Auckland (NZST/NZDT)' },
+];
 
 export default function Services() {
   const navigate = useNavigate();
@@ -123,8 +152,23 @@ export default function Services() {
   const [selectedArea, setSelectedArea] = useState<ServiceArea | null>(null);
 
   // Form states
-  const [formData, setFormData] = useState<{ name: string; region_id: string; is_active: boolean; geo_boundary: any }>({ 
+  const [formData, setFormData] = useState<{ 
+    name: string; 
+    code: string;
+    country: string;
+    timezone: string;
+    currency_code: string;
+    distance_unit: string;
+    region_id: string; 
+    is_active: boolean; 
+    geo_boundary: any 
+  }>({ 
     name: '', 
+    code: '',
+    country: '',
+    timezone: 'Europe/London',
+    currency_code: 'GBP',
+    distance_unit: 'km',
     region_id: '', 
     is_active: true,
     geo_boundary: null,
@@ -135,6 +179,20 @@ export default function Services() {
   // Stats
   const [driverCounts, setDriverCounts] = useState<Record<string, number>>({});
   const [pricingStatus, setPricingStatus] = useState<Record<string, PricingStatus>>({});
+
+  const resetFormData = () => {
+    setFormData({
+      name: '',
+      code: '',
+      country: '',
+      timezone: 'Europe/London',
+      currency_code: 'GBP',
+      distance_unit: 'km',
+      region_id: regions[0]?.id || '',
+      is_active: true,
+      geo_boundary: null,
+    });
+  };
 
   const fetchData = async () => {
     try {
@@ -215,6 +273,10 @@ export default function Services() {
       toast.error('Please enter a service area name');
       return;
     }
+    if (!formData.code.trim()) {
+      toast.error('Please enter an area code (e.g., NYC, LON, DXB)');
+      return;
+    }
     if (!formData.region_id) {
       toast.error('Please select a region');
       return;
@@ -225,7 +287,12 @@ export default function Services() {
       const { data, error } = await supabase
         .from('service_areas')
         .insert({ 
-          name: formData.name, 
+          name: formData.name,
+          code: formData.code.toUpperCase(),
+          country: formData.country || null,
+          timezone: formData.timezone,
+          currency_code: formData.currency_code,
+          distance_unit: formData.distance_unit,
           region_id: formData.region_id, 
           is_active: formData.is_active,
           geo_boundary: formData.geo_boundary,
@@ -242,7 +309,7 @@ export default function Services() {
       }));
       toast.success('Service area created successfully');
       setIsAddDialogOpen(false);
-      setFormData({ name: '', region_id: '', is_active: true, geo_boundary: null });
+      resetFormData();
       setActiveTab('details');
     } catch (err: any) {
       console.error('Error creating service area:', err);
@@ -263,7 +330,12 @@ export default function Services() {
       const { data, error } = await supabase
         .from('service_areas')
         .update({ 
-          name: formData.name, 
+          name: formData.name,
+          code: formData.code.toUpperCase(),
+          country: formData.country || null,
+          timezone: formData.timezone,
+          currency_code: formData.currency_code,
+          distance_unit: formData.distance_unit,
           region_id: formData.region_id, 
           is_active: formData.is_active,
           geo_boundary: formData.geo_boundary,
@@ -334,7 +406,17 @@ export default function Services() {
 
   const openEditDialog = (area: ServiceArea) => {
     setSelectedArea(area);
-    setFormData({ name: area.name, region_id: area.region_id, is_active: area.is_active, geo_boundary: area.geo_boundary || null });
+    setFormData({ 
+      name: area.name, 
+      code: area.code || '',
+      country: area.country || '',
+      timezone: area.timezone || 'Europe/London',
+      currency_code: area.currency_code || 'GBP',
+      distance_unit: area.distance_unit || 'km',
+      region_id: area.region_id, 
+      is_active: area.is_active, 
+      geo_boundary: area.geo_boundary || null 
+    });
     setActiveTab('details');
     setIsEditDialogOpen(true);
   };
@@ -490,7 +572,7 @@ export default function Services() {
               </SelectContent>
             </Select>
             <Button onClick={() => {
-              setFormData({ name: '', region_id: regions[0]?.id || '', is_active: true, geo_boundary: null });
+              resetFormData();
               setActiveTab('details');
               setIsAddDialogOpen(true);
             }}>
@@ -517,7 +599,7 @@ export default function Services() {
               </p>
               {!searchQuery && regionFilter === 'all' && statusFilter === 'all' && (
                 <Button onClick={() => {
-                  setFormData({ name: '', region_id: regions[0]?.id || '', is_active: true, geo_boundary: null });
+                  resetFormData();
                   setActiveTab('details');
                   setIsAddDialogOpen(true);
                 }}>
@@ -685,83 +767,131 @@ export default function Services() {
             </TabsList>
             
             <TabsContent value="details" className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Area Name *</Label>
-                <Input
-                  id="name"
-                  placeholder="e.g., Central London, North Manchester"
-                  value={formData.name}
-                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="region">Region *</Label>
-                <Select
-                  value={formData.region_id}
-                  onValueChange={(value) => setFormData(prev => ({ ...prev, region_id: value, geo_boundary: null }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a region" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {regions.map(region => (
-                      <SelectItem key={region.id} value={region.id}>
-                        <span className="flex items-center gap-2">
-                          {region.name}
-                          <span className="text-muted-foreground text-xs">
-                            ({getCurrencySymbol(region.currency_code)}, {region.distance_unit === 'mile' ? 'mi' : 'km'})
-                          </span>
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Show inherited settings */}
-              {getSelectedRegion() && (
-                <Card className="bg-muted/50">
-                  <CardContent className="pt-4">
-                    <p className="text-sm font-medium mb-3">Inherited from Region</p>
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div className="flex items-center gap-2">
-                        <DollarSign className="h-4 w-4 text-muted-foreground" />
-                        <span>Currency: <strong>{getCurrencySymbol(getSelectedRegion()!.currency_code)} {getSelectedRegion()!.currency_code}</strong></span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Ruler className="h-4 w-4 text-muted-foreground" />
-                        <span>Distance: <strong>{getSelectedRegion()!.distance_unit === 'mile' ? 'Miles' : 'Kilometers'}</strong></span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Clock className="h-4 w-4 text-muted-foreground" />
-                        <span>Timezone: <strong>{getSelectedRegion()!.timezone.split('/')[1] || getSelectedRegion()!.timezone}</strong></span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {getSelectedRegion()!.status === 'active' ? (
-                          <CheckCircle2 className="h-4 w-4 text-green-500" />
-                        ) : (
-                          <XCircle className="h-4 w-4 text-gray-400" />
-                        )}
-                        <span>Region: <strong className={getSelectedRegion()!.status === 'active' ? 'text-green-600' : 'text-gray-500'}>
-                          {getSelectedRegion()!.status}
-                        </strong></span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              <div className="flex items-center justify-between pt-2">
-                <div>
-                  <Label htmlFor="is_active">Active Status</Label>
-                  <p className="text-xs text-muted-foreground">Only active areas accept rides</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="name">Area Name *</Label>
+                  <Input
+                    id="name"
+                    placeholder="e.g., Central London, Manhattan"
+                    value={formData.name}
+                    onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                  />
                 </div>
-                <Switch
-                  id="is_active"
-                  checked={formData.is_active}
-                  onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_active: checked }))}
-                />
+                
+                <div className="space-y-2">
+                  <Label htmlFor="code">Area Code *</Label>
+                  <Input
+                    id="code"
+                    placeholder="e.g., LON, NYC, DXB"
+                    value={formData.code}
+                    onChange={(e) => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase().slice(0, 5) }))}
+                    maxLength={5}
+                    className="uppercase"
+                  />
+                  <p className="text-xs text-muted-foreground">Used for trip numbers (e.g., NYC0001)</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="country">Country</Label>
+                  <Input
+                    id="country"
+                    placeholder="e.g., United Kingdom, USA"
+                    value={formData.country}
+                    onChange={(e) => setFormData(prev => ({ ...prev, country: e.target.value }))}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="region">Region *</Label>
+                  <Select
+                    value={formData.region_id}
+                    onValueChange={(value) => setFormData(prev => ({ ...prev, region_id: value, geo_boundary: null }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a region" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {regions.map(region => (
+                        <SelectItem key={region.id} value={region.id}>
+                          {region.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="timezone">Timezone *</Label>
+                  <Select
+                    value={formData.timezone}
+                    onValueChange={(value) => setFormData(prev => ({ ...prev, timezone: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select timezone" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TIMEZONES.map(tz => (
+                        <SelectItem key={tz.value} value={tz.value}>
+                          {tz.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">Used for daily reports & driver earnings</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="currency">Currency *</Label>
+                  <Select
+                    value={formData.currency_code}
+                    onValueChange={(value) => setFormData(prev => ({ ...prev, currency_code: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select currency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(CURRENCIES).map(([code, { symbol, name }]) => (
+                        <SelectItem key={code} value={code}>
+                          {symbol} {code} - {name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="distance_unit">Distance Unit</Label>
+                  <Select
+                    value={formData.distance_unit}
+                    onValueChange={(value) => setFormData(prev => ({ ...prev, distance_unit: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="km">Kilometers (km)</SelectItem>
+                      <SelectItem value="mile">Miles (mi)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex items-center justify-between pt-6">
+                  <div>
+                    <Label htmlFor="is_active">Active Status</Label>
+                    <p className="text-xs text-muted-foreground">Only active areas accept rides</p>
+                  </div>
+                  <Switch
+                    id="is_active"
+                    checked={formData.is_active}
+                    onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_active: checked }))}
+                  />
+                </div>
               </div>
             </TabsContent>
             
