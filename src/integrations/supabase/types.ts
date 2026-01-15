@@ -1594,6 +1594,73 @@ export type Database = {
         }
         Relationships: []
       }
+      ride_offers: {
+        Row: {
+          broadcast_round: number
+          created_at: string
+          distance_meters: number | null
+          driver_id: string
+          eta_seconds: number | null
+          expires_at: string
+          id: string
+          offered_at: string
+          responded_at: string | null
+          status: string
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          broadcast_round?: number
+          created_at?: string
+          distance_meters?: number | null
+          driver_id: string
+          eta_seconds?: number | null
+          expires_at: string
+          id?: string
+          offered_at?: string
+          responded_at?: string | null
+          status?: string
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          broadcast_round?: number
+          created_at?: string
+          distance_meters?: number | null
+          driver_id?: string
+          eta_seconds?: number | null
+          expires_at?: string
+          id?: string
+          offered_at?: string
+          responded_at?: string | null
+          status?: string
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ride_offers_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "ride_offers_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ride_offers_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       rider_feedback: {
         Row: {
           admin_notes: string | null
@@ -1966,6 +2033,7 @@ export type Database = {
       }
       trips: {
         Row: {
+          broadcast_started_at: string | null
           client_action_id: string | null
           completed_at: string | null
           confirm_deadline_at: string | null
@@ -1973,8 +2041,10 @@ export type Database = {
           created_at: string
           currency: string | null
           currency_code: string | null
+          current_broadcast_round: number | null
           current_stop_index: number | null
           dispatch_mode: string | null
+          dispatch_status: string | null
           driver_confirm_deadline_at: string | null
           driver_id: string | null
           driver_location_lat: number | null
@@ -1991,6 +2061,8 @@ export type Database = {
           id: string
           is_scheduled: boolean | null
           job_type: string | null
+          last_broadcast_at: string | null
+          max_broadcast_rounds: number | null
           passenger_id: string
           passenger_name: string | null
           passenger_phone: string | null
@@ -2019,6 +2091,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          broadcast_started_at?: string | null
           client_action_id?: string | null
           completed_at?: string | null
           confirm_deadline_at?: string | null
@@ -2026,8 +2099,10 @@ export type Database = {
           created_at?: string
           currency?: string | null
           currency_code?: string | null
+          current_broadcast_round?: number | null
           current_stop_index?: number | null
           dispatch_mode?: string | null
+          dispatch_status?: string | null
           driver_confirm_deadline_at?: string | null
           driver_id?: string | null
           driver_location_lat?: number | null
@@ -2044,6 +2119,8 @@ export type Database = {
           id?: string
           is_scheduled?: boolean | null
           job_type?: string | null
+          last_broadcast_at?: string | null
+          max_broadcast_rounds?: number | null
           passenger_id: string
           passenger_name?: string | null
           passenger_phone?: string | null
@@ -2072,6 +2149,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          broadcast_started_at?: string | null
           client_action_id?: string | null
           completed_at?: string | null
           confirm_deadline_at?: string | null
@@ -2079,8 +2157,10 @@ export type Database = {
           created_at?: string
           currency?: string | null
           currency_code?: string | null
+          current_broadcast_round?: number | null
           current_stop_index?: number | null
           dispatch_mode?: string | null
+          dispatch_status?: string | null
           driver_confirm_deadline_at?: string | null
           driver_id?: string | null
           driver_location_lat?: number | null
@@ -2097,6 +2177,8 @@ export type Database = {
           id?: string
           is_scheduled?: boolean | null
           job_type?: string | null
+          last_broadcast_at?: string | null
+          max_broadcast_rounds?: number | null
           passenger_id?: string
           passenger_name?: string | null
           passenger_phone?: string | null
@@ -2481,6 +2563,10 @@ export type Database = {
       }
     }
     Functions: {
+      accept_ride_offer: {
+        Args: { p_driver_id: string; p_offer_id: string }
+        Returns: Json
+      }
       can_driver_edit_vehicle: {
         Args: { p_driver_id: string }
         Returns: boolean
@@ -2512,6 +2598,11 @@ export type Database = {
         }
         Returns: string
       }
+      decline_ride_offer: {
+        Args: { p_driver_id: string; p_offer_id: string }
+        Returns: Json
+      }
+      expire_stale_offers: { Args: never; Returns: Json }
       get_region_code: { Args: { p_region_id: string }; Returns: string }
       has_role: {
         Args: {

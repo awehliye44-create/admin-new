@@ -1,6 +1,6 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
-import { ShieldAlert } from 'lucide-react';
+import { ShieldAlert, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
@@ -9,11 +9,24 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { user, isAdmin, signOut } = useAuth();
+  const { user, isAdmin, isAuthReady, signOut } = useAuth();
+  const location = useLocation();
 
-  // Not logged in - redirect to auth
+  // Still initializing auth - show loading
+  if (!isAuthReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-sidebar">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Auth ready, not logged in - redirect to auth with return path
   if (!user) {
-    return <Navigate to="/auth" replace />;
+    return <Navigate to="/auth" state={{ from: location.pathname }} replace />;
   }
 
   // Logged in but not admin - show access denied
