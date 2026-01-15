@@ -7,6 +7,7 @@ interface AuthContextType {
   session: Session | null;
   isAdmin: boolean;
   isLoading: boolean;
+  isAuthReady: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
@@ -18,8 +19,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isAdmin, setIsAdmin] = useState(true); // Default to true to avoid flash
-  const [isLoading, setIsLoading] = useState(false); // No loading state
-  const [isInitialized, setIsInitialized] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isAuthReady, setIsAuthReady] = useState(false);
 
   const checkAdminRole = async (userId: string) => {
     try {
@@ -54,7 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setIsAdmin(false);
       }
-      setIsInitialized(true);
+      setIsAuthReady(true);
     });
 
     // Set up auth state listener for future changes
@@ -109,7 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, isAdmin, isLoading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, session, isAdmin, isLoading, isAuthReady, signIn, signUp, signOut }}>
       {children}
     </AuthContext.Provider>
   );
