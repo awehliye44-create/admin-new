@@ -19,7 +19,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { 
   PlusCircle, Loader2, MapPin, User, Phone, Clock, Car,
   DollarSign, FileText, Calendar, CheckCircle2, AlertCircle,
-  CreditCard, Banknote, Wallet, Smartphone, Globe, Navigation
+  CreditCard, Banknote, Wallet, Smartphone, Globe, Navigation, Building2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -63,6 +63,12 @@ interface ServiceArea {
   region_id: string;
 }
 
+interface CorporateAccount {
+  id: string;
+  company_name: string;
+  status: string;
+}
+
 interface ServiceAreaPaymentConfig {
   cash_enabled: boolean;
   card_enabled: boolean;
@@ -91,6 +97,7 @@ export default function ManualTrip() {
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
+  const [corporateAccounts, setCorporateAccounts] = useState<CorporateAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -128,12 +135,14 @@ export default function ManualTrip() {
   const [scheduledTime, setScheduledTime] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>('cash');
   const [jobType, setJobType] = useState('ride');
+  const [selectedCorporateAccountId, setSelectedCorporateAccountId] = useState('');
+  const [isCorporateTrip, setIsCorporateTrip] = useState(false);
 
   // Fetch initial data
   useEffect(() => {
     async function fetchData() {
       try {
-        const [driversRes, vehicleTypesRes, customersRes, serviceAreasRes] = await Promise.all([
+        const [driversRes, vehicleTypesRes, customersRes, serviceAreasRes, corporateRes] = await Promise.all([
           supabase
             .from('drivers')
             .select('id, first_name, last_name, phone, is_online, rating')
@@ -154,13 +163,20 @@ export default function ManualTrip() {
             .select('id, name, country, currency_code, distance_unit, center_lat, center_lng, region_id')
             .eq('is_active', true)
             .order('name'),
+          supabase
+            .from('corporate_accounts')
+            .select('id, company_name, status')
+            .eq('status', 'active')
+            .order('company_name'),
         ]);
 
         if (driversRes.error) throw driversRes.error;
         if (vehicleTypesRes.error) throw vehicleTypesRes.error;
         if (serviceAreasRes.error) throw serviceAreasRes.error;
+        if (corporateRes.error) throw corporateRes.error;
 
         setDrivers(driversRes.data || []);
+        setCorporateAccounts(corporateRes.data || []);
         setVehicleTypes(vehicleTypesRes.data || []);
         setCustomers(customersRes.data || []);
         setServiceAreas(serviceAreasRes.data || []);
@@ -336,6 +352,8 @@ export default function ManualTrip() {
     setScheduledTime('');
     setPaymentMethod('cash');
     setJobType('ride');
+    setIsCorporateTrip(false);
+    setSelectedCorporateAccountId('');
     setIsSuccess(false);
   };
 
@@ -374,6 +392,12 @@ export default function ManualTrip() {
     // For scheduled trips, validate date/time
     if (isScheduled && (!scheduledDate || !scheduledTime)) {
       toast.error('Please select scheduled date and time');
+      return;
+    }
+
+    // For corporate trips, require account selection
+    if (isCorporateTrip && !selectedCorporateAccountId) {
+      toast.error('Please select a corporate account');
       return;
     }
 
@@ -432,7 +456,8 @@ export default function ManualTrip() {
         trip_code: generateTripCode(),
         currency_code: currencyCode,
         service_area_id: selectedServiceAreaId,
-        booking_source: 'admin_manual',
+        booking_source: isCorporateTrip ? 'corporate' : 'admin_manual',
+        corporate_account_id: isCorporateTrip && selectedCorporateAccountId ? selectedCorporateAccountId : null,
       };
 
       const { error } = await supabase
@@ -540,6 +565,63 @@ export default function ManualTrip() {
                         <Navigation className="h-3 w-3" />
                         GPS active
                       </span>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Corporate Booking */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Building2 className="h-5 w-5 text-primary" />
+                  Corporate Booking
+                </CardTitle>
+                <CardDescription>
+                  Link this trip to a corporate account for billing
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="isCorporateTrip"
+                    checked={isCorporateTrip}
+                    onCheckedChange={(checked) => {
+                      setIsCorporateTrip(checked === true);
+                      if (!checked) setSelectedCorporateAccountId('');
+                    }}
+                  />
+                  <Label htmlFor="isCorporateTrip" className="cursor-pointer">
+                    This is a corporate trip
+                  </Label>
+                </div>
+                
+                {isCorporateTrip && (
+                  <div>
+                    <Label>Corporate Account *</Label>
+                    <Select 
+                      value={selectedCorporateAccountId} 
+                      onValueChange={setSelectedCorporateAccountId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select corporate account..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {corporateAccounts.map(account => (
+                          <SelectItem key={account.id} value={account.id}>
+                            <div className="flex items-center gap-2">
+                              <Building2 className="h-4 w-4 text-muted-foreground" />
+                              {account.company_name}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {corporateAccounts.length === 0 && (
+                      <p className="text-sm text-muted-foreground mt-2">
+                        No active corporate accounts found. Create one in Corporate Accounts.
+                      </p>
                     )}
                   </div>
                 )}
