@@ -29,7 +29,6 @@ import ZonePricing from "./pages/ZonePricing";
 import CorporateFares from "./pages/CorporateFares";
 import FareSimulator from "./pages/FareSimulator";
 import PromoCodes from "./pages/PromoCodes";
-import PlaceholderPage from "./pages/PlaceholderPage";
 import CorporateAccounts from "./pages/CorporateAccounts";
 import CorporateBilling from "./pages/CorporateBilling";
 import CorporateReports from "./pages/CorporateReports";
@@ -56,25 +55,16 @@ import SystemRequirements from "./pages/SystemRequirements";
 import RolesPermissions from "./pages/RolesPermissions";
 import Notifications from "./pages/Notifications";
 import AdminProfile from "./pages/AdminProfile";
+import Settings from "./pages/Settings";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AdminShell } from "@/components/layout/AdminShell";
-import Disputes from "./pages/Disputes";
-import DisputeSettings from "./pages/DisputeSettings";
 
 import {
   Airports,
   Content,
   System,
 } from "./pages/PlaceholderPage";
-import AccountSuspension from "./pages/AccountSuspension";
-import ComplaintsDashboard from "./pages/ComplaintsDashboard";
-import Tickets from "./pages/Tickets";
-import SupportCategories from "./pages/SupportCategories";
-import GeneralSettings from "./pages/GeneralSettings";
-import Notifications from "./pages/Notifications";
-import SystemRequirements from "./pages/SystemRequirements";
-import AdminProfile from "./pages/AdminProfile";
 
 const queryClient = new QueryClient();
 
@@ -146,8 +136,11 @@ const App = () => (
               
               {/* Finance & Payouts */}
               <Route path="payments" element={<Payments />} />
+              <Route path="admin-payments" element={<AdminPayments />} />
               <Route path="driver-payouts" element={<DriverPayouts />} />
+              <Route path="admin-settlements" element={<AdminDriverSettlements />} />
               <Route path="driver-wallet" element={<DriverWallet />} />
+              <Route path="payout-batches" element={<AdminPayoutBatches />} />
               <Route path="disputes" element={<Disputes />} />
               <Route path="dispute-settings" element={<DisputeSettings />} />
               
