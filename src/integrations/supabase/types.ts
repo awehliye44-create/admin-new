@@ -2404,6 +2404,7 @@ export type Database = {
           eta_seconds: number | null
           expires_at: string
           id: string
+          is_stacked: boolean
           offered_at: string
           responded_at: string | null
           status: string
@@ -2418,6 +2419,7 @@ export type Database = {
           eta_seconds?: number | null
           expires_at: string
           id?: string
+          is_stacked?: boolean
           offered_at?: string
           responded_at?: string | null
           status?: string
@@ -2432,6 +2434,7 @@ export type Database = {
           eta_seconds?: number | null
           expires_at?: string
           id?: string
+          is_stacked?: boolean
           offered_at?: string
           responded_at?: string | null
           status?: string
@@ -3226,6 +3229,7 @@ export type Database = {
           service_area_code: string | null
           service_area_id: string | null
           special_instructions: string | null
+          stacked_trip_id: string | null
           started_at: string | null
           status: string | null
           stops: Json | null
@@ -3317,6 +3321,7 @@ export type Database = {
           service_area_code?: string | null
           service_area_id?: string | null
           special_instructions?: string | null
+          stacked_trip_id?: string | null
           started_at?: string | null
           status?: string | null
           stops?: Json | null
@@ -3408,6 +3413,7 @@ export type Database = {
           service_area_code?: string | null
           service_area_id?: string | null
           special_instructions?: string | null
+          stacked_trip_id?: string | null
           started_at?: string | null
           status?: string | null
           stops?: Json | null
@@ -3535,6 +3541,20 @@ export type Database = {
             columns: ["service_area_id"]
             isOneToOne: false
             referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_stacked_trip_id_fkey"
+            columns: ["stacked_trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_stacked_trip_id_fkey"
+            columns: ["stacked_trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
             referencedColumns: ["id"]
           },
         ]
