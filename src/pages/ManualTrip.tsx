@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Separator } from '@/components/ui/separator';
 import {
   Select,
   SelectContent,
@@ -17,11 +18,15 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { 
   PlusCircle, Loader2, MapPin, User, Phone, Clock, Car,
-  DollarSign, FileText, Calendar, CheckCircle2, AlertCircle
+  DollarSign, FileText, Calendar, CheckCircle2, AlertCircle,
+  CreditCard, Banknote, Wallet, Smartphone, Globe, Navigation
 } from 'lucide-react';
-import { format, addHours } from 'date-fns';
+import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { getCurrencySymbol } from '@/lib/regionSettings';
+import { getCurrencySymbol, getDistanceUnitShort, formatDistance } from '@/lib/regionSettings';
+import { PlacesAutocomplete } from '@/components/places/PlacesAutocomplete';
+import { useGeoLocation } from '@/hooks/useGeoLocation';
+import { ALL_PAYMENT_METHODS, PaymentMethodType } from '@/hooks/useServiceAreaPaymentMethods';
 
 interface Driver {
   id: string;
@@ -47,33 +52,88 @@ interface Customer {
   user_id: string;
 }
 
+interface ServiceArea {
+  id: string;
+  name: string;
+  country: string | null;
+  currency_code: string | null;
+  distance_unit: string | null;
+  center_lat: number | null;
+  center_lng: number | null;
+  region_id: string;
+}
+
+interface ServiceAreaPaymentConfig {
+  cash_enabled: boolean;
+  card_enabled: boolean;
+  wallet_enabled: boolean;
+  apple_pay_enabled: boolean;
+  google_pay_enabled: boolean;
+}
+
+interface PlaceResult {
+  address: string;
+  lat: number;
+  lng: number;
+  placeId: string;
+}
+
+const PAYMENT_ICONS: Record<string, React.ReactNode> = {
+  cash: <Banknote className="h-4 w-4" />,
+  card: <CreditCard className="h-4 w-4" />,
+  wallet: <Wallet className="h-4 w-4" />,
+  apple_pay: <Smartphone className="h-4 w-4" />,
+  google_pay: <Smartphone className="h-4 w-4" />,
+};
+
 export default function ManualTrip() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
+  // Service area settings
+  const [selectedServiceAreaId, setSelectedServiceAreaId] = useState('');
+  const [paymentConfig, setPaymentConfig] = useState<ServiceAreaPaymentConfig | null>(null);
+  const [currencyCode, setCurrencyCode] = useState('GBP');
+  const [distanceUnit, setDistanceUnit] = useState<'mile' | 'km'>('mile');
+  const [serviceAreaCenter, setServiceAreaCenter] = useState<{ lat: number; lng: number } | null>(null);
+  const [serviceAreaCountryCode, setServiceAreaCountryCode] = useState<string | null>(null);
+
+  // User location
+  const { location: userLocation, isLoading: isLocationLoading } = useGeoLocation({ watchPosition: false });
+
   // Form state
   const [passengerName, setPassengerName] = useState('');
   const [passengerPhone, setPassengerPhone] = useState('');
+  const [passengerEmail, setPassengerEmail] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [pickupAddress, setPickupAddress] = useState('');
+  const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [dropoffAddress, setDropoffAddress] = useState('');
+  const [dropoffCoords, setDropoffCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [selectedDriverId, setSelectedDriverId] = useState('');
+  const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState('');
   const [estimatedFare, setEstimatedFare] = useState('');
+  const [estimatedDistance, setEstimatedDistance] = useState<number | null>(null);
+  const [estimatedDuration, setEstimatedDuration] = useState<number | null>(null);
   const [specialInstructions, setSpecialInstructions] = useState('');
+  const [passengerCount, setPassengerCount] = useState('1');
+  const [luggageCount, setLuggageCount] = useState('0');
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>('cash');
   const [jobType, setJobType] = useState('ride');
 
+  // Fetch initial data
   useEffect(() => {
     async function fetchData() {
       try {
-        const [driversRes, vehicleTypesRes, customersRes] = await Promise.all([
+        const [driversRes, vehicleTypesRes, customersRes, serviceAreasRes] = await Promise.all([
           supabase
             .from('drivers')
             .select('id, first_name, last_name, phone, is_online, rating')
@@ -89,14 +149,26 @@ export default function ManualTrip() {
             .select('id, first_name, last_name, phone, user_id')
             .order('first_name')
             .limit(100),
+          supabase
+            .from('service_areas')
+            .select('id, name, country, currency_code, distance_unit, center_lat, center_lng, region_id')
+            .eq('is_active', true)
+            .order('name'),
         ]);
 
         if (driversRes.error) throw driversRes.error;
         if (vehicleTypesRes.error) throw vehicleTypesRes.error;
+        if (serviceAreasRes.error) throw serviceAreasRes.error;
 
         setDrivers(driversRes.data || []);
         setVehicleTypes(vehicleTypesRes.data || []);
         setCustomers(customersRes.data || []);
+        setServiceAreas(serviceAreasRes.data || []);
+
+        // Auto-select first service area if available
+        if (serviceAreasRes.data && serviceAreasRes.data.length > 0) {
+          setSelectedServiceAreaId(serviceAreasRes.data[0].id);
+        }
       } catch (err) {
         console.error('Error fetching data:', err);
         toast.error('Failed to load data');
@@ -107,6 +179,107 @@ export default function ManualTrip() {
 
     fetchData();
   }, []);
+
+  // Load service area settings when selection changes
+  useEffect(() => {
+    if (!selectedServiceAreaId) {
+      setPaymentConfig(null);
+      setCurrencyCode('GBP');
+      setDistanceUnit('mile');
+      setServiceAreaCenter(null);
+      setServiceAreaCountryCode(null);
+      return;
+    }
+
+    const serviceArea = serviceAreas.find(sa => sa.id === selectedServiceAreaId);
+    if (serviceArea) {
+      setCurrencyCode(serviceArea.currency_code || 'GBP');
+      setDistanceUnit((serviceArea.distance_unit as 'mile' | 'km') || 'mile');
+      
+      if (serviceArea.center_lat && serviceArea.center_lng) {
+        setServiceAreaCenter({ lat: serviceArea.center_lat, lng: serviceArea.center_lng });
+      } else {
+        setServiceAreaCenter(null);
+      }
+      
+      setServiceAreaCountryCode(serviceArea.country || null);
+    }
+
+    // Fetch payment methods for this service area
+    const fetchPaymentConfig = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('service_area_payment_methods')
+          .select('*')
+          .eq('service_area_id', selectedServiceAreaId)
+          .single();
+
+        if (error && error.code !== 'PGRST116') {
+          throw error;
+        }
+
+        if (data) {
+          setPaymentConfig({
+            cash_enabled: data.cash_enabled,
+            card_enabled: data.card_enabled,
+            wallet_enabled: data.wallet_enabled,
+            apple_pay_enabled: data.apple_pay_enabled,
+            google_pay_enabled: data.google_pay_enabled,
+          });
+          
+          // Reset payment method if current selection is not available
+          const methodKey = `${paymentMethod}_enabled` as keyof typeof data;
+          if (!data[methodKey]) {
+            // Find first enabled method
+            if (data.cash_enabled) setPaymentMethod('cash');
+            else if (data.card_enabled) setPaymentMethod('card');
+            else if (data.wallet_enabled) setPaymentMethod('wallet');
+          }
+        } else {
+          // Default config if none exists
+          setPaymentConfig({
+            cash_enabled: true,
+            card_enabled: true,
+            wallet_enabled: false,
+            apple_pay_enabled: false,
+            google_pay_enabled: false,
+          });
+        }
+      } catch (err) {
+        console.error('Error fetching payment config:', err);
+      }
+    };
+
+    fetchPaymentConfig();
+  }, [selectedServiceAreaId, serviceAreas]);
+
+  // Calculate route when both addresses are set
+  useEffect(() => {
+    if (!pickupCoords || !dropoffCoords) {
+      setEstimatedDistance(null);
+      setEstimatedDuration(null);
+      return;
+    }
+
+    // Calculate straight-line distance as fallback
+    const R = 6371; // Earth's radius in km
+    const dLat = (dropoffCoords.lat - pickupCoords.lat) * Math.PI / 180;
+    const dLng = (dropoffCoords.lng - pickupCoords.lng) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(pickupCoords.lat * Math.PI / 180) * Math.cos(dropoffCoords.lat * Math.PI / 180) *
+      Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const distanceKm = R * c;
+    
+    // Approximate road distance (typically 1.3x straight line)
+    const roadDistanceKm = distanceKm * 1.3;
+    // Approximate duration (assume 30 km/h average)
+    const durationMinutes = Math.round((roadDistanceKm / 30) * 60);
+    
+    setEstimatedDistance(roadDistanceKm);
+    setEstimatedDuration(durationMinutes);
+  }, [pickupCoords, dropoffCoords]);
 
   const handleCustomerSelect = (customerId: string) => {
     setSelectedCustomerId(customerId);
@@ -122,6 +295,16 @@ export default function ManualTrip() {
     }
   };
 
+  const handlePickupSelect = (place: PlaceResult) => {
+    setPickupAddress(place.address);
+    setPickupCoords({ lat: place.lat, lng: place.lng });
+  };
+
+  const handleDropoffSelect = (place: PlaceResult) => {
+    setDropoffAddress(place.address);
+    setDropoffCoords({ lat: place.lat, lng: place.lng });
+  };
+
   const generateTripCode = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let code = '';
@@ -134,12 +317,20 @@ export default function ManualTrip() {
   const resetForm = () => {
     setPassengerName('');
     setPassengerPhone('');
+    setPassengerEmail('');
     setSelectedCustomerId('');
     setPickupAddress('');
+    setPickupCoords(null);
     setDropoffAddress('');
+    setDropoffCoords(null);
     setSelectedDriverId('');
+    setSelectedVehicleTypeId('');
     setEstimatedFare('');
+    setEstimatedDistance(null);
+    setEstimatedDuration(null);
     setSpecialInstructions('');
+    setPassengerCount('1');
+    setLuggageCount('0');
     setIsScheduled(false);
     setScheduledDate('');
     setScheduledTime('');
@@ -147,6 +338,17 @@ export default function ManualTrip() {
     setJobType('ride');
     setIsSuccess(false);
   };
+
+  const getEnabledPaymentMethods = useCallback(() => {
+    if (!paymentConfig) {
+      return ALL_PAYMENT_METHODS.filter(m => m.id === 'cash' || m.id === 'card');
+    }
+    
+    return ALL_PAYMENT_METHODS.filter(method => {
+      const key = `${method.id}_enabled` as keyof ServiceAreaPaymentConfig;
+      return paymentConfig[key];
+    });
+  }, [paymentConfig]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -164,6 +366,10 @@ export default function ManualTrip() {
       toast.error('Please enter dropoff address');
       return;
     }
+    if (!selectedServiceAreaId) {
+      toast.error('Please select a service area');
+      return;
+    }
 
     // For scheduled trips, validate date/time
     if (isScheduled && (!scheduledDate || !scheduledTime)) {
@@ -174,7 +380,7 @@ export default function ManualTrip() {
     setIsSubmitting(true);
 
     try {
-      // Determine the passenger_id - use customer's user_id if selected, otherwise generate a placeholder
+      // Determine the passenger_id
       let passengerId = '';
       if (selectedCustomerId && selectedCustomerId !== 'new') {
         const customer = customers.find(c => c.id === selectedCustomerId);
@@ -183,10 +389,8 @@ export default function ManualTrip() {
         }
       }
 
-      // If no customer selected, we need a valid UUID for passenger_id
-      // In a real scenario, you might want to create a guest customer or use an admin user
+      // If no customer selected, use the current admin user's ID
       if (!passengerId) {
-        // Use the current admin user's ID as the passenger for manual bookings
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
           toast.error('You must be logged in to create trips');
@@ -199,10 +403,20 @@ export default function ManualTrip() {
         passenger_id: passengerId,
         passenger_name: passengerName.trim(),
         passenger_phone: passengerPhone.trim() || null,
+        passenger_email: passengerEmail.trim() || null,
         pickup_address: pickupAddress.trim(),
+        pickup_lat: pickupCoords?.lat || null,
+        pickup_lng: pickupCoords?.lng || null,
         dropoff_address: dropoffAddress.trim(),
+        dropoff_lat: dropoffCoords?.lat || null,
+        dropoff_lng: dropoffCoords?.lng || null,
         driver_id: selectedDriverId || null,
+        vehicle_type_id: selectedVehicleTypeId || null,
         estimated_fare: parseFloat(estimatedFare) || 0,
+        estimated_distance_km: estimatedDistance || null,
+        estimated_duration_minutes: estimatedDuration || null,
+        passenger_count: parseInt(passengerCount) || 1,
+        luggage_count: parseInt(luggageCount) || 0,
         special_instructions: specialInstructions.trim() 
           ? `[Manual Booking] ${specialInstructions.trim()}`
           : '[Manual Booking]',
@@ -216,7 +430,9 @@ export default function ManualTrip() {
         trip_type: isScheduled ? 'scheduled' : 'immediate',
         status: selectedDriverId ? 'accepted' : (isScheduled ? 'pending' : 'searching'),
         trip_code: generateTripCode(),
-        currency_code: 'GBP',
+        currency_code: currencyCode,
+        service_area_id: selectedServiceAreaId,
+        booking_source: 'admin_manual',
       };
 
       const { error } = await supabase
@@ -272,6 +488,9 @@ export default function ManualTrip() {
     );
   }
 
+  const enabledPaymentMethods = getEnabledPaymentMethods();
+  const selectedServiceArea = serviceAreas.find(sa => sa.id === selectedServiceAreaId);
+
   return (
     <AdminLayout 
       title="Manual Trip Creation" 
@@ -281,6 +500,52 @@ export default function ManualTrip() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Form */}
           <div className="lg:col-span-2 space-y-6">
+            {/* Service Area Selection */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Globe className="h-5 w-5 text-primary" />
+                  Service Area
+                </CardTitle>
+                <CardDescription>
+                  Select the service area for this trip
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Select value={selectedServiceAreaId} onValueChange={setSelectedServiceAreaId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a service area..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {serviceAreas.map(area => (
+                      <SelectItem key={area.id} value={area.id}>
+                        <div className="flex items-center gap-2">
+                          <span>{area.name}</span>
+                          {area.country && (
+                            <Badge variant="outline" className="text-xs">
+                              {area.country}
+                            </Badge>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedServiceArea && (
+                  <div className="mt-3 flex items-center gap-4 text-sm text-muted-foreground">
+                    <span>Currency: <strong>{getCurrencySymbol(currencyCode)}</strong> ({currencyCode})</span>
+                    <span>Units: <strong>{getDistanceUnitShort(distanceUnit)}</strong></span>
+                    {userLocation && (
+                      <span className="flex items-center gap-1 text-green-600">
+                        <Navigation className="h-3 w-3" />
+                        GPS active
+                      </span>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             {/* Passenger Information */}
             <Card>
               <CardHeader>
@@ -327,6 +592,44 @@ export default function ManualTrip() {
                     />
                   </div>
                 </div>
+                <div>
+                  <Label htmlFor="passengerEmail">Email (Optional)</Label>
+                  <Input
+                    id="passengerEmail"
+                    type="email"
+                    value={passengerEmail}
+                    onChange={(e) => setPassengerEmail(e.target.value)}
+                    placeholder="passenger@email.com"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="passengerCount">Passengers</Label>
+                    <Select value={passengerCount} onValueChange={setPassengerCount}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[1, 2, 3, 4, 5, 6, 7, 8].map(n => (
+                          <SelectItem key={n} value={n.toString()}>{n}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="luggageCount">Luggage</Label>
+                    <Select value={luggageCount} onValueChange={setLuggageCount}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[0, 1, 2, 3, 4, 5, 6].map(n => (
+                          <SelectItem key={n} value={n.toString()}>{n} bags</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
@@ -341,33 +644,68 @@ export default function ManualTrip() {
               <CardContent className="space-y-4">
                 <div>
                   <Label htmlFor="pickupAddress">Pickup Address *</Label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-green-500" />
-                    <Input
-                      id="pickupAddress"
-                      value={pickupAddress}
-                      onChange={(e) => setPickupAddress(e.target.value)}
-                      placeholder="Enter pickup location"
-                      className="pl-10"
-                      required
-                    />
-                  </div>
+                  <PlacesAutocomplete
+                    value={pickupAddress}
+                    onChange={setPickupAddress}
+                    onPlaceSelect={handlePickupSelect}
+                    placeholder="Enter pickup location"
+                    icon="pickup"
+                    userLocation={userLocation}
+                    serviceAreaCenter={serviceAreaCenter}
+                    serviceAreaCountryCode={serviceAreaCountryCode}
+                    radiusBiasMeters={30000}
+                  />
                 </div>
                 <div>
                   <Label htmlFor="dropoffAddress">Dropoff Address *</Label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-red-500" />
-                    <Input
-                      id="dropoffAddress"
-                      value={dropoffAddress}
-                      onChange={(e) => setDropoffAddress(e.target.value)}
-                      placeholder="Enter destination"
-                      className="pl-10"
-                      required
-                    />
-                  </div>
+                  <PlacesAutocomplete
+                    value={dropoffAddress}
+                    onChange={setDropoffAddress}
+                    onPlaceSelect={handleDropoffSelect}
+                    placeholder="Enter destination"
+                    icon="dropoff"
+                    userLocation={userLocation}
+                    serviceAreaCenter={serviceAreaCenter}
+                    serviceAreaCountryCode={serviceAreaCountryCode}
+                    radiusBiasMeters={50000}
+                  />
                 </div>
+
+                {/* Route Estimate */}
+                {estimatedDistance && estimatedDuration && (
+                  <div className="p-3 bg-muted/50 rounded-lg flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">
+                        {formatDistance(estimatedDistance, distanceUnit)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">~{estimatedDuration} min</span>
+                    </div>
+                  </div>
+                )}
+
+                <Separator />
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="vehicleType">Vehicle Type</Label>
+                    <Select value={selectedVehicleTypeId || 'any'} onValueChange={(val) => setSelectedVehicleTypeId(val === 'any' ? '' : val)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Any available" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="any">Any Available</SelectItem>
+                        {vehicleTypes.map(type => (
+                          <SelectItem key={type.id} value={type.id}>
+                            {type.name} (up to {type.capacity} passengers)
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div>
                     <Label htmlFor="jobType">Job Type</Label>
                     <Select value={jobType} onValueChange={setJobType}>
@@ -381,20 +719,30 @@ export default function ManualTrip() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div>
-                    <Label htmlFor="paymentMethod">Payment Method</Label>
-                    <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="cash">Cash</SelectItem>
-                        <SelectItem value="card">Card</SelectItem>
-                        <SelectItem value="wallet">Wallet</SelectItem>
-                        <SelectItem value="corporate">Corporate</SelectItem>
-                      </SelectContent>
-                    </Select>
+                </div>
+
+                {/* Payment Method */}
+                <div>
+                  <Label>Payment Method</Label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
+                    {enabledPaymentMethods.map(method => (
+                      <Button
+                        key={method.id}
+                        type="button"
+                        variant={paymentMethod === method.id ? 'default' : 'outline'}
+                        className="justify-start gap-2"
+                        onClick={() => setPaymentMethod(method.id)}
+                      >
+                        {PAYMENT_ICONS[method.id]}
+                        {method.name}
+                      </Button>
+                    ))}
                   </div>
+                  {enabledPaymentMethods.length === 0 && (
+                    <p className="text-sm text-muted-foreground mt-2">
+                      No payment methods configured for this service area
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -520,19 +868,77 @@ export default function ManualTrip() {
               </CardHeader>
               <CardContent>
                 <div>
-                  <Label htmlFor="estimatedFare">Estimated Fare (£)</Label>
-                  <Input
-                    id="estimatedFare"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={estimatedFare}
-                    onChange={(e) => setEstimatedFare(e.target.value)}
-                    placeholder="0.00"
-                  />
+                  <Label htmlFor="estimatedFare">
+                    Estimated Fare ({getCurrencySymbol(currencyCode)})
+                  </Label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                      {getCurrencySymbol(currencyCode)}
+                    </span>
+                    <Input
+                      id="estimatedFare"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={estimatedFare}
+                      onChange={(e) => setEstimatedFare(e.target.value)}
+                      placeholder="0.00"
+                      className="pl-8"
+                    />
+                  </div>
                 </div>
               </CardContent>
             </Card>
+
+            {/* Summary */}
+            {(pickupAddress || dropoffAddress) && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm">Trip Summary</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm">
+                  {pickupAddress && (
+                    <div className="flex items-start gap-2">
+                      <MapPin className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
+                      <span className="text-muted-foreground line-clamp-2">{pickupAddress}</span>
+                    </div>
+                  )}
+                  {dropoffAddress && (
+                    <div className="flex items-start gap-2">
+                      <MapPin className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                      <span className="text-muted-foreground line-clamp-2">{dropoffAddress}</span>
+                    </div>
+                  )}
+                  {estimatedDistance && (
+                    <div className="flex items-center justify-between pt-2 border-t">
+                      <span className="text-muted-foreground">Distance:</span>
+                      <span className="font-medium">{formatDistance(estimatedDistance, distanceUnit)}</span>
+                    </div>
+                  )}
+                  {estimatedDuration && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Est. Duration:</span>
+                      <span className="font-medium">{estimatedDuration} min</span>
+                    </div>
+                  )}
+                  {estimatedFare && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Fare:</span>
+                      <span className="font-medium text-primary">
+                        {getCurrencySymbol(currencyCode)}{parseFloat(estimatedFare).toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Payment:</span>
+                    <Badge variant="outline" className="flex items-center gap-1">
+                      {PAYMENT_ICONS[paymentMethod]}
+                      {ALL_PAYMENT_METHODS.find(m => m.id === paymentMethod)?.name || paymentMethod}
+                    </Badge>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Submit */}
             <Card className="border-primary/20 bg-primary/5">
@@ -541,7 +947,7 @@ export default function ManualTrip() {
                   type="submit" 
                   className="w-full" 
                   size="lg"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !selectedServiceAreaId}
                 >
                   {isSubmitting ? (
                     <>

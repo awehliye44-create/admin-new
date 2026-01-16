@@ -2817,6 +2817,8 @@ export type Database = {
       }
       service_areas: {
         Row: {
+          center_lat: number | null
+          center_lng: number | null
           code: string | null
           country: string | null
           created_at: string
@@ -2833,6 +2835,8 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          center_lat?: number | null
+          center_lng?: number | null
           code?: string | null
           country?: string | null
           created_at?: string
@@ -2849,6 +2853,8 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          center_lat?: number | null
+          center_lng?: number | null
           code?: string | null
           country?: string | null
           created_at?: string
@@ -3105,6 +3111,10 @@ export type Database = {
           authorised_amount_pence: number | null
           base_fare_pence: number | null
           broadcast_started_at: string | null
+          cancellation_fee_pence: number | null
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
           capture_amount_pence: number | null
           check_in_reminder_sent_at: string | null
           client_action_id: string | null
@@ -3191,6 +3201,10 @@ export type Database = {
           authorised_amount_pence?: number | null
           base_fare_pence?: number | null
           broadcast_started_at?: string | null
+          cancellation_fee_pence?: number | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           capture_amount_pence?: number | null
           check_in_reminder_sent_at?: string | null
           client_action_id?: string | null
@@ -3277,6 +3291,10 @@ export type Database = {
           authorised_amount_pence?: number | null
           base_fare_pence?: number | null
           broadcast_started_at?: string | null
+          cancellation_fee_pence?: number | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           capture_amount_pence?: number | null
           check_in_reminder_sent_at?: string | null
           client_action_id?: string | null
