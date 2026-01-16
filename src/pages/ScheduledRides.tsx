@@ -50,8 +50,10 @@ import { supabase } from '@/integrations/supabase/client';
 import { 
   Calendar, Loader2, Search, RefreshCw, Clock, MapPin, Phone,
   MoreHorizontal, UserPlus, XCircle, Eye, Play, CalendarClock,
-  AlertTriangle, CheckCircle2
+  AlertTriangle, CheckCircle2, Car, CreditCard, Users, Briefcase,
+  Mail, Navigation, Timer, ArrowRightLeft, Globe, Star
 } from 'lucide-react';
+import { Separator } from '@/components/ui/separator';
 import { format, formatDistanceToNow, isPast, isToday, isTomorrow, addHours } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -61,19 +63,46 @@ interface ScheduledTrip {
   status: string | null;
   passenger_name: string | null;
   passenger_phone: string | null;
+  passenger_email: string | null;
   pickup_address: string;
   dropoff_address: string;
+  pickup_lat: number | null;
+  pickup_lng: number | null;
+  dropoff_lat: number | null;
+  dropoff_lng: number | null;
   estimated_fare: number | null;
+  estimated_distance_km: number | null;
+  estimated_duration_minutes: number | null;
   currency_code: string | null;
   scheduled_at: string | null;
   created_at: string;
   special_instructions: string | null;
+  payment_method: string | null;
+  passenger_count: number | null;
+  luggage_count: number | null;
+  is_round_trip: boolean | null;
+  return_scheduled_at: string | null;
+  booking_source: string | null;
+  vehicle_type_id: string | null;
   driver_id: string | null;
+  customer_id: string | null;
+  service_area_id: string | null;
   driver?: {
     id: string;
     first_name: string;
     last_name: string;
     phone: string;
+    profile_photo_url: string | null;
+    rating: number | null;
+  } | null;
+  vehicle_type?: {
+    id: string;
+    name: string;
+    icon: string | null;
+  } | null;
+  service_area?: {
+    id: string;
+    name: string;
   } | null;
 }
 
@@ -84,6 +113,7 @@ interface Driver {
   phone: string;
   is_online: boolean;
   rating: number | null;
+  profile_photo_url: string | null;
 }
 
 export default function ScheduledRides() {
@@ -111,8 +141,38 @@ export default function ScheduledRides() {
         supabase
           .from('trips')
           .select(`
-            *,
-            driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone)
+            id,
+            trip_code,
+            status,
+            passenger_name,
+            passenger_phone,
+            passenger_email,
+            pickup_address,
+            dropoff_address,
+            pickup_lat,
+            pickup_lng,
+            dropoff_lat,
+            dropoff_lng,
+            estimated_fare,
+            estimated_distance_km,
+            estimated_duration_minutes,
+            currency_code,
+            scheduled_at,
+            created_at,
+            special_instructions,
+            payment_method,
+            passenger_count,
+            luggage_count,
+            is_round_trip,
+            return_scheduled_at,
+            booking_source,
+            vehicle_type_id,
+            driver_id,
+            customer_id,
+            service_area_id,
+            driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, profile_photo_url, rating),
+            vehicle_type:vehicle_types(id, name, icon),
+            service_area:service_areas(id, name)
           `)
           .eq('is_scheduled', true)
           // Some scheduled bookings use status = 'scheduled' (and status can be NULL)
@@ -120,14 +180,14 @@ export default function ScheduledRides() {
           .order('scheduled_at', { ascending: true }),
         supabase
           .from('drivers')
-          .select('id, first_name, last_name, phone, is_online, rating')
+          .select('id, first_name, last_name, phone, is_online, rating, profile_photo_url')
           .eq('approval_status', 'approved'),
       ]);
 
       if (tripsRes.error) throw tripsRes.error;
       if (driversRes.error) throw driversRes.error;
 
-      setTrips(tripsRes.data || []);
+      setTrips((tripsRes.data as unknown as ScheduledTrip[]) || []);
       setAvailableDrivers(driversRes.data || []);
     } catch (err) {
       console.error('Error fetching scheduled rides:', err);
@@ -400,8 +460,10 @@ export default function ScheduledRides() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Scheduled For</TableHead>
+                  <TableHead>Booking ID</TableHead>
                   <TableHead>Passenger</TableHead>
                   <TableHead>Route</TableHead>
+                  <TableHead>Vehicle / Payment</TableHead>
                   <TableHead>Driver</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Fare</TableHead>
@@ -428,6 +490,28 @@ export default function ScheduledRides() {
                           <Badge variant="outline" className={`mt-1 ${scheduleStatus.color}`}>
                             {scheduleStatus.label}
                           </Badge>
+                          {trip.is_round_trip && (
+                            <Badge variant="outline" className="mt-1 ml-1 bg-purple-100 text-purple-700">
+                              <ArrowRightLeft className="h-3 w-3 mr-1" />
+                              Round Trip
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div>
+                          <div className="font-mono text-sm font-medium">
+                            {trip.trip_code || trip.id.slice(0, 8).toUpperCase()}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {format(new Date(trip.created_at), 'MMM d, h:mm a')}
+                          </div>
+                          {trip.booking_source && (
+                            <Badge variant="outline" className="mt-1 text-xs">
+                              <Globe className="h-3 w-3 mr-1" />
+                              {trip.booking_source}
+                            </Badge>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -437,18 +521,77 @@ export default function ScheduledRides() {
                             <Phone className="h-3 w-3" />
                             {trip.passenger_phone || 'N/A'}
                           </div>
+                          {trip.passenger_email && (
+                            <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                              <Mail className="h-3 w-3" />
+                              <span className="truncate max-w-[120px]">{trip.passenger_email}</span>
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                            {trip.passenger_count && (
+                              <span className="flex items-center gap-0.5">
+                                <Users className="h-3 w-3" />
+                                {trip.passenger_count}
+                              </span>
+                            )}
+                            {trip.luggage_count && trip.luggage_count > 0 && (
+                              <span className="flex items-center gap-0.5">
+                                <Briefcase className="h-3 w-3" />
+                                {trip.luggage_count}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="max-w-[200px]">
+                        <div className="max-w-[220px]">
                           <div className="flex items-start gap-1 text-xs">
                             <MapPin className="h-3 w-3 text-green-500 mt-0.5 shrink-0" />
-                            <span className="truncate">{trip.pickup_address?.slice(0, 30)}...</span>
+                            <span className="line-clamp-2">{trip.pickup_address}</span>
                           </div>
                           <div className="flex items-start gap-1 text-xs mt-1">
                             <MapPin className="h-3 w-3 text-red-500 mt-0.5 shrink-0" />
-                            <span className="truncate">{trip.dropoff_address?.slice(0, 30)}...</span>
+                            <span className="line-clamp-2">{trip.dropoff_address}</span>
                           </div>
+                          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                            {trip.estimated_distance_km && (
+                              <span className="flex items-center gap-0.5">
+                                <Navigation className="h-3 w-3" />
+                                {trip.estimated_distance_km.toFixed(1)} km
+                              </span>
+                            )}
+                            {trip.estimated_duration_minutes && (
+                              <span className="flex items-center gap-0.5">
+                                <Timer className="h-3 w-3" />
+                                {trip.estimated_duration_minutes} min
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          {trip.vehicle_type ? (
+                            <Badge variant="outline" className="text-xs">
+                              <Car className="h-3 w-3 mr-1" />
+                              {trip.vehicle_type.name}
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-xs bg-gray-100">
+                              <Car className="h-3 w-3 mr-1" />
+                              Any
+                            </Badge>
+                          )}
+                          {trip.payment_method && (
+                            <Badge variant="outline" className={`text-xs block w-fit ${
+                              trip.payment_method.toLowerCase() === 'cash' 
+                                ? 'bg-green-100 text-green-700' 
+                                : 'bg-blue-100 text-blue-700'
+                            }`}>
+                              <CreditCard className="h-3 w-3 mr-1" />
+                              {trip.payment_method}
+                            </Badge>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -460,6 +603,12 @@ export default function ScheduledRides() {
                             <div className="text-xs text-muted-foreground">
                               {trip.driver.phone}
                             </div>
+                            {trip.driver.rating && (
+                              <div className="text-xs text-muted-foreground flex items-center gap-0.5 mt-0.5">
+                                <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />
+                                {trip.driver.rating.toFixed(1)}
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <Badge variant="outline" className="bg-yellow-100 text-yellow-700">
@@ -471,14 +620,23 @@ export default function ScheduledRides() {
                         <Badge variant="outline" className={
                           trip.status === 'accepted' 
                             ? 'bg-green-100 text-green-700' 
+                            : trip.status === 'searching'
+                            ? 'bg-blue-100 text-blue-700'
                             : 'bg-gray-100 text-gray-700'
                         }>
-                          {trip.status === 'accepted' ? 'Confirmed' : 'Pending'}
+                          {trip.status === 'accepted' ? 'Confirmed' : trip.status === 'searching' ? 'Searching' : 'Pending'}
                         </Badge>
+                        {trip.service_area && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {trip.service_area.name}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="font-medium">
-                        {getCurrencySymbol(trip.currency_code)}
-                        {(trip.estimated_fare || 0).toFixed(2)}
+                        <div>
+                          {getCurrencySymbol(trip.currency_code)}
+                          {(trip.estimated_fare || 0).toFixed(2)}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>
@@ -522,64 +680,282 @@ export default function ScheduledRides() {
 
       {/* View Details Dialog */}
       <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Scheduled Ride Details</DialogTitle>
-            <DialogDescription>
-              Trip #{selectedTrip?.trip_code || selectedTrip?.id.slice(0, 8)}
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarClock className="h-5 w-5 text-primary" />
+              Scheduled Ride Details
+            </DialogTitle>
+            <DialogDescription className="flex items-center gap-2">
+              <span className="font-mono font-medium">
+                #{selectedTrip?.trip_code || selectedTrip?.id.slice(0, 8).toUpperCase()}
+              </span>
+              {selectedTrip?.booking_source && (
+                <Badge variant="outline" className="text-xs">
+                  via {selectedTrip.booking_source}
+                </Badge>
+              )}
+              {selectedTrip?.is_round_trip && (
+                <Badge variant="outline" className="bg-purple-100 text-purple-700 text-xs">
+                  <ArrowRightLeft className="h-3 w-3 mr-1" />
+                  Round Trip
+                </Badge>
+              )}
             </DialogDescription>
           </DialogHeader>
           {selectedTrip && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-6">
+              {/* Schedule & Fare Section */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg">
                 <div>
-                  <Label className="text-muted-foreground">Scheduled For</Label>
-                  <p className="font-medium">
+                  <Label className="text-xs text-muted-foreground">Scheduled For</Label>
+                  <p className="font-medium text-sm">
                     {selectedTrip.scheduled_at 
-                      ? format(new Date(selectedTrip.scheduled_at), 'PPP p')
+                      ? format(new Date(selectedTrip.scheduled_at), 'PPP')
                       : 'Not set'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedTrip.scheduled_at 
+                      ? format(new Date(selectedTrip.scheduled_at), 'h:mm a')
+                      : ''}
                   </p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Estimated Fare</Label>
-                  <p className="font-medium">
+                  <Label className="text-xs text-muted-foreground">Estimated Fare</Label>
+                  <p className="font-bold text-lg text-primary">
                     {getCurrencySymbol(selectedTrip.currency_code)}
                     {(selectedTrip.estimated_fare || 0).toFixed(2)}
                   </p>
                 </div>
-              </div>
-              <div>
-                <Label className="text-muted-foreground">Passenger</Label>
-                <p className="font-medium">{selectedTrip.passenger_name || 'Unknown'}</p>
-                <p className="text-sm text-muted-foreground">{selectedTrip.passenger_phone || 'No phone'}</p>
-              </div>
-              <div>
-                <Label className="text-muted-foreground">Pickup</Label>
-                <p className="text-sm">{selectedTrip.pickup_address}</p>
-              </div>
-              <div>
-                <Label className="text-muted-foreground">Dropoff</Label>
-                <p className="text-sm">{selectedTrip.dropoff_address}</p>
-              </div>
-              {selectedTrip.driver && (
                 <div>
-                  <Label className="text-muted-foreground">Assigned Driver</Label>
-                  <p className="font-medium">
-                    {selectedTrip.driver.first_name} {selectedTrip.driver.last_name}
+                  <Label className="text-xs text-muted-foreground">Distance</Label>
+                  <p className="font-medium text-sm">
+                    {selectedTrip.estimated_distance_km 
+                      ? `${selectedTrip.estimated_distance_km.toFixed(1)} km`
+                      : 'N/A'}
                   </p>
-                  <p className="text-sm text-muted-foreground">{selectedTrip.driver.phone}</p>
                 </div>
-              )}
-              {selectedTrip.special_instructions && (
                 <div>
-                  <Label className="text-muted-foreground">Special Instructions</Label>
-                  <p className="text-sm">{selectedTrip.special_instructions}</p>
+                  <Label className="text-xs text-muted-foreground">Duration</Label>
+                  <p className="font-medium text-sm">
+                    {selectedTrip.estimated_duration_minutes 
+                      ? `${selectedTrip.estimated_duration_minutes} min`
+                      : 'N/A'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Return Trip Info */}
+              {selectedTrip.is_round_trip && selectedTrip.return_scheduled_at && (
+                <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                  <Label className="text-xs text-purple-600 flex items-center gap-1">
+                    <ArrowRightLeft className="h-3 w-3" />
+                    Return Trip
+                  </Label>
+                  <p className="font-medium text-sm text-purple-700">
+                    {format(new Date(selectedTrip.return_scheduled_at), 'PPP')} at {format(new Date(selectedTrip.return_scheduled_at), 'h:mm a')}
+                  </p>
                 </div>
               )}
+
+              <Separator />
+
+              {/* Passenger Section */}
+              <div>
+                <Label className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                  <Users className="h-3 w-3" />
+                  Passenger Details
+                </Label>
+                <div className="grid grid-cols-2 gap-4 mt-2">
+                  <div>
+                    <p className="font-medium">{selectedTrip.passenger_name || 'Unknown'}</p>
+                    <div className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
+                      <Phone className="h-3 w-3" />
+                      {selectedTrip.passenger_phone || 'No phone'}
+                    </div>
+                    {selectedTrip.passenger_email && (
+                      <div className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
+                        <Mail className="h-3 w-3" />
+                        {selectedTrip.passenger_email}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-start gap-4 text-sm">
+                    {selectedTrip.passenger_count && (
+                      <div className="flex items-center gap-1">
+                        <Users className="h-4 w-4 text-muted-foreground" />
+                        <span>{selectedTrip.passenger_count} passengers</span>
+                      </div>
+                    )}
+                    {selectedTrip.luggage_count && selectedTrip.luggage_count > 0 && (
+                      <div className="flex items-center gap-1">
+                        <Briefcase className="h-4 w-4 text-muted-foreground" />
+                        <span>{selectedTrip.luggage_count} bags</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Route Section */}
+              <div>
+                <Label className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                  <MapPin className="h-3 w-3" />
+                  Route Details
+                </Label>
+                <div className="space-y-3 mt-2">
+                  <div className="flex items-start gap-2 p-3 bg-green-50 rounded-lg border border-green-200">
+                    <MapPin className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-xs text-green-600 font-medium">Pickup</p>
+                      <p className="text-sm">{selectedTrip.pickup_address}</p>
+                      {selectedTrip.pickup_lat && selectedTrip.pickup_lng && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {selectedTrip.pickup_lat.toFixed(6)}, {selectedTrip.pickup_lng.toFixed(6)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2 p-3 bg-red-50 rounded-lg border border-red-200">
+                    <MapPin className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-xs text-red-600 font-medium">Dropoff</p>
+                      <p className="text-sm">{selectedTrip.dropoff_address}</p>
+                      {selectedTrip.dropoff_lat && selectedTrip.dropoff_lng && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {selectedTrip.dropoff_lat.toFixed(6)}, {selectedTrip.dropoff_lng.toFixed(6)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Vehicle & Payment Section */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Car className="h-3 w-3" />
+                    Vehicle Type
+                  </Label>
+                  <p className="font-medium text-sm mt-1">
+                    {selectedTrip.vehicle_type?.name || 'Any Available'}
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                    <CreditCard className="h-3 w-3" />
+                    Payment Method
+                  </Label>
+                  <Badge variant="outline" className={`mt-1 ${
+                    selectedTrip.payment_method?.toLowerCase() === 'cash' 
+                      ? 'bg-green-100 text-green-700' 
+                      : 'bg-blue-100 text-blue-700'
+                  }`}>
+                    {selectedTrip.payment_method || 'Not specified'}
+                  </Badge>
+                </div>
+              </div>
+
+              {/* Service Area */}
+              {selectedTrip.service_area && (
+                <div>
+                  <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Globe className="h-3 w-3" />
+                    Service Area
+                  </Label>
+                  <p className="font-medium text-sm mt-1">{selectedTrip.service_area.name}</p>
+                </div>
+              )}
+
+              <Separator />
+
+              {/* Driver Section */}
+              {selectedTrip.driver ? (
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-2">Assigned Driver</Label>
+                  <div className="flex items-center gap-3 mt-2 p-3 bg-muted/50 rounded-lg">
+                    <div className="h-10 w-10 bg-primary/10 rounded-full flex items-center justify-center">
+                      {selectedTrip.driver.profile_photo_url ? (
+                        <img 
+                          src={selectedTrip.driver.profile_photo_url} 
+                          alt="Driver" 
+                          className="h-10 w-10 rounded-full object-cover"
+                        />
+                      ) : (
+                        <Users className="h-5 w-5 text-primary" />
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium">
+                        {selectedTrip.driver.first_name} {selectedTrip.driver.last_name}
+                      </p>
+                      <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <Phone className="h-3 w-3" />
+                          {selectedTrip.driver.phone}
+                        </span>
+                        {selectedTrip.driver.rating && (
+                          <span className="flex items-center gap-0.5">
+                            <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />
+                            {selectedTrip.driver.rating.toFixed(1)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="flex items-center gap-2 text-yellow-700">
+                    <UserPlus className="h-4 w-4" />
+                    <span className="font-medium">No driver assigned</span>
+                  </div>
+                  <p className="text-sm text-yellow-600 mt-1">
+                    Click "Assign Driver" to assign a driver to this scheduled ride.
+                  </p>
+                </div>
+              )}
+
+              {/* Special Instructions */}
+              {selectedTrip.special_instructions && (
+                <>
+                  <Separator />
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Special Instructions</Label>
+                    <p className="text-sm mt-1 p-3 bg-muted/50 rounded-lg">
+                      {selectedTrip.special_instructions}
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {/* Booking Metadata */}
+              <div className="text-xs text-muted-foreground pt-2 border-t">
+                <p>Booked on: {format(new Date(selectedTrip.created_at), 'PPP p')}</p>
+                {selectedTrip.customer_id && (
+                  <p className="mt-0.5">Customer ID: {selectedTrip.customer_id.slice(0, 8)}...</p>
+                )}
+              </div>
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="flex gap-2">
             <Button variant="outline" onClick={() => setIsViewOpen(false)}>Close</Button>
+            <Button 
+              variant="default"
+              onClick={() => { 
+                setIsViewOpen(false);
+                setSelectedDriverId(''); 
+                setIsAssignOpen(true); 
+              }}
+            >
+              <UserPlus className="h-4 w-4 mr-2" />
+              {selectedTrip?.driver ? 'Reassign' : 'Assign Driver'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
