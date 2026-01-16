@@ -2874,6 +2874,93 @@ export type Database = {
           },
         ]
       }
+      trip_change_requests: {
+        Row: {
+          after_route_snapshot: Json
+          before_route_snapshot: Json
+          change_type: string
+          created_at: string
+          expires_at: string
+          fare_delta_pence: number | null
+          id: string
+          new_distance_meters: number | null
+          new_duration_seconds: number | null
+          new_fare_pence: number | null
+          original_distance_meters: number | null
+          original_duration_seconds: number | null
+          original_fare_pence: number | null
+          rejection_reason: string | null
+          requested_by: string
+          requester_id: string | null
+          responded_at: string | null
+          response_by: string | null
+          status: string
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          after_route_snapshot: Json
+          before_route_snapshot: Json
+          change_type: string
+          created_at?: string
+          expires_at?: string
+          fare_delta_pence?: number | null
+          id?: string
+          new_distance_meters?: number | null
+          new_duration_seconds?: number | null
+          new_fare_pence?: number | null
+          original_distance_meters?: number | null
+          original_duration_seconds?: number | null
+          original_fare_pence?: number | null
+          rejection_reason?: string | null
+          requested_by?: string
+          requester_id?: string | null
+          responded_at?: string | null
+          response_by?: string | null
+          status?: string
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          after_route_snapshot?: Json
+          before_route_snapshot?: Json
+          change_type?: string
+          created_at?: string
+          expires_at?: string
+          fare_delta_pence?: number | null
+          id?: string
+          new_distance_meters?: number | null
+          new_duration_seconds?: number | null
+          new_fare_pence?: number | null
+          original_distance_meters?: number | null
+          original_duration_seconds?: number | null
+          original_fare_pence?: number | null
+          rejection_reason?: string | null
+          requested_by?: string
+          requester_id?: string | null
+          responded_at?: string | null
+          response_by?: string | null
+          status?: string
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trip_change_requests_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_change_requests_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trip_offers: {
         Row: {
           created_at: string
@@ -3016,6 +3103,7 @@ export type Database = {
         Row: {
           arrived_at: string | null
           authorised_amount_pence: number | null
+          base_fare_pence: number | null
           broadcast_started_at: string | null
           capture_amount_pence: number | null
           check_in_reminder_sent_at: string | null
@@ -3068,6 +3156,7 @@ export type Database = {
           pickup_longitude: number | null
           pickup_zone_id: string | null
           pre_assigned_driver_id: string | null
+          pricing_version: string | null
           qr_session_id: string | null
           refund_amount_pence: number | null
           refund_reason: string | null
@@ -3100,6 +3189,7 @@ export type Database = {
         Insert: {
           arrived_at?: string | null
           authorised_amount_pence?: number | null
+          base_fare_pence?: number | null
           broadcast_started_at?: string | null
           capture_amount_pence?: number | null
           check_in_reminder_sent_at?: string | null
@@ -3152,6 +3242,7 @@ export type Database = {
           pickup_longitude?: number | null
           pickup_zone_id?: string | null
           pre_assigned_driver_id?: string | null
+          pricing_version?: string | null
           qr_session_id?: string | null
           refund_amount_pence?: number | null
           refund_reason?: string | null
@@ -3184,6 +3275,7 @@ export type Database = {
         Update: {
           arrived_at?: string | null
           authorised_amount_pence?: number | null
+          base_fare_pence?: number | null
           broadcast_started_at?: string | null
           capture_amount_pence?: number | null
           check_in_reminder_sent_at?: string | null
@@ -3236,6 +3328,7 @@ export type Database = {
           pickup_longitude?: number | null
           pickup_zone_id?: string | null
           pre_assigned_driver_id?: string | null
+          pricing_version?: string | null
           qr_session_id?: string | null
           refund_amount_pence?: number | null
           refund_reason?: string | null
@@ -4032,6 +4125,7 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: boolean
       }
+      can_modify_trip: { Args: { p_trip_id: string }; Returns: boolean }
       can_passenger_view_driver: {
         Args: { p_driver_id: string }
         Returns: boolean
@@ -4068,6 +4162,7 @@ export type Database = {
         Returns: Json
       }
       dispatch_trip_offers: { Args: { p_trip_id: string }; Returns: undefined }
+      expire_stale_modification_requests: { Args: never; Returns: number }
       expire_stale_offers: { Args: never; Returns: Json }
       find_service_area_by_location: {
         Args: { p_lat: number; p_lng: number }
@@ -4177,6 +4272,17 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
+      trip_change_status:
+        | "pending_driver_approval"
+        | "approved"
+        | "rejected"
+        | "expired"
+        | "cancelled"
+      trip_change_type:
+        | "add_stop"
+        | "remove_stop"
+        | "reorder_stops"
+        | "change_dropoff"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -4305,6 +4411,19 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "moderator", "user"],
+      trip_change_status: [
+        "pending_driver_approval",
+        "approved",
+        "rejected",
+        "expired",
+        "cancelled",
+      ],
+      trip_change_type: [
+        "add_stop",
+        "remove_stop",
+        "reorder_stops",
+        "change_dropoff",
+      ],
     },
   },
 } as const
