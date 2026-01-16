@@ -2826,6 +2826,8 @@ export type Database = {
           id: string
           is_active: boolean
           name: string
+          per_booking_fee_enabled: boolean
+          per_booking_fee_pence: number
           region_id: string
           timezone: string | null
           updated_at: string
@@ -2840,6 +2842,8 @@ export type Database = {
           id?: string
           is_active?: boolean
           name: string
+          per_booking_fee_enabled?: boolean
+          per_booking_fee_pence?: number
           region_id: string
           timezone?: string | null
           updated_at?: string
@@ -2854,6 +2858,8 @@ export type Database = {
           id?: string
           is_active?: boolean
           name?: string
+          per_booking_fee_enabled?: boolean
+          per_booking_fee_pence?: number
           region_id?: string
           timezone?: string | null
           updated_at?: string
