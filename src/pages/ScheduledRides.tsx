@@ -171,8 +171,8 @@ export default function ScheduledRides() {
             customer_id,
             service_area_id,
             driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, profile_photo_url, rating),
-            vehicle_type:vehicle_types(id, name, icon),
-            service_area:service_areas(id, name)
+            vehicle_type:vehicle_types!trips_vehicle_type_id_fkey(id, name, icon),
+            service_area:service_areas!trips_service_area_id_fkey(id, name)
           `)
           .eq('is_scheduled', true)
           // Some scheduled bookings use status = 'scheduled' (and status can be NULL)
