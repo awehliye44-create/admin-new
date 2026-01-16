@@ -2407,6 +2407,7 @@ export type Database = {
           is_stacked: boolean
           offered_at: string
           responded_at: string | null
+          revoked_reason: string | null
           status: string
           trip_id: string
           updated_at: string
@@ -2422,6 +2423,7 @@ export type Database = {
           is_stacked?: boolean
           offered_at?: string
           responded_at?: string | null
+          revoked_reason?: string | null
           status?: string
           trip_id: string
           updated_at?: string
@@ -2437,6 +2439,7 @@ export type Database = {
           is_stacked?: boolean
           offered_at?: string
           responded_at?: string | null
+          revoked_reason?: string | null
           status?: string
           trip_id?: string
           updated_at?: string
