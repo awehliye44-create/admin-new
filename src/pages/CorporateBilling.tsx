@@ -32,6 +32,8 @@ import {
   Globe
 } from 'lucide-react';
 
+import { getCurrencySymbol } from '@/lib/regionSettings';
+
 interface Invoice {
   id: string;
   invoice_number: string;
@@ -54,6 +56,31 @@ interface Invoice {
   service_area?: { id: string; name: string } | null;
 }
 
+interface CorporateTrip {
+  id: string;
+  trip_number: string | null;
+  trip_code: string | null;
+  status: string;
+  fare: number | null;
+  estimated_fare: number | null;
+  currency_code: string | null;
+  pickup_address: string | null;
+  dropoff_address: string | null;
+  created_at: string;
+  completed_at: string | null;
+  corporate_account_id: string | null;
+  corporate_account?: { id: string; company_name: string } | null;
+}
+
+interface CorporateAccount {
+  id: string;
+  company_name: string;
+  contact_name: string;
+  contact_email: string;
+  status: string;
+  current_balance: number | null;
+}
+
 interface Region {
   id: string;
   name: string;
@@ -67,12 +94,45 @@ interface ServiceArea {
 
 export default function CorporateBilling() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState('invoices');
+  const [activeTab, setActiveTab] = useState('trips');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [regionFilter, setRegionFilter] = useState<string>('all');
   const [serviceAreaFilter, setServiceAreaFilter] = useState<string>('all');
   const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null);
+
+  // Fetch corporate accounts
+  const { data: corporateAccounts = [] } = useQuery({
+    queryKey: ['corporate-accounts'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('corporate_accounts')
+        .select('id, company_name, contact_name, contact_email, status, current_balance')
+        .eq('status', 'active')
+        .order('company_name');
+      if (error) throw error;
+      return data as CorporateAccount[];
+    },
+  });
+
+  // Fetch corporate trips
+  const { data: corporateTrips = [], isLoading: loadingTrips } = useQuery({
+    queryKey: ['corporate-trips'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('trips')
+        .select(`
+          id, trip_number, trip_code, status, fare, estimated_fare, currency_code,
+          pickup_address, dropoff_address, created_at, completed_at, corporate_account_id,
+          corporate_account:corporate_accounts(id, company_name)
+        `)
+        .not('corporate_account_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      return data as CorporateTrip[];
+    },
+  });
 
   // Fetch regions
   const { data: regions = [] } = useQuery({
@@ -183,13 +243,33 @@ export default function CorporateBilling() {
     return matchesSearch && matchesStatus;
   });
 
-  // Stats
+  // Trip stats
+  const totalCorpTrips = corporateTrips.length;
+  const completedCorpTrips = corporateTrips.filter(t => t.status === 'completed').length;
+  const totalCorpRevenue = corporateTrips
+    .filter(t => t.status === 'completed')
+    .reduce((sum, t) => sum + (t.fare || t.estimated_fare || 0), 0);
+
+  // Invoice Stats
   const totalRevenue = invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + i.total_amount, 0);
   const pendingInvoices = invoices.filter(i => i.status === 'sent').reduce((sum, i) => sum + i.total_amount, 0);
   const overdueAmount = invoices.filter(i => i.status === 'overdue').reduce((sum, i) => sum + i.total_amount, 0);
   const draftCount = invoices.filter(i => i.status === 'draft').length;
 
-  if (loadingInvoices) {
+  const getTripStatusBadge = (status: string) => {
+    const config: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline', className?: string }> = {
+      pending: { variant: 'outline' },
+      accepted: { variant: 'secondary' },
+      arrived: { variant: 'secondary', className: 'bg-blue-500 text-white' },
+      in_progress: { variant: 'default', className: 'bg-amber-500' },
+      completed: { variant: 'default', className: 'bg-green-500' },
+      cancelled: { variant: 'destructive' },
+    };
+    const { variant, className } = config[status] || { variant: 'outline' };
+    return <Badge variant={variant} className={className}>{status.replace('_', ' ')}</Badge>;
+  };
+
+  if (loadingInvoices || loadingTrips) {
     return (
       <AdminLayout title="Corporate Billing" description="Manage corporate billing and invoices">
         <div className="flex items-center justify-center h-64">
@@ -205,53 +285,102 @@ export default function CorporateBilling() {
       description="Manage invoices, payments, and billing for corporate accounts"
     >
       <div className="space-y-6">
-        {/* Stats */}
-        <div className="grid gap-4 md:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-              <DollarSign className="h-4 w-4 text-green-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-500">${totalRevenue.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground">From paid invoices</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending</CardTitle>
-              <Clock className="h-4 w-4 text-amber-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-amber-500">${pendingInvoices.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground">Awaiting payment</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Overdue</CardTitle>
-              <AlertCircle className="h-4 w-4 text-destructive" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-destructive">${overdueAmount.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground">Past due date</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Drafts</CardTitle>
-              <FileText className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{draftCount}</div>
-              <p className="text-xs text-muted-foreground">Ready to send</p>
-            </CardContent>
-          </Card>
-        </div>
+        {/* Stats - Conditional based on active tab */}
+        {activeTab === 'trips' ? (
+          <div className="grid gap-4 md:grid-cols-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Corporate Trips</CardTitle>
+                <CreditCard className="h-4 w-4 text-primary" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{totalCorpTrips}</div>
+                <p className="text-xs text-muted-foreground">Total bookings</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Completed</CardTitle>
+                <CheckCircle2 className="h-4 w-4 text-green-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-500">{completedCorpTrips}</div>
+                <p className="text-xs text-muted-foreground">Finished trips</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Revenue</CardTitle>
+                <TrendingUp className="h-4 w-4 text-green-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-500">£{totalCorpRevenue.toFixed(2)}</div>
+                <p className="text-xs text-muted-foreground">From corporate trips</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Accounts</CardTitle>
+                <Building2 className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{corporateAccounts.length}</div>
+                <p className="text-xs text-muted-foreground">Active accounts</p>
+              </CardContent>
+            </Card>
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+                <DollarSign className="h-4 w-4 text-green-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-500">${totalRevenue.toLocaleString()}</div>
+                <p className="text-xs text-muted-foreground">From paid invoices</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Pending</CardTitle>
+                <Clock className="h-4 w-4 text-amber-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-amber-500">${pendingInvoices.toLocaleString()}</div>
+                <p className="text-xs text-muted-foreground">Awaiting payment</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Overdue</CardTitle>
+                <AlertCircle className="h-4 w-4 text-destructive" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-destructive">${overdueAmount.toLocaleString()}</div>
+                <p className="text-xs text-muted-foreground">Past due date</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Drafts</CardTitle>
+                <FileText className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{draftCount}</div>
+                <p className="text-xs text-muted-foreground">Ready to send</p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <div className="flex flex-col sm:flex-row justify-between gap-4">
             <TabsList>
+              <TabsTrigger value="trips" className="flex items-center gap-2">
+                <CreditCard className="h-4 w-4" />
+                Trips
+              </TabsTrigger>
               <TabsTrigger value="invoices" className="flex items-center gap-2">
                 <Receipt className="h-4 w-4" />
                 Invoices
@@ -380,6 +509,68 @@ export default function CorporateBilling() {
                                 </Button>
                               )}
                             </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Corporate Trips Tab */}
+          <TabsContent value="trips">
+            <Card>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Trip #</TableHead>
+                      <TableHead>Company</TableHead>
+                      <TableHead>Pickup</TableHead>
+                      <TableHead>Dropoff</TableHead>
+                      <TableHead>Fare</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Date</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {corporateTrips.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                          No corporate trips found. Trips linked to corporate accounts will appear here.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      corporateTrips.map((trip) => (
+                        <TableRow key={trip.id}>
+                          <TableCell className="font-medium">
+                            {trip.trip_number || trip.trip_code || trip.id.slice(0, 8)}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Building2 className="h-4 w-4 text-muted-foreground" />
+                              {trip.corporate_account?.company_name || 'Unknown'}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-sm truncate max-w-[150px] block">
+                              {trip.pickup_address || '—'}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-sm truncate max-w-[150px] block">
+                              {trip.dropoff_address || '—'}
+                            </span>
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {getCurrencySymbol(trip.currency_code || 'GBP')}
+                            {(trip.fare || trip.estimated_fare || 0).toFixed(2)}
+                          </TableCell>
+                          <TableCell>{getTripStatusBadge(trip.status)}</TableCell>
+                          <TableCell>
+                            {new Date(trip.created_at).toLocaleDateString()}
                           </TableCell>
                         </TableRow>
                       ))

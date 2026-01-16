@@ -3167,6 +3167,7 @@ export type Database = {
           completed_at: string | null
           confirm_deadline_at: string | null
           confirmed_driver_id: string | null
+          corporate_account_id: string | null
           created_at: string
           currency: string | null
           currency_code: string | null
@@ -3257,6 +3258,7 @@ export type Database = {
           completed_at?: string | null
           confirm_deadline_at?: string | null
           confirmed_driver_id?: string | null
+          corporate_account_id?: string | null
           created_at?: string
           currency?: string | null
           currency_code?: string | null
@@ -3347,6 +3349,7 @@ export type Database = {
           completed_at?: string | null
           confirm_deadline_at?: string | null
           confirmed_driver_id?: string | null
+          corporate_account_id?: string | null
           created_at?: string
           currency?: string | null
           currency_code?: string | null
@@ -3441,6 +3444,13 @@ export type Database = {
             columns: ["confirmed_driver_id"]
             isOneToOne: false
             referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_corporate_account_id_fkey"
+            columns: ["corporate_account_id"]
+            isOneToOne: false
+            referencedRelation: "corporate_accounts"
             referencedColumns: ["id"]
           },
           {
