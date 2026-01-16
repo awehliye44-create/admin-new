@@ -537,17 +537,17 @@ export function AdminSidebar() {
             <NavSection label="Finance & Payouts" collapsed={isCollapsed} />
             <div className="space-y-1">
               <NavItem
-                to="/payments"
-                icon={<Wallet className="h-4 w-4" />}
-                label="Payments & Payouts"
-                active={currentPath === '/payments'}
+                to="/admin-payments"
+                icon={<CreditCard className="h-4 w-4" />}
+                label="Payments & Transactions"
+                active={currentPath === '/admin-payments'}
                 collapsed={isCollapsed}
               />
               <NavItem
-                to="/driver-payouts"
+                to="/admin-settlements"
                 icon={<DollarSign className="h-4 w-4" />}
-                label="Driver Payouts & Settlements"
-                active={currentPath === '/driver-payouts'}
+                label="Driver Settlements"
+                active={currentPath === '/admin-settlements'}
                 collapsed={isCollapsed}
               />
               <NavItem
@@ -558,17 +558,17 @@ export function AdminSidebar() {
                 collapsed={isCollapsed}
               />
               <NavItem
+                to="/payout-batches"
+                icon={<History className="h-4 w-4" />}
+                label="Payout Batches"
+                active={currentPath === '/payout-batches'}
+                collapsed={isCollapsed}
+              />
+              <NavItem
                 to="/disputes"
                 icon={<Scale className="h-4 w-4" />}
                 label="Disputes & Adjustments"
                 active={currentPath === '/disputes'}
-                collapsed={isCollapsed}
-              />
-              <NavItem
-                to="/dispute-settings"
-                icon={<Settings className="h-4 w-4" />}
-                label="Dispute Settings"
-                active={currentPath === '/dispute-settings'}
                 collapsed={isCollapsed}
               />
             </div>

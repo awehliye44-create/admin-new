@@ -14,3 +14,39 @@ verify_jwt = false
 
 [functions.resolve-service-area]
 verify_jwt = false
+
+[functions.complete-trip]
+verify_jwt = false
+
+[functions.document-reminders]
+verify_jwt = false
+
+[functions.check-geofence]
+verify_jwt = false
+
+[functions.resolve-zones]
+verify_jwt = false
+
+[functions.admin-payments-summary]
+verify_jwt = false
+
+[functions.admin-payments-list]
+verify_jwt = false
+
+[functions.admin-payment-detail]
+verify_jwt = false
+
+[functions.admin-driver-settlements]
+verify_jwt = false
+
+[functions.admin-driver-wallet-detail]
+verify_jwt = false
+
+[functions.admin-driver-payout]
+verify_jwt = false
+
+[functions.admin-driver-adjustment]
+verify_jwt = false
+
+[functions.admin-payout-batches]
+verify_jwt = false
