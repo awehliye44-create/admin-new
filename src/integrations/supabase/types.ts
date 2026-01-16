@@ -771,6 +771,13 @@ export type Database = {
             foreignKeyName: "documents_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "documents_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -890,7 +897,79 @@ export type Database = {
             foreignKeyName: "driver_inbox_messages_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_inbox_messages_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      driver_ledger: {
+        Row: {
+          amount_pence: number
+          created_at: string
+          currency_code: string
+          description: string | null
+          driver_id: string
+          entry_type: string
+          id: string
+          reference_id: string | null
+          trip_id: string | null
+        }
+        Insert: {
+          amount_pence: number
+          created_at?: string
+          currency_code?: string
+          description?: string | null
+          driver_id: string
+          entry_type: string
+          id?: string
+          reference_id?: string | null
+          trip_id?: string | null
+        }
+        Update: {
+          amount_pence?: number
+          created_at?: string
+          currency_code?: string
+          description?: string | null
+          driver_id?: string
+          entry_type?: string
+          id?: string
+          reference_id?: string | null
+          trip_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_ledger_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
             referencedColumns: ["id"]
           },
         ]
@@ -920,6 +999,13 @@ export type Database = {
             columns: ["driver_id"]
             isOneToOne: false
             referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_service_areas_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
             referencedColumns: ["driver_id"]
           },
           {
@@ -996,6 +1082,13 @@ export type Database = {
             foreignKeyName: "driver_settings_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: true
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_settings_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -1032,6 +1125,13 @@ export type Database = {
             columns: ["driver_id"]
             isOneToOne: false
             referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_vehicle_categories_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
             referencedColumns: ["driver_id"]
           },
           {
@@ -1192,6 +1292,13 @@ export type Database = {
             foreignKeyName: "geofence_events_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "geofence_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -1237,6 +1344,233 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      lost_property_cases: {
+        Row: {
+          case_number: string
+          closed_at: string | null
+          collected_at: string | null
+          created_at: string
+          customer_id: string
+          driver_id: string | null
+          driver_responded_at: string | null
+          id: string
+          item_category: string
+          item_description: string
+          item_found_at: string | null
+          photos: string[] | null
+          region_id: string
+          return_method: string | null
+          return_trip_id: string | null
+          same_driver_requested: boolean | null
+          service_area_id: string | null
+          status: string
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          case_number: string
+          closed_at?: string | null
+          collected_at?: string | null
+          created_at?: string
+          customer_id: string
+          driver_id?: string | null
+          driver_responded_at?: string | null
+          id?: string
+          item_category: string
+          item_description: string
+          item_found_at?: string | null
+          photos?: string[] | null
+          region_id: string
+          return_method?: string | null
+          return_trip_id?: string | null
+          same_driver_requested?: boolean | null
+          service_area_id?: string | null
+          status?: string
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          case_number?: string
+          closed_at?: string | null
+          collected_at?: string | null
+          created_at?: string
+          customer_id?: string
+          driver_id?: string | null
+          driver_responded_at?: string | null
+          id?: string
+          item_category?: string
+          item_description?: string
+          item_found_at?: string | null
+          photos?: string[] | null
+          region_id?: string
+          return_method?: string | null
+          return_trip_id?: string | null
+          same_driver_requested?: boolean | null
+          service_area_id?: string | null
+          status?: string
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lost_property_cases_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "lost_property_cases_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "lost_property_cases_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lost_property_cases_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lost_property_cases_return_trip_id_fkey"
+            columns: ["return_trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lost_property_cases_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lost_property_cases_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lost_property_messages: {
+        Row: {
+          case_id: string
+          created_at: string
+          id: string
+          message: string
+          sender_id: string | null
+          sender_type: string
+        }
+        Insert: {
+          case_id: string
+          created_at?: string
+          id?: string
+          message: string
+          sender_id?: string | null
+          sender_type: string
+        }
+        Update: {
+          case_id?: string
+          created_at?: string
+          id?: string
+          message?: string
+          sender_id?: string | null
+          sender_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lost_property_messages_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "lost_property_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lost_property_sequences: {
+        Row: {
+          created_at: string
+          current_value: number
+          id: string
+          service_area_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          current_value?: number
+          id?: string
+          service_area_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          current_value?: number
+          id?: string
+          service_area_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lost_property_sequences_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: true
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lost_property_status_history: {
+        Row: {
+          case_id: string
+          changed_by: string | null
+          changed_by_type: string | null
+          created_at: string
+          id: string
+          new_status: string
+          notes: string | null
+          old_status: string | null
+        }
+        Insert: {
+          case_id: string
+          changed_by?: string | null
+          changed_by_type?: string | null
+          created_at?: string
+          id?: string
+          new_status: string
+          notes?: string | null
+          old_status?: string | null
+        }
+        Update: {
+          case_id?: string
+          changed_by?: string | null
+          changed_by_type?: string | null
+          created_at?: string
+          id?: string
+          new_status?: string
+          notes?: string | null
+          old_status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lost_property_status_history_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "lost_property_cases"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       notification_settings: {
         Row: {
@@ -1509,6 +1843,13 @@ export type Database = {
             foreignKeyName: "push_tokens_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "push_tokens_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -1649,6 +1990,13 @@ export type Database = {
             foreignKeyName: "ride_offers_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "ride_offers_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -1707,6 +2055,13 @@ export type Database = {
             columns: ["driver_id"]
             isOneToOne: false
             referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "rider_feedback_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
             referencedColumns: ["driver_id"]
           },
           {
@@ -2019,6 +2374,13 @@ export type Database = {
             foreignKeyName: "trip_offers_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_offers_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -2089,6 +2451,7 @@ export type Database = {
           arrived_at: string | null
           broadcast_started_at: string | null
           client_action_id: string | null
+          commission_pence: number | null
           completed_at: string | null
           confirm_deadline_at: string | null
           confirmed_driver_id: string | null
@@ -2103,6 +2466,7 @@ export type Database = {
           driver_id: string | null
           driver_location_lat: number | null
           driver_location_lng: number | null
+          driver_net_pence: number | null
           dropoff_address: string
           dropoff_latitude: number | null
           dropoff_longitude: number | null
@@ -2112,6 +2476,7 @@ export type Database = {
           estimated_duration_minutes: number | null
           estimated_fare: number | null
           fare: number | null
+          gross_fare_pence: number | null
           id: string
           is_scheduled: boolean | null
           job_type: string | null
@@ -2140,6 +2505,7 @@ export type Database = {
           started_at: string | null
           status: string | null
           stops: Json | null
+          stripe_payment_intent_id: string | null
           surge_multiplier: number | null
           total_stops: number | null
           trip_code: string | null
@@ -2152,6 +2518,7 @@ export type Database = {
           arrived_at?: string | null
           broadcast_started_at?: string | null
           client_action_id?: string | null
+          commission_pence?: number | null
           completed_at?: string | null
           confirm_deadline_at?: string | null
           confirmed_driver_id?: string | null
@@ -2166,6 +2533,7 @@ export type Database = {
           driver_id?: string | null
           driver_location_lat?: number | null
           driver_location_lng?: number | null
+          driver_net_pence?: number | null
           dropoff_address: string
           dropoff_latitude?: number | null
           dropoff_longitude?: number | null
@@ -2175,6 +2543,7 @@ export type Database = {
           estimated_duration_minutes?: number | null
           estimated_fare?: number | null
           fare?: number | null
+          gross_fare_pence?: number | null
           id?: string
           is_scheduled?: boolean | null
           job_type?: string | null
@@ -2203,6 +2572,7 @@ export type Database = {
           started_at?: string | null
           status?: string | null
           stops?: Json | null
+          stripe_payment_intent_id?: string | null
           surge_multiplier?: number | null
           total_stops?: number | null
           trip_code?: string | null
@@ -2215,6 +2585,7 @@ export type Database = {
           arrived_at?: string | null
           broadcast_started_at?: string | null
           client_action_id?: string | null
+          commission_pence?: number | null
           completed_at?: string | null
           confirm_deadline_at?: string | null
           confirmed_driver_id?: string | null
@@ -2229,6 +2600,7 @@ export type Database = {
           driver_id?: string | null
           driver_location_lat?: number | null
           driver_location_lng?: number | null
+          driver_net_pence?: number | null
           dropoff_address?: string
           dropoff_latitude?: number | null
           dropoff_longitude?: number | null
@@ -2238,6 +2610,7 @@ export type Database = {
           estimated_duration_minutes?: number | null
           estimated_fare?: number | null
           fare?: number | null
+          gross_fare_pence?: number | null
           id?: string
           is_scheduled?: boolean | null
           job_type?: string | null
@@ -2266,6 +2639,7 @@ export type Database = {
           started_at?: string | null
           status?: string | null
           stops?: Json | null
+          stripe_payment_intent_id?: string | null
           surge_multiplier?: number | null
           total_stops?: number | null
           trip_code?: string | null
@@ -2286,6 +2660,13 @@ export type Database = {
             foreignKeyName: "trips_confirmed_driver_id_fkey"
             columns: ["confirmed_driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_confirmed_driver_id_fkey"
+            columns: ["confirmed_driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -2294,6 +2675,13 @@ export type Database = {
             columns: ["driver_id"]
             isOneToOne: false
             referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
             referencedColumns: ["driver_id"]
           },
           {
@@ -2322,6 +2710,13 @@ export type Database = {
             columns: ["pre_assigned_driver_id"]
             isOneToOne: false
             referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_pre_assigned_driver_id_fkey"
+            columns: ["pre_assigned_driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
             referencedColumns: ["driver_id"]
           },
           {
@@ -2416,6 +2811,13 @@ export type Database = {
             columns: ["driver_id"]
             isOneToOne: false
             referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "vehicle_change_requests_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
             referencedColumns: ["driver_id"]
           },
           {
@@ -2540,6 +2942,13 @@ export type Database = {
             foreignKeyName: "vehicles_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "vehicles_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -2629,6 +3038,19 @@ export type Database = {
         }
         Relationships: []
       }
+      driver_wallet_balance: {
+        Row: {
+          available_pence: number | null
+          driver_id: string | null
+          email: string | null
+          first_name: string | null
+          last_name: string | null
+          total_debt_pence: number | null
+          total_earnings_pence: number | null
+          trip_count: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       accept_ride_offer: {
@@ -2680,12 +3102,24 @@ export type Database = {
         Args: { p_lat: number; p_lng: number }
         Returns: string
       }
+      generate_lost_property_case_number: {
+        Args: { p_service_area_id: string }
+        Returns: string
+      }
       generate_trip_number: {
         Args: { p_service_area_id: string }
         Returns: {
           sequence_no: number
           service_area_code: string
           trip_number: string
+        }[]
+      }
+      get_driver_wallet_balance: {
+        Args: { p_driver_id: string }
+        Returns: {
+          available_pence: number
+          can_early_cashout: boolean
+          can_payout: boolean
         }[]
       }
       get_region_code: { Args: { p_region_id: string }; Returns: string }
@@ -2714,6 +3148,27 @@ export type Database = {
       point_in_polygon: {
         Args: { point_lat: number; point_lng: number; polygon_geojson: Json }
         Returns: boolean
+      }
+      record_cash_trip_completion: {
+        Args: {
+          p_commission_pence: number
+          p_currency_code?: string
+          p_driver_id: string
+          p_gross_fare_pence: number
+          p_trip_id: string
+        }
+        Returns: string
+      }
+      record_digital_trip_payment: {
+        Args: {
+          p_commission_pence: number
+          p_currency_code?: string
+          p_driver_id: string
+          p_gross_fare_pence: number
+          p_stripe_payment_intent_id: string
+          p_trip_id: string
+        }
+        Returns: string
       }
       resolve_zone: {
         Args: {

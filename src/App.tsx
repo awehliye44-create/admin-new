@@ -48,6 +48,7 @@ import Webhooks from "./pages/Webhooks";
 import CorporateSettings from "./pages/CorporateSettings";
 import Payments from "./pages/Payments";
 import DriverPayouts from "./pages/DriverPayouts";
+import DriverWallet from "./pages/DriverWallet";
 import Disputes from "./pages/Disputes";
 import DisputeSettings from "./pages/DisputeSettings";
 
@@ -136,6 +137,7 @@ const App = () => (
               {/* Finance & Payouts */}
               <Route path="payments" element={<Payments />} />
               <Route path="driver-payouts" element={<DriverPayouts />} />
+              <Route path="driver-wallet" element={<DriverWallet />} />
               <Route path="disputes" element={<Disputes />} />
               <Route path="dispute-settings" element={<DisputeSettings />} />
               
