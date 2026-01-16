@@ -551,6 +551,13 @@ export function AdminSidebar() {
                 collapsed={isCollapsed}
               />
               <NavItem
+                to="/driver-wallet"
+                icon={<Wallet className="h-4 w-4" />}
+                label="Driver Wallet & Ledger"
+                active={currentPath === '/driver-wallet'}
+                collapsed={isCollapsed}
+              />
+              <NavItem
                 to="/disputes"
                 icon={<Scale className="h-4 w-4" />}
                 label="Disputes & Adjustments"
