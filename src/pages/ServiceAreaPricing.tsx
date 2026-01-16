@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -40,6 +41,7 @@ import {
   Plus, 
   Trash2, 
   Ban,
+  Banknote,
   AlertCircle,
   Users,
   FileText,
@@ -90,6 +92,8 @@ interface ServiceArea {
   name: string;
   region_id: string;
   is_active: boolean;
+  per_booking_fee_enabled: boolean;
+  per_booking_fee_pence: number;
   region?: { 
     name: string;
     currency_code: string;
@@ -140,7 +144,7 @@ export default function ServiceAreaPricing() {
       const [areasRes, typesRes] = await Promise.all([
         supabase
           .from('service_areas')
-          .select('id, name, region_id, is_active, region:regions(name, currency_code, distance_unit)')
+          .select('id, name, region_id, is_active, per_booking_fee_enabled, per_booking_fee_pence, region:regions(name, currency_code, distance_unit)')
           .order('name'),
         supabase
           .from('vehicle_types')
@@ -316,11 +320,31 @@ export default function ServiceAreaPricing() {
     updatePricing(vehicleTypeId, field, tiers);
   };
 
+  const updatePerBookingFee = (field: 'per_booking_fee_enabled' | 'per_booking_fee_pence', value: boolean | number) => {
+    setServiceAreas(prev => prev.map(sa => 
+      sa.id === selectedServiceAreaId 
+        ? { ...sa, [field]: value }
+        : sa
+    ));
+    setHasChanges(true);
+  };
+
   const handleSave = async () => {
     if (!selectedServiceAreaId) return;
 
     setIsSaving(true);
     try {
+      // Save per-booking fee settings
+      if (selectedServiceArea) {
+        await supabase
+          .from('service_areas')
+          .update({
+            per_booking_fee_enabled: selectedServiceArea.per_booking_fee_enabled,
+            per_booking_fee_pence: selectedServiceArea.per_booking_fee_pence,
+          })
+          .eq('id', selectedServiceAreaId);
+      }
+
       // Save vehicle pricing
       for (const [vehicleTypeId, pricing] of Object.entries(vehiclePricing)) {
         if (pricing.is_enabled) {
@@ -729,6 +753,47 @@ export default function ServiceAreaPricing() {
               <p className="text-xs text-muted-foreground">Fee when rider doesn't show</p>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Per Booking Fee */}
+      <Card className="mb-6">
+        <CardContent className="p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                <Banknote className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold">Per Booking Fee</h3>
+                <p className="text-sm text-muted-foreground">
+                  Apply a fixed fee to each booking in this service area
+                </p>
+              </div>
+            </div>
+            <Switch
+              checked={selectedServiceArea?.per_booking_fee_enabled ?? false}
+              onCheckedChange={(checked) => updatePerBookingFee('per_booking_fee_enabled', checked)}
+            />
+          </div>
+          
+          {selectedServiceArea?.per_booking_fee_enabled && (
+            <div className="mt-4 pt-4 border-t">
+              <div className="max-w-xs space-y-2">
+                <Label>Fee Amount ({getCurrencySymbol(regionCurrency)})</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={(selectedServiceArea?.per_booking_fee_pence ?? 0) / 100}
+                  onChange={e => updatePerBookingFee('per_booking_fee_pence', Math.round((parseFloat(e.target.value) || 0) * 100))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  This fee is added to every trip in this service area
+                </p>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
