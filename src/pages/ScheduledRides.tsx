@@ -55,6 +55,7 @@ import {
 } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { format, formatDistanceToNow, isPast, isToday, isTomorrow, addHours } from 'date-fns';
+import { getCurrencySymbol } from '@/lib/regionSettings';
 import { toast } from 'sonner';
 
 interface ScheduledTrip {
@@ -286,12 +287,6 @@ export default function ScheduledRides() {
     }
   };
 
-  const getCurrencySymbol = (code: string | null) => {
-    const symbols: Record<string, string> = {
-      GBP: '£', USD: '$', EUR: '€', INR: '₹', AED: 'د.إ'
-    };
-    return symbols[code || 'GBP'] || code || '£';
-  };
 
   const getScheduleStatus = (scheduledAt: string | null) => {
     if (!scheduledAt) return { label: 'No Date', color: 'bg-gray-100 text-gray-700', urgent: false };
@@ -584,7 +579,7 @@ export default function ScheduledRides() {
                       </TableCell>
                       <TableCell className="font-medium">
                         <div>
-                          {getCurrencySymbol(trip.currency_code)}
+                          {getCurrencySymbol(trip.currency_code || 'GBP')}
                           {(trip.estimated_fare || 0).toFixed(2)}
                         </div>
                       </TableCell>
