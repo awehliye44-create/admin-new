@@ -61,15 +61,15 @@ interface ScheduledTrip {
   id: string;
   trip_code: string | null;
   status: string | null;
+  scheduled_status: string | null;
   passenger_name: string | null;
   passenger_phone: string | null;
-  passenger_email: string | null;
   pickup_address: string;
   dropoff_address: string;
-  pickup_lat: number | null;
-  pickup_lng: number | null;
-  dropoff_lat: number | null;
-  dropoff_lng: number | null;
+  pickup_latitude: number | null;
+  pickup_longitude: number | null;
+  dropoff_latitude: number | null;
+  dropoff_longitude: number | null;
   estimated_fare: number | null;
   estimated_distance_km: number | null;
   estimated_duration_minutes: number | null;
@@ -78,14 +78,8 @@ interface ScheduledTrip {
   created_at: string;
   special_instructions: string | null;
   payment_method: string | null;
-  passenger_count: number | null;
-  luggage_count: number | null;
-  is_round_trip: boolean | null;
-  return_scheduled_at: string | null;
-  booking_source: string | null;
-  vehicle_type_id: string | null;
+  vehicle_type: string | null;
   driver_id: string | null;
-  customer_id: string | null;
   service_area_id: string | null;
   driver?: {
     id: string;
@@ -94,11 +88,6 @@ interface ScheduledTrip {
     phone: string;
     profile_photo_url: string | null;
     rating: number | null;
-  } | null;
-  vehicle_type?: {
-    id: string;
-    name: string;
-    icon: string | null;
   } | null;
   service_area?: {
     id: string;
@@ -144,15 +133,15 @@ export default function ScheduledRides() {
             id,
             trip_code,
             status,
+            scheduled_status,
             passenger_name,
             passenger_phone,
-            passenger_email,
             pickup_address,
             dropoff_address,
-            pickup_lat,
-            pickup_lng,
-            dropoff_lat,
-            dropoff_lng,
+            pickup_latitude,
+            pickup_longitude,
+            dropoff_latitude,
+            dropoff_longitude,
             estimated_fare,
             estimated_distance_km,
             estimated_duration_minutes,
@@ -161,22 +150,14 @@ export default function ScheduledRides() {
             created_at,
             special_instructions,
             payment_method,
-            passenger_count,
-            luggage_count,
-            is_round_trip,
-            return_scheduled_at,
-            booking_source,
-            vehicle_type_id,
+            vehicle_type,
             driver_id,
-            customer_id,
             service_area_id,
             driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, profile_photo_url, rating),
-            vehicle_type:vehicle_types!trips_vehicle_type_id_fkey(id, name, icon),
             service_area:service_areas!trips_service_area_id_fkey(id, name)
           `)
           .eq('is_scheduled', true)
-          // Some scheduled bookings use status = 'scheduled' (and status can be NULL)
-          .or('status.in.(pending,searching,accepted,scheduled),status.is.null')
+          .or('scheduled_status.in.(pending,confirmed),scheduled_status.is.null')
           .order('scheduled_at', { ascending: true }),
         supabase
           .from('drivers')
@@ -490,12 +471,6 @@ export default function ScheduledRides() {
                           <Badge variant="outline" className={`mt-1 ${scheduleStatus.color}`}>
                             {scheduleStatus.label}
                           </Badge>
-                          {trip.is_round_trip && (
-                            <Badge variant="outline" className="mt-1 ml-1 bg-purple-100 text-purple-700">
-                              <ArrowRightLeft className="h-3 w-3 mr-1" />
-                              Round Trip
-                            </Badge>
-                          )}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -506,12 +481,6 @@ export default function ScheduledRides() {
                           <div className="text-xs text-muted-foreground">
                             {format(new Date(trip.created_at), 'MMM d, h:mm a')}
                           </div>
-                          {trip.booking_source && (
-                            <Badge variant="outline" className="mt-1 text-xs">
-                              <Globe className="h-3 w-3 mr-1" />
-                              {trip.booking_source}
-                            </Badge>
-                          )}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -520,26 +489,6 @@ export default function ScheduledRides() {
                           <div className="text-xs text-muted-foreground flex items-center gap-1">
                             <Phone className="h-3 w-3" />
                             {trip.passenger_phone || 'N/A'}
-                          </div>
-                          {trip.passenger_email && (
-                            <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                              <Mail className="h-3 w-3" />
-                              <span className="truncate max-w-[120px]">{trip.passenger_email}</span>
-                            </div>
-                          )}
-                          <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                            {trip.passenger_count && (
-                              <span className="flex items-center gap-0.5">
-                                <Users className="h-3 w-3" />
-                                {trip.passenger_count}
-                              </span>
-                            )}
-                            {trip.luggage_count && trip.luggage_count > 0 && (
-                              <span className="flex items-center gap-0.5">
-                                <Briefcase className="h-3 w-3" />
-                                {trip.luggage_count}
-                              </span>
-                            )}
                           </div>
                         </div>
                       </TableCell>
@@ -574,7 +523,7 @@ export default function ScheduledRides() {
                           {trip.vehicle_type ? (
                             <Badge variant="outline" className="text-xs">
                               <Car className="h-3 w-3 mr-1" />
-                              {trip.vehicle_type.name}
+                              {trip.vehicle_type}
                             </Badge>
                           ) : (
                             <Badge variant="outline" className="text-xs bg-gray-100">
@@ -690,75 +639,10 @@ export default function ScheduledRides() {
               <span className="font-mono font-medium">
                 #{selectedTrip?.trip_code || selectedTrip?.id.slice(0, 8).toUpperCase()}
               </span>
-              {selectedTrip?.booking_source && (
-                <Badge variant="outline" className="text-xs">
-                  via {selectedTrip.booking_source}
-                </Badge>
-              )}
-              {selectedTrip?.is_round_trip && (
-                <Badge variant="outline" className="bg-purple-100 text-purple-700 text-xs">
-                  <ArrowRightLeft className="h-3 w-3 mr-1" />
-                  Round Trip
-                </Badge>
-              )}
             </DialogDescription>
           </DialogHeader>
           {selectedTrip && (
             <div className="space-y-6">
-              {/* Schedule & Fare Section */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg">
-                <div>
-                  <Label className="text-xs text-muted-foreground">Scheduled For</Label>
-                  <p className="font-medium text-sm">
-                    {selectedTrip.scheduled_at 
-                      ? format(new Date(selectedTrip.scheduled_at), 'PPP')
-                      : 'Not set'}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {selectedTrip.scheduled_at 
-                      ? format(new Date(selectedTrip.scheduled_at), 'h:mm a')
-                      : ''}
-                  </p>
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Estimated Fare</Label>
-                  <p className="font-bold text-lg text-primary">
-                    {getCurrencySymbol(selectedTrip.currency_code)}
-                    {(selectedTrip.estimated_fare || 0).toFixed(2)}
-                  </p>
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Distance</Label>
-                  <p className="font-medium text-sm">
-                    {selectedTrip.estimated_distance_km 
-                      ? `${selectedTrip.estimated_distance_km.toFixed(1)} km`
-                      : 'N/A'}
-                  </p>
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Duration</Label>
-                  <p className="font-medium text-sm">
-                    {selectedTrip.estimated_duration_minutes 
-                      ? `${selectedTrip.estimated_duration_minutes} min`
-                      : 'N/A'}
-                  </p>
-                </div>
-              </div>
-
-              {/* Return Trip Info */}
-              {selectedTrip.is_round_trip && selectedTrip.return_scheduled_at && (
-                <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
-                  <Label className="text-xs text-purple-600 flex items-center gap-1">
-                    <ArrowRightLeft className="h-3 w-3" />
-                    Return Trip
-                  </Label>
-                  <p className="font-medium text-sm text-purple-700">
-                    {format(new Date(selectedTrip.return_scheduled_at), 'PPP')} at {format(new Date(selectedTrip.return_scheduled_at), 'h:mm a')}
-                  </p>
-                </div>
-              )}
-
-              <Separator />
 
               {/* Passenger Section */}
               <div>
@@ -773,65 +657,51 @@ export default function ScheduledRides() {
                       <Phone className="h-3 w-3" />
                       {selectedTrip.passenger_phone || 'No phone'}
                     </div>
-                    {selectedTrip.passenger_email && (
-                      <div className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
-                        <Mail className="h-3 w-3" />
-                        {selectedTrip.passenger_email}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex items-start gap-4 text-sm">
-                    {selectedTrip.passenger_count && (
-                      <div className="flex items-center gap-1">
-                        <Users className="h-4 w-4 text-muted-foreground" />
-                        <span>{selectedTrip.passenger_count} passengers</span>
-                      </div>
-                    )}
-                    {selectedTrip.luggage_count && selectedTrip.luggage_count > 0 && (
-                      <div className="flex items-center gap-1">
-                        <Briefcase className="h-4 w-4 text-muted-foreground" />
-                        <span>{selectedTrip.luggage_count} bags</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Route Section */}
-              <div>
-                <Label className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
-                  <MapPin className="h-3 w-3" />
-                  Route Details
-                </Label>
-                <div className="space-y-3 mt-2">
-                  <div className="flex items-start gap-2 p-3 bg-green-50 rounded-lg border border-green-200">
-                    <MapPin className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
                     <div>
-                      <p className="text-xs text-green-600 font-medium">Pickup</p>
-                      <p className="text-sm">{selectedTrip.pickup_address}</p>
-                      {selectedTrip.pickup_lat && selectedTrip.pickup_lng && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {selectedTrip.pickup_lat.toFixed(6)}, {selectedTrip.pickup_lng.toFixed(6)}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2 p-3 bg-red-50 rounded-lg border border-red-200">
-                    <MapPin className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
-                    <div>
-                      <p className="text-xs text-red-600 font-medium">Dropoff</p>
-                      <p className="text-sm">{selectedTrip.dropoff_address}</p>
-                      {selectedTrip.dropoff_lat && selectedTrip.dropoff_lng && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {selectedTrip.dropoff_lat.toFixed(6)}, {selectedTrip.dropoff_lng.toFixed(6)}
-                        </p>
-                      )}
+                      <p className="font-medium">{selectedTrip.passenger_name || 'Unknown'}</p>
+                      <div className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
+                        <Phone className="h-3 w-3" />
+                        {selectedTrip.passenger_phone || 'No phone'}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
+
+                <Separator />
+
+                {/* Route Section */}
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                    <MapPin className="h-3 w-3" />
+                    Route Details
+                  </Label>
+                  <div className="space-y-3 mt-2">
+                    <div className="flex items-start gap-2 p-3 bg-green-50 rounded-lg border border-green-200">
+                      <MapPin className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="text-xs text-green-600 font-medium">Pickup</p>
+                        <p className="text-sm">{selectedTrip.pickup_address}</p>
+                        {selectedTrip.pickup_latitude && selectedTrip.pickup_longitude && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {selectedTrip.pickup_latitude.toFixed(6)}, {selectedTrip.pickup_longitude.toFixed(6)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2 p-3 bg-red-50 rounded-lg border border-red-200">
+                      <MapPin className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="text-xs text-red-600 font-medium">Dropoff</p>
+                        <p className="text-sm">{selectedTrip.dropoff_address}</p>
+                        {selectedTrip.dropoff_latitude && selectedTrip.dropoff_longitude && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {selectedTrip.dropoff_latitude.toFixed(6)}, {selectedTrip.dropoff_longitude.toFixed(6)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
               <Separator />
 
@@ -843,7 +713,7 @@ export default function ScheduledRides() {
                     Vehicle Type
                   </Label>
                   <p className="font-medium text-sm mt-1">
-                    {selectedTrip.vehicle_type?.name || 'Any Available'}
+                    {selectedTrip.vehicle_type || 'Any Available'}
                   </p>
                 </div>
                 <div>
