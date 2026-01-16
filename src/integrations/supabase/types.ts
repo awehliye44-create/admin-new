@@ -465,6 +465,102 @@ export type Database = {
         }
         Relationships: []
       }
+      customer_wallet_ledger: {
+        Row: {
+          amount_pence: number
+          created_at: string
+          description: string | null
+          entry_type: string
+          id: string
+          status: string
+          stripe_payment_intent_id: string | null
+          trip_id: string | null
+          updated_at: string
+          wallet_id: string
+        }
+        Insert: {
+          amount_pence: number
+          created_at?: string
+          description?: string | null
+          entry_type: string
+          id?: string
+          status?: string
+          stripe_payment_intent_id?: string | null
+          trip_id?: string | null
+          updated_at?: string
+          wallet_id: string
+        }
+        Update: {
+          amount_pence?: number
+          created_at?: string
+          description?: string | null
+          entry_type?: string
+          id?: string
+          status?: string
+          stripe_payment_intent_id?: string | null
+          trip_id?: string | null
+          updated_at?: string
+          wallet_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_wallet_ledger_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_wallet_ledger_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_wallet_ledger_wallet_id_fkey"
+            columns: ["wallet_id"]
+            isOneToOne: false
+            referencedRelation: "customer_wallets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_wallets: {
+        Row: {
+          balance_pence: number
+          created_at: string
+          currency: string
+          customer_id: string
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          balance_pence?: number
+          created_at?: string
+          currency?: string
+          customer_id: string
+          id?: string
+          updated_at?: string
+        }
+        Update: {
+          balance_pence?: number
+          created_at?: string
+          currency?: string
+          customer_id?: string
+          id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_wallets_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: true
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customers: {
         Row: {
           active_trip_id: string | null
@@ -1164,9 +1260,134 @@ export type Database = {
           },
         ]
       }
+      driver_wallet_ledger: {
+        Row: {
+          amount_pence: number
+          created_at: string
+          currency: string
+          description: string | null
+          driver_id: string
+          id: string
+          related_trip_id: string | null
+          stripe_payout_id: string | null
+          stripe_transfer_id: string | null
+          type: string
+        }
+        Insert: {
+          amount_pence: number
+          created_at?: string
+          currency?: string
+          description?: string | null
+          driver_id: string
+          id?: string
+          related_trip_id?: string | null
+          stripe_payout_id?: string | null
+          stripe_transfer_id?: string | null
+          type: string
+        }
+        Update: {
+          amount_pence?: number
+          created_at?: string
+          currency?: string
+          description?: string | null
+          driver_id?: string
+          id?: string
+          related_trip_id?: string | null
+          stripe_payout_id?: string | null
+          stripe_transfer_id?: string | null
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_related_trip_id_fkey"
+            columns: ["related_trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_related_trip_id_fkey"
+            columns: ["related_trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      driver_wallets: {
+        Row: {
+          available_pence: number
+          driver_id: string
+          id: string
+          lifetime_earned_pence: number
+          pending_pence: number
+          updated_at: string
+        }
+        Insert: {
+          available_pence?: number
+          driver_id: string
+          id?: string
+          lifetime_earned_pence?: number
+          pending_pence?: number
+          updated_at?: string
+        }
+        Update: {
+          available_pence?: number
+          driver_id?: string
+          id?: string
+          lifetime_earned_pence?: number
+          pending_pence?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_wallets_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_wallets_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_wallets_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       drivers: {
         Row: {
           approval_status: string
+          charges_enabled: boolean | null
           created_at: string
           current_lat: number | null
           current_lng: number | null
@@ -1181,11 +1402,14 @@ export type Database = {
           is_pet_friendly: boolean
           last_location_updated_at: string | null
           last_name: string
+          onboarding_complete: boolean | null
+          payouts_enabled: boolean | null
           phone: string
           profile_photo_url: string | null
           rating: number | null
           region_id: string
           speed: number | null
+          stripe_account_id: string | null
           total_trips: number | null
           updated_at: string
           user_id: string
@@ -1194,6 +1418,7 @@ export type Database = {
         }
         Insert: {
           approval_status?: string
+          charges_enabled?: boolean | null
           created_at?: string
           current_lat?: number | null
           current_lng?: number | null
@@ -1208,11 +1433,14 @@ export type Database = {
           is_pet_friendly?: boolean
           last_location_updated_at?: string | null
           last_name: string
+          onboarding_complete?: boolean | null
+          payouts_enabled?: boolean | null
           phone: string
           profile_photo_url?: string | null
           rating?: number | null
           region_id: string
           speed?: number | null
+          stripe_account_id?: string | null
           total_trips?: number | null
           updated_at?: string
           user_id: string
@@ -1221,6 +1449,7 @@ export type Database = {
         }
         Update: {
           approval_status?: string
+          charges_enabled?: boolean | null
           created_at?: string
           current_lat?: number | null
           current_lng?: number | null
@@ -1235,11 +1464,14 @@ export type Database = {
           is_pet_friendly?: boolean
           last_location_updated_at?: string | null
           last_name?: string
+          onboarding_complete?: boolean | null
+          payouts_enabled?: boolean | null
           phone?: string
           profile_photo_url?: string | null
           rating?: number | null
           region_id?: string
           speed?: number | null
+          stripe_account_id?: string | null
           total_trips?: number | null
           updated_at?: string
           user_id?: string
@@ -1757,6 +1989,192 @@ export type Database = {
             columns: ["target_service_area_id"]
             isOneToOne: false
             referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payments: {
+        Row: {
+          amount_pence: number
+          capture_method: string | null
+          created_at: string
+          currency: string
+          id: string
+          last_error: string | null
+          metadata: Json | null
+          status: string
+          stripe_payment_intent_id: string
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          amount_pence: number
+          capture_method?: string | null
+          created_at?: string
+          currency?: string
+          id?: string
+          last_error?: string | null
+          metadata?: Json | null
+          status?: string
+          stripe_payment_intent_id: string
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          amount_pence?: number
+          capture_method?: string | null
+          created_at?: string
+          currency?: string
+          id?: string
+          last_error?: string | null
+          metadata?: Json | null
+          status?: string
+          stripe_payment_intent_id?: string
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payout_batches: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          failed_payouts: number | null
+          id: string
+          kind: string
+          notes: string | null
+          run_date: string
+          status: string
+          successful_payouts: number | null
+          total_amount_pence: number | null
+          total_drivers: number | null
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          failed_payouts?: number | null
+          id?: string
+          kind: string
+          notes?: string | null
+          run_date?: string
+          status?: string
+          successful_payouts?: number | null
+          total_amount_pence?: number | null
+          total_drivers?: number | null
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          failed_payouts?: number | null
+          id?: string
+          kind?: string
+          notes?: string | null
+          run_date?: string
+          status?: string
+          successful_payouts?: number | null
+          total_amount_pence?: number | null
+          total_drivers?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      payout_items: {
+        Row: {
+          amount_pence: number
+          batch_id: string | null
+          completed_at: string | null
+          created_at: string
+          driver_id: string
+          error_message: string | null
+          id: string
+          ledger_entry_id: string | null
+          status: string
+          stripe_payout_id: string | null
+          stripe_transfer_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount_pence: number
+          batch_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          driver_id: string
+          error_message?: string | null
+          id?: string
+          ledger_entry_id?: string | null
+          status?: string
+          stripe_payout_id?: string | null
+          stripe_transfer_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount_pence?: number
+          batch_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          driver_id?: string
+          error_message?: string | null
+          id?: string
+          ledger_entry_id?: string | null
+          status?: string
+          stripe_payout_id?: string | null
+          stripe_transfer_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payout_items_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "payout_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_items_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "payout_items_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "payout_items_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_items_ledger_entry_id_fkey"
+            columns: ["ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "driver_ledger"
             referencedColumns: ["id"]
           },
         ]
@@ -2591,7 +3009,9 @@ export type Database = {
       trips: {
         Row: {
           arrived_at: string | null
+          authorised_amount_pence: number | null
           broadcast_started_at: string | null
+          capture_amount_pence: number | null
           check_in_reminder_sent_at: string | null
           client_action_id: string | null
           commission_pence: number | null
@@ -2620,7 +3040,10 @@ export type Database = {
           estimated_distance_km: number | null
           estimated_duration_minutes: number | null
           estimated_fare: number | null
+          estimated_total_pence: number | null
+          extras_pence: number | null
           fare: number | null
+          final_fare_pence: number | null
           gross_fare_pence: number | null
           id: string
           is_scheduled: boolean | null
@@ -2630,6 +3053,7 @@ export type Database = {
           passenger_id: string
           passenger_name: string | null
           passenger_phone: string | null
+          payment_intent_version: number | null
           payment_method: string | null
           payment_status: string | null
           payment_type: string | null
@@ -2639,6 +3063,9 @@ export type Database = {
           pickup_zone_id: string | null
           pre_assigned_driver_id: string | null
           qr_session_id: string | null
+          refund_amount_pence: number | null
+          refund_reason: string | null
+          refunded_at: string | null
           scheduled_accepted_at: string | null
           scheduled_at: string | null
           scheduled_broadcast_at: string | null
@@ -2651,18 +3078,24 @@ export type Database = {
           started_at: string | null
           status: string | null
           stops: Json | null
+          stripe_charge_id: string | null
           stripe_payment_intent_id: string | null
+          stripe_processing_fee_pence: number | null
           surge_multiplier: number | null
+          tip_pence: number | null
           total_stops: number | null
           trip_code: string | null
           trip_number: string | null
           trip_type: string | null
           updated_at: string
           vehicle_type: string | null
+          wallet_applied_pence: number | null
         }
         Insert: {
           arrived_at?: string | null
+          authorised_amount_pence?: number | null
           broadcast_started_at?: string | null
+          capture_amount_pence?: number | null
           check_in_reminder_sent_at?: string | null
           client_action_id?: string | null
           commission_pence?: number | null
@@ -2691,7 +3124,10 @@ export type Database = {
           estimated_distance_km?: number | null
           estimated_duration_minutes?: number | null
           estimated_fare?: number | null
+          estimated_total_pence?: number | null
+          extras_pence?: number | null
           fare?: number | null
+          final_fare_pence?: number | null
           gross_fare_pence?: number | null
           id?: string
           is_scheduled?: boolean | null
@@ -2701,6 +3137,7 @@ export type Database = {
           passenger_id: string
           passenger_name?: string | null
           passenger_phone?: string | null
+          payment_intent_version?: number | null
           payment_method?: string | null
           payment_status?: string | null
           payment_type?: string | null
@@ -2710,6 +3147,9 @@ export type Database = {
           pickup_zone_id?: string | null
           pre_assigned_driver_id?: string | null
           qr_session_id?: string | null
+          refund_amount_pence?: number | null
+          refund_reason?: string | null
+          refunded_at?: string | null
           scheduled_accepted_at?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
@@ -2722,18 +3162,24 @@ export type Database = {
           started_at?: string | null
           status?: string | null
           stops?: Json | null
+          stripe_charge_id?: string | null
           stripe_payment_intent_id?: string | null
+          stripe_processing_fee_pence?: number | null
           surge_multiplier?: number | null
+          tip_pence?: number | null
           total_stops?: number | null
           trip_code?: string | null
           trip_number?: string | null
           trip_type?: string | null
           updated_at?: string
           vehicle_type?: string | null
+          wallet_applied_pence?: number | null
         }
         Update: {
           arrived_at?: string | null
+          authorised_amount_pence?: number | null
           broadcast_started_at?: string | null
+          capture_amount_pence?: number | null
           check_in_reminder_sent_at?: string | null
           client_action_id?: string | null
           commission_pence?: number | null
@@ -2762,7 +3208,10 @@ export type Database = {
           estimated_distance_km?: number | null
           estimated_duration_minutes?: number | null
           estimated_fare?: number | null
+          estimated_total_pence?: number | null
+          extras_pence?: number | null
           fare?: number | null
+          final_fare_pence?: number | null
           gross_fare_pence?: number | null
           id?: string
           is_scheduled?: boolean | null
@@ -2772,6 +3221,7 @@ export type Database = {
           passenger_id?: string
           passenger_name?: string | null
           passenger_phone?: string | null
+          payment_intent_version?: number | null
           payment_method?: string | null
           payment_status?: string | null
           payment_type?: string | null
@@ -2781,6 +3231,9 @@ export type Database = {
           pickup_zone_id?: string | null
           pre_assigned_driver_id?: string | null
           qr_session_id?: string | null
+          refund_amount_pence?: number | null
+          refund_reason?: string | null
+          refunded_at?: string | null
           scheduled_accepted_at?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
@@ -2793,14 +3246,18 @@ export type Database = {
           started_at?: string | null
           status?: string | null
           stops?: Json | null
+          stripe_charge_id?: string | null
           stripe_payment_intent_id?: string | null
+          stripe_processing_fee_pence?: number | null
           surge_multiplier?: number | null
+          tip_pence?: number | null
           total_stops?: number | null
           trip_code?: string | null
           trip_number?: string | null
           trip_type?: string | null
           updated_at?: string
           vehicle_type?: string | null
+          wallet_applied_pence?: number | null
         }
         Relationships: [
           {
@@ -3656,6 +4113,10 @@ export type Database = {
       point_in_polygon: {
         Args: { point_lat: number; point_lng: number; polygon_geojson: Json }
         Returns: boolean
+      }
+      recalculate_driver_wallet: {
+        Args: { p_driver_id: string }
+        Returns: undefined
       }
       record_cash_trip_completion: {
         Args: {
