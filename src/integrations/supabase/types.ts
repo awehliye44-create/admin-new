@@ -2086,6 +2086,7 @@ export type Database = {
       }
       trips: {
         Row: {
+          arrived_at: string | null
           broadcast_started_at: string | null
           client_action_id: string | null
           completed_at: string | null
@@ -2142,10 +2143,13 @@ export type Database = {
           surge_multiplier: number | null
           total_stops: number | null
           trip_code: string | null
+          trip_number: string | null
           trip_type: string | null
           updated_at: string
+          vehicle_type: string | null
         }
         Insert: {
+          arrived_at?: string | null
           broadcast_started_at?: string | null
           client_action_id?: string | null
           completed_at?: string | null
@@ -2202,10 +2206,13 @@ export type Database = {
           surge_multiplier?: number | null
           total_stops?: number | null
           trip_code?: string | null
+          trip_number?: string | null
           trip_type?: string | null
           updated_at?: string
+          vehicle_type?: string | null
         }
         Update: {
+          arrived_at?: string | null
           broadcast_started_at?: string | null
           client_action_id?: string | null
           completed_at?: string | null
@@ -2262,8 +2269,10 @@ export type Database = {
           surge_multiplier?: number | null
           total_stops?: number | null
           trip_code?: string | null
+          trip_number?: string | null
           trip_type?: string | null
           updated_at?: string
+          vehicle_type?: string | null
         }
         Relationships: [
           {
@@ -2626,6 +2635,10 @@ export type Database = {
         Args: { p_driver_id: string; p_offer_id: string }
         Returns: Json
       }
+      assign_trip_number: {
+        Args: { p_service_area_id: string; p_trip_id: string }
+        Returns: Json
+      }
       can_driver_edit_vehicle: {
         Args: { p_driver_id: string }
         Returns: boolean
@@ -2661,7 +2674,12 @@ export type Database = {
         Args: { p_driver_id: string; p_offer_id: string }
         Returns: Json
       }
+      dispatch_trip_offers: { Args: { p_trip_id: string }; Returns: undefined }
       expire_stale_offers: { Args: never; Returns: Json }
+      find_service_area_by_location: {
+        Args: { p_lat: number; p_lng: number }
+        Returns: string
+      }
       generate_trip_number: {
         Args: { p_service_area_id: string }
         Returns: {
@@ -2677,6 +2695,10 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      haversine_meters: {
+        Args: { lat1: number; lat2: number; lon1: number; lon2: number }
+        Returns: number
       }
       lock_driver_vehicle: { Args: { p_driver_id: string }; Returns: undefined }
       point_in_circle: {
