@@ -43,7 +43,7 @@ export default function CorporateAccounts() {
   const [editingAccount, setEditingAccount] = useState<any>(null);
   const [viewingAccount, setViewingAccount] = useState<any>(null);
 
-  const [formData, setFormData] = useState({
+  const defaultFormData = {
     company_name: '',
     contact_name: '',
     contact_email: '',
@@ -62,7 +62,37 @@ export default function CorporateAccounts() {
     monthly_budget: 1000,
     region_id: '',
     service_area_id: '',
+  };
+
+  const [formData, setFormData] = useState(defaultFormData);
+
+  // Fetch corporate settings to apply defaults
+  const { data: corporateSettings } = useQuery({
+    queryKey: ['corporate-settings-config'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('admin_settings')
+        .select('setting_value')
+        .eq('setting_key', 'corporate_settings_config')
+        .maybeSingle();
+      
+      if (error) throw error;
+      return data?.setting_value as any;
+    },
   });
+
+  // Apply corporate settings defaults when creating new account
+  const getDefaultsFromSettings = () => {
+    if (corporateSettings) {
+      return {
+        ...defaultFormData,
+        payment_terms: corporateSettings.billing?.default_payment_terms || 'net30',
+        credit_limit: corporateSettings.limits?.default_credit_limit || 10000,
+        monthly_budget: corporateSettings.limits?.default_monthly_budget || 5000,
+      };
+    }
+    return defaultFormData;
+  };
 
   // Fetch regions
   const { data: regions = [] } = useQuery({
@@ -202,26 +232,7 @@ export default function CorporateAccounts() {
 
   const resetForm = () => {
     setEditingAccount(null);
-    setFormData({
-      company_name: '',
-      contact_name: '',
-      contact_email: '',
-      contact_phone: '',
-      billing_email: '',
-      address: '',
-      city: '',
-      country: '',
-      tax_id: '',
-      status: 'pending',
-      payment_terms: 'net30',
-      credit_limit: 10000,
-      discount_percentage: 0,
-      notes: '',
-      employee_count: 10,
-      monthly_budget: 1000,
-      region_id: '',
-      service_area_id: '',
-    });
+    setFormData(getDefaultsFromSettings());
   };
 
   const filteredAccounts = accounts.filter((account: any) => {
@@ -350,7 +361,7 @@ export default function CorporateAccounts() {
             </Button>
             <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) resetForm(); }}>
               <DialogTrigger asChild>
-                <Button>
+                <Button onClick={() => setFormData(getDefaultsFromSettings())}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Account
                 </Button>
