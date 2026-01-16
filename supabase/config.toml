@@ -50,3 +50,6 @@ verify_jwt = false
 
 [functions.admin-payout-batches]
 verify_jwt = false
+
+[functions.handle-cash-trip-commission]
+verify_jwt = false
