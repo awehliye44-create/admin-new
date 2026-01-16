@@ -57,10 +57,13 @@ interface ServiceArea {
   name: string;
   country: string | null;
   currency_code: string | null;
-  distance_unit: string | null;
   center_lat: number | null;
   center_lng: number | null;
   region_id: string;
+  region?: {
+    distance_unit: string | null;
+    currency_code: string | null;
+  };
 }
 
 interface CorporateAccount {
@@ -160,7 +163,7 @@ export default function ManualTrip() {
             .limit(100),
           supabase
             .from('service_areas')
-            .select('id, name, country, currency_code, distance_unit, center_lat, center_lng, region_id')
+            .select('id, name, country, currency_code, center_lat, center_lng, region_id, region:regions(distance_unit, currency_code)')
             .eq('is_active', true)
             .order('name'),
           supabase
@@ -209,8 +212,13 @@ export default function ManualTrip() {
 
     const serviceArea = serviceAreas.find(sa => sa.id === selectedServiceAreaId);
     if (serviceArea) {
-      setCurrencyCode(serviceArea.currency_code || 'GBP');
-      setDistanceUnit((serviceArea.distance_unit as 'mile' | 'km') || 'mile');
+      // Get currency from service area or fall back to region
+      const currency = serviceArea.currency_code || serviceArea.region?.currency_code || 'GBP';
+      setCurrencyCode(currency);
+      
+      // Get distance unit from parent region (regions own this setting)
+      const regionUnit = serviceArea.region?.distance_unit;
+      setDistanceUnit((regionUnit as 'mile' | 'km') || 'mile');
       
       if (serviceArea.center_lat && serviceArea.center_lng) {
         setServiceAreaCenter({ lat: serviceArea.center_lat, lng: serviceArea.center_lng });
