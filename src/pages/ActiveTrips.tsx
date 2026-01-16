@@ -91,6 +91,8 @@ interface Driver {
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
   pending: { label: 'Pending', color: 'bg-gray-100 text-gray-700 border-gray-200', icon: Clock },
   searching: { label: 'Searching', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: Search },
+  offered: { label: 'Offered', color: 'bg-cyan-100 text-cyan-700 border-cyan-200', icon: Users },
+  driver_assigned: { label: 'Driver Assigned', color: 'bg-teal-100 text-teal-700 border-teal-200', icon: Car },
   accepted: { label: 'Accepted', color: 'bg-purple-100 text-purple-700 border-purple-200', icon: CheckCircle2 },
   arrived: { label: 'Arrived', color: 'bg-indigo-100 text-indigo-700 border-indigo-200', icon: MapPin },
   in_progress: { label: 'In Progress', color: 'bg-amber-100 text-amber-700 border-amber-200', icon: Car },
@@ -128,7 +130,7 @@ export default function ActiveTrips() {
             *,
             driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone)
           `)
-          .in('status', ['pending', 'searching', 'accepted', 'arrived', 'in_progress'])
+          .in('status', ['pending', 'searching', 'offered', 'driver_assigned', 'accepted', 'arrived', 'in_progress'])
           .order('created_at', { ascending: false }),
         supabase
           .from('drivers')
@@ -301,8 +303,8 @@ export default function ActiveTrips() {
     return matchesSearch && matchesStatus;
   });
 
-  const pendingCount = trips.filter(t => t.status === 'pending' || t.status === 'searching').length;
-  const acceptedCount = trips.filter(t => t.status === 'accepted' || t.status === 'arrived').length;
+  const pendingCount = trips.filter(t => t.status === 'pending' || t.status === 'searching' || t.status === 'offered').length;
+  const acceptedCount = trips.filter(t => t.status === 'accepted' || t.status === 'arrived' || t.status === 'driver_assigned').length;
   const inProgressCount = trips.filter(t => t.status === 'in_progress').length;
 
   return (
@@ -387,6 +389,8 @@ export default function ActiveTrips() {
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
                 <SelectItem value="searching">Searching</SelectItem>
+                <SelectItem value="offered">Offered</SelectItem>
+                <SelectItem value="driver_assigned">Driver Assigned</SelectItem>
                 <SelectItem value="accepted">Accepted</SelectItem>
                 <SelectItem value="arrived">Arrived</SelectItem>
                 <SelectItem value="in_progress">In Progress</SelectItem>
