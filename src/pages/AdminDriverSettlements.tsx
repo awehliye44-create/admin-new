@@ -198,15 +198,19 @@ export default function AdminDriverSettlements() {
   };
 
   const filteredSettlements = settlements.filter(driver => {
+    const driverName = driver.driver_name || '';
+    const driverEmail = driver.driver_email || '';
+    const search = searchTerm.toLowerCase();
+    
     const matchesSearch = 
-      driver.driver_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      driver.driver_email.toLowerCase().includes(searchTerm.toLowerCase());
+      driverName.toLowerCase().includes(search) ||
+      driverEmail.toLowerCase().includes(search);
     
     if (activeTab === 'with_earnings') {
-      return matchesSearch && driver.wallet_available_pence > 0;
+      return matchesSearch && (driver.wallet_available_pence || 0) > 0;
     }
     if (activeTab === 'in_debt') {
-      return matchesSearch && driver.wallet_available_pence < 0;
+      return matchesSearch && (driver.wallet_available_pence || 0) < 0;
     }
     if (activeTab === 'online') {
       return matchesSearch && driver.is_online;
