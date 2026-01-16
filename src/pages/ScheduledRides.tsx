@@ -64,6 +64,7 @@ interface ScheduledTrip {
   scheduled_status: string | null;
   passenger_name: string | null;
   passenger_phone: string | null;
+  customer_id?: string | null;
   pickup_address: string;
   dropoff_address: string;
   pickup_latitude: number | null;
@@ -169,7 +170,7 @@ export default function ScheduledRides() {
       if (driversRes.error) throw driversRes.error;
 
       setTrips((tripsRes.data as unknown as ScheduledTrip[]) || []);
-      setAvailableDrivers(driversRes.data || []);
+      setAvailableDrivers((driversRes.data as unknown as Driver[]) || []);
     } catch (err) {
       console.error('Error fetching scheduled rides:', err);
       toast.error('Failed to load scheduled rides');
@@ -650,58 +651,52 @@ export default function ScheduledRides() {
                   <Users className="h-3 w-3" />
                   Passenger Details
                 </Label>
-                <div className="grid grid-cols-2 gap-4 mt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
                   <div>
                     <p className="font-medium">{selectedTrip.passenger_name || 'Unknown'}</p>
                     <div className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
                       <Phone className="h-3 w-3" />
                       {selectedTrip.passenger_phone || 'No phone'}
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Route Section */}
+              <div>
+                <Label className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                  <MapPin className="h-3 w-3" />
+                  Route Details
+                </Label>
+                <div className="space-y-3 mt-2">
+                  <div className="flex items-start gap-2 p-3 bg-green-50 rounded-lg border border-green-200">
+                    <MapPin className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
                     <div>
-                      <p className="font-medium">{selectedTrip.passenger_name || 'Unknown'}</p>
-                      <div className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
-                        <Phone className="h-3 w-3" />
-                        {selectedTrip.passenger_phone || 'No phone'}
-                      </div>
+                      <p className="text-xs text-green-600 font-medium">Pickup</p>
+                      <p className="text-sm">{selectedTrip.pickup_address}</p>
+                      {selectedTrip.pickup_latitude != null && selectedTrip.pickup_longitude != null && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {selectedTrip.pickup_latitude.toFixed(6)}, {selectedTrip.pickup_longitude.toFixed(6)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2 p-3 bg-red-50 rounded-lg border border-red-200">
+                    <MapPin className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-xs text-red-600 font-medium">Dropoff</p>
+                      <p className="text-sm">{selectedTrip.dropoff_address}</p>
+                      {selectedTrip.dropoff_latitude != null && selectedTrip.dropoff_longitude != null && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {selectedTrip.dropoff_latitude.toFixed(6)}, {selectedTrip.dropoff_longitude.toFixed(6)}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
-
-                <Separator />
-
-                {/* Route Section */}
-                <div>
-                  <Label className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
-                    <MapPin className="h-3 w-3" />
-                    Route Details
-                  </Label>
-                  <div className="space-y-3 mt-2">
-                    <div className="flex items-start gap-2 p-3 bg-green-50 rounded-lg border border-green-200">
-                      <MapPin className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-                      <div>
-                        <p className="text-xs text-green-600 font-medium">Pickup</p>
-                        <p className="text-sm">{selectedTrip.pickup_address}</p>
-                        {selectedTrip.pickup_latitude && selectedTrip.pickup_longitude && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {selectedTrip.pickup_latitude.toFixed(6)}, {selectedTrip.pickup_longitude.toFixed(6)}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-2 p-3 bg-red-50 rounded-lg border border-red-200">
-                      <MapPin className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
-                      <div>
-                        <p className="text-xs text-red-600 font-medium">Dropoff</p>
-                        <p className="text-sm">{selectedTrip.dropoff_address}</p>
-                        {selectedTrip.dropoff_latitude && selectedTrip.dropoff_longitude && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {selectedTrip.dropoff_latitude.toFixed(6)}, {selectedTrip.dropoff_longitude.toFixed(6)}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
+              </div>
 
               <Separator />
 
