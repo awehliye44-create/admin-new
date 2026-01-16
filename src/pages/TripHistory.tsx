@@ -534,21 +534,29 @@ export default function TripHistory() {
     return R * c;
   };
 
-  // Get stops count for a trip
+  // Get total waypoints count for a trip (pickup + intermediate stops + dropoff)
   const getTripStopsCount = (trip: CompletedTrip): number => {
     if (trip.trip_stops && trip.trip_stops.length > 0) {
       return trip.trip_stops.length;
     }
-    // Fallback to total_stops + 2 (pickup and dropoff)
-    return (trip.total_stops || 0) + 2;
+    // Simple A to B trip has 2 points (pickup and dropoff)
+    return 2;
   };
 
   // Get intermediate stops count (excluding pickup and dropoff)
+  // A regular A→B trip has 0 intermediate stops
   const getIntermediateStopsCount = (trip: CompletedTrip): number => {
     if (trip.trip_stops && trip.trip_stops.length > 0) {
+      // Only count stops with type='stop' (not pickup or dropoff)
       return trip.trip_stops.filter(s => s.type === 'stop').length;
     }
-    return trip.total_stops || 0;
+    // If no trip_stops data, assume it's a simple A to B trip
+    return 0;
+  };
+
+  // Check if a trip is a multi-stop trip (has intermediate stops)
+  const isMultiStopTrip = (trip: CompletedTrip): boolean => {
+    return getIntermediateStopsCount(trip) > 0;
   };
 
   // Get best distance for trip (calculated from stops or estimated)
@@ -597,7 +605,7 @@ export default function TripHistory() {
   // Stats based on filtered trips
   const totalRevenue = filteredTrips.reduce((sum, t) => sum + (t.fare || 0), 0);
   const avgFare = filteredTrips.length > 0 ? totalRevenue / filteredTrips.length : 0;
-  const multiStopTrips = filteredTrips.filter(t => (t.total_stops || 0) > 0).length;
+  const multiStopTrips = filteredTrips.filter(t => isMultiStopTrip(t)).length;
 
   return (
     <AdminLayout 

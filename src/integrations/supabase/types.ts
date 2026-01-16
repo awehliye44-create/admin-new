@@ -501,6 +501,13 @@ export type Database = {
             foreignKeyName: "customers_active_trip_id_fkey"
             columns: ["active_trip_id"]
             isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customers_active_trip_id_fkey"
+            columns: ["active_trip_id"]
+            isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
@@ -969,6 +976,13 @@ export type Database = {
             foreignKeyName: "driver_ledger_trip_id_fkey"
             columns: ["trip_id"]
             isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_ledger_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
@@ -1237,6 +1251,13 @@ export type Database = {
             foreignKeyName: "drivers_current_trip_id_fkey"
             columns: ["current_trip_id"]
             isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drivers_current_trip_id_fkey"
+            columns: ["current_trip_id"]
+            isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
@@ -1300,6 +1321,13 @@ export type Database = {
             columns: ["driver_id"]
             isOneToOne: false
             referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "geofence_events_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
             referencedColumns: ["id"]
           },
           {
@@ -1445,6 +1473,13 @@ export type Database = {
             foreignKeyName: "lost_property_cases_return_trip_id_fkey"
             columns: ["return_trip_id"]
             isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lost_property_cases_return_trip_id_fkey"
+            columns: ["return_trip_id"]
+            isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
@@ -1453,6 +1488,13 @@ export type Database = {
             columns: ["service_area_id"]
             isOneToOne: false
             referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lost_property_cases_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
             referencedColumns: ["id"]
           },
           {
@@ -2004,6 +2046,13 @@ export type Database = {
             foreignKeyName: "ride_offers_trip_id_fkey"
             columns: ["trip_id"]
             isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ride_offers_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
@@ -2073,6 +2122,85 @@ export type Database = {
           },
           {
             foreignKeyName: "rider_feedback_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rider_feedback_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scheduled_offer_attempts: {
+        Row: {
+          broadcast_round: number
+          created_at: string
+          driver_id: string
+          id: string
+          responded_at: string | null
+          response_time_seconds: number | null
+          sent_at: string
+          status: string
+          trip_id: string
+        }
+        Insert: {
+          broadcast_round?: number
+          created_at?: string
+          driver_id: string
+          id?: string
+          responded_at?: string | null
+          response_time_seconds?: number | null
+          sent_at?: string
+          status?: string
+          trip_id: string
+        }
+        Update: {
+          broadcast_round?: number
+          created_at?: string
+          driver_id?: string
+          id?: string
+          responded_at?: string | null
+          response_time_seconds?: number | null
+          sent_at?: string
+          status?: string
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scheduled_offer_attempts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "scheduled_offer_attempts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "scheduled_offer_attempts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scheduled_offer_attempts_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scheduled_offer_attempts_trip_id_fkey"
             columns: ["trip_id"]
             isOneToOne: false
             referencedRelation: "trips"
@@ -2388,6 +2516,13 @@ export type Database = {
             foreignKeyName: "trip_offers_trip_id_fkey"
             columns: ["trip_id"]
             isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_offers_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
@@ -2441,6 +2576,13 @@ export type Database = {
             foreignKeyName: "trip_stops_trip_id_fkey"
             columns: ["trip_id"]
             isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_stops_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
@@ -2450,6 +2592,7 @@ export type Database = {
         Row: {
           arrived_at: string | null
           broadcast_started_at: string | null
+          check_in_reminder_sent_at: string | null
           client_action_id: string | null
           commission_pence: number | null
           completed_at: string | null
@@ -2459,6 +2602,8 @@ export type Database = {
           currency: string | null
           currency_code: string | null
           current_broadcast_round: number | null
+          current_offer_driver_id: string | null
+          current_offer_expires_at: string | null
           current_stop_index: number | null
           dispatch_mode: string | null
           dispatch_status: string | null
@@ -2494,6 +2639,7 @@ export type Database = {
           pickup_zone_id: string | null
           pre_assigned_driver_id: string | null
           qr_session_id: string | null
+          scheduled_accepted_at: string | null
           scheduled_at: string | null
           scheduled_broadcast_at: string | null
           scheduled_convert_at: string | null
@@ -2517,6 +2663,7 @@ export type Database = {
         Insert: {
           arrived_at?: string | null
           broadcast_started_at?: string | null
+          check_in_reminder_sent_at?: string | null
           client_action_id?: string | null
           commission_pence?: number | null
           completed_at?: string | null
@@ -2526,6 +2673,8 @@ export type Database = {
           currency?: string | null
           currency_code?: string | null
           current_broadcast_round?: number | null
+          current_offer_driver_id?: string | null
+          current_offer_expires_at?: string | null
           current_stop_index?: number | null
           dispatch_mode?: string | null
           dispatch_status?: string | null
@@ -2561,6 +2710,7 @@ export type Database = {
           pickup_zone_id?: string | null
           pre_assigned_driver_id?: string | null
           qr_session_id?: string | null
+          scheduled_accepted_at?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
           scheduled_convert_at?: string | null
@@ -2584,6 +2734,7 @@ export type Database = {
         Update: {
           arrived_at?: string | null
           broadcast_started_at?: string | null
+          check_in_reminder_sent_at?: string | null
           client_action_id?: string | null
           commission_pence?: number | null
           completed_at?: string | null
@@ -2593,6 +2744,8 @@ export type Database = {
           currency?: string | null
           currency_code?: string | null
           current_broadcast_round?: number | null
+          current_offer_driver_id?: string | null
+          current_offer_expires_at?: string | null
           current_stop_index?: number | null
           dispatch_mode?: string | null
           dispatch_status?: string | null
@@ -2628,6 +2781,7 @@ export type Database = {
           pickup_zone_id?: string | null
           pre_assigned_driver_id?: string | null
           qr_session_id?: string | null
+          scheduled_accepted_at?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
           scheduled_convert_at?: string | null
@@ -2666,6 +2820,27 @@ export type Database = {
           {
             foreignKeyName: "trips_confirmed_driver_id_fkey"
             columns: ["confirmed_driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_current_offer_driver_id_fkey"
+            columns: ["current_offer_driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_current_offer_driver_id_fkey"
+            columns: ["current_offer_driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_current_offer_driver_id_fkey"
+            columns: ["current_offer_driver_id"]
             isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
@@ -3023,6 +3198,331 @@ export type Database = {
       }
     }
     Views: {
+      available_scheduled_jobs: {
+        Row: {
+          arrived_at: string | null
+          broadcast_started_at: string | null
+          check_in_reminder_sent_at: string | null
+          client_action_id: string | null
+          commission_pence: number | null
+          completed_at: string | null
+          confirm_deadline_at: string | null
+          confirmed_driver_id: string | null
+          created_at: string | null
+          currency: string | null
+          currency_code: string | null
+          current_broadcast_round: number | null
+          current_offer_driver_id: string | null
+          current_offer_expires_at: string | null
+          current_stop_index: number | null
+          declined_count: number | null
+          dispatch_mode: string | null
+          dispatch_status: string | null
+          driver_confirm_deadline_at: string | null
+          driver_id: string | null
+          driver_location_lat: number | null
+          driver_location_lng: number | null
+          driver_net_pence: number | null
+          dropoff_address: string | null
+          dropoff_latitude: number | null
+          dropoff_longitude: number | null
+          dropoff_zone_id: string | null
+          escalation_status: string | null
+          estimated_distance_km: number | null
+          estimated_duration_minutes: number | null
+          estimated_fare: number | null
+          fare: number | null
+          gross_fare_pence: number | null
+          id: string | null
+          is_scheduled: boolean | null
+          job_type: string | null
+          last_broadcast_at: string | null
+          max_broadcast_rounds: number | null
+          passenger_id: string | null
+          passenger_name: string | null
+          passenger_phone: string | null
+          payment_method: string | null
+          payment_status: string | null
+          payment_type: string | null
+          pickup_address: string | null
+          pickup_latitude: number | null
+          pickup_longitude: number | null
+          pickup_zone_id: string | null
+          pre_assigned_driver_id: string | null
+          qr_session_id: string | null
+          scheduled_accepted_at: string | null
+          scheduled_at: string | null
+          scheduled_broadcast_at: string | null
+          scheduled_convert_at: string | null
+          scheduled_status: string | null
+          sequence_no: number | null
+          service_area_code: string | null
+          service_area_id: string | null
+          special_instructions: string | null
+          started_at: string | null
+          status: string | null
+          stops: Json | null
+          stripe_payment_intent_id: string | null
+          surge_multiplier: number | null
+          total_stops: number | null
+          trip_code: string | null
+          trip_number: string | null
+          trip_type: string | null
+          updated_at: string | null
+          vehicle_type: string | null
+        }
+        Insert: {
+          arrived_at?: string | null
+          broadcast_started_at?: string | null
+          check_in_reminder_sent_at?: string | null
+          client_action_id?: string | null
+          commission_pence?: number | null
+          completed_at?: string | null
+          confirm_deadline_at?: string | null
+          confirmed_driver_id?: string | null
+          created_at?: string | null
+          currency?: string | null
+          currency_code?: string | null
+          current_broadcast_round?: number | null
+          current_offer_driver_id?: string | null
+          current_offer_expires_at?: string | null
+          current_stop_index?: number | null
+          declined_count?: never
+          dispatch_mode?: string | null
+          dispatch_status?: string | null
+          driver_confirm_deadline_at?: string | null
+          driver_id?: string | null
+          driver_location_lat?: number | null
+          driver_location_lng?: number | null
+          driver_net_pence?: number | null
+          dropoff_address?: string | null
+          dropoff_latitude?: number | null
+          dropoff_longitude?: number | null
+          dropoff_zone_id?: string | null
+          escalation_status?: string | null
+          estimated_distance_km?: number | null
+          estimated_duration_minutes?: number | null
+          estimated_fare?: number | null
+          fare?: number | null
+          gross_fare_pence?: number | null
+          id?: string | null
+          is_scheduled?: boolean | null
+          job_type?: string | null
+          last_broadcast_at?: string | null
+          max_broadcast_rounds?: number | null
+          passenger_id?: string | null
+          passenger_name?: string | null
+          passenger_phone?: string | null
+          payment_method?: string | null
+          payment_status?: string | null
+          payment_type?: string | null
+          pickup_address?: string | null
+          pickup_latitude?: number | null
+          pickup_longitude?: number | null
+          pickup_zone_id?: string | null
+          pre_assigned_driver_id?: string | null
+          qr_session_id?: string | null
+          scheduled_accepted_at?: string | null
+          scheduled_at?: string | null
+          scheduled_broadcast_at?: string | null
+          scheduled_convert_at?: string | null
+          scheduled_status?: string | null
+          sequence_no?: number | null
+          service_area_code?: string | null
+          service_area_id?: string | null
+          special_instructions?: string | null
+          started_at?: string | null
+          status?: string | null
+          stops?: Json | null
+          stripe_payment_intent_id?: string | null
+          surge_multiplier?: number | null
+          total_stops?: number | null
+          trip_code?: string | null
+          trip_number?: string | null
+          trip_type?: string | null
+          updated_at?: string | null
+          vehicle_type?: string | null
+        }
+        Update: {
+          arrived_at?: string | null
+          broadcast_started_at?: string | null
+          check_in_reminder_sent_at?: string | null
+          client_action_id?: string | null
+          commission_pence?: number | null
+          completed_at?: string | null
+          confirm_deadline_at?: string | null
+          confirmed_driver_id?: string | null
+          created_at?: string | null
+          currency?: string | null
+          currency_code?: string | null
+          current_broadcast_round?: number | null
+          current_offer_driver_id?: string | null
+          current_offer_expires_at?: string | null
+          current_stop_index?: number | null
+          declined_count?: never
+          dispatch_mode?: string | null
+          dispatch_status?: string | null
+          driver_confirm_deadline_at?: string | null
+          driver_id?: string | null
+          driver_location_lat?: number | null
+          driver_location_lng?: number | null
+          driver_net_pence?: number | null
+          dropoff_address?: string | null
+          dropoff_latitude?: number | null
+          dropoff_longitude?: number | null
+          dropoff_zone_id?: string | null
+          escalation_status?: string | null
+          estimated_distance_km?: number | null
+          estimated_duration_minutes?: number | null
+          estimated_fare?: number | null
+          fare?: number | null
+          gross_fare_pence?: number | null
+          id?: string | null
+          is_scheduled?: boolean | null
+          job_type?: string | null
+          last_broadcast_at?: string | null
+          max_broadcast_rounds?: number | null
+          passenger_id?: string | null
+          passenger_name?: string | null
+          passenger_phone?: string | null
+          payment_method?: string | null
+          payment_status?: string | null
+          payment_type?: string | null
+          pickup_address?: string | null
+          pickup_latitude?: number | null
+          pickup_longitude?: number | null
+          pickup_zone_id?: string | null
+          pre_assigned_driver_id?: string | null
+          qr_session_id?: string | null
+          scheduled_accepted_at?: string | null
+          scheduled_at?: string | null
+          scheduled_broadcast_at?: string | null
+          scheduled_convert_at?: string | null
+          scheduled_status?: string | null
+          sequence_no?: number | null
+          service_area_code?: string | null
+          service_area_id?: string | null
+          special_instructions?: string | null
+          started_at?: string | null
+          status?: string | null
+          stops?: Json | null
+          stripe_payment_intent_id?: string | null
+          surge_multiplier?: number | null
+          total_stops?: number | null
+          trip_code?: string | null
+          trip_number?: string | null
+          trip_type?: string | null
+          updated_at?: string | null
+          vehicle_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trips_confirmed_driver_id_fkey"
+            columns: ["confirmed_driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_confirmed_driver_id_fkey"
+            columns: ["confirmed_driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_confirmed_driver_id_fkey"
+            columns: ["confirmed_driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_current_offer_driver_id_fkey"
+            columns: ["current_offer_driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_current_offer_driver_id_fkey"
+            columns: ["current_offer_driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_current_offer_driver_id_fkey"
+            columns: ["current_offer_driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_dropoff_zone_id_fkey"
+            columns: ["dropoff_zone_id"]
+            isOneToOne: false
+            referencedRelation: "custom_zones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_pickup_zone_id_fkey"
+            columns: ["pickup_zone_id"]
+            isOneToOne: false
+            referencedRelation: "custom_zones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_pre_assigned_driver_id_fkey"
+            columns: ["pre_assigned_driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_pre_assigned_driver_id_fkey"
+            columns: ["pre_assigned_driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_pre_assigned_driver_id_fkey"
+            columns: ["pre_assigned_driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_document_status: {
         Row: {
           approval_status: string | null
@@ -3055,6 +3555,10 @@ export type Database = {
     Functions: {
       accept_ride_offer: {
         Args: { p_driver_id: string; p_offer_id: string }
+        Returns: Json
+      }
+      accept_scheduled_ride: {
+        Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
       }
       assign_trip_number: {
@@ -3094,6 +3598,10 @@ export type Database = {
       }
       decline_ride_offer: {
         Args: { p_driver_id: string; p_offer_id: string }
+        Returns: Json
+      }
+      decline_scheduled_ride: {
+        Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
       }
       dispatch_trip_offers: { Args: { p_trip_id: string }; Returns: undefined }
@@ -3184,6 +3692,10 @@ export type Database = {
           zone_name: string
           zone_type: string
         }[]
+      }
+      timeout_scheduled_offer: {
+        Args: { p_driver_id: string; p_trip_id: string }
+        Returns: Json
       }
       update_driver_location: {
         Args: {
