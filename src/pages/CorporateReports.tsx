@@ -137,9 +137,9 @@ export default function CorporateReports() {
     },
   });
 
-  // Fetch trip data for reports
+  // Fetch corporate trip data for reports
   const { data: tripData = [], isLoading } = useQuery({
-    queryKey: ['corporate-trip-reports', dateRange, regionFilter, serviceAreaFilter],
+    queryKey: ['corporate-trip-reports', dateRange, regionFilter, serviceAreaFilter, selectedAccount],
     queryFn: async () => {
       const now = new Date();
       let startDate = new Date();
@@ -155,12 +155,20 @@ export default function CorporateReports() {
 
       let query = supabase
         .from('trips')
-        .select('id, fare, created_at, trip_type, service_area_id')
-        .eq('status', 'completed')
+        .select(`
+          id, fare, estimated_fare, created_at, completed_at, status, 
+          service_area_id, corporate_account_id, currency_code,
+          corporate_account:corporate_accounts(id, company_name)
+        `)
+        .not('corporate_account_id', 'is', null)
         .gte('created_at', startDate.toISOString());
       
       if (serviceAreaFilter !== 'all') {
         query = query.eq('service_area_id', serviceAreaFilter);
+      }
+      
+      if (selectedAccount !== 'all') {
+        query = query.eq('corporate_account_id', selectedAccount);
       }
       
       const { data: trips, error } = await query;
@@ -169,7 +177,7 @@ export default function CorporateReports() {
     },
   });
 
-  // Calculate report data from real data
+  // Calculate report data from real corporate trips
   const calculateMonthlyTrends = (trips: any[]) => {
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const monthData: Record<string, { trips: number; revenue: number }> = {};
@@ -179,7 +187,7 @@ export default function CorporateReports() {
       const key = `${date.getFullYear()}-${String(date.getMonth()).padStart(2, '0')}`;
       if (!monthData[key]) monthData[key] = { trips: 0, revenue: 0 };
       monthData[key].trips++;
-      monthData[key].revenue += trip.fare || 0;
+      monthData[key].revenue += trip.fare || trip.estimated_fare || 0;
     });
 
     return Object.entries(monthData)
@@ -194,18 +202,21 @@ export default function CorporateReports() {
 
   const calculateTripDistribution = (trips: any[]) => {
     if (!trips.length) return [];
-    const distribution: Record<string, number> = { 'Standard': 0, 'Premium': 0 };
+    const distribution: Record<string, number> = {};
+    
     trips.forEach(trip => {
-      const type = trip.trip_type === 'executive' ? 'Premium' : 'Standard';
-      distribution[type]++;
+      const companyName = trip.corporate_account?.company_name || 'Unknown';
+      distribution[companyName] = (distribution[companyName] || 0) + 1;
     });
     
     const total = trips.length;
     return Object.entries(distribution)
-      .filter(([_, count]) => count > 0)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
       .map(([category, count]) => ({
         category,
         value: Math.round((count / total) * 100),
+        count,
       }));
   };
 
@@ -223,9 +234,10 @@ export default function CorporateReports() {
     }));
   };
 
-  const totalRevenue = invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + (i.total_amount || 0), 0);
+  const completedTrips = tripData.filter((t: any) => t.status === 'completed');
+  const totalRevenue = completedTrips.reduce((sum: number, t: any) => sum + (t.fare || t.estimated_fare || 0), 0);
   const totalTrips = tripData.length;
-  const avgTripCost = totalTrips > 0 ? totalRevenue / totalTrips : 0;
+  const avgTripCost = completedTrips.length > 0 ? totalRevenue / completedTrips.length : 0;
   const activeAccounts = accounts.filter((a: any) => a.status === 'active').length;
   const monthlyTrends = calculateMonthlyTrends(tripData);
   const tripDistribution = calculateTripDistribution(tripData);
@@ -537,8 +549,8 @@ export default function CorporateReports() {
           <TabsContent value="accounts" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Corporate Accounts</CardTitle>
-                <CardDescription>Account overview and balances</CardDescription>
+                <CardTitle>Corporate Account Performance</CardTitle>
+                <CardDescription>Trip volume and revenue by account for selected period</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                 <Table>
@@ -546,32 +558,45 @@ export default function CorporateReports() {
                     <TableRow>
                       <TableHead>Company</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Credit Limit</TableHead>
-                      <TableHead>Current Balance</TableHead>
-                      <TableHead>Discount</TableHead>
+                      <TableHead className="text-right">Trips</TableHead>
+                      <TableHead className="text-right">Revenue</TableHead>
+                      <TableHead className="text-right">Avg Fare</TableHead>
+                      <TableHead className="text-right">Credit Limit</TableHead>
+                      <TableHead className="text-right">Discount</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {accounts.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                           No corporate accounts found
                         </TableCell>
                       </TableRow>
                     ) : (
-                      accounts.map((account: any) => (
-                        <TableRow key={account.id}>
-                          <TableCell className="font-medium">{account.company_name}</TableCell>
-                          <TableCell>
-                            <Badge variant={account.status === 'active' ? 'default' : 'secondary'}>
-                              {account.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>${(account.credit_limit || 0).toLocaleString()}</TableCell>
-                          <TableCell>${(account.current_balance || 0).toLocaleString()}</TableCell>
-                          <TableCell>{account.discount_percentage || 0}%</TableCell>
-                        </TableRow>
-                      ))
+                      accounts.map((account: any) => {
+                        const accountTrips = tripData.filter((t: any) => t.corporate_account_id === account.id);
+                        const accountRevenue = accountTrips.reduce((sum: number, t: any) => 
+                          sum + (t.fare || t.estimated_fare || 0), 0);
+                        const avgFare = accountTrips.length > 0 ? accountRevenue / accountTrips.length : 0;
+                        
+                        return (
+                          <TableRow key={account.id}>
+                            <TableCell className="font-medium">{account.company_name}</TableCell>
+                            <TableCell>
+                              <Badge variant={account.status === 'active' ? 'default' : 'secondary'}>
+                                {account.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right font-medium">{accountTrips.length}</TableCell>
+                            <TableCell className="text-right font-medium text-green-600">
+                              ${accountRevenue.toFixed(2)}
+                            </TableCell>
+                            <TableCell className="text-right">${avgFare.toFixed(2)}</TableCell>
+                            <TableCell className="text-right">${(account.credit_limit || 0).toLocaleString()}</TableCell>
+                            <TableCell className="text-right">{account.discount_percentage || 0}%</TableCell>
+                          </TableRow>
+                        );
+                      })
                     )}
                   </TableBody>
                 </Table>

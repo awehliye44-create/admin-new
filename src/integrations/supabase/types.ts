@@ -3244,6 +3244,7 @@ export type Database = {
           trip_type: string | null
           updated_at: string
           vehicle_type: string | null
+          vehicle_type_id: string | null
           wallet_applied_pence: number | null
         }
         Insert: {
@@ -3336,6 +3337,7 @@ export type Database = {
           trip_type?: string | null
           updated_at?: string
           vehicle_type?: string | null
+          vehicle_type_id?: string | null
           wallet_applied_pence?: number | null
         }
         Update: {
@@ -3428,6 +3430,7 @@ export type Database = {
           trip_type?: string | null
           updated_at?: string
           vehicle_type?: string | null
+          vehicle_type_id?: string | null
           wallet_applied_pence?: number | null
         }
         Relationships: [
@@ -3555,6 +3558,13 @@ export type Database = {
             columns: ["stacked_trip_id"]
             isOneToOne: false
             referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_vehicle_type_id_fkey"
+            columns: ["vehicle_type_id"]
+            isOneToOne: false
+            referencedRelation: "vehicle_types"
             referencedColumns: ["id"]
           },
         ]
