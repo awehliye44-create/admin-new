@@ -1,15 +1,23 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { 
+  securityHeaders, 
+  corsHeaders, 
+  checkRateLimit, 
+  getClientIP, 
+  rateLimitResponse,
+  successResponse,
+  errorResponse,
+  logAuditEvent
+} from "../_shared/security.ts";
+import { 
+  validateSchema, 
+  acceptTripSchema, 
+  AcceptTripRequest 
+} from "../_shared/validation.ts";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-interface AcceptRequest {
-  trip_id: string;
-  driver_id: string;
-}
+// Rate limit: 30 requests per minute per IP for trip acceptance
+const RATE_LIMIT_CONFIG = { limit: 30, windowMs: 60 * 1000 };
 
 serve(async (req) => {
   // Handle CORS preflight
@@ -17,13 +25,36 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const clientIP = getClientIP(req);
+  const userAgent = req.headers.get('user-agent') || 'unknown';
+
+  // Check rate limit
+  const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
+  if (!rateLimitResult.allowed) {
+    console.log(`[accept-trip] Rate limit exceeded for IP: ${clientIP}`);
+    return rateLimitResponse(rateLimitResult.retryAfter!);
+  }
+
   try {
+    // Parse and validate request body
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return errorResponse('Invalid JSON in request body', 400);
+    }
+
+    const validation = validateSchema<AcceptTripRequest>(body, acceptTripSchema);
+    if (!validation.success) {
+      console.log(`[accept-trip] Validation failed:`, validation.errors);
+      return errorResponse('Validation failed', 400, { validation_errors: validation.errors });
+    }
+
+    const { trip_id, driver_id } = validation.data!;
+
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    const body: AcceptRequest = await req.json();
-    const { trip_id, driver_id } = body;
 
     console.log(`[accept-trip] Driver ${driver_id} attempting to accept trip ${trip_id}`);
 
@@ -37,11 +68,17 @@ serve(async (req) => {
 
     if (offerError || !offer) {
       console.log(`[accept-trip] No offer found for driver ${driver_id} on trip ${trip_id}`);
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Offer not found',
-        message: 'This ride offer is no longer available'
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 });
+      
+      // Log failed attempt
+      await logAuditEvent(supabase, 'trip_accept_failed', {
+        driverId: driver_id,
+        tripId: trip_id,
+        details: { reason: 'offer_not_found' },
+        ipAddress: clientIP,
+        userAgent,
+      });
+
+      return errorResponse('Offer not found', 404, { message: 'This ride offer is no longer available' });
     }
 
     // Check if offer has expired
@@ -53,25 +90,26 @@ serve(async (req) => {
         .update({ status: 'expired', responded_at: new Date().toISOString() })
         .eq('id', offer.id);
 
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Offer expired',
-        message: 'This offer has expired'
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 });
+      await logAuditEvent(supabase, 'trip_accept_failed', {
+        driverId: driver_id,
+        tripId: trip_id,
+        details: { reason: 'offer_expired' },
+        ipAddress: clientIP,
+        userAgent,
+      });
+
+      return errorResponse('Offer expired', 400, { message: 'This offer has expired' });
     }
 
     // Check if offer was already responded to
     if (offer.status !== 'offered') {
       console.log(`[accept-trip] Offer already processed: ${offer.status}`);
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Already processed',
-        message: offer.status === 'accepted' ? 'You already accepted this ride' : 'This offer is no longer available'
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 });
+      return errorResponse('Already processed', 400, { 
+        message: offer.status === 'accepted' ? 'You already accepted this ride' : 'This offer is no longer available' 
+      });
     }
 
     // ATOMIC OPERATION: Try to claim the trip
-    // This uses a conditional update that only succeeds if confirmed_driver_id is still null
     const { data: updatedTrip, error: tripUpdateError } = await supabase
       .from('trips')
       .update({
@@ -81,26 +119,28 @@ serve(async (req) => {
         updated_at: new Date().toISOString()
       })
       .eq('id', trip_id)
-      .is('confirmed_driver_id', null)  // Only update if no driver assigned yet
-      .eq('status', 'offered')  // Only update if still in offered status
+      .is('confirmed_driver_id', null)
+      .eq('status', 'offered')
       .select()
       .single();
 
     if (tripUpdateError || !updatedTrip) {
-      // Another driver already accepted
       console.log(`[accept-trip] Trip already claimed by another driver`);
       
-      // Mark this driver's offer as withdrawn
       await supabase
         .from('trip_offers')
         .update({ status: 'withdrawn', responded_at: new Date().toISOString() })
         .eq('id', offer.id);
 
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Already accepted',
-        message: 'Another driver accepted this ride first'
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 409 });
+      await logAuditEvent(supabase, 'trip_accept_failed', {
+        driverId: driver_id,
+        tripId: trip_id,
+        details: { reason: 'already_taken' },
+        ipAddress: clientIP,
+        userAgent,
+      });
+
+      return errorResponse('Already accepted', 409, { message: 'Another driver accepted this ride first' });
     }
 
     console.log(`[accept-trip] Trip ${trip_id} successfully assigned to driver ${driver_id}`);
@@ -132,8 +172,20 @@ serve(async (req) => {
       .update({ current_trip_id: trip_id })
       .eq('id', driver_id);
 
+    // Log successful acceptance
+    await logAuditEvent(supabase, 'trip_accepted', {
+      driverId: driver_id,
+      tripId: trip_id,
+      details: { 
+        withdrawn_offers: withdrawnOffers?.length || 0,
+        offer_id: offer.id
+      },
+      ipAddress: clientIP,
+      userAgent,
+    });
+
     // Get trip details for response
-    const { data: tripDetails, error: tripDetailsError } = await supabase
+    const { data: tripDetails } = await supabase
       .from('trips')
       .select(`
         id,
@@ -156,24 +208,18 @@ serve(async (req) => {
       .eq('id', trip_id)
       .single();
 
-    return new Response(JSON.stringify({
-      success: true,
+    return successResponse({
       accepted: true,
       message: 'Ride accepted successfully!',
       trip: tripDetails || updatedTrip,
       withdrawn_offers: withdrawnOffers?.length || 0
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
 
   } catch (error) {
     console.error('[accept-trip] Error:', error);
-    return new Response(JSON.stringify({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    }), { 
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 500
-    });
+    return errorResponse(
+      error instanceof Error ? error.message : 'Unknown error',
+      500
+    );
   }
 });

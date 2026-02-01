@@ -1,19 +1,22 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { 
+  securityHeaders, 
+  corsHeaders, 
+  checkRateLimit, 
+  getClientIP, 
+  rateLimitResponse,
+  successResponse,
+  errorResponse
+} from "../_shared/security.ts";
+import { 
+  validateSchema, 
+  checkGeofenceSchema, 
+  CheckGeofenceRequest 
+} from "../_shared/validation.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-interface CheckGeofenceRequest {
-  driver_id: string;
-  lat: number;
-  lng: number;
-  previous_lat?: number;
-  previous_lng?: number;
-  trip_id?: string;
-}
+// Rate limit: 120 requests per minute per IP (high frequency for location updates)
+const RATE_LIMIT_CONFIG = { limit: 120, windowMs: 60 * 1000 };
 
 interface GeofenceEvent {
   zone_id: string;
@@ -28,20 +31,35 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const clientIP = getClientIP(req);
+
+  // Check rate limit
+  const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
+  if (!rateLimitResult.allowed) {
+    console.log(`[check-geofence] Rate limit exceeded for IP: ${clientIP}`);
+    return rateLimitResponse(rateLimitResult.retryAfter!);
+  }
+
   try {
+    // Parse and validate request body
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return errorResponse('Invalid JSON in request body', 400);
+    }
+
+    const validation = validateSchema<CheckGeofenceRequest>(body, checkGeofenceSchema);
+    if (!validation.success) {
+      console.log(`[check-geofence] Validation failed:`, validation.errors);
+      return errorResponse('Validation failed', 400, { validation_errors: validation.errors });
+    }
+
+    const { driver_id, lat, lng, prev_lat, prev_lng, trip_id } = validation.data!;
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    const body: CheckGeofenceRequest = await req.json();
-    const { driver_id, lat, lng, previous_lat, previous_lng, trip_id } = body;
-
-    if (!driver_id || lat === undefined || lng === undefined) {
-      return new Response(
-        JSON.stringify({ error: "Missing required fields: driver_id, lat, lng" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
 
     // Get driver's region
     const { data: driver, error: driverError } = await supabase
@@ -51,10 +69,7 @@ serve(async (req) => {
       .single();
 
     if (driverError || !driver) {
-      return new Response(
-        JSON.stringify({ error: "Driver not found" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return errorResponse("Driver not found", 404);
     }
 
     // Get all active GEOFENCE zones in the driver's region
@@ -76,7 +91,6 @@ serve(async (req) => {
       let wasPreviouslyInside = false;
 
       if (zone.shape_type === "polygon" && zone.geo_boundary) {
-        // Check polygon containment
         const { data: currentInside } = await supabase.rpc("point_in_polygon", {
           point_lat: lat,
           point_lng: lng,
@@ -84,16 +98,15 @@ serve(async (req) => {
         });
         isCurrentlyInside = currentInside === true;
 
-        if (previous_lat !== undefined && previous_lng !== undefined) {
+        if (prev_lat !== undefined && prev_lng !== undefined) {
           const { data: previousInside } = await supabase.rpc("point_in_polygon", {
-            point_lat: previous_lat,
-            point_lng: previous_lng,
+            point_lat: prev_lat,
+            point_lng: prev_lng,
             polygon_geojson: zone.geo_boundary,
           });
           wasPreviouslyInside = previousInside === true;
         }
       } else if (zone.shape_type === "circle" && zone.center_lat && zone.center_lng && zone.radius_meters) {
-        // Check circle containment
         const { data: currentInside } = await supabase.rpc("point_in_circle", {
           point_lat: lat,
           point_lng: lng,
@@ -103,10 +116,10 @@ serve(async (req) => {
         });
         isCurrentlyInside = currentInside === true;
 
-        if (previous_lat !== undefined && previous_lng !== undefined) {
+        if (prev_lat !== undefined && prev_lng !== undefined) {
           const { data: previousInside } = await supabase.rpc("point_in_circle", {
-            point_lat: previous_lat,
-            point_lng: previous_lng,
+            point_lat: prev_lat,
+            point_lng: prev_lng,
             center_lat: zone.center_lat,
             center_lng: zone.center_lng,
             radius_meters: zone.radius_meters,
@@ -141,9 +154,8 @@ serve(async (req) => {
       }
     }
 
-    // Log geofence events to database (throttled - check for recent events)
+    // Log geofence events to database (throttled)
     for (const event of events) {
-      // Check if we already logged this event in the last 5 minutes
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
       
       const { data: recentEvents } = await supabase
@@ -172,7 +184,6 @@ serve(async (req) => {
     let autoArriveZone = null;
 
     if (trip_id) {
-      // Get trip details to check if we should trigger auto-arrive
       const { data: trip } = await supabase
         .from("trips")
         .select("status, pickup_latitude, pickup_longitude")
@@ -180,11 +191,9 @@ serve(async (req) => {
         .single();
 
       if (trip && trip.status === "en_route_to_pickup" && trip.pickup_latitude && trip.pickup_longitude) {
-        // Check if any zone has auto-arrive enabled and driver is within radius
         for (const zone of geofenceZones || []) {
           const metadata = zone.metadata || {};
           if (metadata.auto_arrive_radius_meters) {
-            // Calculate distance to pickup
             const { data: withinRadius } = await supabase.rpc("point_in_circle", {
               point_lat: lat,
               point_lng: lng,
@@ -207,25 +216,18 @@ serve(async (req) => {
       }
     }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        events,
-        events_count: events.length,
-        auto_arrive: autoArriveTriggered
-          ? {
-              triggered: true,
-              ...autoArriveZone,
-            }
-          : { triggered: false },
-      }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return successResponse({
+      events,
+      events_count: events.length,
+      auto_arrive: autoArriveTriggered
+        ? {
+            triggered: true,
+            ...autoArriveZone,
+          }
+        : { triggered: false },
+    });
   } catch (error: any) {
     console.error("Error checking geofence:", error);
-    return new Response(
-      JSON.stringify({ error: error.message || "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return errorResponse(error.message || "Unknown error", 500);
   }
 });
