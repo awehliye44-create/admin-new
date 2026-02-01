@@ -41,6 +41,42 @@ export type Database = {
         }
         Relationships: []
       }
+      audit_logs: {
+        Row: {
+          created_at: string | null
+          details: Json | null
+          driver_id: string | null
+          event_type: string
+          id: string
+          ip_address: string | null
+          trip_id: string | null
+          user_agent: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          details?: Json | null
+          driver_id?: string | null
+          event_type: string
+          id?: string
+          ip_address?: string | null
+          trip_id?: string | null
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          details?: Json | null
+          driver_id?: string | null
+          event_type?: string
+          id?: string
+          ip_address?: string | null
+          trip_id?: string | null
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       corporate_account_requests: {
         Row: {
           address: string | null
@@ -4982,6 +5018,7 @@ export type Database = {
         Args: { lat1: number; lat2: number; lon1: number; lon2: number }
         Returns: number
       }
+      is_admin: { Args: never; Returns: boolean }
       is_driver_dispatchable: {
         Args: {
           p_driver_id: string
@@ -4992,6 +5029,18 @@ export type Database = {
         Returns: boolean
       }
       lock_driver_vehicle: { Args: { p_driver_id: string }; Returns: undefined }
+      log_audit_event: {
+        Args: {
+          p_details?: Json
+          p_driver_id?: string
+          p_event_type: string
+          p_ip_address?: string
+          p_trip_id?: string
+          p_user_agent?: string
+          p_user_id?: string
+        }
+        Returns: string
+      }
       log_corporate_audit: {
         Args: {
           p_action: string

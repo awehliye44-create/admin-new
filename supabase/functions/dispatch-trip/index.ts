@@ -1,24 +1,27 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { 
+  securityHeaders, 
+  corsHeaders, 
+  checkRateLimit, 
+  getClientIP, 
+  rateLimitResponse,
+  successResponse,
+  errorResponse,
+  logAuditEvent
+} from "../_shared/security.ts";
+import { 
+  validateSchema, 
+  dispatchTripSchema, 
+  DispatchTripRequest 
+} from "../_shared/validation.ts";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+// Rate limit: 20 requests per minute per IP for dispatch
+const RATE_LIMIT_CONFIG = { limit: 20, windowMs: 60 * 1000 };
 
 interface LatLng {
   lat: number;
   lng: number;
-}
-
-interface DispatchRequest {
-  trip_id: string;
-  pickup_lat: number;
-  pickup_lng: number;
-  vehicle_type_id?: string;
-  max_distance_km?: number;
-  max_drivers?: number;
-  offer_timeout_seconds?: number;
 }
 
 interface EligibleDriver {
@@ -71,16 +74,9 @@ function calculatePriorityScore(driver: {
   rating: number | null; 
   total_trips: number | null;
 }): number {
-  // Distance score (closer = higher, max 40 points)
   const distanceScore = Math.max(0, 40 - (driver.distance_km * 4));
-  
-  // Rating score (max 30 points)
   const ratingScore = (driver.rating || 4.0) * 6;
-  
-  // Activity score based on total trips (max 20 points)
   const activityScore = Math.min(20, (driver.total_trips || 0) / 10);
-  
-  // Availability bonus (10 points for being available)
   const availabilityBonus = 10;
   
   return distanceScore + ratingScore + activityScore + availabilityBonus;
@@ -92,12 +88,31 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const clientIP = getClientIP(req);
+  const userAgent = req.headers.get('user-agent') || 'unknown';
 
-    const body: DispatchRequest = await req.json();
+  // Check rate limit
+  const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
+  if (!rateLimitResult.allowed) {
+    console.log(`[dispatch-trip] Rate limit exceeded for IP: ${clientIP}`);
+    return rateLimitResponse(rateLimitResult.retryAfter!);
+  }
+
+  try {
+    // Parse and validate request body
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return errorResponse('Invalid JSON in request body', 400);
+    }
+
+    const validation = validateSchema<DispatchTripRequest>(body, dispatchTripSchema);
+    if (!validation.success) {
+      console.log(`[dispatch-trip] Validation failed:`, validation.errors);
+      return errorResponse('Validation failed', 400, { validation_errors: validation.errors });
+    }
+
     const { 
       trip_id, 
       pickup_lat, 
@@ -106,19 +121,15 @@ serve(async (req) => {
       max_distance_km = 10,
       max_drivers = 5,
       offer_timeout_seconds = 30
-    } = body;
+    } = validation.data!;
+
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     console.log(`[dispatch-trip] Starting broadcast dispatch for trip ${trip_id}`);
     console.log(`[dispatch-trip] Pickup: ${pickup_lat}, ${pickup_lng}`);
     console.log(`[dispatch-trip] Max drivers: ${max_drivers}, Max distance: ${max_distance_km}km, Timeout: ${offer_timeout_seconds}s`);
-
-    // Validate required parameters
-    if (!trip_id || !pickup_lat || !pickup_lng) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Trip ID and pickup coordinates are required'
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 });
-    }
 
     // Validate trip exists and is in valid state
     const { data: trip, error: tripError } = await supabase
@@ -129,21 +140,14 @@ serve(async (req) => {
 
     if (tripError || !trip) {
       console.error(`[dispatch-trip] Trip not found: ${trip_id}`);
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Trip not found'
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 });
+      return errorResponse('Trip not found', 404);
     }
 
     // Check if trip is already assigned or in terminal state
     const terminalStatuses = ['accepted', 'driver_arriving', 'arrived', 'in_progress', 'completed', 'cancelled', 'no_drivers'];
     if (terminalStatuses.includes(trip.status)) {
       console.log(`[dispatch-trip] Trip ${trip_id} already in status: ${trip.status}`);
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Trip already processed',
-        status: trip.status
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 });
+      return errorResponse('Trip already processed', 400, { status: trip.status });
     }
 
     // Get active regions
@@ -182,11 +186,11 @@ serve(async (req) => {
         .update({ status: 'no_service_area' })
         .eq('id', trip_id);
 
-      return new Response(JSON.stringify({
-        success: false,
+      return successResponse({
+        dispatched: false,
         message: 'Service not available in this area',
         subtext: 'Your pickup location is outside our service regions.'
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      });
     }
 
     console.log(`[dispatch-trip] Matched region: ${matchedRegion.name}`);
@@ -215,7 +219,6 @@ serve(async (req) => {
           matchedServiceAreaIds.push(sa.id);
         }
       } else {
-        // No boundary means entire region
         matchedServiceAreaIds.push(sa.id);
       }
     }
@@ -228,11 +231,11 @@ serve(async (req) => {
         .update({ status: 'no_service_area' })
         .eq('id', trip_id);
 
-      return new Response(JSON.stringify({
-        success: false,
+      return successResponse({
+        dispatched: false,
         message: 'Service not available in this area',
         subtext: 'Your pickup location is outside our service areas.'
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      });
     }
 
     // Get drivers assigned to these service areas
@@ -255,14 +258,14 @@ serve(async (req) => {
         .update({ status: 'no_drivers' })
         .eq('id', trip_id);
 
-      return new Response(JSON.stringify({
-        success: false,
+      return successResponse({
+        dispatched: false,
         message: 'No drivers available',
         subtext: 'No drivers are registered in this service area.'
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      });
     }
 
-    // Get eligible drivers (online, approved, documents approved, has location, not busy)
+    // Get eligible drivers
     const { data: drivers, error: driversError } = await supabase
       .from('drivers')
       .select('id, first_name, last_name, driver_code, current_lat, current_lng, rating, total_trips, current_trip_id')
@@ -301,7 +304,7 @@ serve(async (req) => {
       console.log(`[dispatch-trip] Drivers with matching vehicle type: ${availableDrivers.length}`);
     }
 
-    // Check for existing pending offers for these drivers
+    // Check for existing pending offers
     const { data: existingOffers, error: existingOffersError } = await supabase
       .from('trip_offers')
       .select('driver_id')
@@ -321,11 +324,11 @@ serve(async (req) => {
         .update({ status: 'no_drivers' })
         .eq('id', trip_id);
 
-      return new Response(JSON.stringify({
-        success: false,
+      return successResponse({
+        dispatched: false,
         message: 'No drivers available right now',
         subtext: 'All drivers are currently busy. Please try again in a moment.'
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      });
     }
 
     // Calculate distance and priority score for each driver
@@ -360,17 +363,17 @@ serve(async (req) => {
         .update({ status: 'no_drivers' })
         .eq('id', trip_id);
 
-      return new Response(JSON.stringify({
-        success: false,
+      return successResponse({
+        dispatched: false,
         message: 'No drivers nearby',
         subtext: `No available drivers within ${max_distance_km}km of your pickup location.`
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      });
     }
 
     // Calculate offer expiry time
     const expiresAt = new Date(Date.now() + offer_timeout_seconds * 1000).toISOString();
 
-    // Generate trip number atomically using service area
+    // Generate trip number atomically
     let tripNumber = null;
     let sequenceNo = null;
     let serviceAreaCode = null;
@@ -412,7 +415,7 @@ serve(async (req) => {
 
     console.log(`[dispatch-trip] Created ${createdOffers?.length} offers for broadcast`);
 
-    // Update trip status to 'offered' and set deadline with trip number
+    // Update trip status
     const tripUpdate: Record<string, any> = {
       status: 'offered',
       confirm_deadline_at: expiresAt,
@@ -436,9 +439,21 @@ serve(async (req) => {
       throw tripUpdateError;
     }
 
-    // Return success with broadcast info
-    const response = {
-      success: true,
+    // Log dispatch event
+    await logAuditEvent(supabase, 'trip_dispatched', {
+      tripId: trip_id,
+      details: {
+        offers_sent: nearbyDrivers.length,
+        trip_number: tripNumber,
+        region: matchedRegion.name,
+        service_area_id: matchedServiceAreaIds[0],
+        timeout_seconds: offer_timeout_seconds
+      },
+      ipAddress: clientIP,
+      userAgent,
+    });
+
+    return successResponse({
       dispatched: true,
       broadcast: true,
       trip_number: tripNumber,
@@ -452,22 +467,13 @@ serve(async (req) => {
         distance_km: Math.round(d.distance_km * 10) / 10,
         priority_score: Math.round(d.priority_score * 10) / 10
       }))
-    };
-
-    console.log(`[dispatch-trip] Broadcast dispatch complete:`, response);
-
-    return new Response(JSON.stringify(response), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
 
   } catch (error) {
     console.error('[dispatch-trip] Error:', error);
-    return new Response(JSON.stringify({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    }), { 
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 500
-    });
+    return errorResponse(
+      error instanceof Error ? error.message : 'Unknown error',
+      500
+    );
   }
 });

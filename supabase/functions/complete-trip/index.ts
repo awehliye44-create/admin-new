@@ -1,31 +1,60 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { 
+  securityHeaders, 
+  corsHeaders, 
+  checkRateLimit, 
+  getClientIP, 
+  rateLimitResponse,
+  successResponse,
+  errorResponse,
+  logAuditEvent
+} from "../_shared/security.ts";
+import { 
+  validateSchema, 
+  completeTripSchema, 
+  CompleteTripRequest 
+} from "../_shared/validation.ts";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-interface CompleteRequest {
-  trip_id: string;
-  driver_id: string;
-  final_fare_pence: number;
-  payment_method: 'CASH' | 'CARD' | 'WALLET' | 'APPLE_PAY' | 'GOOGLE_PAY';
-  stripe_payment_intent_id?: string; // Required for digital payments
-}
+// Rate limit: 30 requests per minute per IP
+const RATE_LIMIT_CONFIG = { limit: 30, windowMs: 60 * 1000 };
 
 serve(async (req) => {
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const clientIP = getClientIP(req);
+  const userAgent = req.headers.get('user-agent') || 'unknown';
+
+  // Check rate limit
+  const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
+  if (!rateLimitResult.allowed) {
+    console.log(`[complete-trip] Rate limit exceeded for IP: ${clientIP}`);
+    return rateLimitResponse(rateLimitResult.retryAfter!);
+  }
+
   try {
+    // Parse and validate request body
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return errorResponse('Invalid JSON in request body', 400);
+    }
+
+    const validation = validateSchema<CompleteTripRequest>(body, completeTripSchema);
+    if (!validation.success) {
+      console.log(`[complete-trip] Validation failed:`, validation.errors);
+      return errorResponse('Validation failed', 400, { validation_errors: validation.errors });
+    }
+
+    const { trip_id, driver_id, final_fare_pence, payment_method, stripe_payment_intent_id } = validation.data!;
+
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    const body: CompleteRequest = await req.json();
-    const { trip_id, driver_id, final_fare_pence, payment_method, stripe_payment_intent_id } = body;
 
     console.log(`[complete-trip] Completing trip ${trip_id} with payment method ${payment_method}`);
 
@@ -38,17 +67,18 @@ serve(async (req) => {
 
     if (tripError || !trip) {
       console.error('[complete-trip] Trip not found:', tripError);
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Trip not found'
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 });
+      return errorResponse('Trip not found', 404);
     }
 
     if (trip.driver_id !== driver_id) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Trip does not belong to this driver'
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 403 });
+      await logAuditEvent(supabase, 'trip_complete_unauthorized', {
+        driverId: driver_id,
+        tripId: trip_id,
+        details: { actual_driver: trip.driver_id },
+        ipAddress: clientIP,
+        userAgent,
+      });
+      return errorResponse('Trip does not belong to this driver', 403);
     }
 
     // Get commission rate for this service area
@@ -77,7 +107,7 @@ serve(async (req) => {
     const tripUpdate: Record<string, unknown> = {
       status: 'completed',
       completed_at: new Date().toISOString(),
-      fare: final_fare_pence / 100, // Store as decimal for backward compatibility
+      fare: final_fare_pence / 100,
       gross_fare_pence: final_fare_pence,
       commission_pence: commission_pence,
       driver_net_pence: driver_net_pence,
@@ -86,17 +116,15 @@ serve(async (req) => {
     };
 
     if (isCashPayment) {
-      // CASH: Driver collected cash, no Stripe payment
       tripUpdate.payment_status = 'collected_cash';
 
-      // Create CASH_COMMISSION_DEBT entry (negative = debt to platform)
       const { error: ledgerError } = await supabase
         .from('driver_ledger')
         .insert({
           driver_id: driver_id,
           trip_id: trip_id,
           entry_type: 'CASH_COMMISSION_DEBT',
-          amount_pence: -commission_pence, // Negative = debt
+          amount_pence: -commission_pence,
           currency_code: currency_code,
           description: `Commission owed from cash trip`
         });
@@ -107,12 +135,9 @@ serve(async (req) => {
         console.log(`[complete-trip] Created CASH_COMMISSION_DEBT: -${commission_pence}p`);
       }
     } else {
-      // DIGITAL: Wait for payment confirmation via webhook
-      // For now, mark as pending - webhook will update to captured
       tripUpdate.payment_status = stripe_payment_intent_id ? 'processing' : 'pending';
       tripUpdate.stripe_payment_intent_id = stripe_payment_intent_id || null;
 
-      // If we have confirmed payment (e.g., from a test or pre-authorized), credit immediately
       if (stripe_payment_intent_id) {
         const { error: ledgerError } = await supabase
           .from('driver_ledger')
@@ -120,7 +145,7 @@ serve(async (req) => {
             driver_id: driver_id,
             trip_id: trip_id,
             entry_type: 'TRIP_EARNING_NET',
-            amount_pence: driver_net_pence, // Positive = credit
+            amount_pence: driver_net_pence,
             currency_code: currency_code,
             description: `Net earnings from ${payment_method} payment`,
             reference_id: stripe_payment_intent_id
@@ -143,10 +168,7 @@ serve(async (req) => {
 
     if (updateError) {
       console.error('[complete-trip] Error updating trip:', updateError);
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Failed to complete trip'
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 });
+      return errorResponse('Failed to complete trip', 500);
     }
 
     // Clear driver's current trip
@@ -165,10 +187,25 @@ serve(async (req) => {
       console.log('[complete-trip] Error updating total trips:', e);
     }
 
+    // Log payment event
+    await logAuditEvent(supabase, 'payment_processed', {
+      driverId: driver_id,
+      tripId: trip_id,
+      details: {
+        payment_method,
+        gross_fare_pence: final_fare_pence,
+        commission_pence,
+        driver_net_pence,
+        payment_status: tripUpdate.payment_status,
+        stripe_payment_intent_id: stripe_payment_intent_id || null
+      },
+      ipAddress: clientIP,
+      userAgent,
+    });
+
     console.log(`[complete-trip] Trip ${trip_id} completed successfully`);
 
-    return new Response(JSON.stringify({
-      success: true,
+    return successResponse({
       trip_id: trip_id,
       payment_method: payment_method,
       gross_fare_pence: final_fare_pence,
@@ -177,18 +214,13 @@ serve(async (req) => {
       payment_status: tripUpdate.payment_status,
       is_cash: isCashPayment,
       ledger_entry: isCashPayment ? 'CASH_COMMISSION_DEBT' : 'TRIP_EARNING_NET'
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
 
   } catch (error) {
     console.error('[complete-trip] Error:', error);
-    return new Response(JSON.stringify({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 500
-    });
+    return errorResponse(
+      error instanceof Error ? error.message : 'Unknown error',
+      500
+    );
   }
 });

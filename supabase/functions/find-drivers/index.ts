@@ -1,40 +1,26 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { 
+  securityHeaders, 
+  corsHeaders, 
+  checkRateLimit, 
+  getClientIP, 
+  rateLimitResponse,
+  successResponse,
+  errorResponse
+} from "../_shared/security.ts";
+import { 
+  validateSchema, 
+  findDriversSchema, 
+  FindDriversRequest 
+} from "../_shared/validation.ts";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+// Rate limit: 60 requests per minute per IP
+const RATE_LIMIT_CONFIG = { limit: 60, windowMs: 60 * 1000 };
 
 interface LatLng {
   lat: number;
   lng: number;
-}
-
-interface FindDriversRequest {
-  pickup_lat: number;
-  pickup_lng: number;
-  vehicle_type_id?: string;
-  max_distance_km?: number;
-}
-
-interface ServiceArea {
-  id: string;
-  name: string;
-  region_id: string;
-  geo_boundary: LatLng[] | null;
-}
-
-interface Driver {
-  id: string;
-  first_name: string;
-  last_name: string;
-  driver_code: string | null;
-  is_online: boolean;
-  current_lat: number | null;
-  current_lng: number | null;
-  rating: number | null;
-  region_id: string;
 }
 
 // Point-in-polygon algorithm (Ray casting)
@@ -61,7 +47,7 @@ function isPointInPolygon(point: LatLng, polygon: LatLng[]): boolean {
 
 // Calculate distance between two points (Haversine formula)
 function calculateDistanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371; // Earth's radius in km
+  const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLng = (lng2 - lng1) * Math.PI / 180;
   const a = 
@@ -78,30 +64,41 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const clientIP = getClientIP(req);
+
+  // Check rate limit
+  const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
+  if (!rateLimitResult.allowed) {
+    console.log(`[find-drivers] Rate limit exceeded for IP: ${clientIP}`);
+    return rateLimitResponse(rateLimitResult.retryAfter!);
+  }
+
   try {
+    // Parse and validate request body
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return errorResponse('Invalid JSON in request body', 400);
+    }
+
+    const validation = validateSchema<FindDriversRequest>(body, findDriversSchema);
+    if (!validation.success) {
+      console.log(`[find-drivers] Validation failed:`, validation.errors);
+      return errorResponse('Validation failed', 400, { validation_errors: validation.errors });
+    }
+
+    const { pickup_lat, pickup_lng, vehicle_type_id, max_distance_km = 10 } = validation.data!;
+
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const body: FindDriversRequest = await req.json();
-    const { pickup_lat, pickup_lng, vehicle_type_id, max_distance_km = 10 } = body;
-
     console.log('Finding drivers for pickup:', { pickup_lat, pickup_lng, vehicle_type_id });
-
-    if (!pickup_lat || !pickup_lng) {
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Pickup coordinates are required',
-          drivers: [] 
-        }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
 
     const pickupPoint: LatLng = { lat: pickup_lat, lng: pickup_lng };
 
-    // Step 1: Get all active service areas with geo_boundary
+    // Step 1: Get all active service areas
     const { data: serviceAreas, error: saError } = await supabase
       .from('service_areas')
       .select('id, name, region_id')
@@ -112,7 +109,7 @@ serve(async (req) => {
       throw saError;
     }
 
-    // Step 2: Get regions with geo_boundary and settings to check if pickup is within region
+    // Step 2: Get regions with geo_boundary
     const { data: regions, error: regError } = await supabase
       .from('regions')
       .select('id, name, geo_boundary, currency_code, distance_unit, timezone')
@@ -131,6 +128,7 @@ serve(async (req) => {
       distance_unit: string;
       timezone: string;
     } | null = null;
+
     for (const region of regions || []) {
       if (region.geo_boundary && isPointInPolygon(pickupPoint, region.geo_boundary as LatLng[])) {
         matchingRegion = { 
@@ -140,23 +138,18 @@ serve(async (req) => {
           distance_unit: region.distance_unit,
           timezone: region.timezone,
         };
-        console.log('Pickup is in region:', region.name, 'Currency:', region.currency_code, 'Unit:', region.distance_unit);
+        console.log('Pickup is in region:', region.name);
         break;
       }
     }
 
     if (!matchingRegion) {
       console.log('Pickup location is not within any active region');
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'Pickup location is outside service coverage area',
-          drivers: [],
-          message: 'No drivers available right now.',
-          subtext: 'Please try again in a few minutes or adjust your pickup location.'
-        }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return successResponse({
+        drivers: [],
+        message: 'No drivers available right now.',
+        subtext: 'Please try again in a few minutes or adjust your pickup location.'
+      });
     }
 
     // Get service areas for this region
@@ -165,19 +158,12 @@ serve(async (req) => {
 
     if (serviceAreaIds.length === 0) {
       console.log('No service areas found for region:', matchingRegion.name);
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'No service areas configured for this region',
-          drivers: [],
-          message: 'No drivers available right now.',
-          subtext: 'Please try again in a few minutes or adjust your pickup location.'
-        }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return successResponse({
+        drivers: [],
+        message: 'No drivers available right now.',
+        subtext: 'Please try again in a few minutes or adjust your pickup location.'
+      });
     }
-
-    console.log('Service areas in region:', serviceAreaIds);
 
     // Step 3: Get drivers assigned to these service areas
     const { data: driverServiceAreas, error: dsaError } = await supabase
@@ -194,30 +180,23 @@ serve(async (req) => {
 
     if (eligibleDriverIds.length === 0) {
       console.log('No drivers assigned to service areas in this region');
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'No drivers assigned to this service area',
-          drivers: [],
-          message: 'No drivers available right now.',
-          subtext: 'Please try again in a few minutes or adjust your pickup location.'
-        }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return successResponse({
+        drivers: [],
+        message: 'No drivers available right now.',
+        subtext: 'Please try again in a few minutes or adjust your pickup location.'
+      });
     }
 
-    // Step 4: Get online drivers from the eligible list (must have documents approved)
-    let driverQuery = supabase
+    // Step 4: Get online drivers from the eligible list
+    const { data: drivers, error: driverError } = await supabase
       .from('drivers')
       .select('id, first_name, last_name, driver_code, is_online, current_lat, current_lng, rating, region_id, documents_approved')
       .eq('is_online', true)
       .eq('approval_status', 'approved')
-      .eq('documents_approved', true) // Only drivers with all documents approved can receive bookings
+      .eq('documents_approved', true)
       .in('id', eligibleDriverIds)
       .not('current_lat', 'is', null)
       .not('current_lng', 'is', null);
-
-    const { data: drivers, error: driverError } = await driverQuery;
 
     if (driverError) {
       console.error('Error fetching drivers:', driverError);
@@ -227,16 +206,11 @@ serve(async (req) => {
     console.log('Online drivers found:', drivers?.length || 0);
 
     if (!drivers || drivers.length === 0) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'No online drivers available',
-          drivers: [],
-          message: 'No drivers available right now.',
-          subtext: 'Please try again in a few minutes or adjust your pickup location.'
-        }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return successResponse({
+        drivers: [],
+        message: 'No drivers available right now.',
+        subtext: 'Please try again in a few minutes or adjust your pickup location.'
+      });
     }
 
     // Step 5: Filter by vehicle type if specified
@@ -279,45 +253,34 @@ serve(async (req) => {
     console.log('Eligible drivers after distance filter:', eligibleDrivers.length);
 
     if (eligibleDrivers.length === 0) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'No drivers within range',
-          drivers: [],
-          message: 'No drivers available right now.',
-          subtext: 'Please try again in a few minutes or adjust your pickup location.'
-        }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        drivers: eligibleDrivers,
-        service_area_ids: serviceAreaIds,
-        region: matchingRegion,
-        settings: {
-          currency_code: matchingRegion.currency_code,
-          distance_unit: matchingRegion.distance_unit,
-          timezone: matchingRegion.timezone,
-        }
-      }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-
-  } catch (error) {
-    console.error('Error in find-drivers:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: errorMessage,
+      return successResponse({
         drivers: [],
         message: 'No drivers available right now.',
         subtext: 'Please try again in a few minutes or adjust your pickup location.'
-      }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      });
+    }
+
+    return successResponse({
+      drivers: eligibleDrivers,
+      service_area_ids: serviceAreaIds,
+      region: matchingRegion,
+      settings: {
+        currency_code: matchingRegion.currency_code,
+        distance_unit: matchingRegion.distance_unit,
+        timezone: matchingRegion.timezone,
+      }
+    });
+
+  } catch (error) {
+    console.error('Error in find-drivers:', error);
+    return errorResponse(
+      error instanceof Error ? error.message : 'Internal server error',
+      500,
+      {
+        drivers: [],
+        message: 'No drivers available right now.',
+        subtext: 'Please try again in a few minutes or adjust your pickup location.'
+      }
     );
   }
 });
