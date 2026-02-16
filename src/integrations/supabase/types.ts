@@ -2755,6 +2755,115 @@ export type Database = {
           },
         ]
       }
+      preset_offer_configs: {
+        Row: {
+          created_at: string
+          currency: string
+          default_selected_offer_id: string | null
+          enabled: boolean
+          id: string
+          mode: string
+          service_area_id: string
+          show_badges: boolean
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          default_selected_offer_id?: string | null
+          enabled?: boolean
+          id?: string
+          mode?: string
+          service_area_id: string
+          show_badges?: boolean
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          default_selected_offer_id?: string | null
+          enabled?: boolean
+          id?: string
+          mode?: string
+          service_area_id?: string
+          show_badges?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "preset_offer_configs_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: true
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      preset_offers: {
+        Row: {
+          config_id: string
+          created_at: string
+          enabled: boolean
+          fixed_base: number | null
+          fixed_booking_fee: number | null
+          fixed_min_fare: number | null
+          fixed_per_km: number | null
+          fixed_per_min: number | null
+          id: string
+          label: string
+          multiplier: number | null
+          offer_key: string
+          rounding_mode: string | null
+          rounding_step: number | null
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          config_id: string
+          created_at?: string
+          enabled?: boolean
+          fixed_base?: number | null
+          fixed_booking_fee?: number | null
+          fixed_min_fare?: number | null
+          fixed_per_km?: number | null
+          fixed_per_min?: number | null
+          id?: string
+          label: string
+          multiplier?: number | null
+          offer_key: string
+          rounding_mode?: string | null
+          rounding_step?: number | null
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          config_id?: string
+          created_at?: string
+          enabled?: boolean
+          fixed_base?: number | null
+          fixed_booking_fee?: number | null
+          fixed_min_fare?: number | null
+          fixed_per_km?: number | null
+          fixed_per_min?: number | null
+          id?: string
+          label?: string
+          multiplier?: number | null
+          offer_key?: string
+          rounding_mode?: string | null
+          rounding_step?: number | null
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "preset_offers_config_id_fkey"
+            columns: ["config_id"]
+            isOneToOne: false
+            referencedRelation: "preset_offer_configs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       promo_codes: {
         Row: {
           applicable_vehicle_types: string[] | null
