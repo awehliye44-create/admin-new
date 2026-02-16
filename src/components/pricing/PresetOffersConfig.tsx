@@ -31,7 +31,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { supabase } from '@/integrations/supabase/client';
-import { Zap, Plus, Trash2, Loader2, Save, GripVertical } from 'lucide-react';
+import { Zap, Plus, Trash2, Loader2, Save, GripVertical, Timer } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface PresetOffer {
@@ -57,6 +57,10 @@ interface PresetOfferConfig {
   currency: string;
   show_badges: boolean;
   default_selected_offer_id: string;
+  countdown_enabled: boolean;
+  countdown_seconds: number;
+  countdown_auto_select: boolean;
+  countdown_auto_select_offer_id: string;
 }
 
 interface PresetOffersConfigProps {
@@ -123,6 +127,10 @@ export function PresetOffersConfig({
     currency: currencyCode,
     show_badges: true,
     default_selected_offer_id: 'recommended',
+    countdown_enabled: false,
+    countdown_seconds: 30,
+    countdown_auto_select: false,
+    countdown_auto_select_offer_id: '',
   });
   const [offers, setOffers] = useState<PresetOffer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -151,6 +159,10 @@ export function PresetOffersConfig({
           currency: configData.currency,
           show_badges: configData.show_badges,
           default_selected_offer_id: configData.default_selected_offer_id || 'recommended',
+          countdown_enabled: configData.countdown_enabled ?? false,
+          countdown_seconds: configData.countdown_seconds ?? 30,
+          countdown_auto_select: configData.countdown_auto_select ?? false,
+          countdown_auto_select_offer_id: configData.countdown_auto_select_offer_id || '',
         });
 
         // Fetch offers
@@ -212,6 +224,10 @@ export function PresetOffersConfig({
             currency: config.currency,
             show_badges: config.show_badges,
             default_selected_offer_id: config.default_selected_offer_id,
+            countdown_enabled: config.countdown_enabled,
+            countdown_seconds: config.countdown_seconds,
+            countdown_auto_select: config.countdown_auto_select,
+            countdown_auto_select_offer_id: config.countdown_auto_select_offer_id || null,
           })
           .eq('id', configId);
         if (error) throw error;
@@ -225,6 +241,10 @@ export function PresetOffersConfig({
             currency: config.currency,
             show_badges: config.show_badges,
             default_selected_offer_id: config.default_selected_offer_id,
+            countdown_enabled: config.countdown_enabled,
+            countdown_seconds: config.countdown_seconds,
+            countdown_auto_select: config.countdown_auto_select,
+            countdown_auto_select_offer_id: config.countdown_auto_select_offer_id || null,
           })
           .select('id')
           .single();
@@ -431,6 +451,74 @@ export function PresetOffersConfig({
                     <Label htmlFor="show-badges" className="text-sm">Show Badges</Label>
                   </div>
                   <p className="text-xs text-muted-foreground">Display visual badges (e.g. "Best Value") on offer chips in the app.</p>
+                </div>
+              </div>
+
+              {/* Countdown configuration */}
+              <div className="p-4 bg-muted/30 rounded-lg space-y-4">
+                <div className="flex items-center gap-3 mb-2">
+                  <Timer className="h-4 w-4 text-muted-foreground" />
+                  <h4 className="text-sm font-semibold">Countdown Timer</h4>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="countdown-enabled"
+                        checked={config.countdown_enabled}
+                        onCheckedChange={(v) => updateConfig('countdown_enabled', v)}
+                      />
+                      <Label htmlFor="countdown-enabled" className="text-sm">Enable Countdown</Label>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Show a countdown timer when preset offer chips are displayed.</p>
+                  </div>
+                  {config.countdown_enabled && (
+                    <>
+                      <div className="space-y-2">
+                        <Label>Duration (seconds)</Label>
+                        <Input
+                          type="number"
+                          min={5}
+                          max={300}
+                          value={config.countdown_seconds}
+                          onChange={(e) => updateConfig('countdown_seconds', parseInt(e.target.value) || 30)}
+                        />
+                        <p className="text-xs text-muted-foreground">How long the countdown runs before expiring (5–300s).</p>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            id="countdown-auto-select"
+                            checked={config.countdown_auto_select}
+                            onCheckedChange={(v) => updateConfig('countdown_auto_select', v)}
+                          />
+                          <Label htmlFor="countdown-auto-select" className="text-sm">Auto-Select on Expiry</Label>
+                        </div>
+                        <p className="text-xs text-muted-foreground">Automatically pick an offer when the countdown reaches zero.</p>
+                      </div>
+                      {config.countdown_auto_select && (
+                        <div className="space-y-2">
+                          <Label>Auto-Select Offer</Label>
+                          <Select
+                            value={config.countdown_auto_select_offer_id || config.default_selected_offer_id}
+                            onValueChange={(v) => updateConfig('countdown_auto_select_offer_id', v)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {offers.filter(o => o.enabled).map(o => (
+                                <SelectItem key={o.offer_key} value={o.offer_key}>
+                                  {o.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">Which offer is auto-selected when the timer expires.</p>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
 
