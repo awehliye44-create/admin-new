@@ -5151,10 +5151,12 @@ export type Database = {
       }
       current_customer_id: { Args: never; Returns: string }
       current_driver_id: { Args: never; Returns: string }
-      decline_ride_offer: {
-        Args: { p_driver_id: string; p_offer_id: string }
-        Returns: Json
-      }
+      decline_ride_offer:
+        | { Args: { p_driver_id: string; p_offer_id: string }; Returns: Json }
+        | {
+            Args: { p_driver_id: string; p_offer_id: string; p_reason?: string }
+            Returns: Json
+          }
       decline_scheduled_ride: {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
