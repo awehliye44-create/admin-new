@@ -2757,6 +2757,10 @@ export type Database = {
       }
       preset_offer_configs: {
         Row: {
+          countdown_auto_select: boolean
+          countdown_auto_select_offer_id: string | null
+          countdown_enabled: boolean
+          countdown_seconds: number
           created_at: string
           currency: string
           default_selected_offer_id: string | null
@@ -2768,6 +2772,10 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          countdown_auto_select?: boolean
+          countdown_auto_select_offer_id?: string | null
+          countdown_enabled?: boolean
+          countdown_seconds?: number
           created_at?: string
           currency?: string
           default_selected_offer_id?: string | null
@@ -2779,6 +2787,10 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          countdown_auto_select?: boolean
+          countdown_auto_select_offer_id?: string | null
+          countdown_enabled?: boolean
+          countdown_seconds?: number
           created_at?: string
           currency?: string
           default_selected_offer_id?: string | null
