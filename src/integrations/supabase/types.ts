@@ -1022,8 +1022,15 @@ export type Database = {
           cascade_step_delay_seconds: number
           cooldown_after_reject_seconds: number
           created_at: string
+          customer_response_timeout_seconds: number
           driver_fare_display: string
+          driver_final_response_timeout_seconds: number
           enable_logging: boolean
+          fare_max_increase_pence: number
+          fare_negotiation_enabled: boolean
+          fare_offer_increment_1_pence: number
+          fare_offer_increment_2_pence: number
+          fare_offer_increment_3_pence: number
           global_timeout_minutes: number
           id: string
           instant_retry_enabled: boolean
@@ -1068,8 +1075,15 @@ export type Database = {
           cascade_step_delay_seconds?: number
           cooldown_after_reject_seconds?: number
           created_at?: string
+          customer_response_timeout_seconds?: number
           driver_fare_display?: string
+          driver_final_response_timeout_seconds?: number
           enable_logging?: boolean
+          fare_max_increase_pence?: number
+          fare_negotiation_enabled?: boolean
+          fare_offer_increment_1_pence?: number
+          fare_offer_increment_2_pence?: number
+          fare_offer_increment_3_pence?: number
           global_timeout_minutes?: number
           id?: string
           instant_retry_enabled?: boolean
@@ -1114,8 +1128,15 @@ export type Database = {
           cascade_step_delay_seconds?: number
           cooldown_after_reject_seconds?: number
           created_at?: string
+          customer_response_timeout_seconds?: number
           driver_fare_display?: string
+          driver_final_response_timeout_seconds?: number
           enable_logging?: boolean
+          fare_max_increase_pence?: number
+          fare_negotiation_enabled?: boolean
+          fare_offer_increment_1_pence?: number
+          fare_offer_increment_2_pence?: number
+          fare_offer_increment_3_pence?: number
           global_timeout_minutes?: number
           id?: string
           instant_retry_enabled?: boolean
@@ -2960,13 +2981,21 @@ export type Database = {
       ride_offers: {
         Row: {
           broadcast_round: number
+          counter_fare: number | null
           created_at: string
+          customer_counter_fare: number | null
+          customer_respond_by: string | null
+          decline_reason: string | null
           distance_meters: number | null
           driver_id: string
+          driver_offer_fare: number | null
+          driver_respond_by: string | null
           eta_seconds: number | null
           expires_at: string
           id: string
           is_stacked: boolean
+          negotiation_status: string | null
+          offer_options: number[] | null
           offered_at: string
           responded_at: string | null
           revoked_reason: string | null
@@ -2976,13 +3005,21 @@ export type Database = {
         }
         Insert: {
           broadcast_round?: number
+          counter_fare?: number | null
           created_at?: string
+          customer_counter_fare?: number | null
+          customer_respond_by?: string | null
+          decline_reason?: string | null
           distance_meters?: number | null
           driver_id: string
+          driver_offer_fare?: number | null
+          driver_respond_by?: string | null
           eta_seconds?: number | null
           expires_at: string
           id?: string
           is_stacked?: boolean
+          negotiation_status?: string | null
+          offer_options?: number[] | null
           offered_at?: string
           responded_at?: string | null
           revoked_reason?: string | null
@@ -2992,13 +3029,21 @@ export type Database = {
         }
         Update: {
           broadcast_round?: number
+          counter_fare?: number | null
           created_at?: string
+          customer_counter_fare?: number | null
+          customer_respond_by?: string | null
+          decline_reason?: string | null
           distance_meters?: number | null
           driver_id?: string
+          driver_offer_fare?: number | null
+          driver_respond_by?: string | null
           eta_seconds?: number | null
           expires_at?: string
           id?: string
           is_stacked?: boolean
+          negotiation_status?: string | null
+          offer_options?: number[] | null
           offered_at?: string
           responded_at?: string | null
           revoked_reason?: string | null
@@ -3778,6 +3823,13 @@ export type Database = {
           driver_location_lat: number | null
           driver_location_lng: number | null
           driver_net_pence: number | null
+          driver_passenger_compliments: string[] | null
+          driver_passenger_feedback: string | null
+          driver_passenger_low_rating_reasons: string[] | null
+          driver_passenger_rating: number | null
+          driver_passenger_rating_at: string | null
+          driver_passenger_rating_skipped: boolean | null
+          driver_passenger_rating_submitted: boolean | null
           dropoff_address: string
           dropoff_latitude: number | null
           dropoff_longitude: number | null
@@ -3787,6 +3839,7 @@ export type Database = {
           estimated_duration_minutes: number | null
           estimated_fare: number | null
           estimated_total_pence: number | null
+          excluded_driver_ids: string[] | null
           extras_pence: number | null
           fare: number | null
           final_fare_pence: number | null
@@ -3871,6 +3924,13 @@ export type Database = {
           driver_location_lat?: number | null
           driver_location_lng?: number | null
           driver_net_pence?: number | null
+          driver_passenger_compliments?: string[] | null
+          driver_passenger_feedback?: string | null
+          driver_passenger_low_rating_reasons?: string[] | null
+          driver_passenger_rating?: number | null
+          driver_passenger_rating_at?: string | null
+          driver_passenger_rating_skipped?: boolean | null
+          driver_passenger_rating_submitted?: boolean | null
           dropoff_address: string
           dropoff_latitude?: number | null
           dropoff_longitude?: number | null
@@ -3880,6 +3940,7 @@ export type Database = {
           estimated_duration_minutes?: number | null
           estimated_fare?: number | null
           estimated_total_pence?: number | null
+          excluded_driver_ids?: string[] | null
           extras_pence?: number | null
           fare?: number | null
           final_fare_pence?: number | null
@@ -3964,6 +4025,13 @@ export type Database = {
           driver_location_lat?: number | null
           driver_location_lng?: number | null
           driver_net_pence?: number | null
+          driver_passenger_compliments?: string[] | null
+          driver_passenger_feedback?: string | null
+          driver_passenger_low_rating_reasons?: string[] | null
+          driver_passenger_rating?: number | null
+          driver_passenger_rating_at?: string | null
+          driver_passenger_rating_skipped?: boolean | null
+          driver_passenger_rating_submitted?: boolean | null
           dropoff_address?: string
           dropoff_latitude?: number | null
           dropoff_longitude?: number | null
@@ -3973,6 +4041,7 @@ export type Database = {
           estimated_duration_minutes?: number | null
           estimated_fare?: number | null
           estimated_total_pence?: number | null
+          excluded_driver_ids?: string[] | null
           extras_pence?: number | null
           fare?: number | null
           final_fare_pence?: number | null
@@ -4959,6 +5028,8 @@ export type Database = {
         }
         Returns: string
       }
+      current_customer_id: { Args: never; Returns: string }
+      current_driver_id: { Args: never; Returns: string }
       decline_ride_offer: {
         Args: { p_driver_id: string; p_offer_id: string }
         Returns: Json
