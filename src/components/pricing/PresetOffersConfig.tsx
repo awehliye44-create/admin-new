@@ -344,7 +344,7 @@ export function PresetOffersConfig({
       <Card className="mb-6">
         <CardContent className="p-6">
           {/* Header with toggle */}
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
                 <Zap className="h-5 w-5 text-primary" />
@@ -363,13 +363,16 @@ export function PresetOffersConfig({
                   Save
                 </Button>
               )}
-              <div className="flex items-center gap-2">
-                <Label htmlFor="preset-enabled" className="text-sm">Enabled</Label>
-                <Switch
-                  id="preset-enabled"
-                  checked={config.enabled}
-                  onCheckedChange={(v) => updateConfig('enabled', v)}
-                />
+              <div className="flex flex-col items-end gap-1">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="preset-enabled" className="text-sm">Enabled</Label>
+                  <Switch
+                    id="preset-enabled"
+                    checked={config.enabled}
+                    onCheckedChange={(v) => updateConfig('enabled', v)}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">When off, no preset offer chips are shown in the app.</p>
               </div>
             </div>
           </div>
@@ -392,10 +395,12 @@ export function PresetOffersConfig({
                       <SelectItem value="fixed">Fixed Prices</SelectItem>
                     </SelectContent>
                   </Select>
+                  <p className="text-xs text-muted-foreground">Multiplier applies a factor to the computed base fare. Fixed uses absolute per-km/per-min rates.</p>
                 </div>
                 <div className="space-y-2">
                   <Label>Currency</Label>
                   <Input value={config.currency} disabled className="bg-muted" />
+                  <p className="text-xs text-muted-foreground">Inherited from the service area's region currency.</p>
                 </div>
                 <div className="space-y-2">
                   <Label>Default Selected</Label>
@@ -414,8 +419,9 @@ export function PresetOffersConfig({
                       ))}
                     </SelectContent>
                   </Select>
+                  <p className="text-xs text-muted-foreground">The offer pre-selected by default when chips are shown to drivers/riders.</p>
                 </div>
-                <div className="flex items-end gap-2 pb-1">
+                <div className="space-y-2">
                   <div className="flex items-center gap-2">
                     <Switch
                       id="show-badges"
@@ -424,6 +430,7 @@ export function PresetOffersConfig({
                     />
                     <Label htmlFor="show-badges" className="text-sm">Show Badges</Label>
                   </div>
+                  <p className="text-xs text-muted-foreground">Display visual badges (e.g. "Best Value") on offer chips in the app.</p>
                 </div>
               </div>
 
@@ -448,23 +455,47 @@ export function PresetOffersConfig({
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="w-10">#</TableHead>
-                          <TableHead>Key</TableHead>
-                          <TableHead>Label</TableHead>
-                          <TableHead className="w-20">Enabled</TableHead>
+                          <TableHead className="w-10">
+                            <span title="Sort order — lower numbers appear first">#</span>
+                          </TableHead>
+                          <TableHead>
+                            <span title="Unique identifier used in API responses">Key</span>
+                          </TableHead>
+                          <TableHead>
+                            <span title="Display name shown on the offer chip">Label</span>
+                          </TableHead>
+                          <TableHead className="w-20">
+                            <span title="Toggle this offer on/off without deleting it">Enabled</span>
+                          </TableHead>
                           {config.mode === 'multiplier' ? (
                             <>
-                              <TableHead>Multiplier</TableHead>
-                              <TableHead>Rounding</TableHead>
-                              <TableHead>Mode</TableHead>
+                              <TableHead>
+                                <span title="Factor applied to base fare (e.g. 0.90 = 10% cheaper)">Multiplier</span>
+                              </TableHead>
+                              <TableHead>
+                                <span title="Round the final price to the nearest step (e.g. 0.10 = nearest 10p)">Rounding</span>
+                              </TableHead>
+                              <TableHead>
+                                <span title="Rounding direction: nearest, always up, or always down">Mode</span>
+                              </TableHead>
                             </>
                           ) : (
                             <>
-                              <TableHead>Base ({currencySymbol})</TableHead>
-                              <TableHead>Per {distanceLabel} ({currencySymbol})</TableHead>
-                              <TableHead>Per Min ({currencySymbol})</TableHead>
-                              <TableHead>Min Fare ({currencySymbol})</TableHead>
-                              <TableHead>Booking Fee ({currencySymbol})</TableHead>
+                              <TableHead>
+                                <span title="Base fare charged before distance/time">Base ({currencySymbol})</span>
+                              </TableHead>
+                              <TableHead>
+                                <span title="Rate charged per unit of distance">Per {distanceLabel} ({currencySymbol})</span>
+                              </TableHead>
+                              <TableHead>
+                                <span title="Rate charged per minute of travel time">Per Min ({currencySymbol})</span>
+                              </TableHead>
+                              <TableHead>
+                                <span title="Minimum fare — the lowest amount this offer can charge">Min Fare ({currencySymbol})</span>
+                              </TableHead>
+                              <TableHead>
+                                <span title="Flat fee added on top of the calculated fare">Booking Fee ({currencySymbol})</span>
+                              </TableHead>
                             </>
                           )}
                           <TableHead className="w-10"></TableHead>
