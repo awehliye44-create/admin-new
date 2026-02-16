@@ -50,7 +50,7 @@ export function RegionBoundaryMap({
     }
 
     const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyD07ibmHaKsBpJB_7yNg4EvL6TuVx83hds&libraries=drawing,geometry`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY}&libraries=drawing,geometry`;
     script.async = true;
     script.defer = true;
     script.onload = () => {
