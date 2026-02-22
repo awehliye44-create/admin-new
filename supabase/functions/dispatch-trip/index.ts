@@ -415,6 +415,39 @@ serve(async (req) => {
 
     console.log(`[dispatch-trip] Created ${createdOffers?.length} offers for broadcast`);
 
+    // Fetch preset offer config for the service area
+    let presetOfferConfig: Record<string, any> | null = null;
+    let presetOffers: Record<string, any>[] = [];
+
+    const { data: offerConfigData } = await supabase
+      .from('preset_offer_configs')
+      .select('*')
+      .eq('service_area_id', matchedServiceAreaIds[0])
+      .maybeSingle();
+
+    if (offerConfigData && offerConfigData.is_enabled) {
+      presetOfferConfig = {
+        is_enabled: offerConfigData.is_enabled,
+        price_mode: offerConfigData.price_mode,
+        default_selected_offer_id: offerConfigData.default_selected_offer_id,
+        countdown_enabled: offerConfigData.countdown_enabled,
+        countdown_seconds: offerConfigData.countdown_seconds,
+        countdown_auto_select: offerConfigData.countdown_auto_select,
+        countdown_auto_select_offer_id: offerConfigData.countdown_auto_select_offer_id,
+      };
+
+      const { data: offersData } = await supabase
+        .from('preset_offers')
+        .select('offer_key, label, description, multiplier, fixed_amount_pence, icon, color, display_order, is_active')
+        .eq('config_id', offerConfigData.id)
+        .eq('is_active', true)
+        .order('display_order');
+
+      presetOffers = offersData || [];
+    }
+
+    console.log(`[dispatch-trip] Preset offers enabled: ${!!presetOfferConfig}`);
+
     // Update trip status
     const tripUpdate: Record<string, any> = {
       status: 'offered',
@@ -460,6 +493,8 @@ serve(async (req) => {
       offers_sent: nearbyDrivers.length,
       expires_at: expiresAt,
       timeout_seconds: offer_timeout_seconds,
+      preset_offer_config: presetOfferConfig,
+      preset_offers: presetOffers,
       drivers: nearbyDrivers.map(d => ({
         id: d.id,
         name: `${d.first_name} ${d.last_name}`,
