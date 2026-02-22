@@ -50,11 +50,47 @@ serve(async (req) => {
       return errorResponse('Validation failed', 400, { validation_errors: validation.errors });
     }
 
-    const { trip_id, driver_id } = validation.data!;
+    const { trip_id, driver_id, selected_offer_key } = validation.data! as AcceptTripRequest & { selected_offer_key?: string };
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // --- OFFER TOGGLE ENFORCEMENT ---
+    // Get the trip's service_area_id first
+    const { data: tripForSA } = await supabase
+      .from('trips')
+      .select('service_area_id')
+      .eq('id', trip_id)
+      .single();
+
+    if (tripForSA?.service_area_id) {
+      const { data: offerConfig } = await supabase
+        .from('preset_offer_configs')
+        .select('is_enabled')
+        .eq('service_area_id', tripForSA.service_area_id)
+        .maybeSingle();
+
+      const offersEnabled = offerConfig?.is_enabled === true;
+
+      // If offers are DISABLED but driver sent a preset offer key → reject
+      if (!offersEnabled && selected_offer_key) {
+        console.log(`[accept-trip] Offer toggle OFF but driver sent offer key: ${selected_offer_key}`);
+        return errorResponse('Preset offers are disabled for this service area', 403, {
+          code: 'OFFERS_DISABLED',
+          message: 'Preset offers are not enabled. Accept the standard fare instead.'
+        });
+      }
+
+      // If offers are ENABLED but driver did NOT send a preset offer key → reject
+      if (offersEnabled && !selected_offer_key) {
+        console.log(`[accept-trip] Offer toggle ON but driver sent no offer key`);
+        return errorResponse('A preset offer selection is required', 400, {
+          code: 'OFFER_SELECTION_REQUIRED',
+          message: 'You must select a preset offer before accepting.'
+        });
+      }
+    }
 
     console.log(`[accept-trip] Driver ${driver_id} attempting to accept trip ${trip_id}`);
 
