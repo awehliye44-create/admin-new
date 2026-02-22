@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -13,7 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
-import { Loader2, Plus, Trash2, Tag, Timer, Sparkles } from 'lucide-react';
+import { Loader2, Plus, Trash2, Tag, Timer, Sparkles, Calendar, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface PresetOffer {
@@ -29,6 +30,13 @@ interface PresetOffer {
   is_active: boolean;
 }
 
+interface OfferSchedule {
+  enabled: boolean;
+  days: number[]; // 1=Mon..7=Sun
+  startLocalHHmm: string;
+  endLocalHHmm: string;
+}
+
 interface PresetConfig {
   id?: string;
   is_enabled: boolean;
@@ -38,7 +46,18 @@ interface PresetConfig {
   countdown_seconds: number;
   countdown_auto_select: boolean;
   countdown_auto_select_offer_id: string;
+  schedule: OfferSchedule;
 }
+
+const DAY_LABELS = [
+  { value: 1, label: 'Mon' },
+  { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' },
+  { value: 4, label: 'Thu' },
+  { value: 5, label: 'Fri' },
+  { value: 6, label: 'Sat' },
+  { value: 7, label: 'Sun' },
+];
 
 const DEFAULT_OFFERS: PresetOffer[] = [
   {
@@ -84,6 +103,12 @@ const DEFAULT_CONFIG: PresetConfig = {
   countdown_seconds: 30,
   countdown_auto_select: false,
   countdown_auto_select_offer_id: 'recommended',
+  schedule: {
+    enabled: false,
+    days: [1, 2, 3, 4, 5, 6, 7],
+    startLocalHHmm: '08:00',
+    endLocalHHmm: '22:00',
+  },
 };
 
 interface PresetOffersConfigProps {
@@ -117,6 +142,12 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
           countdown_seconds: configData.countdown_seconds,
           countdown_auto_select: configData.countdown_auto_select,
           countdown_auto_select_offer_id: configData.countdown_auto_select_offer_id || 'recommended',
+          schedule: {
+            enabled: (configData as any).schedule_enabled ?? false,
+            days: (configData as any).schedule_days ?? [1, 2, 3, 4, 5, 6, 7],
+            startLocalHHmm: (configData as any).schedule_start_time ?? '08:00',
+            endLocalHHmm: (configData as any).schedule_end_time ?? '22:00',
+          },
         });
 
         const { data: offersData } = await supabase
@@ -212,7 +243,11 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
             countdown_seconds: config.countdown_seconds,
             countdown_auto_select: config.countdown_auto_select,
             countdown_auto_select_offer_id: config.countdown_auto_select_offer_id,
-          })
+            schedule_enabled: config.schedule.enabled,
+            schedule_days: config.schedule.days,
+            schedule_start_time: config.schedule.startLocalHHmm,
+            schedule_end_time: config.schedule.endLocalHHmm,
+          } as any)
           .eq('id', configId);
       } else {
         const { data: newConfig } = await supabase
@@ -226,7 +261,11 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
             countdown_seconds: config.countdown_seconds,
             countdown_auto_select: config.countdown_auto_select,
             countdown_auto_select_offer_id: config.countdown_auto_select_offer_id,
-          })
+            schedule_enabled: config.schedule.enabled,
+            schedule_days: config.schedule.days,
+            schedule_start_time: config.schedule.startLocalHHmm,
+            schedule_end_time: config.schedule.endLocalHHmm,
+          } as any)
           .select()
           .single();
 
@@ -425,6 +464,98 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
                       </Select>
                     </div>
                   )}
+                </div>
+              )}
+            </div>
+
+            {/* Schedule Window */}
+            <div className="p-4 bg-muted/30 rounded-lg border space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                  <Label className="font-medium">Scheduled Availability Window</Label>
+                </div>
+                <Switch
+                  checked={config.schedule.enabled}
+                  onCheckedChange={(v) => setConfig(prev => ({
+                    ...prev,
+                    schedule: { ...prev.schedule, enabled: v }
+                  }))}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                When enabled, preset offers are only available during the configured days and time window (using the service area timezone). Outside this window, drivers see standard fare only.
+              </p>
+
+              {config.schedule.enabled && (
+                <div className="space-y-4">
+                  {/* Days selection */}
+                  <div className="space-y-2">
+                    <Label className="text-sm">Active Days</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {DAY_LABELS.map(day => (
+                        <label
+                          key={day.value}
+                          className="flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Checkbox
+                            checked={config.schedule.days.includes(day.value)}
+                            onCheckedChange={(checked) => {
+                              setConfig(prev => {
+                                const days = checked
+                                  ? [...prev.schedule.days, day.value].sort()
+                                  : prev.schedule.days.filter(d => d !== day.value);
+                                return {
+                                  ...prev,
+                                  schedule: { ...prev.schedule, days },
+                                };
+                              });
+                              setHasChanges(true);
+                            }}
+                          />
+                          <span className="text-sm">{day.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Time window */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-sm flex items-center gap-1">
+                        <Clock className="h-3.5 w-3.5" />
+                        Start Time (local)
+                      </Label>
+                      <Input
+                        type="time"
+                        value={config.schedule.startLocalHHmm}
+                        onChange={(e) => {
+                          setConfig(prev => ({
+                            ...prev,
+                            schedule: { ...prev.schedule, startLocalHHmm: e.target.value },
+                          }));
+                          setHasChanges(true);
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm flex items-center gap-1">
+                        <Clock className="h-3.5 w-3.5" />
+                        End Time (local)
+                      </Label>
+                      <Input
+                        type="time"
+                        value={config.schedule.endLocalHHmm}
+                        onChange={(e) => {
+                          setConfig(prev => ({
+                            ...prev,
+                            schedule: { ...prev.schedule, endLocalHHmm: e.target.value },
+                          }));
+                          setHasChanges(true);
+                        }}
+                      />
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
