@@ -75,9 +75,12 @@ interface VehiclePricing {
   currency_code: string;
   distance_pricing: PricingTier[];
   time_pricing: PricingTier[];
+  isExpanded?: boolean;
+}
+
+interface WaitingCharges {
   pickup_waiting_charges: PricingTier[];
   stops_waiting_charges: PricingTier[];
-  isExpanded?: boolean;
 }
 
 interface CancellationFees {
@@ -94,6 +97,8 @@ interface ServiceArea {
   is_active: boolean;
   per_booking_fee_enabled: boolean;
   per_booking_fee_pence: number;
+  pickup_waiting_charges: PricingTier[] | null;
+  stops_waiting_charges: PricingTier[] | null;
   region?: { 
     name: string;
     currency_code: string;
@@ -116,6 +121,10 @@ export default function ServiceAreaPricing() {
     no_show_fee: 10,
     currency_code: 'GBP',
   });
+  const [waitingCharges, setWaitingCharges] = useState<WaitingCharges>({
+    pickup_waiting_charges: [{ from_min: 0, rate: 0.2 }],
+    stops_waiting_charges: [{ from_min: 0, rate: 0.3 }],
+  });
   
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -135,6 +144,14 @@ export default function ServiceAreaPricing() {
   useEffect(() => {
     if (selectedServiceAreaId && vehicleTypes.length > 0) {
       fetchPricingData(selectedServiceAreaId);
+      // Load waiting charges from the selected service area
+      const sa = serviceAreas.find(s => s.id === selectedServiceAreaId);
+      if (sa) {
+        setWaitingCharges({
+          pickup_waiting_charges: sa.pickup_waiting_charges || [{ from_min: 0, rate: 0.2 }],
+          stops_waiting_charges: sa.stops_waiting_charges || [{ from_min: 0, rate: 0.3 }],
+        });
+      }
     }
   }, [selectedServiceAreaId, vehicleTypes]);
 
@@ -144,7 +161,7 @@ export default function ServiceAreaPricing() {
       const [areasRes, typesRes] = await Promise.all([
         supabase
           .from('service_areas')
-          .select('id, name, region_id, is_active, per_booking_fee_enabled, per_booking_fee_pence, region:regions(name, currency_code, distance_unit)')
+          .select('id, name, region_id, is_active, per_booking_fee_enabled, per_booking_fee_pence, pickup_waiting_charges, stops_waiting_charges, region:regions(name, currency_code, distance_unit)')
           .order('name'),
         supabase
           .from('vehicle_types')
@@ -156,7 +173,11 @@ export default function ServiceAreaPricing() {
       if (areasRes.error) throw areasRes.error;
       if (typesRes.error) throw typesRes.error;
 
-      setServiceAreas(areasRes.data || []);
+      setServiceAreas((areasRes.data || []).map((sa: any) => ({
+        ...sa,
+        pickup_waiting_charges: (sa.pickup_waiting_charges as PricingTier[] | null),
+        stops_waiting_charges: (sa.stops_waiting_charges as PricingTier[] | null),
+      })));
       setVehicleTypes(typesRes.data || []);
 
       if (serviceAreaIdFromParams && areasRes.data?.some(sa => sa.id === serviceAreaIdFromParams)) {
@@ -201,8 +222,6 @@ export default function ServiceAreaPricing() {
             currency_code: existingPricing.currency_code,
             distance_pricing: (existingPricing.distance_pricing as unknown as PricingTier[]) || [{ from_km: 0, rate: 1.5 }],
             time_pricing: (existingPricing.time_pricing as unknown as PricingTier[]) || [{ from_min: 0, rate: 0.25 }],
-            pickup_waiting_charges: (existingPricing.pickup_waiting_charges as unknown as PricingTier[]) || [{ from_min: 0, rate: 0.2 }],
-            stops_waiting_charges: (existingPricing.stops_waiting_charges as unknown as PricingTier[]) || [{ from_min: 0, rate: 0.3 }],
             isExpanded: existingPricing.is_enabled,
           };
         } else {
@@ -219,8 +238,6 @@ export default function ServiceAreaPricing() {
             currency_code: defaultCurrency,
             distance_pricing: [{ from_km: 0, rate: 1.5 }],
             time_pricing: [{ from_min: 0, rate: 0.25 }],
-            pickup_waiting_charges: [{ from_min: 0, rate: 0.2 }],
-            stops_waiting_charges: [{ from_min: 0, rate: 0.3 }],
             isExpanded: false,
           };
         }
@@ -287,7 +304,7 @@ export default function ServiceAreaPricing() {
     setHasChanges(true);
   };
 
-  const addPricingTier = (vehicleTypeId: string, field: 'distance_pricing' | 'time_pricing' | 'pickup_waiting_charges' | 'stops_waiting_charges') => {
+  const addPricingTier = (vehicleTypeId: string, field: 'distance_pricing' | 'time_pricing') => {
     const pricing = vehiclePricing[vehicleTypeId];
     const tiers = [...pricing[field]];
     const lastTier = tiers[tiers.length - 1];
@@ -301,7 +318,7 @@ export default function ServiceAreaPricing() {
     updatePricing(vehicleTypeId, field, tiers);
   };
 
-  const removePricingTier = (vehicleTypeId: string, field: 'distance_pricing' | 'time_pricing' | 'pickup_waiting_charges' | 'stops_waiting_charges', index: number) => {
+  const removePricingTier = (vehicleTypeId: string, field: 'distance_pricing' | 'time_pricing', index: number) => {
     const pricing = vehiclePricing[vehicleTypeId];
     const tiers = pricing[field].filter((_, i) => i !== index);
     updatePricing(vehicleTypeId, field, tiers);
@@ -309,7 +326,7 @@ export default function ServiceAreaPricing() {
 
   const updatePricingTier = (
     vehicleTypeId: string, 
-    field: 'distance_pricing' | 'time_pricing' | 'pickup_waiting_charges' | 'stops_waiting_charges', 
+    field: 'distance_pricing' | 'time_pricing', 
     index: number, 
     tierField: string, 
     value: number
@@ -318,6 +335,27 @@ export default function ServiceAreaPricing() {
     const tiers = [...pricing[field]];
     tiers[index] = { ...tiers[index], [tierField]: value };
     updatePricing(vehicleTypeId, field, tiers);
+  };
+
+  const addWaitingTier = (field: 'pickup_waiting_charges' | 'stops_waiting_charges') => {
+    const tiers = [...waitingCharges[field]];
+    const lastTier = tiers[tiers.length - 1];
+    tiers.push({ from_min: (lastTier?.from_min || 0) + 5, rate: lastTier?.rate || 0.25 });
+    setWaitingCharges(prev => ({ ...prev, [field]: tiers }));
+    setHasChanges(true);
+  };
+
+  const removeWaitingTier = (field: 'pickup_waiting_charges' | 'stops_waiting_charges', index: number) => {
+    const tiers = waitingCharges[field].filter((_, i) => i !== index);
+    setWaitingCharges(prev => ({ ...prev, [field]: tiers }));
+    setHasChanges(true);
+  };
+
+  const updateWaitingTier = (field: 'pickup_waiting_charges' | 'stops_waiting_charges', index: number, tierField: string, value: number) => {
+    const tiers = [...waitingCharges[field]];
+    tiers[index] = { ...tiers[index], [tierField]: value };
+    setWaitingCharges(prev => ({ ...prev, [field]: tiers }));
+    setHasChanges(true);
   };
 
   const updatePerBookingFee = (field: 'per_booking_fee_enabled' | 'per_booking_fee_pence', value: boolean | number) => {
@@ -341,6 +379,8 @@ export default function ServiceAreaPricing() {
           .update({
             per_booking_fee_enabled: selectedServiceArea.per_booking_fee_enabled,
             per_booking_fee_pence: selectedServiceArea.per_booking_fee_pence,
+            pickup_waiting_charges: JSON.parse(JSON.stringify(waitingCharges.pickup_waiting_charges)),
+            stops_waiting_charges: JSON.parse(JSON.stringify(waitingCharges.stops_waiting_charges)),
           })
           .eq('id', selectedServiceAreaId);
       }
@@ -358,8 +398,6 @@ export default function ServiceAreaPricing() {
             currency_code: pricing.currency_code,
             distance_pricing: JSON.parse(JSON.stringify(pricing.distance_pricing)),
             time_pricing: JSON.parse(JSON.stringify(pricing.time_pricing)),
-            pickup_waiting_charges: JSON.parse(JSON.stringify(pricing.pickup_waiting_charges)),
-            stops_waiting_charges: JSON.parse(JSON.stringify(pricing.stops_waiting_charges)),
           };
 
           if (pricing.id) {
@@ -649,41 +687,7 @@ export default function ServiceAreaPricing() {
                         onUpdate={(index, field, value) => updatePricingTier(vt.id, 'time_pricing', index, field, value)}
                       />
 
-                      {/* Pickup Waiting Charges */}
-                      <PricingTierSection
-                        title="Pickup Waiting Charges"
-                        description="Rate per minute for waiting at pickup location"
-                        tiers={pricing.pickup_waiting_charges}
-                        fromLabel="From min:"
-                        fromField="from_min"
-                        rateUnit="/min"
-                        currencySymbol={getCurrencySymbol(regionCurrency)}
-                        onAdd={() => addPricingTier(vt.id, 'pickup_waiting_charges')}
-                        onRemove={(index) => removePricingTier(vt.id, 'pickup_waiting_charges', index)}
-                        onUpdate={(index, field, value) => updatePricingTier(vt.id, 'pickup_waiting_charges', index, field, value)}
-                      />
 
-                      {/* Stops Waiting Charges */}
-                      <PricingTierSection
-                        title="Stops Waiting Charges"
-                        description="Rate per minute for waiting at intermediate stops"
-                        tiers={pricing.stops_waiting_charges}
-                        fromLabel="From min:"
-                        fromField="from_min"
-                        rateUnit="/min"
-                        currencySymbol={getCurrencySymbol(regionCurrency)}
-                        onAdd={() => addPricingTier(vt.id, 'stops_waiting_charges')}
-                        onRemove={(index) => removePricingTier(vt.id, 'stops_waiting_charges', index)}
-                        onUpdate={(index, field, value) => updatePricingTier(vt.id, 'stops_waiting_charges', index, field, value)}
-                      />
-
-                      {/* Warning */}
-                      <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-                        <AlertCircle className="h-4 w-4 text-amber-600" />
-                        <p className="text-sm text-amber-700 dark:text-amber-400">
-                          <span className="font-semibold">NO grace period</span> – Charging for stops waiting starts immediately at minute 0.
-                        </p>
-                      </div>
                     </div>
                   </CollapsibleContent>
                 </div>
@@ -693,7 +697,56 @@ export default function ServiceAreaPricing() {
         </CardContent>
       </Card>
 
-      {/* Cancellation & No-Show Fees */}
+      {/* Unified Waiting Time Charges */}
+      {selectedServiceAreaId && (
+        <Card className="mb-6">
+          <CardContent className="p-6 space-y-6">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <h3 className="text-lg font-semibold">Waiting Time Charges</h3>
+                <p className="text-sm text-muted-foreground">
+                  Unified waiting time rates applied across all vehicle types in this service area
+                </p>
+              </div>
+            </div>
+
+            <PricingTierSection
+              title="Pickup Waiting Charges"
+              description="Rate per minute for waiting at pickup location"
+              tiers={waitingCharges.pickup_waiting_charges}
+              fromLabel="From min:"
+              fromField="from_min"
+              rateUnit="/min"
+              currencySymbol={getCurrencySymbol(regionCurrency)}
+              onAdd={() => addWaitingTier('pickup_waiting_charges')}
+              onRemove={(index) => removeWaitingTier('pickup_waiting_charges', index)}
+              onUpdate={(index, field, value) => updateWaitingTier('pickup_waiting_charges', index, field, value)}
+            />
+
+            <PricingTierSection
+              title="Stops Waiting Charges"
+              description="Rate per minute for waiting at intermediate stops"
+              tiers={waitingCharges.stops_waiting_charges}
+              fromLabel="From min:"
+              fromField="from_min"
+              rateUnit="/min"
+              currencySymbol={getCurrencySymbol(regionCurrency)}
+              onAdd={() => addWaitingTier('stops_waiting_charges')}
+              onRemove={(index) => removeWaitingTier('stops_waiting_charges', index)}
+              onUpdate={(index, field, value) => updateWaitingTier('stops_waiting_charges', index, field, value)}
+            />
+
+            <div className="flex items-center gap-2 p-3 bg-muted/50 border rounded-lg">
+              <AlertCircle className="h-4 w-4 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                <span className="font-semibold">NO grace period</span> – Charging for stops waiting starts immediately at minute 0.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card className="mb-6">
         <CardContent className="p-6">
           <div className="flex items-center gap-2 mb-4">
