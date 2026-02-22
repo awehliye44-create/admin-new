@@ -49,6 +49,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ServiceAreaPaymentConfig } from '@/components/payment/ServiceAreaPaymentConfig';
+import { PresetOffersConfig } from '@/components/pricing/PresetOffersConfig';
 
 interface VehicleType {
   id: string;
@@ -850,6 +851,16 @@ export default function ServiceAreaPricing() {
           )}
         </CardContent>
       </Card>
+
+      {/* Preset Fare Offers */}
+      {selectedServiceAreaId && (
+        <div className="mb-6">
+          <PresetOffersConfig
+            serviceAreaId={selectedServiceAreaId}
+            currencySymbol={getCurrencySymbol(regionCurrency)}
+          />
+        </div>
+      )}
 
       {/* Payment Methods */}
       {selectedServiceAreaId && (
