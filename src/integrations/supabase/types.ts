@@ -3926,6 +3926,7 @@ export type Database = {
           arrived_at: string | null
           authorised_amount_pence: number | null
           base_fare_pence: number | null
+          booking_source: string | null
           broadcast_started_at: string | null
           cancellation_fee_pence: number | null
           cancellation_reason: string | null
@@ -4029,6 +4030,7 @@ export type Database = {
           arrived_at?: string | null
           authorised_amount_pence?: number | null
           base_fare_pence?: number | null
+          booking_source?: string | null
           broadcast_started_at?: string | null
           cancellation_fee_pence?: number | null
           cancellation_reason?: string | null
@@ -4132,6 +4134,7 @@ export type Database = {
           arrived_at?: string | null
           authorised_amount_pence?: number | null
           base_fare_pence?: number | null
+          booking_source?: string | null
           broadcast_started_at?: string | null
           cancellation_fee_pence?: number | null
           cancellation_reason?: string | null
