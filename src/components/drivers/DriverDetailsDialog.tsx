@@ -35,7 +35,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { 
   Car, Star, Phone, Mail, MapPin, CheckCircle, XCircle, 
   Loader2, Pencil, Map, AlertTriangle, PawPrint, Users,
-  Truck, Shield
+  Truck, Shield, CreditCard, ExternalLink, Send
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -54,6 +54,10 @@ interface Driver {
   created_at: string;
   region_id: string;
   is_pet_friendly?: boolean;
+  stripe_account_id?: string | null;
+  payouts_enabled?: boolean;
+  charges_enabled?: boolean;
+  onboarding_complete?: boolean;
 }
 
 interface Vehicle {
@@ -124,6 +128,7 @@ export function DriverDetailsDialog({
   const [rejectVehicleId, setRejectVehicleId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [isRejecting, setIsRejecting] = useState(false);
+  const [isSendingOnboardLink, setIsSendingOnboardLink] = useState(false);
 
   useEffect(() => {
     if (open && driver) {
@@ -327,6 +332,30 @@ export function DriverDetailsDialog({
     return driverCategories.some(dc => dc.vehicle_type_id === vehicleTypeId && dc.is_enabled);
   };
 
+  const sendOnboardingLink = async () => {
+    if (!driver) return;
+    setIsSendingOnboardLink(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('stripe-onboard-driver', {
+        body: { driver_id: driver.id },
+      });
+      if (error) throw error;
+      if (data?.url) {
+        // Copy link to clipboard
+        await navigator.clipboard.writeText(data.url);
+        toast.success('Stripe onboarding link copied to clipboard! Share it with the driver.');
+        if (data.stripe_account_id && !driver.stripe_account_id) {
+          onDriverUpdate({ ...driver, stripe_account_id: data.stripe_account_id });
+        }
+      }
+    } catch (err) {
+      console.error('Error generating onboarding link:', err);
+      toast.error('Failed to generate Stripe onboarding link');
+    } finally {
+      setIsSendingOnboardLink(false);
+    }
+  };
+
   if (!driver) return null;
 
   const driverVehicles = vehicles.filter(v => v.driver_id === driver.id);
@@ -429,6 +458,62 @@ export function DriverDetailsDialog({
                       <p className="text-sm font-medium">{driver.total_trips || 0}</p>
                     </div>
                   </div>
+                </div>
+
+                {/* Stripe Connect Status */}
+                <div className="p-4 border rounded-lg space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="h-5 w-5 text-muted-foreground" />
+                      <h4 className="text-sm font-medium">Stripe Connect</h4>
+                    </div>
+                    {driver.stripe_account_id ? (
+                      <Badge className={
+                        driver.onboarding_complete
+                          ? 'bg-green-500/10 text-green-600 border-green-500/30'
+                          : 'bg-yellow-500/10 text-yellow-600 border-yellow-500/30'
+                      }>
+                        {driver.onboarding_complete ? 'Connected' : 'Incomplete'}
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-red-500/10 text-red-600 border-red-500/30">
+                        Not Connected
+                      </Badge>
+                    )}
+                  </div>
+
+                  {driver.stripe_account_id ? (
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div className="p-2 bg-muted/50 rounded">
+                        <p className="text-xs text-muted-foreground">Account ID</p>
+                        <p className="font-mono text-xs">{driver.stripe_account_id}</p>
+                      </div>
+                      <div className="p-2 bg-muted/50 rounded">
+                        <p className="text-xs text-muted-foreground">Payouts</p>
+                        <p className={driver.payouts_enabled ? 'text-green-600' : 'text-red-600'}>
+                          {driver.payouts_enabled ? 'Enabled' : 'Disabled'}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Driver has not connected their Stripe account yet. Send an onboarding link to get started.
+                    </p>
+                  )}
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={sendOnboardingLink}
+                    disabled={isSendingOnboardLink}
+                  >
+                    {isSendingOnboardLink ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="mr-2 h-4 w-4" />
+                    )}
+                    {driver.stripe_account_id ? 'Resend Onboarding Link' : 'Send Onboarding Link'}
+                  </Button>
                 </div>
 
                 <div className="flex gap-2 pt-4 border-t flex-wrap">
