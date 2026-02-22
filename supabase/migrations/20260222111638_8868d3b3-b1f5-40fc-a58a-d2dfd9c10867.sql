@@ -1,0 +1,1 @@
+ALTER TABLE public.trips ADD COLUMN IF NOT EXISTS booking_source text DEFAULT 'admin';
