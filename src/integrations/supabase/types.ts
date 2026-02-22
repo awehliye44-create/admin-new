@@ -2755,6 +2755,112 @@ export type Database = {
           },
         ]
       }
+      preset_offer_configs: {
+        Row: {
+          countdown_auto_select: boolean
+          countdown_auto_select_offer_id: string | null
+          countdown_enabled: boolean
+          countdown_seconds: number
+          created_at: string
+          default_selected_offer_id: string | null
+          id: string
+          is_enabled: boolean
+          price_mode: string
+          service_area_id: string
+          updated_at: string
+        }
+        Insert: {
+          countdown_auto_select?: boolean
+          countdown_auto_select_offer_id?: string | null
+          countdown_enabled?: boolean
+          countdown_seconds?: number
+          created_at?: string
+          default_selected_offer_id?: string | null
+          id?: string
+          is_enabled?: boolean
+          price_mode?: string
+          service_area_id: string
+          updated_at?: string
+        }
+        Update: {
+          countdown_auto_select?: boolean
+          countdown_auto_select_offer_id?: string | null
+          countdown_enabled?: boolean
+          countdown_seconds?: number
+          created_at?: string
+          default_selected_offer_id?: string | null
+          id?: string
+          is_enabled?: boolean
+          price_mode?: string
+          service_area_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "preset_offer_configs_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: true
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      preset_offers: {
+        Row: {
+          color: string | null
+          config_id: string
+          created_at: string
+          description: string | null
+          display_order: number
+          fixed_amount_pence: number | null
+          icon: string | null
+          id: string
+          is_active: boolean
+          label: string
+          multiplier: number | null
+          offer_key: string
+          updated_at: string
+        }
+        Insert: {
+          color?: string | null
+          config_id: string
+          created_at?: string
+          description?: string | null
+          display_order?: number
+          fixed_amount_pence?: number | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean
+          label: string
+          multiplier?: number | null
+          offer_key: string
+          updated_at?: string
+        }
+        Update: {
+          color?: string | null
+          config_id?: string
+          created_at?: string
+          description?: string | null
+          display_order?: number
+          fixed_amount_pence?: number | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean
+          label?: string
+          multiplier?: number | null
+          offer_key?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "preset_offers_config_id_fkey"
+            columns: ["config_id"]
+            isOneToOne: false
+            referencedRelation: "preset_offer_configs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       promo_codes: {
         Row: {
           applicable_vehicle_types: string[] | null
