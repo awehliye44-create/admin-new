@@ -3473,7 +3473,9 @@ export type Database = {
           name: string
           per_booking_fee_enabled: boolean
           per_booking_fee_pence: number
+          pickup_waiting_charges: Json | null
           region_id: string
+          stops_waiting_charges: Json | null
           timezone: string | null
           updated_at: string
         }
@@ -3491,7 +3493,9 @@ export type Database = {
           name: string
           per_booking_fee_enabled?: boolean
           per_booking_fee_pence?: number
+          pickup_waiting_charges?: Json | null
           region_id: string
+          stops_waiting_charges?: Json | null
           timezone?: string | null
           updated_at?: string
         }
@@ -3509,7 +3513,9 @@ export type Database = {
           name?: string
           per_booking_fee_enabled?: boolean
           per_booking_fee_pence?: number
+          pickup_waiting_charges?: Json | null
           region_id?: string
+          stops_waiting_charges?: Json | null
           timezone?: string | null
           updated_at?: string
         }
