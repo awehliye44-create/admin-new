@@ -3113,10 +3113,12 @@ export type Database = {
           driver_respond_by: string | null
           eta_seconds: number | null
           expires_at: string
+          grace_window_expires_at: string | null
           id: string
           is_stacked: boolean
           negotiation_status: string | null
           offer_options: number[] | null
+          offer_snapshot: Json | null
           offered_at: string
           responded_at: string | null
           revoked_reason: string | null
@@ -3137,10 +3139,12 @@ export type Database = {
           driver_respond_by?: string | null
           eta_seconds?: number | null
           expires_at: string
+          grace_window_expires_at?: string | null
           id?: string
           is_stacked?: boolean
           negotiation_status?: string | null
           offer_options?: number[] | null
+          offer_snapshot?: Json | null
           offered_at?: string
           responded_at?: string | null
           revoked_reason?: string | null
@@ -3161,10 +3165,12 @@ export type Database = {
           driver_respond_by?: string | null
           eta_seconds?: number | null
           expires_at?: string
+          grace_window_expires_at?: string | null
           id?: string
           is_stacked?: boolean
           negotiation_status?: string | null
           offer_options?: number[] | null
+          offer_snapshot?: Json | null
           offered_at?: string
           responded_at?: string | null
           revoked_reason?: string | null
@@ -3514,6 +3520,7 @@ export type Database = {
           id: string
           is_enabled: boolean
           minimum_fare: number
+          offer_settings: Json
           pickup_waiting_charges: Json
           service_area_id: string
           stops_waiting_charges: Json
@@ -3530,6 +3537,7 @@ export type Database = {
           id?: string
           is_enabled?: boolean
           minimum_fare?: number
+          offer_settings?: Json
           pickup_waiting_charges?: Json
           service_area_id: string
           stops_waiting_charges?: Json
@@ -3546,6 +3554,7 @@ export type Database = {
           id?: string
           is_enabled?: boolean
           minimum_fare?: number
+          offer_settings?: Json
           pickup_waiting_charges?: Json
           service_area_id?: string
           stops_waiting_charges?: Json
@@ -3970,6 +3979,8 @@ export type Database = {
           job_type: string | null
           last_broadcast_at: string | null
           max_broadcast_rounds: number | null
+          negotiation_locked_until: string | null
+          offer_snapshot: Json | null
           passenger_id: string
           passenger_name: string | null
           passenger_phone: string | null
@@ -4071,6 +4082,8 @@ export type Database = {
           job_type?: string | null
           last_broadcast_at?: string | null
           max_broadcast_rounds?: number | null
+          negotiation_locked_until?: string | null
+          offer_snapshot?: Json | null
           passenger_id: string
           passenger_name?: string | null
           passenger_phone?: string | null
@@ -4172,6 +4185,8 @@ export type Database = {
           job_type?: string | null
           last_broadcast_at?: string | null
           max_broadcast_rounds?: number | null
+          negotiation_locked_until?: string | null
+          offer_snapshot?: Json | null
           passenger_id?: string
           passenger_name?: string | null
           passenger_phone?: string | null
