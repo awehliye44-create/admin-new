@@ -2766,6 +2766,10 @@ export type Database = {
           id: string
           is_enabled: boolean
           price_mode: string
+          schedule_days: number[]
+          schedule_enabled: boolean
+          schedule_end_time: string
+          schedule_start_time: string
           service_area_id: string
           updated_at: string
         }
@@ -2779,6 +2783,10 @@ export type Database = {
           id?: string
           is_enabled?: boolean
           price_mode?: string
+          schedule_days?: number[]
+          schedule_enabled?: boolean
+          schedule_end_time?: string
+          schedule_start_time?: string
           service_area_id: string
           updated_at?: string
         }
@@ -2792,6 +2800,10 @@ export type Database = {
           id?: string
           is_enabled?: boolean
           price_mode?: string
+          schedule_days?: number[]
+          schedule_enabled?: boolean
+          schedule_end_time?: string
+          schedule_start_time?: string
           service_area_id?: string
           updated_at?: string
         }
@@ -3920,6 +3932,7 @@ export type Database = {
           booking_source: string | null
           broadcast_started_at: string | null
           cancellation_fee_pence: number | null
+          cancellation_note: string | null
           cancellation_reason: string | null
           cancelled_at: string | null
           cancelled_by: string | null
@@ -4024,6 +4037,7 @@ export type Database = {
           booking_source?: string | null
           broadcast_started_at?: string | null
           cancellation_fee_pence?: number | null
+          cancellation_note?: string | null
           cancellation_reason?: string | null
           cancelled_at?: string | null
           cancelled_by?: string | null
@@ -4128,6 +4142,7 @@ export type Database = {
           booking_source?: string | null
           broadcast_started_at?: string | null
           cancellation_fee_pence?: number | null
+          cancellation_note?: string | null
           cancellation_reason?: string | null
           cancelled_at?: string | null
           cancelled_by?: string | null

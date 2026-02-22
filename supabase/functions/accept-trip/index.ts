@@ -15,6 +15,7 @@ import {
   acceptTripSchema, 
   AcceptTripRequest 
 } from "../_shared/validation.ts";
+import { checkOfferSchedule } from "../_shared/offerSchedule.ts";
 
 // Rate limit: 30 requests per minute per IP for trip acceptance
 const RATE_LIMIT_CONFIG = { limit: 30, windowMs: 60 * 1000 };
@@ -56,7 +57,7 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // --- OFFER TOGGLE ENFORCEMENT ---
+    // --- OFFER TOGGLE + SCHEDULE ENFORCEMENT ---
     // Get the trip's service_area_id first
     const { data: tripForSA } = await supabase
       .from('trips')
@@ -64,17 +65,40 @@ serve(async (req) => {
       .eq('id', trip_id)
       .single();
 
+    let offersAllowedNow = false;
+
     if (tripForSA?.service_area_id) {
+      // Get offer config with schedule fields
       const { data: offerConfig } = await supabase
         .from('preset_offer_configs')
-        .select('is_enabled')
+        .select('is_enabled, schedule_enabled, schedule_days, schedule_start_time, schedule_end_time')
         .eq('service_area_id', tripForSA.service_area_id)
         .maybeSingle();
 
-      const offersEnabled = offerConfig?.is_enabled === true;
+      // Get service area timezone
+      const { data: saData } = await supabase
+        .from('service_areas')
+        .select('timezone, region_id')
+        .eq('id', tripForSA.service_area_id)
+        .single();
 
-      // If offers are DISABLED but driver sent a preset offer key → reject
-      if (!offersEnabled && selected_offer_key) {
+      // Fallback to region timezone if service area doesn't have one
+      let timezone = saData?.timezone;
+      if (!timezone && saData?.region_id) {
+        const { data: regionData } = await supabase
+          .from('regions')
+          .select('timezone')
+          .eq('id', saData.region_id)
+          .single();
+        timezone = regionData?.timezone;
+      }
+      timezone = timezone || 'UTC';
+
+      const scheduleCheck = checkOfferSchedule(offerConfig as any, timezone);
+      offersAllowedNow = scheduleCheck.offersAllowedNow;
+
+      // If offers are DISABLED globally but driver sent a preset offer key → reject
+      if (!scheduleCheck.offersEnabled && selected_offer_key) {
         console.log(`[accept-trip] Offer toggle OFF but driver sent offer key: ${selected_offer_key}`);
         return errorResponse('Preset offers are disabled for this service area', 403, {
           code: 'OFFERS_DISABLED',
@@ -82,9 +106,18 @@ serve(async (req) => {
         });
       }
 
-      // If offers are ENABLED but driver did NOT send a preset offer key → reject
-      if (offersEnabled && !selected_offer_key) {
-        console.log(`[accept-trip] Offer toggle ON but driver sent no offer key`);
+      // If offers are enabled but outside schedule window and driver sent offer key → reject
+      if (scheduleCheck.offersEnabled && !scheduleCheck.offersAllowedNow && selected_offer_key) {
+        console.log(`[accept-trip] Offer outside schedule window. Reason: ${scheduleCheck.reason}`);
+        return errorResponse('Offers are outside the scheduled window', 403, {
+          code: 'OFFERS_OUTSIDE_SCHEDULE',
+          message: 'Preset offers are not available at this time. Accept the standard fare instead.'
+        });
+      }
+
+      // If offers are allowed now but driver did NOT send a preset offer key → reject
+      if (scheduleCheck.offersAllowedNow && !selected_offer_key) {
+        console.log(`[accept-trip] Offers required but driver sent no offer key`);
         return errorResponse('A preset offer selection is required', 400, {
           code: 'OFFER_SELECTION_REQUIRED',
           message: 'You must select a preset offer before accepting.'

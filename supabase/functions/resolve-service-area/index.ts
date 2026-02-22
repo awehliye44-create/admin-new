@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkOfferSchedule } from "../_shared/offerSchedule.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -141,6 +142,19 @@ serve(async (req) => {
     // Get the first service area (in the future, could match by specific geo boundaries within region)
     const primaryServiceArea = serviceAreas && serviceAreas.length > 0 ? serviceAreas[0] : null;
 
+    // Check offer schedule for primary service area
+    let offersAllowedNow = false;
+    if (primaryServiceArea) {
+      const { data: offerConfig } = await supabase
+        .from('preset_offer_configs')
+        .select('is_enabled, schedule_enabled, schedule_days, schedule_start_time, schedule_end_time')
+        .eq('service_area_id', primaryServiceArea.id)
+        .maybeSingle();
+
+      const scheduleCheck = checkOfferSchedule(offerConfig as any, matchingRegion.timezone);
+      offersAllowedNow = scheduleCheck.offersAllowedNow;
+    }
+
     const settings: RegionSettings = {
       region_id: matchingRegion.id,
       region_name: matchingRegion.name,
@@ -157,6 +171,7 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         settings,
+        offers_allowed_now: offersAllowedNow,
         service_area_ids: (serviceAreas || []).map(sa => sa.id),
         cache_key: `${matchingRegion.id}_${matchingRegion.updated_at}`,
       }),
