@@ -36,7 +36,7 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { 
   Car, Plus, Search, Loader2, Pencil, Trash2, Users, 
-  CheckCircle2, XCircle, Tag, Sparkles
+  CheckCircle2, XCircle, Tag, Sparkles, Zap
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -57,7 +57,7 @@ interface VehicleType {
 
 // Predefined options
 const CATEGORY_OPTIONS = ['Economy', 'Standard', 'XL', 'Luxury', 'Premium'];
-const FEATURE_OPTIONS = ['Luxury', 'Pet', 'Wheelchair', 'Child Seat', 'WiFi', 'Charger'];
+const FEATURE_OPTIONS = ['Luxury', 'Pet', 'Wheelchair', 'Child Seat', 'WiFi', 'Charger', 'Electric'];
 
 export default function VehicleTypes() {
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
@@ -290,6 +290,7 @@ export default function VehicleTypes() {
       case 'wheelchair': return 'bg-blue-100 text-blue-700 border-blue-200';
       case 'child seat': return 'bg-pink-100 text-pink-700 border-pink-200';
       case 'wifi': return 'bg-purple-100 text-purple-700 border-purple-200';
+      case 'electric': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
       default: return 'bg-gray-100 text-gray-700 border-gray-200';
     }
   };
@@ -387,7 +388,7 @@ export default function VehicleTypes() {
               }`}
               onClick={() => toggleFeature(feature)}
             >
-              <Sparkles className="h-3 w-3 mr-1" />
+              {feature === 'Electric' ? <Zap className="h-3 w-3 mr-1" /> : <Sparkles className="h-3 w-3 mr-1" />}
               {feature}
             </Badge>
           ))}
