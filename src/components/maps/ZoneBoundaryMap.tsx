@@ -58,6 +58,8 @@ export function ZoneBoundaryMap({
   const regionPolygonRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
   const clickListenerRef = useRef<any>(null);
+  const initializedRef = useRef(false);
+  const prevExistingDataRef = useRef<string>('');
   
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [points, setPoints] = useState<LatLng[]>([]);
@@ -90,8 +92,20 @@ export function ZoneBoundaryMap({
     document.head.appendChild(script);
   }, []);
 
-  // Initialize from existing data
+  // Initialize from existing data - only on actual data changes
   useEffect(() => {
+    // Build a stable key from the actual values to detect real changes
+    const dataKey = JSON.stringify({
+      shapeType,
+      polygon: existingPolygon?.coordinates?.[0] ? 'has' : 'none',
+      circleLat: existingCircle.center_lat,
+      circleLng: existingCircle.center_lng,
+      circleR: existingCircle.radius_meters,
+    });
+
+    if (dataKey === prevExistingDataRef.current) return;
+    prevExistingDataRef.current = dataKey;
+
     if (shapeType === 'polygon' && existingPolygon?.coordinates?.[0]) {
       const coords = existingPolygon.coordinates[0];
       const loadedPoints = coords.slice(0, -1).map((c: number[]) => ({ lat: c[1], lng: c[0] }));
@@ -101,11 +115,12 @@ export function ZoneBoundaryMap({
       setCircleCenter({ lat: existingCircle.center_lat, lng: existingCircle.center_lng });
       setCircleRadius(existingCircle.radius_meters || 500);
       setIsDrawing(false);
-    } else {
+    } else if (!initializedRef.current) {
       setPoints([]);
       setCircleCenter(null);
       setIsDrawing(true);
     }
+    initializedRef.current = true;
   }, [shapeType, existingPolygon, existingCircle]);
 
   // Handle map click
