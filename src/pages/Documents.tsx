@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table,
   TableBody,
@@ -40,10 +41,11 @@ import { supabase } from '@/integrations/supabase/client';
 import { 
   FileText, Loader2, Search, RefreshCw, MoreHorizontal, Eye, 
   CheckCircle2, XCircle, Clock, AlertTriangle, FileCheck, FileClock,
-  FileX, Calendar, UserCheck, ShieldCheck
+  FileX, Calendar, UserCheck, ShieldCheck, Settings2
 } from 'lucide-react';
 import { format, isPast, addDays, isBefore } from 'date-fns';
 import { toast } from 'sonner';
+import { ServiceAreaDocumentRules } from '@/components/documents/ServiceAreaDocumentRules';
 
 interface Document {
   id: string;
@@ -200,8 +202,21 @@ export default function Documents() {
   return (
     <AdminLayout 
       title="Document Management" 
-      description="Review and manage UK Private Hire driver documents. Drivers can only receive bookings after all 11 required documents are approved."
+      description="Review and manage driver documents and configure per-service-area rules."
     >
+      <Tabs defaultValue="review" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="review" className="gap-2">
+            <FileText className="h-4 w-4" />
+            Document Review
+          </TabsTrigger>
+          <TabsTrigger value="rules" className="gap-2">
+            <Settings2 className="h-4 w-4" />
+            Service Area Rules
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="review" className="space-y-6">
       {/* Required Documents Info */}
       <Card className="mb-6 border-primary/20 bg-primary/5">
         <CardHeader className="pb-3">
@@ -588,6 +603,12 @@ export default function Documents() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+        </TabsContent>
+
+        <TabsContent value="rules">
+          <ServiceAreaDocumentRules />
+        </TabsContent>
+      </Tabs>
     </AdminLayout>
   );
 }

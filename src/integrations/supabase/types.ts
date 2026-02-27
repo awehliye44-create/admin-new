@@ -3425,6 +3425,63 @@ export type Database = {
           },
         ]
       }
+      service_area_document_rules: {
+        Row: {
+          created_at: string
+          display_in_driver_app: boolean
+          doc_type_id: string
+          expiry_required: boolean
+          id: string
+          is_active: boolean
+          mandatory: boolean
+          max_age_days: number | null
+          service_area_id: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_in_driver_app?: boolean
+          doc_type_id: string
+          expiry_required?: boolean
+          id?: string
+          is_active?: boolean
+          mandatory?: boolean
+          max_age_days?: number | null
+          service_area_id: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_in_driver_app?: boolean
+          doc_type_id?: string
+          expiry_required?: boolean
+          id?: string
+          is_active?: boolean
+          mandatory?: boolean
+          max_age_days?: number | null
+          service_area_id?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_area_document_rules_doc_type_id_fkey"
+            columns: ["doc_type_id"]
+            isOneToOne: false
+            referencedRelation: "document_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "service_area_document_rules_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       service_area_payment_methods: {
         Row: {
           apple_pay_enabled: boolean
