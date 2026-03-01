@@ -13,11 +13,13 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { ZoneBoundaryMap } from "@/components/maps/ZoneBoundaryMap";
+import { ZoneRoutePricingTab } from "@/components/pricing/ZoneRoutePricingTab";
 import { 
   Plus, Edit, Trash2, Target, Search, 
-  Map, DollarSign, RefreshCw, Loader2, Circle, Hexagon
+  Map, DollarSign, RefreshCw, Loader2, Circle, Hexagon, Route
 } from "lucide-react";
 
 interface ZoneMetadata {
@@ -342,7 +344,16 @@ export default function CustomZones() {
               Create pricing zones that add pickup/dropoff fees or override fares based on location.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+        </div>
+
+        <Tabs defaultValue="zones" className="w-full">
+          <TabsList>
+            <TabsTrigger value="zones"><DollarSign className="h-4 w-4 mr-2" />Pricing Zones</TabsTrigger>
+            <TabsTrigger value="routes"><Route className="h-4 w-4 mr-2" />Route Pricing</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="zones" className="space-y-6 mt-4">
+        <div className="flex items-center justify-end gap-2">
             <Button variant="outline" size="sm" onClick={() => refetch()}>
               <RefreshCw className="h-4 w-4 mr-2" />
               Refresh
@@ -351,7 +362,6 @@ export default function CustomZones() {
               <Plus className="mr-2 h-4 w-4" />
               Add Pricing Zone
             </Button>
-          </div>
         </div>
 
         {/* Stats */}
@@ -691,6 +701,12 @@ export default function CustomZones() {
             </form>
           </DialogContent>
         </Dialog>
+          </TabsContent>
+
+          <TabsContent value="routes" className="mt-4">
+            <ZoneRoutePricingTab />
+          </TabsContent>
+        </Tabs>
       </div>
     </AdminLayout>
   );
