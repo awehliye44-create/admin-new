@@ -812,11 +812,11 @@ export default function TripHistory() {
                     <TableCell>
                       <div className="flex items-center gap-1">
                         <Badge variant="outline" className="bg-blue-500/10 text-blue-600">
-                          {getTripStopsCount(trip)}
+                          {getIntermediateStopsCount(trip)}
                         </Badge>
                         {getIntermediateStopsCount(trip) > 0 && (
                           <span className="text-xs text-muted-foreground">
-                            (+{getIntermediateStopsCount(trip)})
+                            via {getIntermediateStopsCount(trip)} stop{getIntermediateStopsCount(trip) > 1 ? 's' : ''}
                           </span>
                         )}
                       </div>
@@ -927,7 +927,7 @@ export default function TripHistory() {
                   <div className="space-y-2">
                     <h4 className="text-sm font-semibold flex items-center gap-2">
                       <Route className="h-4 w-4" />
-                      Route ({tripStops.length || 2} stops)
+                      Route ({tripStops.filter(s => s.type === 'stop').length} stop{tripStops.filter(s => s.type === 'stop').length !== 1 ? 's' : ''})
                       <Badge variant="secondary" className="text-xs">
                         {tripStops.length >= 2 && calculateRouteDistance(tripStops) > 0 
                           ? formatDialogDistance(calculateRouteDistance(tripStops))
