@@ -4783,6 +4783,74 @@ export type Database = {
           },
         ]
       }
+      zone_route_pricing: {
+        Row: {
+          created_at: string
+          fixed_fare: number
+          from_zone_id: string
+          id: string
+          is_active: boolean
+          priority: number
+          service_area_id: string | null
+          to_zone_id: string
+          updated_at: string
+          vehicle_type_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          fixed_fare: number
+          from_zone_id: string
+          id?: string
+          is_active?: boolean
+          priority?: number
+          service_area_id?: string | null
+          to_zone_id: string
+          updated_at?: string
+          vehicle_type_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          fixed_fare?: number
+          from_zone_id?: string
+          id?: string
+          is_active?: boolean
+          priority?: number
+          service_area_id?: string | null
+          to_zone_id?: string
+          updated_at?: string
+          vehicle_type_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "zone_route_pricing_from_zone_id_fkey"
+            columns: ["from_zone_id"]
+            isOneToOne: false
+            referencedRelation: "custom_zones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "zone_route_pricing_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "zone_route_pricing_to_zone_id_fkey"
+            columns: ["to_zone_id"]
+            isOneToOne: false
+            referencedRelation: "custom_zones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "zone_route_pricing_vehicle_type_id_fkey"
+            columns: ["vehicle_type_id"]
+            isOneToOne: false
+            referencedRelation: "vehicle_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       available_scheduled_jobs: {

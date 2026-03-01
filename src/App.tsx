@@ -26,6 +26,7 @@ import CustomZones from "./pages/CustomZones";
 import AutoDispatchRules from "./pages/AutoDispatchRules";
 import ServiceAreaPricing from "./pages/ServiceAreaPricing";
 import ZonePricing from "./pages/ZonePricing";
+import ZoneRoutePricing from "./pages/ZoneRoutePricing";
 import CorporateFares from "./pages/CorporateFares";
 import FareSimulator from "./pages/FareSimulator";
 import PromoCodes from "./pages/PromoCodes";
@@ -114,6 +115,7 @@ const App = () => (
               <Route path="promo-codes" element={<PromoCodes />} />
               <Route path="custom-zones" element={<CustomZones />} />
               <Route path="zone-pricing" element={<ZonePricing />} />
+              <Route path="zone-route-pricing" element={<ZoneRoutePricing />} />
               <Route path="corporate-fares" element={<CorporateFares />} />
               <Route path="fare-simulator" element={<FareSimulator />} />
               

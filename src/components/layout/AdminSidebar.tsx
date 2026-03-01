@@ -402,6 +402,13 @@ export function AdminSidebar() {
                 collapsed={isCollapsed}
               />
               <NavItem
+                to="/zone-route-pricing"
+                icon={<Navigation className="h-4 w-4" />}
+                label="Zone Route Pricing"
+                active={currentPath === '/zone-route-pricing'}
+                collapsed={isCollapsed}
+              />
+              <NavItem
                 to="/corporate-fares"
                 icon={<Building2 className="h-4 w-4" />}
                 label="Corporate Fare Rules"
