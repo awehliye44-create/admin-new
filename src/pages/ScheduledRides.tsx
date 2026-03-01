@@ -229,7 +229,8 @@ export default function ScheduledRides() {
     }
   };
 
-  const handleCancelTrip = async () => {
+  const handleCancelTrip = async (e?: React.MouseEvent) => {
+    e?.preventDefault();
     if (!selectedTrip) return;
 
     setIsSaving(true);
@@ -238,6 +239,7 @@ export default function ScheduledRides() {
         .from('trips')
         .update({ 
           status: 'cancelled',
+          scheduled_status: 'cancelled',
           special_instructions: cancelReason 
             ? `Admin cancelled: ${cancelReason}. ${selectedTrip.special_instructions || ''}`
             : `Admin cancelled. ${selectedTrip.special_instructions || ''}`,
@@ -882,9 +884,13 @@ export default function ScheduledRides() {
             />
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel>Keep Ride</AlertDialogCancel>
+            <AlertDialogCancel disabled={isSaving}>Keep Ride</AlertDialogCancel>
             <AlertDialogAction 
-              onClick={handleCancelTrip}
+              onClick={(e) => {
+                e.preventDefault();
+                handleCancelTrip(e);
+              }}
+              disabled={isSaving}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
