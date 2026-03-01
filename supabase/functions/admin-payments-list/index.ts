@@ -92,11 +92,6 @@ serve(async (req) => {
           first_name,
           last_name,
           email
-        ),
-        customers:passenger_id (
-          id,
-          first_name,
-          last_name
         )
       `, { count: 'exact' })
       .not('payment_method', 'is', null)
@@ -153,7 +148,7 @@ serve(async (req) => {
       completedAt: t.completed_at,
       driver: t.drivers ? `${t.drivers.first_name} ${t.drivers.last_name}` : null,
       driverId: t.driver_id,
-      customer: t.customers ? `${t.customers.first_name || ''} ${t.customers.last_name || ''}`.trim() : null,
+      customer: null,
       customerId: t.passenger_id,
       commission: t.commission_pence || 0,
       driverNet: t.driver_net_pence || 0,
