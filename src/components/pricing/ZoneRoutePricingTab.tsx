@@ -19,6 +19,8 @@ interface ZoneRouteRule {
   service_area_id: string | null;
   vehicle_type_id: string | null;
   fixed_fare: number;
+  pickup_fee: number;
+  dropoff_fee: number;
   is_active: boolean;
   priority: number;
   created_at: string;
@@ -47,6 +49,8 @@ const emptyForm = {
   service_area_id: '',
   vehicle_type_id: '',
   fixed_fare: '',
+  pickup_fee: '0',
+  dropoff_fee: '0',
   is_active: true,
   priority: '0',
 };
@@ -93,6 +97,8 @@ export function ZoneRoutePricingTab() {
       service_area_id: r.service_area_id || '',
       vehicle_type_id: r.vehicle_type_id || '',
       fixed_fare: String(r.fixed_fare),
+      pickup_fee: String(r.pickup_fee ?? 0),
+      dropoff_fee: String(r.dropoff_fee ?? 0),
       is_active: r.is_active,
       priority: String(r.priority),
     });
@@ -115,6 +121,8 @@ export function ZoneRoutePricingTab() {
       service_area_id: form.service_area_id || null,
       vehicle_type_id: form.vehicle_type_id || null,
       fixed_fare: parseFloat(form.fixed_fare),
+      pickup_fee: parseFloat(form.pickup_fee) || 0,
+      dropoff_fee: parseFloat(form.dropoff_fee) || 0,
       is_active: form.is_active,
       priority: parseInt(form.priority) || 0,
     };
@@ -179,6 +187,8 @@ export function ZoneRoutePricingTab() {
                   <TableHead>To Zone</TableHead>
                   <TableHead>Vehicle</TableHead>
                   <TableHead>Fixed Fare</TableHead>
+                  <TableHead>Pickup Fee</TableHead>
+                  <TableHead>Dropoff Fee</TableHead>
                   <TableHead>Priority</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -191,6 +201,8 @@ export function ZoneRoutePricingTab() {
                     <TableCell>{zoneName(r.to_zone_id)}</TableCell>
                     <TableCell>{vehicleName(r.vehicle_type_id)}</TableCell>
                     <TableCell>£{Number(r.fixed_fare).toFixed(2)}</TableCell>
+                    <TableCell>£{Number(r.pickup_fee ?? 0).toFixed(2)}</TableCell>
+                    <TableCell>£{Number(r.dropoff_fee ?? 0).toFixed(2)}</TableCell>
                     <TableCell>{r.priority}</TableCell>
                     <TableCell>
                       <Switch checked={r.is_active} onCheckedChange={(v) => handleToggle(r.id, v)} />
@@ -262,6 +274,17 @@ export function ZoneRoutePricingTab() {
               <div className="space-y-2">
                 <Label>Priority</Label>
                 <Input type="number" min="0" placeholder="0" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Pickup Fee (£)</Label>
+                <Input type="number" step="0.01" min="0" placeholder="0.00" value={form.pickup_fee} onChange={e => setForm(f => ({ ...f, pickup_fee: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Dropoff Fee (£)</Label>
+                <Input type="number" step="0.01" min="0" placeholder="0.00" value={form.dropoff_fee} onChange={e => setForm(f => ({ ...f, dropoff_fee: e.target.value }))} />
               </div>
             </div>
 

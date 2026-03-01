@@ -4786,10 +4786,12 @@ export type Database = {
       zone_route_pricing: {
         Row: {
           created_at: string
+          dropoff_fee: number
           fixed_fare: number
           from_zone_id: string
           id: string
           is_active: boolean
+          pickup_fee: number
           priority: number
           service_area_id: string | null
           to_zone_id: string
@@ -4798,10 +4800,12 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          dropoff_fee?: number
           fixed_fare: number
           from_zone_id: string
           id?: string
           is_active?: boolean
+          pickup_fee?: number
           priority?: number
           service_area_id?: string | null
           to_zone_id: string
@@ -4810,10 +4814,12 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          dropoff_fee?: number
           fixed_fare?: number
           from_zone_id?: string
           id?: string
           is_active?: boolean
+          pickup_fee?: number
           priority?: number
           service_area_id?: string | null
           to_zone_id?: string
