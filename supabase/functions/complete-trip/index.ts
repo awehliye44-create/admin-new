@@ -81,18 +81,30 @@ serve(async (req) => {
       return errorResponse('Trip does not belong to this driver', 403);
     }
 
-    // Get commission rate for this service area
+    // Get commission rate from driver tier (category) with driver-level override
     let commissionPercentage = 20; // Default 20%
-    if (trip.service_area_id) {
-      const { data: pricing } = await supabase
-        .from('service_area_vehicle_pricing')
-        .select('commission_percentage')
-        .eq('service_area_id', trip.service_area_id)
-        .limit(1)
+    
+    const { data: driver } = await supabase
+      .from('drivers')
+      .select('commission_override_pct, category_id')
+      .eq('id', driver_id)
+      .single();
+
+    if (driver?.commission_override_pct != null) {
+      // Driver-specific override takes priority
+      commissionPercentage = driver.commission_override_pct;
+      console.log(`[complete-trip] Using driver override commission: ${commissionPercentage}%`);
+    } else if (driver?.category_id) {
+      // Fall back to driver category commission
+      const { data: category } = await supabase
+        .from('driver_categories')
+        .select('commission_pct')
+        .eq('id', driver.category_id)
         .single();
       
-      if (pricing?.commission_percentage) {
-        commissionPercentage = pricing.commission_percentage;
+      if (category?.commission_pct != null) {
+        commissionPercentage = category.commission_pct;
+        console.log(`[complete-trip] Using category commission: ${commissionPercentage}%`);
       }
     }
 

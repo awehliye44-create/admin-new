@@ -62,13 +62,29 @@ export default function DriverPayouts() {
       
       if (tripsError) throw tripsError;
 
-      // Get commission rates from service area pricing
-      const { data: pricingData } = await supabase
-        .from('service_area_vehicle_pricing')
-        .select('service_area_id, commission_percentage');
+      // Get driver categories for commission rates
+      const { data: categoriesData } = await supabase
+        .from('driver_categories')
+        .select('id, commission_pct');
       
-      const commissionMap = (pricingData || []).reduce((acc, p) => {
-        acc[p.service_area_id] = p.commission_percentage;
+      const categoryCommissionMap = (categoriesData || []).reduce((acc, c) => {
+        acc[c.id] = c.commission_pct ?? 20;
+        return acc;
+      }, {} as Record<string, number>);
+
+      // Get driver category assignments and overrides
+      const { data: driverDetails } = await supabase
+        .from('drivers')
+        .select('id, category_id, commission_override_pct');
+
+      const driverCommissionMap = (driverDetails || []).reduce((acc, d) => {
+        if (d.commission_override_pct != null) {
+          acc[d.id] = d.commission_override_pct;
+        } else if (d.category_id && categoryCommissionMap[d.category_id] != null) {
+          acc[d.id] = categoryCommissionMap[d.category_id];
+        } else {
+          acc[d.id] = 20; // Default
+        }
         return acc;
       }, {} as Record<string, number>);
 
@@ -82,7 +98,7 @@ export default function DriverPayouts() {
           earningsMap[trip.driver_id] = { earnings: 0, trips: 0, commission: 0 };
         }
         
-        const commissionRate = trip.service_area_id ? (commissionMap[trip.service_area_id] || 20) : 20;
+        const commissionRate = driverCommissionMap[trip.driver_id] ?? 20;
         const commission = (trip.fare * commissionRate) / 100;
         
         earningsMap[trip.driver_id].earnings += trip.fare;
