@@ -41,11 +41,12 @@ import { supabase } from '@/integrations/supabase/client';
 import { 
   FileText, Loader2, Search, RefreshCw, MoreHorizontal, Eye, 
   CheckCircle2, XCircle, Clock, AlertTriangle, FileCheck, FileClock,
-  FileX, Calendar, UserCheck, ShieldCheck, Settings2
+  FileX, Calendar, UserCheck, ShieldCheck, Settings2, ListChecks
 } from 'lucide-react';
 import { format, isPast, addDays, isBefore } from 'date-fns';
 import { toast } from 'sonner';
 import { ServiceAreaDocumentRules } from '@/components/documents/ServiceAreaDocumentRules';
+import { DocumentTypeConfig } from '@/components/documents/DocumentTypeConfig';
 
 interface Document {
   id: string;
@@ -209,6 +210,10 @@ export default function Documents() {
           <TabsTrigger value="review" className="gap-2">
             <FileText className="h-4 w-4" />
             Document Review
+          </TabsTrigger>
+          <TabsTrigger value="types" className="gap-2">
+            <ListChecks className="h-4 w-4" />
+            Document Types
           </TabsTrigger>
           <TabsTrigger value="rules" className="gap-2">
             <Settings2 className="h-4 w-4" />
@@ -603,6 +608,10 @@ export default function Documents() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+        </TabsContent>
+
+        <TabsContent value="types">
+          <DocumentTypeConfig />
         </TabsContent>
 
         <TabsContent value="rules">
