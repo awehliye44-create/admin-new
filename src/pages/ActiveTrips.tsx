@@ -55,6 +55,7 @@ import {
 import { format, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { getCurrencySymbol } from '@/lib/regionSettings';
+import { getTripDisplayId } from '@/lib/tripUtils';
 
 interface Trip {
   id: string;
@@ -295,6 +296,7 @@ export default function ActiveTrips() {
 
   const filteredTrips = trips.filter(trip => {
     const matchesSearch = 
+      getTripDisplayId(trip).toLowerCase().includes(searchQuery.toLowerCase()) ||
       trip.trip_code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       trip.passenger_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       trip.passenger_phone?.includes(searchQuery) ||
@@ -439,7 +441,7 @@ export default function ActiveTrips() {
                     <TableRow key={trip.id}>
                       <TableCell>
                         <div className="font-mono text-sm font-medium">
-                          {trip.trip_code || trip.id.slice(0, 8)}
+                          {getTripDisplayId(trip)}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -549,7 +551,7 @@ export default function ActiveTrips() {
               Reassign Driver
             </DialogTitle>
             <DialogDescription>
-              Select a new driver for trip {selectedTrip?.trip_code || selectedTrip?.id.slice(0, 8)}
+              Select a new driver for trip {selectedTrip ? getTripDisplayId(selectedTrip) : ''}
             </DialogDescription>
           </DialogHeader>
           
@@ -611,7 +613,7 @@ export default function ActiveTrips() {
               Cancel Trip
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to cancel trip {selectedTrip?.trip_code || selectedTrip?.id.slice(0, 8)}? 
+              Are you sure you want to cancel trip {selectedTrip ? getTripDisplayId(selectedTrip) : ''}? 
               This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -649,7 +651,7 @@ export default function ActiveTrips() {
               Force End Trip
             </DialogTitle>
             <DialogDescription>
-              Force end trip {selectedTrip?.trip_code || selectedTrip?.id.slice(0, 8)} and set the final fare
+              Force end trip {selectedTrip ? getTripDisplayId(selectedTrip) : ''} and set the final fare
             </DialogDescription>
           </DialogHeader>
           

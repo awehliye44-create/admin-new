@@ -37,6 +37,7 @@ import {
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
 import { getCurrencySymbol } from '@/lib/regionSettings';
+import { getTripDisplayId } from '@/lib/tripUtils';
 
 interface CancelledTrip {
   id: string;
@@ -160,6 +161,7 @@ export default function MissedCancelled() {
 
   const filteredTrips = trips.filter(trip => {
     const matchesSearch = 
+      getTripDisplayId(trip).toLowerCase().includes(searchQuery.toLowerCase()) ||
       trip.trip_code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       trip.passenger_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       trip.passenger_phone?.includes(searchQuery) ||
@@ -317,7 +319,7 @@ export default function MissedCancelled() {
                     <TableRow key={trip.id}>
                       <TableCell>
                         <div className="font-mono text-sm font-medium">
-                          {trip.trip_code || trip.id.slice(0, 8)}
+                          {getTripDisplayId(trip)}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -392,7 +394,7 @@ export default function MissedCancelled() {
           <DialogHeader>
             <DialogTitle>Trip Details</DialogTitle>
             <DialogDescription>
-              Trip #{selectedTrip?.trip_code || selectedTrip?.id.slice(0, 8)}
+              Trip #{selectedTrip ? getTripDisplayId(selectedTrip) : ''}
             </DialogDescription>
           </DialogHeader>
           {selectedTrip && (
