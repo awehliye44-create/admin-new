@@ -16,36 +16,50 @@ import {
   XCircle,
   Eye,
   Calendar,
-  Wallet,
   Users,
   DollarSign
 } from 'lucide-react';
 
+interface PayoutItem {
+  id: string;
+  driverId: string;
+  driverName: string | null;
+  amount: number;
+  status: string;
+  errorMessage: string | null;
+  stripeTransferId: string | null;
+  stripePayoutId: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
 interface PayoutBatch {
   id: string;
   kind: string;
-  run_date: string;
+  runDate: string;
   status: string;
-  total_drivers: number | null;
-  total_amount_pence: number | null;
-  successful_payouts: number | null;
-  failed_payouts: number | null;
-  created_at: string;
-  completed_at: string | null;
+  totalDrivers: number | null;
+  totalAmount: number | null;
+  successfulPayouts: number | null;
+  failedPayouts: number | null;
+  createdAt: string;
+  completedAt: string | null;
   notes: string | null;
+  items: PayoutItem[];
 }
 
-interface PayoutItem {
-  id: string;
-  driver_id: string;
-  driver_name: string;
-  amount_pence: number;
-  status: string;
-  error_message: string | null;
-  stripe_transfer_id: string | null;
-  stripe_payout_id: string | null;
-  created_at: string;
-  completed_at: string | null;
+interface PayoutResponse {
+  batches: PayoutBatch[];
+  summary: {
+    totalBatches: number;
+    totalPaidOut: number;
+    pendingBatches: number;
+    failedBatches: number;
+  };
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
 
 const formatPence = (pence: number): string => {
@@ -55,8 +69,7 @@ const formatPence = (pence: number): string => {
 export default function AdminPayoutBatches() {
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
 
-  // Fetch batches
-  const { data: batchData, isLoading, refetch } = useQuery<{ batches: PayoutBatch[]; items: PayoutItem[] }>({
+  const { data: responseData, isLoading, refetch } = useQuery<PayoutResponse>({
     queryKey: ['admin-payout-batches'],
     queryFn: async () => {
       const { data, error } = await supabase.functions.invoke('admin-payout-batches');
@@ -65,15 +78,11 @@ export default function AdminPayoutBatches() {
     },
   });
 
-  const batches = batchData?.batches || [];
-  const allItems = batchData?.items || [];
+  const batches = responseData?.batches || [];
+  const summary = responseData?.summary;
 
   const selectedBatch = batches.find(b => b.id === selectedBatchId);
-  const batchItems = allItems.filter(item => {
-    // Items are associated with batches via the batch_id, but our current query returns all items
-    // In a real implementation, you'd filter by batch_id
-    return true;
-  });
+  const batchItems = selectedBatch?.items || [];
 
   const getStatusBadge = (status: string) => {
     const config: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline', icon: React.ReactNode }> = {
@@ -82,7 +91,7 @@ export default function AdminPayoutBatches() {
       processing: { variant: 'outline', icon: <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> },
       failed: { variant: 'destructive', icon: <XCircle className="h-3 w-3 mr-1" /> },
     };
-    const { variant, icon } = config[status] || { variant: 'outline', icon: null };
+    const { variant, icon } = config[status] || { variant: 'outline' as const, icon: null };
     return (
       <Badge variant={variant} className="flex items-center w-fit">
         {icon}
@@ -100,15 +109,13 @@ export default function AdminPayoutBatches() {
     return kinds[kind] || kind;
   };
 
-  // Stats
-  const totalBatches = batches.length;
+  // Stats from summary or calculated
+  const totalBatches = summary?.totalBatches || batches.length;
   const completedBatches = batches.filter(b => b.status === 'completed').length;
-  const totalPaidOut = batches
-    .filter(b => b.status === 'completed')
-    .reduce((sum, b) => sum + (b.total_amount_pence || 0), 0);
+  const totalPaidOut = summary?.totalPaidOut || 0;
   const totalDriversPaid = batches
     .filter(b => b.status === 'completed')
-    .reduce((sum, b) => sum + (b.successful_payouts || 0), 0);
+    .reduce((sum, b) => sum + (b.successfulPayouts || 0), 0);
 
   if (isLoading) {
     return (
@@ -203,16 +210,16 @@ export default function AdminPayoutBatches() {
                   batches.map((batch) => (
                     <TableRow key={batch.id}>
                       <TableCell className="font-medium">
-                        {format(new Date(batch.run_date), 'dd MMM yyyy')}
+                        {batch.runDate ? format(new Date(batch.runDate), 'dd MMM yyyy') : format(new Date(batch.createdAt), 'dd MMM yyyy')}
                       </TableCell>
                       <TableCell>{getKindDisplay(batch.kind)}</TableCell>
                       <TableCell>{getStatusBadge(batch.status)}</TableCell>
-                      <TableCell className="text-right">{batch.total_drivers || 0}</TableCell>
+                      <TableCell className="text-right">{batch.totalDrivers || 0}</TableCell>
                       <TableCell className="text-right font-medium text-green-600">
-                        {formatPence(batch.total_amount_pence || 0)}
+                        {formatPence(batch.totalAmount || 0)}
                       </TableCell>
-                      <TableCell className="text-right text-green-600">{batch.successful_payouts || 0}</TableCell>
-                      <TableCell className="text-right text-red-600">{batch.failed_payouts || 0}</TableCell>
+                      <TableCell className="text-right text-green-600">{batch.successfulPayouts || 0}</TableCell>
+                      <TableCell className="text-right text-red-600">{batch.failedPayouts || 0}</TableCell>
                       <TableCell className="text-right">
                         <Button 
                           variant="ghost" 
@@ -236,7 +243,7 @@ export default function AdminPayoutBatches() {
             <DialogHeader>
               <DialogTitle>Payout Batch Details</DialogTitle>
               <DialogDescription>
-                {selectedBatch && format(new Date(selectedBatch.run_date), 'dd MMM yyyy')} - {selectedBatch && getKindDisplay(selectedBatch.kind)}
+                {selectedBatch && (selectedBatch.runDate ? format(new Date(selectedBatch.runDate), 'dd MMM yyyy') : format(new Date(selectedBatch.createdAt), 'dd MMM yyyy'))} - {selectedBatch && getKindDisplay(selectedBatch.kind)}
               </DialogDescription>
             </DialogHeader>
             {selectedBatch && (
@@ -253,20 +260,20 @@ export default function AdminPayoutBatches() {
                     <CardContent className="pt-4">
                       <p className="text-xs text-muted-foreground">Total</p>
                       <p className="text-lg font-bold text-green-600">
-                        {formatPence(selectedBatch.total_amount_pence || 0)}
+                        {formatPence(selectedBatch.totalAmount || 0)}
                       </p>
                     </CardContent>
                   </Card>
                   <Card>
                     <CardContent className="pt-4">
                       <p className="text-xs text-muted-foreground">Success</p>
-                      <p className="text-lg font-bold text-green-600">{selectedBatch.successful_payouts || 0}</p>
+                      <p className="text-lg font-bold text-green-600">{selectedBatch.successfulPayouts || 0}</p>
                     </CardContent>
                   </Card>
                   <Card>
                     <CardContent className="pt-4">
                       <p className="text-xs text-muted-foreground">Failed</p>
-                      <p className="text-lg font-bold text-red-600">{selectedBatch.failed_payouts || 0}</p>
+                      <p className="text-lg font-bold text-red-600">{selectedBatch.failedPayouts || 0}</p>
                     </CardContent>
                   </Card>
                 </div>
@@ -280,7 +287,7 @@ export default function AdminPayoutBatches() {
                   </Card>
                 )}
 
-                {/* Payout Items - in a real implementation, filter by batch_id */}
+                {/* Payout Items */}
                 <div>
                   <h4 className="font-medium mb-2">Individual Payouts</h4>
                   <ScrollArea className="h-[250px]">
@@ -297,13 +304,13 @@ export default function AdminPayoutBatches() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {batchItems.slice(0, 20).map((item) => (
+                          {batchItems.map((item) => (
                             <TableRow key={item.id}>
-                              <TableCell className="font-medium">{item.driver_name || item.driver_id.substring(0, 8)}</TableCell>
-                              <TableCell className="text-right text-green-600">{formatPence(item.amount_pence)}</TableCell>
+                              <TableCell className="font-medium">{item.driverName || item.driverId?.substring(0, 8)}</TableCell>
+                              <TableCell className="text-right text-green-600">{formatPence(item.amount || 0)}</TableCell>
                               <TableCell>{getStatusBadge(item.status)}</TableCell>
                               <TableCell className="text-xs text-red-600 max-w-[150px] truncate">
-                                {item.error_message || '-'}
+                                {item.errorMessage || '-'}
                               </TableCell>
                             </TableRow>
                           ))}
