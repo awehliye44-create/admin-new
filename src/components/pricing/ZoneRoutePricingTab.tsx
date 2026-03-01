@@ -234,20 +234,20 @@ export function ZoneRoutePricingTab() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Service Area</Label>
-                <Select value={form.service_area_id} onValueChange={v => setForm(f => ({ ...f, service_area_id: v }))}>
+                <Select value={form.service_area_id || "__any__"} onValueChange={v => setForm(f => ({ ...f, service_area_id: v === "__any__" ? "" : v }))}>
                   <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Any</SelectItem>
+                    <SelectItem value="__any__">Any</SelectItem>
                     {serviceAreas.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
                 <Label>Vehicle Type</Label>
-                <Select value={form.vehicle_type_id} onValueChange={v => setForm(f => ({ ...f, vehicle_type_id: v }))}>
+                <Select value={form.vehicle_type_id || "__all__"} onValueChange={v => setForm(f => ({ ...f, vehicle_type_id: v === "__all__" ? "" : v }))}>
                   <SelectTrigger><SelectValue placeholder="All vehicles" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All</SelectItem>
+                    <SelectItem value="__all__">All</SelectItem>
                     {vehicleTypes.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
