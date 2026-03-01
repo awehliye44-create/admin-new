@@ -55,6 +55,13 @@ interface Stats {
   previousCommission: number;
 }
 
+interface ServiceAreaRevenue {
+  name: string;
+  revenue: number;
+  trips: number;
+  commission: number;
+}
+
 interface RecentTrip {
   id: string;
   passenger_name: string | null;
@@ -124,6 +131,7 @@ export default function Dashboard() {
   const [bookingStatType, setBookingStatType] = useState<'completed' | 'ongoing' | 'cancelled'>('completed');
   const [customDateFrom, setCustomDateFrom] = useState<Date | undefined>(undefined);
   const [customDateTo, setCustomDateTo] = useState<Date | undefined>(undefined);
+  const [serviceAreaRevenues, setServiceAreaRevenues] = useState<ServiceAreaRevenue[]>([]);
   // Map state
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
@@ -330,6 +338,20 @@ export default function Dashboard() {
       setDrivers(allDrivers as Driver[]);
       setRecentTrips(recentTripsResult.data || []);
 
+      // Calculate revenue per service area
+      if (selectedServiceArea === 'all' && serviceAreas.length > 0) {
+        const completedTripsData = trips.filter(t => t.status === 'completed');
+        const revenueByArea: ServiceAreaRevenue[] = serviceAreas.map(area => {
+          const areaTrips = completedTripsData.filter(t => t.service_area_id === area.id);
+          const revenue = areaTrips.reduce((sum, t) => sum + (t.fare || 0), 0);
+          const commission = areaTrips.reduce((sum, t) => sum + ((t.commission_pence || 0) / 100), 0) || revenue * 0.20;
+          return { name: area.name, revenue, trips: areaTrips.length, commission };
+        }).filter(a => a.trips > 0).sort((a, b) => b.revenue - a.revenue);
+        setServiceAreaRevenues(revenueByArea);
+      } else {
+        setServiceAreaRevenues([]);
+      }
+
       // Fetch booking chart data
       await fetchBookingChartData();
     } catch (error) {
@@ -512,13 +534,16 @@ export default function Dashboard() {
                     {customDateFrom ? format(customDateFrom, 'MMM d, yyyy') : 'From'}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
+                <PopoverContent className="w-auto p-0 z-[9999]" align="start">
                   <Calendar
                     mode="single"
                     selected={customDateFrom}
                     onSelect={setCustomDateFrom}
                     disabled={(date) => date > new Date()}
                     initialFocus
+                    captionLayout="dropdown-buttons"
+                    fromYear={2020}
+                    toYear={new Date().getFullYear()}
                     className={cn("p-3 pointer-events-auto")}
                   />
                 </PopoverContent>
@@ -531,13 +556,16 @@ export default function Dashboard() {
                     {customDateTo ? format(customDateTo, 'MMM d, yyyy') : 'To'}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
+                <PopoverContent className="w-auto p-0 z-[9999]" align="start">
                   <Calendar
                     mode="single"
                     selected={customDateTo}
                     onSelect={setCustomDateTo}
                     disabled={(date) => date > new Date() || (customDateFrom ? date < customDateFrom : false)}
                     initialFocus
+                    captionLayout="dropdown-buttons"
+                    fromYear={2020}
+                    toYear={new Date().getFullYear()}
                     className={cn("p-3 pointer-events-auto")}
                   />
                 </PopoverContent>
@@ -642,7 +670,44 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Charts Section */}
+      {/* Revenue by Service Area */}
+      {serviceAreaRevenues.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader className="flex flex-row items-center gap-2">
+            <MapPin className="h-5 w-5 text-primary" />
+            <CardTitle>Revenue by Service Area</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {serviceAreaRevenues.map((area) => {
+                const maxRevenue = serviceAreaRevenues[0]?.revenue || 1;
+                const percentage = Math.round((area.revenue / maxRevenue) * 100);
+                return (
+                  <div key={area.name} className="space-y-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-medium">{area.name}</span>
+                      <div className="flex items-center gap-4 text-muted-foreground">
+                        <span>{area.trips} trips</span>
+                        <span className="font-semibold text-foreground">£{area.revenue.toFixed(2)}</span>
+                      </div>
+                    </div>
+                    <div className="h-2 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all duration-500"
+                        style={{ width: `${percentage}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-end">
+                      <span className="text-xs text-muted-foreground">Commission: £{area.commission.toFixed(2)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-2 mb-6">
         {/* User Statistics */}
         <Card>
