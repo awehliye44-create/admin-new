@@ -86,6 +86,12 @@ interface CompletedTrip {
   dropoff_longitude: number | null;
   estimated_fare: number | null;
   fare: number | null;
+  gross_fare_pence: number | null;
+  commission_pence: number | null;
+  driver_net_pence: number | null;
+  final_fare_pence: number | null;
+  payment_status: string | null;
+  payment_method: string | null;
   currency_code: string | null;
   estimated_distance_km: number | null;
   estimated_duration_minutes: number | null;
@@ -93,9 +99,10 @@ interface CompletedTrip {
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
-  payment_method: string | null;
   surge_multiplier: number | null;
   driver_id: string | null;
+  driver_location_lat: number | null;
+  driver_location_lng: number | null;
   driver?: {
     id: string;
     first_name: string;
@@ -443,9 +450,42 @@ export default function TripHistory() {
           strokeColor: '#ffffff',
           strokeWeight: 2,
         },
-        title: 'Dropoff',
+        title: 'Dropoff (Destination)',
       });
       markersRef.current.push(dropoffMarker);
+    }
+
+    // Add driver completion location marker (where driver actually was when trip completed)
+    if (selectedTrip.driver_location_lat && selectedTrip.driver_location_lng) {
+      const driverEndPos = { lat: selectedTrip.driver_location_lat, lng: selectedTrip.driver_location_lng };
+      
+      // Only show if it's meaningfully different from the dropoff (>100m away)
+      const dropoffLat = selectedTrip.dropoff_latitude;
+      const dropoffLng = selectedTrip.dropoff_longitude;
+      let showDriverEnd = true;
+      if (dropoffLat && dropoffLng) {
+        const dist = haversineDistance(driverEndPos.lat, driverEndPos.lng, dropoffLat, dropoffLng);
+        if (dist < 0.1) showDriverEnd = false; // less than 100m
+      }
+
+      if (showDriverEnd) {
+        bounds.extend(driverEndPos);
+
+        const driverEndMarker = new window.google.maps.Marker({
+          position: driverEndPos,
+          map: mapRef.current,
+          icon: {
+            path: window.google.maps.SymbolPath.CIRCLE,
+            scale: 10,
+            fillColor: '#f59e0b',
+            fillOpacity: 1,
+            strokeColor: '#ffffff',
+            strokeWeight: 2,
+          },
+          title: 'Driver Completion Location',
+        });
+        markersRef.current.push(driverEndMarker);
+      }
     }
 
     // Draw route polyline
@@ -824,11 +864,18 @@ export default function TripHistory() {
                     <TableCell className="text-muted-foreground">
                       {formatTripDistance(getTripDistance(trip), trip)}
                     </TableCell>
-                    <TableCell className="font-medium text-green-600">
-                      {trip.currency_code 
-                        ? getCurrencySymbol(trip.currency_code)
-                        : getActiveCurrencySymbol()}
-                      {(trip.fare || 0).toFixed(2)}
+                    <TableCell>
+                      <div className="font-medium text-green-600">
+                        {trip.currency_code 
+                          ? getCurrencySymbol(trip.currency_code)
+                          : getActiveCurrencySymbol()}
+                        {((trip.gross_fare_pence ?? (trip.fare ? trip.fare * 100 : 0)) / 100).toFixed(2)}
+                      </div>
+                      {trip.payment_status && (
+                        <div className="text-[10px] text-muted-foreground mt-0.5">
+                          {trip.payment_status}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {trip.completed_at 
@@ -1061,6 +1108,33 @@ export default function TripHistory() {
                         </>
                       )}
                     </div>
+
+                    {/* Driver Completion Location Warning */}
+                    {selectedTrip.driver_location_lat && selectedTrip.driver_location_lng && (() => {
+                      const dropoffLat = selectedTrip.dropoff_latitude;
+                      const dropoffLng = selectedTrip.dropoff_longitude;
+                      if (!dropoffLat || !dropoffLng) return null;
+                      const dist = haversineDistance(selectedTrip.driver_location_lat!, selectedTrip.driver_location_lng!, dropoffLat, dropoffLng);
+                      if (dist < 0.1) return null; // within 100m, no issue
+                      return (
+                        <div className="flex items-start gap-3 bg-amber-500/10 dark:bg-amber-900/20 rounded-lg p-3 border border-amber-500/30">
+                          <div className="w-6 h-6 rounded-full bg-amber-500 flex items-center justify-center shrink-0">
+                            <Navigation className="h-3 w-3 text-white" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                              Driver Completion Location ({(dist).toFixed(2)} km from dropoff)
+                            </p>
+                            <p className="text-sm mt-0.5 text-muted-foreground">
+                              Driver completed the trip {(dist).toFixed(2)} km away from the intended destination
+                            </p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">
+                              {selectedTrip.driver_location_lat!.toFixed(6)}, {selectedTrip.driver_location_lng!.toFixed(6)}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* Fare Breakdown */}
@@ -1074,6 +1148,31 @@ export default function TripHistory() {
                         <span className="text-muted-foreground">Estimated Fare</span>
                         <span>{getCurrencySymbol(selectedTrip.currency_code)}{(selectedTrip.estimated_fare || 0).toFixed(2)}</span>
                       </div>
+                      {selectedTrip.gross_fare_pence != null && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Gross Fare</span>
+                          <span>{getCurrencySymbol(selectedTrip.currency_code)}{(selectedTrip.gross_fare_pence / 100).toFixed(2)}</span>
+                        </div>
+                      )}
+                      {selectedTrip.commission_pence != null && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Commission</span>
+                          <span className="text-orange-600">-{getCurrencySymbol(selectedTrip.currency_code)}{(selectedTrip.commission_pence / 100).toFixed(2)}</span>
+                        </div>
+                      )}
+                      {selectedTrip.driver_net_pence != null && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Driver Net</span>
+                          <span>{getCurrencySymbol(selectedTrip.currency_code)}{(selectedTrip.driver_net_pence / 100).toFixed(2)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Payment Status</span>
+                        <Badge variant="outline" className="text-xs">
+                          {selectedTrip.payment_status || 'unknown'}
+                        </Badge>
+                      </div>
+                      <Separator />
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Estimated Distance</span>
                         <span>{formatDialogDistance(selectedTrip.estimated_distance_km)}</span>
@@ -1090,16 +1189,6 @@ export default function TripHistory() {
                         <span className="text-muted-foreground">Duration</span>
                         <span>{formatDuration(selectedTrip.estimated_duration_minutes)}</span>
                       </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Total Stops</span>
-                        <span>{tripStops.length || 2}</span>
-                      </div>
-                      {tripStops.filter(s => s.type === 'stop').length > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Intermediate Stops</span>
-                          <span>{tripStops.filter(s => s.type === 'stop').length}</span>
-                        </div>
-                      )}
                       {selectedTrip.surge_multiplier && selectedTrip.surge_multiplier > 1 && (
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">Surge Multiplier</span>
@@ -1110,7 +1199,7 @@ export default function TripHistory() {
                       <div className="flex justify-between font-semibold">
                         <span>Final Fare</span>
                         <span className="text-green-600">
-                          {getCurrencySymbol(selectedTrip.currency_code)}{(selectedTrip.fare || 0).toFixed(2)}
+                          {getCurrencySymbol(selectedTrip.currency_code)}{((selectedTrip.final_fare_pence ?? (selectedTrip.fare ? selectedTrip.fare * 100 : 0)) / 100).toFixed(2)}
                         </span>
                       </div>
                     </div>
