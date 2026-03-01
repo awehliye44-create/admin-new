@@ -32,10 +32,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import { Progress } from '@/components/ui/progress';
 import { 
   Car, Star, Phone, Mail, MapPin, CheckCircle, XCircle, 
   Loader2, Pencil, Map, AlertTriangle, PawPrint, Users,
-  Truck, Shield, CreditCard, ExternalLink, Send
+  Truck, Shield, CreditCard, ExternalLink, Send, Crown, Target
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -130,13 +131,64 @@ export function DriverDetailsDialog({
   const [isRejecting, setIsRejecting] = useState(false);
   const [isSendingOnboardLink, setIsSendingOnboardLink] = useState(false);
 
+  // Commission management state
+  const [tierCategories, setTierCategories] = useState<any[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
+  const [commissionOverride, setCommissionOverride] = useState<string>('');
+  const [isSavingCommission, setIsSavingCommission] = useState(false);
   useEffect(() => {
     if (open && driver) {
       setIsPetFriendly(driver.is_pet_friendly ?? false);
       fetchVehicleTypes();
       fetchDriverCategories();
+      fetchTierCategories();
+      fetchDriverCommissionData();
     }
   }, [open, driver?.id]);
+
+  const fetchTierCategories = async () => {
+    const { data } = await supabase
+      .from('driver_categories')
+      .select('*')
+      .eq('is_active', true)
+      .order('level_order');
+    if (data) setTierCategories(data);
+  };
+
+  const fetchDriverCommissionData = async () => {
+    if (!driver) return;
+    const { data } = await supabase
+      .from('drivers')
+      .select('category_id, commission_override_pct')
+      .eq('id', driver.id)
+      .single();
+    if (data) {
+      setSelectedCategoryId((data as any).category_id || '');
+      setCommissionOverride((data as any).commission_override_pct?.toString() || '');
+    }
+  };
+
+  const saveCommissionSettings = async () => {
+    if (!driver) return;
+    setIsSavingCommission(true);
+    try {
+      const updateData: Record<string, any> = {
+        category_id: selectedCategoryId || null,
+        commission_override_pct: commissionOverride ? parseFloat(commissionOverride) : null,
+      };
+      const { error } = await supabase
+        .from('drivers')
+        .update(updateData)
+        .eq('id', driver.id);
+      if (error) throw error;
+      toast.success('Commission settings saved');
+    } catch (err) {
+      console.error('Error saving commission:', err);
+      toast.error('Failed to save commission settings');
+    } finally {
+      setIsSavingCommission(false);
+    }
+  };
 
   const fetchVehicleTypes = async () => {
     const { data } = await supabase
@@ -418,9 +470,10 @@ export function DriverDetailsDialog({
 
             {/* Tabs */}
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-5">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="vehicles">Vehicles ({driverVehicles.length})</TabsTrigger>
+                <TabsTrigger value="commission">Commission</TabsTrigger>
                 <TabsTrigger value="categories">Categories</TabsTrigger>
                 <TabsTrigger value="preferences">Preferences</TabsTrigger>
               </TabsList>
@@ -568,7 +621,96 @@ export function DriverDetailsDialog({
                 </div>
               </TabsContent>
 
-              {/* Vehicles Tab */}
+              {/* Commission Tab */}
+              <TabsContent value="commission" className="space-y-4">
+                <div className="p-3 bg-muted/50 border rounded-lg text-sm text-muted-foreground flex items-start gap-2">
+                  <Shield className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span>Category and commission are <strong>manually assigned</strong>. Trip progress is visual guidance only — no auto-promotion.</span>
+                </div>
+
+                {/* Category Assignment */}
+                <div className="space-y-2">
+                  <Label>Assign Category</Label>
+                  <Select value={selectedCategoryId} onValueChange={setSelectedCategoryId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a tier..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {tierCategories.map((tc: any) => (
+                        <SelectItem key={tc.id} value={tc.id}>
+                          {tc.name} — {tc.commission_pct}% commission
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Commission Override */}
+                <div className="space-y-2">
+                  <Label htmlFor="commission_override">Commission Override % (optional)</Label>
+                  <Input
+                    id="commission_override"
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    max="100"
+                    value={commissionOverride}
+                    onChange={(e) => setCommissionOverride(e.target.value)}
+                    placeholder="Leave blank to use category rate"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    If set, this overrides the category commission for this driver only.
+                  </p>
+                </div>
+
+                {/* Effective Commission Display */}
+                {(() => {
+                  const currentTier = tierCategories.find((tc: any) => tc.id === selectedCategoryId);
+                  const effectivePct = commissionOverride
+                    ? parseFloat(commissionOverride)
+                    : currentTier?.commission_pct ?? null;
+
+                  return effectivePct !== null ? (
+                    <div className="p-3 border rounded-lg bg-primary/5">
+                      <p className="text-sm font-medium">Effective Commission: <span className="text-primary font-bold">{effectivePct}%</span></p>
+                      <p className="text-xs text-muted-foreground">
+                        {commissionOverride ? 'Using driver-specific override' : `Using ${currentTier?.name} tier rate`}
+                      </p>
+                    </div>
+                  ) : null;
+                })()}
+
+                {/* Trip Progress (visual only) */}
+                {(() => {
+                  const currentTier = tierCategories.find((tc: any) => tc.id === selectedCategoryId);
+                  const tripTarget = currentTier?.trip_target;
+                  const totalTrips = driver?.total_trips || 0;
+
+                  return currentTier && tripTarget ? (
+                    <div className="p-4 border rounded-lg space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Target className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-medium">Trip Progress</span>
+                        </div>
+                        <span className="text-sm font-mono">
+                          {totalTrips} / {tripTarget}
+                        </span>
+                      </div>
+                      <Progress value={Math.min((totalTrips / tripTarget) * 100, 100)} className="h-2" />
+                      <p className="text-xs text-muted-foreground">
+                        Visual guidance only — does not trigger any automatic tier change.
+                      </p>
+                    </div>
+                  ) : null;
+                })()}
+
+                <Button onClick={saveCommissionSettings} disabled={isSavingCommission}>
+                  {isSavingCommission && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                  Save Commission Settings
+                </Button>
+              </TabsContent>
+
               <TabsContent value="vehicles" className="space-y-4">
                 {driverVehicles.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
