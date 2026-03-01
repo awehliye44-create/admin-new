@@ -71,14 +71,14 @@ serve(async (req) => {
     const totalDriverEarnings = tripStats?.reduce((sum, t) => sum + (t.driver_net_pence || 0), 0) || 0;
     const totalPlatformCommission = tripStats?.reduce((sum, t) => sum + (t.commission_pence || 0), 0) || 0;
 
-    // Get wallet balances
-    const { data: walletBalances } = await supabase
-      .from('driver_wallet_balance')
-      .select('*');
-
-    const driversWithEarnings = walletBalances?.filter(w => 
-      w.total_earnings_pence > 0 || w.total_debt_pence > 0
-    ).length || 0;
+    // Build wallet stats from live driver ledger entries (source of truth)
+    const allDriverIds = allDrivers?.map(d => d.id) || [];
+    const { data: allLedgerEntries } = allDriverIds.length > 0
+      ? await supabase
+          .from('driver_ledger')
+          .select('driver_id, entry_type, amount_pence')
+          .in('driver_id', allDriverIds)
+      : { data: [] as Array<{ driver_id: string | null; entry_type: string; amount_pence: number | null }> };
 
     // Build drivers query
     const offset = (page - 1) * limit;
@@ -154,20 +154,32 @@ serve(async (req) => {
       tripStatsByDriver[trip.driver_id].tripCount += 1;
     });
 
-    // Create wallet balance map
-    const walletByDriver: Record<string, { 
-      available: number; 
-      debt: number; 
-      earnings: number 
+    // Create live wallet map from ledger
+    const walletByDriver: Record<string, {
+      available: number;
+      debt: number;
+      earnings: number;
     }> = {};
-    
-    walletBalances?.forEach(w => {
-      walletByDriver[w.driver_id] = {
-        available: w.available_pence || 0,
-        debt: w.total_debt_pence || 0,
-        earnings: w.total_earnings_pence || 0,
-      };
+
+    allLedgerEntries?.forEach((entry) => {
+      if (!entry.driver_id) return;
+      if (!walletByDriver[entry.driver_id]) {
+        walletByDriver[entry.driver_id] = { available: 0, debt: 0, earnings: 0 };
+      }
+
+      const amount = entry.amount_pence || 0;
+      walletByDriver[entry.driver_id].available += amount;
+      if (amount > 0) {
+        walletByDriver[entry.driver_id].earnings += amount;
+      }
+      if (entry.entry_type === 'CASH_COMMISSION_DEBT') {
+        walletByDriver[entry.driver_id].debt += Math.abs(amount);
+      }
     });
+
+    const driversWithEarnings = Object.values(walletByDriver).filter(
+      (wallet) => wallet.available > 0 || wallet.earnings > 0 || wallet.debt > 0
+    ).length;
 
     // Transform drivers data
     const transformedDrivers = drivers?.map(d => {

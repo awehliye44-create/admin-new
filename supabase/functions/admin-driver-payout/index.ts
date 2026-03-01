@@ -74,14 +74,13 @@ serve(async (req) => {
       });
     }
 
-    // Get wallet balance
-    const { data: walletBalance } = await supabase
-      .from('driver_wallet_balance')
-      .select('available_pence')
-      .eq('driver_id', driver_id)
-      .single();
+    // Get live wallet balance from ledger
+    const { data: ledgerEntries } = await supabase
+      .from('driver_ledger')
+      .select('amount_pence')
+      .eq('driver_id', driver_id);
 
-    const available = walletBalance?.available_pence || 0;
+    const available = ledgerEntries?.reduce((sum, entry) => sum + (entry.amount_pence || 0), 0) || 0;
     const payoutAmount = amount_pence || available;
 
     if (payoutAmount <= 0) {

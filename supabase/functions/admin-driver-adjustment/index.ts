@@ -105,12 +105,11 @@ serve(async (req) => {
       throw ledgerError;
     }
 
-    // Get updated wallet balance
-    const { data: walletBalance } = await supabase
-      .from('driver_wallet_balance')
-      .select('available_pence, total_debt_pence, total_earnings_pence')
-      .eq('driver_id', driver_id)
-      .single();
+    // Get updated live wallet totals from ledger
+    const { data: walletLedgerEntries } = await supabase
+      .from('driver_ledger')
+      .select('entry_type, amount_pence')
+      .eq('driver_id', driver_id);
 
     return new Response(JSON.stringify({
       success: true,
@@ -122,9 +121,15 @@ serve(async (req) => {
         createdAt: ledgerEntry.created_at,
       },
       wallet: {
-        available: walletBalance?.available_pence || 0,
-        debt: walletBalance?.total_debt_pence || 0,
-        earnings: walletBalance?.total_earnings_pence || 0,
+        available: walletLedgerEntries?.reduce((sum, entry) => sum + (entry.amount_pence || 0), 0) || 0,
+        debt: walletLedgerEntries?.reduce((sum, entry) => {
+          if (entry.entry_type !== 'CASH_COMMISSION_DEBT') return sum;
+          return sum + Math.abs(entry.amount_pence || 0);
+        }, 0) || 0,
+        earnings: walletLedgerEntries?.reduce((sum, entry) => {
+          const amount = entry.amount_pence || 0;
+          return amount > 0 ? sum + amount : sum;
+        }, 0) || 0,
       },
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

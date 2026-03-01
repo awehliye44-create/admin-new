@@ -73,12 +73,11 @@ serve(async (req) => {
       });
     }
 
-    // Get wallet balance from view
-    const { data: walletBalance } = await supabase
-      .from('driver_wallet_balance')
-      .select('*')
-      .eq('driver_id', driverId)
-      .single();
+    // Build live wallet totals from ledger (source of truth)
+    const { data: allLedgerEntriesForWallet } = await supabase
+      .from('driver_ledger')
+      .select('entry_type, amount_pence')
+      .eq('driver_id', driverId);
 
     // Get ledger entries
     let ledgerQuery = supabase
@@ -177,6 +176,16 @@ serve(async (req) => {
     const earlyCashoutFee = parseInt(settingsMap.early_cashout_fee_pence || '50');
     const globalPayoutsEnabled = settingsMap.payouts_enabled !== 'false';
 
+    const available = allLedgerEntriesForWallet?.reduce((sum, entry) => sum + (entry.amount_pence || 0), 0) || 0;
+    const earnings = allLedgerEntriesForWallet?.reduce((sum, entry) => {
+      const amount = entry.amount_pence || 0;
+      return amount > 0 ? sum + amount : sum;
+    }, 0) || 0;
+    const debt = allLedgerEntriesForWallet?.reduce((sum, entry) => {
+      if (entry.entry_type !== 'CASH_COMMISSION_DEBT') return sum;
+      return sum + Math.abs(entry.amount_pence || 0);
+    }, 0) || 0;
+
     const response = {
       driver: {
         id: driver.id,
@@ -193,11 +202,11 @@ serve(async (req) => {
         approvalStatus: driver.approval_status,
       },
       wallet: {
-        available: walletBalance?.available_pence || 0,
-        debt: walletBalance?.total_debt_pence || 0,
-        earnings: walletBalance?.total_earnings_pence || 0,
-        canPayout: (walletBalance?.available_pence || 0) > 0 && driver.payouts_enabled && globalPayoutsEnabled,
-        canEarlyCashout: (walletBalance?.available_pence || 0) > earlyCashoutFee && driver.payouts_enabled && globalPayoutsEnabled,
+        available,
+        debt,
+        earnings,
+        canPayout: available > 0 && driver.payouts_enabled && globalPayoutsEnabled,
+        canEarlyCashout: available > earlyCashoutFee && driver.payouts_enabled && globalPayoutsEnabled,
       },
       periodSummary,
       ledgerEntries: ledgerEntries?.map(e => ({
