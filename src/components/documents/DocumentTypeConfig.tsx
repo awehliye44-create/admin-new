@@ -5,35 +5,39 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
-import { useDocumentTypes, useUpdateDocumentType, DocumentType } from "@/hooks/useDocumentTypes";
-import { Settings2, Calendar, Bell, Loader2, FileText, CheckCircle2 } from "lucide-react";
+import { useDocumentTypes, useUpdateDocumentType, useCreateDocumentType, DocumentType } from "@/hooks/useDocumentTypes";
+import { Settings2, Calendar, Bell, Loader2, FileText, CheckCircle2, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 export function DocumentTypeConfig() {
   const { data: documentTypes, isLoading } = useDocumentTypes();
   const updateDocumentType = useUpdateDocumentType();
+  const createDocumentType = useCreateDocumentType();
   
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedType, setSelectedType] = useState<DocumentType | null>(null);
   const [formData, setFormData] = useState({
     has_expiry: false,
     is_required: true,
+    reminder_days: "30,14,7,3,1",
+  });
+
+  // Create form state
+  const [createForm, setCreateForm] = useState({
+    name: '',
+    slug: '',
+    description: '',
+    is_required: true,
+    has_expiry: false,
+    display_in_driver_app: true,
     reminder_days: "30,14,7,3,1",
   });
 
@@ -77,6 +81,53 @@ export function DocumentTypeConfig() {
     );
   };
 
+  const handleCreate = () => {
+    if (!createForm.name.trim()) {
+      toast.error("Please enter a document type name");
+      return;
+    }
+
+    const slug = createForm.slug.trim() || createForm.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
+
+    const reminderDays = createForm.reminder_days
+      .split(",")
+      .map((d) => parseInt(d.trim()))
+      .filter((d) => !isNaN(d) && d > 0)
+      .sort((a, b) => b - a);
+
+    createDocumentType.mutate(
+      {
+        name: createForm.name.trim(),
+        slug,
+        description: createForm.description.trim() || null,
+        is_required: createForm.is_required,
+        has_expiry: createForm.has_expiry,
+        reminder_days_before_expiry: createForm.has_expiry ? reminderDays : [],
+        display_order: (documentTypes?.length || 0) + 1,
+        is_active: true,
+      },
+      {
+        onSuccess: () => {
+          setIsCreateOpen(false);
+          setCreateForm({
+            name: '', slug: '', description: '',
+            is_required: true, has_expiry: false, display_in_driver_app: true,
+            reminder_days: "30,14,7,3,1",
+          });
+        },
+      }
+    );
+  };
+
+  const openCreateDialog = () => {
+    setCreateForm({
+      name: '', slug: '', description: '',
+      is_required: true, has_expiry: false, display_in_driver_app: true,
+      reminder_days: "30,14,7,3,1",
+    });
+    setIsCreateOpen(true);
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-8">
@@ -88,14 +139,20 @@ export function DocumentTypeConfig() {
   return (
     <>
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Settings2 className="h-5 w-5 text-primary" />
-            Document Type Configuration
-          </CardTitle>
-          <CardDescription>
-            Configure expiry tracking and reminder settings for each document type
-          </CardDescription>
+        <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Settings2 className="h-5 w-5 text-primary" />
+              Document Type Configuration
+            </CardTitle>
+            <CardDescription>
+              Manage document types and create new ones. Changes apply instantly to the driver app.
+            </CardDescription>
+          </div>
+          <Button onClick={openCreateDialog}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Document Type
+          </Button>
         </CardHeader>
         <CardContent>
           <Table>
@@ -114,7 +171,12 @@ export function DocumentTypeConfig() {
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <FileText className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-medium">{docType.name}</span>
+                      <div>
+                        <span className="font-medium">{docType.name}</span>
+                        {docType.description && (
+                          <p className="text-xs text-muted-foreground">{docType.description}</p>
+                        )}
+                      </div>
                     </div>
                   </TableCell>
                   <TableCell>
@@ -165,6 +227,7 @@ export function DocumentTypeConfig() {
         </CardContent>
       </Card>
 
+      {/* Edit Dialog */}
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
         <DialogContent>
           <DialogHeader>
@@ -229,6 +292,96 @@ export function DocumentTypeConfig() {
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
               )}
               Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create New Document Type Dialog */}
+      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New Document Type</DialogTitle>
+            <DialogDescription>
+              Add a new document type. It will be available for all service areas.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="create_name">Document Name *</Label>
+              <Input
+                id="create_name"
+                value={createForm.name}
+                onChange={(e) => setCreateForm(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="e.g., DBS Certificate"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="create_slug">Slug (auto-generated if blank)</Label>
+              <Input
+                id="create_slug"
+                value={createForm.slug}
+                onChange={(e) => setCreateForm(prev => ({ ...prev, slug: e.target.value }))}
+                placeholder="e.g., dbs_certificate"
+                className="font-mono text-sm"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="create_desc">Description</Label>
+              <Textarea
+                id="create_desc"
+                value={createForm.description}
+                onChange={(e) => setCreateForm(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Brief description of this document"
+                rows={2}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Default Mandatory</Label>
+                <p className="text-xs text-muted-foreground">Required by default in service areas</p>
+              </div>
+              <Switch
+                checked={createForm.is_required}
+                onCheckedChange={(checked) => setCreateForm(prev => ({ ...prev, is_required: checked }))}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Default Expiry Required</Label>
+                <p className="text-xs text-muted-foreground">Requires expiry date by default</p>
+              </div>
+              <Switch
+                checked={createForm.has_expiry}
+                onCheckedChange={(checked) => setCreateForm(prev => ({ ...prev, has_expiry: checked }))}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Default Display in Driver App</Label>
+                <p className="text-xs text-muted-foreground">Shown in driver app by default</p>
+              </div>
+              <Switch
+                checked={createForm.display_in_driver_app}
+                onCheckedChange={(checked) => setCreateForm(prev => ({ ...prev, display_in_driver_app: checked }))}
+              />
+            </div>
+            {createForm.has_expiry && (
+              <div className="space-y-2">
+                <Label>Reminder Schedule (days before expiry)</Label>
+                <Input
+                  value={createForm.reminder_days}
+                  onChange={(e) => setCreateForm(prev => ({ ...prev, reminder_days: e.target.value }))}
+                  placeholder="30,14,7,3,1"
+                />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
+            <Button onClick={handleCreate} disabled={createDocumentType.isPending}>
+              {createDocumentType.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Create Document Type
             </Button>
           </DialogFooter>
         </DialogContent>

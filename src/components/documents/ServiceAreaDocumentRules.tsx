@@ -236,6 +236,7 @@ export function ServiceAreaDocumentRules() {
                 <TableHead className="text-center">Mandatory</TableHead>
                 <TableHead className="text-center">Expiry Required</TableHead>
                 <TableHead className="text-center w-24">Sort Order</TableHead>
+                <TableHead className="text-center">Active</TableHead>
                 <TableHead className="text-center">Status</TableHead>
               </TableRow>
             </TableHeader>
@@ -276,6 +277,12 @@ export function ServiceAreaDocumentRules() {
                       value={rule.sort_order}
                       onChange={(e) => updateRule(rule.doc_type_id, 'sort_order', parseInt(e.target.value) || 0)}
                       className="w-20 h-8 text-center mx-auto"
+                    />
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <Switch
+                      checked={rule.is_active}
+                      onCheckedChange={(v) => updateRule(rule.doc_type_id, 'is_active', v)}
                     />
                   </TableCell>
                   <TableCell className="text-center">
