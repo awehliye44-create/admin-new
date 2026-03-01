@@ -3,6 +3,8 @@ import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { supabase } from '@/integrations/supabase/client';
 import { 
   Car, 
@@ -11,9 +13,11 @@ import {
   RefreshCw,
   Clock,
   ArrowRight,
-  Navigation
+  Navigation,
+  CalendarIcon
 } from 'lucide-react';
-import { format, subDays, subWeeks, subMonths, startOfDay, startOfWeek, startOfMonth } from 'date-fns';
+import { cn } from '@/lib/utils';
+import { format, subDays, subWeeks, subMonths, startOfDay, endOfDay, startOfWeek, startOfMonth } from 'date-fns';
 import {
   Select,
   SelectContent,
@@ -102,13 +106,14 @@ export default function Dashboard() {
   });
   const [recentTrips, setRecentTrips] = useState<RecentTrip[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
+  const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('daily');
   const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
   const [selectedServiceArea, setSelectedServiceArea] = useState<string>('all');
   const [userStatsPeriod, setUserStatsPeriod] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
   const [bookingChartData, setBookingChartData] = useState<BookingDataPoint[]>([]);
   const [bookingStatType, setBookingStatType] = useState<'completed' | 'ongoing' | 'cancelled'>('completed');
-  
+  const [customDateFrom, setCustomDateFrom] = useState<Date | undefined>(undefined);
+  const [customDateTo, setCustomDateTo] = useState<Date | undefined>(undefined);
   // Map state
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
@@ -210,10 +215,17 @@ export default function Dashboard() {
       // Calculate date ranges based on period
       const now = new Date();
       let startDate: Date;
+      let endDate: Date = endOfDay(now);
       let previousStartDate: Date;
       let previousEndDate: Date;
       
-      if (period === 'daily') {
+      if (period === 'custom' && customDateFrom) {
+        startDate = startOfDay(customDateFrom);
+        endDate = customDateTo ? endOfDay(customDateTo) : endOfDay(now);
+        const durationMs = endDate.getTime() - startDate.getTime();
+        previousEndDate = startDate;
+        previousStartDate = new Date(startDate.getTime() - durationMs);
+      } else if (period === 'daily') {
         startDate = startOfDay(now);
         previousStartDate = startOfDay(subDays(now, 1));
         previousEndDate = startDate;
@@ -229,14 +241,20 @@ export default function Dashboard() {
 
       // Build queries
       let driversQuery = supabase.from('drivers').select('id, is_online, approval_status, current_lat, current_lng, heading, current_trip_id, first_name, last_name');
-      let tripsQuery = supabase.from('trips').select('id, status, fare, created_at, commission_pence');
+      let tripsQuery = supabase.from('trips').select('id, status, fare, created_at, commission_pence, service_area_id');
       let previousTripsQuery = supabase.from('trips').select('id, fare, created_at, commission_pence').eq('status', 'completed');
 
       // Apply date filter for trips
-      tripsQuery = tripsQuery.gte('created_at', startDate.toISOString());
+      tripsQuery = tripsQuery.gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString());
       previousTripsQuery = previousTripsQuery
         .gte('created_at', previousStartDate.toISOString())
         .lt('created_at', previousEndDate.toISOString());
+
+      // Apply service area filter
+      if (selectedServiceArea !== 'all') {
+        tripsQuery = tripsQuery.eq('service_area_id', selectedServiceArea);
+        previousTripsQuery = previousTripsQuery.eq('service_area_id', selectedServiceArea);
+      }
 
       const [
         driversResult,
@@ -303,85 +321,92 @@ export default function Dashboard() {
       setRecentTrips(recentTripsResult.data || []);
 
       // Fetch booking chart data
-      await fetchBookingChartData(period);
+      await fetchBookingChartData();
     } catch (error) {
       console.error('Error fetching stats:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [period, selectedServiceArea]);
+  }, [period, selectedServiceArea, customDateFrom, customDateTo]);
 
   // Fetch booking chart data
-  const fetchBookingChartData = async (timePeriod: 'daily' | 'weekly' | 'monthly') => {
+  const fetchBookingChartData = async () => {
     const now = new Date();
     let dataPoints: BookingDataPoint[] = [];
+    const timePeriod = period === 'custom' ? 'daily' : period;
+    
+    const applyServiceAreaFilter = (query: any) => {
+      if (selectedServiceArea !== 'all') {
+        return query.eq('service_area_id', selectedServiceArea);
+      }
+      return query;
+    };
     
     if (timePeriod === 'daily') {
-      // Last 24 hours by 2-hour intervals
-      for (let i = 11; i >= 0; i--) {
-        const startTime = new Date(now);
-        startTime.setHours(now.getHours() - (i * 2), 0, 0, 0);
-        const endTime = new Date(startTime);
-        endTime.setHours(startTime.getHours() + 2);
+      // Last 24 hours by 2-hour intervals (or custom range)
+      const intervals = period === 'custom' && customDateFrom ? 12 : 12;
+      const rangeStart = period === 'custom' && customDateFrom ? startOfDay(customDateFrom) : subDays(now, 1);
+      const rangeEnd = period === 'custom' && customDateTo ? endOfDay(customDateTo) : now;
+      const totalMs = rangeEnd.getTime() - rangeStart.getTime();
+      const intervalMs = totalMs / intervals;
+      
+      for (let i = 0; i < intervals; i++) {
+        const startTime = new Date(rangeStart.getTime() + i * intervalMs);
+        const endTime = new Date(rangeStart.getTime() + (i + 1) * intervalMs);
         
-        const { data: trips } = await supabase
+        let query = supabase
           .from('trips')
           .select('status')
           .gte('created_at', startTime.toISOString())
           .lt('created_at', endTime.toISOString());
-        
-        const completed = trips?.filter(t => t.status === 'completed').length || 0;
-        const cancelled = trips?.filter(t => t.status === 'cancelled').length || 0;
+        query = applyServiceAreaFilter(query);
+        const { data: trips } = await query;
         
         dataPoints.push({
           label: format(startTime, 'HH:mm'),
-          completed,
-          cancelled,
+          completed: trips?.filter(t => t.status === 'completed').length || 0,
+          cancelled: trips?.filter(t => t.status === 'cancelled').length || 0,
         });
       }
     } else if (timePeriod === 'weekly') {
-      // Last 7 days
       for (let i = 6; i >= 0; i--) {
         const date = subDays(now, i);
-        const startOfDayDate = startOfDay(date);
-        const endOfDayDate = new Date(startOfDayDate);
-        endOfDayDate.setDate(endOfDayDate.getDate() + 1);
+        const dayStart = startOfDay(date);
+        const dayEnd = new Date(dayStart);
+        dayEnd.setDate(dayEnd.getDate() + 1);
         
-        const { data: trips } = await supabase
+        let query = supabase
           .from('trips')
           .select('status')
-          .gte('created_at', startOfDayDate.toISOString())
-          .lt('created_at', endOfDayDate.toISOString());
-        
-        const completed = trips?.filter(t => t.status === 'completed').length || 0;
-        const cancelled = trips?.filter(t => t.status === 'cancelled').length || 0;
+          .gte('created_at', dayStart.toISOString())
+          .lt('created_at', dayEnd.toISOString());
+        query = applyServiceAreaFilter(query);
+        const { data: trips } = await query;
         
         dataPoints.push({
           label: format(date, 'EEE'),
-          completed,
-          cancelled,
+          completed: trips?.filter(t => t.status === 'completed').length || 0,
+          cancelled: trips?.filter(t => t.status === 'cancelled').length || 0,
         });
       }
     } else {
-      // Last 4 weeks
       for (let i = 3; i >= 0; i--) {
         const weekStart = startOfWeek(subWeeks(now, i));
         const weekEnd = new Date(weekStart);
         weekEnd.setDate(weekEnd.getDate() + 7);
         
-        const { data: trips } = await supabase
+        let query = supabase
           .from('trips')
           .select('status')
           .gte('created_at', weekStart.toISOString())
           .lt('created_at', weekEnd.toISOString());
-        
-        const completed = trips?.filter(t => t.status === 'completed').length || 0;
-        const cancelled = trips?.filter(t => t.status === 'cancelled').length || 0;
+        query = applyServiceAreaFilter(query);
+        const { data: trips } = await query;
         
         dataPoints.push({
           label: format(weekStart, 'MMM d'),
-          completed,
-          cancelled,
+          completed: trips?.filter(t => t.status === 'completed').length || 0,
+          cancelled: trips?.filter(t => t.status === 'cancelled').length || 0,
         });
       }
     }
@@ -452,14 +477,64 @@ export default function Dashboard() {
             Dashboard Statistics - {format(new Date(), 'd MMMM yyyy')}
           </h2>
         </div>
-        <div className="flex items-center gap-4">
-          <Tabs value={period} onValueChange={(v) => setPeriod(v as typeof period)}>
+        <div className="flex items-center gap-3 flex-wrap">
+          <Tabs value={period} onValueChange={(v) => {
+            setPeriod(v as typeof period);
+            if (v !== 'custom') {
+              setCustomDateFrom(undefined);
+              setCustomDateTo(undefined);
+            }
+          }}>
             <TabsList>
               <TabsTrigger value="daily">Daily</TabsTrigger>
               <TabsTrigger value="weekly">Weekly</TabsTrigger>
               <TabsTrigger value="monthly">Monthly</TabsTrigger>
+              <TabsTrigger value="custom">Custom</TabsTrigger>
             </TabsList>
           </Tabs>
+
+          {period === 'custom' && (
+            <div className="flex items-center gap-2">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className={cn("w-[130px] justify-start text-left font-normal", !customDateFrom && "text-muted-foreground")}>
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {customDateFrom ? format(customDateFrom, 'MMM d, yyyy') : 'From'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={customDateFrom}
+                    onSelect={setCustomDateFrom}
+                    disabled={(date) => date > new Date()}
+                    initialFocus
+                    className={cn("p-3 pointer-events-auto")}
+                  />
+                </PopoverContent>
+              </Popover>
+              <span className="text-muted-foreground text-sm">to</span>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className={cn("w-[130px] justify-start text-left font-normal", !customDateTo && "text-muted-foreground")}>
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {customDateTo ? format(customDateTo, 'MMM d, yyyy') : 'To'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={customDateTo}
+                    onSelect={setCustomDateTo}
+                    disabled={(date) => date > new Date() || (customDateFrom ? date < customDateFrom : false)}
+                    initialFocus
+                    className={cn("p-3 pointer-events-auto")}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+          )}
+
           <Select value={selectedServiceArea} onValueChange={setSelectedServiceArea}>
             <SelectTrigger className="w-[180px]">
               <MapPin className="h-4 w-4 mr-2" />
@@ -514,7 +589,7 @@ export default function Dashboard() {
               <span className={revenueChange >= 0 ? 'text-green-500' : 'text-red-500'}>
                 {revenueChange >= 0 ? '+' : ''}{revenueChange}%
               </span>
-              <span className="text-muted-foreground"> vs previous {period === 'daily' ? 'day' : period === 'weekly' ? 'week' : 'month'}</span>
+              <span className="text-muted-foreground"> vs previous {period === 'daily' ? 'day' : period === 'weekly' ? 'week' : period === 'custom' ? 'period' : 'month'}</span>
             </p>
           </CardContent>
         </Card>
