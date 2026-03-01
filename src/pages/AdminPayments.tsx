@@ -120,24 +120,25 @@ export default function AdminPayments() {
   const { data: summary, isLoading: isLoadingSummary, refetch: refetchSummary } = useQuery<PaymentSummary>({
     queryKey: ['admin-payments-summary'],
     queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke('admin-payments-summary');
+      const { data, error } = await supabase.functions.invoke('admin-payments-summary', {
+        method: 'GET',
+      });
       if (error) throw error;
       return data;
     },
   });
 
-  // Fetch transactions from edge function
+  // Fetch transactions from edge function (GET query params)
   const { data: transactions = [], isLoading: isLoadingList, refetch: refetchList } = useQuery<PaymentTransaction[]>({
     queryKey: ['admin-payments-list', statusFilter, methodFilter, searchTerm],
     queryFn: async () => {
-      const params: Record<string, string> = {};
-      if (statusFilter !== 'all') params.status = statusFilter;
-      if (methodFilter !== 'all') params.method = methodFilter;
-      if (searchTerm) params.search = searchTerm;
+      const params = new URLSearchParams();
+      if (statusFilter !== 'all') params.set('status', statusFilter);
+      if (methodFilter !== 'all') params.set('method', methodFilter);
+      if (searchTerm) params.set('search', searchTerm);
 
-      const { data, error } = await supabase.functions.invoke('admin-payments-list', {
-        body: params,
-      });
+      const path = params.toString() ? `admin-payments-list?${params.toString()}` : 'admin-payments-list';
+      const { data, error } = await supabase.functions.invoke(path, { method: 'GET' });
       if (error) throw error;
       return data.transactions || [];
     },
@@ -148,11 +149,56 @@ export default function AdminPayments() {
     queryKey: ['admin-payment-detail', viewingTripId],
     enabled: !!viewingTripId,
     queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke('admin-payment-detail', {
-        body: { trip_id: viewingTripId },
-      });
+      const path = `admin-payment-detail?trip_id=${viewingTripId}`;
+      const { data, error } = await supabase.functions.invoke(path, { method: 'GET' });
       if (error) throw error;
-      return data;
+
+      // Normalize camelCase edge response to the shape used by this page
+      return {
+        trip: {
+          id: data.trip?.id,
+          trip_code: data.trip?.tripCode || '',
+          trip_number: data.trip?.tripCode || '',
+          status: data.trip?.status || 'unknown',
+          pickup_address: data.trip?.pickup?.address || '',
+          dropoff_address: data.trip?.dropoff?.address || '',
+          created_at: data.trip?.timestamps?.created || '',
+          completed_at: data.trip?.timestamps?.completed || null,
+        },
+        customer: data.customer ? { name: data.customer.name, id: data.customer.id } : null,
+        driver: data.driver ? { name: data.driver.name, id: data.driver.id } : null,
+        fare_breakdown: {
+          estimated_total_pence: data.fareBreakdown?.estimatedFare || 0,
+          authorised_amount_pence: data.fareBreakdown?.authorisedAmount || 0,
+          final_fare_pence: Math.max(
+            0,
+            (data.fareBreakdown?.grossFare || 0) - (data.fareBreakdown?.extras || 0) - (data.fareBreakdown?.tip || 0)
+          ),
+          extras_pence: data.fareBreakdown?.extras || 0,
+          tip_pence: data.fareBreakdown?.tip || 0,
+          gross_fare_pence: data.fareBreakdown?.grossFare || 0,
+        },
+        commission_breakdown: {
+          commission_percent: data.commissionBreakdown?.commissionPercent || 0,
+          commission_fixed_pence: data.commissionBreakdown?.commissionFixed || 0,
+          platform_commission_pence: data.commissionBreakdown?.platformCommission || 0,
+          driver_net_pence: data.commissionBreakdown?.driverNet || 0,
+          stripe_processing_fee_pence: data.commissionBreakdown?.stripeFee || 0,
+        },
+        payment_info: {
+          payment_method: data.trip?.paymentMethod || 'unknown',
+          payment_status: data.trip?.paymentStatus || 'unknown',
+          stripe_payment_intent_id: data.stripe?.paymentIntentId || null,
+          stripe_charge_id: data.stripe?.chargeId || null,
+        },
+        refund_info: data.refund
+          ? {
+              refund_amount_pence: data.refund.amount || 0,
+              refund_reason: data.refund.reason || null,
+              refunded_at: data.refund.refundedAt || null,
+            }
+          : null,
+      };
     },
   });
 

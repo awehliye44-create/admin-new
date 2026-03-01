@@ -103,7 +103,7 @@ serve(async (req) => {
     }
 
     if (method) {
-      query = query.eq('payment_method', method.toUpperCase());
+      query = query.eq('payment_method', method.toLowerCase());
     }
 
     if (type === 'refund') {
