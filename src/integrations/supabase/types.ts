@@ -1318,44 +1318,53 @@ export type Database = {
       driver_categories: {
         Row: {
           color: string | null
+          commission_pct: number | null
           created_at: string
           description: string | null
           display_order: number | null
           icon: string | null
           id: string
           is_active: boolean
+          level_order: number | null
           min_rating: number | null
           min_trips: number | null
           name: string
           requirements: string[] | null
+          trip_target: number | null
           updated_at: string
         }
         Insert: {
           color?: string | null
+          commission_pct?: number | null
           created_at?: string
           description?: string | null
           display_order?: number | null
           icon?: string | null
           id?: string
           is_active?: boolean
+          level_order?: number | null
           min_rating?: number | null
           min_trips?: number | null
           name: string
           requirements?: string[] | null
+          trip_target?: number | null
           updated_at?: string
         }
         Update: {
           color?: string | null
+          commission_pct?: number | null
           created_at?: string
           description?: string | null
           display_order?: number | null
           icon?: string | null
           id?: string
           is_active?: boolean
+          level_order?: number | null
           min_rating?: number | null
           min_trips?: number | null
           name?: string
           requirements?: string[] | null
+          trip_target?: number | null
           updated_at?: string
         }
         Relationships: []
@@ -1942,7 +1951,9 @@ export type Database = {
       drivers: {
         Row: {
           approval_status: string
+          category_id: string | null
           charges_enabled: boolean | null
+          commission_override_pct: number | null
           created_at: string
           current_lat: number | null
           current_lng: number | null
@@ -1973,7 +1984,9 @@ export type Database = {
         }
         Insert: {
           approval_status?: string
+          category_id?: string | null
           charges_enabled?: boolean | null
+          commission_override_pct?: number | null
           created_at?: string
           current_lat?: number | null
           current_lng?: number | null
@@ -2004,7 +2017,9 @@ export type Database = {
         }
         Update: {
           approval_status?: string
+          category_id?: string | null
           charges_enabled?: boolean | null
+          commission_override_pct?: number | null
           created_at?: string
           current_lat?: number | null
           current_lng?: number | null
@@ -2034,6 +2049,13 @@ export type Database = {
           vehicle_locked?: boolean
         }
         Relationships: [
+          {
+            foreignKeyName: "drivers_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "driver_categories"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "drivers_current_trip_id_fkey"
             columns: ["current_trip_id"]
