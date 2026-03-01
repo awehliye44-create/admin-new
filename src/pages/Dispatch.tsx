@@ -14,6 +14,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Navigation, Loader2, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
 import { getCurrencySymbol } from '@/lib/regionSettings';
+import { getTripDisplayId } from '@/lib/tripUtils';
 
 interface Trip {
   id: string;
@@ -122,7 +123,7 @@ export default function Dispatch() {
                   <TableRow key={trip.id}>
                     <TableCell>
                       <div className="font-mono text-sm font-medium text-primary">
-                        {trip.trip_code || trip.id.slice(0, 8)}
+                        {getTripDisplayId(trip)}
                       </div>
                     </TableCell>
                     <TableCell className="font-medium">

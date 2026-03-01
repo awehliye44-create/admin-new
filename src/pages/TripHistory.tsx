@@ -37,6 +37,7 @@ import {
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
 import { getCurrencySymbol, formatDistance as formatDistanceUtil, getDistanceUnitShort } from '@/lib/regionSettings';
+import { getTripDisplayId } from '@/lib/tripUtils';
 
 /* global google */
 
@@ -582,6 +583,7 @@ export default function TripHistory() {
 
   const filteredTrips = trips.filter(trip => {
     const matchesSearch = 
+      getTripDisplayId(trip).toLowerCase().includes(searchQuery.toLowerCase()) ||
       trip.trip_code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       trip.passenger_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       trip.passenger_phone?.includes(searchQuery) ||
@@ -771,7 +773,7 @@ export default function TripHistory() {
                   <TableRow key={trip.id}>
                     <TableCell>
                       <div className="font-mono text-sm font-medium text-primary">
-                        {trip.trip_code || trip.id.slice(0, 8)}
+                        {getTripDisplayId(trip)}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -855,7 +857,7 @@ export default function TripHistory() {
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold">
-              Trip #{selectedTrip?.trip_code || selectedTrip?.id.slice(0, 8)}
+              Trip #{selectedTrip ? getTripDisplayId(selectedTrip) : ''}
             </DialogTitle>
             <DialogDescription className="sr-only">
               Trip details and route information

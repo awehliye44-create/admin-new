@@ -29,6 +29,7 @@ import {
 interface Transaction {
   id: string;
   trip_code: string | null;
+  trip_number: string | null;
   type: 'payment' | 'refund';
   amount: number;
   currency: string;
@@ -56,6 +57,7 @@ export default function Payments() {
         .select(`
           id,
           trip_code,
+          trip_number,
           fare,
           estimated_fare,
           currency_code,
@@ -93,6 +95,7 @@ export default function Payments() {
       return (trips || []).map(trip => ({
         id: trip.id,
         trip_code: trip.trip_code,
+        trip_number: trip.trip_number,
         type: 'payment' as const,
         amount: trip.fare || trip.estimated_fare || 0,
         currency: trip.currency_code?.toUpperCase() || 'GBP',
@@ -300,7 +303,7 @@ export default function Payments() {
                     ) : (
                       filteredTransactions.map((tx) => (
                         <TableRow key={tx.id}>
-                          <TableCell className="font-mono text-sm">{tx.trip_code || tx.id.substring(0, 8)}</TableCell>
+                          <TableCell className="font-mono text-sm">{tx.trip_number || tx.trip_code || tx.id.substring(0, 8).toUpperCase()}</TableCell>
                           <TableCell>{getTypeBadge(tx.type)}</TableCell>
                           <TableCell>
                             <div>
@@ -342,7 +345,7 @@ export default function Payments() {
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>Transaction Details</DialogTitle>
-              <DialogDescription>{viewingTransaction?.trip_code || viewingTransaction?.id}</DialogDescription>
+              <DialogDescription>{viewingTransaction?.trip_number || viewingTransaction?.trip_code || viewingTransaction?.id}</DialogDescription>
             </DialogHeader>
             {viewingTransaction && (
               <div className="space-y-4 py-4">

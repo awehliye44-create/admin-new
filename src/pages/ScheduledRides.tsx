@@ -56,6 +56,7 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { format, formatDistanceToNow, isPast, isToday, isTomorrow, addHours } from 'date-fns';
 import { getCurrencySymbol } from '@/lib/regionSettings';
+import { getTripDisplayId } from '@/lib/tripUtils';
 import { toast } from 'sonner';
 
 interface ScheduledTrip {
@@ -308,6 +309,7 @@ export default function ScheduledRides() {
 
   const filteredTrips = trips.filter(trip => {
     const matchesSearch = 
+      getTripDisplayId(trip).toLowerCase().includes(searchQuery.toLowerCase()) ||
       trip.trip_code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       trip.passenger_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       trip.passenger_phone?.includes(searchQuery) ||
@@ -474,7 +476,7 @@ export default function ScheduledRides() {
                       <TableCell>
                         <div>
                           <div className="font-mono text-sm font-medium">
-                            {trip.trip_code || trip.id.slice(0, 8).toUpperCase()}
+                            {getTripDisplayId(trip)}
                           </div>
                           <div className="text-xs text-muted-foreground">
                             {format(new Date(trip.created_at), 'MMM d, h:mm a')}
@@ -635,7 +637,7 @@ export default function ScheduledRides() {
             </DialogTitle>
             <DialogDescription className="flex items-center gap-2">
               <span className="font-mono font-medium">
-                #{selectedTrip?.trip_code || selectedTrip?.id.slice(0, 8).toUpperCase()}
+                #{selectedTrip ? getTripDisplayId(selectedTrip) : ''}
               </span>
             </DialogDescription>
           </DialogHeader>
