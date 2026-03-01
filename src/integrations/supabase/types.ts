@@ -1679,10 +1679,14 @@ export type Database = {
           id: string
           max_pickup_distance_miles: number
           preferred_map_service: string
+          saved_destinations: Json | null
           sound_alerts: boolean
           theme: string
           towards_destination_active: boolean
+          towards_destination_address: string | null
           towards_destination_last_reset: string | null
+          towards_destination_lat: number | null
+          towards_destination_lng: number | null
           towards_destination_uses_today: number
           updated_at: string
         }
@@ -1694,10 +1698,14 @@ export type Database = {
           id?: string
           max_pickup_distance_miles?: number
           preferred_map_service?: string
+          saved_destinations?: Json | null
           sound_alerts?: boolean
           theme?: string
           towards_destination_active?: boolean
+          towards_destination_address?: string | null
           towards_destination_last_reset?: string | null
+          towards_destination_lat?: number | null
+          towards_destination_lng?: number | null
           towards_destination_uses_today?: number
           updated_at?: string
         }
@@ -1709,10 +1717,14 @@ export type Database = {
           id?: string
           max_pickup_distance_miles?: number
           preferred_map_service?: string
+          saved_destinations?: Json | null
           sound_alerts?: boolean
           theme?: string
           towards_destination_active?: boolean
+          towards_destination_address?: string | null
           towards_destination_last_reset?: string | null
+          towards_destination_lat?: number | null
+          towards_destination_lng?: number | null
           towards_destination_uses_today?: number
           updated_at?: string
         }
