@@ -31,31 +31,37 @@ import {
 } from 'lucide-react';
 
 interface PaymentSummary {
-  total_revenue_pence: number;
-  total_transactions: number;
-  pending_amount_pence: number;
-  today_transactions: number;
-  total_commission_pence: number;
-  total_driver_earnings_pence: number;
+  totalRevenue: number;
+  totalTransactions: number;
+  pendingAmount: number;
+  todayTransactions: number;
+  completedTrips: number;
+  refundedTrips: number;
+  totalRefunds: number;
+  paymentMethods: Record<string, number>;
 }
 
 interface PaymentTransaction {
-  trip_id: string;
-  trip_code: string;
-  trip_number: string;
+  id: string;
+  tripCode: string;
   type: 'payment' | 'refund';
-  pickup_address: string;
-  dropoff_address: string;
-  customer_name: string;
-  driver_name: string;
-  gross_fare_pence: number;
-  commission_pence: number;
-  driver_net_pence: number;
-  payment_status: string;
-  payment_method: string;
-  created_at: string;
-  completed_at: string | null;
-  stripe_payment_intent_id: string | null;
+  route: string;
+  amount: number;
+  refundAmount: number;
+  status: string;
+  method: string;
+  date: string;
+  completedAt: string | null;
+  driver: string | null;
+  driverId: string | null;
+  customer: string | null;
+  customerId: string | null;
+  commission: number;
+  driverNet: number;
+  extras: number;
+  tip: number;
+  stripePaymentIntentId: string | null;
+  stripeChargeId: string | null;
 }
 
 interface PaymentDetail {
@@ -228,7 +234,7 @@ export default function AdminPayments() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-500">
-                {formatPence(summary?.total_revenue_pence || 0)}
+                {formatPence(summary?.totalRevenue || 0)}
               </div>
               <p className="text-xs text-muted-foreground flex items-center gap-1">
                 <TrendingUp className="h-3 w-3 text-green-500" />
@@ -242,7 +248,7 @@ export default function AdminPayments() {
               <CreditCard className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{summary?.total_transactions || 0}</div>
+              <div className="text-2xl font-bold">{summary?.totalTransactions || 0}</div>
               <p className="text-xs text-muted-foreground">All completed trips</p>
             </CardContent>
           </Card>
@@ -253,7 +259,7 @@ export default function AdminPayments() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-amber-500">
-                {formatPence(summary?.pending_amount_pence || 0)}
+                {formatPence(summary?.pendingAmount || 0)}
               </div>
               <p className="text-xs text-muted-foreground">Awaiting capture</p>
             </CardContent>
@@ -264,7 +270,7 @@ export default function AdminPayments() {
               <Wallet className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{summary?.today_transactions || 0}</div>
+              <div className="text-2xl font-bold">{summary?.todayTransactions || 0}</div>
               <p className="text-xs text-muted-foreground">Transactions today</p>
             </CardContent>
           </Card>
@@ -349,9 +355,9 @@ export default function AdminPayments() {
                       </TableRow>
                     ) : (
                       filteredTransactions.map((tx) => (
-                        <TableRow key={tx.trip_id}>
+                        <TableRow key={tx.id}>
                           <TableCell className="font-mono text-sm">
-                            {tx.trip_number || tx.trip_code || tx.trip_id.substring(0, 8)}
+                            {tx.tripCode || tx.id?.substring(0, 8)}
                           </TableCell>
                           <TableCell>
                             <Badge variant="outline" className={`flex items-center w-fit ${tx.type === 'refund' ? 'text-red-600' : 'text-green-600'}`}>
@@ -362,31 +368,31 @@ export default function AdminPayments() {
                           <TableCell>
                             <div>
                               <p className="text-sm truncate max-w-[200px]">
-                                {tx.pickup_address?.substring(0, 25)}... → {tx.dropoff_address?.substring(0, 25)}...
+                                {tx.route || 'Unknown route'}
                               </p>
                               <p className="text-xs text-muted-foreground">
-                                {tx.customer_name} {tx.driver_name && `• ${tx.driver_name}`}
+                                {tx.customer} {tx.driver && `• ${tx.driver}`}
                               </p>
                             </div>
                           </TableCell>
                           <TableCell className="text-right font-medium text-green-600">
-                            {formatPence(tx.gross_fare_pence || 0)}
+                            {formatPence(tx.amount || 0)}
                           </TableCell>
-                          <TableCell>{getStatusBadge(tx.payment_status)}</TableCell>
+                          <TableCell>{getStatusBadge(tx.status)}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
-                              {getMethodIcon(tx.payment_method)}
-                              <span className="text-sm">{getMethodDisplay(tx.payment_method)}</span>
+                              {getMethodIcon(tx.method)}
+                              <span className="text-sm">{getMethodDisplay(tx.method)}</span>
                             </div>
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">
-                            {tx.created_at ? format(new Date(tx.created_at), 'dd MMM yyyy') : '-'}
+                            {tx.date ? format(new Date(tx.date), 'dd MMM yyyy') : '-'}
                           </TableCell>
                           <TableCell className="text-right">
                             <Button 
                               variant="ghost" 
                               size="sm"
-                              onClick={() => setViewingTripId(tx.trip_id)}
+                              onClick={() => setViewingTripId(tx.id)}
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
