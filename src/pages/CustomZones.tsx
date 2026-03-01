@@ -12,21 +12,33 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { ZoneBoundaryMap } from "@/components/maps/ZoneBoundaryMap";
 import { 
   Plus, Edit, Trash2, Target, Search, 
-  Map, Radar, DollarSign, RefreshCw, Loader2, Circle, Hexagon
+  Map, DollarSign, RefreshCw, Loader2, Circle, Hexagon
 } from "lucide-react";
 
-// Types
+interface ZoneMetadata {
+  pickup_fee?: number;
+  dropoff_fee?: number;
+  airport_fee_pickup?: number;
+  airport_fee_dropoff?: number;
+  surcharge_pct?: number;
+  fare_override_mode?: 'NONE' | 'FIXED_FARE' | 'MULTIPLIER';
+  fare_override_value?: number;
+  notes?: string;
+  // legacy fields kept for backwards compatibility
+  surge_multiplier?: number;
+  min_fare_override?: number;
+}
+
 interface CustomZone {
   id: string;
   name: string;
   description: string | null;
-  zone_type: 'PRICING' | 'GEOFENCE';
+  zone_type: string;
   shape_type: 'polygon' | 'circle';
   region_id: string | null;
   service_area_id: string | null;
@@ -44,17 +56,6 @@ interface CustomZone {
   service_area?: { id: string; name: string; geo_boundary: any };
 }
 
-interface ZoneMetadata {
-  pickup_fee?: number;
-  dropoff_fee?: number;
-  surge_multiplier?: number;
-  min_fare_override?: number;
-  trigger_on_enter?: boolean;
-  trigger_on_exit?: boolean;
-  staging_zone?: boolean;
-  auto_arrive_radius_meters?: number;
-}
-
 interface Region {
   id: string;
   name: string;
@@ -69,21 +70,6 @@ interface ServiceArea {
   is_active: boolean;
 }
 
-const ZONE_TYPE_CONFIG = {
-  PRICING: {
-    label: 'Pricing Zone',
-    icon: DollarSign,
-    color: 'bg-green-500/10 text-green-600 border-green-500/30',
-    description: 'Apply fees, multipliers, or fare overrides'
-  },
-  GEOFENCE: {
-    label: 'Geofence Zone',
-    icon: Radar,
-    color: 'bg-blue-500/10 text-blue-600 border-blue-500/30',
-    description: 'Trigger events on driver enter/exit'
-  }
-};
-
 const PRESET_COLORS = [
   '#EF4444', '#F97316', '#F59E0B', '#84CC16', '#22C55E',
   '#14B8A6', '#06B6D4', '#3B82F6', '#6366F1', '#8B5CF6',
@@ -94,7 +80,6 @@ export default function CustomZones() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [activeTab, setActiveTab] = useState<'PRICING' | 'GEOFENCE'>('PRICING');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingZone, setEditingZone] = useState<CustomZone | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -105,7 +90,6 @@ export default function CustomZones() {
   const [formData, setFormData] = useState({
     name: "",
     description: "",
-    zone_type: "PRICING" as 'PRICING' | 'GEOFENCE',
     shape_type: "polygon" as 'polygon' | 'circle',
     region_id: "",
     service_area_id: "",
@@ -119,20 +103,20 @@ export default function CustomZones() {
     metadata: {} as ZoneMetadata,
   });
 
-  // Fetch zones
+  // Fetch zones (PRICING only)
   const { data: zones = [], isLoading, refetch } = useQuery({
-    queryKey: ['custom-zones-enhanced'],
+    queryKey: ['custom-zones-pricing'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('custom_zones')
         .select('*, region:regions(id, name), service_area:service_areas(id, name, geo_boundary)')
+        .eq('zone_type', 'PRICING')
         .order('priority', { ascending: false });
       if (error) throw error;
       return data as CustomZone[];
     },
   });
 
-  // Fetch regions
   const { data: regions = [] } = useQuery({
     queryKey: ['regions-for-zones'],
     queryFn: async () => {
@@ -146,7 +130,6 @@ export default function CustomZones() {
     },
   });
 
-  // Fetch service areas
   const { data: serviceAreas = [] } = useQuery({
     queryKey: ['service-areas-for-zones', regionFilter],
     queryFn: async () => {
@@ -155,29 +138,25 @@ export default function CustomZones() {
         .select('id, name, region_id, geo_boundary, is_active')
         .eq('is_active', true)
         .order('name');
-      
       if (regionFilter && regionFilter !== 'all') {
         query = query.eq('region_id', regionFilter);
       }
-      
       const { data, error } = await query;
       if (error) throw error;
       return data as ServiceArea[];
     },
   });
 
-  // Get service areas for form based on selected region
   const formServiceAreas = serviceAreas.filter(sa => 
     !formData.region_id || sa.region_id === formData.region_id
   );
 
-  // Create mutation
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
       const { error } = await supabase.from('custom_zones').insert({
         name: data.name,
         description: data.description || null,
-        zone_type: data.zone_type,
+        zone_type: 'PRICING',
         shape_type: data.shape_type,
         region_id: data.region_id || null,
         service_area_id: data.service_area_id || null,
@@ -193,7 +172,7 @@ export default function CustomZones() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['custom-zones-enhanced'] });
+      queryClient.invalidateQueries({ queryKey: ['custom-zones-pricing'] });
       toast({ title: "Zone created successfully" });
       resetForm();
     },
@@ -202,13 +181,12 @@ export default function CustomZones() {
     },
   });
 
-  // Update mutation
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: typeof formData }) => {
       const { error } = await supabase.from('custom_zones').update({
         name: data.name,
         description: data.description || null,
-        zone_type: data.zone_type,
+        zone_type: 'PRICING',
         shape_type: data.shape_type,
         region_id: data.region_id || null,
         service_area_id: data.service_area_id || null,
@@ -224,7 +202,7 @@ export default function CustomZones() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['custom-zones-enhanced'] });
+      queryClient.invalidateQueries({ queryKey: ['custom-zones-pricing'] });
       toast({ title: "Zone updated successfully" });
       resetForm();
     },
@@ -233,14 +211,13 @@ export default function CustomZones() {
     },
   });
 
-  // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase.from('custom_zones').delete().eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['custom-zones-enhanced'] });
+      queryClient.invalidateQueries({ queryKey: ['custom-zones-pricing'] });
       toast({ title: "Zone deleted successfully" });
     },
     onError: (error: any) => {
@@ -248,71 +225,39 @@ export default function CustomZones() {
     },
   });
 
-  // Toggle status mutation
   const toggleStatusMutation = useMutation({
     mutationFn: async ({ id, is_active }: { id: string; is_active: boolean }) => {
       const { error } = await supabase.from('custom_zones').update({ is_active }).eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['custom-zones-enhanced'] });
+      queryClient.invalidateQueries({ queryKey: ['custom-zones-pricing'] });
       toast({ title: "Zone status updated" });
     },
   });
 
-  // Callback handlers for ZoneBoundaryMap
   const handlePolygonChange = useCallback((boundary: any) => {
-    setFormData(prev => ({
-      ...prev,
-      geo_boundary: boundary,
-      center_lat: null,
-      center_lng: null,
-      radius_meters: null,
-    }));
+    setFormData(prev => ({ ...prev, geo_boundary: boundary, center_lat: null, center_lng: null, radius_meters: null }));
   }, []);
 
   const handleCircleChange = useCallback((center_lat: number | null, center_lng: number | null, radius_meters: number | null) => {
-    setFormData(prev => ({
-      ...prev,
-      center_lat,
-      center_lng,
-      radius_meters,
-      geo_boundary: null,
-    }));
+    setFormData(prev => ({ ...prev, center_lat, center_lng, radius_meters, geo_boundary: null }));
   }, []);
 
   const handleShapeTypeChange = useCallback((type: 'polygon' | 'circle') => {
-    setFormData(prev => ({
-      ...prev,
-      shape_type: type,
-      geo_boundary: null,
-      center_lat: null,
-      center_lng: null,
-      radius_meters: 500,
-    }));
+    setFormData(prev => ({ ...prev, shape_type: type, geo_boundary: null, center_lat: null, center_lng: null, radius_meters: 500 }));
   }, []);
 
-  const getSelectedRegion = useCallback(() => {
-    if (!formData.region_id) return null;
-    return regions.find(r => r.id === formData.region_id) || null;
-  }, [formData.region_id, regions]);
+  const getSelectedServiceArea = useCallback(() => {
+    if (!formData.service_area_id) return null;
+    return serviceAreas.find(sa => sa.id === formData.service_area_id) || null;
+  }, [formData.service_area_id, serviceAreas]);
 
   const resetForm = () => {
     setFormData({
-      name: "",
-      description: "",
-      zone_type: activeTab,
-      shape_type: "polygon",
-      region_id: "",
-      service_area_id: "",
-      color: "#3B82F6",
-      priority: 0,
-      is_active: true,
-      geo_boundary: null,
-      center_lat: null,
-      center_lng: null,
-      radius_meters: 500,
-      metadata: {},
+      name: "", description: "", shape_type: "polygon", region_id: "", service_area_id: "",
+      color: "#3B82F6", priority: 0, is_active: true, geo_boundary: null,
+      center_lat: null, center_lng: null, radius_meters: 500, metadata: {},
     });
     setEditingZone(null);
     setIsDialogOpen(false);
@@ -321,19 +266,11 @@ export default function CustomZones() {
   const handleEdit = (zone: CustomZone) => {
     setEditingZone(zone);
     setFormData({
-      name: zone.name,
-      description: zone.description || "",
-      zone_type: zone.zone_type,
-      shape_type: zone.shape_type,
-      region_id: zone.region_id || "",
-      service_area_id: zone.service_area_id || "",
-      color: zone.color || "#3B82F6",
-      priority: zone.priority || 0,
-      is_active: zone.is_active,
-      geo_boundary: zone.geo_boundary,
-      center_lat: zone.center_lat,
-      center_lng: zone.center_lng,
-      radius_meters: zone.radius_meters || 500,
+      name: zone.name, description: zone.description || "", shape_type: zone.shape_type,
+      region_id: zone.region_id || "", service_area_id: zone.service_area_id || "",
+      color: zone.color || "#3B82F6", priority: zone.priority || 0, is_active: zone.is_active,
+      geo_boundary: zone.geo_boundary, center_lat: zone.center_lat,
+      center_lng: zone.center_lng, radius_meters: zone.radius_meters || 500,
       metadata: zone.metadata || {},
     });
     setIsDialogOpen(true);
@@ -341,8 +278,6 @@ export default function CustomZones() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Validate shape is drawn
     if (formData.shape_type === 'polygon' && !formData.geo_boundary) {
       toast({ title: "Please draw a polygon on the map", variant: "destructive" });
       return;
@@ -351,7 +286,6 @@ export default function CustomZones() {
       toast({ title: "Please draw a circle on the map", variant: "destructive" });
       return;
     }
-
     if (editingZone) {
       updateMutation.mutate({ id: editingZone.id, data: formData });
     } else {
@@ -361,40 +295,22 @@ export default function CustomZones() {
 
   const openCreateDialog = () => {
     setEditingZone(null);
-    setFormData(prev => ({
-      ...prev,
-      zone_type: activeTab,
-      name: "",
-      description: "",
-      geo_boundary: null,
-      center_lat: null,
-      center_lng: null,
-    }));
+    setFormData(prev => ({ ...prev, name: "", description: "", geo_boundary: null, center_lat: null, center_lng: null, metadata: {} }));
     setIsDialogOpen(true);
   };
 
   const getRegionName = (regionId: string | null) => {
     if (!regionId) return "—";
-    const region = regions.find(r => r.id === regionId);
-    return region?.name || "Unknown";
+    return regions.find(r => r.id === regionId)?.name || "Unknown";
   };
 
   const getServiceAreaName = (zone: CustomZone) => {
     if (zone.service_area?.name) return zone.service_area.name;
     if (!zone.service_area_id) return "—";
-    const sa = serviceAreas.find(s => s.id === zone.service_area_id);
-    return sa?.name || "Unknown";
+    return serviceAreas.find(s => s.id === zone.service_area_id)?.name || "Unknown";
   };
 
-  // Get the selected service area for boundary validation
-  const getSelectedServiceArea = useCallback(() => {
-    if (!formData.service_area_id) return null;
-    return serviceAreas.find(sa => sa.id === formData.service_area_id) || null;
-  }, [formData.service_area_id, serviceAreas]);
-
-  // Filter zones
   const filteredZones = zones.filter(zone => {
-    const matchesTab = zone.zone_type === activeTab;
     const matchesSearch = zone.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (zone.description?.toLowerCase().includes(searchQuery.toLowerCase()));
     const matchesStatus = statusFilter === "all" || 
@@ -402,27 +318,28 @@ export default function CustomZones() {
       (statusFilter === "inactive" && !zone.is_active);
     const matchesRegion = regionFilter === "all" || zone.region_id === regionFilter;
     const matchesServiceArea = serviceAreaFilter === "all" || zone.service_area_id === serviceAreaFilter;
-    return matchesTab && matchesSearch && matchesStatus && matchesRegion && matchesServiceArea;
+    return matchesSearch && matchesStatus && matchesRegion && matchesServiceArea;
   });
 
-  // Stats
-  const stats = {
-    totalPricing: zones.filter(z => z.zone_type === 'PRICING').length,
-    activePricing: zones.filter(z => z.zone_type === 'PRICING' && z.is_active).length,
-    totalGeofence: zones.filter(z => z.zone_type === 'GEOFENCE').length,
-    activeGeofence: zones.filter(z => z.zone_type === 'GEOFENCE' && z.is_active).length,
+  const activeCount = zones.filter(z => z.is_active).length;
+
+  const formatOverride = (meta: ZoneMetadata) => {
+    const mode = meta.fare_override_mode;
+    if (!mode || mode === 'NONE') return null;
+    if (mode === 'FIXED_FARE') return `Fixed £${meta.fare_override_value ?? 0}`;
+    if (mode === 'MULTIPLIER') return `×${meta.fare_override_value ?? 1}`;
+    return null;
   };
 
-
   return (
-    <AdminLayout title="Custom Zones & Geofencing">
+    <AdminLayout title="Custom Zones (Pricing)">
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Custom Zones & Geofencing</h1>
+            <h1 className="text-2xl font-bold text-foreground">Custom Zones (Pricing)</h1>
             <p className="text-muted-foreground">
-              Define pricing zones and geofence triggers within your service regions
+              Create pricing zones that add pickup/dropoff fees or override fares based on location.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -432,146 +349,184 @@ export default function CustomZones() {
             </Button>
             <Button onClick={openCreateDialog}>
               <Plus className="mr-2 h-4 w-4" />
-              Add Zone
+              Add Pricing Zone
             </Button>
           </div>
         </div>
 
         {/* Stats */}
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-3">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Pricing Zones</CardTitle>
-              <DollarSign className="h-4 w-4 text-green-500" />
+              <CardTitle className="text-sm font-medium">Total Zones</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.totalPricing}</div>
-              <p className="text-xs text-muted-foreground">{stats.activePricing} active</p>
+              <div className="text-2xl font-bold">{zones.length}</div>
+              <p className="text-xs text-muted-foreground">{activeCount} active</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Geofence Zones</CardTitle>
-              <Radar className="h-4 w-4 text-blue-500" />
+              <CardTitle className="text-sm font-medium">Service Areas</CardTitle>
+              <Target className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.totalGeofence}</div>
-              <p className="text-xs text-muted-foreground">{stats.activeGeofence} active</p>
+              <div className="text-2xl font-bold">{serviceAreas.length}</div>
+              <p className="text-xs text-muted-foreground">available</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Active Regions</CardTitle>
-              <Map className="h-4 w-4 text-purple-500" />
+              <CardTitle className="text-sm font-medium">Regions</CardTitle>
+              <Map className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{regions.length}</div>
               <p className="text-xs text-muted-foreground">with zone support</p>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Total Zones</CardTitle>
-              <Target className="h-4 w-4 text-primary" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{zones.length}</div>
-              <p className="text-xs text-muted-foreground">across all regions</p>
-            </CardContent>
-          </Card>
         </div>
 
-        {/* Zone Type Tabs */}
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'PRICING' | 'GEOFENCE')}>
-          <TabsList className="grid w-full max-w-md grid-cols-2">
-            <TabsTrigger value="PRICING" className="gap-2">
-              <DollarSign className="h-4 w-4" />
-              Pricing Zones
-            </TabsTrigger>
-            <TabsTrigger value="GEOFENCE" className="gap-2">
-              <Radar className="h-4 w-4" />
-              Geofence Zones
-            </TabsTrigger>
-          </TabsList>
+        {/* Zone Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Pricing Zones</CardTitle>
+            <CardDescription>
+              Zone pricing modifiers, airport fees, surcharges &amp; fare overrides
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {/* Filters */}
+              <div className="flex flex-col gap-4 md:flex-row md:items-center flex-wrap">
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input placeholder="Search zones..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-10" />
+                </div>
+                <Select value={regionFilter} onValueChange={setRegionFilter}>
+                  <SelectTrigger className="w-[160px]"><Map className="mr-2 h-4 w-4" /><SelectValue placeholder="Region" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Regions</SelectItem>
+                    {regions.map((r) => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={serviceAreaFilter} onValueChange={setServiceAreaFilter}>
+                  <SelectTrigger className="w-[180px]"><Target className="mr-2 h-4 w-4" /><SelectValue placeholder="Service Area" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Service Areas</SelectItem>
+                    {serviceAreas.map((sa) => <SelectItem key={sa.id} value={sa.id}>{sa.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="w-[130px]"><SelectValue placeholder="Status" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-          <TabsContent value="PRICING" className="mt-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Pricing Zones</CardTitle>
-                <CardDescription>
-                  Apply pickup fees, dropoff fees, surge multipliers, or fare overrides based on location
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ZoneTable
-                  zones={filteredZones}
-                  isLoading={isLoading}
-                  searchQuery={searchQuery}
-                  setSearchQuery={setSearchQuery}
-                  statusFilter={statusFilter}
-                  setStatusFilter={setStatusFilter}
-                  regionFilter={regionFilter}
-                  setRegionFilter={setRegionFilter}
-                  serviceAreaFilter={serviceAreaFilter}
-                  setServiceAreaFilter={setServiceAreaFilter}
-                  regions={regions}
-                  serviceAreas={serviceAreas}
-                  onEdit={handleEdit}
-                  onDelete={(id) => deleteMutation.mutate(id)}
-                  onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, is_active: status })}
-                  getRegionName={getRegionName}
-                  getServiceAreaName={getServiceAreaName}
-                  zoneType="PRICING"
-                />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="GEOFENCE" className="mt-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Geofence Zones</CardTitle>
-                <CardDescription>
-                  Trigger alerts when drivers enter or exit zones, manage staging areas, and auto-arrive functionality
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ZoneTable
-                  zones={filteredZones}
-                  isLoading={isLoading}
-                  searchQuery={searchQuery}
-                  setSearchQuery={setSearchQuery}
-                  statusFilter={statusFilter}
-                  setStatusFilter={setStatusFilter}
-                  regionFilter={regionFilter}
-                  setRegionFilter={setRegionFilter}
-                  serviceAreaFilter={serviceAreaFilter}
-                  setServiceAreaFilter={setServiceAreaFilter}
-                  regions={regions}
-                  serviceAreas={serviceAreas}
-                  onEdit={handleEdit}
-                  onDelete={(id) => deleteMutation.mutate(id)}
-                  onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, is_active: status })}
-                  getRegionName={getRegionName}
-                  getServiceAreaName={getServiceAreaName}
-                  zoneType="GEOFENCE"
-                />
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+              {/* Table */}
+              {isLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                </div>
+              ) : filteredZones.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <DollarSign className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No pricing zones found</p>
+                  <p className="text-sm mt-1">Create a zone to get started</p>
+                </div>
+              ) : (
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Zone</TableHead>
+                        <TableHead>Service Area</TableHead>
+                        <TableHead>Shape</TableHead>
+                        <TableHead>Priority</TableHead>
+                        <TableHead>Pickup Fee</TableHead>
+                        <TableHead>Dropoff Fee</TableHead>
+                        <TableHead>Surcharge %</TableHead>
+                        <TableHead>Override</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredZones.map((zone) => (
+                        <TableRow key={zone.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <div className="h-4 w-4 rounded-full shrink-0" style={{ backgroundColor: zone.color || '#3B82F6' }} />
+                              <div>
+                                <p className="font-medium">{zone.name}</p>
+                                {zone.description && <p className="text-xs text-muted-foreground truncate max-w-[180px]">{zone.description}</p>}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div>
+                              <p className="text-sm">{getServiceAreaName(zone)}</p>
+                              <p className="text-xs text-muted-foreground">{getRegionName(zone.region_id)}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="gap-1">
+                              {zone.shape_type === 'polygon' ? <Hexagon className="h-3 w-3" /> : <Circle className="h-3 w-3" />}
+                              {zone.shape_type}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{zone.priority || 0}</TableCell>
+                          <TableCell>
+                            <div className="text-sm space-y-0.5">
+                              {zone.metadata?.pickup_fee ? <div>£{zone.metadata.pickup_fee}</div> : <span className="text-muted-foreground">—</span>}
+                              {zone.metadata?.airport_fee_pickup ? <div className="text-xs text-muted-foreground">Airport: £{zone.metadata.airport_fee_pickup}</div> : null}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm space-y-0.5">
+                              {zone.metadata?.dropoff_fee ? <div>£{zone.metadata.dropoff_fee}</div> : <span className="text-muted-foreground">—</span>}
+                              {zone.metadata?.airport_fee_dropoff ? <div className="text-xs text-muted-foreground">Airport: £{zone.metadata.airport_fee_dropoff}</div> : null}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {zone.metadata?.surcharge_pct ? <span>{zone.metadata.surcharge_pct}%</span> : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
+                          <TableCell>
+                            {formatOverride(zone.metadata) ? (
+                              <Badge variant="secondary" className="text-xs">{formatOverride(zone.metadata)}</Badge>
+                            ) : <span className="text-muted-foreground text-sm">None</span>}
+                          </TableCell>
+                          <TableCell>
+                            <Switch checked={zone.is_active} onCheckedChange={(checked) => toggleStatusMutation.mutate({ id: zone.id, is_active: checked })} />
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <Button variant="ghost" size="icon" onClick={() => handleEdit(zone)}><Edit className="h-4 w-4" /></Button>
+                              <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => deleteMutation.mutate(zone.id)}><Trash2 className="h-4 w-4" /></Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Create/Edit Dialog */}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <form onSubmit={handleSubmit}>
               <DialogHeader>
-                <DialogTitle>
-                  {editingZone ? "Edit Zone" : `Create ${ZONE_TYPE_CONFIG[formData.zone_type].label}`}
-                </DialogTitle>
-                <DialogDescription>
-                  {ZONE_TYPE_CONFIG[formData.zone_type].description}
-                </DialogDescription>
+                <DialogTitle>{editingZone ? "Edit Pricing Zone" : "Create Pricing Zone"}</DialogTitle>
+                <DialogDescription>Apply fees, surcharges, or fare overrides based on location.</DialogDescription>
               </DialogHeader>
 
               <div className="grid gap-4 py-4">
@@ -579,111 +534,47 @@ export default function CustomZones() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
                     <Label htmlFor="name">Zone Name *</Label>
-                    <Input
-                      id="name"
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      placeholder="e.g., Airport Terminal 1"
-                      required
-                    />
+                    <Input id="name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="e.g., Airport Terminal 1" required />
                   </div>
                   <div className="grid gap-2">
                     <Label>Region</Label>
-                    <Select
-                      value={formData.region_id || "none"}
-                      onValueChange={(value) => setFormData({ 
-                        ...formData, 
-                        region_id: value === "none" ? "" : value,
-                        service_area_id: "" // Reset service area when region changes
-                      })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select Region" />
-                      </SelectTrigger>
+                    <Select value={formData.region_id || "none"} onValueChange={(value) => setFormData({ ...formData, region_id: value === "none" ? "" : value, service_area_id: "" })}>
+                      <SelectTrigger><SelectValue placeholder="Select Region" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="none">Select a region</SelectItem>
-                        {regions.map((region) => (
-                          <SelectItem key={region.id} value={region.id}>
-                            {region.name}
-                          </SelectItem>
-                        ))}
+                        {regions.map((r) => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
 
-                {/* Service Area Selection - Required for zones */}
                 <div className="grid gap-2">
                   <Label>Service Area *</Label>
-                  <Select
-                    value={formData.service_area_id || "none"}
-                    onValueChange={(value) => setFormData({ ...formData, service_area_id: value === "none" ? "" : value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select Service Area" />
-                    </SelectTrigger>
+                  <Select value={formData.service_area_id || "none"} onValueChange={(value) => setFormData({ ...formData, service_area_id: value === "none" ? "" : value })}>
+                    <SelectTrigger><SelectValue placeholder="Select Service Area" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">Select a service area</SelectItem>
-                      {formServiceAreas.map((sa) => (
-                        <SelectItem key={sa.id} value={sa.id}>
-                          {sa.name}
-                        </SelectItem>
-                      ))}
+                      {formServiceAreas.map((sa) => <SelectItem key={sa.id} value={sa.id}>{sa.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Zones must be within a service area boundary
-                  </p>
                 </div>
 
                 <div className="grid gap-2">
                   <Label htmlFor="description">Description</Label>
-                  <Textarea
-                    id="description"
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="Describe this zone..."
-                    rows={2}
-                  />
+                  <Textarea id="description" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="Describe this zone..." rows={2} />
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="grid gap-2">
-                    <Label>Zone Type</Label>
-                    <Select
-                      value={formData.zone_type}
-                      onValueChange={(value) => setFormData({ ...formData, zone_type: value as 'PRICING' | 'GEOFENCE', metadata: {} })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="PRICING">Pricing Zone</SelectItem>
-                        <SelectItem value="GEOFENCE">Geofence Zone</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
                     <Label>Priority</Label>
-                    <Input
-                      type="number"
-                      value={formData.priority}
-                      onChange={(e) => setFormData({ ...formData, priority: parseInt(e.target.value) || 0 })}
-                      min={0}
-                      max={100}
-                    />
+                    <Input type="number" value={formData.priority} onChange={(e) => setFormData({ ...formData, priority: parseInt(e.target.value) || 0 })} min={0} max={100} />
+                    <p className="text-xs text-muted-foreground">Higher priority wins when zones overlap</p>
                   </div>
                   <div className="grid gap-2">
                     <Label>Color</Label>
                     <div className="flex flex-wrap gap-1">
-                      {PRESET_COLORS.slice(0, 7).map((color) => (
-                        <button
-                          key={color}
-                          type="button"
-                          className={`h-6 w-6 rounded-full border-2 transition-transform ${formData.color === color ? 'border-foreground scale-110' : 'border-transparent'}`}
-                          style={{ backgroundColor: color }}
-                          onClick={() => setFormData({ ...formData, color })}
-                        />
+                      {PRESET_COLORS.slice(0, 7).map((c) => (
+                        <button key={c} type="button" className={`h-6 w-6 rounded-full border-2 transition-transform ${formData.color === c ? 'border-foreground scale-110' : 'border-transparent'}`} style={{ backgroundColor: c }} onClick={() => setFormData({ ...formData, color: c })} />
                       ))}
                     </div>
                   </div>
@@ -691,7 +582,7 @@ export default function CustomZones() {
 
                 <Separator />
 
-                {/* Map Drawing Section */}
+                {/* Map */}
                 <div className="space-y-3">
                   <Label className="text-base font-medium">Zone Boundary *</Label>
                   {!formData.service_area_id ? (
@@ -703,11 +594,7 @@ export default function CustomZones() {
                     <ZoneBoundaryMap
                       shapeType={formData.shape_type}
                       existingPolygon={formData.geo_boundary}
-                      existingCircle={{
-                        center_lat: formData.center_lat,
-                        center_lng: formData.center_lng,
-                        radius_meters: formData.radius_meters
-                      }}
+                      existingCircle={{ center_lat: formData.center_lat, center_lng: formData.center_lng, radius_meters: formData.radius_meters }}
                       region={getSelectedServiceArea()}
                       color={formData.color}
                       onPolygonChange={handlePolygonChange}
@@ -720,374 +607,91 @@ export default function CustomZones() {
 
                 <Separator />
 
-                {/* Zone-specific Configuration */}
-                {formData.zone_type === 'PRICING' ? (
-                  <div className="space-y-4">
-                    <Label className="text-base font-medium">Pricing Rules</Label>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="grid gap-2">
-                        <Label htmlFor="pickup_fee">Pickup Fee (£)</Label>
-                        <Input
-                          id="pickup_fee"
-                          type="number"
-                          step="0.01"
-                          value={formData.metadata.pickup_fee || ""}
-                          onChange={(e) => setFormData({
-                            ...formData,
-                            metadata: { ...formData.metadata, pickup_fee: parseFloat(e.target.value) || undefined }
-                          })}
-                          placeholder="0.00"
-                        />
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="dropoff_fee">Dropoff Fee (£)</Label>
-                        <Input
-                          id="dropoff_fee"
-                          type="number"
-                          step="0.01"
-                          value={formData.metadata.dropoff_fee || ""}
-                          onChange={(e) => setFormData({
-                            ...formData,
-                            metadata: { ...formData.metadata, dropoff_fee: parseFloat(e.target.value) || undefined }
-                          })}
-                          placeholder="0.00"
-                        />
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="surge_multiplier">Surge Multiplier</Label>
-                        <Input
-                          id="surge_multiplier"
-                          type="number"
-                          step="0.1"
-                          value={formData.metadata.surge_multiplier || ""}
-                          onChange={(e) => setFormData({
-                            ...formData,
-                            metadata: { ...formData.metadata, surge_multiplier: parseFloat(e.target.value) || undefined }
-                          })}
-                          placeholder="1.0"
-                        />
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="min_fare_override">Min Fare Override (£)</Label>
-                        <Input
-                          id="min_fare_override"
-                          type="number"
-                          step="0.01"
-                          value={formData.metadata.min_fare_override || ""}
-                          onChange={(e) => setFormData({
-                            ...formData,
-                            metadata: { ...formData.metadata, min_fare_override: parseFloat(e.target.value) || undefined }
-                          })}
-                          placeholder="0.00"
-                        />
-                      </div>
+                {/* Pricing Rules */}
+                <div className="space-y-4">
+                  <Label className="text-base font-medium">Pricing Rules</Label>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label>Pickup Fee (£)</Label>
+                      <Input type="number" step="0.01" value={formData.metadata.pickup_fee ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, pickup_fee: e.target.value ? parseFloat(e.target.value) : undefined } })} placeholder="0.00" />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Dropoff Fee (£)</Label>
+                      <Input type="number" step="0.01" value={formData.metadata.dropoff_fee ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, dropoff_fee: e.target.value ? parseFloat(e.target.value) : undefined } })} placeholder="0.00" />
                     </div>
                   </div>
-                ) : (
-                  <div className="space-y-4">
-                    <Label className="text-base font-medium">Geofence Triggers</Label>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between rounded-lg border p-3">
-                        <div>
-                          <Label>Trigger on Enter</Label>
-                          <p className="text-xs text-muted-foreground">Fire event when driver enters this zone</p>
-                        </div>
-                        <Switch
-                          checked={formData.metadata.trigger_on_enter || false}
-                          onCheckedChange={(checked) => setFormData({
-                            ...formData,
-                            metadata: { ...formData.metadata, trigger_on_enter: checked }
-                          })}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between rounded-lg border p-3">
-                        <div>
-                          <Label>Trigger on Exit</Label>
-                          <p className="text-xs text-muted-foreground">Fire event when driver exits this zone</p>
-                        </div>
-                        <Switch
-                          checked={formData.metadata.trigger_on_exit || false}
-                          onCheckedChange={(checked) => setFormData({
-                            ...formData,
-                            metadata: { ...formData.metadata, trigger_on_exit: checked }
-                          })}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between rounded-lg border p-3">
-                        <div>
-                          <Label>Staging Zone</Label>
-                          <p className="text-xs text-muted-foreground">Mark this as a driver staging/waiting area</p>
-                        </div>
-                        <Switch
-                          checked={formData.metadata.staging_zone || false}
-                          onCheckedChange={(checked) => setFormData({
-                            ...formData,
-                            metadata: { ...formData.metadata, staging_zone: checked }
-                          })}
-                        />
-                      </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label>Airport Fee — Pickup (£)</Label>
+                      <Input type="number" step="0.01" value={formData.metadata.airport_fee_pickup ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, airport_fee_pickup: e.target.value ? parseFloat(e.target.value) : undefined } })} placeholder="0.00" />
+                      <p className="text-xs text-muted-foreground">Optional airport-specific pickup fee</p>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Airport Fee — Dropoff (£)</Label>
+                      <Input type="number" step="0.01" value={formData.metadata.airport_fee_dropoff ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, airport_fee_dropoff: e.target.value ? parseFloat(e.target.value) : undefined } })} placeholder="0.00" />
+                      <p className="text-xs text-muted-foreground">Optional airport-specific dropoff fee</p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Surcharge %</Label>
+                    <Input type="number" step="0.1" value={formData.metadata.surcharge_pct ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, surcharge_pct: e.target.value ? parseFloat(e.target.value) : undefined } })} placeholder="0" />
+                    <p className="text-xs text-muted-foreground">Percentage added on top of Base Fare (BF) only</p>
+                  </div>
+
+                  <Separator />
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label>Fare Override Mode</Label>
+                      <Select value={formData.metadata.fare_override_mode || "NONE"} onValueChange={(value) => setFormData({ ...formData, metadata: { ...formData.metadata, fare_override_mode: value as any, fare_override_value: value === 'NONE' ? undefined : formData.metadata.fare_override_value } })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="NONE">None (default)</SelectItem>
+                          <SelectItem value="FIXED_FARE">Fixed Fare</SelectItem>
+                          <SelectItem value="MULTIPLIER">Multiplier</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {formData.metadata.fare_override_mode && formData.metadata.fare_override_mode !== 'NONE' && (
                       <div className="grid gap-2">
-                        <Label htmlFor="auto_arrive">Auto-Arrive Radius (meters)</Label>
-                        <Input
-                          id="auto_arrive"
-                          type="number"
-                          value={formData.metadata.auto_arrive_radius_meters || ""}
-                          onChange={(e) => setFormData({
-                            ...formData,
-                            metadata: { ...formData.metadata, auto_arrive_radius_meters: parseInt(e.target.value) || undefined }
-                          })}
-                          placeholder="Optional - leave empty to disable"
-                        />
+                        <Label>{formData.metadata.fare_override_mode === 'FIXED_FARE' ? 'Fixed Fare Amount (£)' : 'Multiplier Factor'}</Label>
+                        <Input type="number" step="0.01" value={formData.metadata.fare_override_value ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, fare_override_value: e.target.value ? parseFloat(e.target.value) : undefined } })} placeholder={formData.metadata.fare_override_mode === 'FIXED_FARE' ? '15.00' : '1.2'} />
                         <p className="text-xs text-muted-foreground">
-                          Automatically mark driver as arrived when within this radius of pickup
+                          {formData.metadata.fare_override_mode === 'FIXED_FARE' ? 'Sets the base fare to this fixed amount' : 'Multiplies the base fare by this factor (e.g. 1.2 = 20% increase)'}
                         </p>
                       </div>
-                    </div>
+                    )}
                   </div>
-                )}
+
+                  <div className="grid gap-2">
+                    <Label>Notes</Label>
+                    <Textarea value={formData.metadata.notes ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, notes: e.target.value || undefined } })} placeholder="Internal notes about this pricing zone..." rows={2} />
+                  </div>
+                </div>
 
                 <div className="flex items-center justify-between rounded-lg border p-3">
                   <div>
                     <Label>Active Status</Label>
-                    <p className="text-xs text-muted-foreground">Zone will be used for {formData.zone_type === 'PRICING' ? 'fare calculations' : 'geofence triggers'}</p>
+                    <p className="text-xs text-muted-foreground">Zone will be used for fare calculations</p>
                   </div>
-                  <Switch
-                    checked={formData.is_active}
-                    onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
-                  />
+                  <Switch checked={formData.is_active} onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })} />
                 </div>
               </div>
 
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={resetForm}>
-                  Cancel
-                </Button>
+                <Button type="button" variant="outline" onClick={resetForm}>Cancel</Button>
                 <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
-                  {createMutation.isPending || updateMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  ) : null}
+                  {(createMutation.isPending || updateMutation.isPending) && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                   {editingZone ? "Update Zone" : "Create Zone"}
                 </Button>
               </DialogFooter>
             </form>
           </DialogContent>
         </Dialog>
-
       </div>
     </AdminLayout>
-  );
-}
-
-// Zone Table Component
-interface ZoneTableProps {
-  zones: CustomZone[];
-  isLoading: boolean;
-  searchQuery: string;
-  setSearchQuery: (q: string) => void;
-  statusFilter: string;
-  setStatusFilter: (s: string) => void;
-  regionFilter: string;
-  setRegionFilter: (r: string) => void;
-  serviceAreaFilter: string;
-  setServiceAreaFilter: (s: string) => void;
-  regions: Region[];
-  serviceAreas: ServiceArea[];
-  onEdit: (zone: CustomZone) => void;
-  onDelete: (id: string) => void;
-  onToggleStatus: (id: string, status: boolean) => void;
-  getRegionName: (id: string | null) => string;
-  getServiceAreaName: (zone: CustomZone) => string;
-  zoneType: 'PRICING' | 'GEOFENCE';
-}
-
-function ZoneTable({
-  zones,
-  isLoading,
-  searchQuery,
-  setSearchQuery,
-  statusFilter,
-  setStatusFilter,
-  regionFilter,
-  setRegionFilter,
-  serviceAreaFilter,
-  setServiceAreaFilter,
-  regions,
-  serviceAreas,
-  onEdit,
-  onDelete,
-  onToggleStatus,
-  getRegionName,
-  getServiceAreaName,
-  zoneType,
-}: ZoneTableProps) {
-  return (
-    <div className="space-y-4">
-      {/* Filters */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center flex-wrap">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search zones..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-        <Select value={regionFilter} onValueChange={setRegionFilter}>
-          <SelectTrigger className="w-[160px]">
-            <Map className="mr-2 h-4 w-4" />
-            <SelectValue placeholder="Region" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Regions</SelectItem>
-            {regions.map((region) => (
-              <SelectItem key={region.id} value={region.id}>{region.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={serviceAreaFilter} onValueChange={setServiceAreaFilter}>
-          <SelectTrigger className="w-[180px]">
-            <Target className="mr-2 h-4 w-4" />
-            <SelectValue placeholder="Service Area" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Service Areas</SelectItem>
-            {serviceAreas.map((sa) => (
-              <SelectItem key={sa.id} value={sa.id}>{sa.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[130px]">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="inactive">Inactive</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Table */}
-      {isLoading ? (
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="h-6 w-6 animate-spin text-primary" />
-        </div>
-      ) : zones.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">
-          <Target className="h-12 w-12 mx-auto mb-4 opacity-50" />
-          <p>No {zoneType.toLowerCase()} zones found</p>
-          <p className="text-sm mt-1">Create a zone to get started</p>
-        </div>
-      ) : (
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Zone</TableHead>
-                <TableHead>Service Area</TableHead>
-                <TableHead>Shape</TableHead>
-                <TableHead>Priority</TableHead>
-                <TableHead>{zoneType === 'PRICING' ? 'Rules' : 'Triggers'}</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {zones.map((zone) => (
-                <TableRow key={zone.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="h-4 w-4 rounded-full"
-                        style={{ backgroundColor: zone.color || '#3B82F6' }}
-                      />
-                      <div>
-                        <p className="font-medium">{zone.name}</p>
-                        {zone.description && (
-                          <p className="text-xs text-muted-foreground truncate max-w-[200px]">
-                            {zone.description}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div>
-                      <p className="text-sm">{getServiceAreaName(zone)}</p>
-                      <p className="text-xs text-muted-foreground">{getRegionName(zone.region_id)}</p>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="gap-1">
-                      {zone.shape_type === 'polygon' ? (
-                        <Hexagon className="h-3 w-3" />
-                      ) : (
-                        <Circle className="h-3 w-3" />
-                      )}
-                      {zone.shape_type}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{zone.priority || 0}</TableCell>
-                  <TableCell>
-                    {zoneType === 'PRICING' ? (
-                      <div className="space-y-1 text-xs">
-                        {zone.metadata?.pickup_fee && <div>Pickup: £{zone.metadata.pickup_fee}</div>}
-                        {zone.metadata?.dropoff_fee && <div>Dropoff: £{zone.metadata.dropoff_fee}</div>}
-                        {zone.metadata?.surge_multiplier && <div>Surge: {zone.metadata.surge_multiplier}x</div>}
-                        {!zone.metadata?.pickup_fee && !zone.metadata?.dropoff_fee && !zone.metadata?.surge_multiplier && (
-                          <span className="text-muted-foreground">No rules</span>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="flex flex-wrap gap-1">
-                        {zone.metadata?.trigger_on_enter && (
-                          <Badge variant="secondary" className="text-xs">Enter</Badge>
-                        )}
-                        {zone.metadata?.trigger_on_exit && (
-                          <Badge variant="secondary" className="text-xs">Exit</Badge>
-                        )}
-                        {zone.metadata?.staging_zone && (
-                          <Badge variant="secondary" className="text-xs">Staging</Badge>
-                        )}
-                        {zone.metadata?.auto_arrive_radius_meters && (
-                          <Badge variant="secondary" className="text-xs">Auto-arrive</Badge>
-                        )}
-                        {!zone.metadata?.trigger_on_enter && !zone.metadata?.trigger_on_exit && 
-                         !zone.metadata?.staging_zone && !zone.metadata?.auto_arrive_radius_meters && (
-                          <span className="text-xs text-muted-foreground">No triggers</span>
-                        )}
-                      </div>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Switch
-                      checked={zone.is_active}
-                      onCheckedChange={(checked) => onToggleStatus(zone.id, checked)}
-                    />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <Button variant="ghost" size="icon" onClick={() => onEdit(zone)}>
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => onDelete(zone.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-    </div>
   );
 }
