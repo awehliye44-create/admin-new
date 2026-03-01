@@ -104,27 +104,20 @@ serve(async (req) => {
     const dropoffZone: ZoneResult | null = dropoffZones?.[0] || null;
 
     // Step 4: Calculate pricing modifiers
-    let pickupFee = 0;
-    let dropoffFee = 0;
-    let surgeMultiplier = 1;
-    let minFareOverride = null;
+    const pm = pickupZone?.metadata || {};
+    const dm = dropoffZone?.metadata || {};
 
-    if (pickupZone?.metadata) {
-      pickupFee = pickupZone.metadata.pickup_fee || 0;
-      if (pickupZone.metadata.surge_multiplier) {
-        surgeMultiplier = Math.max(surgeMultiplier, pickupZone.metadata.surge_multiplier);
-      }
-      if (pickupZone.metadata.min_fare_override) {
-        minFareOverride = pickupZone.metadata.min_fare_override;
-      }
-    }
+    const pickupFee = (pm.pickup_fee || 0) + (pm.airport_fee_pickup || 0);
+    const dropoffFee = (dm.dropoff_fee || 0) + (dm.airport_fee_dropoff || 0);
+    const surcharge_pct = pm.surcharge_pct || dm.surcharge_pct || 0;
 
-    if (dropoffZone?.metadata) {
-      dropoffFee = dropoffZone.metadata.dropoff_fee || 0;
-      if (dropoffZone.metadata.surge_multiplier && !pickupZone?.metadata?.surge_multiplier) {
-        surgeMultiplier = Math.max(surgeMultiplier, dropoffZone.metadata.surge_multiplier);
-      }
-    }
+    // Fare override from pickup zone takes priority
+    const fare_override_mode = pm.fare_override_mode || dm.fare_override_mode || 'NONE';
+    const fare_override_value = pm.fare_override_value ?? dm.fare_override_value ?? null;
+
+    // Legacy support
+    const surgeMultiplier = pm.surge_multiplier || dm.surge_multiplier || 1;
+    const minFareOverride = pm.min_fare_override || null;
 
     return new Response(
       JSON.stringify({
@@ -155,6 +148,11 @@ serve(async (req) => {
         pricing_modifiers: {
           pickup_fee: pickupFee,
           dropoff_fee: dropoffFee,
+          airport_fee_pickup: pm.airport_fee_pickup || 0,
+          airport_fee_dropoff: dm.airport_fee_dropoff || 0,
+          surcharge_pct,
+          fare_override_mode,
+          fare_override_value,
           surge_multiplier: surgeMultiplier,
           min_fare_override: minFareOverride,
           total_zone_fees: pickupFee + dropoffFee,
