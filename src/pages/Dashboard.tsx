@@ -229,8 +229,8 @@ export default function Dashboard() {
 
       // Build queries
       let driversQuery = supabase.from('drivers').select('id, is_online, approval_status, current_lat, current_lng, heading, current_trip_id, first_name, last_name');
-      let tripsQuery = supabase.from('trips').select('id, status, fare, created_at');
-      let previousTripsQuery = supabase.from('trips').select('id, fare, created_at').eq('status', 'completed');
+      let tripsQuery = supabase.from('trips').select('id, status, fare, created_at, commission_pence');
+      let previousTripsQuery = supabase.from('trips').select('id, fare, created_at, commission_pence').eq('status', 'completed');
 
       // Apply date filter for trips
       tripsQuery = tripsQuery.gte('created_at', startDate.toISOString());
@@ -272,10 +272,14 @@ export default function Dashboard() {
       const totalRevenue = trips
         .filter(t => t.status === 'completed')
         .reduce((sum, t) => sum + (t.fare || 0), 0);
-      const commissionRevenue = totalRevenue * 0.15;
+      // Commission is calculated from actual trip data (commission_pence stored on each trip)
+      const commissionRevenue = trips
+        .filter(t => t.status === 'completed' && t.commission_pence)
+        .reduce((sum, t) => sum + ((t.commission_pence || 0) / 100), 0) || totalRevenue * 0.20;
 
       const previousRevenue = previousTrips.reduce((sum, t) => sum + (t.fare || 0), 0);
-      const previousCommission = previousRevenue * 0.15;
+      const previousCommission = previousTrips
+        .reduce((sum, t) => sum + ((t.commission_pence || 0) / 100), 0) || previousRevenue * 0.20;
 
       setStats({
         totalDrivers,
