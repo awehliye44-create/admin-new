@@ -35,46 +35,70 @@ import {
   ArrowUpRight
 } from 'lucide-react';
 
+// Matches camelCase response from admin-driver-settlements edge function
 interface DriverSettlement {
-  driver_id: string;
-  driver_name: string;
-  driver_email: string;
-  is_online: boolean;
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  isOnline: boolean;
   rating: number | null;
-  trip_count: number;
-  gross_earnings_pence: number;
-  commission_pence: number;
-  driver_net_pence: number;
-  wallet_available_pence: number;
-  payouts_enabled: boolean;
-  onboarding_complete: boolean;
+  totalTrips: number;
+  totalGross: number;
+  totalCommission: number;
+  totalNet: number;
+  walletAvailable: number;
+  walletDebt: number;
+  walletEarnings: number;
+  payoutsEnabled: boolean;
+  onboardingComplete: boolean;
+  canPayout: boolean;
+  stripeAccountId: string | null;
+  approvalStatus: string;
 }
 
+// Matches camelCase response from admin-driver-wallet-detail edge function
 interface WalletDetail {
   driver: {
     id: string;
     name: string;
     email: string;
-    stripe_account_id: string | null;
-    payouts_enabled: boolean;
-    onboarding_complete: boolean;
+    phone: string | null;
+    isOnline: boolean;
+    rating: number | null;
+    totalTrips: number;
+    stripeAccountId: string | null;
+    payoutsEnabled: boolean;
+    onboardingComplete: boolean;
+    approvalStatus: string;
   };
   wallet: {
-    available_pence: number;
-    pending_pence: number;
-    lifetime_earned_pence: number;
+    available: number;
+    debt: number;
+    earnings: number;
+    canPayout: boolean;
+    canEarlyCashout: boolean;
   };
-  ledger: Array<{
+  periodSummary: {
+    earnings: number;
+    debts: number;
+    payouts: number;
+    adjustments: number;
+    fees: number;
+  };
+  ledgerEntries: Array<{
     id: string;
     type: string;
-    amount_pence: number;
+    amount: number;
+    currency: string;
     description: string | null;
-    related_trip_id: string | null;
-    created_at: string;
+    tripId: string | null;
+    referenceId: string | null;
+    createdAt: string;
   }>;
-  earnings_summary: {
-    this_week_pence: number;
-    last_week_pence: number;
+  settings: {
+    earlyCashoutFee: number;
+    globalPayoutsEnabled: boolean;
   };
 }
 
@@ -91,6 +115,7 @@ const getEntryTypeDisplay = (type: string): { label: string; color: string } => 
     'EARLY_CASHOUT': { label: 'Early Cashout', color: 'text-blue-600' },
     'CASHOUT_FEE': { label: 'Cashout Fee', color: 'text-red-600' },
     'ADJUSTMENT': { label: 'Adjustment', color: 'text-amber-600' },
+    'BONUS': { label: 'Bonus', color: 'text-green-600' },
     'REFUND_DEBIT': { label: 'Refund Debit', color: 'text-red-600' },
     'MANUAL_PAYOUT': { label: 'Manual Payout', color: 'text-blue-600' },
   };
@@ -108,28 +133,30 @@ export default function AdminDriverSettlements() {
   
   const queryClient = useQueryClient();
 
-  // Fetch driver settlements
-  const { data: settlements = [], isLoading, refetch } = useQuery<DriverSettlement[]>({
+  // Fetch driver settlements via GET with query params
+  const { data: settlementsData, isLoading, refetch } = useQuery({
     queryKey: ['admin-driver-settlements', searchTerm],
     queryFn: async () => {
-      const params: Record<string, string> = {};
-      if (searchTerm) params.search = searchTerm;
+      const params = new URLSearchParams({ page: '1', limit: '100' });
+      if (searchTerm) params.set('search', searchTerm);
       
-      const { data, error } = await supabase.functions.invoke('admin-driver-settlements', {
-        body: params,
+      const { data, error } = await supabase.functions.invoke(`admin-driver-settlements?${params.toString()}`, {
+        method: 'GET',
       });
       if (error) throw error;
-      return data.drivers || [];
+      return data;
     },
   });
+  const settlements: DriverSettlement[] = settlementsData?.drivers || [];
 
-  // Fetch wallet detail for selected driver
+  // Fetch wallet detail for selected driver via GET
   const { data: walletDetail, isLoading: isLoadingWallet } = useQuery<WalletDetail>({
     queryKey: ['admin-driver-wallet-detail', selectedDriverId],
     enabled: !!selectedDriverId,
     queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke('admin-driver-wallet-detail', {
-        body: { driver_id: selectedDriverId },
+      const params = new URLSearchParams({ driver_id: selectedDriverId! });
+      const { data, error } = await supabase.functions.invoke(`admin-driver-wallet-detail?${params.toString()}`, {
+        method: 'GET',
       });
       if (error) throw error;
       return data;
@@ -198,8 +225,8 @@ export default function AdminDriverSettlements() {
   };
 
   const filteredSettlements = settlements.filter(driver => {
-    const driverName = driver.driver_name || '';
-    const driverEmail = driver.driver_email || '';
+    const driverName = driver.name || '';
+    const driverEmail = driver.email || '';
     const search = searchTerm.toLowerCase();
     
     const matchesSearch = 
@@ -207,22 +234,22 @@ export default function AdminDriverSettlements() {
       driverEmail.toLowerCase().includes(search);
     
     if (activeTab === 'with_earnings') {
-      return matchesSearch && (driver.wallet_available_pence || 0) > 0;
+      return matchesSearch && (driver.walletAvailable || 0) > 0;
     }
     if (activeTab === 'in_debt') {
-      return matchesSearch && (driver.wallet_available_pence || 0) < 0;
+      return matchesSearch && (driver.walletAvailable || 0) < 0;
     }
     if (activeTab === 'online') {
-      return matchesSearch && driver.is_online;
+      return matchesSearch && driver.isOnline;
     }
     return matchesSearch;
   });
 
   // Stats
-  const totalDriverNet = settlements.reduce((sum, d) => sum + d.driver_net_pence, 0);
-  const totalCommission = settlements.reduce((sum, d) => sum + d.commission_pence, 0);
-  const driversWithEarnings = settlements.filter(d => d.wallet_available_pence > 0).length;
-  const onlineDrivers = settlements.filter(d => d.is_online).length;
+  const totalDriverNet = settlements.reduce((sum, d) => sum + (d.totalNet || 0), 0);
+  const totalCommission = settlements.reduce((sum, d) => sum + (d.totalCommission || 0), 0);
+  const driversWithEarnings = settlements.filter(d => (d.walletAvailable || 0) > 0).length;
+  const onlineDrivers = settlements.filter(d => d.isOnline).length;
 
   if (isLoading && settlements.length === 0) {
     return (
@@ -334,7 +361,7 @@ export default function AdminDriverSettlements() {
                       <TableHead className="text-right">Trips</TableHead>
                       <TableHead className="text-right">Total Earnings</TableHead>
                       <TableHead className="text-right">Commission</TableHead>
-                      <TableHead className="text-right">Net Payout</TableHead>
+                      <TableHead className="text-right">Wallet Balance</TableHead>
                       <TableHead>Rating</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -348,28 +375,28 @@ export default function AdminDriverSettlements() {
                       </TableRow>
                     ) : (
                       filteredSettlements.map((driver) => (
-                        <TableRow key={driver.driver_id}>
+                        <TableRow key={driver.id}>
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
                                 <User className="h-4 w-4" />
                               </div>
                               <div>
-                                <p className="font-medium">{driver.driver_name}</p>
-                                <p className="text-xs text-muted-foreground">{driver.driver_email}</p>
+                                <p className="font-medium">{driver.name}</p>
+                                <p className="text-xs text-muted-foreground">{driver.email}</p>
                               </div>
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant={driver.is_online ? 'default' : 'secondary'} className={driver.is_online ? 'bg-green-500' : ''}>
-                              {driver.is_online ? 'Online' : 'Offline'}
+                            <Badge variant={driver.isOnline ? 'default' : 'secondary'} className={driver.isOnline ? 'bg-green-500' : ''}>
+                              {driver.isOnline ? 'Online' : 'Offline'}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-right">{driver.trip_count}</TableCell>
-                          <TableCell className="text-right">{formatPence(driver.gross_earnings_pence)}</TableCell>
-                          <TableCell className="text-right text-muted-foreground">-{formatPence(driver.commission_pence)}</TableCell>
-                          <TableCell className={`text-right font-medium ${driver.wallet_available_pence >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {formatPence(driver.wallet_available_pence)}
+                          <TableCell className="text-right">{driver.totalTrips || 0}</TableCell>
+                          <TableCell className="text-right">{formatPence(driver.totalGross || 0)}</TableCell>
+                          <TableCell className="text-right text-muted-foreground">-{formatPence(driver.totalCommission || 0)}</TableCell>
+                          <TableCell className={`text-right font-medium ${(driver.walletAvailable || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {formatPence(driver.walletAvailable || 0)}
                           </TableCell>
                           <TableCell>
                             {driver.rating ? (
@@ -382,7 +409,7 @@ export default function AdminDriverSettlements() {
                             <Button 
                               variant="ghost" 
                               size="sm"
-                              onClick={() => setSelectedDriverId(driver.driver_id)}
+                              onClick={() => setSelectedDriverId(driver.id)}
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
@@ -417,28 +444,55 @@ export default function AdminDriverSettlements() {
                   <Card>
                     <CardContent className="pt-4">
                       <p className="text-xs text-muted-foreground">Available</p>
-                      <p className={`text-xl font-bold ${walletDetail.wallet.available_pence >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {formatPence(walletDetail.wallet.available_pence)}
+                      <p className={`text-xl font-bold ${(walletDetail.wallet?.available || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {formatPence(walletDetail.wallet?.available || 0)}
                       </p>
                     </CardContent>
                   </Card>
                   <Card>
                     <CardContent className="pt-4">
-                      <p className="text-xs text-muted-foreground">This Week</p>
+                      <p className="text-xs text-muted-foreground">Total Earnings</p>
                       <p className="text-xl font-bold text-green-600">
-                        {formatPence(walletDetail.earnings_summary.this_week_pence)}
+                        {formatPence(walletDetail.wallet?.earnings || 0)}
                       </p>
                     </CardContent>
                   </Card>
                   <Card>
                     <CardContent className="pt-4">
-                      <p className="text-xs text-muted-foreground">Last Week</p>
-                      <p className="text-xl font-bold">
-                        {formatPence(walletDetail.earnings_summary.last_week_pence)}
+                      <p className="text-xs text-muted-foreground">Outstanding Debt</p>
+                      <p className="text-xl font-bold text-red-600">
+                        {formatPence(walletDetail.wallet?.debt || 0)}
                       </p>
                     </CardContent>
                   </Card>
                 </div>
+
+                {/* Period Summary */}
+                {walletDetail.periodSummary && (
+                  <Card>
+                    <CardContent className="pt-4">
+                      <h4 className="text-sm font-medium mb-2">Period Summary</h4>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Earnings</span>
+                          <span className="text-green-600">{formatPence(walletDetail.periodSummary.earnings)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Payouts</span>
+                          <span className="text-blue-600">{formatPence(walletDetail.periodSummary.payouts)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Debts</span>
+                          <span className="text-red-600">{formatPence(walletDetail.periodSummary.debts)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Adjustments</span>
+                          <span>{formatPence(walletDetail.periodSummary.adjustments)}</span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Connected Account Status */}
                 <Card>
@@ -449,16 +503,16 @@ export default function AdminDriverSettlements() {
                         <span className="font-medium">Stripe Account</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        {walletDetail.driver.payouts_enabled ? (
+                        {walletDetail.driver?.payoutsEnabled ? (
                           <Badge className="bg-green-500"><CheckCircle2 className="h-3 w-3 mr-1" /> Payouts Enabled</Badge>
                         ) : (
                           <Badge variant="destructive"><AlertTriangle className="h-3 w-3 mr-1" /> Not Ready</Badge>
                         )}
                       </div>
                     </div>
-                    {walletDetail.driver.stripe_account_id && (
+                    {walletDetail.driver?.stripeAccountId && (
                       <p className="text-xs text-muted-foreground mt-2">
-                        Account: <code className="bg-muted px-1 rounded">{walletDetail.driver.stripe_account_id}</code>
+                        Account: <code className="bg-muted px-1 rounded">{walletDetail.driver.stripeAccountId}</code>
                       </p>
                     )}
                   </CardContent>
@@ -468,7 +522,7 @@ export default function AdminDriverSettlements() {
                 <div className="flex gap-2">
                   <Button 
                     onClick={() => payoutMutation.mutate(selectedDriverId!)}
-                    disabled={!walletDetail.driver.payouts_enabled || walletDetail.wallet.available_pence <= 0 || payoutMutation.isPending}
+                    disabled={!walletDetail.wallet?.canPayout || payoutMutation.isPending}
                     className="bg-green-600 hover:bg-green-700"
                   >
                     <Wallet className="h-4 w-4 mr-2" />
@@ -486,13 +540,13 @@ export default function AdminDriverSettlements() {
                 <div>
                   <h4 className="font-medium mb-2">Transaction History</h4>
                   <ScrollArea className="h-[250px]">
-                    {walletDetail.ledger.length === 0 ? (
+                    {(!walletDetail.ledgerEntries || walletDetail.ledgerEntries.length === 0) ? (
                       <p className="text-center text-muted-foreground py-8">No transactions yet</p>
                     ) : (
                       <div className="space-y-2">
-                        {walletDetail.ledger.map((entry) => {
+                        {walletDetail.ledgerEntries.map((entry) => {
                           const { label, color } = getEntryTypeDisplay(entry.type);
-                          const isPositive = entry.amount_pence > 0;
+                          const isPositive = entry.amount > 0;
                           return (
                             <div key={entry.id} className="flex items-center justify-between p-3 rounded-lg border">
                               <div className="flex items-center gap-3">
@@ -506,13 +560,13 @@ export default function AdminDriverSettlements() {
                                 <div>
                                   <p className={`font-medium ${color}`}>{label}</p>
                                   <p className="text-xs text-muted-foreground">
-                                    {format(new Date(entry.created_at), 'dd MMM yyyy, HH:mm')}
+                                    {format(new Date(entry.createdAt), 'dd MMM yyyy, HH:mm')}
                                   </p>
                                 </div>
                               </div>
                               <div className="text-right">
                                 <p className={`font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                                  {isPositive ? '+' : ''}{formatPence(entry.amount_pence)}
+                                  {isPositive ? '+' : ''}{formatPence(entry.amount)}
                                 </p>
                                 {entry.description && (
                                   <p className="text-xs text-muted-foreground max-w-[180px] truncate">
