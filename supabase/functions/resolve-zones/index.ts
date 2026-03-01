@@ -11,6 +11,7 @@ interface ResolveZonesRequest {
   pickup_lng: number;
   dropoff_lat: number;
   dropoff_lng: number;
+  vehicle_type_id?: string;
 }
 
 interface ZoneResult {
@@ -33,7 +34,7 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const body: ResolveZonesRequest = await req.json();
-    const { pickup_lat, pickup_lng, dropoff_lat, dropoff_lng } = body;
+    const { pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, vehicle_type_id } = body;
 
     if (!pickup_lat || !pickup_lng || !dropoff_lat || !dropoff_lng) {
       return new Response(
@@ -103,7 +104,54 @@ serve(async (req) => {
 
     const dropoffZone: ZoneResult | null = dropoffZones?.[0] || null;
 
-    // Step 4: Calculate pricing modifiers
+    // Step 4: Check Zone Route Pricing (fixed fare between zones)
+    let zoneRoutePricing: any = null;
+    if (pickupZone && dropoffZone) {
+      let routeQuery = supabase
+        .from("zone_route_pricing")
+        .select("*")
+        .eq("from_zone_id", pickupZone.zone_id)
+        .eq("to_zone_id", dropoffZone.zone_id)
+        .eq("is_active", true)
+        .order("priority", { ascending: false })
+        .limit(1);
+
+      // If vehicle_type_id provided, try vehicle-specific first
+      if (vehicle_type_id) {
+        const { data: vehicleRoute } = await supabase
+          .from("zone_route_pricing")
+          .select("*")
+          .eq("from_zone_id", pickupZone.zone_id)
+          .eq("to_zone_id", dropoffZone.zone_id)
+          .eq("is_active", true)
+          .eq("vehicle_type_id", vehicle_type_id)
+          .order("priority", { ascending: false })
+          .limit(1);
+
+        if (vehicleRoute && vehicleRoute.length > 0) {
+          zoneRoutePricing = vehicleRoute[0];
+        }
+      }
+
+      // Fallback to any-vehicle route
+      if (!zoneRoutePricing) {
+        const { data: genericRoute } = await supabase
+          .from("zone_route_pricing")
+          .select("*")
+          .eq("from_zone_id", pickupZone.zone_id)
+          .eq("to_zone_id", dropoffZone.zone_id)
+          .eq("is_active", true)
+          .is("vehicle_type_id", null)
+          .order("priority", { ascending: false })
+          .limit(1);
+
+        if (genericRoute && genericRoute.length > 0) {
+          zoneRoutePricing = genericRoute[0];
+        }
+      }
+    }
+
+    // Step 5: Calculate pricing modifiers
     const pm = pickupZone?.metadata || {};
     const dm = dropoffZone?.metadata || {};
 
@@ -145,17 +193,27 @@ serve(async (req) => {
               metadata: dropoffZone.metadata,
             }
           : null,
+        // Zone route pricing (fixed fare between zones)
+        zone_route_pricing: zoneRoutePricing
+          ? {
+              id: zoneRoutePricing.id,
+              fixed_fare: Number(zoneRoutePricing.fixed_fare),
+              vehicle_type_id: zoneRoutePricing.vehicle_type_id,
+              priority: zoneRoutePricing.priority,
+              use_fixed_fare: true,
+            }
+          : null,
         pricing_modifiers: {
-          pickup_fee: pickupFee,
-          dropoff_fee: dropoffFee,
-          airport_fee_pickup: pm.airport_fee_pickup || 0,
-          airport_fee_dropoff: dm.airport_fee_dropoff || 0,
-          surcharge_pct,
-          fare_override_mode,
-          fare_override_value,
-          surge_multiplier: surgeMultiplier,
-          min_fare_override: minFareOverride,
-          total_zone_fees: pickupFee + dropoffFee,
+          pickup_fee: zoneRoutePricing ? 0 : pickupFee,
+          dropoff_fee: zoneRoutePricing ? 0 : dropoffFee,
+          airport_fee_pickup: zoneRoutePricing ? 0 : (pm.airport_fee_pickup || 0),
+          airport_fee_dropoff: zoneRoutePricing ? 0 : (dm.airport_fee_dropoff || 0),
+          surcharge_pct: zoneRoutePricing ? 0 : surcharge_pct,
+          fare_override_mode: zoneRoutePricing ? 'FIXED_FARE' : fare_override_mode,
+          fare_override_value: zoneRoutePricing ? Number(zoneRoutePricing.fixed_fare) : fare_override_value,
+          surge_multiplier: zoneRoutePricing ? 1 : surgeMultiplier,
+          min_fare_override: zoneRoutePricing ? null : minFareOverride,
+          total_zone_fees: zoneRoutePricing ? 0 : (pickupFee + dropoffFee),
         },
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
