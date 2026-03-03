@@ -12,7 +12,8 @@ export interface SidebarCounts {
 }
 
 const CACHE_KEY = 'sidebar-counts-cache';
-const CACHE_TTL_MS = 30000; // 30 seconds
+const CACHE_TTL_MS = 15000; // 15 seconds
+const POLL_INTERVAL_MS = 30000; // 30 seconds polling fallback
 
 interface CachedCounts {
   data: SidebarCounts;
@@ -148,14 +149,23 @@ export function useSidebarCounts() {
   // Refresh on window focus
   useEffect(() => {
     const handleFocus = () => {
-      fetchCounts(true); // Skip cache on focus
+      fetchCounts(true);
     };
 
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
   }, [fetchCounts]);
 
-  // Set up real-time subscriptions for key tables
+  // Periodic polling fallback for guaranteed freshness
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchCounts(true);
+    }, POLL_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [fetchCounts]);
+
+  // Set up real-time subscriptions for all badge-relevant tables
   useEffect(() => {
     const channel = supabase
       .channel('sidebar-counts')
@@ -172,6 +182,21 @@ export function useSidebarCounts() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'documents' },
+        () => fetchCounts(true)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'drivers' },
+        () => fetchCounts(true)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'promo_codes' },
+        () => fetchCounts(true)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'admin_settings' },
         () => fetchCounts(true)
       )
       .subscribe();
