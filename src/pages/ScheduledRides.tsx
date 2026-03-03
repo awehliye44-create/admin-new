@@ -160,7 +160,7 @@ export default function ScheduledRides() {
             service_area:service_areas!trips_service_area_id_fkey(id, name)
           `)
           .eq('is_scheduled', true)
-          .or('scheduled_status.in.(pending,confirmed),scheduled_status.is.null')
+          .not('status', 'in', '(completed,cancelled)')
           .order('scheduled_at', { ascending: true }),
         supabase
           .from('drivers')
