@@ -970,6 +970,7 @@ export type Database = {
           id: string
           last_name: string | null
           phone: string | null
+          stripe_customer_id: string | null
           updated_at: string
           user_id: string
         }
@@ -980,6 +981,7 @@ export type Database = {
           id?: string
           last_name?: string | null
           phone?: string | null
+          stripe_customer_id?: string | null
           updated_at?: string
           user_id: string
         }
@@ -990,6 +992,7 @@ export type Database = {
           id?: string
           last_name?: string | null
           phone?: string | null
+          stripe_customer_id?: string | null
           updated_at?: string
           user_id?: string
         }
