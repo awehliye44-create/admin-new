@@ -63,9 +63,9 @@ import { AdminShell } from "@/components/layout/AdminShell";
 
 import {
   Airports,
-  Content,
   System,
 } from "./pages/PlaceholderPage";
+import ManageContent from "./pages/ManageContent";
 
 const queryClient = new QueryClient();
 
@@ -147,7 +147,7 @@ const App = () => (
               <Route path="dispute-settings" element={<DisputeSettings />} />
               
               {/* Content & Legal */}
-              <Route path="content" element={<Content />} />
+              <Route path="content" element={<ManageContent />} />
               
               {/* Settings */}
               <Route path="settings" element={<Settings />} />
