@@ -77,6 +77,45 @@ export type Database = {
         }
         Relationships: []
       }
+      canned_responses: {
+        Row: {
+          category: string | null
+          content: string
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean
+          shortcut: string | null
+          title: string
+          updated_at: string
+          usage_count: number
+        }
+        Insert: {
+          category?: string | null
+          content: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          shortcut?: string | null
+          title: string
+          updated_at?: string
+          usage_count?: number
+        }
+        Update: {
+          category?: string | null
+          content?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          shortcut?: string | null
+          title?: string
+          updated_at?: string
+          usage_count?: number
+        }
+        Relationships: []
+      }
       content_audit_log: {
         Row: {
           action: string
@@ -3852,6 +3891,175 @@ export type Database = {
             columns: ["region_id"]
             isOneToOne: false
             referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      support_conversations: {
+        Row: {
+          assigned_admin_id: string | null
+          category: string | null
+          channel: string
+          created_at: string
+          customer_id: string | null
+          driver_id: string | null
+          id: string
+          initiated_by: string
+          last_message_at: string | null
+          priority: string
+          resolved_at: string | null
+          status: string
+          subject: string
+          tags: string[] | null
+          trip_id: string | null
+          updated_at: string
+          user_type: string
+        }
+        Insert: {
+          assigned_admin_id?: string | null
+          category?: string | null
+          channel?: string
+          created_at?: string
+          customer_id?: string | null
+          driver_id?: string | null
+          id?: string
+          initiated_by?: string
+          last_message_at?: string | null
+          priority?: string
+          resolved_at?: string | null
+          status?: string
+          subject: string
+          tags?: string[] | null
+          trip_id?: string | null
+          updated_at?: string
+          user_type: string
+        }
+        Update: {
+          assigned_admin_id?: string | null
+          category?: string | null
+          channel?: string
+          created_at?: string
+          customer_id?: string | null
+          driver_id?: string | null
+          id?: string
+          initiated_by?: string
+          last_message_at?: string | null
+          priority?: string
+          resolved_at?: string | null
+          status?: string
+          subject?: string
+          tags?: string[] | null
+          trip_id?: string | null
+          updated_at?: string
+          user_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_conversations_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_conversations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "support_conversations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "support_conversations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "support_conversations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_conversations_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_conversations_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      support_messages: {
+        Row: {
+          content: string
+          content_type: string
+          conversation_id: string
+          created_at: string
+          file_name: string | null
+          file_size: number | null
+          file_url: string | null
+          id: string
+          is_read: boolean
+          metadata: Json | null
+          read_at: string | null
+          sender_id: string | null
+          sender_type: string
+          updated_at: string
+        }
+        Insert: {
+          content: string
+          content_type?: string
+          conversation_id: string
+          created_at?: string
+          file_name?: string | null
+          file_size?: number | null
+          file_url?: string | null
+          id?: string
+          is_read?: boolean
+          metadata?: Json | null
+          read_at?: string | null
+          sender_id?: string | null
+          sender_type: string
+          updated_at?: string
+        }
+        Update: {
+          content?: string
+          content_type?: string
+          conversation_id?: string
+          created_at?: string
+          file_name?: string | null
+          file_size?: number | null
+          file_url?: string | null
+          id?: string
+          is_read?: boolean
+          metadata?: Json | null
+          read_at?: string | null
+          sender_id?: string | null
+          sender_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "support_conversations"
             referencedColumns: ["id"]
           },
         ]
