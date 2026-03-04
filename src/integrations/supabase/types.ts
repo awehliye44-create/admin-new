@@ -77,6 +77,89 @@ export type Database = {
         }
         Relationships: []
       }
+      content_audit_log: {
+        Row: {
+          action: string
+          content_item_id: string
+          created_at: string
+          details: Json | null
+          id: string
+          user_id: string | null
+        }
+        Insert: {
+          action: string
+          content_item_id: string
+          created_at?: string
+          details?: Json | null
+          id?: string
+          user_id?: string | null
+        }
+        Update: {
+          action?: string
+          content_item_id?: string
+          created_at?: string
+          details?: Json | null
+          id?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "content_audit_log_content_item_id_fkey"
+            columns: ["content_item_id"]
+            isOneToOne: false
+            referencedRelation: "content_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      content_items: {
+        Row: {
+          app_scope: Database["public"]["Enums"]["app_scope"]
+          change_log: string | null
+          content_html: string
+          created_at: string
+          id: string
+          published_at: string | null
+          published_by: string | null
+          slug: string
+          status: Database["public"]["Enums"]["content_status"]
+          title: string
+          updated_at: string
+          updated_by: string | null
+          version: number
+        }
+        Insert: {
+          app_scope: Database["public"]["Enums"]["app_scope"]
+          change_log?: string | null
+          content_html?: string
+          created_at?: string
+          id?: string
+          published_at?: string | null
+          published_by?: string | null
+          slug: string
+          status?: Database["public"]["Enums"]["content_status"]
+          title: string
+          updated_at?: string
+          updated_by?: string | null
+          version?: number
+        }
+        Update: {
+          app_scope?: Database["public"]["Enums"]["app_scope"]
+          change_log?: string | null
+          content_html?: string
+          created_at?: string
+          id?: string
+          published_at?: string | null
+          published_by?: string | null
+          slug?: string
+          status?: Database["public"]["Enums"]["content_status"]
+          title?: string
+          updated_at?: string
+          updated_by?: string | null
+          version?: number
+        }
+        Relationships: []
+      }
       corporate_account_requests: {
         Row: {
           address: string | null
@@ -5544,6 +5627,8 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
+      app_scope: "customer" | "driver" | "corporate" | "shared"
+      content_status: "draft" | "published"
       trip_change_status:
         | "pending_driver_approval"
         | "approved"
@@ -5683,6 +5768,8 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "moderator", "user"],
+      app_scope: ["customer", "driver", "corporate", "shared"],
+      content_status: ["draft", "published"],
       trip_change_status: [
         "pending_driver_approval",
         "approved",
