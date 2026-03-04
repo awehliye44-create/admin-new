@@ -66,6 +66,7 @@ import {
   System,
 } from "./pages/PlaceholderPage";
 import ManageContent from "./pages/ManageContent";
+import LiveChat from "./pages/LiveChat";
 
 const queryClient = new QueryClient();
 
@@ -134,6 +135,7 @@ const App = () => (
               <Route path="suspensions" element={<AccountSuspension />} />
               <Route path="complaints" element={<ComplaintsDashboard />} />
               <Route path="tickets" element={<Tickets />} />
+              <Route path="live-chat" element={<LiveChat />} />
               <Route path="categories" element={<SupportCategories />} />
               
               {/* Finance & Payouts */}

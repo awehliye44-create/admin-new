@@ -516,6 +516,13 @@ export function AdminSidebar() {
                 collapsed={isCollapsed}
               />
               <NavItem
+                to="/live-chat"
+                icon={<MessageSquare className="h-4 w-4" />}
+                label="Live Chat"
+                active={currentPath === '/live-chat'}
+                collapsed={isCollapsed}
+              />
+              <NavItem
                 to="/tickets"
                 icon={<Ticket className="h-4 w-4" />}
                 label="Tickets"
