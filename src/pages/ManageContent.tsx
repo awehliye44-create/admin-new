@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { Save, Send, FileText, Phone, Building2, Car, Users, Loader2 } from 'lucide-react';
+import { Save, Send, Phone, Building2, Car, Users, Loader2, Eye, Code2, Globe } from 'lucide-react';
 
 type AppScope = 'customer' | 'driver' | 'corporate' | 'shared';
 
@@ -26,7 +26,6 @@ interface ContentItem {
   published_at: string | null;
 }
 
-// Shared/contact fields use plain text; others use HTML textarea
 const PLAIN_TEXT_SLUGS = ['company_name', 'support_phone', 'whatsapp_phone', 'support_email'];
 
 function ContentEditor({ item, onSaved }: { item: ContentItem; onSaved: () => void }) {
@@ -34,6 +33,7 @@ function ContentEditor({ item, onSaved }: { item: ContentItem; onSaved: () => vo
   const [changeLog, setChangeLog] = useState('');
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const isPlainText = PLAIN_TEXT_SLUGS.includes(item.slug);
   const isDirty = content !== item.content_html;
 
@@ -59,7 +59,6 @@ function ContentEditor({ item, onSaved }: { item: ContentItem; onSaved: () => vo
 
       if (error) throw error;
 
-      // Audit log
       await supabase.from('content_audit_log').insert({
         content_item_id: item.id,
         action: 'draft_saved',
@@ -83,7 +82,6 @@ function ContentEditor({ item, onSaved }: { item: ContentItem; onSaved: () => vo
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // 1. Save current content to this row as published
       const { error: updateErr } = await supabase
         .from('content_items')
         .update({
@@ -98,7 +96,6 @@ function ContentEditor({ item, onSaved }: { item: ContentItem; onSaved: () => vo
 
       if (updateErr) throw updateErr;
 
-      // 2. Create a new draft version for future edits
       const newVersion = item.version + 1;
       await supabase.from('content_items').insert({
         app_scope: item.app_scope as any,
@@ -110,7 +107,6 @@ function ContentEditor({ item, onSaved }: { item: ContentItem; onSaved: () => vo
         updated_by: user.id,
       } as any);
 
-      // 3. Audit
       await supabase.from('content_audit_log').insert({
         content_item_id: item.id,
         action: 'published',
@@ -135,13 +131,26 @@ function ContentEditor({ item, onSaved }: { item: ContentItem; onSaved: () => vo
           <div>
             <CardTitle className="text-base">{item.title}</CardTitle>
             <CardDescription className="text-xs mt-1">
-              v{item.version} · Updated {new Date(item.updated_at).toLocaleDateString()}
+              v{item.version} · <span className="font-mono text-[10px] text-muted-foreground/70">{item.slug}</span> · Updated {new Date(item.updated_at).toLocaleDateString()}
               {item.published_at && ` · Published ${new Date(item.published_at).toLocaleDateString()}`}
             </CardDescription>
           </div>
-          <Badge variant={item.status === 'published' ? 'default' : 'secondary'}>
-            {item.status}
-          </Badge>
+          <div className="flex items-center gap-2">
+            {!isPlainText && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7"
+                onClick={() => setShowPreview(!showPreview)}
+                title={showPreview ? 'Show editor' : 'Show preview'}
+              >
+                {showPreview ? <Code2 className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              </Button>
+            )}
+            <Badge variant={item.status === 'published' ? 'default' : 'secondary'}>
+              {item.status}
+            </Badge>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -150,6 +159,11 @@ function ContentEditor({ item, onSaved }: { item: ContentItem; onSaved: () => vo
             value={content}
             onChange={(e) => setContent(e.target.value)}
             placeholder={`Enter ${item.title.toLowerCase()}`}
+          />
+        ) : showPreview ? (
+          <div
+            className="prose prose-sm max-w-none rounded-md border border-input bg-background p-4 min-h-[200px] overflow-auto"
+            dangerouslySetInnerHTML={{ __html: content }}
           />
         ) : (
           <Textarea
@@ -194,20 +208,47 @@ function ContentEditor({ item, onSaved }: { item: ContentItem; onSaved: () => vo
   );
 }
 
-function ScopeSection({ scope, icon, items, onRefresh }: {
+function ScopeSection({ scope, icon, items, onRefresh, apiParam }: {
   scope: string;
   icon: React.ReactNode;
   items: ContentItem[];
   onRefresh: () => void;
+  apiParam?: string;
 }) {
   if (items.length === 0) return null;
+
+  const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+  const apiUrl = apiParam
+    ? `https://${projectId}.supabase.co/functions/v1/public-content?app=${apiParam}`
+    : null;
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2 text-lg font-semibold">
-        {icon}
-        {scope}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-lg font-semibold">
+          {icon}
+          {scope}
+        </div>
       </div>
-      <div className="grid gap-4 md:grid-cols-2">
+
+      {apiUrl && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="py-3 px-4">
+            <div className="flex items-center gap-2 text-xs">
+              <Globe className="h-3.5 w-3.5 text-primary shrink-0" />
+              <span className="text-muted-foreground">Public API for apps:</span>
+              <code className="font-mono text-[11px] bg-background px-2 py-0.5 rounded border break-all">
+                GET {apiUrl}
+              </code>
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1 ml-5">
+              Returns latest <strong>published</strong> content + shared fields (company name, phone, email). Draft content is not exposed.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-2">
         {items.map((item) => (
           <ContentEditor key={item.id} item={item} onSaved={onRefresh} />
         ))}
@@ -222,7 +263,6 @@ export default function ManageContent() {
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
-    // For each (app_scope, slug), get the latest version (highest version number)
     const { data, error } = await supabase
       .from('content_items')
       .select('*')
@@ -234,7 +274,6 @@ export default function ManageContent() {
       return;
     }
 
-    // Deduplicate: keep only latest version per (app_scope, slug)
     const seen = new Set<string>();
     const latest: ContentItem[] = [];
     for (const row of (data || [])) {
@@ -255,7 +294,7 @@ export default function ManageContent() {
   const byScope = (scope: AppScope) => items.filter(i => i.app_scope === scope);
 
   return (
-    <AdminLayout title="Manage Content" description="Edit app content and legal documents">
+    <AdminLayout title="Manage Content" description="Edit app content and legal documents — changes here are served live to Customer App, Driver App, and the Corporate website via API.">
       {loading ? (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -292,6 +331,7 @@ export default function ManageContent() {
               icon={<Users className="h-5 w-5 text-primary" />}
               items={byScope('customer')}
               onRefresh={fetchItems}
+              apiParam="customer"
             />
           </TabsContent>
 
@@ -301,6 +341,7 @@ export default function ManageContent() {
               icon={<Car className="h-5 w-5 text-primary" />}
               items={byScope('driver')}
               onRefresh={fetchItems}
+              apiParam="driver"
             />
           </TabsContent>
 
@@ -310,6 +351,7 @@ export default function ManageContent() {
               icon={<Building2 className="h-5 w-5 text-primary" />}
               items={byScope('corporate')}
               onRefresh={fetchItems}
+              apiParam="corporate"
             />
           </TabsContent>
         </Tabs>
@@ -317,4 +359,3 @@ export default function ManageContent() {
     </AdminLayout>
   );
 }
-
