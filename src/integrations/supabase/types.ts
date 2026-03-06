@@ -1135,6 +1135,91 @@ export type Database = {
           },
         ]
       }
+      dispatch_candidates_log: {
+        Row: {
+          category_name: string | null
+          created_at: string
+          dispatch_score: number
+          dispatch_weight: number | null
+          distance_km: number
+          driver_id: string
+          id: string
+          offer_result: string | null
+          trip_id: string
+          waiting_minutes: number | null
+          wave: number | null
+        }
+        Insert: {
+          category_name?: string | null
+          created_at?: string
+          dispatch_score: number
+          dispatch_weight?: number | null
+          distance_km: number
+          driver_id: string
+          id?: string
+          offer_result?: string | null
+          trip_id: string
+          waiting_minutes?: number | null
+          wave?: number | null
+        }
+        Update: {
+          category_name?: string | null
+          created_at?: string
+          dispatch_score?: number
+          dispatch_weight?: number | null
+          distance_km?: number
+          driver_id?: string
+          id?: string
+          offer_result?: string | null
+          trip_id?: string
+          waiting_minutes?: number | null
+          wave?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dispatch_candidates_log_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "dispatch_candidates_log_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "dispatch_candidates_log_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "dispatch_candidates_log_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispatch_candidates_log_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispatch_candidates_log_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dispatch_settings: {
         Row: {
           accept_timeout_seconds: number
@@ -1148,9 +1233,12 @@ export type Database = {
           cooldown_after_reject_seconds: number
           created_at: string
           customer_response_timeout_seconds: number
+          distance_penalty_per_km: number
           driver_fare_display: string
           driver_final_response_timeout_seconds: number
           enable_logging: boolean
+          fairness_boost_score: number
+          fairness_idle_minutes: number
           fare_max_increase_pence: number
           fare_negotiation_enabled: boolean
           fare_offer_increment_1_pence: number
@@ -1166,14 +1254,19 @@ export type Database = {
           max_offer_hops: number
           max_offers_per_request: number
           max_stacked_rides: number
+          max_waiting_bonus_minutes: number
           min_advance_time_minutes: number
           minimum_rating: number
           offer_expiry_seconds: number
           priority_order: string
           scheduled_ride_incentives_enabled: boolean
           scheduled_rides_enabled: boolean
+          search_radius_expand_km: number
+          search_radius_max_km: number
           search_radius_meters: number
+          search_radius_start_km: number
           service_area_id: string | null
+          shortlist_limit: number
           simulate_mode: boolean
           stacked_allow_rider_opt_out: boolean
           stacked_driver_incentive: number
@@ -1187,7 +1280,11 @@ export type Database = {
           stacked_show_eta_to_driver: boolean
           suppress_recent_offers_seconds: number
           updated_at: string
+          waiting_bonus_per_minute: number
           waiting_time_grace_period_minutes: number
+          wave1_size: number
+          wave2_size: number
+          wave3_size: number
         }
         Insert: {
           accept_timeout_seconds?: number
@@ -1201,9 +1298,12 @@ export type Database = {
           cooldown_after_reject_seconds?: number
           created_at?: string
           customer_response_timeout_seconds?: number
+          distance_penalty_per_km?: number
           driver_fare_display?: string
           driver_final_response_timeout_seconds?: number
           enable_logging?: boolean
+          fairness_boost_score?: number
+          fairness_idle_minutes?: number
           fare_max_increase_pence?: number
           fare_negotiation_enabled?: boolean
           fare_offer_increment_1_pence?: number
@@ -1219,14 +1319,19 @@ export type Database = {
           max_offer_hops?: number
           max_offers_per_request?: number
           max_stacked_rides?: number
+          max_waiting_bonus_minutes?: number
           min_advance_time_minutes?: number
           minimum_rating?: number
           offer_expiry_seconds?: number
           priority_order?: string
           scheduled_ride_incentives_enabled?: boolean
           scheduled_rides_enabled?: boolean
+          search_radius_expand_km?: number
+          search_radius_max_km?: number
           search_radius_meters?: number
+          search_radius_start_km?: number
           service_area_id?: string | null
+          shortlist_limit?: number
           simulate_mode?: boolean
           stacked_allow_rider_opt_out?: boolean
           stacked_driver_incentive?: number
@@ -1240,7 +1345,11 @@ export type Database = {
           stacked_show_eta_to_driver?: boolean
           suppress_recent_offers_seconds?: number
           updated_at?: string
+          waiting_bonus_per_minute?: number
           waiting_time_grace_period_minutes?: number
+          wave1_size?: number
+          wave2_size?: number
+          wave3_size?: number
         }
         Update: {
           accept_timeout_seconds?: number
@@ -1254,9 +1363,12 @@ export type Database = {
           cooldown_after_reject_seconds?: number
           created_at?: string
           customer_response_timeout_seconds?: number
+          distance_penalty_per_km?: number
           driver_fare_display?: string
           driver_final_response_timeout_seconds?: number
           enable_logging?: boolean
+          fairness_boost_score?: number
+          fairness_idle_minutes?: number
           fare_max_increase_pence?: number
           fare_negotiation_enabled?: boolean
           fare_offer_increment_1_pence?: number
@@ -1272,14 +1384,19 @@ export type Database = {
           max_offer_hops?: number
           max_offers_per_request?: number
           max_stacked_rides?: number
+          max_waiting_bonus_minutes?: number
           min_advance_time_minutes?: number
           minimum_rating?: number
           offer_expiry_seconds?: number
           priority_order?: string
           scheduled_ride_incentives_enabled?: boolean
           scheduled_rides_enabled?: boolean
+          search_radius_expand_km?: number
+          search_radius_max_km?: number
           search_radius_meters?: number
+          search_radius_start_km?: number
           service_area_id?: string | null
+          shortlist_limit?: number
           simulate_mode?: boolean
           stacked_allow_rider_opt_out?: boolean
           stacked_driver_incentive?: number
@@ -1293,7 +1410,11 @@ export type Database = {
           stacked_show_eta_to_driver?: boolean
           suppress_recent_offers_seconds?: number
           updated_at?: string
+          waiting_bonus_per_minute?: number
           waiting_time_grace_period_minutes?: number
+          wave1_size?: number
+          wave2_size?: number
+          wave3_size?: number
         }
         Relationships: [
           {
@@ -1446,6 +1567,7 @@ export type Database = {
           commission_pct: number | null
           created_at: string
           description: string | null
+          dispatch_weight: number
           display_order: number | null
           icon: string | null
           id: string
@@ -1463,6 +1585,7 @@ export type Database = {
           commission_pct?: number | null
           created_at?: string
           description?: string | null
+          dispatch_weight?: number
           display_order?: number | null
           icon?: string | null
           id?: string
@@ -1480,6 +1603,7 @@ export type Database = {
           commission_pct?: number | null
           created_at?: string
           description?: string | null
+          dispatch_weight?: number
           display_order?: number | null
           icon?: string | null
           id?: string
@@ -1657,6 +1781,68 @@ export type Database = {
             columns: ["trip_id"]
             isOneToOne: false
             referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      driver_live_locations: {
+        Row: {
+          driver_id: string
+          geohash6: string
+          heading: number | null
+          lat: number
+          lng: number
+          loc: unknown
+          speed: number | null
+          updated_at: string
+        }
+        Insert: {
+          driver_id: string
+          geohash6: string
+          heading?: number | null
+          lat: number
+          lng: number
+          loc: unknown
+          speed?: number | null
+          updated_at?: string
+        }
+        Update: {
+          driver_id?: string
+          geohash6?: string
+          heading?: number | null
+          lat?: number
+          lng?: number
+          loc?: unknown
+          speed?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_live_locations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_live_locations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_live_locations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_live_locations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
+            referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
         ]
@@ -2105,7 +2291,10 @@ export type Database = {
           is_pet_friendly: boolean
           last_location_updated_at: string | null
           last_name: string
+          last_offer_at: string | null
+          last_trip_end_at: string | null
           onboarding_complete: boolean | null
+          online_since: string | null
           payouts_enabled: boolean | null
           phone: string
           profile_photo_url: string | null
@@ -2138,7 +2327,10 @@ export type Database = {
           is_pet_friendly?: boolean
           last_location_updated_at?: string | null
           last_name: string
+          last_offer_at?: string | null
+          last_trip_end_at?: string | null
           onboarding_complete?: boolean | null
+          online_since?: string | null
           payouts_enabled?: boolean | null
           phone: string
           profile_photo_url?: string | null
@@ -2171,7 +2363,10 @@ export type Database = {
           is_pet_friendly?: boolean
           last_location_updated_at?: string | null
           last_name?: string
+          last_offer_at?: string | null
+          last_trip_end_at?: string | null
           onboarding_complete?: boolean | null
+          online_since?: string | null
           payouts_enabled?: boolean | null
           phone?: string
           profile_photo_url?: string | null
@@ -2717,6 +2912,92 @@ export type Database = {
             columns: ["target_service_area_id"]
             isOneToOne: false
             referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      passenger_ratings: {
+        Row: {
+          comment: string | null
+          created_at: string
+          driver_id: string
+          id: string
+          passenger_id: string | null
+          skipped: boolean
+          stars: number | null
+          tags: string[] | null
+          trip_id: string
+        }
+        Insert: {
+          comment?: string | null
+          created_at?: string
+          driver_id: string
+          id?: string
+          passenger_id?: string | null
+          skipped?: boolean
+          stars?: number | null
+          tags?: string[] | null
+          trip_id: string
+        }
+        Update: {
+          comment?: string | null
+          created_at?: string
+          driver_id?: string
+          id?: string
+          passenger_id?: string | null
+          skipped?: boolean
+          stars?: number | null
+          tags?: string[] | null
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "passenger_ratings_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "passenger_ratings_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "passenger_ratings_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "passenger_ratings_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "passenger_ratings_passenger_id_fkey"
+            columns: ["passenger_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "passenger_ratings_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "passenger_ratings_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
             referencedColumns: ["id"]
           },
         ]
@@ -5683,6 +5964,24 @@ export type Database = {
       }
       expire_stale_modification_requests: { Args: never; Returns: number }
       expire_stale_offers: { Args: never; Returns: Json }
+      find_nearby_drivers: {
+        Args: {
+          p_lat: number
+          p_limit?: number
+          p_lng: number
+          p_radius_meters: number
+          p_stale_seconds?: number
+        }
+        Returns: {
+          distance_meters: number
+          driver_id: string
+          heading: number
+          lat: number
+          lng: number
+          speed: number
+          updated_at: string
+        }[]
+      }
       find_service_area_by_location: {
         Args: { p_lat: number; p_lng: number }
         Returns: string
@@ -5829,6 +6128,17 @@ export type Database = {
           p_speed?: number
         }
         Returns: Json
+      }
+      upsert_driver_live_location: {
+        Args: {
+          p_driver_id: string
+          p_geohash6: string
+          p_heading?: number
+          p_lat: number
+          p_lng: number
+          p_speed?: number
+        }
+        Returns: undefined
       }
       upsert_driver_presence: {
         Args: {
