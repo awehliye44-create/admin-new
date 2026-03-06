@@ -91,6 +91,20 @@ interface DispatchSettings {
 
   // Maximum Time to Find Driver
   maxDriverFindTimeMinutes: number;
+
+  // PostGIS Dispatch Scoring
+  searchRadiusStartKm: number;
+  searchRadiusExpandKm: number;
+  searchRadiusMaxKm: number;
+  shortlistLimit: number;
+  wave1Size: number;
+  wave2Size: number;
+  wave3Size: number;
+  distancePenaltyPerKm: number;
+  waitingBonusPerMinute: number;
+  maxWaitingBonusMinutes: number;
+  fairnessIdleMinutes: number;
+  fairnessBoostScore: number;
 }
 
 const defaultSettings: DispatchSettings = {
@@ -134,6 +148,19 @@ const defaultSettings: DispatchSettings = {
   cancelProtection: false,
   driverFareDisplay: 'net_earnings',
   maxDriverFindTimeMinutes: 3,
+  // PostGIS Dispatch Scoring
+  searchRadiusStartKm: 3,
+  searchRadiusExpandKm: 5,
+  searchRadiusMaxKm: 8,
+  shortlistLimit: 100,
+  wave1Size: 3,
+  wave2Size: 5,
+  wave3Size: 10,
+  distancePenaltyPerKm: 2.0,
+  waitingBonusPerMinute: 0.5,
+  maxWaitingBonusMinutes: 20,
+  fairnessIdleMinutes: 20,
+  fairnessBoostScore: 10,
 };
 
 interface ServiceArea {
@@ -183,6 +210,19 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   cancelProtection: (data.cancel_protection as boolean) ?? defaultSettings.cancelProtection,
   driverFareDisplay: (data.driver_fare_display as 'net_earnings' | 'full_breakdown') ?? defaultSettings.driverFareDisplay,
   maxDriverFindTimeMinutes: (data.max_driver_find_time_minutes as number) ?? defaultSettings.maxDriverFindTimeMinutes,
+  // PostGIS Dispatch Scoring
+  searchRadiusStartKm: (data.search_radius_start_km as number) ?? defaultSettings.searchRadiusStartKm,
+  searchRadiusExpandKm: (data.search_radius_expand_km as number) ?? defaultSettings.searchRadiusExpandKm,
+  searchRadiusMaxKm: (data.search_radius_max_km as number) ?? defaultSettings.searchRadiusMaxKm,
+  shortlistLimit: (data.shortlist_limit as number) ?? defaultSettings.shortlistLimit,
+  wave1Size: (data.wave1_size as number) ?? defaultSettings.wave1Size,
+  wave2Size: (data.wave2_size as number) ?? defaultSettings.wave2Size,
+  wave3Size: (data.wave3_size as number) ?? defaultSettings.wave3Size,
+  distancePenaltyPerKm: (data.distance_penalty_per_km as number) ?? defaultSettings.distancePenaltyPerKm,
+  waitingBonusPerMinute: (data.waiting_bonus_per_minute as number) ?? defaultSettings.waitingBonusPerMinute,
+  maxWaitingBonusMinutes: (data.max_waiting_bonus_minutes as number) ?? defaultSettings.maxWaitingBonusMinutes,
+  fairnessIdleMinutes: (data.fairness_idle_minutes as number) ?? defaultSettings.fairnessIdleMinutes,
+  fairnessBoostScore: (data.fairness_boost_score as number) ?? defaultSettings.fairnessBoostScore,
 });
 
 // Map frontend property names to database column names
@@ -228,6 +268,19 @@ const mapSettingsToDb = (settings: DispatchSettings, serviceAreaId: string | nul
   cancel_protection: settings.cancelProtection,
   driver_fare_display: settings.driverFareDisplay,
   max_driver_find_time_minutes: settings.maxDriverFindTimeMinutes,
+  // PostGIS Dispatch Scoring
+  search_radius_start_km: settings.searchRadiusStartKm,
+  search_radius_expand_km: settings.searchRadiusExpandKm,
+  search_radius_max_km: settings.searchRadiusMaxKm,
+  shortlist_limit: settings.shortlistLimit,
+  wave1_size: settings.wave1Size,
+  wave2_size: settings.wave2Size,
+  wave3_size: settings.wave3Size,
+  distance_penalty_per_km: settings.distancePenaltyPerKm,
+  waiting_bonus_per_minute: settings.waitingBonusPerMinute,
+  max_waiting_bonus_minutes: settings.maxWaitingBonusMinutes,
+  fairness_idle_minutes: settings.fairnessIdleMinutes,
+  fairness_boost_score: settings.fairnessBoostScore,
 });
 
 export default function AutoDispatchRules() {
@@ -695,7 +748,128 @@ export default function AutoDispatchRules() {
           </CardContent>
         </Card>
 
-        {/* Driver Priority & Sorting */}
+        {/* PostGIS Dispatch Scoring */}
+        <Card className="border-primary/50">
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <Globe className="h-5 w-5 text-primary" />
+              <div>
+                <CardTitle>PostGIS Dispatch Scoring</CardTitle>
+                <CardDescription>
+                  Advanced radius expansion, wave dispatch, and category-weighted scoring for 5000+ driver scale
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Radius Expansion */}
+            <div>
+              <h4 className="text-sm font-semibold mb-3">Radius Expansion (km)</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label>Start Radius</Label>
+                  <Input type="number" step="0.5" min="0.5" max="20" value={settings.searchRadiusStartKm}
+                    onChange={(e) => updateSetting('searchRadiusStartKm', parseFloat(e.target.value) || 3)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Initial search radius</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Expand Radius</Label>
+                  <Input type="number" step="0.5" min="1" max="30" value={settings.searchRadiusExpandKm}
+                    onChange={(e) => updateSetting('searchRadiusExpandKm', parseFloat(e.target.value) || 5)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">2nd expansion step</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Max Radius</Label>
+                  <Input type="number" step="0.5" min="1" max="50" value={settings.searchRadiusMaxKm}
+                    onChange={(e) => updateSetting('searchRadiusMaxKm', parseFloat(e.target.value) || 8)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Final expansion limit</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Shortlist & Waves */}
+            <div>
+              <h4 className="text-sm font-semibold mb-3">Shortlist & Wave Sizes</h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="space-y-2">
+                  <Label>Shortlist Limit</Label>
+                  <Input type="number" min="10" max="500" value={settings.shortlistLimit}
+                    onChange={(e) => updateSetting('shortlistLimit', parseInt(e.target.value) || 100)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Top N to score</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Wave 1 Size</Label>
+                  <Input type="number" min="1" max="20" value={settings.wave1Size}
+                    onChange={(e) => updateSetting('wave1Size', parseInt(e.target.value) || 3)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">1st batch</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Wave 2 Size</Label>
+                  <Input type="number" min="1" max="20" value={settings.wave2Size}
+                    onChange={(e) => updateSetting('wave2Size', parseInt(e.target.value) || 5)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">2nd batch</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Wave 3 Size</Label>
+                  <Input type="number" min="1" max="30" value={settings.wave3Size}
+                    onChange={(e) => updateSetting('wave3Size', parseInt(e.target.value) || 10)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">3rd batch</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Scoring Weights */}
+            <div>
+              <h4 className="text-sm font-semibold mb-3">Scoring Formula Weights</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Distance Penalty (per km)</Label>
+                  <Input type="number" step="0.1" min="0" max="10" value={settings.distancePenaltyPerKm}
+                    onChange={(e) => updateSetting('distancePenaltyPerKm', parseFloat(e.target.value) || 2)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Score deduction per km from pickup</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Waiting Bonus (per minute)</Label>
+                  <Input type="number" step="0.1" min="0" max="5" value={settings.waitingBonusPerMinute}
+                    onChange={(e) => updateSetting('waitingBonusPerMinute', parseFloat(e.target.value) || 0.5)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Score bonus per idle minute</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Max Waiting Bonus (minutes)</Label>
+                  <Input type="number" min="1" max="60" value={settings.maxWaitingBonusMinutes}
+                    onChange={(e) => updateSetting('maxWaitingBonusMinutes', parseInt(e.target.value) || 20)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Cap on waiting bonus</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Fairness Boost Score</Label>
+                  <Input type="number" step="0.5" min="0" max="50" value={settings.fairnessBoostScore}
+                    onChange={(e) => updateSetting('fairnessBoostScore', parseFloat(e.target.value) || 10)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Bonus for drivers idle beyond threshold</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Fairness Idle Threshold (minutes)</Label>
+                  <Input type="number" min="1" max="60" value={settings.fairnessIdleMinutes}
+                    onChange={(e) => updateSetting('fairnessIdleMinutes', parseInt(e.target.value) || 20)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Minutes without offer to trigger fairness boost</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Formula explanation */}
+            <div className="flex items-start gap-2 p-3 bg-muted/50 rounded-lg">
+              <Info className="h-4 w-4 text-muted-foreground mt-0.5" />
+              <div className="text-sm text-muted-foreground">
+                <p className="font-medium text-foreground">Dispatch Score Formula:</p>
+                <code className="text-xs block mt-1">
+                  score = category_weight + (waiting_min × waiting_bonus) + fairness_boost − (distance_km × distance_penalty)
+                </code>
+                <p className="mt-1">Category weights (Bronze=10, Silver=20, Gold=30, Platinum=40, Diamond=50) are set on the Driver Categories page.</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+
         <Card>
           <CardHeader>
             <CardTitle>Driver Priority & Sorting</CardTitle>
