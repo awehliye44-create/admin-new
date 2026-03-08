@@ -581,6 +581,20 @@ export function AdminSidebar() {
             </div>
           </div>
 
+          {/* ONECAB DOCUMENTS */}
+          <div>
+            <NavSection label="ONECAB Documents" collapsed={isCollapsed} />
+            <div className="space-y-1">
+              <NavItem
+                to="/onecab-documents"
+                icon={<ShieldCheck className="h-4 w-4" />}
+                label="Compliance Center"
+                active={currentPath === '/onecab-documents'}
+                collapsed={isCollapsed}
+              />
+            </div>
+          </div>
+
           {/* CONTENT & LEGAL */}
           <div>
             <NavSection label="Content & Legal" collapsed={isCollapsed} />
