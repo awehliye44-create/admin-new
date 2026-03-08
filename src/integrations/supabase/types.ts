@@ -2916,6 +2916,110 @@ export type Database = {
           },
         ]
       }
+      onecab_document_activity_log: {
+        Row: {
+          action: string
+          created_at: string
+          details: string | null
+          document_id: string | null
+          id: string
+          performed_by: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          details?: string | null
+          document_id?: string | null
+          id?: string
+          performed_by?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          details?: string | null
+          document_id?: string | null
+          id?: string
+          performed_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "onecab_document_activity_log_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "onecab_documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      onecab_documents: {
+        Row: {
+          category: string
+          created_at: string
+          deleted_at: string | null
+          description: string | null
+          document_type: string | null
+          expiry_date: string | null
+          file_name: string | null
+          file_path: string | null
+          id: string
+          issue_date: string | null
+          issuing_authority: string | null
+          mime_type: string | null
+          notes: string | null
+          reference_number: string | null
+          reminder_days_before: number
+          renewal_status: string
+          status: string
+          title: string
+          updated_at: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          category?: string
+          created_at?: string
+          deleted_at?: string | null
+          description?: string | null
+          document_type?: string | null
+          expiry_date?: string | null
+          file_name?: string | null
+          file_path?: string | null
+          id?: string
+          issue_date?: string | null
+          issuing_authority?: string | null
+          mime_type?: string | null
+          notes?: string | null
+          reference_number?: string | null
+          reminder_days_before?: number
+          renewal_status?: string
+          status?: string
+          title: string
+          updated_at?: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          deleted_at?: string | null
+          description?: string | null
+          document_type?: string | null
+          expiry_date?: string | null
+          file_name?: string | null
+          file_path?: string | null
+          id?: string
+          issue_date?: string | null
+          issuing_authority?: string | null
+          mime_type?: string | null
+          notes?: string | null
+          reference_number?: string | null
+          reminder_days_before?: number
+          renewal_status?: string
+          status?: string
+          title?: string
+          updated_at?: string
+          uploaded_by?: string | null
+        }
+        Relationships: []
+      }
       passenger_ratings: {
         Row: {
           comment: string | null
