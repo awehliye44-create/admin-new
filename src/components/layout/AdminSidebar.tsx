@@ -49,6 +49,7 @@ import {
   History,
   PanelLeftClose,
   PanelLeft,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   Collapsible,
