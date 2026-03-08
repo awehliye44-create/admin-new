@@ -67,6 +67,7 @@ import {
 } from "./pages/PlaceholderPage";
 import ManageContent from "./pages/ManageContent";
 import LiveChat from "./pages/LiveChat";
+import OnecabDocuments from "./pages/OnecabDocuments";
 
 const queryClient = new QueryClient();
 
