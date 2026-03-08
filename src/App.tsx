@@ -67,6 +67,7 @@ import {
 } from "./pages/PlaceholderPage";
 import ManageContent from "./pages/ManageContent";
 import LiveChat from "./pages/LiveChat";
+import OnecabDocuments from "./pages/OnecabDocuments";
 
 const queryClient = new QueryClient();
 
@@ -148,6 +149,9 @@ const App = () => (
               <Route path="disputes" element={<Disputes />} />
               <Route path="dispute-settings" element={<DisputeSettings />} />
               
+              {/* ONECAB Documents */}
+              <Route path="onecab-documents" element={<OnecabDocuments />} />
+
               {/* Content & Legal */}
               <Route path="content" element={<ManageContent />} />
               

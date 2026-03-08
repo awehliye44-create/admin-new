@@ -49,6 +49,7 @@ import {
   History,
   PanelLeftClose,
   PanelLeft,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   Collapsible,
@@ -576,6 +577,20 @@ export function AdminSidebar() {
                 icon={<Scale className="h-4 w-4" />}
                 label="Disputes & Adjustments"
                 active={currentPath === '/disputes'}
+                collapsed={isCollapsed}
+              />
+            </div>
+          </div>
+
+          {/* ONECAB DOCUMENTS */}
+          <div>
+            <NavSection label="ONECAB Documents" collapsed={isCollapsed} />
+            <div className="space-y-1">
+              <NavItem
+                to="/onecab-documents"
+                icon={<ShieldCheck className="h-4 w-4" />}
+                label="Compliance Center"
+                active={currentPath === '/onecab-documents'}
                 collapsed={isCollapsed}
               />
             </div>
