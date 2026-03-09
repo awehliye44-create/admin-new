@@ -207,7 +207,7 @@ serve(async (req) => {
       throw saError;
     }
 
-    // Find service areas containing the pickup point
+    // Find service areas containing the pickup point (REQUIRE valid polygon)
     const matchedServiceAreaIds: string[] = [];
     for (const sa of serviceAreas || []) {
       if (sa.geo_boundary) {
@@ -215,12 +215,12 @@ serve(async (req) => {
           ? sa.geo_boundary 
           : (sa.geo_boundary as any).coordinates || [];
         
-        if (boundary.length === 0 || isPointInPolygon(pickupPoint, boundary)) {
+        // Only match if polygon has >= 3 points AND pickup is inside
+        if (boundary.length >= 3 && isPointInPolygon(pickupPoint, boundary)) {
           matchedServiceAreaIds.push(sa.id);
         }
-      } else {
-        matchedServiceAreaIds.push(sa.id);
       }
+      // Skip service areas without polygon boundaries
     }
 
     console.log(`[dispatch-trip] Matched service areas: ${matchedServiceAreaIds.length}`);
