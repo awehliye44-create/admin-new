@@ -195,7 +195,7 @@ serve(async (req) => {
         success: true,
         settings,
         offers_allowed_now: offersAllowedNow,
-        service_area_ids: (serviceAreas || []).map(sa => sa.id),
+        service_area_ids: primaryServiceArea ? [primaryServiceArea.id] : [],
         cache_key: `${matchingRegion.id}_${matchingRegion.updated_at}`,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
