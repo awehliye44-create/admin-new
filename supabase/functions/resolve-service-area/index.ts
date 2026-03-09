@@ -127,10 +127,10 @@ serve(async (req) => {
       );
     }
 
-    // Get service areas for this region
+    // Get service areas for this region WITH polygon boundaries
     const { data: serviceAreas, error: saError } = await supabase
       .from('service_areas')
-      .select('id, name, updated_at')
+      .select('id, name, geo_boundary, updated_at')
       .eq('region_id', matchingRegion.id)
       .eq('is_active', true);
 
@@ -139,8 +139,31 @@ serve(async (req) => {
       throw saError;
     }
 
-    // Get the first service area (in the future, could match by specific geo boundaries within region)
-    const primaryServiceArea = serviceAreas && serviceAreas.length > 0 ? serviceAreas[0] : null;
+    // Find the service area whose polygon contains the pickup point
+    let primaryServiceArea: { id: string; name: string; updated_at: string } | null = null;
+    for (const sa of serviceAreas || []) {
+      if (sa.geo_boundary) {
+        const boundary = Array.isArray(sa.geo_boundary) ? sa.geo_boundary : [];
+        if (boundary.length >= 3 && isPointInPolygon(pickupPoint, boundary as LatLng[])) {
+          primaryServiceArea = { id: sa.id, name: sa.name, updated_at: sa.updated_at };
+          console.log('Pickup is in service area:', sa.name);
+          break;
+        }
+      }
+    }
+
+    if (!primaryServiceArea) {
+      console.log('Pickup location is not inside any service area polygon');
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Pickup location is not inside any active service area',
+          settings: null,
+          message: 'No valid service area polygon contains this pickup location.'
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     // Check offer schedule for primary service area
     let offersAllowedNow = false;
@@ -172,7 +195,7 @@ serve(async (req) => {
         success: true,
         settings,
         offers_allowed_now: offersAllowedNow,
-        service_area_ids: (serviceAreas || []).map(sa => sa.id),
+        service_area_ids: primaryServiceArea ? [primaryServiceArea.id] : [],
         cache_key: `${matchingRegion.id}_${matchingRegion.updated_at}`,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

@@ -329,14 +329,18 @@ export default function ManualTrip() {
     setDropoffCoords({ lat: place.lat, lng: place.lng });
   };
 
-  const generateTripCode = () => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let code = '';
-    for (let i = 0; i < 6; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
+  // Resolve service area from pickup coordinates
+  const resolvePickupServiceArea = useCallback(async (lat: number, lng: number): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase.functions.invoke('resolve-service-area', {
+        body: { pickup_lat: lat, pickup_lng: lng }
+      });
+      if (error || !data?.success) return null;
+      return data.settings?.service_area_id || null;
+    } catch {
+      return null;
     }
-    return code;
-  };
+  }, []);
 
   const resetForm = () => {
     setPassengerName('');
@@ -412,7 +416,7 @@ export default function ManualTrip() {
     setIsSubmitting(true);
 
     try {
-      // Determine the passenger_id
+      // 1. Find or reuse existing customer
       let passengerId = '';
       if (selectedCustomerId && selectedCustomerId !== 'new') {
         const customer = customers.find(c => c.id === selectedCustomerId);
@@ -431,6 +435,33 @@ export default function ManualTrip() {
         passengerId = user.id;
       }
 
+      // Use find_or_create_customer RPC to prevent duplicates
+      const { data: customerId, error: custError } = await supabase.rpc('find_or_create_customer', {
+        p_user_id: passengerId,
+        p_phone: passengerPhone.trim() || null,
+        p_first_name: passengerName.split(' ')[0] || null,
+        p_last_name: passengerName.split(' ').slice(1).join(' ') || null,
+      });
+
+      if (custError) {
+        console.error('Customer lookup error:', custError);
+        // Non-fatal: continue with passengerId
+      }
+
+      // 2. Resolve pickup service area from coordinates (enforces polygon match)
+      let resolvedServiceAreaId = selectedServiceAreaId;
+      if (pickupCoords) {
+        const saId = await resolvePickupServiceArea(pickupCoords.lat, pickupCoords.lng);
+        if (saId) {
+          resolvedServiceAreaId = saId;
+        } else if (!selectedServiceAreaId) {
+          toast.error('Pickup location is not inside any active service area. Please adjust the pickup location.');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      // 3. Create trip — trip_number assigned via DB trigger (assign_trip_number)
       const tripData = {
         passenger_id: passengerId,
         passenger_name: passengerName.trim(),
@@ -458,9 +489,8 @@ export default function ManualTrip() {
         job_type: jobType,
         trip_type: isScheduled ? 'scheduled' : 'immediate',
         status: selectedDriverId ? 'accepted' : (isScheduled ? 'pending' : 'searching'),
-        trip_code: generateTripCode(),
         currency_code: currencyCode,
-        service_area_id: selectedServiceAreaId,
+        service_area_id: resolvedServiceAreaId,
         booking_source: isCorporateTrip ? 'corporate' : 'admin_manual',
         corporate_account_id: isCorporateTrip && selectedCorporateAccountId ? selectedCorporateAccountId : null,
       };
