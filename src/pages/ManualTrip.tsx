@@ -329,14 +329,18 @@ export default function ManualTrip() {
     setDropoffCoords({ lat: place.lat, lng: place.lng });
   };
 
-  const generateTripCode = () => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let code = '';
-    for (let i = 0; i < 6; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
+  // Resolve service area from pickup coordinates
+  const resolvePickupServiceArea = useCallback(async (lat: number, lng: number): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase.functions.invoke('resolve-service-area', {
+        body: { pickup_lat: lat, pickup_lng: lng }
+      });
+      if (error || !data?.success) return null;
+      return data.settings?.service_area_id || null;
+    } catch {
+      return null;
     }
-    return code;
-  };
+  }, []);
 
   const resetForm = () => {
     setPassengerName('');
