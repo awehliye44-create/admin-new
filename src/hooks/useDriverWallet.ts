@@ -5,7 +5,7 @@ export interface LedgerEntry {
   id: string;
   driver_id: string;
   trip_id: string | null;
-  entry_type: 'CASH_COMMISSION_DEBT' | 'TRIP_EARNING_NET' | 'PAYOUT' | 'EARLY_CASHOUT' | 'CASHOUT_FEE' | 'ADJUSTMENT' | 'BONUS';
+  entry_type: 'CASH_COMMISSION_DEBT' | 'TRIP_EARNING_NET' | 'PAYOUT' | 'EARLY_CASHOUT' | 'CASHOUT_FEE' | 'ADJUSTMENT' | 'BONUS' | 'DEBT_RECOVERY' | 'REFUND_DEBIT';
   amount_pence: number;
   currency_code: string;
   description: string | null;
@@ -60,6 +60,10 @@ export function getEntryTypeDisplay(entryType: LedgerEntry['entry_type']): { lab
       return { label: 'Adjustment', color: 'text-purple-500' };
     case 'BONUS':
       return { label: 'Bonus', color: 'text-green-600' };
+    case 'DEBT_RECOVERY':
+      return { label: 'Debt Recovery', color: 'text-orange-600' };
+    case 'REFUND_DEBIT':
+      return { label: 'Refund Debit', color: 'text-red-600' };
     default:
       return { label: entryType, color: 'text-muted-foreground' };
   }

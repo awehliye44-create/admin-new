@@ -4753,6 +4753,7 @@ export type Database = {
           current_offer_driver_id: string | null
           current_offer_expires_at: string | null
           current_stop_index: number | null
+          debt_recovery_pence: number | null
           dispatch_mode: string | null
           dispatch_status: string | null
           driver_confirm_deadline_at: string | null
@@ -4780,6 +4781,7 @@ export type Database = {
           extras_pence: number | null
           fare: number | null
           final_fare_pence: number | null
+          final_payout_pence: number | null
           gross_fare_pence: number | null
           id: string
           is_scheduled: boolean | null
@@ -4821,6 +4823,7 @@ export type Database = {
           stripe_charge_id: string | null
           stripe_payment_intent_id: string | null
           stripe_processing_fee_pence: number | null
+          stripe_transfer_id: string | null
           surge_multiplier: number | null
           tip_pence: number | null
           total_stops: number | null
@@ -4831,6 +4834,8 @@ export type Database = {
           vehicle_type: string | null
           vehicle_type_id: string | null
           wallet_applied_pence: number | null
+          wallet_balance_after: number | null
+          wallet_balance_before: number | null
         }
         Insert: {
           arrived_at?: string | null
@@ -4858,6 +4863,7 @@ export type Database = {
           current_offer_driver_id?: string | null
           current_offer_expires_at?: string | null
           current_stop_index?: number | null
+          debt_recovery_pence?: number | null
           dispatch_mode?: string | null
           dispatch_status?: string | null
           driver_confirm_deadline_at?: string | null
@@ -4885,6 +4891,7 @@ export type Database = {
           extras_pence?: number | null
           fare?: number | null
           final_fare_pence?: number | null
+          final_payout_pence?: number | null
           gross_fare_pence?: number | null
           id?: string
           is_scheduled?: boolean | null
@@ -4926,6 +4933,7 @@ export type Database = {
           stripe_charge_id?: string | null
           stripe_payment_intent_id?: string | null
           stripe_processing_fee_pence?: number | null
+          stripe_transfer_id?: string | null
           surge_multiplier?: number | null
           tip_pence?: number | null
           total_stops?: number | null
@@ -4936,6 +4944,8 @@ export type Database = {
           vehicle_type?: string | null
           vehicle_type_id?: string | null
           wallet_applied_pence?: number | null
+          wallet_balance_after?: number | null
+          wallet_balance_before?: number | null
         }
         Update: {
           arrived_at?: string | null
@@ -4963,6 +4973,7 @@ export type Database = {
           current_offer_driver_id?: string | null
           current_offer_expires_at?: string | null
           current_stop_index?: number | null
+          debt_recovery_pence?: number | null
           dispatch_mode?: string | null
           dispatch_status?: string | null
           driver_confirm_deadline_at?: string | null
@@ -4990,6 +5001,7 @@ export type Database = {
           extras_pence?: number | null
           fare?: number | null
           final_fare_pence?: number | null
+          final_payout_pence?: number | null
           gross_fare_pence?: number | null
           id?: string
           is_scheduled?: boolean | null
@@ -5031,6 +5043,7 @@ export type Database = {
           stripe_charge_id?: string | null
           stripe_payment_intent_id?: string | null
           stripe_processing_fee_pence?: number | null
+          stripe_transfer_id?: string | null
           surge_multiplier?: number | null
           tip_pence?: number | null
           total_stops?: number | null
@@ -5041,6 +5054,8 @@ export type Database = {
           vehicle_type?: string | null
           vehicle_type_id?: string | null
           wallet_applied_pence?: number | null
+          wallet_balance_after?: number | null
+          wallet_balance_before?: number | null
         }
         Relationships: [
           {
