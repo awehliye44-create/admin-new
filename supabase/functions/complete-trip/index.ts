@@ -16,27 +16,21 @@ import {
   CompleteTripRequest 
 } from "../_shared/validation.ts";
 
-// Rate limit: 30 requests per minute per IP
 const RATE_LIMIT_CONFIG = { limit: 30, windowMs: 60 * 1000 };
 
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   const clientIP = getClientIP(req);
   const userAgent = req.headers.get('user-agent') || 'unknown';
-
-  // Check rate limit
   const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
   if (!rateLimitResult.allowed) {
-    console.log(`[complete-trip] Rate limit exceeded for IP: ${clientIP}`);
     return rateLimitResponse(rateLimitResult.retryAfter!);
   }
 
   try {
-    // Parse and validate request body
     let body: unknown;
     try {
       body = await req.json();
@@ -46,7 +40,6 @@ serve(async (req) => {
 
     const validation = validateSchema<CompleteTripRequest>(body, completeTripSchema);
     if (!validation.success) {
-      console.log(`[complete-trip] Validation failed:`, validation.errors);
       return errorResponse('Validation failed', 400, { validation_errors: validation.errors });
     }
 
@@ -56,9 +49,9 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    console.log(`[complete-trip] Completing trip ${trip_id} with payment method ${payment_method}`);
+    console.log(`[complete-trip] Completing trip ${trip_id}, method: ${payment_method}`);
 
-    // Validate trip exists and belongs to this driver
+    // === Validate trip ===
     const { data: trip, error: tripError } = await supabase
       .from('trips')
       .select('id, status, driver_id, service_area_id, currency')
@@ -66,24 +59,20 @@ serve(async (req) => {
       .single();
 
     if (tripError || !trip) {
-      console.error('[complete-trip] Trip not found:', tripError);
       return errorResponse('Trip not found', 404);
     }
 
     if (trip.driver_id !== driver_id) {
       await logAuditEvent(supabase, 'trip_complete_unauthorized', {
-        driverId: driver_id,
-        tripId: trip_id,
+        driverId: driver_id, tripId: trip_id,
         details: { actual_driver: trip.driver_id },
-        ipAddress: clientIP,
-        userAgent,
+        ipAddress: clientIP, userAgent,
       });
       return errorResponse('Trip does not belong to this driver', 403);
     }
 
-    // Get commission rate from driver tier (category) with driver-level override
-    let commissionPercentage = 20; // Default 20%
-    
+    // === Get commission rate ===
+    let commissionPercentage = 20;
     const { data: driver } = await supabase
       .from('drivers')
       .select('commission_override_pct, category_id')
@@ -91,20 +80,17 @@ serve(async (req) => {
       .single();
 
     if (driver?.commission_override_pct != null) {
-      // Driver-specific override takes priority
       commissionPercentage = driver.commission_override_pct;
-      console.log(`[complete-trip] Using driver override commission: ${commissionPercentage}%`);
+      console.log(`[complete-trip] Driver override commission: ${commissionPercentage}%`);
     } else if (driver?.category_id) {
-      // Fall back to driver category commission
       const { data: category } = await supabase
         .from('driver_categories')
         .select('commission_pct')
         .eq('id', driver.category_id)
         .single();
-      
       if (category?.commission_pct != null) {
         commissionPercentage = category.commission_pct;
-        console.log(`[complete-trip] Using category commission: ${commissionPercentage}%`);
+        console.log(`[complete-trip] Category commission: ${commissionPercentage}%`);
       }
     }
 
@@ -115,59 +101,100 @@ serve(async (req) => {
 
     console.log(`[complete-trip] Fare: ${final_fare_pence}p, Commission: ${commission_pence}p (${commissionPercentage}%), Net: ${driver_net_pence}p, Cash: ${isCashPayment}`);
 
-    // Update trip to completed status with fare breakdown
+    // === Update trip to completed ===
     const tripUpdate: Record<string, unknown> = {
       status: 'completed',
       completed_at: new Date().toISOString(),
       fare: final_fare_pence / 100,
       gross_fare_pence: final_fare_pence,
-      commission_pence: commission_pence,
-      driver_net_pence: driver_net_pence,
-      payment_method: payment_method,
-      updated_at: new Date().toISOString()
+      commission_pence,
+      driver_net_pence,
+      payment_method,
+      updated_at: new Date().toISOString(),
     };
 
     if (isCashPayment) {
+      // === CASH TRIP: Driver keeps cash, platform debits commission from wallet ===
       tripUpdate.payment_status = 'collected_cash';
+      tripUpdate.stripe_processing_fee_pence = 0; // No Stripe fee on cash
 
+      // Calculate wallet balance before
+      const { data: walletEntries } = await supabase
+        .from('driver_ledger')
+        .select('amount_pence')
+        .eq('driver_id', driver_id);
+      const walletBefore = walletEntries?.reduce((sum, e) => sum + (e.amount_pence || 0), 0) || 0;
+
+      // Create CASH_COMMISSION_DEBT ledger entry
       const { error: ledgerError } = await supabase
         .from('driver_ledger')
         .insert({
-          driver_id: driver_id,
-          trip_id: trip_id,
+          driver_id,
+          trip_id,
           entry_type: 'CASH_COMMISSION_DEBT',
-          amount_pence: -commission_pence,
-          currency_code: currency_code,
-          description: `Commission owed from cash trip`
+          amount_pence: -commission_pence, // Negative = debt owed to platform
+          currency_code,
+          description: `Commission owed from cash trip`,
         });
 
       if (ledgerError) {
-        console.error('[complete-trip] Error creating ledger entry:', ledgerError);
+        console.error('[complete-trip] Ledger error:', ledgerError);
       } else {
-        console.log(`[complete-trip] Created CASH_COMMISSION_DEBT: -${commission_pence}p`);
+        console.log(`[complete-trip] CASH_COMMISSION_DEBT: -${commission_pence}p`);
       }
+
+      tripUpdate.wallet_balance_before = walletBefore;
+      tripUpdate.wallet_balance_after = walletBefore - commission_pence;
+      tripUpdate.debt_recovery_pence = 0;
+      tripUpdate.final_payout_pence = 0; // No Stripe payout for cash
+
     } else {
-      tripUpdate.payment_status = stripe_payment_intent_id ? 'processing' : 'pending';
+      // === DIGITAL TRIP: Delegate capture + transfer to capture-trip-payment ===
+      tripUpdate.payment_status = stripe_payment_intent_id ? 'pending_capture' : 'pending';
       tripUpdate.stripe_payment_intent_id = stripe_payment_intent_id || null;
 
+      // If we have a PaymentIntent, invoke capture-trip-payment
       if (stripe_payment_intent_id) {
-        const { error: ledgerError } = await supabase
-          .from('driver_ledger')
-          .insert({
-            driver_id: driver_id,
-            trip_id: trip_id,
-            entry_type: 'TRIP_EARNING_NET',
-            amount_pence: driver_net_pence,
-            currency_code: currency_code,
-            description: `Net earnings from ${payment_method} payment`,
-            reference_id: stripe_payment_intent_id
+        console.log(`[complete-trip] Invoking capture-trip-payment for PI: ${stripe_payment_intent_id}`);
+        
+        try {
+          const captureResponse = await fetch(`${supabaseUrl}/functions/v1/capture-trip-payment`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${supabaseServiceKey}`,
+            },
+            body: JSON.stringify({
+              trip_id,
+              driver_id,
+              payment_intent_id: stripe_payment_intent_id,
+              final_fare_pence,
+              commission_pence,
+              driver_net_pence,
+              currency_code,
+            }),
           });
 
-        if (ledgerError) {
-          console.error('[complete-trip] Error creating ledger entry:', ledgerError);
-        } else {
-          console.log(`[complete-trip] Created TRIP_EARNING_NET: +${driver_net_pence}p`);
-          tripUpdate.payment_status = 'captured';
+          const captureResult = await captureResponse.json();
+          
+          if (captureResult.success) {
+            console.log(`[complete-trip] Capture succeeded: transfer=${captureResult.stripe_transfer_id}, payout=${captureResult.final_payout_pence}p`);
+            // capture-trip-payment already updated the trip record with settlement fields
+            // Override payment_status from our tripUpdate since capture already set it
+            tripUpdate.payment_status = 'captured';
+            tripUpdate.stripe_processing_fee_pence = captureResult.stripe_fee_pence || 0;
+            tripUpdate.stripe_transfer_id = captureResult.stripe_transfer_id;
+            tripUpdate.debt_recovery_pence = captureResult.debt_recovery_pence || 0;
+            tripUpdate.final_payout_pence = captureResult.final_payout_pence;
+            tripUpdate.wallet_balance_before = captureResult.wallet_balance_before;
+            tripUpdate.wallet_balance_after = captureResult.wallet_balance_after;
+          } else {
+            console.error(`[complete-trip] Capture failed:`, captureResult.error);
+            tripUpdate.payment_status = 'capture_failed';
+          }
+        } catch (captureErr) {
+          console.error(`[complete-trip] Capture invocation error:`, captureErr);
+          tripUpdate.payment_status = 'capture_failed';
         }
       }
     }
@@ -184,55 +211,60 @@ serve(async (req) => {
     }
 
     // Clear driver's current trip
-    await supabase
-      .from('drivers')
+    await supabase.from('drivers')
       .update({ current_trip_id: null })
       .eq('id', driver_id);
 
-    // Increment driver's total trips
+    // Update total trips count
     try {
-      await supabase
-        .from('drivers')
-        .update({ total_trips: (await supabase.from('trips').select('id', { count: 'exact' }).eq('driver_id', driver_id).eq('status', 'completed')).count || 0 })
+      const { count } = await supabase
+        .from('trips')
+        .select('id', { count: 'exact', head: true })
+        .eq('driver_id', driver_id)
+        .eq('status', 'completed');
+      
+      await supabase.from('drivers')
+        .update({ total_trips: count || 0 })
         .eq('id', driver_id);
     } catch (e) {
       console.log('[complete-trip] Error updating total trips:', e);
     }
 
-    // Log payment event
+    // Audit log
     await logAuditEvent(supabase, 'payment_processed', {
-      driverId: driver_id,
-      tripId: trip_id,
+      driverId: driver_id, tripId: trip_id,
       details: {
         payment_method,
         gross_fare_pence: final_fare_pence,
         commission_pence,
         driver_net_pence,
         payment_status: tripUpdate.payment_status,
-        stripe_payment_intent_id: stripe_payment_intent_id || null
+        debt_recovery_pence: tripUpdate.debt_recovery_pence || 0,
+        final_payout_pence: tripUpdate.final_payout_pence,
+        stripe_payment_intent_id: stripe_payment_intent_id || null,
+        stripe_transfer_id: tripUpdate.stripe_transfer_id || null,
       },
-      ipAddress: clientIP,
-      userAgent,
+      ipAddress: clientIP, userAgent,
     });
 
     console.log(`[complete-trip] Trip ${trip_id} completed successfully`);
 
     return successResponse({
-      trip_id: trip_id,
-      payment_method: payment_method,
+      trip_id,
+      payment_method,
       gross_fare_pence: final_fare_pence,
-      commission_pence: commission_pence,
-      driver_net_pence: driver_net_pence,
+      commission_pence,
+      driver_net_pence,
       payment_status: tripUpdate.payment_status,
       is_cash: isCashPayment,
-      ledger_entry: isCashPayment ? 'CASH_COMMISSION_DEBT' : 'TRIP_EARNING_NET'
+      debt_recovery_pence: tripUpdate.debt_recovery_pence || 0,
+      final_payout_pence: tripUpdate.final_payout_pence,
     });
 
   } catch (error) {
     console.error('[complete-trip] Error:', error);
     return errorResponse(
-      error instanceof Error ? error.message : 'Unknown error',
-      500
+      error instanceof Error ? error.message : 'Unknown error', 500
     );
   }
 });
