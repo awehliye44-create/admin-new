@@ -4536,6 +4536,133 @@ export type Database = {
           },
         ]
       }
+      trip_finance: {
+        Row: {
+          base_fare_pence: number
+          cash_commission_ledger_id: string | null
+          commission_rate_pct: number
+          commissionable_subtotal_pence: number
+          created_at: string
+          currency_code: string
+          debt_recovery_pence: number | null
+          destination_change_charge_pence: number
+          driver_id: string
+          driver_net_before_tip_pence: number
+          driver_total_earnings_pence: number
+          extras_charge_pence: number
+          final_driver_payout_pence: number | null
+          final_trip_total_pence: number
+          id: string
+          payment_method: string
+          pickup_waiting_charge_pence: number
+          platform_commission_pence: number
+          service_area_id: string | null
+          settled_at: string | null
+          settlement_status: string
+          stop_modification_charge_pence: number
+          stop_waiting_charge_pence: number
+          stripe_application_fee_id: string | null
+          stripe_destination_account_id: string | null
+          stripe_payment_intent_id: string | null
+          stripe_processing_fee_pence: number | null
+          tip_amount_pence: number
+          trip_id: string
+          updated_at: string
+          wallet_balance_after_pence: number | null
+          wallet_balance_before_pence: number | null
+        }
+        Insert: {
+          base_fare_pence?: number
+          cash_commission_ledger_id?: string | null
+          commission_rate_pct?: number
+          commissionable_subtotal_pence?: number
+          created_at?: string
+          currency_code?: string
+          debt_recovery_pence?: number | null
+          destination_change_charge_pence?: number
+          driver_id: string
+          driver_net_before_tip_pence?: number
+          driver_total_earnings_pence?: number
+          extras_charge_pence?: number
+          final_driver_payout_pence?: number | null
+          final_trip_total_pence?: number
+          id?: string
+          payment_method?: string
+          pickup_waiting_charge_pence?: number
+          platform_commission_pence?: number
+          service_area_id?: string | null
+          settled_at?: string | null
+          settlement_status?: string
+          stop_modification_charge_pence?: number
+          stop_waiting_charge_pence?: number
+          stripe_application_fee_id?: string | null
+          stripe_destination_account_id?: string | null
+          stripe_payment_intent_id?: string | null
+          stripe_processing_fee_pence?: number | null
+          tip_amount_pence?: number
+          trip_id: string
+          updated_at?: string
+          wallet_balance_after_pence?: number | null
+          wallet_balance_before_pence?: number | null
+        }
+        Update: {
+          base_fare_pence?: number
+          cash_commission_ledger_id?: string | null
+          commission_rate_pct?: number
+          commissionable_subtotal_pence?: number
+          created_at?: string
+          currency_code?: string
+          debt_recovery_pence?: number | null
+          destination_change_charge_pence?: number
+          driver_id?: string
+          driver_net_before_tip_pence?: number
+          driver_total_earnings_pence?: number
+          extras_charge_pence?: number
+          final_driver_payout_pence?: number | null
+          final_trip_total_pence?: number
+          id?: string
+          payment_method?: string
+          pickup_waiting_charge_pence?: number
+          platform_commission_pence?: number
+          service_area_id?: string | null
+          settled_at?: string | null
+          settlement_status?: string
+          stop_modification_charge_pence?: number
+          stop_waiting_charge_pence?: number
+          stripe_application_fee_id?: string | null
+          stripe_destination_account_id?: string | null
+          stripe_payment_intent_id?: string | null
+          stripe_processing_fee_pence?: number | null
+          tip_amount_pence?: number
+          trip_id?: string
+          updated_at?: string
+          wallet_balance_after_pence?: number | null
+          wallet_balance_before_pence?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trip_finance_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_finance_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_finance_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trip_messages: {
         Row: {
           created_at: string
