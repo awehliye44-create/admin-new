@@ -821,7 +821,17 @@ export default function Services() {
                   <Label htmlFor="region">Region *</Label>
                   <Select
                     value={formData.region_id}
-                    onValueChange={(value) => setFormData(prev => ({ ...prev, region_id: value, geo_boundary: null }))}
+                    onValueChange={(value) => {
+                      const region = regions.find(r => r.id === value);
+                      setFormData(prev => ({ 
+                        ...prev, 
+                        region_id: value, 
+                        geo_boundary: null,
+                        currency_code: region?.currency_code || prev.currency_code,
+                        distance_unit: region?.distance_unit || prev.distance_unit,
+                        timezone: region?.timezone || prev.timezone,
+                      }));
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select a region" />
