@@ -446,7 +446,7 @@ export default function Services() {
     setIsDeleteDialogOpen(true);
   };
 
-  const getCurrencySymbol = (code: string) => CURRENCIES[code]?.symbol || code;
+  // getCurrencySymbol imported from regionSettings
 
   const getSelectedRegion = () => regions.find(r => r.id === formData.region_id);
 
