@@ -174,8 +174,15 @@ function NavSection({ label, collapsed }: NavSectionProps) {
 export function AdminSidebar() {
   const location = useLocation();
   const { signOut, user } = useAuth();
+  const { canAccessPage, staffProfile } = useStaffProfile();
   const { counts } = useSidebarCounts();
   const currentPath = location.pathname;
+
+  // Helper to conditionally render nav items based on page permissions
+  const PermittedNavItem = ({ pageSlug, ...props }: NavItemProps & { pageSlug: string }) => {
+    if (!canAccessPage(pageSlug)) return null;
+    return <NavItem {...props} />;
+  };
   
   const [isCollapsed, setIsCollapsed] = useState(() => {
     const stored = localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
