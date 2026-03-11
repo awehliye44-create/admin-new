@@ -75,6 +75,7 @@ interface Region {
 interface CompletedTrip {
   id: string;
   trip_code: string | null;
+  trip_number: string | null;
   status: string | null;
   passenger_name: string | null;
   passenger_phone: string | null;
@@ -103,6 +104,7 @@ interface CompletedTrip {
   driver_id: string | null;
   driver_location_lat: number | null;
   driver_location_lng: number | null;
+  stripe_payment_intent_id: string | null;
   driver?: {
     id: string;
     first_name: string;
@@ -644,8 +646,15 @@ export default function TripHistory() {
     return matchesSearch;
   });
 
+  // Helper to get fare in pounds from pence-based fields (source of truth) or legacy fare field
+  const getTripFarePounds = (trip: CompletedTrip): number => {
+    if (trip.gross_fare_pence != null && trip.gross_fare_pence > 0) return trip.gross_fare_pence / 100;
+    if (trip.fare != null && trip.fare > 0) return trip.fare;
+    return 0;
+  };
+
   // Stats based on filtered trips
-  const totalRevenue = filteredTrips.reduce((sum, t) => sum + (t.fare || 0), 0);
+  const totalRevenue = filteredTrips.reduce((sum, t) => sum + getTripFarePounds(t), 0);
   const avgFare = filteredTrips.length > 0 ? totalRevenue / filteredTrips.length : 0;
   const multiStopTrips = filteredTrips.filter(t => isMultiStopTrip(t)).length;
 
@@ -804,6 +813,7 @@ export default function TripHistory() {
                   <TableHead>Stops</TableHead>
                   <TableHead>Distance</TableHead>
                   <TableHead>Fare</TableHead>
+                  <TableHead>Payment</TableHead>
                   <TableHead>Completed</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -869,13 +879,36 @@ export default function TripHistory() {
                         {trip.currency_code 
                           ? getCurrencySymbol(trip.currency_code)
                           : getActiveCurrencySymbol()}
-                        {((trip.gross_fare_pence ?? (trip.fare ? trip.fare * 100 : 0)) / 100).toFixed(2)}
+                        {getTripFarePounds(trip).toFixed(2)}
                       </div>
-                      {trip.payment_status && (
+                      {trip.commission_pence != null && (
                         <div className="text-[10px] text-muted-foreground mt-0.5">
-                          {trip.payment_status}
+                          Net: {((trip.driver_net_pence || 0) / 100).toFixed(2)}
                         </div>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-0.5">
+                        <Badge variant="outline" className="text-[10px] w-fit">
+                          {trip.payment_method === 'cash' ? '💵 Cash' 
+                            : trip.payment_method === 'apple_pay' ? '📱 Apple Pay'
+                            : trip.payment_method === 'card' ? '💳 Card'
+                            : trip.payment_method || 'Unknown'}
+                        </Badge>
+                        {trip.payment_status && (
+                          <span className={`text-[10px] ${
+                            trip.payment_status === 'captured' || trip.payment_status === 'collected_cash' 
+                              ? 'text-green-600' 
+                              : trip.payment_status === 'pending' 
+                                ? 'text-amber-600' 
+                                : 'text-muted-foreground'
+                          }`}>
+                            {trip.payment_status === 'captured' ? '✓ Paid' 
+                              : trip.payment_status === 'collected_cash' ? '✓ Cash collected'
+                              : trip.payment_status}
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {trip.completed_at 
@@ -1199,7 +1232,7 @@ export default function TripHistory() {
                       <div className="flex justify-between font-semibold">
                         <span>Final Fare</span>
                         <span className="text-green-600">
-                          {getCurrencySymbol(selectedTrip.currency_code)}{((selectedTrip.final_fare_pence ?? (selectedTrip.fare ? selectedTrip.fare * 100 : 0)) / 100).toFixed(2)}
+                          {getCurrencySymbol(selectedTrip.currency_code)}{getTripFarePounds(selectedTrip).toFixed(2)}
                         </span>
                       </div>
                     </div>

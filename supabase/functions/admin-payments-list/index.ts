@@ -137,7 +137,7 @@ serve(async (req) => {
     // Transform data
     const transformedTransactions = transactions?.map((t: any) => ({
       id: t.id,
-      tripCode: t.trip_code || t.trip_number,
+      tripCode: t.trip_number || t.trip_code || t.id?.substring(0, 8).toUpperCase(),
       type: (t.refund_amount_pence && t.refund_amount_pence > 0) ? 'refund' : 'payment',
       route: `${t.pickup_address?.split(',')[0] || 'Unknown'} → ${t.dropoff_address?.split(',')[0] || 'Unknown'}`,
       amount: t.gross_fare_pence || 0,

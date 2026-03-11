@@ -12,6 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
+import { getTripDisplayId } from '@/lib/tripUtils';
 import { 
   CreditCard, 
   Search, 
@@ -346,7 +347,8 @@ export default function AdminPayments() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="captured">Paid</SelectItem>
+                  <SelectItem value="captured">Paid (Captured)</SelectItem>
+                  <SelectItem value="collected_cash">Cash Collected</SelectItem>
                   <SelectItem value="authorized">Authorized</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="failed">Failed</SelectItem>
@@ -403,7 +405,7 @@ export default function AdminPayments() {
                       filteredTransactions.map((tx) => (
                         <TableRow key={tx.id}>
                           <TableCell className="font-mono text-sm">
-                            {tx.tripCode || tx.id?.substring(0, 8)}
+                            {getTripDisplayId({ trip_number: tx.tripCode, trip_code: tx.tripCode, id: tx.id })}
                           </TableCell>
                           <TableCell>
                             <Badge variant="outline" className={`flex items-center w-fit ${tx.type === 'refund' ? 'text-red-600' : 'text-green-600'}`}>
