@@ -56,6 +56,7 @@ import Notifications from "./pages/Notifications";
 import AdminProfile from "./pages/AdminProfile";
 import Settings from "./pages/Settings";
 import { AuthProvider } from "@/hooks/useAuth";
+import { StaffProfileProvider } from "@/hooks/useStaffProfile";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AdminShell } from "@/components/layout/AdminShell";
 
@@ -72,6 +73,7 @@ const queryClient = new QueryClient();
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
+      <StaffProfileProvider>
       <TooltipProvider>
         <Toaster />
         <Sonner />
@@ -167,6 +169,7 @@ const App = () => (
           </Routes>
         </BrowserRouter>
       </TooltipProvider>
+      </StaffProfileProvider>
     </AuthProvider>
   </QueryClientProvider>
 );
