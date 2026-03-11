@@ -104,13 +104,19 @@ export function ServiceAreaBoundaryMap({
     document.head.appendChild(script);
   }, []);
 
-  // Initialize from existing boundary
+  // Initialize from existing boundary (only on mount or external prop change)
   useEffect(() => {
+    // Skip if this update was triggered by our own onBoundaryChange call
+    if (internalUpdateRef.current) {
+      internalUpdateRef.current = false;
+      return;
+    }
     const normalizedBoundary = normalizeToLatLng(boundary);
     if (normalizedBoundary.length >= 3) {
       setPoints(normalizedBoundary);
       setIsDrawing(false);
-    } else {
+      boundaryInitializedRef.current = true;
+    } else if (!boundaryInitializedRef.current) {
       setPoints([]);
       setIsDrawing(true);
     }
