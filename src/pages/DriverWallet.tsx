@@ -90,7 +90,7 @@ export default function DriverWallet() {
   return (
     <AdminLayout 
       title="Driver Wallet & Ledger" 
-      description="Track driver balances, debts from cash trips, and earnings from digital payments"
+      description="Source of truth for driver financial balances — all entries are immutable ledger records"
     >
       <div className="space-y-6">
         {/* Stats */}

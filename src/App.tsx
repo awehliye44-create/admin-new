@@ -41,9 +41,7 @@ import AccountSuspension from "./pages/AccountSuspension";
 import ComplaintsDashboard from "./pages/ComplaintsDashboard";
 import Tickets from "./pages/Tickets";
 import SupportCategories from "./pages/SupportCategories";
-import Payments from "./pages/Payments";
 import AdminPayments from "./pages/AdminPayments";
-import DriverPayouts from "./pages/DriverPayouts";
 import AdminDriverSettlements from "./pages/AdminDriverSettlements";
 import DriverWallet from "./pages/DriverWallet";
 import AdminPayoutBatches from "./pages/AdminPayoutBatches";
@@ -140,9 +138,8 @@ const App = () => (
               <Route path="categories" element={<SupportCategories />} />
               
               {/* Finance & Payouts */}
-              <Route path="payments" element={<Payments />} />
+              <Route path="payments" element={<AdminPayments />} />
               <Route path="admin-payments" element={<AdminPayments />} />
-              <Route path="driver-payouts" element={<DriverPayouts />} />
               <Route path="admin-settlements" element={<AdminDriverSettlements />} />
               <Route path="driver-wallet" element={<DriverWallet />} />
               <Route path="payout-batches" element={<AdminPayoutBatches />} />

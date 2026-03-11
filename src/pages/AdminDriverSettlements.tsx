@@ -263,8 +263,8 @@ export default function AdminDriverSettlements() {
 
   return (
     <AdminLayout 
-      title="Driver Payouts & Settlements" 
-      description="Manage driver earnings, payouts, and wallet balances"
+      title="Driver Settlements" 
+      description="Settlement summary derived from wallet ledger — manage payouts and adjustments"
     >
       <div className="space-y-6">
         {/* Stats */}

@@ -268,7 +268,7 @@ export default function AdminPayments() {
   return (
     <AdminLayout 
       title="Payments & Transactions" 
-      description="View all payment transactions and platform revenue"
+      description="Platform-wide payment reporting — derived from trip payments, refunds, and wallet events"
     >
       <div className="space-y-6">
         {/* Stats */}
