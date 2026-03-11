@@ -43,13 +43,42 @@ serve(async (req) => {
       return errorResponse('Validation failed', 400, { validation_errors: validation.errors });
     }
 
-    const { trip_id, driver_id, final_fare_pence, payment_method, stripe_payment_intent_id } = validation.data!;
+    const {
+      trip_id,
+      driver_id,
+      payment_method,
+      base_fare_pence,
+      pickup_waiting_charge_pence = 0,
+      stop_waiting_charge_pence = 0,
+      stop_modification_charge_pence = 0,
+      destination_change_charge_pence = 0,
+      extras_charge_pence = 0,
+      tip_amount_pence = 0,
+      stripe_payment_intent_id,
+      final_fare_pence: legacy_fare_pence,
+    } = validation.data!;
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    console.log(`[complete-trip] Completing trip ${trip_id}, method: ${payment_method}`);
+    // === FARE CALCULATION ===
+    // If legacy final_fare_pence is sent without base_fare, treat it as base_fare
+    const effectiveBaseFare = base_fare_pence || legacy_fare_pence || 0;
+
+    const commissionable_subtotal =
+      effectiveBaseFare +
+      pickup_waiting_charge_pence +
+      stop_waiting_charge_pence +
+      stop_modification_charge_pence +
+      destination_change_charge_pence +
+      extras_charge_pence;
+
+    // Tip is NOT commissionable
+    const final_trip_total = commissionable_subtotal + tip_amount_pence;
+
+    console.log(`[complete-trip] Trip ${trip_id}, method: ${payment_method}`);
+    console.log(`[complete-trip] Subtotal: ${commissionable_subtotal}p, Tip: ${tip_amount_pence}p, Total: ${final_trip_total}p`);
 
     // === Validate trip ===
     const { data: trip, error: tripError } = await supabase
@@ -75,13 +104,12 @@ serve(async (req) => {
     let commissionPercentage = 20;
     const { data: driver } = await supabase
       .from('drivers')
-      .select('commission_override_pct, category_id')
+      .select('commission_override_pct, category_id, stripe_account_id')
       .eq('id', driver_id)
       .single();
 
     if (driver?.commission_override_pct != null) {
       commissionPercentage = driver.commission_override_pct;
-      console.log(`[complete-trip] Driver override commission: ${commissionPercentage}%`);
     } else if (driver?.category_id) {
       const { data: category } = await supabase
         .from('driver_categories')
@@ -90,73 +118,105 @@ serve(async (req) => {
         .single();
       if (category?.commission_pct != null) {
         commissionPercentage = category.commission_pct;
-        console.log(`[complete-trip] Category commission: ${commissionPercentage}%`);
       }
     }
 
-    const commission_pence = Math.round(final_fare_pence * commissionPercentage / 100);
-    const driver_net_pence = final_fare_pence - commission_pence;
+    // Commission applied to commissionable subtotal only (tip excluded)
+    const platform_commission = Math.round(commissionable_subtotal * commissionPercentage / 100);
+    const driver_net_before_tip = commissionable_subtotal - platform_commission;
+    const driver_total_earnings = driver_net_before_tip + tip_amount_pence;
     const currency_code = trip.currency || 'GBP';
     const isCashPayment = payment_method === 'CASH';
 
-    console.log(`[complete-trip] Fare: ${final_fare_pence}p, Commission: ${commission_pence}p (${commissionPercentage}%), Net: ${driver_net_pence}p, Cash: ${isCashPayment}`);
+    console.log(`[complete-trip] Commission: ${platform_commission}p (${commissionPercentage}%), DriverNet: ${driver_net_before_tip}p, DriverTotal: ${driver_total_earnings}p`);
 
     // === Update trip to completed ===
     const tripUpdate: Record<string, unknown> = {
       status: 'completed',
       completed_at: new Date().toISOString(),
-      fare: final_fare_pence / 100,
-      gross_fare_pence: final_fare_pence,
-      commission_pence,
-      driver_net_pence,
+      fare: final_trip_total / 100,
+      gross_fare_pence: commissionable_subtotal,
+      commission_pence: platform_commission,
+      driver_net_pence: driver_total_earnings,
       payment_method,
       updated_at: new Date().toISOString(),
     };
 
-    if (isCashPayment) {
-      // === CASH TRIP: Driver keeps cash, platform debits commission from wallet ===
-      tripUpdate.payment_status = 'collected_cash';
-      tripUpdate.stripe_processing_fee_pence = 0; // No Stripe fee on cash
+    // === Calculate wallet balance ===
+    const { data: walletEntries } = await supabase
+      .from('driver_ledger')
+      .select('amount_pence')
+      .eq('driver_id', driver_id);
+    const walletBefore = walletEntries?.reduce((sum, e) => sum + (e.amount_pence || 0), 0) || 0;
 
-      // Calculate wallet balance before
-      const { data: walletEntries } = await supabase
-        .from('driver_ledger')
-        .select('amount_pence')
-        .eq('driver_id', driver_id);
-      const walletBefore = walletEntries?.reduce((sum, e) => sum + (e.amount_pence || 0), 0) || 0;
+    // === Build trip_finance record ===
+    const financeRecord: Record<string, unknown> = {
+      trip_id,
+      driver_id,
+      service_area_id: trip.service_area_id,
+      base_fare_pence: effectiveBaseFare,
+      pickup_waiting_charge_pence,
+      stop_waiting_charge_pence,
+      stop_modification_charge_pence,
+      destination_change_charge_pence,
+      extras_charge_pence,
+      tip_amount_pence,
+      commissionable_subtotal_pence: commissionable_subtotal,
+      commission_rate_pct: commissionPercentage,
+      platform_commission_pence: platform_commission,
+      driver_net_before_tip_pence: driver_net_before_tip,
+      driver_total_earnings_pence: driver_total_earnings,
+      final_trip_total_pence: final_trip_total,
+      payment_method,
+      currency_code,
+      wallet_balance_before_pence: walletBefore,
+    };
+
+    if (isCashPayment) {
+      // === CASH TRIP ===
+      tripUpdate.payment_status = 'collected_cash';
+      tripUpdate.stripe_processing_fee_pence = 0;
 
       // Create CASH_COMMISSION_DEBT ledger entry
-      const { error: ledgerError } = await supabase
+      const { data: ledgerEntry, error: ledgerError } = await supabase
         .from('driver_ledger')
         .insert({
           driver_id,
           trip_id,
           entry_type: 'CASH_COMMISSION_DEBT',
-          amount_pence: -commission_pence, // Negative = debt owed to platform
+          amount_pence: -platform_commission,
           currency_code,
           description: `Commission owed from cash trip`,
-        });
+        })
+        .select('id')
+        .single();
 
       if (ledgerError) {
         console.error('[complete-trip] Ledger error:', ledgerError);
       } else {
-        console.log(`[complete-trip] CASH_COMMISSION_DEBT: -${commission_pence}p`);
+        console.log(`[complete-trip] CASH_COMMISSION_DEBT: -${platform_commission}p`);
+        financeRecord.cash_commission_ledger_id = ledgerEntry?.id;
       }
 
       tripUpdate.wallet_balance_before = walletBefore;
-      tripUpdate.wallet_balance_after = walletBefore - commission_pence;
+      tripUpdate.wallet_balance_after = walletBefore - platform_commission;
       tripUpdate.debt_recovery_pence = 0;
-      tripUpdate.final_payout_pence = 0; // No Stripe payout for cash
+      tripUpdate.final_payout_pence = 0;
+
+      financeRecord.debt_recovery_pence = 0;
+      financeRecord.final_driver_payout_pence = 0;
+      financeRecord.wallet_balance_after_pence = walletBefore - platform_commission;
+      financeRecord.settlement_status = 'settled';
+      financeRecord.settled_at = new Date().toISOString();
 
     } else {
-      // === DIGITAL TRIP: Delegate capture + transfer to capture-trip-payment ===
+      // === DIGITAL TRIP: Use Stripe Connect Destination Charges ===
       tripUpdate.payment_status = stripe_payment_intent_id ? 'pending_capture' : 'pending';
       tripUpdate.stripe_payment_intent_id = stripe_payment_intent_id || null;
 
-      // If we have a PaymentIntent, invoke capture-trip-payment
       if (stripe_payment_intent_id) {
         console.log(`[complete-trip] Invoking capture-trip-payment for PI: ${stripe_payment_intent_id}`);
-        
+
         try {
           const captureResponse = await fetch(`${supabaseUrl}/functions/v1/capture-trip-payment`, {
             method: 'POST',
@@ -168,38 +228,60 @@ serve(async (req) => {
               trip_id,
               driver_id,
               payment_intent_id: stripe_payment_intent_id,
-              final_fare_pence,
-              commission_pence,
-              driver_net_pence,
+              final_trip_total_pence: final_trip_total,
+              commissionable_subtotal_pence: commissionable_subtotal,
+              platform_commission_pence: platform_commission,
+              driver_total_earnings_pence: driver_total_earnings,
+              tip_amount_pence,
               currency_code,
+              driver_stripe_account_id: driver?.stripe_account_id || null,
             }),
           });
 
           const captureResult = await captureResponse.json();
-          
+
           if (captureResult.success) {
-            console.log(`[complete-trip] Capture succeeded: transfer=${captureResult.stripe_transfer_id}, payout=${captureResult.final_payout_pence}p`);
-            // capture-trip-payment already updated the trip record with settlement fields
-            // Override payment_status from our tripUpdate since capture already set it
+            console.log(`[complete-trip] Capture succeeded: payout=${captureResult.final_driver_payout_pence}p`);
             tripUpdate.payment_status = 'captured';
             tripUpdate.stripe_processing_fee_pence = captureResult.stripe_fee_pence || 0;
-            tripUpdate.stripe_transfer_id = captureResult.stripe_transfer_id;
             tripUpdate.debt_recovery_pence = captureResult.debt_recovery_pence || 0;
-            tripUpdate.final_payout_pence = captureResult.final_payout_pence;
+            tripUpdate.final_payout_pence = captureResult.final_driver_payout_pence;
             tripUpdate.wallet_balance_before = captureResult.wallet_balance_before;
             tripUpdate.wallet_balance_after = captureResult.wallet_balance_after;
+
+            financeRecord.stripe_processing_fee_pence = captureResult.stripe_fee_pence || 0;
+            financeRecord.stripe_application_fee_id = captureResult.stripe_application_fee_id;
+            financeRecord.debt_recovery_pence = captureResult.debt_recovery_pence || 0;
+            financeRecord.final_driver_payout_pence = captureResult.final_driver_payout_pence;
+            financeRecord.wallet_balance_after_pence = captureResult.wallet_balance_after;
+            financeRecord.settlement_status = 'settled';
+            financeRecord.settled_at = new Date().toISOString();
           } else {
             console.error(`[complete-trip] Capture failed:`, captureResult.error);
             tripUpdate.payment_status = 'capture_failed';
+            financeRecord.settlement_status = 'failed';
           }
         } catch (captureErr) {
           console.error(`[complete-trip] Capture invocation error:`, captureErr);
           tripUpdate.payment_status = 'capture_failed';
+          financeRecord.settlement_status = 'failed';
         }
       }
+
+      financeRecord.stripe_payment_intent_id = stripe_payment_intent_id;
+      financeRecord.stripe_destination_account_id = driver?.stripe_account_id;
     }
 
-    // Update the trip
+    // === Write trip_finance record ===
+    const { error: financeError } = await supabase
+      .from('trip_finance')
+      .insert(financeRecord);
+
+    if (financeError) {
+      console.error('[complete-trip] trip_finance insert error:', financeError);
+    }
+
+    // === Update the trip ===
     const { error: updateError } = await supabase
       .from('trips')
       .update(tripUpdate)
@@ -222,7 +304,7 @@ serve(async (req) => {
         .select('id', { count: 'exact', head: true })
         .eq('driver_id', driver_id)
         .eq('status', 'completed');
-      
+
       await supabase.from('drivers')
         .update({ total_trips: count || 0 })
         .eq('id', driver_id);
@@ -235,14 +317,14 @@ serve(async (req) => {
       driverId: driver_id, tripId: trip_id,
       details: {
         payment_method,
-        gross_fare_pence: final_fare_pence,
-        commission_pence,
-        driver_net_pence,
+        commissionable_subtotal,
+        platform_commission,
+        driver_total_earnings,
+        tip_amount_pence,
+        final_trip_total,
         payment_status: tripUpdate.payment_status,
         debt_recovery_pence: tripUpdate.debt_recovery_pence || 0,
         final_payout_pence: tripUpdate.final_payout_pence,
-        stripe_payment_intent_id: stripe_payment_intent_id || null,
-        stripe_transfer_id: tripUpdate.stripe_transfer_id || null,
       },
       ipAddress: clientIP, userAgent,
     });
@@ -252,13 +334,17 @@ serve(async (req) => {
     return successResponse({
       trip_id,
       payment_method,
-      gross_fare_pence: final_fare_pence,
-      commission_pence,
-      driver_net_pence,
+      commissionable_subtotal_pence: commissionable_subtotal,
+      platform_commission_pence: platform_commission,
+      commission_rate_pct: commissionPercentage,
+      driver_net_before_tip_pence: driver_net_before_tip,
+      tip_amount_pence,
+      driver_total_earnings_pence: driver_total_earnings,
+      final_trip_total_pence: final_trip_total,
       payment_status: tripUpdate.payment_status,
       is_cash: isCashPayment,
       debt_recovery_pence: tripUpdate.debt_recovery_pence || 0,
-      final_payout_pence: tripUpdate.final_payout_pence,
+      final_driver_payout_pence: tripUpdate.final_payout_pence,
     });
 
   } catch (error) {

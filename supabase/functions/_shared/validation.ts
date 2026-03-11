@@ -280,17 +280,34 @@ export const dispatchTripSchema: Record<keyof DispatchTripRequest, SchemaField> 
 export interface CompleteTripRequest {
   trip_id: string;
   driver_id: string;
-  final_fare_pence: number;
   payment_method: PaymentMethod;
+  // Fare components (all in pence)
+  base_fare_pence: number;
+  pickup_waiting_charge_pence?: number;
+  stop_waiting_charge_pence?: number;
+  stop_modification_charge_pence?: number;
+  destination_change_charge_pence?: number;
+  extras_charge_pence?: number;
+  tip_amount_pence?: number;
+  // Stripe
   stripe_payment_intent_id?: string;
+  // Legacy support
+  final_fare_pence?: number;
 }
 
 export const completeTripSchema: Record<keyof CompleteTripRequest, SchemaField> = {
   trip_id: { type: 'uuid' },
   driver_id: { type: 'uuid' },
-  final_fare_pence: { type: 'number', min: 0, max: 100000000, integer: true },
   payment_method: { type: 'payment_method' },
+  base_fare_pence: { type: 'number', min: 0, max: 100000000, integer: true },
+  pickup_waiting_charge_pence: { type: 'number', min: 0, max: 10000000, integer: true, optional: true },
+  stop_waiting_charge_pence: { type: 'number', min: 0, max: 10000000, integer: true, optional: true },
+  stop_modification_charge_pence: { type: 'number', min: 0, max: 10000000, integer: true, optional: true },
+  destination_change_charge_pence: { type: 'number', min: 0, max: 10000000, integer: true, optional: true },
+  extras_charge_pence: { type: 'number', min: 0, max: 10000000, integer: true, optional: true },
+  tip_amount_pence: { type: 'number', min: 0, max: 10000000, integer: true, optional: true },
   stripe_payment_intent_id: { type: 'string', optional: true, maxLength: 255 },
+  final_fare_pence: { type: 'number', min: 0, max: 100000000, integer: true, optional: true },
 };
 
 export interface FindDriversRequest {
