@@ -80,6 +80,8 @@ export function ServiceAreaBoundaryMap({
   const [points, setPoints] = useState<LatLng[]>([]);
   const [isDrawing, setIsDrawing] = useState(true);
   const [validationWarning, setValidationWarning] = useState<string | null>(null);
+  const boundaryInitializedRef = useRef(false);
+  const internalUpdateRef = useRef(false);
 
   // Use ref to track isDrawing for click handler
   const isDrawingRef = useRef(isDrawing);
