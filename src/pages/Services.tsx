@@ -848,26 +848,6 @@ export default function Services() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="timezone">Timezone *</Label>
-                  <Select
-                    value={formData.timezone}
-                    onValueChange={(value) => setFormData(prev => ({ ...prev, timezone: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select timezone" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TIMEZONES.map(tz => (
-                        <SelectItem key={tz.value} value={tz.value}>
-                          {tz.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">Used for daily reports & driver earnings</p>
-                </div>
 
               {getSelectedRegion() && (
                 <Card className="bg-muted/50">
