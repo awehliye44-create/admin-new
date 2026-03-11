@@ -63,8 +63,9 @@ interface PayoutResponse {
   totalPages: number;
 }
 
-const formatPence = (pence: number): string => {
-  return `£${(pence / 100).toFixed(2)}`;
+const formatPence = (pence: number, currencyCode: string = 'GBP'): string => {
+  const symbol = getCurrencySymbol(currencyCode);
+  return `${symbol}${(pence / 100).toFixed(2)}`;
 };
 
 export default function AdminPayoutBatches() {
