@@ -871,17 +871,16 @@ export default function Services() {
                 </Card>
               )}
 
-                <div className="flex items-center justify-between pt-6">
-                  <div>
-                    <Label htmlFor="is_active">Active Status</Label>
-                    <p className="text-xs text-muted-foreground">Only active areas accept rides</p>
-                  </div>
-                  <Switch
-                    id="is_active"
-                    checked={formData.is_active}
-                    onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_active: checked }))}
-                  />
+              <div className="flex items-center justify-between pt-2">
+                <div>
+                  <Label htmlFor="is_active">Active Status</Label>
+                  <p className="text-xs text-muted-foreground">Only active areas accept rides</p>
                 </div>
+                <Switch
+                  id="is_active"
+                  checked={formData.is_active}
+                  onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_active: checked }))}
+                />
               </div>
             </TabsContent>
             
