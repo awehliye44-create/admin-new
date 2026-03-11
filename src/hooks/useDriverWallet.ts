@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { getCurrencySymbol } from '@/lib/regionSettings';
 import { supabase } from '@/integrations/supabase/client';
 
 export interface LedgerEntry {
