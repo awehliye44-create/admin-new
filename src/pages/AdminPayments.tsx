@@ -347,7 +347,8 @@ export default function AdminPayments() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="captured">Paid</SelectItem>
+                  <SelectItem value="captured">Paid (Captured)</SelectItem>
+                  <SelectItem value="collected_cash">Cash Collected</SelectItem>
                   <SelectItem value="authorized">Authorized</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="failed">Failed</SelectItem>
