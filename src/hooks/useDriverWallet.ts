@@ -36,9 +36,7 @@ export interface DriverWalletData {
 // Format pence to currency string
 export function formatPence(pence: number, currencyCode: string = 'GBP'): string {
   const amount = pence / 100;
-  const symbol = currencyCode === 'GBP' ? '£' : 
-                 currencyCode === 'USD' ? '$' : 
-                 currencyCode === 'EUR' ? '€' : currencyCode;
+  const symbol = getCurrencySymbol(currencyCode);
   
   const formatted = Math.abs(amount).toFixed(2);
   return pence < 0 ? `-${symbol}${formatted}` : `${symbol}${formatted}`;

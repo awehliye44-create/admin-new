@@ -463,10 +463,7 @@ export default function ServiceAreaPricing() {
     }
   };
 
-  const getCurrencySymbol = (code: string) => {
-    const symbols: Record<string, string> = { GBP: '£', USD: '$', EUR: '€', KES: 'KES' };
-    return symbols[code] || code;
-  };
+  const getSymbol = (code: string) => getCurrencySymbol(code);
 
   if (isLoading) {
     return (
