@@ -1,2 +1,2 @@
 /// <reference types="vite/client" />
-/// <reference types="@types/google.maps" />
+/// <reference path="../node_modules/@types/google.maps/index.d.ts" />
