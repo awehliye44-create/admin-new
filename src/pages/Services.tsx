@@ -56,6 +56,7 @@ import {
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
+import { getCurrencySymbol } from '@/lib/regionSettings';
 
 interface LatLng {
   lat: number;
@@ -445,7 +446,7 @@ export default function Services() {
     setIsDeleteDialogOpen(true);
   };
 
-  const getCurrencySymbol = (code: string) => CURRENCIES[code]?.symbol || code;
+  // getCurrencySymbol imported from regionSettings
 
   const getSelectedRegion = () => regions.find(r => r.id === formData.region_id);
 
@@ -821,7 +822,17 @@ export default function Services() {
                   <Label htmlFor="region">Region *</Label>
                   <Select
                     value={formData.region_id}
-                    onValueChange={(value) => setFormData(prev => ({ ...prev, region_id: value, geo_boundary: null }))}
+                    onValueChange={(value) => {
+                      const region = regions.find(r => r.id === value);
+                      setFormData(prev => ({ 
+                        ...prev, 
+                        region_id: value, 
+                        geo_boundary: null,
+                        currency_code: region?.currency_code || prev.currency_code,
+                        distance_unit: region?.distance_unit || prev.distance_unit,
+                        timezone: region?.timezone || prev.timezone,
+                      }));
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select a region" />
@@ -837,75 +848,39 @@ export default function Services() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="timezone">Timezone *</Label>
-                  <Select
-                    value={formData.timezone}
-                    onValueChange={(value) => setFormData(prev => ({ ...prev, timezone: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select timezone" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TIMEZONES.map(tz => (
-                        <SelectItem key={tz.value} value={tz.value}>
-                          {tz.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">Used for daily reports & driver earnings</p>
-                </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="currency">Currency *</Label>
-                  <Select
-                    value={formData.currency_code}
-                    onValueChange={(value) => setFormData(prev => ({ ...prev, currency_code: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select currency" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(CURRENCIES).map(([code, { symbol, name }]) => (
-                        <SelectItem key={code} value={code}>
-                          {symbol} {code} - {name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+              {getSelectedRegion() && (
+                <Card className="bg-muted/50">
+                  <CardContent className="pt-4">
+                    <p className="text-sm font-medium mb-3">Inherited from Region</p>
+                    <div className="grid grid-cols-3 gap-3 text-sm">
+                      <div className="flex items-center gap-2">
+                        <DollarSign className="h-4 w-4 text-muted-foreground" />
+                        <span>Currency: <strong>{getCurrencySymbol(getSelectedRegion()!.currency_code)} {getSelectedRegion()!.currency_code}</strong></span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Ruler className="h-4 w-4 text-muted-foreground" />
+                        <span>Distance: <strong>{getSelectedRegion()!.distance_unit === 'mile' ? 'Miles' : 'Kilometers'}</strong></span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-muted-foreground" />
+                        <span>TZ: <strong>{getSelectedRegion()!.timezone}</strong></span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="distance_unit">Distance Unit</Label>
-                  <Select
-                    value={formData.distance_unit}
-                    onValueChange={(value) => setFormData(prev => ({ ...prev, distance_unit: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="km">Kilometers (km)</SelectItem>
-                      <SelectItem value="mile">Miles (mi)</SelectItem>
-                    </SelectContent>
-                  </Select>
+              <div className="flex items-center justify-between pt-2">
+                <div>
+                  <Label htmlFor="is_active">Active Status</Label>
+                  <p className="text-xs text-muted-foreground">Only active areas accept rides</p>
                 </div>
-
-                <div className="flex items-center justify-between pt-6">
-                  <div>
-                    <Label htmlFor="is_active">Active Status</Label>
-                    <p className="text-xs text-muted-foreground">Only active areas accept rides</p>
-                  </div>
-                  <Switch
-                    id="is_active"
-                    checked={formData.is_active}
-                    onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_active: checked }))}
-                  />
-                </div>
+                <Switch
+                  id="is_active"
+                  checked={formData.is_active}
+                  onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_active: checked }))}
+                />
               </div>
             </TabsContent>
             
@@ -989,7 +964,17 @@ export default function Services() {
                 <Label htmlFor="edit_region">Region</Label>
                 <Select
                   value={formData.region_id}
-                  onValueChange={(value) => setFormData(prev => ({ ...prev, region_id: value, geo_boundary: null }))}
+                  onValueChange={(value) => {
+                    const region = regions.find(r => r.id === value);
+                    setFormData(prev => ({ 
+                      ...prev, 
+                      region_id: value, 
+                      geo_boundary: null,
+                      currency_code: region?.currency_code || prev.currency_code,
+                      distance_unit: region?.distance_unit || prev.distance_unit,
+                      timezone: region?.timezone || prev.timezone,
+                    }));
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue />

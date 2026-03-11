@@ -49,6 +49,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ServiceAreaPaymentConfig } from '@/components/payment/ServiceAreaPaymentConfig';
+import { getCurrencySymbol } from '@/lib/regionSettings';
 import { PresetOffersConfig } from '@/components/pricing/PresetOffersConfig';
 
 interface VehicleType {
@@ -463,10 +464,7 @@ export default function ServiceAreaPricing() {
     }
   };
 
-  const getCurrencySymbol = (code: string) => {
-    const symbols: Record<string, string> = { GBP: '£', USD: '$', EUR: '€', KES: 'KES' };
-    return symbols[code] || code;
-  };
+  // getCurrencySymbol imported from regionSettings
 
   if (isLoading) {
     return (

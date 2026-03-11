@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { getCurrencySymbol } from '@/lib/regionSettings';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -106,8 +107,9 @@ interface PaymentDetail {
   } | null;
 }
 
-const formatPence = (pence: number): string => {
-  return `£${(pence / 100).toFixed(2)}`;
+const formatPence = (pence: number, currencyCode: string = 'GBP'): string => {
+  const symbol = getCurrencySymbol(currencyCode);
+  return `${symbol}${(pence / 100).toFixed(2)}`;
 };
 
 export default function AdminPayments() {
