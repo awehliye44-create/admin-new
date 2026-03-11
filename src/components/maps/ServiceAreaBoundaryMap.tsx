@@ -80,6 +80,8 @@ export function ServiceAreaBoundaryMap({
   const [points, setPoints] = useState<LatLng[]>([]);
   const [isDrawing, setIsDrawing] = useState(true);
   const [validationWarning, setValidationWarning] = useState<string | null>(null);
+  const boundaryInitializedRef = useRef(false);
+  const internalUpdateRef = useRef(false);
 
   // Use ref to track isDrawing for click handler
   const isDrawingRef = useRef(isDrawing);
@@ -102,13 +104,19 @@ export function ServiceAreaBoundaryMap({
     document.head.appendChild(script);
   }, []);
 
-  // Initialize from existing boundary
+  // Initialize from existing boundary (only on mount or external prop change)
   useEffect(() => {
+    // Skip if this update was triggered by our own onBoundaryChange call
+    if (internalUpdateRef.current) {
+      internalUpdateRef.current = false;
+      return;
+    }
     const normalizedBoundary = normalizeToLatLng(boundary);
     if (normalizedBoundary.length >= 3) {
       setPoints(normalizedBoundary);
       setIsDrawing(false);
-    } else {
+      boundaryInitializedRef.current = true;
+    } else if (!boundaryInitializedRef.current) {
       setPoints([]);
       setIsDrawing(true);
     }
@@ -295,12 +303,16 @@ export function ServiceAreaBoundaryMap({
     }
   }, [points, isMapLoaded, isDrawing, isEditable, isPointInRegion]);
 
-  // Notify parent of changes
+  // Notify parent of changes (use ref to prevent re-render loop)
+  const onBoundaryChangeRef = useRef(onBoundaryChange);
+  onBoundaryChangeRef.current = onBoundaryChange;
+  
   useEffect(() => {
     if (points.length >= 3 && !isDrawing) {
-      onBoundaryChange(latLngToGeoJSON(points));
+      internalUpdateRef.current = true;
+      onBoundaryChangeRef.current(latLngToGeoJSON(points));
     }
-  }, [points, isDrawing, onBoundaryChange]);
+  }, [points, isDrawing]);
 
   const getPolygonPoints = useCallback((): LatLng[] => {
     if (!polygonRef.current) return [];
@@ -333,6 +345,7 @@ export function ServiceAreaBoundaryMap({
     setPoints([]);
     setIsDrawing(true);
     setValidationWarning(null);
+    boundaryInitializedRef.current = false;
     if (polygonRef.current) {
       polygonRef.current.setMap(null);
       polygonRef.current = null;

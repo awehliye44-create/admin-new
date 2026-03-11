@@ -4760,6 +4760,7 @@ export type Database = {
           driver_id: string | null
           driver_location_lat: number | null
           driver_location_lng: number | null
+          driver_net_amount: number | null
           driver_net_pence: number | null
           driver_passenger_compliments: string[] | null
           driver_passenger_feedback: string | null
@@ -4780,6 +4781,7 @@ export type Database = {
           excluded_driver_ids: string[] | null
           extras_pence: number | null
           fare: number | null
+          fare_amount: number | null
           final_fare_pence: number | null
           final_payout_pence: number | null
           gross_fare_pence: number | null
@@ -4801,6 +4803,7 @@ export type Database = {
           pickup_latitude: number | null
           pickup_longitude: number | null
           pickup_zone_id: string | null
+          platform_commission_amount: number | null
           pre_assigned_driver_id: string | null
           pricing_version: string | null
           qr_session_id: string | null
@@ -4821,6 +4824,7 @@ export type Database = {
           status: string | null
           stops: Json | null
           stripe_charge_id: string | null
+          stripe_fee_amount: number | null
           stripe_payment_intent_id: string | null
           stripe_processing_fee_pence: number | null
           stripe_transfer_id: string | null
@@ -4870,6 +4874,7 @@ export type Database = {
           driver_id?: string | null
           driver_location_lat?: number | null
           driver_location_lng?: number | null
+          driver_net_amount?: number | null
           driver_net_pence?: number | null
           driver_passenger_compliments?: string[] | null
           driver_passenger_feedback?: string | null
@@ -4890,6 +4895,7 @@ export type Database = {
           excluded_driver_ids?: string[] | null
           extras_pence?: number | null
           fare?: number | null
+          fare_amount?: number | null
           final_fare_pence?: number | null
           final_payout_pence?: number | null
           gross_fare_pence?: number | null
@@ -4911,6 +4917,7 @@ export type Database = {
           pickup_latitude?: number | null
           pickup_longitude?: number | null
           pickup_zone_id?: string | null
+          platform_commission_amount?: number | null
           pre_assigned_driver_id?: string | null
           pricing_version?: string | null
           qr_session_id?: string | null
@@ -4931,6 +4938,7 @@ export type Database = {
           status?: string | null
           stops?: Json | null
           stripe_charge_id?: string | null
+          stripe_fee_amount?: number | null
           stripe_payment_intent_id?: string | null
           stripe_processing_fee_pence?: number | null
           stripe_transfer_id?: string | null
@@ -4980,6 +4988,7 @@ export type Database = {
           driver_id?: string | null
           driver_location_lat?: number | null
           driver_location_lng?: number | null
+          driver_net_amount?: number | null
           driver_net_pence?: number | null
           driver_passenger_compliments?: string[] | null
           driver_passenger_feedback?: string | null
@@ -5000,6 +5009,7 @@ export type Database = {
           excluded_driver_ids?: string[] | null
           extras_pence?: number | null
           fare?: number | null
+          fare_amount?: number | null
           final_fare_pence?: number | null
           final_payout_pence?: number | null
           gross_fare_pence?: number | null
@@ -5021,6 +5031,7 @@ export type Database = {
           pickup_latitude?: number | null
           pickup_longitude?: number | null
           pickup_zone_id?: string | null
+          platform_commission_amount?: number | null
           pre_assigned_driver_id?: string | null
           pricing_version?: string | null
           qr_session_id?: string | null
@@ -5041,6 +5052,7 @@ export type Database = {
           status?: string | null
           stops?: Json | null
           stripe_charge_id?: string | null
+          stripe_fee_amount?: number | null
           stripe_payment_intent_id?: string | null
           stripe_processing_fee_pence?: number | null
           stripe_transfer_id?: string | null
