@@ -4888,6 +4888,7 @@ export type Database = {
           driver_location_lat: number | null
           driver_location_lng: number | null
           driver_net_amount: number | null
+          driver_net_before_tip_pence: number | null
           driver_net_pence: number | null
           driver_passenger_compliments: string[] | null
           driver_passenger_feedback: string | null
@@ -4896,6 +4897,7 @@ export type Database = {
           driver_passenger_rating_at: string | null
           driver_passenger_rating_skipped: boolean | null
           driver_passenger_rating_submitted: boolean | null
+          driver_total_earnings_pence: number | null
           dropoff_address: string
           dropoff_latitude: number | null
           dropoff_longitude: number | null
@@ -4956,6 +4958,7 @@ export type Database = {
           stripe_processing_fee_pence: number | null
           stripe_transfer_id: string | null
           surge_multiplier: number | null
+          tip_amount_pence: number
           tip_pence: number | null
           total_stops: number | null
           trip_code: string | null
@@ -5002,6 +5005,7 @@ export type Database = {
           driver_location_lat?: number | null
           driver_location_lng?: number | null
           driver_net_amount?: number | null
+          driver_net_before_tip_pence?: number | null
           driver_net_pence?: number | null
           driver_passenger_compliments?: string[] | null
           driver_passenger_feedback?: string | null
@@ -5010,6 +5014,7 @@ export type Database = {
           driver_passenger_rating_at?: string | null
           driver_passenger_rating_skipped?: boolean | null
           driver_passenger_rating_submitted?: boolean | null
+          driver_total_earnings_pence?: number | null
           dropoff_address: string
           dropoff_latitude?: number | null
           dropoff_longitude?: number | null
@@ -5070,6 +5075,7 @@ export type Database = {
           stripe_processing_fee_pence?: number | null
           stripe_transfer_id?: string | null
           surge_multiplier?: number | null
+          tip_amount_pence?: number
           tip_pence?: number | null
           total_stops?: number | null
           trip_code?: string | null
@@ -5116,6 +5122,7 @@ export type Database = {
           driver_location_lat?: number | null
           driver_location_lng?: number | null
           driver_net_amount?: number | null
+          driver_net_before_tip_pence?: number | null
           driver_net_pence?: number | null
           driver_passenger_compliments?: string[] | null
           driver_passenger_feedback?: string | null
@@ -5124,6 +5131,7 @@ export type Database = {
           driver_passenger_rating_at?: string | null
           driver_passenger_rating_skipped?: boolean | null
           driver_passenger_rating_submitted?: boolean | null
+          driver_total_earnings_pence?: number | null
           dropoff_address?: string
           dropoff_latitude?: number | null
           dropoff_longitude?: number | null
@@ -5184,6 +5192,7 @@ export type Database = {
           stripe_processing_fee_pence?: number | null
           stripe_transfer_id?: string | null
           surge_multiplier?: number | null
+          tip_amount_pence?: number
           tip_pence?: number | null
           total_stops?: number | null
           trip_code?: string | null
