@@ -405,7 +405,7 @@ export default function AdminPayments() {
                       filteredTransactions.map((tx) => (
                         <TableRow key={tx.id}>
                           <TableCell className="font-mono text-sm">
-                            {tx.tripCode || tx.id?.substring(0, 8)}
+                            {getTripDisplayId({ trip_number: tx.tripCode, trip_code: tx.tripCode, id: tx.id })}
                           </TableCell>
                           <TableCell>
                             <Badge variant="outline" className={`flex items-center w-fit ${tx.type === 'refund' ? 'text-red-600' : 'text-green-600'}`}>
