@@ -12,333 +12,370 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Textarea } from '@/components/ui/textarea';
-import { 
-  Shield, 
-  Search, 
-  UserPlus, 
-  UserMinus, 
-  Loader2, 
-  AlertCircle, 
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Shield,
+  Search,
+  UserPlus,
+  Loader2,
+  AlertCircle,
   CheckCircle,
   Users,
   Crown,
   UserCog,
   User,
-  History,
   RefreshCw,
   Edit,
   Trash2,
   Eye,
   Filter,
   Download,
-  Mail,
   Calendar,
-  Clock,
   ShieldCheck,
   ShieldAlert,
-  ShieldQuestion,
-  Plus
+  Plus,
+  ArrowRightLeft,
+  MapPin,
+  Briefcase,
+  DollarSign,
+  Headphones,
+  ClipboardCheck,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useStaffProfile, StaffRole, ROLE_LABELS, ROLE_PREFIXES } from '@/hooks/useStaffProfile';
 import { format } from 'date-fns';
 
-type AppRole = 'admin' | 'moderator' | 'user';
-
-interface UserRole {
+interface StaffMember {
   id: string;
   user_id: string;
-  role: AppRole;
+  staff_role_id: string;
+  full_name: string;
+  username: string | null;
+  role: StaffRole;
+  is_active: boolean;
   created_at: string;
-  email?: string;
+  service_areas: { id: string; service_area_id: string; name: string }[];
 }
 
-interface RoleActivity {
+interface ServiceArea {
   id: string;
-  action: 'granted' | 'revoked' | 'modified';
-  user_id: string;
-  role: AppRole;
-  performed_by: string;
-  performed_at: string;
-  notes?: string;
+  name: string;
 }
 
-const ROLE_CONFIG: Record<AppRole, { label: string; icon: typeof Crown; color: string; description: string }> = {
-  admin: {
-    label: 'Admin',
-    icon: Crown,
-    color: 'bg-amber-500/10 text-amber-500 border-amber-500/30',
-    description: 'Full access to all features and settings'
-  },
-  moderator: {
-    label: 'Moderator',
-    icon: ShieldCheck,
-    color: 'bg-blue-500/10 text-blue-500 border-blue-500/30',
-    description: 'Can manage content and users, limited settings access'
-  },
-  user: {
-    label: 'User',
-    icon: User,
-    color: 'bg-gray-500/10 text-gray-500 border-gray-500/30',
-    description: 'Basic access to the platform'
-  }
+const ROLE_CONFIG: Record<StaffRole, { label: string; icon: typeof Crown; color: string; prefix: string }> = {
+  super_admin: { label: 'Super Admin', icon: Crown, color: 'bg-amber-500/10 text-amber-500 border-amber-500/30', prefix: 'SA' },
+  admin: { label: 'Admin', icon: ShieldCheck, color: 'bg-blue-500/10 text-blue-500 border-blue-500/30', prefix: 'AD' },
+  operator: { label: 'Operator', icon: UserCog, color: 'bg-green-500/10 text-green-500 border-green-500/30', prefix: 'OP' },
+  finance_manager: { label: 'Finance Manager', icon: DollarSign, color: 'bg-purple-500/10 text-purple-500 border-purple-500/30', prefix: 'FM' },
+  customer_support: { label: 'Customer Support', icon: Headphones, color: 'bg-cyan-500/10 text-cyan-500 border-cyan-500/30', prefix: 'CS' },
+  compliance_officer: { label: 'Compliance Officer', icon: ClipboardCheck, color: 'bg-orange-500/10 text-orange-500 border-orange-500/30', prefix: 'CO' },
 };
 
 export default function RolesPermissions() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('users');
-  const [userIdInput, setUserIdInput] = useState('');
-  const [emailInput, setEmailInput] = useState('');
-  const [selectedRole, setSelectedRole] = useState<AppRole>('admin');
-  const [allRoles, setAllRoles] = useState<UserRole[]>([]);
-  const [filteredRoles, setFilteredRoles] = useState<UserRole[]>([]);
-  const [activities, setActivities] = useState<RoleActivity[]>([]);
+  const { canManageRoles } = useStaffProfile();
+  const [activeTab, setActiveTab] = useState('staff');
+  const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
+  const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterRole, setFilterRole] = useState<AppRole | 'all'>('all');
-  
+  const [filterRole, setFilterRole] = useState<StaffRole | 'all'>('all');
+
   // Dialog states
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showReassignDialog, setShowReassignDialog] = useState(false);
+  const [showRemoveDialog, setShowRemoveDialog] = useState(false);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
-  const [selectedUserRole, setSelectedUserRole] = useState<UserRole | null>(null);
-  const [editRole, setEditRole] = useState<AppRole>('user');
-  const [activityNotes, setActivityNotes] = useState('');
+  const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null);
 
-  // Statistics
-  const [stats, setStats] = useState({
-    total: 0,
-    admins: 0,
-    moderators: 0,
-    users: 0
-  });
+  // Form states
+  const [formUserUuid, setFormUserUuid] = useState('');
+  const [formFullName, setFormFullName] = useState('');
+  const [formUsername, setFormUsername] = useState('');
+  const [formRole, setFormRole] = useState<StaffRole>('operator');
+  const [formServiceAreas, setFormServiceAreas] = useState<string[]>([]);
+  const [reassignRole, setReassignRole] = useState<StaffRole>('operator');
 
-  const fetchAllRoles = useCallback(async () => {
+  // Permission matrix
+  const [permissionMatrix, setPermissionMatrix] = useState<Record<string, Record<string, boolean>>>({});
+
+  // Stats
+  const stats = {
+    total: staffMembers.length,
+    super_admin: staffMembers.filter(s => s.role === 'super_admin').length,
+    admin: staffMembers.filter(s => s.role === 'admin').length,
+    operator: staffMembers.filter(s => s.role === 'operator').length,
+    finance_manager: staffMembers.filter(s => s.role === 'finance_manager').length,
+    customer_support: staffMembers.filter(s => s.role === 'customer_support').length,
+    compliance_officer: staffMembers.filter(s => s.role === 'compliance_officer').length,
+  };
+
+  const fetchStaffMembers = useCallback(async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('user_roles')
+      const { data: profiles, error: profilesError } = await supabase
+        .from('staff_profiles')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      
-      const rolesData = (data || []) as UserRole[];
-      setAllRoles(rolesData);
-      
-      // Calculate stats
-      setStats({
-        total: rolesData.length,
-        admins: rolesData.filter(r => r.role === 'admin').length,
-        moderators: rolesData.filter(r => r.role === 'moderator').length,
-        users: rolesData.filter(r => r.role === 'user').length
-      });
+      if (profilesError) throw profilesError;
+
+      // Fetch service area assignments for all staff
+      const { data: assignments } = await supabase
+        .from('staff_service_areas')
+        .select('id, staff_id, service_area_id, service_areas(name)');
+
+      const members: StaffMember[] = (profiles || []).map((p: any) => ({
+        ...p,
+        service_areas: (assignments || [])
+          .filter((a: any) => a.staff_id === p.id)
+          .map((a: any) => ({
+            id: a.id,
+            service_area_id: a.service_area_id,
+            name: a.service_areas?.name || 'Unknown',
+          })),
+      }));
+
+      setStaffMembers(members);
     } catch (err) {
-      console.error('Error fetching roles:', err);
-      setError('Failed to load roles');
+      console.error('Error fetching staff:', err);
+      setError('Failed to load staff members');
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  // Filter roles based on search and filter
+  const fetchServiceAreas = useCallback(async () => {
+    const { data } = await supabase
+      .from('service_areas')
+      .select('id, name')
+      .eq('is_active', true)
+      .order('name');
+    setServiceAreas(data || []);
+  }, []);
+
+  const fetchPermissionMatrix = useCallback(async () => {
+    const { data } = await supabase
+      .from('role_page_permissions')
+      .select('role, page_slug, can_access');
+
+    const matrix: Record<string, Record<string, boolean>> = {};
+    (data || []).forEach((p: any) => {
+      if (!matrix[p.page_slug]) matrix[p.page_slug] = {};
+      matrix[p.page_slug][p.role] = p.can_access;
+    });
+    setPermissionMatrix(matrix);
+  }, []);
+
   useEffect(() => {
-    let filtered = [...allRoles];
-    
-    if (filterRole !== 'all') {
-      filtered = filtered.filter(r => r.role === filterRole);
-    }
-    
+    fetchStaffMembers();
+    fetchServiceAreas();
+    fetchPermissionMatrix();
+  }, [fetchStaffMembers, fetchServiceAreas, fetchPermissionMatrix]);
+
+  const filteredStaff = staffMembers.filter(s => {
+    if (filterRole !== 'all' && s.role !== filterRole) return false;
     if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(r => 
-        r.user_id.toLowerCase().includes(query) ||
-        (r.email && r.email.toLowerCase().includes(query))
+      const q = searchQuery.toLowerCase();
+      return (
+        s.staff_role_id.toLowerCase().includes(q) ||
+        s.full_name.toLowerCase().includes(q) ||
+        (s.username && s.username.toLowerCase().includes(q))
       );
     }
-    
-    setFilteredRoles(filtered);
-  }, [allRoles, searchQuery, filterRole]);
+    return true;
+  });
 
-  useEffect(() => {
-    fetchAllRoles();
-  }, [fetchAllRoles]);
-
-  const logActivity = (action: RoleActivity['action'], userId: string, role: AppRole, notes?: string) => {
-    const newActivity: RoleActivity = {
-      id: crypto.randomUUID(),
-      action,
-      user_id: userId,
-      role,
-      performed_by: user?.id || 'unknown',
-      performed_at: new Date().toISOString(),
-      notes
-    };
-    setActivities(prev => [newActivity, ...prev].slice(0, 100)); // Keep last 100 activities
+  const resetForm = () => {
+    setFormUserUuid('');
+    setFormFullName('');
+    setFormUsername('');
+    setFormRole('operator');
+    setFormServiceAreas([]);
   };
 
-  const handleGrantRole = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleAddStaff = async () => {
     setError(null);
     setSuccess(null);
 
-    const userId = userIdInput.trim();
-    if (!userId) {
-      setError('Please enter a user ID');
+    if (!formUserUuid.trim() || !formFullName.trim()) {
+      setError('User ID and Full Name are required');
       return;
     }
 
-    // Basic UUID validation
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(userId)) {
-      setError('Invalid user ID format. Please enter a valid UUID.');
-      return;
-    }
-
-    // Check if user already has this role
-    const existingRole = allRoles.find(r => r.user_id === userId && r.role === selectedRole);
-    if (existingRole) {
-      setError(`This user already has the ${selectedRole} role`);
+    if (!uuidRegex.test(formUserUuid.trim())) {
+      setError('Invalid User ID format. Must be a valid UUID.');
       return;
     }
 
     setIsSubmitting(true);
-
     try {
-      const { error } = await supabase
-        .from('user_roles')
+      const { data: newProfile, error: insertError } = await supabase
+        .from('staff_profiles')
         .insert({
-          user_id: userId,
-          role: selectedRole
-        });
+          user_id: formUserUuid.trim(),
+          full_name: formFullName.trim(),
+          username: formUsername.trim() || null,
+          role: formRole as any,
+          staff_role_id: 'TEMP', // Will be auto-generated by trigger
+          created_by: user?.id,
+        })
+        .select()
+        .single();
 
-      if (error) {
-        if (error.message.includes('duplicate')) {
-          setError(`This user already has the ${selectedRole} role`);
+      if (insertError) {
+        if (insertError.message.includes('duplicate')) {
+          setError('This user already has a staff profile or the username is taken');
         } else {
-          throw error;
+          throw insertError;
         }
-      } else {
-        setSuccess(`${ROLE_CONFIG[selectedRole].label} role granted successfully!`);
-        setUserIdInput('');
-        setEmailInput('');
-        logActivity('granted', userId, selectedRole, activityNotes);
-        setActivityNotes('');
-        setShowAddDialog(false);
-        await fetchAllRoles();
+        return;
       }
+
+      // Assign service areas
+      if (formServiceAreas.length > 0 && newProfile) {
+        await supabase.from('staff_service_areas').insert(
+          formServiceAreas.map(saId => ({
+            staff_id: newProfile.id,
+            service_area_id: saId,
+          }))
+        );
+      }
+
+      setSuccess(`Staff member added as ${ROLE_LABELS[formRole]}`);
+      resetForm();
+      setShowAddDialog(false);
+      await fetchStaffMembers();
     } catch (err: any) {
-      console.error('Error granting role:', err);
-      setError(err.message || 'Failed to grant role');
+      setError(err.message || 'Failed to add staff member');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleUpdateRole = async () => {
-    if (!selectedUserRole) return;
-    
+  const handleEditStaff = async () => {
+    if (!selectedStaff) return;
     setError(null);
-    setSuccess(null);
     setIsSubmitting(true);
 
     try {
-      // Delete old role
-      const { error: deleteError } = await supabase
-        .from('user_roles')
-        .delete()
-        .eq('id', selectedUserRole.id);
+      await supabase
+        .from('staff_profiles')
+        .update({
+          full_name: formFullName.trim(),
+          username: formUsername.trim() || null,
+        })
+        .eq('id', selectedStaff.id);
 
-      if (deleteError) throw deleteError;
+      // Update service areas
+      await supabase.from('staff_service_areas').delete().eq('staff_id', selectedStaff.id);
+      if (formServiceAreas.length > 0) {
+        await supabase.from('staff_service_areas').insert(
+          formServiceAreas.map(saId => ({
+            staff_id: selectedStaff.id,
+            service_area_id: saId,
+          }))
+        );
+      }
 
-      // Insert new role
-      const { error: insertError } = await supabase
-        .from('user_roles')
-        .insert({
-          user_id: selectedUserRole.user_id,
-          role: editRole
-        });
-
-      if (insertError) throw insertError;
-
-      setSuccess(`Role updated to ${ROLE_CONFIG[editRole].label} successfully!`);
-      logActivity('modified', selectedUserRole.user_id, editRole, `Changed from ${selectedUserRole.role} to ${editRole}`);
+      setSuccess('Staff member updated');
       setShowEditDialog(false);
-      setSelectedUserRole(null);
-      await fetchAllRoles();
+      await fetchStaffMembers();
     } catch (err: any) {
-      console.error('Error updating role:', err);
-      setError(err.message || 'Failed to update role');
+      setError(err.message || 'Failed to update');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleRevokeRole = async () => {
-    if (!selectedUserRole) return;
-    
+  const handleReassignRole = async () => {
+    if (!selectedStaff) return;
     setError(null);
-    setSuccess(null);
     setIsSubmitting(true);
 
     try {
-      const { error } = await supabase
-        .from('user_roles')
-        .delete()
-        .eq('id', selectedUserRole.id);
+      await supabase
+        .from('staff_profiles')
+        .update({ role: reassignRole as any })
+        .eq('id', selectedStaff.id);
 
-      if (error) throw error;
-
-      setSuccess(`${ROLE_CONFIG[selectedUserRole.role].label} role revoked successfully!`);
-      logActivity('revoked', selectedUserRole.user_id, selectedUserRole.role);
-      setShowDeleteDialog(false);
-      setSelectedUserRole(null);
-      await fetchAllRoles();
+      setSuccess(`Role reassigned to ${ROLE_LABELS[reassignRole]}. New Staff ID will be generated.`);
+      setShowReassignDialog(false);
+      await fetchStaffMembers();
     } catch (err: any) {
-      console.error('Error revoking role:', err);
-      setError(err.message || 'Failed to revoke role');
+      setError(err.message || 'Failed to reassign role');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const openEditDialog = (role: UserRole) => {
-    setSelectedUserRole(role);
-    setEditRole(role.role);
+  const handleRemoveStaff = async () => {
+    if (!selectedStaff) return;
+    setError(null);
+    setIsSubmitting(true);
+
+    try {
+      // Remove service areas first
+      await supabase.from('staff_service_areas').delete().eq('staff_id', selectedStaff.id);
+      // Remove staff profile
+      await supabase.from('staff_profiles').delete().eq('id', selectedStaff.id);
+      // Also remove user_roles entry
+      await supabase.from('user_roles').delete().eq('user_id', selectedStaff.user_id);
+
+      setSuccess('Staff member removed');
+      setShowRemoveDialog(false);
+      setSelectedStaff(null);
+      await fetchStaffMembers();
+    } catch (err: any) {
+      setError(err.message || 'Failed to remove');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const openEditDialog = (staff: StaffMember) => {
+    setSelectedStaff(staff);
+    setFormFullName(staff.full_name);
+    setFormUsername(staff.username || '');
+    setFormServiceAreas(staff.service_areas.map(sa => sa.service_area_id));
     setShowEditDialog(true);
   };
 
-  const openDeleteDialog = (role: UserRole) => {
-    setSelectedUserRole(role);
-    setShowDeleteDialog(true);
+  const openReassignDialog = (staff: StaffMember) => {
+    setSelectedStaff(staff);
+    setReassignRole(staff.role);
+    setShowReassignDialog(true);
   };
 
-  const openDetailsDialog = (role: UserRole) => {
-    setSelectedUserRole(role);
-    setShowDetailsDialog(true);
-  };
-
-  const exportRoles = () => {
+  const exportStaff = () => {
     const csvContent = [
-      ['User ID', 'Role', 'Created At'].join(','),
-      ...filteredRoles.map(r => [r.user_id, r.role, r.created_at].join(','))
+      ['Staff ID', 'Full Name', 'Username', 'Role', 'Service Areas', 'Created At'].join(','),
+      ...filteredStaff.map(s => [
+        s.staff_role_id,
+        s.full_name,
+        s.username || '',
+        ROLE_LABELS[s.role],
+        s.service_areas.map(sa => sa.name).join('; '),
+        s.created_at,
+      ].join(','))
     ].join('\n');
-    
+
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `roles-export-${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    a.download = `staff-export-${format(new Date(), 'yyyy-MM-dd')}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  const RoleBadge = ({ role }: { role: AppRole }) => {
+  const RoleBadge = ({ role }: { role: StaffRole }) => {
     const config = ROLE_CONFIG[role];
     const Icon = config.icon;
     return (
@@ -349,12 +386,26 @@ export default function RolesPermissions() {
     );
   };
 
+  // Permission page groups for the matrix
+  const PAGE_GROUPS = [
+    { label: 'Dashboard', pages: ['dashboard'] },
+    { label: 'Operations', pages: ['fleet-tracking', 'active-trips', 'auto-dispatch', 'scheduled-rides', 'missed-cancelled', 'trip-history', 'manual-trip'] },
+    { label: 'Fleet', pages: ['drivers', 'vehicles', 'vehicle-types', 'documents', 'driver-categories'] },
+    { label: 'Service Areas', pages: ['regions', 'services'] },
+    { label: 'Pricing', pages: ['promo-codes', 'custom-zones', 'zone-pricing', 'corporate-fares', 'fare-simulator'] },
+    { label: 'Corporate', pages: ['corporate-accounts', 'account-requests', 'corporate-billing', 'corporate-reports'] },
+    { label: 'Riders & Support', pages: ['riders', 'rider-feedback', 'suspensions', 'complaints', 'live-chat', 'tickets'] },
+    { label: 'Finance', pages: ['admin-payments', 'driver-wallet', 'admin-settlements', 'payout-batches', 'disputes'] },
+    { label: 'Settings', pages: ['general-settings', 'integrations', 'roles', 'notifications', 'system'] },
+  ];
+
+  const ROLES_ORDER: StaffRole[] = ['super_admin', 'admin', 'operator', 'finance_manager', 'customer_support', 'compliance_officer'];
+
   return (
-    <AdminLayout 
-      title="Roles & Permissions" 
-      description="Manage user roles and access permissions across the platform"
+    <AdminLayout
+      title="Roles & Permissions"
+      description="Manage staff roles, permissions, and service area assignments"
     >
-      {/* Success/Error Alerts */}
       {error && (
         <Alert variant="destructive" className="mb-4">
           <AlertCircle className="h-4 w-4" />
@@ -368,209 +419,173 @@ export default function RolesPermissions() {
         </Alert>
       )}
 
-      {/* Statistics Cards */}
-      <div className="grid gap-4 md:grid-cols-4 mb-6">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-                <Users className="h-6 w-6 text-primary" />
+      {/* Stats Cards */}
+      <div className="grid gap-3 grid-cols-2 md:grid-cols-4 lg:grid-cols-7 mb-6">
+        {([
+          { key: 'total', label: 'Total Staff', icon: Users, color: 'text-primary' },
+          { key: 'super_admin', label: 'Super Admins', icon: Crown, color: 'text-amber-500' },
+          { key: 'admin', label: 'Admins', icon: ShieldCheck, color: 'text-blue-500' },
+          { key: 'operator', label: 'Operators', icon: UserCog, color: 'text-green-500' },
+          { key: 'finance_manager', label: 'Finance', icon: DollarSign, color: 'text-purple-500' },
+          { key: 'customer_support', label: 'Support', icon: Headphones, color: 'text-cyan-500' },
+          { key: 'compliance_officer', label: 'Compliance', icon: ClipboardCheck, color: 'text-orange-500' },
+        ] as const).map(({ key, label, icon: Icon, color }) => (
+          <Card key={key}>
+            <CardContent className="pt-4 pb-3 px-4">
+              <div className="flex items-center gap-2">
+                <Icon className={`h-4 w-4 ${color}`} />
+                <span className="text-lg font-bold">{stats[key]}</span>
               </div>
-              <div>
-                <p className="text-2xl font-bold">{stats.total}</p>
-                <p className="text-sm text-muted-foreground">Total Roles</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10">
-                <Crown className="h-6 w-6 text-amber-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{stats.admins}</p>
-                <p className="text-sm text-muted-foreground">Admins</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-500/10">
-                <ShieldCheck className="h-6 w-6 text-blue-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{stats.moderators}</p>
-                <p className="text-sm text-muted-foreground">Moderators</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-500/10">
-                <User className="h-6 w-6 text-gray-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{stats.users}</p>
-                <p className="text-sm text-muted-foreground">Users</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+              <p className="text-xs text-muted-foreground mt-1">{label}</p>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      {/* Main Content Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <TabsList>
-            <TabsTrigger value="users" className="gap-2">
+            <TabsTrigger value="staff" className="gap-2">
               <UserCog className="h-4 w-4" />
-              User Roles
-            </TabsTrigger>
-            <TabsTrigger value="activity" className="gap-2">
-              <History className="h-4 w-4" />
-              Activity Log
+              Staff Members
             </TabsTrigger>
             <TabsTrigger value="permissions" className="gap-2">
               <Shield className="h-4 w-4" />
               Permissions Matrix
             </TabsTrigger>
           </TabsList>
-          
+
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={fetchAllRoles} disabled={isLoading}>
+            <Button variant="outline" size="sm" onClick={fetchStaffMembers} disabled={isLoading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
-            <Button size="sm" onClick={() => setShowAddDialog(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Role
-            </Button>
+            {canManageRoles && (
+              <Button size="sm" onClick={() => { resetForm(); setShowAddDialog(true); }}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Staff
+              </Button>
+            )}
           </div>
         </div>
 
-        {/* User Roles Tab */}
-        <TabsContent value="users">
+        {/* Staff Members Tab */}
+        <TabsContent value="staff">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>User Roles Management</CardTitle>
-                  <CardDescription>View and manage roles assigned to users</CardDescription>
+                  <CardTitle>Staff Members</CardTitle>
+                  <CardDescription>Manage admin panel staff and their roles</CardDescription>
                 </div>
-                <Button variant="outline" size="sm" onClick={exportRoles}>
+                <Button variant="outline" size="sm" onClick={exportStaff}>
                   <Download className="h-4 w-4 mr-2" />
-                  Export CSV
+                  Export
                 </Button>
               </div>
             </CardHeader>
             <CardContent>
-              {/* Search and Filter */}
               <div className="flex items-center gap-4 mb-4">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search by user ID or email..."
+                    placeholder="Search by Staff ID, name, or username..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-10"
                   />
                 </div>
-                <Select value={filterRole} onValueChange={(v) => setFilterRole(v as AppRole | 'all')}>
-                  <SelectTrigger className="w-[180px]">
+                <Select value={filterRole} onValueChange={(v) => setFilterRole(v as StaffRole | 'all')}>
+                  <SelectTrigger className="w-[200px]">
                     <Filter className="h-4 w-4 mr-2" />
                     <SelectValue placeholder="Filter by role" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Roles</SelectItem>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="moderator">Moderator</SelectItem>
-                    <SelectItem value="user">User</SelectItem>
+                    {ROLES_ORDER.map(r => (
+                      <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
 
-              {/* Roles Table */}
               {isLoading ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-primary" />
                 </div>
-              ) : filteredRoles.length === 0 ? (
+              ) : filteredStaff.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
-                  <ShieldQuestion className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No roles found</p>
-                  <p className="text-sm mt-1">
-                    {searchQuery || filterRole !== 'all' 
-                      ? 'Try adjusting your search or filter' 
-                      : 'Add a role to get started'}
-                  </p>
+                  <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No staff members found</p>
+                  <p className="text-sm mt-1">Add a staff member to get started</p>
                 </div>
               ) : (
-                <div className="rounded-md border">
+                <div className="rounded-md border overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>User ID</TableHead>
+                        <TableHead>Staff Role ID</TableHead>
+                        <TableHead>Full Name</TableHead>
+                        <TableHead>Username</TableHead>
                         <TableHead>Role</TableHead>
+                        <TableHead>Service Area</TableHead>
                         <TableHead>Granted On</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredRoles.map((role) => (
-                        <TableRow key={role.id}>
+                      {filteredStaff.map((staff) => (
+                        <TableRow key={staff.id}>
                           <TableCell>
-                            <div className="flex flex-col">
-                              <span className="font-mono text-xs">{role.user_id}</span>
-                              {role.email && (
-                                <span className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
-                                  <Mail className="h-3 w-3" />
-                                  {role.email}
-                                </span>
+                            <span className="font-mono font-semibold text-primary">
+                              {staff.staff_role_id}
+                            </span>
+                          </TableCell>
+                          <TableCell className="font-medium">{staff.full_name}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {staff.username || '—'}
+                          </TableCell>
+                          <TableCell>
+                            <RoleBadge role={staff.role} />
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1">
+                              {staff.service_areas.length > 0 ? (
+                                staff.service_areas.map(sa => (
+                                  <Badge key={sa.id} variant="secondary" className="text-xs">
+                                    <MapPin className="h-3 w-3 mr-1" />
+                                    {sa.name}
+                                  </Badge>
+                                ))
+                              ) : (
+                                <span className="text-xs text-muted-foreground">All Areas</span>
                               )}
                             </div>
                           </TableCell>
                           <TableCell>
-                            <RoleBadge role={role.role} />
-                          </TableCell>
-                          <TableCell>
                             <div className="flex items-center gap-1 text-sm text-muted-foreground">
                               <Calendar className="h-3 w-3" />
-                              {format(new Date(role.created_at), 'MMM d, yyyy')}
+                              {format(new Date(staff.created_at), 'MMM d, yyyy')}
                             </div>
                           </TableCell>
                           <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => openDetailsDialog(role)}
-                              >
+                            <div className="flex items-center justify-end gap-1">
+                              <Button variant="ghost" size="icon" onClick={() => { setSelectedStaff(staff); setShowDetailsDialog(true); }}>
                                 <Eye className="h-4 w-4" />
                               </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => openEditDialog(role)}
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="text-destructive hover:text-destructive"
-                                onClick={() => openDeleteDialog(role)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
+                              {canManageRoles && (
+                                <>
+                                  <Button variant="ghost" size="icon" onClick={() => openEditDialog(staff)}>
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" onClick={() => openReassignDialog(staff)}>
+                                    <ArrowRightLeft className="h-4 w-4" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="text-destructive" onClick={() => { setSelectedStaff(staff); setShowRemoveDialog(true); }}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -583,293 +598,214 @@ export default function RolesPermissions() {
           </Card>
         </TabsContent>
 
-        {/* Activity Log Tab */}
-        <TabsContent value="activity">
-          <Card>
-            <CardHeader>
-              <CardTitle>Role Activity Log</CardTitle>
-              <CardDescription>Recent role changes and modifications</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {activities.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <History className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No activity recorded yet</p>
-                  <p className="text-sm mt-1">Role changes will appear here</p>
-                </div>
-              ) : (
-                <ScrollArea className="h-[400px]">
-                  <div className="space-y-4">
-                    {activities.map((activity) => (
-                      <div key={activity.id} className="flex items-start gap-4 p-4 rounded-lg border">
-                        <div className={`flex h-10 w-10 items-center justify-center rounded-full ${
-                          activity.action === 'granted' ? 'bg-green-500/10' :
-                          activity.action === 'revoked' ? 'bg-red-500/10' : 'bg-blue-500/10'
-                        }`}>
-                          {activity.action === 'granted' && <UserPlus className="h-5 w-5 text-green-500" />}
-                          {activity.action === 'revoked' && <UserMinus className="h-5 w-5 text-red-500" />}
-                          {activity.action === 'modified' && <Edit className="h-5 w-5 text-blue-500" />}
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium capitalize">{activity.action}</span>
-                            <RoleBadge role={activity.role} />
-                          </div>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            User ID: <span className="font-mono">{activity.user_id.slice(0, 8)}...</span>
-                          </p>
-                          {activity.notes && (
-                            <p className="text-sm text-muted-foreground mt-1">{activity.notes}</p>
-                          )}
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground mt-2">
-                            <Clock className="h-3 w-3" />
-                            {format(new Date(activity.performed_at), 'MMM d, yyyy HH:mm')}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
         {/* Permissions Matrix Tab */}
         <TabsContent value="permissions">
           <Card>
             <CardHeader>
               <CardTitle>Permissions Matrix</CardTitle>
-              <CardDescription>Overview of permissions for each role</CardDescription>
+              <CardDescription>Page access permissions for each role</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-[300px]">Permission</TableHead>
-                      <TableHead className="text-center">
-                        <div className="flex items-center justify-center gap-2">
-                          <Crown className="h-4 w-4 text-amber-500" />
-                          Admin
-                        </div>
-                      </TableHead>
-                      <TableHead className="text-center">
-                        <div className="flex items-center justify-center gap-2">
-                          <ShieldCheck className="h-4 w-4 text-blue-500" />
-                          Moderator
-                        </div>
-                      </TableHead>
-                      <TableHead className="text-center">
-                        <div className="flex items-center justify-center gap-2">
-                          <User className="h-4 w-4 text-gray-500" />
-                          User
-                        </div>
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {[
-                      { name: 'View Dashboard', admin: true, moderator: true, user: false },
-                      { name: 'Manage Drivers', admin: true, moderator: true, user: false },
-                      { name: 'Manage Riders', admin: true, moderator: true, user: false },
-                      { name: 'View Trip History', admin: true, moderator: true, user: false },
-                      { name: 'Manage Active Trips', admin: true, moderator: true, user: false },
-                      { name: 'Create Manual Trips', admin: true, moderator: true, user: false },
-                      { name: 'Manage Regions', admin: true, moderator: false, user: false },
-                      { name: 'Manage Service Areas', admin: true, moderator: false, user: false },
-                      { name: 'Configure Pricing', admin: true, moderator: false, user: false },
-                      { name: 'Manage Promo Codes', admin: true, moderator: true, user: false },
-                      { name: 'View Documents', admin: true, moderator: true, user: false },
-                      { name: 'Approve Documents', admin: true, moderator: false, user: false },
-                      { name: 'Manage Notifications', admin: true, moderator: true, user: false },
-                      { name: 'Manage Roles & Permissions', admin: true, moderator: false, user: false },
-                      { name: 'Access Settings', admin: true, moderator: false, user: false },
-                      { name: 'Export Data', admin: true, moderator: true, user: false },
-                      { name: 'View Analytics', admin: true, moderator: true, user: false },
-                    ].map((perm, idx) => (
-                      <TableRow key={idx}>
-                        <TableCell className="font-medium">{perm.name}</TableCell>
-                        <TableCell className="text-center">
-                          {perm.admin ? (
-                            <CheckCircle className="h-5 w-5 text-green-500 mx-auto" />
-                          ) : (
-                            <div className="h-5 w-5 rounded-full border-2 border-muted mx-auto" />
-                          )}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {perm.moderator ? (
-                            <CheckCircle className="h-5 w-5 text-green-500 mx-auto" />
-                          ) : (
-                            <div className="h-5 w-5 rounded-full border-2 border-muted mx-auto" />
-                          )}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {perm.user ? (
-                            <CheckCircle className="h-5 w-5 text-green-500 mx-auto" />
-                          ) : (
-                            <div className="h-5 w-5 rounded-full border-2 border-muted mx-auto" />
-                          )}
-                        </TableCell>
+              <ScrollArea className="w-full">
+                <div className="rounded-md border min-w-[800px]">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[200px] sticky left-0 bg-background z-10">Page</TableHead>
+                        {ROLES_ORDER.map(r => {
+                          const config = ROLE_CONFIG[r];
+                          const Icon = config.icon;
+                          return (
+                            <TableHead key={r} className="text-center min-w-[100px]">
+                              <div className="flex items-center justify-center gap-1">
+                                <Icon className="h-3 w-3" />
+                                <span className="text-xs">{config.prefix}</span>
+                              </div>
+                            </TableHead>
+                          );
+                        })}
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                    </TableHeader>
+                    <TableBody>
+                      {PAGE_GROUPS.map(group => (
+                        <>
+                          <TableRow key={`group-${group.label}`} className="bg-muted/50">
+                            <TableCell colSpan={ROLES_ORDER.length + 1} className="font-semibold text-xs uppercase tracking-wider py-2">
+                              {group.label}
+                            </TableCell>
+                          </TableRow>
+                          {group.pages.map(page => (
+                            <TableRow key={page}>
+                              <TableCell className="sticky left-0 bg-background z-10 capitalize text-sm">
+                                {page.replace(/-/g, ' ')}
+                              </TableCell>
+                              {ROLES_ORDER.map(r => (
+                                <TableCell key={r} className="text-center">
+                                  {permissionMatrix[page]?.[r] ? (
+                                    <CheckCircle className="h-4 w-4 text-green-500 mx-auto" />
+                                  ) : (
+                                    <div className="h-4 w-4 rounded-full border-2 border-muted mx-auto" />
+                                  )}
+                                </TableCell>
+                              ))}
+                            </TableRow>
+                          ))}
+                        </>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </ScrollArea>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
 
-      {/* Add Role Dialog */}
+      {/* Add Staff Dialog */}
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[550px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <UserPlus className="h-5 w-5 text-primary" />
-              Grant New Role
+              Add Staff Member
             </DialogTitle>
             <DialogDescription>
-              Assign a role to a user by their user ID
+              Create a new staff profile with role-based access
             </DialogDescription>
           </DialogHeader>
-          
-          <form onSubmit={handleGrantRole} className="space-y-4">
+
+          <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="add-user-id">User ID (UUID)</Label>
-              <div className="relative">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="add-user-id"
-                  type="text"
-                  placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                  value={userIdInput}
-                  onChange={(e) => setUserIdInput(e.target.value)}
-                  className="pl-10 font-mono text-sm"
-                  disabled={isSubmitting}
-                />
+              <Label>User ID (UUID)</Label>
+              <Input
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                value={formUserUuid}
+                onChange={(e) => setFormUserUuid(e.target.value)}
+                className="font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">Find in Supabase Authentication → Users</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Full Name *</Label>
+                <Input value={formFullName} onChange={(e) => setFormFullName(e.target.value)} placeholder="John Smith" />
               </div>
-              <p className="text-xs text-muted-foreground">
-                Find the user ID in Supabase Authentication → Users
-              </p>
+              <div className="space-y-2">
+                <Label>Username</Label>
+                <Input value={formUsername} onChange={(e) => setFormUsername(e.target.value)} placeholder="jsmith" />
+              </div>
             </div>
 
             <div className="space-y-2">
-              <Label>Role to Assign</Label>
-              <Select value={selectedRole} onValueChange={(v) => setSelectedRole(v as AppRole)}>
+              <Label>Role</Label>
+              <Select value={formRole} onValueChange={(v) => setFormRole(v as StaffRole)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(ROLE_CONFIG).map(([key, config]) => (
-                    <SelectItem key={key} value={key}>
+                  {ROLES_ORDER.map(r => (
+                    <SelectItem key={r} value={r}>
                       <div className="flex items-center gap-2">
-                        <config.icon className="h-4 w-4" />
-                        {config.label}
+                        {(() => { const Icon = ROLE_CONFIG[r].icon; return <Icon className="h-4 w-4" />; })()}
+                        {ROLE_LABELS[r]} ({ROLE_PREFIXES[r]})
                       </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                {ROLE_CONFIG[selectedRole].description}
+                Staff ID will be auto-generated: {ROLE_PREFIXES[formRole]}XXX
               </p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="notes">Notes (Optional)</Label>
-              <Textarea
-                id="notes"
-                placeholder="Add any notes about this role assignment..."
-                value={activityNotes}
-                onChange={(e) => setActivityNotes(e.target.value)}
-                rows={2}
-              />
-            </div>
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setShowAddDialog(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Granting...
-                  </>
+              <Label>Assigned Service Areas</Label>
+              <div className="border rounded-md p-3 max-h-[150px] overflow-y-auto space-y-2">
+                {serviceAreas.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No service areas available</p>
                 ) : (
-                  <>
-                    <Crown className="mr-2 h-4 w-4" />
-                    Grant Role
-                  </>
+                  serviceAreas.map(sa => (
+                    <label key={sa.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <Checkbox
+                        checked={formServiceAreas.includes(sa.id)}
+                        onCheckedChange={(checked) => {
+                          setFormServiceAreas(prev =>
+                            checked ? [...prev, sa.id] : prev.filter(id => id !== sa.id)
+                          );
+                        }}
+                      />
+                      {sa.name}
+                    </label>
+                  ))
                 )}
-              </Button>
-            </DialogFooter>
-          </form>
+              </div>
+              <p className="text-xs text-muted-foreground">Leave empty for access to all areas</p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
+            <Button onClick={handleAddStaff} disabled={isSubmitting}>
+              {isSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <UserPlus className="h-4 w-4 mr-2" />}
+              Add Staff
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Edit Role Dialog */}
+      {/* Edit Staff Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="sm:max-w-[400px]">
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Edit className="h-5 w-5 text-primary" />
-              Change Role
+              Edit Staff Member
             </DialogTitle>
-            <DialogDescription>
-              Update the role for this user
-            </DialogDescription>
           </DialogHeader>
-          
-          {selectedUserRole && (
+
+          {selectedStaff && (
             <div className="space-y-4">
-              <div className="p-3 rounded-lg bg-muted">
-                <p className="text-xs text-muted-foreground">User ID</p>
-                <p className="font-mono text-sm">{selectedUserRole.user_id}</p>
+              <div className="p-3 rounded-lg bg-muted flex items-center gap-3">
+                <span className="font-mono font-bold text-primary">{selectedStaff.staff_role_id}</span>
+                <RoleBadge role={selectedStaff.role} />
               </div>
 
-              <div className="space-y-2">
-                <Label>Current Role</Label>
-                <div className="flex items-center gap-2">
-                  <RoleBadge role={selectedUserRole.role} />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Full Name</Label>
+                  <Input value={formFullName} onChange={(e) => setFormFullName(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Username</Label>
+                  <Input value={formUsername} onChange={(e) => setFormUsername(e.target.value)} />
                 </div>
               </div>
 
-              <Separator />
-
               <div className="space-y-2">
-                <Label>New Role</Label>
-                <Select value={editRole} onValueChange={(v) => setEditRole(v as AppRole)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(ROLE_CONFIG).map(([key, config]) => (
-                      <SelectItem key={key} value={key}>
-                        <div className="flex items-center gap-2">
-                          <config.icon className="h-4 w-4" />
-                          {config.label}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Service Areas</Label>
+                <div className="border rounded-md p-3 max-h-[150px] overflow-y-auto space-y-2">
+                  {serviceAreas.map(sa => (
+                    <label key={sa.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <Checkbox
+                        checked={formServiceAreas.includes(sa.id)}
+                        onCheckedChange={(checked) => {
+                          setFormServiceAreas(prev =>
+                            checked ? [...prev, sa.id] : prev.filter(id => id !== sa.id)
+                          );
+                        }}
+                      />
+                      {sa.name}
+                    </label>
+                  ))}
+                </div>
               </div>
 
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setShowEditDialog(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleUpdateRole} disabled={isSubmitting || editRole === selectedUserRole.role}>
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Updating...
-                    </>
-                  ) : (
-                    'Update Role'
-                  )}
+                <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>
+                <Button onClick={handleEditStaff} disabled={isSubmitting}>
+                  {isSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  Save Changes
                 </Button>
               </DialogFooter>
             </div>
@@ -877,47 +813,94 @@ export default function RolesPermissions() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+      {/* Reassign Role Dialog */}
+      <Dialog open={showReassignDialog} onOpenChange={setShowReassignDialog}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowRightLeft className="h-5 w-5 text-primary" />
+              Reassign Role
+            </DialogTitle>
+            <DialogDescription>
+              Change the role for this staff member. A new Staff ID will be generated.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedStaff && (
+            <div className="space-y-4">
+              <div className="p-3 rounded-lg bg-muted">
+                <p className="font-medium">{selectedStaff.full_name}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-sm text-muted-foreground">Current:</span>
+                  <span className="font-mono text-sm">{selectedStaff.staff_role_id}</span>
+                  <RoleBadge role={selectedStaff.role} />
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-2">
+                <Label>New Role</Label>
+                <Select value={reassignRole} onValueChange={(v) => setReassignRole(v as StaffRole)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ROLES_ORDER.map(r => (
+                      <SelectItem key={r} value={r}>
+                        <div className="flex items-center gap-2">
+                          {(() => { const Icon = ROLE_CONFIG[r].icon; return <Icon className="h-4 w-4" />; })()}
+                          {ROLE_LABELS[r]} ({ROLE_PREFIXES[r]})
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  New Staff ID: {ROLE_PREFIXES[reassignRole]}XXX
+                </p>
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowReassignDialog(false)}>Cancel</Button>
+                <Button onClick={handleReassignRole} disabled={isSubmitting || reassignRole === selectedStaff.role}>
+                  {isSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  Reassign Role
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Remove Staff Dialog */}
+      <Dialog open={showRemoveDialog} onOpenChange={setShowRemoveDialog}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-destructive">
               <ShieldAlert className="h-5 w-5" />
-              Revoke Role
+              Remove Staff Access
             </DialogTitle>
             <DialogDescription>
-              Are you sure you want to revoke this role? This action cannot be undone.
+              This will revoke all admin panel access for this staff member.
             </DialogDescription>
           </DialogHeader>
-          
-          {selectedUserRole && (
+
+          {selectedStaff && (
             <div className="space-y-4">
-              <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-muted-foreground">User ID</p>
-                    <p className="font-mono text-sm">{selectedUserRole.user_id.slice(0, 20)}...</p>
-                  </div>
-                  <RoleBadge role={selectedUserRole.role} />
+              <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/30">
+                <p className="font-medium">{selectedStaff.full_name}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="font-mono text-sm">{selectedStaff.staff_role_id}</span>
+                  <RoleBadge role={selectedStaff.role} />
                 </div>
               </div>
 
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setShowDeleteDialog(false)}>
-                  Cancel
-                </Button>
-                <Button variant="destructive" onClick={handleRevokeRole} disabled={isSubmitting}>
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Revoking...
-                    </>
-                  ) : (
-                    <>
-                      <UserMinus className="mr-2 h-4 w-4" />
-                      Revoke Role
-                    </>
-                  )}
+                <Button variant="outline" onClick={() => setShowRemoveDialog(false)}>Cancel</Button>
+                <Button variant="destructive" onClick={handleRemoveStaff} disabled={isSubmitting}>
+                  {isSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  Remove Access
                 </Button>
               </DialogFooter>
             </div>
@@ -930,54 +913,59 @@ export default function RolesPermissions() {
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Shield className="h-5 w-5 text-primary" />
-              Role Details
+              <Eye className="h-5 w-5 text-primary" />
+              Staff Details
             </DialogTitle>
           </DialogHeader>
-          
-          {selectedUserRole && (
+
+          {selectedStaff && (
             <div className="space-y-4">
-              <div className="grid gap-4">
-                <div className="p-4 rounded-lg border">
-                  <p className="text-xs text-muted-foreground mb-1">User ID</p>
-                  <p className="font-mono text-sm break-all">{selectedUserRole.user_id}</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">Staff Role ID</p>
+                  <p className="font-mono font-bold text-lg text-primary">{selectedStaff.staff_role_id}</p>
                 </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 rounded-lg border">
-                    <p className="text-xs text-muted-foreground mb-2">Role</p>
-                    <RoleBadge role={selectedUserRole.role} />
-                  </div>
-                  
-                  <div className="p-4 rounded-lg border">
-                    <p className="text-xs text-muted-foreground mb-1">Granted On</p>
-                    <p className="text-sm font-medium">
-                      {format(new Date(selectedUserRole.created_at), 'MMM d, yyyy')}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {format(new Date(selectedUserRole.created_at), 'HH:mm')}
-                    </p>
-                  </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Role</p>
+                  <div className="mt-1"><RoleBadge role={selectedStaff.role} /></div>
                 </div>
-                
-                <div className="p-4 rounded-lg border">
-                  <p className="text-xs text-muted-foreground mb-2">Role Permissions</p>
-                  <p className="text-sm">{ROLE_CONFIG[selectedUserRole.role].description}</p>
+                <div>
+                  <p className="text-xs text-muted-foreground">Full Name</p>
+                  <p className="font-medium">{selectedStaff.full_name}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Username</p>
+                  <p className="font-medium">{selectedStaff.username || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Status</p>
+                  <Badge variant={selectedStaff.is_active ? 'default' : 'secondary'}>
+                    {selectedStaff.is_active ? 'Active' : 'Inactive'}
+                  </Badge>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Created</p>
+                  <p className="text-sm">{format(new Date(selectedStaff.created_at), 'PPp')}</p>
                 </div>
               </div>
 
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setShowDetailsDialog(false)}>
-                  Close
-                </Button>
-                <Button onClick={() => {
-                  setShowDetailsDialog(false);
-                  openEditDialog(selectedUserRole);
-                }}>
-                  <Edit className="mr-2 h-4 w-4" />
-                  Edit Role
-                </Button>
-              </DialogFooter>
+              <Separator />
+
+              <div>
+                <p className="text-xs text-muted-foreground mb-2">Assigned Service Areas</p>
+                <div className="flex flex-wrap gap-2">
+                  {selectedStaff.service_areas.length > 0 ? (
+                    selectedStaff.service_areas.map(sa => (
+                      <Badge key={sa.id} variant="secondary">
+                        <MapPin className="h-3 w-3 mr-1" />
+                        {sa.name}
+                      </Badge>
+                    ))
+                  ) : (
+                    <span className="text-sm text-muted-foreground">Access to all service areas</span>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </DialogContent>
