@@ -3881,6 +3881,33 @@ export type Database = {
           },
         ]
       }
+      role_page_permissions: {
+        Row: {
+          can_access: boolean
+          created_at: string
+          id: string
+          page_slug: string
+          role: Database["public"]["Enums"]["staff_role"]
+          updated_at: string
+        }
+        Insert: {
+          can_access?: boolean
+          created_at?: string
+          id?: string
+          page_slug: string
+          role: Database["public"]["Enums"]["staff_role"]
+          updated_at?: string
+        }
+        Update: {
+          can_access?: boolean
+          created_at?: string
+          id?: string
+          page_slug?: string
+          role?: Database["public"]["Enums"]["staff_role"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
       scheduled_offer_attempts: {
         Row: {
           broadcast_round: number
@@ -4276,6 +4303,99 @@ export type Database = {
             columns: ["region_id"]
             isOneToOne: false
             referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      staff_id_sequences: {
+        Row: {
+          current_value: number
+          role_prefix: string
+          updated_at: string
+        }
+        Insert: {
+          current_value?: number
+          role_prefix: string
+          updated_at?: string
+        }
+        Update: {
+          current_value?: number
+          role_prefix?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      staff_profiles: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          full_name: string
+          id: string
+          is_active: boolean
+          role: Database["public"]["Enums"]["staff_role"]
+          staff_role_id: string
+          updated_at: string
+          user_id: string
+          username: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          full_name: string
+          id?: string
+          is_active?: boolean
+          role?: Database["public"]["Enums"]["staff_role"]
+          staff_role_id: string
+          updated_at?: string
+          user_id: string
+          username?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          full_name?: string
+          id?: string
+          is_active?: boolean
+          role?: Database["public"]["Enums"]["staff_role"]
+          staff_role_id?: string
+          updated_at?: string
+          user_id?: string
+          username?: string | null
+        }
+        Relationships: []
+      }
+      staff_service_areas: {
+        Row: {
+          created_at: string
+          id: string
+          service_area_id: string
+          staff_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          service_area_id: string
+          staff_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          service_area_id?: string
+          staff_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_service_areas_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_service_areas_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -6283,6 +6403,10 @@ export type Database = {
         }[]
       }
       get_region_code: { Args: { p_region_id: string }; Returns: string }
+      get_staff_role_prefix: {
+        Args: { p_role: Database["public"]["Enums"]["staff_role"] }
+        Returns: string
+      }
       get_user_corporate_accounts: {
         Args: { p_user_id: string }
         Returns: string[]
@@ -6455,6 +6579,13 @@ export type Database = {
       app_role: "admin" | "moderator" | "user"
       app_scope: "customer" | "driver" | "corporate" | "shared"
       content_status: "draft" | "published"
+      staff_role:
+        | "super_admin"
+        | "admin"
+        | "operator"
+        | "finance_manager"
+        | "customer_support"
+        | "compliance_officer"
       trip_change_status:
         | "pending_driver_approval"
         | "approved"
@@ -6596,6 +6727,14 @@ export const Constants = {
       app_role: ["admin", "moderator", "user"],
       app_scope: ["customer", "driver", "corporate", "shared"],
       content_status: ["draft", "published"],
+      staff_role: [
+        "super_admin",
+        "admin",
+        "operator",
+        "finance_manager",
+        "customer_support",
+        "compliance_officer",
+      ],
       trip_change_status: [
         "pending_driver_approval",
         "approved",
