@@ -879,13 +879,36 @@ export default function TripHistory() {
                         {trip.currency_code 
                           ? getCurrencySymbol(trip.currency_code)
                           : getActiveCurrencySymbol()}
-                        {((trip.gross_fare_pence ?? (trip.fare ? trip.fare * 100 : 0)) / 100).toFixed(2)}
+                        {getTripFarePounds(trip).toFixed(2)}
                       </div>
-                      {trip.payment_status && (
+                      {trip.commission_pence != null && (
                         <div className="text-[10px] text-muted-foreground mt-0.5">
-                          {trip.payment_status}
+                          Net: {((trip.driver_net_pence || 0) / 100).toFixed(2)}
                         </div>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-0.5">
+                        <Badge variant="outline" className="text-[10px] w-fit">
+                          {trip.payment_method === 'cash' ? '💵 Cash' 
+                            : trip.payment_method === 'apple_pay' ? '📱 Apple Pay'
+                            : trip.payment_method === 'card' ? '💳 Card'
+                            : trip.payment_method || 'Unknown'}
+                        </Badge>
+                        {trip.payment_status && (
+                          <span className={`text-[10px] ${
+                            trip.payment_status === 'captured' || trip.payment_status === 'collected_cash' 
+                              ? 'text-green-600' 
+                              : trip.payment_status === 'pending' 
+                                ? 'text-amber-600' 
+                                : 'text-muted-foreground'
+                          }`}>
+                            {trip.payment_status === 'captured' ? '✓ Paid' 
+                              : trip.payment_status === 'collected_cash' ? '✓ Cash collected'
+                              : trip.payment_status}
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {trip.completed_at 
