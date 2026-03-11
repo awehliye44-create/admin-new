@@ -56,6 +56,7 @@ import {
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
+import { getCurrencySymbol } from '@/lib/regionSettings';
 
 interface LatLng {
   lat: number;
