@@ -282,6 +282,13 @@ export default function Services() {
       return;
     }
 
+    // Convert GeoJSON boundary to LatLng array for DB trigger validation
+    const boundaryForDb = formData.geo_boundary
+      ? formData.geo_boundary.type === 'Polygon' && formData.geo_boundary.coordinates?.[0]
+        ? formData.geo_boundary.coordinates[0].slice(0, -1).map((c: number[]) => ({ lat: c[1], lng: c[0] }))
+        : formData.geo_boundary
+      : null;
+
     setIsSaving(true);
     try {
       const { data, error } = await supabase
@@ -295,7 +302,7 @@ export default function Services() {
           distance_unit: formData.distance_unit,
           region_id: formData.region_id, 
           is_active: formData.is_active,
-          geo_boundary: formData.geo_boundary,
+          geo_boundary: boundaryForDb,
         })
         .select(`*, region:regions(id, name, distance_unit, currency_code, timezone, status, geo_boundary)`)
         .single();
@@ -325,6 +332,13 @@ export default function Services() {
       return;
     }
 
+    // Convert GeoJSON boundary to LatLng array for DB trigger validation
+    const boundaryForDb = formData.geo_boundary
+      ? formData.geo_boundary.type === 'Polygon' && formData.geo_boundary.coordinates?.[0]
+        ? formData.geo_boundary.coordinates[0].slice(0, -1).map((c: number[]) => ({ lat: c[1], lng: c[0] }))
+        : formData.geo_boundary
+      : null;
+
     setIsSaving(true);
     try {
       const { data, error } = await supabase
@@ -338,7 +352,7 @@ export default function Services() {
           distance_unit: formData.distance_unit,
           region_id: formData.region_id, 
           is_active: formData.is_active,
-          geo_boundary: formData.geo_boundary,
+          geo_boundary: boundaryForDb,
         })
         .eq('id', selectedArea.id)
         .select(`*, region:regions(id, name, distance_unit, currency_code, timezone, status, geo_boundary)`)
