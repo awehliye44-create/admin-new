@@ -813,6 +813,7 @@ export default function TripHistory() {
                   <TableHead>Stops</TableHead>
                   <TableHead>Distance</TableHead>
                   <TableHead>Fare</TableHead>
+                  <TableHead>Payment</TableHead>
                   <TableHead>Completed</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
