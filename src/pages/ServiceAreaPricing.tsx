@@ -464,7 +464,7 @@ export default function ServiceAreaPricing() {
     }
   };
 
-  const getSymbol = (code: string) => getCurrencySymbol(code);
+  // getCurrencySymbol imported from regionSettings
 
   if (isLoading) {
     return (
