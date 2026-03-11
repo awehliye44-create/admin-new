@@ -24,19 +24,6 @@ interface LatLng {
   lng: number;
 }
 
-interface EligibleDriver {
-  id: string;
-  first_name: string;
-  last_name: string;
-  driver_code: string | null;
-  current_lat: number;
-  current_lng: number;
-  rating: number | null;
-  total_trips: number | null;
-  distance_km: number;
-  priority_score: number;
-}
-
 // Ray casting algorithm for point-in-polygon
 function isPointInPolygon(point: LatLng, polygon: LatLng[]): boolean {
   if (!polygon || polygon.length < 3) return false;
@@ -54,32 +41,6 @@ function isPointInPolygon(point: LatLng, polygon: LatLng[]): boolean {
   }
   
   return inside;
-}
-
-// Haversine formula for distance calculation
-function calculateDistanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lng2 - lng1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-// Calculate priority score based on distance, rating, and activity
-function calculatePriorityScore(driver: { 
-  distance_km: number; 
-  rating: number | null; 
-  total_trips: number | null;
-}): number {
-  const distanceScore = Math.max(0, 40 - (driver.distance_km * 4));
-  const ratingScore = (driver.rating || 4.0) * 6;
-  const activityScore = Math.min(20, (driver.total_trips || 0) / 10);
-  const availabilityBonus = 10;
-  
-  return distanceScore + ratingScore + activityScore + availabilityBonus;
 }
 
 serve(async (req) => {
@@ -118,18 +79,14 @@ serve(async (req) => {
       pickup_lat, 
       pickup_lng, 
       vehicle_type_id,
-      max_distance_km = 10,
-      max_drivers = 5,
-      offer_timeout_seconds = 30
     } = validation.data!;
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    console.log(`[dispatch-trip] Starting broadcast dispatch for trip ${trip_id}`);
+    console.log(`[dispatch-trip] Starting dispatch for trip ${trip_id}`);
     console.log(`[dispatch-trip] Pickup: ${pickup_lat}, ${pickup_lng}`);
-    console.log(`[dispatch-trip] Max drivers: ${max_drivers}, Max distance: ${max_distance_km}km, Timeout: ${offer_timeout_seconds}s`);
 
     // Validate trip exists and is in valid state
     const { data: trip, error: tripError } = await supabase
@@ -143,25 +100,19 @@ serve(async (req) => {
       return errorResponse('Trip not found', 404);
     }
 
-    // Check if trip is already assigned or in terminal state
     const terminalStatuses = ['accepted', 'driver_arriving', 'arrived', 'in_progress', 'completed', 'cancelled', 'no_drivers'];
     if (terminalStatuses.includes(trip.status)) {
       console.log(`[dispatch-trip] Trip ${trip_id} already in status: ${trip.status}`);
       return errorResponse('Trip already processed', 400, { status: trip.status });
     }
 
+    // ====== RESOLVE SERVICE AREA ======
     // Get active regions
-    const { data: regions, error: regionsError } = await supabase
+    const { data: regions } = await supabase
       .from('regions')
       .select('id, name, geo_boundary, currency_code')
       .eq('status', 'active');
 
-    if (regionsError) {
-      console.error('[dispatch-trip] Error fetching regions:', regionsError);
-      throw regionsError;
-    }
-
-    // Find the region containing the pickup point
     const pickupPoint: LatLng = { lat: pickup_lat, lng: pickup_lng };
     let matchedRegion = null;
 
@@ -180,12 +131,7 @@ serve(async (req) => {
 
     if (!matchedRegion) {
       console.log('[dispatch-trip] Pickup location not in any active region');
-      
-      await supabase
-        .from('trips')
-        .update({ status: 'no_service_area' })
-        .eq('id', trip_id);
-
+      await supabase.from('trips').update({ status: 'no_service_area' }).eq('id', trip_id);
       return successResponse({
         dispatched: false,
         message: 'Service not available in this area',
@@ -196,18 +142,12 @@ serve(async (req) => {
     console.log(`[dispatch-trip] Matched region: ${matchedRegion.name}`);
 
     // Get active service areas in this region
-    const { data: serviceAreas, error: saError } = await supabase
+    const { data: serviceAreas } = await supabase
       .from('service_areas')
       .select('id, name, geo_boundary')
       .eq('region_id', matchedRegion.id)
       .eq('is_active', true);
 
-    if (saError) {
-      console.error('[dispatch-trip] Error fetching service areas:', saError);
-      throw saError;
-    }
-
-    // Find service areas containing the pickup point (REQUIRE valid polygon)
     const matchedServiceAreaIds: string[] = [];
     for (const sa of serviceAreas || []) {
       if (sa.geo_boundary) {
@@ -215,22 +155,16 @@ serve(async (req) => {
           ? sa.geo_boundary 
           : (sa.geo_boundary as any).coordinates || [];
         
-        // Only match if polygon has >= 3 points AND pickup is inside
         if (boundary.length >= 3 && isPointInPolygon(pickupPoint, boundary)) {
           matchedServiceAreaIds.push(sa.id);
         }
       }
-      // Skip service areas without polygon boundaries
     }
 
     console.log(`[dispatch-trip] Matched service areas: ${matchedServiceAreaIds.length}`);
 
     if (matchedServiceAreaIds.length === 0) {
-      await supabase
-        .from('trips')
-        .update({ status: 'no_service_area' })
-        .eq('id', trip_id);
-
+      await supabase.from('trips').update({ status: 'no_service_area' }).eq('id', trip_id);
       return successResponse({
         dispatched: false,
         message: 'Service not available in this area',
@@ -238,142 +172,7 @@ serve(async (req) => {
       });
     }
 
-    // Get drivers assigned to these service areas
-    const { data: driverServiceAreas, error: dsaError } = await supabase
-      .from('driver_service_areas')
-      .select('driver_id')
-      .in('service_area_id', matchedServiceAreaIds);
-
-    if (dsaError) {
-      console.error('[dispatch-trip] Error fetching driver service areas:', dsaError);
-      throw dsaError;
-    }
-
-    const driverIds = [...new Set(driverServiceAreas?.map(dsa => dsa.driver_id) || [])];
-    console.log(`[dispatch-trip] Drivers in service areas: ${driverIds.length}`);
-
-    if (driverIds.length === 0) {
-      await supabase
-        .from('trips')
-        .update({ status: 'no_drivers' })
-        .eq('id', trip_id);
-
-      return successResponse({
-        dispatched: false,
-        message: 'No drivers available',
-        subtext: 'No drivers are registered in this service area.'
-      });
-    }
-
-    // Get eligible drivers
-    const { data: drivers, error: driversError } = await supabase
-      .from('drivers')
-      .select('id, first_name, last_name, driver_code, current_lat, current_lng, rating, total_trips, current_trip_id')
-      .in('id', driverIds)
-      .eq('is_online', true)
-      .eq('approval_status', 'approved')
-      .eq('documents_approved', true)
-      .not('current_lat', 'is', null)
-      .not('current_lng', 'is', null);
-
-    if (driversError) {
-      console.error('[dispatch-trip] Error fetching drivers:', driversError);
-      throw driversError;
-    }
-
-    // Filter out busy drivers
-    let availableDrivers = (drivers || []).filter(d => !d.current_trip_id);
-    console.log(`[dispatch-trip] Available drivers (not busy): ${availableDrivers.length}`);
-
-    // If vehicle type specified, filter by vehicle category
-    if (vehicle_type_id) {
-      const { data: vehicleCategories, error: vcError } = await supabase
-        .from('driver_vehicle_categories')
-        .select('driver_id')
-        .eq('vehicle_type_id', vehicle_type_id)
-        .eq('is_enabled', true)
-        .in('driver_id', availableDrivers.map(d => d.id));
-
-      if (vcError) {
-        console.error('[dispatch-trip] Error fetching vehicle categories:', vcError);
-        throw vcError;
-      }
-
-      const eligibleDriverIds = new Set(vehicleCategories?.map(vc => vc.driver_id) || []);
-      availableDrivers = availableDrivers.filter(d => eligibleDriverIds.has(d.id));
-      console.log(`[dispatch-trip] Drivers with matching vehicle type: ${availableDrivers.length}`);
-    }
-
-    // Check for existing pending offers
-    const { data: existingOffers, error: existingOffersError } = await supabase
-      .from('trip_offers')
-      .select('driver_id')
-      .eq('status', 'offered')
-      .in('driver_id', availableDrivers.map(d => d.id))
-      .gt('expires_at', new Date().toISOString());
-
-    if (!existingOffersError && existingOffers) {
-      const busyDriverIds = new Set(existingOffers.map(o => o.driver_id));
-      availableDrivers = availableDrivers.filter(d => !busyDriverIds.has(d.id));
-      console.log(`[dispatch-trip] Drivers without pending offers: ${availableDrivers.length}`);
-    }
-
-    if (availableDrivers.length === 0) {
-      await supabase
-        .from('trips')
-        .update({ status: 'no_drivers' })
-        .eq('id', trip_id);
-
-      return successResponse({
-        dispatched: false,
-        message: 'No drivers available right now',
-        subtext: 'All drivers are currently busy. Please try again in a moment.'
-      });
-    }
-
-    // Calculate distance and priority score for each driver
-    const eligibleDrivers: EligibleDriver[] = availableDrivers.map(driver => {
-      const distance_km = calculateDistanceKm(
-        pickup_lat, pickup_lng,
-        driver.current_lat!, driver.current_lng!
-      );
-      
-      return {
-        ...driver,
-        distance_km,
-        priority_score: calculatePriorityScore({
-          distance_km,
-          rating: driver.rating,
-          total_trips: driver.total_trips
-        })
-      };
-    });
-
-    // Filter by max distance and sort by priority
-    const nearbyDrivers = eligibleDrivers
-      .filter(d => d.distance_km <= max_distance_km)
-      .sort((a, b) => b.priority_score - a.priority_score)
-      .slice(0, max_drivers);
-
-    console.log(`[dispatch-trip] Nearby drivers within ${max_distance_km}km: ${nearbyDrivers.length}`);
-
-    if (nearbyDrivers.length === 0) {
-      await supabase
-        .from('trips')
-        .update({ status: 'no_drivers' })
-        .eq('id', trip_id);
-
-      return successResponse({
-        dispatched: false,
-        message: 'No drivers nearby',
-        subtext: `No available drivers within ${max_distance_km}km of your pickup location.`
-      });
-    }
-
-    // Calculate offer expiry time
-    const expiresAt = new Date(Date.now() + offer_timeout_seconds * 1000).toISOString();
-
-    // Generate trip number atomically
+    // ====== GENERATE TRIP NUMBER ======
     let tripNumber = null;
     let sequenceNo = null;
     let serviceAreaCode = null;
@@ -392,30 +191,19 @@ serve(async (req) => {
       }
     }
 
-    // Create offers for selected drivers (BROADCAST)
-    const offers = nearbyDrivers.map(driver => ({
-      trip_id,
-      driver_id: driver.id,
-      status: 'offered',
-      distance_km: driver.distance_km,
-      priority_score: driver.priority_score,
-      offered_at: new Date().toISOString(),
-      expires_at: expiresAt
-    }));
-
-    const { data: createdOffers, error: offersError } = await supabase
-      .from('trip_offers')
-      .insert(offers)
-      .select();
-
-    if (offersError) {
-      console.error('[dispatch-trip] Error creating offers:', offersError);
-      throw offersError;
+    // Update trip with service area and currency
+    const tripUpdate: Record<string, any> = {
+      currency: matchedRegion.currency_code,
+      service_area_id: matchedServiceAreaIds[0]
+    };
+    if (tripNumber) {
+      tripUpdate.trip_code = tripNumber;
+      tripUpdate.service_area_code = serviceAreaCode;
+      tripUpdate.sequence_no = sequenceNo;
     }
+    await supabase.from('trips').update(tripUpdate).eq('id', trip_id);
 
-    console.log(`[dispatch-trip] Created ${createdOffers?.length} offers for broadcast`);
-
-    // Fetch preset offer config for the service area
+    // ====== FETCH PRESET OFFER CONFIG ======
     let presetOfferConfig: Record<string, any> | null = null;
     let presetOffers: Record<string, any>[] = [];
 
@@ -446,62 +234,62 @@ serve(async (req) => {
       presetOffers = offersData || [];
     }
 
-    console.log(`[dispatch-trip] Preset offers enabled: ${!!presetOfferConfig}`);
+    // ====== DELEGATE TO dispatch-drivers (PostGIS Dispatch Scoring) ======
+    // dispatch-drivers is the single source of truth for driver ranking,
+    // radius expansion, wave dispatch, scoring, and first-accept-wins assignment.
+    console.log(`[dispatch-trip] Delegating to dispatch-drivers (PostGIS scoring)`);
 
-    // Update trip status
-    const tripUpdate: Record<string, any> = {
-      status: 'offered',
-      confirm_deadline_at: expiresAt,
-      currency: matchedRegion.currency_code,
-      service_area_id: matchedServiceAreaIds[0]
+    const dispatchPayload = {
+      trip_id,
+      pickup_lat,
+      pickup_lng,
+      vehicle_type_id: vehicle_type_id || undefined,
+      service_area_id: matchedServiceAreaIds[0],
     };
 
-    if (tripNumber) {
-      tripUpdate.trip_code = tripNumber;
-      tripUpdate.service_area_code = serviceAreaCode;
-      tripUpdate.sequence_no = sequenceNo;
-    }
+    const dispatchResponse = await fetch(
+      `${supabaseUrl}/functions/v1/dispatch-drivers`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseServiceKey}`,
+        },
+        body: JSON.stringify(dispatchPayload),
+      }
+    );
 
-    const { error: tripUpdateError } = await supabase
-      .from('trips')
-      .update(tripUpdate)
-      .eq('id', trip_id);
+    const dispatchResult = await dispatchResponse.json();
 
-    if (tripUpdateError) {
-      console.error('[dispatch-trip] Error updating trip:', tripUpdateError);
-      throw tripUpdateError;
-    }
+    console.log(`[dispatch-trip] dispatch-drivers result: dispatched=${dispatchResult?.data?.dispatched}`);
 
     // Log dispatch event
     await logAuditEvent(supabase, 'trip_dispatched', {
       tripId: trip_id,
       details: {
-        offers_sent: nearbyDrivers.length,
         trip_number: tripNumber,
         region: matchedRegion.name,
         service_area_id: matchedServiceAreaIds[0],
-        timeout_seconds: offer_timeout_seconds
+        dispatch_result: dispatchResult?.data?.dispatched ? 'dispatched' : 'no_drivers',
+        offers_sent: dispatchResult?.data?.offers_sent || 0,
+        candidates_scored: dispatchResult?.data?.candidates_scored || 0,
       },
       ipAddress: clientIP,
       userAgent,
     });
 
+    // Return combined result with preset offers
     return successResponse({
-      dispatched: true,
-      broadcast: true,
+      dispatched: dispatchResult?.data?.dispatched || false,
       trip_number: tripNumber,
-      offers_sent: nearbyDrivers.length,
-      expires_at: expiresAt,
-      timeout_seconds: offer_timeout_seconds,
+      service_area_id: matchedServiceAreaIds[0],
+      offers_sent: dispatchResult?.data?.offers_sent || 0,
+      candidates_scored: dispatchResult?.data?.candidates_scored || 0,
       preset_offer_config: presetOfferConfig,
       preset_offers: presetOffers,
-      drivers: nearbyDrivers.map(d => ({
-        id: d.id,
-        name: `${d.first_name} ${d.last_name}`,
-        driver_code: d.driver_code,
-        distance_km: Math.round(d.distance_km * 10) / 10,
-        priority_score: Math.round(d.priority_score * 10) / 10
-      }))
+      message: dispatchResult?.data?.message || (dispatchResult?.data?.dispatched ? 'Dispatched' : 'No drivers available'),
+      subtext: dispatchResult?.data?.subtext,
+      top_candidates: dispatchResult?.data?.top_candidates,
     });
 
   } catch (error) {
