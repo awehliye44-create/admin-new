@@ -1232,7 +1232,7 @@ export default function TripHistory() {
                       <div className="flex justify-between font-semibold">
                         <span>Final Fare</span>
                         <span className="text-green-600">
-                          {getCurrencySymbol(selectedTrip.currency_code)}{((selectedTrip.final_fare_pence ?? (selectedTrip.fare ? selectedTrip.fare * 100 : 0)) / 100).toFixed(2)}
+                          {getCurrencySymbol(selectedTrip.currency_code)}{getTripFarePounds(selectedTrip).toFixed(2)}
                         </span>
                       </div>
                     </div>
