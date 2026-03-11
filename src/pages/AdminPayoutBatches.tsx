@@ -130,7 +130,7 @@ export default function AdminPayoutBatches() {
   return (
     <AdminLayout 
       title="Payout Batches & Audit" 
-      description="View payout runs, weekly settlements, and manual payouts"
+      description="Reconciliation view — Stripe transfer/payout IDs, statuses, and execution history"
     >
       <div className="space-y-6">
         {/* Stats */}

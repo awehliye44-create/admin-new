@@ -548,14 +548,7 @@ export function AdminSidebar() {
                 to="/admin-payments"
                 icon={<CreditCard className="h-4 w-4" />}
                 label="Payments & Transactions"
-                active={currentPath === '/admin-payments'}
-                collapsed={isCollapsed}
-              />
-              <NavItem
-                to="/admin-settlements"
-                icon={<DollarSign className="h-4 w-4" />}
-                label="Driver Settlements"
-                active={currentPath === '/admin-settlements'}
+                active={currentPath === '/admin-payments' || currentPath === '/payments'}
                 collapsed={isCollapsed}
               />
               <NavItem
@@ -566,9 +559,16 @@ export function AdminSidebar() {
                 collapsed={isCollapsed}
               />
               <NavItem
+                to="/admin-settlements"
+                icon={<DollarSign className="h-4 w-4" />}
+                label="Driver Settlements"
+                active={currentPath === '/admin-settlements'}
+                collapsed={isCollapsed}
+              />
+              <NavItem
                 to="/payout-batches"
                 icon={<History className="h-4 w-4" />}
-                label="Payout Batches"
+                label="Payout Batches & Audit"
                 active={currentPath === '/payout-batches'}
                 collapsed={isCollapsed}
               />

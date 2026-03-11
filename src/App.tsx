@@ -138,9 +138,8 @@ const App = () => (
               <Route path="categories" element={<SupportCategories />} />
               
               {/* Finance & Payouts */}
-              <Route path="payments" element={<Payments />} />
+              <Route path="payments" element={<AdminPayments />} />
               <Route path="admin-payments" element={<AdminPayments />} />
-              <Route path="driver-payouts" element={<DriverPayouts />} />
               <Route path="admin-settlements" element={<AdminDriverSettlements />} />
               <Route path="driver-wallet" element={<DriverWallet />} />
               <Route path="payout-batches" element={<AdminPayoutBatches />} />
