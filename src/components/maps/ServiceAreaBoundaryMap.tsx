@@ -303,12 +303,16 @@ export function ServiceAreaBoundaryMap({
     }
   }, [points, isMapLoaded, isDrawing, isEditable, isPointInRegion]);
 
-  // Notify parent of changes
+  // Notify parent of changes (use ref to prevent re-render loop)
+  const onBoundaryChangeRef = useRef(onBoundaryChange);
+  onBoundaryChangeRef.current = onBoundaryChange;
+  
   useEffect(() => {
     if (points.length >= 3 && !isDrawing) {
-      onBoundaryChange(latLngToGeoJSON(points));
+      internalUpdateRef.current = true;
+      onBoundaryChangeRef.current(latLngToGeoJSON(points));
     }
-  }, [points, isDrawing, onBoundaryChange]);
+  }, [points, isDrawing]);
 
   const getPolygonPoints = useCallback((): LatLng[] => {
     if (!polygonRef.current) return [];
