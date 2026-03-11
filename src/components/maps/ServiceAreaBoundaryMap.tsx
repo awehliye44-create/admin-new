@@ -345,6 +345,7 @@ export function ServiceAreaBoundaryMap({
     setPoints([]);
     setIsDrawing(true);
     setValidationWarning(null);
+    boundaryInitializedRef.current = false;
     if (polygonRef.current) {
       polygonRef.current.setMap(null);
       polygonRef.current = null;
