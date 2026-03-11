@@ -646,8 +646,15 @@ export default function TripHistory() {
     return matchesSearch;
   });
 
+  // Helper to get fare in pounds from pence-based fields (source of truth) or legacy fare field
+  const getTripFarePounds = (trip: CompletedTrip): number => {
+    if (trip.gross_fare_pence != null && trip.gross_fare_pence > 0) return trip.gross_fare_pence / 100;
+    if (trip.fare != null && trip.fare > 0) return trip.fare;
+    return 0;
+  };
+
   // Stats based on filtered trips
-  const totalRevenue = filteredTrips.reduce((sum, t) => sum + (t.fare || 0), 0);
+  const totalRevenue = filteredTrips.reduce((sum, t) => sum + getTripFarePounds(t), 0);
   const avgFare = filteredTrips.length > 0 ? totalRevenue / filteredTrips.length : 0;
   const multiStopTrips = filteredTrips.filter(t => isMultiStopTrip(t)).length;
 
