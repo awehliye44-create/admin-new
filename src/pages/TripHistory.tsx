@@ -75,6 +75,7 @@ interface Region {
 interface CompletedTrip {
   id: string;
   trip_code: string | null;
+  trip_number: string | null;
   status: string | null;
   passenger_name: string | null;
   passenger_phone: string | null;
@@ -103,6 +104,7 @@ interface CompletedTrip {
   driver_id: string | null;
   driver_location_lat: number | null;
   driver_location_lng: number | null;
+  stripe_payment_intent_id: string | null;
   driver?: {
     id: string;
     first_name: string;
