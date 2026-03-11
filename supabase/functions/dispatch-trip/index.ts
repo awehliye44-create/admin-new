@@ -25,17 +25,29 @@ interface LatLng {
 }
 
 // Ray casting algorithm for point-in-polygon
-function isPointInPolygon(point: LatLng, polygon: LatLng[]): boolean {
+// Handles both {lat, lng} objects and [lng, lat] arrays
+function parseCoord(item: any): LatLng | null {
+  if (Array.isArray(item) && item.length >= 2) {
+    return { lng: item[0], lat: item[1] };
+  }
+  if (item && typeof item.lat === 'number' && typeof item.lng === 'number') {
+    return { lat: item.lat, lng: item.lng };
+  }
+  return null;
+}
+
+function isPointInPolygon(point: LatLng, polygon: any[]): boolean {
   if (!polygon || polygon.length < 3) return false;
   
   let inside = false;
   const x = point.lng, y = point.lat;
   
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const xi = polygon[i].lng, yi = polygon[i].lat;
-    const xj = polygon[j].lng, yj = polygon[j].lat;
+    const ci = parseCoord(polygon[i]);
+    const cj = parseCoord(polygon[j]);
+    if (!ci || !cj) continue;
     
-    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+    if (((ci.lat > y) !== (cj.lat > y)) && (x < (cj.lng - ci.lng) * (y - ci.lat) / (cj.lat - ci.lat) + ci.lng)) {
       inside = !inside;
     }
   }
