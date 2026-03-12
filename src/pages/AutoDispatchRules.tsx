@@ -559,6 +559,9 @@ export default function AutoDispatchRules() {
           </CardContent>
         </Card>
 
+        {/* Driver Tiers Configuration — single source of truth */}
+        <DriverTiersConfig />
+
         {/* Stacked Rides Configuration */}
         <Card>
           <CardHeader>
