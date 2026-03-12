@@ -106,7 +106,7 @@ const App = () => (
               <Route path="driver-profiles" element={<Drivers />} />
               <Route path="vehicle-types" element={<VehicleTypes />} />
               <Route path="documents" element={<Documents />} />
-              <Route path="driver-categories" element={<DriverCategories />} />
+              
               
               {/* Fleet Management */}
               <Route path="drivers" element={<Drivers />} />

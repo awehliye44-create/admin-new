@@ -245,7 +245,7 @@ export function AdminSidebar() {
               <P pageSlug="vehicles" to="/vehicles" icon={<Car className="h-4 w-4" />} label="Vehicle List" active={currentPath === '/vehicles'} collapsed={isCollapsed} />
               <P pageSlug="vehicle-types" to="/vehicle-types" icon={<CarTaxiFront className="h-4 w-4" />} label="Vehicle Types" active={currentPath === '/vehicle-types'} collapsed={isCollapsed} />
               <P pageSlug="documents" to="/documents" icon={<FolderOpen className="h-4 w-4" />} label="Driver Documents" active={currentPath === '/documents'} badge={counts.pendingDocuments > 0 ? counts.pendingDocuments : undefined} collapsed={isCollapsed} />
-              <P pageSlug="driver-categories" to="/driver-categories" icon={<Grid3X3 className="h-4 w-4" />} label="Driver Categories" active={currentPath === '/driver-categories'} collapsed={isCollapsed} />
+              
             </div>
           </div>
 
