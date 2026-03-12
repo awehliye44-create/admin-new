@@ -543,14 +543,15 @@ export default function AutoDispatchRules() {
               <div className="text-sm text-muted-foreground">
                 <p className="font-medium text-foreground">Dispatch Score Formula:</p>
                 <code className="text-xs block mt-1">
-                  score = category_weight + (waiting_min × waiting_bonus) + fairness_boost − (distance_km × distance_penalty)
+                  score = category_priority + (waiting_min × waiting_bonus) + fairness_boost − (distance_km × distance_penalty)
                 </code>
-                <p className="mt-1">Category weights (Bronze=10, Silver=20, Gold=30, Platinum=40, Diamond=50) are set on the Driver Categories page.</p>
+                <p className="mt-1">Category priority values are configured in the Driver Tiers section below.</p>
                 <p className="mt-2 font-medium text-foreground">Dispatch Execution Flow:</p>
                 <ol className="list-decimal list-inside mt-1 space-y-1">
-                  <li>Search at Start Radius → score & rank → send Wave 1</li>
-                  <li>If no acceptance, expand to Expand Radius → score remaining → send Wave 2</li>
-                  <li>If still no acceptance, expand to Max Radius → score remaining → send Wave 3</li>
+                  <li>Filter all eligible drivers within search radius</li>
+                  <li>Calculate final dispatch score per driver</li>
+                  <li>Rank by score descending — split into waves</li>
+                  <li>Send Wave 1 → if no acceptance → Wave 2 → Wave 3</li>
                   <li>First driver to accept wins (atomic via <code>accept_ride_offer</code> RPC)</li>
                 </ol>
               </div>
