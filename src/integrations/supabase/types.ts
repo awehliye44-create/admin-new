@@ -2070,6 +2070,77 @@ export type Database = {
           },
         ]
       }
+      driver_support_tickets: {
+        Row: {
+          admin_reply: string | null
+          created_at: string
+          driver_id: string
+          id: string
+          message: string
+          priority: string
+          replied_at: string | null
+          replied_by: string | null
+          status: string
+          subject: string
+          updated_at: string
+        }
+        Insert: {
+          admin_reply?: string | null
+          created_at?: string
+          driver_id: string
+          id?: string
+          message: string
+          priority?: string
+          replied_at?: string | null
+          replied_by?: string | null
+          status?: string
+          subject: string
+          updated_at?: string
+        }
+        Update: {
+          admin_reply?: string | null
+          created_at?: string
+          driver_id?: string
+          id?: string
+          message?: string
+          priority?: string
+          replied_at?: string | null
+          replied_by?: string | null
+          status?: string
+          subject?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_support_tickets_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_support_tickets_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_support_tickets_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_balance"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_support_tickets_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_vehicle_categories: {
         Row: {
           created_at: string
