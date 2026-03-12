@@ -52,7 +52,7 @@ interface ScoredCandidate {
   distance_km: number;
   waiting_minutes: number;
   category_name: string | null;
-  dispatch_weight: number;
+  category_priority: number;
   dispatch_score: number;
   lat: number;
   lng: number;
@@ -247,14 +247,14 @@ serve(async (req) => {
         .select("id, last_offer_at, last_trip_end_at, online_since, category_id, current_trip_id")
         .in("id", driverIds);
 
-      // Fetch categories for dispatch weights
+      // Fetch categories for category_priority (single source of truth)
       const { data: categories } = await supabase
         .from("driver_categories")
-        .select("id, name, dispatch_weight");
+        .select("id, name, category_priority");
 
-      const categoryMap = new Map<string, { name: string; weight: number }>();
+      const categoryMap = new Map<string, { name: string; priority: number }>();
       for (const cat of categories || []) {
-        categoryMap.set(cat.id, { name: cat.name, weight: cat.dispatch_weight ?? 10 });
+        categoryMap.set(cat.id, { name: cat.name, priority: (cat as any).category_priority ?? 10 });
       }
 
       const driverMap = new Map<string, any>();
@@ -285,7 +285,7 @@ serve(async (req) => {
 
       const busyIds = new Set((pendingOffers || []).map((o: any) => o.driver_id));
 
-      // Score candidates
+      // Score candidates using category_priority
       const candidates: ScoredCandidate[] = [];
       for (const nd of nearbyDrivers) {
         if (!eligibleIds.has(nd.driver_id)) continue;
@@ -302,7 +302,7 @@ serve(async (req) => {
         );
 
         const catInfo = detail.category_id ? categoryMap.get(detail.category_id) : null;
-        const categoryWeight = catInfo?.weight ?? 10;
+        const categoryPriority = catInfo?.priority ?? 10;
 
         const distancePenalty = distanceKm * settings.distance_penalty_per_km;
         const waitingBonus = waitingMin * settings.waiting_bonus_per_minute;
@@ -317,21 +317,22 @@ serve(async (req) => {
           fairnessBoost = settings.fairness_boost_score; // Never offered = boost
         }
 
-        const dispatchScore = categoryWeight + waitingBonus + fairnessBoost - distancePenalty;
+        // PostGIS Dispatch Score: category_priority + waiting_bonus + fairness_boost − distance_penalty
+        const dispatchScore = categoryPriority + waitingBonus + fairnessBoost - distancePenalty;
 
         candidates.push({
           driver_id: nd.driver_id,
           distance_km: Math.round(distanceKm * 100) / 100,
           waiting_minutes: Math.round(waitingMin * 10) / 10,
           category_name: catInfo?.name ?? "Bronze",
-          dispatch_weight: categoryWeight,
+          category_priority: categoryPriority,
           dispatch_score: Math.round(dispatchScore * 100) / 100,
           lat: nd.lat,
           lng: nd.lng,
         });
       }
 
-      // Sort by score DESC
+      // Sort by score DESC — single ranking, no secondary sorting
       candidates.sort((a, b) => b.dispatch_score - a.dispatch_score);
       allCandidates = [...allCandidates, ...candidates];
 
@@ -440,7 +441,7 @@ serve(async (req) => {
         trip_id,
         driver_id: c.driver_id,
         category_name: c.category_name,
-        dispatch_weight: c.dispatch_weight,
+        category_priority: c.category_priority,
         distance_km: c.distance_km,
         waiting_minutes: c.waiting_minutes,
         dispatch_score: c.dispatch_score,
@@ -489,6 +490,7 @@ serve(async (req) => {
       top_candidates: topCandidates.map((c) => ({
         driver_id: c.driver_id,
         category: c.category_name,
+        category_priority: c.category_priority,
         distance_km: c.distance_km,
         waiting_minutes: c.waiting_minutes,
         score: c.dispatch_score,
