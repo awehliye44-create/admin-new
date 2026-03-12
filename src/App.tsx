@@ -18,7 +18,7 @@ import Drivers from "./pages/Drivers";
 import Vehicles from "./pages/Vehicles";
 import FleetTracking from "./pages/FleetTracking";
 import Documents from "./pages/Documents";
-import DriverCategories from "./pages/DriverCategories";
+
 import Regions from "./pages/Regions";
 import Services from "./pages/Services";
 import VehicleTypes from "./pages/VehicleTypes";
@@ -106,7 +106,7 @@ const App = () => (
               <Route path="driver-profiles" element={<Drivers />} />
               <Route path="vehicle-types" element={<VehicleTypes />} />
               <Route path="documents" element={<Documents />} />
-              <Route path="driver-categories" element={<DriverCategories />} />
+              
               
               {/* Fleet Management */}
               <Route path="drivers" element={<Drivers />} />

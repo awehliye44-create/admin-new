@@ -1,5 +1,4 @@
 import { useEffect, useState, useCallback } from 'react';
-import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -14,23 +13,21 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
-import { 
-  Loader2, Pencil, RefreshCw, Star, Crown, Shield, Sparkles, Target, Percent,
-} from 'lucide-react';
+import { Loader2, Pencil, RefreshCw, Star, Crown, Shield, Sparkles, Info } from 'lucide-react';
 import { toast } from 'sonner';
 
-interface DriverCategory {
+interface DriverTier {
   id: string;
   name: string;
   description: string | null;
   icon: string | null;
   color: string | null;
   commission_pct: number;
+  category_priority: number;
   trip_target: number | null;
   level_order: number;
   is_active: boolean;
   display_order: number | null;
-  created_at: string;
 }
 
 const TIER_ICONS: Record<string, typeof Star> = {
@@ -40,14 +37,15 @@ const TIER_ICONS: Record<string, typeof Star> = {
   sparkles: Sparkles,
 };
 
-export default function DriverCategories() {
-  const [categories, setCategories] = useState<DriverCategory[]>([]);
+export function DriverTiersConfig() {
+  const [tiers, setTiers] = useState<DriverTier[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<DriverCategory | null>(null);
+  const [selectedTier, setSelectedTier] = useState<DriverTier | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   const [formData, setFormData] = useState({
+    category_priority: '',
     commission_pct: '',
     trip_target: '',
     description: '',
@@ -55,7 +53,7 @@ export default function DriverCategories() {
     display_order: '',
   });
 
-  const fetchCategories = useCallback(async () => {
+  const fetchTiers = useCallback(async () => {
     try {
       setIsLoading(true);
       const { data, error } = await supabase
@@ -64,56 +62,58 @@ export default function DriverCategories() {
         .order('level_order', { ascending: true });
 
       if (error) throw error;
-      setCategories((data as any[]) || []);
+      setTiers((data as any[]) || []);
     } catch (err) {
-      console.error('Error fetching categories:', err);
-      toast.error('Failed to load categories');
+      console.error('Error fetching tiers:', err);
+      toast.error('Failed to load driver tiers');
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchCategories();
-  }, [fetchCategories]);
+    fetchTiers();
+  }, [fetchTiers]);
 
-  const openEditDialog = (category: DriverCategory) => {
-    setSelectedCategory(category);
+  const openEditDialog = (tier: DriverTier) => {
+    setSelectedTier(tier);
     setFormData({
-      commission_pct: category.commission_pct?.toString() || '20',
-      trip_target: category.trip_target?.toString() || '',
-      description: category.description || '',
-      is_active: category.is_active,
-      display_order: category.display_order?.toString() || '',
+      category_priority: tier.category_priority?.toString() || '10',
+      commission_pct: tier.commission_pct?.toString() || '20',
+      trip_target: tier.trip_target?.toString() || '',
+      description: tier.description || '',
+      is_active: tier.is_active,
+      display_order: tier.display_order?.toString() || '',
     });
     setIsFormOpen(true);
   };
 
   const handleSave = async () => {
-    if (!selectedCategory) return;
+    if (!selectedTier) return;
 
     setIsSaving(true);
     try {
       const updateData: Record<string, any> = {
+        category_priority: formData.category_priority ? parseInt(formData.category_priority) : 10,
         commission_pct: formData.commission_pct ? parseFloat(formData.commission_pct) : 20,
         trip_target: formData.trip_target ? parseInt(formData.trip_target) : null,
         description: formData.description.trim() || null,
         is_active: formData.is_active,
-        display_order: formData.display_order ? parseInt(formData.display_order) : selectedCategory.level_order,
+        display_order: formData.display_order ? parseInt(formData.display_order) : selectedTier.level_order,
       };
 
       const { error } = await supabase
         .from('driver_categories')
         .update(updateData)
-        .eq('id', selectedCategory.id);
+        .eq('id', selectedTier.id);
 
       if (error) throw error;
-      toast.success('Category updated successfully');
+      toast.success('Tier updated successfully');
       setIsFormOpen(false);
-      fetchCategories();
+      fetchTiers();
     } catch (err: any) {
-      console.error('Error saving category:', err);
-      toast.error(err.message || 'Failed to save category');
+      console.error('Error saving tier:', err);
+      toast.error(err.message || 'Failed to save tier');
     } finally {
       setIsSaving(false);
     }
@@ -123,79 +123,38 @@ export default function DriverCategories() {
     return TIER_ICONS[iconName || 'shield'] || Shield;
   };
 
-  const activeCount = categories.filter(c => c.is_active).length;
-
   return (
-    <AdminLayout 
-      title="Driver Categories" 
-      description="Manage driver tiers, commission rates, and trip targets"
-    >
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Total Tiers</p>
-                <p className="text-2xl font-bold">{categories.length}</p>
-              </div>
-              <Shield className="h-8 w-8 text-primary opacity-80" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-green-500/30 bg-green-500/5">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Active Tiers</p>
-                <p className="text-2xl font-bold text-green-600">{activeCount}</p>
-              </div>
-              <Target className="h-8 w-8 text-green-500" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-amber-500/30 bg-amber-500/5">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Commission Range</p>
-                <p className="text-2xl font-bold text-amber-600">
-                  {categories.length > 0
-                    ? `${Math.min(...categories.map(c => c.commission_pct))}–${Math.max(...categories.map(c => c.commission_pct))}%`
-                    : '—'}
-                </p>
-              </div>
-              <Percent className="h-8 w-8 text-amber-500" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Info banner */}
-      <div className="mb-4 p-3 bg-muted/50 border rounded-lg text-sm text-muted-foreground flex items-start gap-2">
-        <Shield className="h-4 w-4 mt-0.5 shrink-0" />
-        <span>
-          Categories are <strong>manually assigned</strong> per driver. Trip targets are visual guidance only — the system will <strong>never</strong> auto-promote or auto-demote drivers.
-        </span>
-      </div>
-
-      <Card>
+    <>
+      <Card className="border-primary/50">
         <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <Crown className="h-5 w-5 text-primary" />
-              Driver Tiers
-            </CardTitle>
-            <CardDescription>
-              Edit commission rates and trip targets for each tier
-            </CardDescription>
+          <div className="flex items-center gap-3">
+            <Crown className="h-5 w-5 text-primary" />
+            <div>
+              <CardTitle>Driver Tiers Configuration</CardTitle>
+              <CardDescription>
+                Single source of truth for tier priority, commission rates, and dispatch scoring weights
+              </CardDescription>
+            </div>
+            <Badge className="ml-2 bg-primary text-primary-foreground">Primary</Badge>
           </div>
-          <Button variant="outline" onClick={fetchCategories} disabled={isLoading}>
+          <Button variant="outline" size="sm" onClick={fetchTiers} disabled={isLoading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {/* Info banner */}
+          <div className="flex items-start gap-2 p-3 bg-muted/50 rounded-lg">
+            <Info className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+            <div className="text-sm text-muted-foreground">
+              <p><strong>Category Priority</strong> is used directly in the dispatch scoring formula:</p>
+              <code className="text-xs block mt-1">
+                score = category_priority + waiting_bonus + fairness_boost − distance_penalty
+              </code>
+              <p className="mt-1"><strong>Commission %</strong> is applied during trip settlement. Tiers are <strong>manually assigned</strong> per driver — no auto-promotion.</p>
+            </div>
+          </div>
+
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -204,7 +163,8 @@ export default function DriverCategories() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Category</TableHead>
+                  <TableHead>Tier</TableHead>
+                  <TableHead>Category Priority</TableHead>
                   <TableHead>Commission %</TableHead>
                   <TableHead>Trip Target</TableHead>
                   <TableHead>Status</TableHead>
@@ -213,26 +173,26 @@ export default function DriverCategories() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {categories.map((category) => {
-                  const IconComponent = getIconComponent(category.icon);
+                {tiers.map((tier) => {
+                  const IconComponent = getIconComponent(tier.icon);
                   return (
-                    <TableRow key={category.id}>
+                    <TableRow key={tier.id}>
                       <TableCell>
                         <div className="flex items-center gap-3">
-                          <div 
+                          <div
                             className="h-10 w-10 rounded-lg flex items-center justify-center"
-                            style={{ backgroundColor: `${category.color}20` }}
+                            style={{ backgroundColor: `${tier.color}20` }}
                           >
-                            <IconComponent 
-                              className="h-5 w-5" 
-                              style={{ color: category.color || '#3B82F6' }}
+                            <IconComponent
+                              className="h-5 w-5"
+                              style={{ color: tier.color || '#3B82F6' }}
                             />
                           </div>
                           <div>
-                            <div className="font-medium">{category.name}</div>
-                            {category.description && (
+                            <div className="font-medium">{tier.name}</div>
+                            {tier.description && (
                               <div className="text-xs text-muted-foreground max-w-[200px] truncate">
-                                {category.description}
+                                {tier.description}
                               </div>
                             )}
                           </div>
@@ -240,29 +200,34 @@ export default function DriverCategories() {
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className="font-mono">
-                          {category.commission_pct}%
+                          {tier.category_priority}
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        {category.trip_target ? (
-                          <span className="font-mono">{category.trip_target} trips</span>
+                        <Badge variant="outline" className="font-mono">
+                          {tier.commission_pct}%
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {tier.trip_target ? (
+                          <span className="font-mono">{tier.trip_target} trips</span>
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={category.is_active ? 'default' : 'secondary'}>
-                          {category.is_active ? 'Active' : 'Inactive'}
+                        <Badge variant={tier.is_active ? 'default' : 'secondary'}>
+                          {tier.is_active ? 'Active' : 'Inactive'}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {category.display_order || category.level_order}
+                        {tier.display_order || tier.level_order}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button 
-                          variant="ghost" 
+                        <Button
+                          variant="ghost"
                           size="icon"
-                          onClick={() => openEditDialog(category)}
+                          onClick={() => openEditDialog(tier)}
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -280,14 +245,25 @@ export default function DriverCategories() {
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>
-              Edit {selectedCategory?.name} Tier
-            </DialogTitle>
+            <DialogTitle>Edit {selectedTier?.name} Tier</DialogTitle>
             <DialogDescription>
-              Update commission rate and trip target for this tier
+              Update priority, commission rate, and trip target
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            <div>
+              <Label htmlFor="category_priority">Category Priority (dispatch weight)</Label>
+              <Input
+                id="category_priority"
+                type="number"
+                min="0"
+                max="100"
+                value={formData.category_priority}
+                onChange={(e) => setFormData(prev => ({ ...prev, category_priority: e.target.value }))}
+                placeholder="e.g., 10"
+              />
+              <p className="text-xs text-muted-foreground mt-1">Higher value = higher ranking in dispatch scoring</p>
+            </div>
             <div>
               <Label htmlFor="commission_pct">Commission %</Label>
               <Input
@@ -300,7 +276,7 @@ export default function DriverCategories() {
                 onChange={(e) => setFormData(prev => ({ ...prev, commission_pct: e.target.value }))}
                 placeholder="e.g., 20"
               />
-              <p className="text-xs text-muted-foreground mt-1">Applied to base fare on trip completion</p>
+              <p className="text-xs text-muted-foreground mt-1">Applied to commissionable subtotal on trip completion</p>
             </div>
             <div>
               <Label htmlFor="trip_target">Trip Target (guidance only)</Label>
@@ -312,7 +288,7 @@ export default function DriverCategories() {
                 onChange={(e) => setFormData(prev => ({ ...prev, trip_target: e.target.value }))}
                 placeholder="e.g., 500"
               />
-              <p className="text-xs text-muted-foreground mt-1">Visual progress shown to admin — no auto-promotion</p>
+              <p className="text-xs text-muted-foreground mt-1">Visual progress only — no auto-promotion</p>
             </div>
             <div>
               <Label htmlFor="description">Description</Label>
@@ -356,6 +332,6 @@ export default function DriverCategories() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </AdminLayout>
+    </>
   );
 }

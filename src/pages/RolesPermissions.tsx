@@ -390,7 +390,7 @@ export default function RolesPermissions() {
   const PAGE_GROUPS = [
     { label: 'Dashboard', pages: ['dashboard'] },
     { label: 'Operations', pages: ['fleet-tracking', 'active-trips', 'auto-dispatch', 'scheduled-rides', 'missed-cancelled', 'trip-history', 'manual-trip'] },
-    { label: 'Fleet', pages: ['drivers', 'vehicles', 'vehicle-types', 'documents', 'driver-categories'] },
+    { label: 'Fleet', pages: ['drivers', 'vehicles', 'vehicle-types', 'documents'] },
     { label: 'Service Areas', pages: ['regions', 'services'] },
     { label: 'Pricing', pages: ['promo-codes', 'custom-zones', 'zone-pricing', 'corporate-fares', 'fare-simulator'] },
     { label: 'Corporate', pages: ['corporate-accounts', 'account-requests', 'corporate-billing', 'corporate-reports'] },
