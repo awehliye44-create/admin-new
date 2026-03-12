@@ -1138,9 +1138,9 @@ export type Database = {
       dispatch_candidates_log: {
         Row: {
           category_name: string | null
+          category_priority: number | null
           created_at: string
           dispatch_score: number
-          dispatch_weight: number | null
           distance_km: number
           driver_id: string
           id: string
@@ -1151,9 +1151,9 @@ export type Database = {
         }
         Insert: {
           category_name?: string | null
+          category_priority?: number | null
           created_at?: string
           dispatch_score: number
-          dispatch_weight?: number | null
           distance_km: number
           driver_id: string
           id?: string
@@ -1164,9 +1164,9 @@ export type Database = {
         }
         Update: {
           category_name?: string | null
+          category_priority?: number | null
           created_at?: string
           dispatch_score?: number
-          dispatch_weight?: number | null
           distance_km?: number
           driver_id?: string
           id?: string
@@ -1563,11 +1563,11 @@ export type Database = {
       }
       driver_categories: {
         Row: {
+          category_priority: number
           color: string | null
           commission_pct: number | null
           created_at: string
           description: string | null
-          dispatch_weight: number
           display_order: number | null
           icon: string | null
           id: string
@@ -1581,11 +1581,11 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          category_priority?: number
           color?: string | null
           commission_pct?: number | null
           created_at?: string
           description?: string | null
-          dispatch_weight?: number
           display_order?: number | null
           icon?: string | null
           id?: string
@@ -1599,11 +1599,11 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          category_priority?: number
           color?: string | null
           commission_pct?: number | null
           created_at?: string
           description?: string | null
-          dispatch_weight?: number
           display_order?: number | null
           icon?: string | null
           id?: string
