@@ -26,6 +26,7 @@ import {
   Loader2,
   CheckCircle2
 } from 'lucide-react';
+import { DriverTiersConfig } from '@/components/dispatch/DriverTiersConfig';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 
