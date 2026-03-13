@@ -344,7 +344,7 @@ export default function Dashboard() {
         const revenueByArea: ServiceAreaRevenue[] = serviceAreas.map(area => {
           const areaTrips = completedTripsData.filter(t => t.service_area_id === area.id);
           const revenue = areaTrips.reduce((sum, t) => sum + (t.fare || 0), 0);
-          const commission = areaTrips.reduce((sum, t) => sum + ((t.commission_pence || 0) / 100), 0) || revenue * 0.20;
+          const commission = areaTrips.reduce((sum, t) => sum + ((t.commission_pence || 0) / 100), 0);
           return { name: area.name, revenue, trips: areaTrips.length, commission };
         }).filter(a => a.trips > 0).sort((a, b) => b.revenue - a.revenue);
         setServiceAreaRevenues(revenueByArea);
