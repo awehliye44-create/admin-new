@@ -152,8 +152,8 @@ serve(async (req) => {
         authorisedAmount: trip.authorised_amount_pence,
       },
       commissionBreakdown: {
-        commissionPercent: parseFloat(settings.commission_percent || '20'),
-        commissionFixed: parseInt(settings.commission_fixed_pence || '0'),
+        commissionPercent: commissionPercent,
+        commissionFixed: 0,
         platformCommission: commission,
         driverNet,
         stripeFee,
