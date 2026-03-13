@@ -124,19 +124,17 @@ serve(async (req) => {
     // Use commission already calculated on the trip (from complete-trip)
     let commissionPence = trip.commission_pence || 0;
 
-    // If not set, calculate from driver/category rate
+    // If not set, calculate from driver tier commission (single source of truth)
     if (commissionPence <= 0) {
-      let commissionPercentage = 20;
+      let commissionPercentage = 20; // default fallback only if no tier assigned
 
       const { data: driverData } = await supabase
         .from('drivers')
-        .select('commission_override_pct, category_id')
+        .select('category_id')
         .eq('id', trip.driver_id)
         .single();
 
-      if (driverData?.commission_override_pct != null) {
-        commissionPercentage = driverData.commission_override_pct;
-      } else if (driverData?.category_id) {
+      if (driverData?.category_id) {
         const { data: cat } = await supabase
           .from('driver_categories')
           .select('commission_pct')
