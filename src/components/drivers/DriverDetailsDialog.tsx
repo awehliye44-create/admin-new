@@ -643,36 +643,16 @@ export function DriverDetailsDialog({
                   </Select>
                 </div>
 
-                {/* Commission Override */}
-                <div className="space-y-2">
-                  <Label htmlFor="commission_override">Commission Override % (optional)</Label>
-                  <Input
-                    id="commission_override"
-                    type="number"
-                    step="0.5"
-                    min="0"
-                    max="100"
-                    value={commissionOverride}
-                    onChange={(e) => setCommissionOverride(e.target.value)}
-                    placeholder="Leave blank to use category rate"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    If set, this overrides the category commission for this driver only.
-                  </p>
-                </div>
-
                 {/* Effective Commission Display */}
                 {(() => {
                   const currentTier = tierCategories.find((tc: any) => tc.id === selectedCategoryId);
-                  const effectivePct = commissionOverride
-                    ? parseFloat(commissionOverride)
-                    : currentTier?.commission_pct ?? null;
+                  const effectivePct = currentTier?.commission_pct ?? null;
 
                   return effectivePct !== null ? (
                     <div className="p-3 border rounded-lg bg-primary/5">
                       <p className="text-sm font-medium">Effective Commission: <span className="text-primary font-bold">{effectivePct}%</span></p>
                       <p className="text-xs text-muted-foreground">
-                        {commissionOverride ? 'Using driver-specific override' : `Using ${currentTier?.name} tier rate`}
+                        Using {currentTier?.name} tier rate (PostGIS Dispatch Scoring)
                       </p>
                     </div>
                   ) : null;
