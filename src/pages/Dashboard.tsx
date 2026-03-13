@@ -308,14 +308,14 @@ export default function Dashboard() {
       const totalRevenue = trips
         .filter(t => t.status === 'completed')
         .reduce((sum, t) => sum + (t.fare || 0), 0);
-      // Commission is calculated from actual trip data (commission_pence stored on each trip)
+      // Commission from actual trip data only (set from tier config during settlement)
       const commissionRevenue = trips
-        .filter(t => t.status === 'completed' && t.commission_pence)
-        .reduce((sum, t) => sum + ((t.commission_pence || 0) / 100), 0) || totalRevenue * 0.20;
+        .filter(t => t.status === 'completed')
+        .reduce((sum, t) => sum + ((t.commission_pence || 0) / 100), 0);
 
       const previousRevenue = previousTrips.reduce((sum, t) => sum + (t.fare || 0), 0);
       const previousCommission = previousTrips
-        .reduce((sum, t) => sum + ((t.commission_pence || 0) / 100), 0) || previousRevenue * 0.20;
+        .reduce((sum, t) => sum + ((t.commission_pence || 0) / 100), 0);
 
       setStats({
         totalDrivers,
@@ -344,7 +344,7 @@ export default function Dashboard() {
         const revenueByArea: ServiceAreaRevenue[] = serviceAreas.map(area => {
           const areaTrips = completedTripsData.filter(t => t.service_area_id === area.id);
           const revenue = areaTrips.reduce((sum, t) => sum + (t.fare || 0), 0);
-          const commission = areaTrips.reduce((sum, t) => sum + ((t.commission_pence || 0) / 100), 0) || revenue * 0.20;
+          const commission = areaTrips.reduce((sum, t) => sum + ((t.commission_pence || 0) / 100), 0);
           return { name: area.name, revenue, trips: areaTrips.length, commission };
         }).filter(a => a.trips > 0).sort((a, b) => b.revenue - a.revenue);
         setServiceAreaRevenues(revenueByArea);
