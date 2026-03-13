@@ -100,17 +100,15 @@ serve(async (req) => {
       return errorResponse('Trip does not belong to this driver', 403);
     }
 
-    // === Get commission rate ===
-    let commissionPercentage = 20;
+    // === Get commission rate from driver tier (single source of truth) ===
+    let commissionPercentage = 20; // default fallback only if no tier assigned
     const { data: driver } = await supabase
       .from('drivers')
-      .select('commission_override_pct, category_id, stripe_account_id')
+      .select('category_id, stripe_account_id')
       .eq('id', driver_id)
       .single();
 
-    if (driver?.commission_override_pct != null) {
-      commissionPercentage = driver.commission_override_pct;
-    } else if (driver?.category_id) {
+    if (driver?.category_id) {
       const { data: category } = await supabase
         .from('driver_categories')
         .select('commission_pct')

@@ -124,20 +124,18 @@ serve(async (req) => {
 
     // === Get driver's connected account ===
     let driverStripeAccountId: string | null = null;
-    let commissionPercentage = 20;
+    let commissionPercentage = 20; // default fallback only if no tier assigned
 
     if (trip.driver_id) {
       const { data: driver } = await supabase
         .from("drivers")
-        .select("stripe_account_id, commission_override_pct, category_id")
+        .select("stripe_account_id, category_id")
         .eq("id", trip.driver_id)
         .single();
 
       driverStripeAccountId = driver?.stripe_account_id || null;
 
-      if (driver?.commission_override_pct != null) {
-        commissionPercentage = driver.commission_override_pct;
-      } else if (driver?.category_id) {
+      if (driver?.category_id) {
         const { data: category } = await supabase
           .from("driver_categories")
           .select("commission_pct")

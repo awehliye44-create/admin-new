@@ -2347,7 +2347,6 @@ export type Database = {
           approval_status: string
           category_id: string | null
           charges_enabled: boolean | null
-          commission_override_pct: number | null
           created_at: string
           current_lat: number | null
           current_lng: number | null
@@ -2383,7 +2382,6 @@ export type Database = {
           approval_status?: string
           category_id?: string | null
           charges_enabled?: boolean | null
-          commission_override_pct?: number | null
           created_at?: string
           current_lat?: number | null
           current_lng?: number | null
@@ -2419,7 +2417,6 @@ export type Database = {
           approval_status?: string
           category_id?: string | null
           charges_enabled?: boolean | null
-          commission_override_pct?: number | null
           created_at?: string
           current_lat?: number | null
           current_lng?: number | null
