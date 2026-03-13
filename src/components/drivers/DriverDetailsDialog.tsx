@@ -173,7 +173,6 @@ export function DriverDetailsDialog({
     try {
       const updateData: Record<string, any> = {
         category_id: selectedCategoryId || null,
-        commission_override_pct: commissionOverride ? parseFloat(commissionOverride) : null,
       };
       const { error } = await supabase
         .from('drivers')
