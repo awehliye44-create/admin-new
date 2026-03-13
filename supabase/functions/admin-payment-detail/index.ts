@@ -71,7 +71,8 @@ serve(async (req) => {
           email,
           phone,
           stripe_account_id,
-          payouts_enabled
+          payouts_enabled,
+          category_id
         ),
         customers:passenger_id (
           id,
@@ -90,16 +91,18 @@ serve(async (req) => {
       });
     }
 
-    // Get commission settings
-    const { data: commissionSettings } = await supabase
-      .from('admin_settings')
-      .select('setting_key, setting_value')
-      .in('setting_key', ['commission_percent', 'commission_fixed_pence']);
-
-    const settings: Record<string, string> = {};
-    commissionSettings?.forEach(s => {
-      settings[s.setting_key] = s.setting_value as string;
-    });
+    // Get commission rate from driver's tier (single source of truth)
+    let commissionPercent = 20; // default fallback
+    if (trip.drivers?.category_id) {
+      const { data: category } = await supabase
+        .from('driver_categories')
+        .select('commission_pct, name')
+        .eq('id', trip.drivers.category_id)
+        .single();
+      if (category?.commission_pct != null) {
+        commissionPercent = category.commission_pct;
+      }
+    }
 
     // Get related ledger entries
     const { data: ledgerEntries } = await supabase
@@ -149,8 +152,8 @@ serve(async (req) => {
         authorisedAmount: trip.authorised_amount_pence,
       },
       commissionBreakdown: {
-        commissionPercent: parseFloat(settings.commission_percent || '20'),
-        commissionFixed: parseInt(settings.commission_fixed_pence || '0'),
+        commissionPercent: commissionPercent,
+        commissionFixed: 0,
         platformCommission: commission,
         driverNet,
         stripeFee,
