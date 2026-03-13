@@ -308,14 +308,14 @@ export default function Dashboard() {
       const totalRevenue = trips
         .filter(t => t.status === 'completed')
         .reduce((sum, t) => sum + (t.fare || 0), 0);
-      // Commission is calculated from actual trip data (commission_pence stored on each trip)
+      // Commission from actual trip data only (set from tier config during settlement)
       const commissionRevenue = trips
-        .filter(t => t.status === 'completed' && t.commission_pence)
-        .reduce((sum, t) => sum + ((t.commission_pence || 0) / 100), 0) || totalRevenue * 0.20;
+        .filter(t => t.status === 'completed')
+        .reduce((sum, t) => sum + ((t.commission_pence || 0) / 100), 0);
 
       const previousRevenue = previousTrips.reduce((sum, t) => sum + (t.fare || 0), 0);
       const previousCommission = previousTrips
-        .reduce((sum, t) => sum + ((t.commission_pence || 0) / 100), 0) || previousRevenue * 0.20;
+        .reduce((sum, t) => sum + ((t.commission_pence || 0) / 100), 0);
 
       setStats({
         totalDrivers,
