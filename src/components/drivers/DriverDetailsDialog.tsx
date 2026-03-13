@@ -159,12 +159,11 @@ export function DriverDetailsDialog({
     if (!driver) return;
     const { data } = await supabase
       .from('drivers')
-      .select('category_id, commission_override_pct')
+      .select('category_id')
       .eq('id', driver.id)
       .single();
     if (data) {
       setSelectedCategoryId((data as any).category_id || '');
-      setCommissionOverride((data as any).commission_override_pct?.toString() || '');
     }
   };
 
