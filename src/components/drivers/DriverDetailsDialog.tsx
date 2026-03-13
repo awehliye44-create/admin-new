@@ -134,7 +134,7 @@ export function DriverDetailsDialog({
   // Commission management state
   const [tierCategories, setTierCategories] = useState<any[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
-  const [commissionOverride, setCommissionOverride] = useState<string>('');
+  const [commissionOverride] = useState<string>('');
   const [isSavingCommission, setIsSavingCommission] = useState(false);
   useEffect(() => {
     if (open && driver) {
