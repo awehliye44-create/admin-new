@@ -17,7 +17,7 @@ import {
   Navigation, Phone, Star, Clock, Wifi, WifiOff
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { getOneCabCarIcon, getEnhancedCarIcon, preloadMarkerImage } from '@/lib/mapMarkers';
+import { getEnhancedCarIcon, preloadMarkerImage } from '@/lib/mapMarkers';
 
 interface Driver {
   id: string;
