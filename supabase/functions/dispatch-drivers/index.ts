@@ -346,9 +346,9 @@ serve(async (req) => {
 
       // ====== WAVE DISPATCH ======
       const waves = [
-        { size: settings.wave1_size, num: 1 },
-        { size: settings.wave2_size, num: 2 },
-        { size: settings.wave3_size, num: 3 },
+        { size: settings.wave1_size, num: 1, expiry: settings.wave1_offer_expiry_seconds },
+        { size: settings.wave2_size, num: 2, expiry: settings.wave2_offer_expiry_seconds },
+        { size: settings.wave3_size, num: 3, expiry: settings.wave3_offer_expiry_seconds },
       ];
 
       let candidateIdx = 0;
@@ -361,7 +361,8 @@ serve(async (req) => {
 
         if (waveDrivers.length === 0) break;
 
-        const expiresAt = new Date(Date.now() + settings.offer_expiry_seconds * 1000).toISOString();
+        const waveExpirySeconds = wave.expiry;
+        const expiresAt = new Date(Date.now() + waveExpirySeconds * 1000).toISOString();
 
         // Create ride_offers
         const offers = waveDrivers.map((c) => ({
