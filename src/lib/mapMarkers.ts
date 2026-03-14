@@ -84,16 +84,6 @@ export function getEnhancedCarIcon(
 }
 
 /**
- * @deprecated Use getEnhancedCarIcon instead
- */
-export function getOneCabCarIcon(
-  size: 32 | 64 = 32,
-  heading: number = 0
-): google.maps.Icon {
-  return getEnhancedCarIcon(size, heading, false);
-}
-
-/**
  * Preload the marker image for immediate use
  */
 export function preloadMarkerImage(): Promise<void> {
