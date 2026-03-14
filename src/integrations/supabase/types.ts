@@ -4664,6 +4664,7 @@ export type Database = {
           rejection_reason: string | null
           requested_by: string
           requester_id: string | null
+          requires_approval: boolean
           responded_at: string | null
           response_by: string | null
           status: string
@@ -4687,6 +4688,7 @@ export type Database = {
           rejection_reason?: string | null
           requested_by?: string
           requester_id?: string | null
+          requires_approval?: boolean
           responded_at?: string | null
           response_by?: string | null
           status?: string
@@ -4710,6 +4712,7 @@ export type Database = {
           rejection_reason?: string | null
           requested_by?: string
           requester_id?: string | null
+          requires_approval?: boolean
           responded_at?: string | null
           response_by?: string | null
           status?: string
