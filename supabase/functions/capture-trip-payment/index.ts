@@ -165,10 +165,16 @@ serve(async (req) => {
 
         captureSuccess = true;
 
-        // NOTE: With Destination Charges, Stripe automatically handles the transfer.
-        // No manual stripe.transfers.create() needed.
-        // If debt recovery applies, we handle it via the ledger system,
-        // not by reducing the Stripe transfer amount.
+        // With Destination Charges, Stripe automatically handles the transfer.
+        // The application_fee_amount we passed during capture ensures the platform
+        // retains the correct commission.
+        //
+        // If driver has no connected account (no transfer_data on PI),
+        // the full amount stays with the platform. A manual payout/transfer 
+        // must be arranged separately.
+        if (!driver_stripe_account_id) {
+          console.warn(`[capture] No driver connected account — full amount retained by platform. Manual payout required for driver ${driver_id}`);
+        }
 
       } catch (captureErr) {
         console.error(`[capture] Stripe capture failed:`, captureErr);
