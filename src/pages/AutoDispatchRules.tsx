@@ -493,21 +493,35 @@ export default function AutoDispatchRules() {
               </div>
             </div>
 
-            {/* Offer Timeout */}
+            {/* Offer Timing */}
             <div>
-              <h4 className="text-sm font-semibold mb-3">Offer Timing</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <h4 className="text-sm font-semibold mb-3">Per-Wave Offer Expiry</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label>Offer Expiry per Wave (seconds)</Label>
-                  <Input type="number" min="5" max="60" value={settings.offerExpirySeconds}
-                    onChange={(e) => updateSetting('offerExpirySeconds', parseInt(e.target.value) || 10)} disabled={isLoading} />
-                  <p className="text-xs text-muted-foreground">Time each wave waits for acceptance before expiring</p>
+                  <Label>Wave 1 Expiry (seconds)</Label>
+                  <Input type="number" min="10" max="120" value={settings.wave1OfferExpirySeconds}
+                    onChange={(e) => updateSetting('wave1OfferExpirySeconds', parseInt(e.target.value) || 40)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Time Wave 1 waits before expanding</p>
                 </div>
+                <div className="space-y-2">
+                  <Label>Wave 2 Expiry (seconds)</Label>
+                  <Input type="number" min="10" max="120" value={settings.wave2OfferExpirySeconds}
+                    onChange={(e) => updateSetting('wave2OfferExpirySeconds', parseInt(e.target.value) || 45)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Time Wave 2 waits before expanding</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Wave 3 Expiry (seconds)</Label>
+                  <Input type="number" min="10" max="120" value={settings.wave3OfferExpirySeconds}
+                    onChange={(e) => updateSetting('wave3OfferExpirySeconds', parseInt(e.target.value) || 50)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Time Wave 3 waits before marking unassigned</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                 <div className="space-y-2">
                   <Label>Accept Timeout (seconds)</Label>
                   <Input type="number" min="5" max="60" value={settings.acceptTimeoutSeconds}
-                    onChange={(e) => updateSetting('acceptTimeoutSeconds', parseInt(e.target.value) || 12)} disabled={isLoading} />
-                  <p className="text-xs text-muted-foreground">Time driver has to accept/reject before auto-expire</p>
+                    onChange={(e) => updateSetting('acceptTimeoutSeconds', parseInt(e.target.value) || 25)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Time each driver has to accept/reject the offer</p>
                 </div>
               </div>
             </div>
