@@ -1237,6 +1237,7 @@ export type Database = {
           driver_fare_display: string
           driver_final_response_timeout_seconds: number
           enable_logging: boolean
+          enable_scheduled_to_urgent_conversion: boolean
           fairness_boost_score: number
           fairness_idle_minutes: number
           fare_max_increase_pence: number
@@ -1247,6 +1248,7 @@ export type Database = {
           global_timeout_minutes: number
           id: string
           instant_retry_enabled: boolean
+          locked_driver_response_minutes: number
           max_advance_days: number
           max_cancel_rate: number
           max_concurrent_offers_per_driver: number
@@ -1259,8 +1261,10 @@ export type Database = {
           minimum_rating: number
           offer_expiry_seconds: number
           priority_order: string
+          scheduled_response_window_minutes: number
           scheduled_ride_incentives_enabled: boolean
           scheduled_rides_enabled: boolean
+          scheduled_urgent_card_label: string
           search_radius_expand_km: number
           search_radius_max_km: number
           search_radius_meters: number
@@ -1280,6 +1284,7 @@ export type Database = {
           stacked_show_eta_to_driver: boolean
           suppress_recent_offers_seconds: number
           updated_at: string
+          urgent_dispatch_trigger_minutes_before_pickup: number
           waiting_bonus_per_minute: number
           waiting_time_grace_period_minutes: number
           wave1_offer_expiry_seconds: number
@@ -1305,6 +1310,7 @@ export type Database = {
           driver_fare_display?: string
           driver_final_response_timeout_seconds?: number
           enable_logging?: boolean
+          enable_scheduled_to_urgent_conversion?: boolean
           fairness_boost_score?: number
           fairness_idle_minutes?: number
           fare_max_increase_pence?: number
@@ -1315,6 +1321,7 @@ export type Database = {
           global_timeout_minutes?: number
           id?: string
           instant_retry_enabled?: boolean
+          locked_driver_response_minutes?: number
           max_advance_days?: number
           max_cancel_rate?: number
           max_concurrent_offers_per_driver?: number
@@ -1327,8 +1334,10 @@ export type Database = {
           minimum_rating?: number
           offer_expiry_seconds?: number
           priority_order?: string
+          scheduled_response_window_minutes?: number
           scheduled_ride_incentives_enabled?: boolean
           scheduled_rides_enabled?: boolean
+          scheduled_urgent_card_label?: string
           search_radius_expand_km?: number
           search_radius_max_km?: number
           search_radius_meters?: number
@@ -1348,6 +1357,7 @@ export type Database = {
           stacked_show_eta_to_driver?: boolean
           suppress_recent_offers_seconds?: number
           updated_at?: string
+          urgent_dispatch_trigger_minutes_before_pickup?: number
           waiting_bonus_per_minute?: number
           waiting_time_grace_period_minutes?: number
           wave1_offer_expiry_seconds?: number
@@ -1373,6 +1383,7 @@ export type Database = {
           driver_fare_display?: string
           driver_final_response_timeout_seconds?: number
           enable_logging?: boolean
+          enable_scheduled_to_urgent_conversion?: boolean
           fairness_boost_score?: number
           fairness_idle_minutes?: number
           fare_max_increase_pence?: number
@@ -1383,6 +1394,7 @@ export type Database = {
           global_timeout_minutes?: number
           id?: string
           instant_retry_enabled?: boolean
+          locked_driver_response_minutes?: number
           max_advance_days?: number
           max_cancel_rate?: number
           max_concurrent_offers_per_driver?: number
@@ -1395,8 +1407,10 @@ export type Database = {
           minimum_rating?: number
           offer_expiry_seconds?: number
           priority_order?: string
+          scheduled_response_window_minutes?: number
           scheduled_ride_incentives_enabled?: boolean
           scheduled_rides_enabled?: boolean
+          scheduled_urgent_card_label?: string
           search_radius_expand_km?: number
           search_radius_max_km?: number
           search_radius_meters?: number
@@ -1416,6 +1430,7 @@ export type Database = {
           stacked_show_eta_to_driver?: boolean
           suppress_recent_offers_seconds?: number
           updated_at?: string
+          urgent_dispatch_trigger_minutes_before_pickup?: number
           waiting_bonus_per_minute?: number
           waiting_time_grace_period_minutes?: number
           wave1_offer_expiry_seconds?: number
