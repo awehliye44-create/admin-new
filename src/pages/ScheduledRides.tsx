@@ -134,6 +134,7 @@ export default function ScheduledRides() {
           .from('trips')
           .select(`
             id,
+            trip_number,
             trip_code,
             status,
             scheduled_status,
