@@ -388,7 +388,7 @@ serve(async (req) => {
             .eq("id", c.driver_id);
         }
 
-        console.log(`[dispatch-drivers] Wave ${wave.num}: sent ${waveDrivers.length} offers (timeout ${settings.offer_expiry_seconds}s)`);
+        console.log(`[dispatch-drivers] Wave ${wave.num}: sent ${waveDrivers.length} offers (expiry ${waveExpirySeconds}s, accept_timeout ${settings.accept_timeout_seconds}s)`);
 
         // Update trip status
         await supabase.from("trips").update({
