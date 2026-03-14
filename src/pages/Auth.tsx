@@ -18,7 +18,7 @@ const authSchema = z.object({
 
 export default function Auth() {
   const navigate = useNavigate();
-  const { user, isAdmin, isLoading, signIn, signUp, signOut } = useAuth();
+  const { user, isAdmin, isLoading, signIn, signOut } = useAuth();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
