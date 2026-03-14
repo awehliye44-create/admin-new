@@ -72,6 +72,11 @@ interface DispatchSettings {
   maxAdvanceDays: number;
   waitingTimeGracePeriodMinutes: number;
   scheduledRideIncentivesEnabled: boolean;
+  scheduledResponseWindowMinutes: number;
+  urgentDispatchTriggerMinutesBeforePickup: number;
+  lockedDriverResponseMinutes: number;
+  scheduledUrgentCardLabel: string;
+  enableScheduledToUrgentConversion: boolean;
 
   // System Settings (operational flags, not dispatch execution)
   enableLogging: boolean;
