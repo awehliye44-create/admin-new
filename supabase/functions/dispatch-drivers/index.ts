@@ -22,6 +22,9 @@ interface DispatchSettings {
   wave2_size: number;
   wave3_size: number;
   offer_expiry_seconds: number;
+  wave1_offer_expiry_seconds: number;
+  wave2_offer_expiry_seconds: number;
+  wave3_offer_expiry_seconds: number;
   distance_penalty_per_km: number;
   waiting_bonus_per_minute: number;
   max_waiting_bonus_minutes: number;
@@ -38,13 +41,16 @@ const DEFAULT_SETTINGS: DispatchSettings = {
   wave1_size: 3,
   wave2_size: 5,
   wave3_size: 10,
-  offer_expiry_seconds: 10,
+  offer_expiry_seconds: 40,
+  wave1_offer_expiry_seconds: 40,
+  wave2_offer_expiry_seconds: 45,
+  wave3_offer_expiry_seconds: 50,
   distance_penalty_per_km: 2.0,
   waiting_bonus_per_minute: 0.5,
   max_waiting_bonus_minutes: 20,
   fairness_idle_minutes: 20,
   fairness_boost_score: 10,
-  accept_timeout_seconds: 12,
+  accept_timeout_seconds: 25,
 };
 
 interface ScoredCandidate {
@@ -163,6 +169,9 @@ serve(async (req) => {
           wave2_size: saSettings.wave2_size ?? DEFAULT_SETTINGS.wave2_size,
           wave3_size: saSettings.wave3_size ?? DEFAULT_SETTINGS.wave3_size,
           offer_expiry_seconds: saSettings.offer_expiry_seconds ?? DEFAULT_SETTINGS.offer_expiry_seconds,
+          wave1_offer_expiry_seconds: saSettings.wave1_offer_expiry_seconds ?? DEFAULT_SETTINGS.wave1_offer_expiry_seconds,
+          wave2_offer_expiry_seconds: saSettings.wave2_offer_expiry_seconds ?? DEFAULT_SETTINGS.wave2_offer_expiry_seconds,
+          wave3_offer_expiry_seconds: saSettings.wave3_offer_expiry_seconds ?? DEFAULT_SETTINGS.wave3_offer_expiry_seconds,
           distance_penalty_per_km: saSettings.distance_penalty_per_km ?? DEFAULT_SETTINGS.distance_penalty_per_km,
           waiting_bonus_per_minute: saSettings.waiting_bonus_per_minute ?? DEFAULT_SETTINGS.waiting_bonus_per_minute,
           max_waiting_bonus_minutes: saSettings.max_waiting_bonus_minutes ?? DEFAULT_SETTINGS.max_waiting_bonus_minutes,
@@ -191,6 +200,9 @@ serve(async (req) => {
           wave2_size: globalSettings.wave2_size ?? DEFAULT_SETTINGS.wave2_size,
           wave3_size: globalSettings.wave3_size ?? DEFAULT_SETTINGS.wave3_size,
           offer_expiry_seconds: globalSettings.offer_expiry_seconds ?? DEFAULT_SETTINGS.offer_expiry_seconds,
+          wave1_offer_expiry_seconds: globalSettings.wave1_offer_expiry_seconds ?? DEFAULT_SETTINGS.wave1_offer_expiry_seconds,
+          wave2_offer_expiry_seconds: globalSettings.wave2_offer_expiry_seconds ?? DEFAULT_SETTINGS.wave2_offer_expiry_seconds,
+          wave3_offer_expiry_seconds: globalSettings.wave3_offer_expiry_seconds ?? DEFAULT_SETTINGS.wave3_offer_expiry_seconds,
           distance_penalty_per_km: globalSettings.distance_penalty_per_km ?? DEFAULT_SETTINGS.distance_penalty_per_km,
           waiting_bonus_per_minute: globalSettings.waiting_bonus_per_minute ?? DEFAULT_SETTINGS.waiting_bonus_per_minute,
           max_waiting_bonus_minutes: globalSettings.max_waiting_bonus_minutes ?? DEFAULT_SETTINGS.max_waiting_bonus_minutes,
@@ -340,9 +352,9 @@ serve(async (req) => {
 
       // ====== WAVE DISPATCH ======
       const waves = [
-        { size: settings.wave1_size, num: 1 },
-        { size: settings.wave2_size, num: 2 },
-        { size: settings.wave3_size, num: 3 },
+        { size: settings.wave1_size, num: 1, expiry: settings.wave1_offer_expiry_seconds },
+        { size: settings.wave2_size, num: 2, expiry: settings.wave2_offer_expiry_seconds },
+        { size: settings.wave3_size, num: 3, expiry: settings.wave3_offer_expiry_seconds },
       ];
 
       let candidateIdx = 0;
@@ -355,7 +367,8 @@ serve(async (req) => {
 
         if (waveDrivers.length === 0) break;
 
-        const expiresAt = new Date(Date.now() + settings.offer_expiry_seconds * 1000).toISOString();
+        const waveExpirySeconds = wave.expiry;
+        const expiresAt = new Date(Date.now() + waveExpirySeconds * 1000).toISOString();
 
         // Create ride_offers
         const offers = waveDrivers.map((c) => ({
@@ -381,7 +394,7 @@ serve(async (req) => {
             .eq("id", c.driver_id);
         }
 
-        console.log(`[dispatch-drivers] Wave ${wave.num}: sent ${waveDrivers.length} offers (timeout ${settings.offer_expiry_seconds}s)`);
+        console.log(`[dispatch-drivers] Wave ${wave.num}: sent ${waveDrivers.length} offers (expiry ${waveExpirySeconds}s, accept_timeout ${settings.accept_timeout_seconds}s)`);
 
         // Update trip status
         await supabase.from("trips").update({
@@ -392,7 +405,7 @@ serve(async (req) => {
 
         // Wait for acceptance (poll)
         const waitStart = Date.now();
-        while (Date.now() - waitStart < settings.offer_expiry_seconds * 1000) {
+        while (Date.now() - waitStart < waveExpirySeconds * 1000) {
           await new Promise((r) => setTimeout(r, 1500)); // Poll every 1.5s
 
           const { data: acceptedOffer } = await supabase

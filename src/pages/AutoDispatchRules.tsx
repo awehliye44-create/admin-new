@@ -40,6 +40,9 @@ interface DispatchSettings {
   wave2Size: number;
   wave3Size: number;
   offerExpirySeconds: number;
+  wave1OfferExpirySeconds: number;
+  wave2OfferExpirySeconds: number;
+  wave3OfferExpirySeconds: number;
   distancePenaltyPerKm: number;
   waitingBonusPerMinute: number;
   maxWaitingBonusMinutes: number;
@@ -86,13 +89,16 @@ const defaultSettings: DispatchSettings = {
   wave1Size: 3,
   wave2Size: 5,
   wave3Size: 10,
-  offerExpirySeconds: 10,
+  offerExpirySeconds: 40,
+  wave1OfferExpirySeconds: 40,
+  wave2OfferExpirySeconds: 45,
+  wave3OfferExpirySeconds: 50,
   distancePenaltyPerKm: 2.0,
   waitingBonusPerMinute: 0.5,
   maxWaitingBonusMinutes: 20,
   fairnessIdleMinutes: 20,
   fairnessBoostScore: 10,
-  acceptTimeoutSeconds: 12,
+  acceptTimeoutSeconds: 25,
   maxDriverFindTimeMinutes: 3,
   stackedRidesEnabled: false,
   maxStackedRides: 1,
@@ -131,6 +137,9 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   wave2Size: (data.wave2_size as number) ?? defaultSettings.wave2Size,
   wave3Size: (data.wave3_size as number) ?? defaultSettings.wave3Size,
   offerExpirySeconds: (data.offer_expiry_seconds as number) ?? defaultSettings.offerExpirySeconds,
+  wave1OfferExpirySeconds: (data.wave1_offer_expiry_seconds as number) ?? defaultSettings.wave1OfferExpirySeconds,
+  wave2OfferExpirySeconds: (data.wave2_offer_expiry_seconds as number) ?? defaultSettings.wave2OfferExpirySeconds,
+  wave3OfferExpirySeconds: (data.wave3_offer_expiry_seconds as number) ?? defaultSettings.wave3OfferExpirySeconds,
   distancePenaltyPerKm: (data.distance_penalty_per_km as number) ?? defaultSettings.distancePenaltyPerKm,
   waitingBonusPerMinute: (data.waiting_bonus_per_minute as number) ?? defaultSettings.waitingBonusPerMinute,
   maxWaitingBonusMinutes: (data.max_waiting_bonus_minutes as number) ?? defaultSettings.maxWaitingBonusMinutes,
@@ -172,6 +181,9 @@ const mapSettingsToDb = (settings: DispatchSettings, serviceAreaId: string | nul
   wave2_size: settings.wave2Size,
   wave3_size: settings.wave3Size,
   offer_expiry_seconds: settings.offerExpirySeconds,
+  wave1_offer_expiry_seconds: settings.wave1OfferExpirySeconds,
+  wave2_offer_expiry_seconds: settings.wave2OfferExpirySeconds,
+  wave3_offer_expiry_seconds: settings.wave3OfferExpirySeconds,
   distance_penalty_per_km: settings.distancePenaltyPerKm,
   waiting_bonus_per_minute: settings.waitingBonusPerMinute,
   max_waiting_bonus_minutes: settings.maxWaitingBonusMinutes,
@@ -481,21 +493,35 @@ export default function AutoDispatchRules() {
               </div>
             </div>
 
-            {/* Offer Timeout */}
+            {/* Offer Timing */}
             <div>
-              <h4 className="text-sm font-semibold mb-3">Offer Timing</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <h4 className="text-sm font-semibold mb-3">Per-Wave Offer Expiry</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label>Offer Expiry per Wave (seconds)</Label>
-                  <Input type="number" min="5" max="60" value={settings.offerExpirySeconds}
-                    onChange={(e) => updateSetting('offerExpirySeconds', parseInt(e.target.value) || 10)} disabled={isLoading} />
-                  <p className="text-xs text-muted-foreground">Time each wave waits for acceptance before expiring</p>
+                  <Label>Wave 1 Expiry (seconds)</Label>
+                  <Input type="number" min="10" max="120" value={settings.wave1OfferExpirySeconds}
+                    onChange={(e) => updateSetting('wave1OfferExpirySeconds', parseInt(e.target.value) || 40)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Time Wave 1 waits before expanding</p>
                 </div>
+                <div className="space-y-2">
+                  <Label>Wave 2 Expiry (seconds)</Label>
+                  <Input type="number" min="10" max="120" value={settings.wave2OfferExpirySeconds}
+                    onChange={(e) => updateSetting('wave2OfferExpirySeconds', parseInt(e.target.value) || 45)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Time Wave 2 waits before expanding</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Wave 3 Expiry (seconds)</Label>
+                  <Input type="number" min="10" max="120" value={settings.wave3OfferExpirySeconds}
+                    onChange={(e) => updateSetting('wave3OfferExpirySeconds', parseInt(e.target.value) || 50)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Time Wave 3 waits before marking unassigned</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                 <div className="space-y-2">
                   <Label>Accept Timeout (seconds)</Label>
                   <Input type="number" min="5" max="60" value={settings.acceptTimeoutSeconds}
-                    onChange={(e) => updateSetting('acceptTimeoutSeconds', parseInt(e.target.value) || 12)} disabled={isLoading} />
-                  <p className="text-xs text-muted-foreground">Time driver has to accept/reject before auto-expire</p>
+                    onChange={(e) => updateSetting('acceptTimeoutSeconds', parseInt(e.target.value) || 25)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Time each driver has to accept/reject the offer</p>
                 </div>
               </div>
             </div>
