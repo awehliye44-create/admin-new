@@ -314,7 +314,7 @@ export default function OnecabDocuments() {
   const healthColor = stats.healthScore >= 90 ? "text-emerald-500" : stats.healthScore >= 70 ? "text-amber-500" : "text-red-500";
 
   return (
-    <PageWrapper title="ONECAB Documents" description="Compliance Command Center — Company & property document management">
+    <AdminLayout title="ONECAB Documents" description="Compliance Command Center — Company & property document management">
       {/* HEALTH BAR */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
         <Card>
