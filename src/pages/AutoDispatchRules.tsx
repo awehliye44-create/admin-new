@@ -40,6 +40,9 @@ interface DispatchSettings {
   wave2Size: number;
   wave3Size: number;
   offerExpirySeconds: number;
+  wave1OfferExpirySeconds: number;
+  wave2OfferExpirySeconds: number;
+  wave3OfferExpirySeconds: number;
   distancePenaltyPerKm: number;
   waitingBonusPerMinute: number;
   maxWaitingBonusMinutes: number;
