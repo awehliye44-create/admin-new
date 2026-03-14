@@ -178,6 +178,14 @@ serve(async (req) => {
         destination: driverStripeAccountId,
       };
       piParams.application_fee_amount = applicationFeeAmount;
+    } else {
+      // Even without a connected account, store commission in metadata for capture-time enforcement
+      console.warn(`[create-payment-intent] Driver has no Stripe connected account for trip ${trip_id}. Commission will be enforced at capture time.`);
+      piParams.metadata = {
+        ...piParams.metadata,
+        application_fee_amount_pence: String(applicationFeeAmount),
+        no_connected_account: "true",
+      };
     }
 
     // Attach payment method if provided (for saved cards)
