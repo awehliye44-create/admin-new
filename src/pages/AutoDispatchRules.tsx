@@ -806,11 +806,75 @@ export default function AutoDispatchRules() {
                 </div>
               </TabsContent>
 
-              <TabsContent value="dispatch" className="pt-4">
+              <TabsContent value="dispatch" className="space-y-6 pt-4">
                 <div className="p-4 bg-muted/50 rounded-lg">
                   <p className="text-sm text-muted-foreground">
                     Scheduled rides use the same <span className="font-medium text-foreground">Dispatch Scoring & Execution</span> settings above for driver ranking, radius expansion, and wave dispatch.
+                    The settings below control when a scheduled ride converts to urgent and begins per-wave broadcasting.
                   </p>
+                </div>
+
+                <div className="flex items-center justify-between p-4 border rounded-lg">
+                  <div>
+                    <p className="font-medium">Enable Scheduled → Urgent Auto Conversion</p>
+                    <p className="text-sm text-muted-foreground">Automatically convert unaccepted scheduled rides to urgent dispatch</p>
+                  </div>
+                  <Switch
+                    checked={settings.enableScheduledToUrgentConversion}
+                    onCheckedChange={(checked) => updateSetting('enableScheduledToUrgentConversion', checked)}
+                    disabled={isLoading || !settings.scheduledRidesEnabled}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label>Scheduled Response Window (minutes)</Label>
+                    <Input
+                      type="number" min="1" max="60"
+                      value={settings.scheduledResponseWindowMinutes}
+                      onChange={(e) => updateSetting('scheduledResponseWindowMinutes', Math.max(1, Math.min(60, parseInt(e.target.value) || 10)))}
+                      disabled={isLoading || !settings.scheduledRidesEnabled || !settings.enableScheduledToUrgentConversion}
+                    />
+                    <p className="text-xs text-muted-foreground">If no driver accepts within this window, convert to urgent. Default: 10</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Urgent Dispatch Trigger Before Pickup (minutes)</Label>
+                    <Input
+                      type="number" min="1" max="30"
+                      value={settings.urgentDispatchTriggerMinutesBeforePickup}
+                      onChange={(e) => updateSetting('urgentDispatchTriggerMinutesBeforePickup', Math.max(1, Math.min(30, parseInt(e.target.value) || 5)))}
+                      disabled={isLoading || !settings.scheduledRidesEnabled || !settings.enableScheduledToUrgentConversion}
+                    />
+                    <p className="text-xs text-muted-foreground">Convert to urgent when current time reaches pickup_time minus this value. Default: 5</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Locked Driver Response Time (minutes)</Label>
+                    <Input
+                      type="number" min="1" max="15"
+                      value={settings.lockedDriverResponseMinutes}
+                      onChange={(e) => updateSetting('lockedDriverResponseMinutes', Math.max(1, Math.min(15, parseInt(e.target.value) || 3)))}
+                      disabled={isLoading || !settings.scheduledRidesEnabled}
+                    />
+                    <p className="text-xs text-muted-foreground">Time the locked (accepted) driver has to confirm before reassignment. Default: 3</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Scheduled Urgent Card Label</Label>
+                    <Input
+                      type="text"
+                      value={settings.scheduledUrgentCardLabel}
+                      onChange={(e) => updateSetting('scheduledUrgentCardLabel', e.target.value || 'Scheduled • Urgent')}
+                      disabled={isLoading || !settings.scheduledRidesEnabled || !settings.enableScheduledToUrgentConversion}
+                    />
+                    <p className="text-xs text-muted-foreground">Label shown on the ride offer card after conversion. Default: Scheduled • Urgent</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                  <Info className="h-4 w-4 text-amber-600 mt-0.5" />
+                  <div className="text-sm text-amber-700 dark:text-amber-400 space-y-1">
+                    <p className="font-medium">Scheduled → Urgent Workflow</p>
+                    <p>Before acceptance: job stays in the Scheduled Jobs banner. Conversion triggers (whichever first): response window expires OR pickup time minus trigger minutes is reached. After conversion: normal ride alert with per-wave broadcasting. After acceptance: driver becomes locked, broadcast stops.</p>
+                  </div>
                 </div>
               </TabsContent>
 
