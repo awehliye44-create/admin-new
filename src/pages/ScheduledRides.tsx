@@ -61,6 +61,7 @@ import { toast } from 'sonner';
 
 interface ScheduledTrip {
   id: string;
+  trip_number: string | null;
   trip_code: string | null;
   status: string | null;
   scheduled_status: string | null;
