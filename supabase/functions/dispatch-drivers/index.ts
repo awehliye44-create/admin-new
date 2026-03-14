@@ -399,7 +399,7 @@ serve(async (req) => {
 
         // Wait for acceptance (poll)
         const waitStart = Date.now();
-        while (Date.now() - waitStart < settings.offer_expiry_seconds * 1000) {
+        while (Date.now() - waitStart < waveExpirySeconds * 1000) {
           await new Promise((r) => setTimeout(r, 1500)); // Poll every 1.5s
 
           const { data: acceptedOffer } = await supabase
