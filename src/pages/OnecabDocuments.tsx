@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { PageWrapper } from "@/components/layout/PageWrapper";
+import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -314,7 +314,7 @@ export default function OnecabDocuments() {
   const healthColor = stats.healthScore >= 90 ? "text-emerald-500" : stats.healthScore >= 70 ? "text-amber-500" : "text-red-500";
 
   return (
-    <PageWrapper title="ONECAB Documents" description="Compliance Command Center — Company & property document management">
+    <AdminLayout title="ONECAB Documents" description="Compliance Command Center — Company & property document management">
       {/* HEALTH BAR */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
         <Card>
@@ -717,6 +717,6 @@ export default function OnecabDocuments() {
           )}
         </DialogContent>
       </Dialog>
-    </PageWrapper>
+    </AdminLayout>
   );
 }
