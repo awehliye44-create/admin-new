@@ -22,6 +22,9 @@ interface DispatchSettings {
   wave2_size: number;
   wave3_size: number;
   offer_expiry_seconds: number;
+  wave1_offer_expiry_seconds: number;
+  wave2_offer_expiry_seconds: number;
+  wave3_offer_expiry_seconds: number;
   distance_penalty_per_km: number;
   waiting_bonus_per_minute: number;
   max_waiting_bonus_minutes: number;
@@ -38,13 +41,16 @@ const DEFAULT_SETTINGS: DispatchSettings = {
   wave1_size: 3,
   wave2_size: 5,
   wave3_size: 10,
-  offer_expiry_seconds: 10,
+  offer_expiry_seconds: 40,
+  wave1_offer_expiry_seconds: 40,
+  wave2_offer_expiry_seconds: 45,
+  wave3_offer_expiry_seconds: 50,
   distance_penalty_per_km: 2.0,
   waiting_bonus_per_minute: 0.5,
   max_waiting_bonus_minutes: 20,
   fairness_idle_minutes: 20,
   fairness_boost_score: 10,
-  accept_timeout_seconds: 12,
+  accept_timeout_seconds: 25,
 };
 
 interface ScoredCandidate {
