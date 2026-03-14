@@ -1282,8 +1282,11 @@ export type Database = {
           updated_at: string
           waiting_bonus_per_minute: number
           waiting_time_grace_period_minutes: number
+          wave1_offer_expiry_seconds: number
           wave1_size: number
+          wave2_offer_expiry_seconds: number
           wave2_size: number
+          wave3_offer_expiry_seconds: number
           wave3_size: number
         }
         Insert: {
@@ -1347,8 +1350,11 @@ export type Database = {
           updated_at?: string
           waiting_bonus_per_minute?: number
           waiting_time_grace_period_minutes?: number
+          wave1_offer_expiry_seconds?: number
           wave1_size?: number
+          wave2_offer_expiry_seconds?: number
           wave2_size?: number
+          wave3_offer_expiry_seconds?: number
           wave3_size?: number
         }
         Update: {
@@ -1412,8 +1418,11 @@ export type Database = {
           updated_at?: string
           waiting_bonus_per_minute?: number
           waiting_time_grace_period_minutes?: number
+          wave1_offer_expiry_seconds?: number
           wave1_size?: number
+          wave2_offer_expiry_seconds?: number
           wave2_size?: number
+          wave3_offer_expiry_seconds?: number
           wave3_size?: number
         }
         Relationships: [
