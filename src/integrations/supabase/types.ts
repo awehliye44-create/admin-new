@@ -3766,6 +3766,7 @@ export type Database = {
           grace_window_expires_at: string | null
           id: string
           is_stacked: boolean
+          is_urgent_dispatch: boolean
           negotiation_status: string | null
           offer_options: number[] | null
           offer_snapshot: Json | null
@@ -3792,6 +3793,7 @@ export type Database = {
           grace_window_expires_at?: string | null
           id?: string
           is_stacked?: boolean
+          is_urgent_dispatch?: boolean
           negotiation_status?: string | null
           offer_options?: number[] | null
           offer_snapshot?: Json | null
@@ -3818,6 +3820,7 @@ export type Database = {
           grace_window_expires_at?: string | null
           id?: string
           is_stacked?: boolean
+          is_urgent_dispatch?: boolean
           negotiation_status?: string | null
           offer_options?: number[] | null
           offer_snapshot?: Json | null
