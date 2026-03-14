@@ -717,6 +717,6 @@ export default function OnecabDocuments() {
           )}
         </DialogContent>
       </Dialog>
-    </PageWrapper>
+    </AdminLayout>
   );
 }
