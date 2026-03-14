@@ -664,7 +664,7 @@ export default function Dashboard() {
               <span className={commissionChange >= 0 ? 'text-green-500' : 'text-red-500'}>
                 {commissionChange >= 0 ? '+' : ''}{commissionChange}%
               </span>
-              <span className="text-muted-foreground"> 15% commission</span>
+              <span className="text-muted-foreground"> tier-based commission</span>
             </p>
           </CardContent>
         </Card>
