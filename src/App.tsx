@@ -154,7 +154,6 @@ const App = () => (
               <Route path="content" element={<ManageContent />} />
               
               {/* Settings */}
-              <Route path="settings" element={<Settings />} />
               <Route path="general-settings" element={<GeneralSettings />} />
               <Route path="integrations" element={<Integrations />} />
               <Route path="webhooks" element={<Webhooks />} />
