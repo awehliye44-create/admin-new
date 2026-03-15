@@ -119,6 +119,7 @@ export default function AdminPayments() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [methodFilter, setMethodFilter] = useState<string>('all');
   const [viewingTripId, setViewingTripId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   // Fetch summary from edge function
   const { data: summary, isLoading: isLoadingSummary, refetch: refetchSummary } = useQuery<PaymentSummary>({
