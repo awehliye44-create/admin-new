@@ -116,6 +116,129 @@ export type Database = {
         }
         Relationships: []
       }
+      complaint_sequences: {
+        Row: {
+          current_value: number
+          service_area_id: string
+          updated_at: string
+        }
+        Insert: {
+          current_value?: number
+          service_area_id: string
+          updated_at?: string
+        }
+        Update: {
+          current_value?: number
+          service_area_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "complaint_sequences_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: true
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      complaints: {
+        Row: {
+          assigned_to: string | null
+          category: string
+          complaint_number: string
+          created_at: string
+          description: string
+          id: string
+          priority: string
+          reported_user_id: string | null
+          reported_user_name: string
+          reported_user_type: string
+          reporter_email: string | null
+          reporter_id: string | null
+          reporter_name: string
+          reporter_type: string
+          resolution: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          service_area_id: string | null
+          status: string
+          subject: string
+          trip_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          assigned_to?: string | null
+          category?: string
+          complaint_number: string
+          created_at?: string
+          description?: string
+          id?: string
+          priority?: string
+          reported_user_id?: string | null
+          reported_user_name: string
+          reported_user_type?: string
+          reporter_email?: string | null
+          reporter_id?: string | null
+          reporter_name: string
+          reporter_type?: string
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          service_area_id?: string | null
+          status?: string
+          subject: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          assigned_to?: string | null
+          category?: string
+          complaint_number?: string
+          created_at?: string
+          description?: string
+          id?: string
+          priority?: string
+          reported_user_id?: string | null
+          reported_user_name?: string
+          reported_user_type?: string
+          reporter_email?: string | null
+          reporter_id?: string | null
+          reporter_name?: string
+          reporter_type?: string
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          service_area_id?: string | null
+          status?: string
+          subject?: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "complaints_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "complaints_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "complaints_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       content_audit_log: {
         Row: {
           action: string
