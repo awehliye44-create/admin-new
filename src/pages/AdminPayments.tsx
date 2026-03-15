@@ -647,7 +647,21 @@ export default function AdminPayments() {
                 </div>
               </div>
             ) : null}
-            <DialogFooter>
+            <DialogFooter className="gap-2">
+              {paymentDetail && 
+                paymentDetail.payment_info.payment_status === 'pending' && (
+                <Button 
+                  onClick={() => viewingTripId && confirmPaymentMutation.mutate(viewingTripId)}
+                  disabled={confirmPaymentMutation.isPending}
+                >
+                  {confirmPaymentMutation.isPending ? (
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                  )}
+                  Confirm Payment
+                </Button>
+              )}
               <Button variant="outline" onClick={() => setViewingTripId(null)}>
                 Close
               </Button>
