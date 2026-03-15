@@ -48,8 +48,109 @@ serve(async (req) => {
       });
     }
 
-    // Parse trip_id from query
     const url = new URL(req.url);
+
+    // === POST: Confirm payment ===
+    if (req.method === 'POST') {
+      const body = await req.json();
+      const { trip_id, action } = body;
+
+      if (!trip_id) {
+        return new Response(JSON.stringify({ error: 'trip_id is required' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (action === 'confirm_payment') {
+        const { data: trip, error: tripErr } = await supabase
+          .from('trips')
+          .select('id, status, payment_status, payment_method, gross_fare_pence, commission_pence, driver_net_pence, driver_id')
+          .eq('id', trip_id)
+          .single();
+
+        if (tripErr || !trip) {
+          return new Response(JSON.stringify({ error: 'Trip not found' }), {
+            status: 404,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        // Update payment status to confirmed/paid
+        const newStatus = trip.payment_method === 'cash' ? 'confirmed' : 'captured';
+        const { error: updateErr } = await supabase
+          .from('trips')
+          .update({ 
+            payment_status: newStatus,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', trip_id);
+
+        if (updateErr) {
+          return new Response(JSON.stringify({ error: updateErr.message }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        // If trip has fare data and a driver, create ledger entry if not already exists
+        if (trip.driver_id && trip.commission_pence && trip.commission_pence > 0) {
+          const { data: existingEntry } = await supabase
+            .from('driver_ledger')
+            .select('id')
+            .eq('trip_id', trip_id)
+            .limit(1);
+
+          if (!existingEntry || existingEntry.length === 0) {
+            if (trip.payment_method === 'cash') {
+              // Cash trip: driver owes commission
+              await supabase.from('driver_ledger').insert({
+                driver_id: trip.driver_id,
+                trip_id: trip_id,
+                entry_type: 'CASH_COMMISSION_DEBT',
+                amount_pence: -trip.commission_pence,
+                currency_code: 'GBP',
+                description: 'Commission owed from cash trip (admin confirmed)',
+              });
+            } else {
+              // Digital trip: driver earns net
+              const netPence = trip.driver_net_pence || (trip.gross_fare_pence || 0) - trip.commission_pence;
+              await supabase.from('driver_ledger').insert({
+                driver_id: trip.driver_id,
+                trip_id: trip_id,
+                entry_type: 'TRIP_EARNING_NET',
+                amount_pence: netPence,
+                currency_code: 'GBP',
+                description: 'Net earnings from trip (admin confirmed)',
+              });
+            }
+          }
+        }
+
+        // Log the action
+        await supabase.from('audit_logs').insert({
+          event_type: 'admin_confirm_payment',
+          user_id: user.id,
+          trip_id: trip_id,
+          details: { previous_status: trip.payment_status, new_status: newStatus },
+        });
+
+        return new Response(JSON.stringify({ 
+          success: true, 
+          message: `Payment ${newStatus}`,
+          newStatus,
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      return new Response(JSON.stringify({ error: 'Unknown action' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // === GET: Fetch payment detail ===
     const tripId = url.searchParams.get('trip_id');
 
     if (!tripId) {
@@ -59,7 +160,7 @@ serve(async (req) => {
       });
     }
 
-    // Fetch trip details
+    // Fetch trip with driver join only (no customer FK)
     const { data: trip, error: tripError } = await supabase
       .from('trips')
       .select(`
@@ -73,26 +174,32 @@ serve(async (req) => {
           stripe_account_id,
           payouts_enabled,
           category_id
-        ),
-        customers:passenger_id (
-          id,
-          first_name,
-          last_name,
-          phone
         )
       `)
       .eq('id', tripId)
       .single();
 
     if (tripError || !trip) {
+      console.error('Trip fetch error:', tripError?.message);
       return new Response(JSON.stringify({ error: 'Trip not found' }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Get commission rate from driver's tier (single source of truth)
-    let commissionPercent = 20; // default fallback
+    // Fetch customer separately (no FK relationship)
+    let customer = null;
+    if (trip.passenger_id) {
+      const { data: customerData } = await supabase
+        .from('customers')
+        .select('id, first_name, last_name, phone')
+        .eq('user_id', trip.passenger_id)
+        .single();
+      customer = customerData;
+    }
+
+    // Get commission rate from driver's tier
+    let commissionPercent = 20;
     if (trip.drivers?.category_id) {
       const { data: category } = await supabase
         .from('driver_categories')
@@ -152,7 +259,7 @@ serve(async (req) => {
         authorisedAmount: trip.authorised_amount_pence,
       },
       commissionBreakdown: {
-        commissionPercent: commissionPercent,
+        commissionPercent,
         commissionFixed: 0,
         platformCommission: commission,
         driverNet,
@@ -177,10 +284,10 @@ serve(async (req) => {
         stripeAccountId: trip.drivers.stripe_account_id,
         payoutsEnabled: trip.drivers.payouts_enabled,
       } : null,
-      customer: trip.customers ? {
-        id: trip.customers.id,
-        name: `${trip.customers.first_name || ''} ${trip.customers.last_name || ''}`.trim(),
-        phone: trip.customers.phone,
+      customer: customer ? {
+        id: customer.id,
+        name: `${customer.first_name || ''} ${customer.last_name || ''}`.trim(),
+        phone: customer.phone,
       } : null,
       ledgerEntries: ledgerEntries || [],
     };

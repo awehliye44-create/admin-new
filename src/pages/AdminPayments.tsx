@@ -11,7 +11,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/integrations/supabase/client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { 
@@ -118,6 +119,7 @@ export default function AdminPayments() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [methodFilter, setMethodFilter] = useState<string>('all');
   const [viewingTripId, setViewingTripId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   // Fetch summary from edge function
   const { data: summary, isLoading: isLoadingSummary, refetch: refetchSummary } = useQuery<PaymentSummary>({
@@ -203,6 +205,27 @@ export default function AdminPayments() {
             }
           : null,
       };
+    },
+  });
+
+  // Confirm payment mutation
+  const confirmPaymentMutation = useMutation({
+    mutationFn: async (tripId: string) => {
+      const { data, error } = await supabase.functions.invoke('admin-payment-detail', {
+        body: { trip_id: tripId, action: 'confirm_payment' },
+      });
+      if (error) throw new Error(data?.error || error.message || 'Failed to confirm payment');
+      if (!data.success) throw new Error(data.error || 'Failed to confirm payment');
+      return data;
+    },
+    onSuccess: (data) => {
+      toast.success(`Payment ${data.newStatus || 'confirmed'} successfully`);
+      queryClient.invalidateQueries({ queryKey: ['admin-payment-detail', viewingTripId] });
+      queryClient.invalidateQueries({ queryKey: ['admin-payments-list'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-payments-summary'] });
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to confirm: ${error.message}`);
     },
   });
 
@@ -625,7 +648,21 @@ export default function AdminPayments() {
                 </div>
               </div>
             ) : null}
-            <DialogFooter>
+            <DialogFooter className="gap-2">
+              {paymentDetail && 
+                paymentDetail.payment_info.payment_status === 'pending' && (
+                <Button 
+                  onClick={() => viewingTripId && confirmPaymentMutation.mutate(viewingTripId)}
+                  disabled={confirmPaymentMutation.isPending}
+                >
+                  {confirmPaymentMutation.isPending ? (
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                  )}
+                  Confirm Payment
+                </Button>
+              )}
               <Button variant="outline" onClick={() => setViewingTripId(null)}>
                 Close
               </Button>
