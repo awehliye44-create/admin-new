@@ -130,6 +130,7 @@ export function DriverDetailsDialog({
   const [rejectionReason, setRejectionReason] = useState('');
   const [isRejecting, setIsRejecting] = useState(false);
   const [isSendingOnboardLink, setIsSendingOnboardLink] = useState(false);
+  const [showManageCategories, setShowManageCategories] = useState(false);
 
   // Commission management state
   const [tierCategories, setTierCategories] = useState<any[]>([]);
@@ -805,59 +806,109 @@ export function DriverDetailsDialog({
               {/* Categories Tab */}
               <TabsContent value="categories" className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Enable or disable service categories this driver can accept. 
-                  The driver must have an approved vehicle with sufficient capacity for each category.
+                  Service categories this driver is approved to accept.
                 </p>
-                
-                <div className="space-y-2">
-                  {vehicleTypes.map((vt) => {
-                    const enabled = isCategoryEnabled(vt.id);
-                    const approvedVehicles = driverVehicles.filter(v => v.approval_status === 'approved');
-                    const hasCompatibleVehicle = approvedVehicles.some(v => v.capacity >= vt.capacity);
 
-                    return (
-                      <div 
-                        key={vt.id}
-                        className={`flex items-center justify-between p-3 border rounded-lg ${
-                          enabled ? 'border-primary/50 bg-primary/5' : ''
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${
-                            enabled ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
-                          }`}>
-                            <Truck className="h-5 w-5" />
-                          </div>
-                          <div>
-                            <p className="font-medium">{vt.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {vt.capacity} passengers • {vt.categories?.join(', ') || 'Standard'}
-                            </p>
-                          </div>
+                {(() => {
+                  const enabledTypes = vehicleTypes.filter(vt => isCategoryEnabled(vt.id));
+                  const disabledTypes = vehicleTypes.filter(vt => !isCategoryEnabled(vt.id));
+
+                  return (
+                    <>
+                      {enabledTypes.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <Truck className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                          <p>No categories assigned to this driver</p>
                         </div>
-                        <div className="flex items-center gap-3">
-                          {!hasCompatibleVehicle && enabled && (
-                            <Badge variant="outline" className="text-yellow-600 border-yellow-500/30 bg-yellow-500/10">
-                              <AlertTriangle className="h-3 w-3 mr-1" />
-                              No compatible vehicle
-                            </Badge>
+                      ) : (
+                        <div className="space-y-2">
+                          {enabledTypes.map((vt) => {
+                            const approvedVehicles = driverVehicles.filter(v => v.approval_status === 'approved');
+                            const hasCompatibleVehicle = approvedVehicles.some(v => v.capacity >= vt.capacity);
+
+                            return (
+                              <div 
+                                key={vt.id}
+                                className="flex items-center justify-between p-3 border rounded-lg border-primary/50 bg-primary/5"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className="h-10 w-10 rounded-lg flex items-center justify-center bg-primary/10 text-primary">
+                                    <Truck className="h-5 w-5" />
+                                  </div>
+                                  <div>
+                                    <p className="font-medium">{vt.name}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {vt.capacity} passengers • {vt.categories?.join(', ') || 'Standard'}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  {!hasCompatibleVehicle && (
+                                    <Badge variant="outline" className="text-yellow-600 border-yellow-500/30 bg-yellow-500/10">
+                                      <AlertTriangle className="h-3 w-3 mr-1" />
+                                      No compatible vehicle
+                                    </Badge>
+                                  )}
+                                  <Switch
+                                    checked={true}
+                                    onCheckedChange={() => toggleDriverCategory(vt.id, true)}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {disabledTypes.length > 0 && (
+                        <>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => setShowManageCategories(!showManageCategories)}
+                            className="w-full"
+                          >
+                            {showManageCategories ? 'Hide available categories' : `Add categories (${disabledTypes.length} available)`}
+                          </Button>
+
+                          {showManageCategories && (
+                            <div className="space-y-2">
+                              {disabledTypes.map((vt) => (
+                                <div 
+                                  key={vt.id}
+                                  className="flex items-center justify-between p-3 border rounded-lg"
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <div className="h-10 w-10 rounded-lg flex items-center justify-center bg-muted text-muted-foreground">
+                                      <Truck className="h-5 w-5" />
+                                    </div>
+                                    <div>
+                                      <p className="font-medium">{vt.name}</p>
+                                      <p className="text-xs text-muted-foreground">
+                                        {vt.capacity} passengers • {vt.categories?.join(', ') || 'Standard'}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <Switch
+                                    checked={false}
+                                    onCheckedChange={() => toggleDriverCategory(vt.id, false)}
+                                  />
+                                </div>
+                              ))}
+                            </div>
                           )}
-                          <Switch
-                            checked={enabled}
-                            onCheckedChange={() => toggleDriverCategory(vt.id, enabled)}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                        </>
+                      )}
 
-                {vehicleTypes.length === 0 && (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Truck className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                    <p>No vehicle types configured</p>
-                  </div>
-                )}
+                      {vehicleTypes.length === 0 && (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <Truck className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                          <p>No vehicle types configured</p>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </TabsContent>
 
               {/* Preferences Tab */}
