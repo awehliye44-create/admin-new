@@ -129,6 +129,7 @@ export function DriverDetailsDialog({
   const [rejectVehicleId, setRejectVehicleId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [isRejecting, setIsRejecting] = useState(false);
+  const [isSendingOnboardLink, setIsSendingOnboardLink] = useState(false);
   const [showManageCategories, setShowManageCategories] = useState(false);
 
   // Commission management state
