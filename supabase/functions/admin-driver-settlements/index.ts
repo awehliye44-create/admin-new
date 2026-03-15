@@ -193,11 +193,13 @@ serve(async (req) => {
         totalNet: 0,
         tripCount: 0 
       };
-      // If ledger is empty, derive wallet from trip data
+      // If ledger is empty, derive wallet from trip financial data
+      // For cash trips: driver collected fare, owes commission → debt
+      // For digital trips: driver earned net amount → positive balance
       const wallet = walletByDriver[d.id] || (
         !hasLedgerEntries && tripStats.tripCount > 0
           ? {
-              available: tripStats.totalNet - tripStats.totalCommission,
+              available: -tripStats.totalCommission, // Commission owed as debt
               debt: tripStats.totalCommission,
               earnings: tripStats.totalNet,
             }
