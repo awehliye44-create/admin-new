@@ -120,7 +120,6 @@ export default function ComplaintsDashboard() {
           reporter_email: complaint.reporter_email || null,
           reported_user_type: complaint.reported_user_type,
           reported_user_name: complaint.reported_user_name,
-          trip_id: complaint.trip_id || null,
           category: complaint.category,
           priority: complaint.priority,
           subject: complaint.subject,
