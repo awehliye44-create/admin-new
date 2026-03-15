@@ -805,17 +805,16 @@ export function DriverDetailsDialog({
 
               {/* Categories Tab */}
               <TabsContent value="categories" className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Service categories this driver is approved to accept.
+                </p>
+
                 {(() => {
                   const enabledTypes = vehicleTypes.filter(vt => isCategoryEnabled(vt.id));
                   const disabledTypes = vehicleTypes.filter(vt => !isCategoryEnabled(vt.id));
-                  const [showManage, setShowManage] = useState(false);
 
                   return (
                     <>
-                      <p className="text-sm text-muted-foreground">
-                        Service categories this driver is approved to accept.
-                      </p>
-
                       {enabledTypes.length === 0 ? (
                         <div className="text-center py-8 text-muted-foreground">
                           <Truck className="h-12 w-12 mx-auto mb-3 opacity-30" />
@@ -866,13 +865,13 @@ export function DriverDetailsDialog({
                           <Button 
                             variant="outline" 
                             size="sm" 
-                            onClick={() => setShowManage(!showManage)}
+                            onClick={() => setShowManageCategories(!showManageCategories)}
                             className="w-full"
                           >
-                            {showManage ? 'Hide available categories' : `Add categories (${disabledTypes.length} available)`}
+                            {showManageCategories ? 'Hide available categories' : `Add categories (${disabledTypes.length} available)`}
                           </Button>
 
-                          {showManage && (
+                          {showManageCategories && (
                             <div className="space-y-2">
                               {disabledTypes.map((vt) => (
                                 <div 
