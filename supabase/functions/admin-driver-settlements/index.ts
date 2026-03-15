@@ -161,21 +161,25 @@ serve(async (req) => {
       earnings: number;
     }> = {};
 
-    allLedgerEntries?.forEach((entry) => {
-      if (!entry.driver_id) return;
-      if (!walletByDriver[entry.driver_id]) {
-        walletByDriver[entry.driver_id] = { available: 0, debt: 0, earnings: 0 };
-      }
+    const hasLedgerEntries = (allLedgerEntries && allLedgerEntries.length > 0);
 
-      const amount = entry.amount_pence || 0;
-      walletByDriver[entry.driver_id].available += amount;
-      if (amount > 0) {
-        walletByDriver[entry.driver_id].earnings += amount;
-      }
-      if (entry.entry_type === 'CASH_COMMISSION_DEBT') {
-        walletByDriver[entry.driver_id].debt += Math.abs(amount);
-      }
-    });
+    if (hasLedgerEntries) {
+      allLedgerEntries?.forEach((entry) => {
+        if (!entry.driver_id) return;
+        if (!walletByDriver[entry.driver_id]) {
+          walletByDriver[entry.driver_id] = { available: 0, debt: 0, earnings: 0 };
+        }
+
+        const amount = entry.amount_pence || 0;
+        walletByDriver[entry.driver_id].available += amount;
+        if (amount > 0) {
+          walletByDriver[entry.driver_id].earnings += amount;
+        }
+        if (entry.entry_type === 'CASH_COMMISSION_DEBT') {
+          walletByDriver[entry.driver_id].debt += Math.abs(amount);
+        }
+      });
+    }
 
     const driversWithEarnings = Object.values(walletByDriver).filter(
       (wallet) => wallet.available > 0 || wallet.earnings > 0 || wallet.debt > 0
