@@ -181,9 +181,17 @@ serve(async (req) => {
       });
     }
 
-    const driversWithEarnings = Object.values(walletByDriver).filter(
-      (wallet) => wallet.available > 0 || wallet.earnings > 0 || wallet.debt > 0
-    ).length;
+    // Count drivers with earnings - from ledger or trip data
+    let driversWithEarnings = 0;
+    if (hasLedgerEntries) {
+      driversWithEarnings = Object.values(walletByDriver).filter(
+        (wallet) => wallet.available > 0 || wallet.earnings > 0 || wallet.debt > 0
+      ).length;
+    } else {
+      driversWithEarnings = Object.values(tripStatsByDriver).filter(
+        (stats) => stats.totalGross > 0
+      ).length;
+    }
 
     // Transform drivers data
     const transformedDrivers = drivers?.map(d => {
