@@ -22,7 +22,8 @@ import {
   User,
   Car,
   AlertCircle,
-  TrendingUp
+  Plus,
+  Loader2,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -38,15 +39,17 @@ import {
 interface Complaint {
   id: string;
   complaint_number: string;
-  reporter_type: 'rider' | 'driver';
+  reporter_type: string;
+  reporter_id: string | null;
   reporter_name: string;
-  reporter_email: string;
-  reported_user_type: 'rider' | 'driver';
+  reporter_email: string | null;
+  reported_user_type: string;
+  reported_user_id: string | null;
   reported_user_name: string;
   trip_id: string | null;
   category: string;
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  status: 'new' | 'in_progress' | 'resolved' | 'dismissed';
+  priority: string;
+  status: string;
   subject: string;
   description: string;
   created_at: string;
@@ -54,89 +57,20 @@ interface Complaint {
   assigned_to: string | null;
   resolution: string | null;
   resolved_at: string | null;
+  resolved_by: string | null;
+  service_area_id: string | null;
 }
 
-const defaultComplaints: Complaint[] = [
-  {
-    id: '1',
-    complaint_number: 'CMP-2024-001',
-    reporter_type: 'rider',
-    reporter_name: 'John Smith',
-    reporter_email: 'john.s@email.com',
-    reported_user_type: 'driver',
-    reported_user_name: 'Michael Brown',
-    trip_id: 'TRIP-12345',
-    category: 'Driver Behavior',
-    priority: 'high',
-    status: 'new',
-    subject: 'Rude driver during trip',
-    description: 'The driver was very rude and made inappropriate comments during the ride.',
-    created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    updated_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    assigned_to: null,
-    resolution: null,
-    resolved_at: null,
-  },
-  {
-    id: '2',
-    complaint_number: 'CMP-2024-002',
-    reporter_type: 'driver',
-    reporter_name: 'Sarah Johnson',
-    reporter_email: 'sarah.j@email.com',
-    reported_user_type: 'rider',
-    reported_user_name: 'Emily Davis',
-    trip_id: 'TRIP-12346',
-    category: 'Rider Behavior',
-    priority: 'medium',
-    status: 'in_progress',
-    subject: 'Rider left mess in vehicle',
-    description: 'The rider left food and trash in the backseat of my vehicle.',
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    updated_at: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
-    assigned_to: 'Support Agent 1',
-    resolution: null,
-    resolved_at: null,
-  },
-  {
-    id: '3',
-    complaint_number: 'CMP-2024-003',
-    reporter_type: 'rider',
-    reporter_name: 'Alice Williams',
-    reporter_email: 'alice.w@email.com',
-    reported_user_type: 'driver',
-    reported_user_name: 'James Carter',
-    trip_id: 'TRIP-12347',
-    category: 'Safety Concern',
-    priority: 'urgent',
-    status: 'new',
-    subject: 'Unsafe driving behavior',
-    description: 'Driver was speeding and running red lights. I felt unsafe during the entire trip.',
-    created_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-    updated_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-    assigned_to: null,
-    resolution: null,
-    resolved_at: null,
-  },
-  {
-    id: '4',
-    complaint_number: 'CMP-2024-004',
-    reporter_type: 'rider',
-    reporter_name: 'Robert Lee',
-    reporter_email: 'robert.l@email.com',
-    reported_user_type: 'driver',
-    reported_user_name: 'David Wilson',
-    trip_id: 'TRIP-12340',
-    category: 'Fare Dispute',
-    priority: 'low',
-    status: 'resolved',
-    subject: 'Overcharged for trip',
-    description: 'I was charged more than the estimated fare without explanation.',
-    created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-    updated_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    assigned_to: 'Support Agent 2',
-    resolution: 'Refund issued for the difference. Driver reminded about fare transparency.',
-    resolved_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-  },
+const CATEGORIES = [
+  'Driver Behavior',
+  'Rider Behavior',
+  'Safety Concern',
+  'Fare Dispute',
+  'Vehicle Condition',
+  'Route Issue',
+  'App Issue',
+  'Lost Property',
+  'General',
 ];
 
 export default function ComplaintsDashboard() {
@@ -148,77 +82,116 @@ export default function ComplaintsDashboard() {
   const [isViewOpen, setIsViewOpen] = useState(false);
   const [isResolveOpen, setIsResolveOpen] = useState(false);
   const [resolution, setResolution] = useState('');
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [newComplaint, setNewComplaint] = useState({
+    reporter_type: 'rider',
+    reporter_name: '',
+    reporter_email: '',
+    reported_user_type: 'driver',
+    reported_user_name: '',
+    trip_id: '',
+    category: 'General',
+    priority: 'medium',
+    subject: '',
+    description: '',
+  });
 
-  const { data: complaints = defaultComplaints, isLoading, refetch } = useQuery({
+  const { data: complaints = [], isLoading, refetch } = useQuery({
     queryKey: ['complaints'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('admin_settings')
+        .from('complaints')
         .select('*')
-        .eq('setting_key', 'complaints_data')
-        .single();
+        .order('created_at', { ascending: false });
 
-      if (error || !data) return defaultComplaints;
-      return (data.setting_value as unknown as Complaint[]) || defaultComplaints;
+      if (error) throw error;
+      return data as Complaint[];
     },
   });
 
-  const saveMutation = useMutation({
-    mutationFn: async (updatedComplaints: Complaint[]) => {
+  const createMutation = useMutation({
+    mutationFn: async (complaint: typeof newComplaint) => {
       const { error } = await supabase
-        .from('admin_settings')
-        .upsert({
-          setting_key: 'complaints_data',
-          setting_value: updatedComplaints as any,
-          description: 'Complaints data',
-        } as any, { onConflict: 'setting_key' });
-
+        .from('complaints')
+        .insert({
+          complaint_number: '', // trigger will generate
+          reporter_type: complaint.reporter_type,
+          reporter_name: complaint.reporter_name,
+          reporter_email: complaint.reporter_email || null,
+          reported_user_type: complaint.reported_user_type,
+          reported_user_name: complaint.reported_user_name,
+          trip_id: complaint.trip_id || null,
+          category: complaint.category,
+          priority: complaint.priority,
+          subject: complaint.subject,
+          description: complaint.description,
+        });
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['complaints'] });
-      toast.success('Complaint updated successfully');
+      toast.success('Complaint created');
+      setIsCreateOpen(false);
+      setNewComplaint({
+        reporter_type: 'rider',
+        reporter_name: '',
+        reporter_email: '',
+        reported_user_type: 'driver',
+        reported_user_name: '',
+        trip_id: '',
+        category: 'General',
+        priority: 'medium',
+        subject: '',
+        description: '',
+      });
     },
-    onError: () => {
-      toast.error('Failed to update complaint');
-    },
+    onError: () => toast.error('Failed to create complaint'),
   });
 
-  const handleStatusChange = (complaintId: string, newStatus: Complaint['status']) => {
-    const updated = complaints.map(c => 
-      c.id === complaintId 
-        ? { ...c, status: newStatus, updated_at: new Date().toISOString(), assigned_to: newStatus === 'in_progress' ? 'Support Agent' : c.assigned_to }
-        : c
-    );
-    saveMutation.mutate(updated);
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, updates }: { id: string; updates: Record<string, any> }) => {
+      const { error } = await supabase
+        .from('complaints')
+        .update(updates)
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['complaints'] });
+      toast.success('Complaint updated');
+    },
+    onError: () => toast.error('Failed to update complaint'),
+  });
+
+  const handleStatusChange = (complaintId: string, newStatus: string) => {
+    const updates: Record<string, any> = { status: newStatus };
+    if (newStatus === 'in_progress') updates.assigned_to = 'Support Agent';
+    updateMutation.mutate({ id: complaintId, updates });
   };
 
-  const handleResolve = () => {
+  const handleResolve = async () => {
     if (!selectedComplaint || !resolution.trim()) {
       toast.error('Please provide a resolution');
       return;
     }
-
-    const updated = complaints.map(c => 
-      c.id === selectedComplaint.id 
-        ? { 
-            ...c, 
-            status: 'resolved' as const, 
-            resolution, 
-            resolved_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }
-        : c
-    );
-    saveMutation.mutate(updated);
+    const user = (await supabase.auth.getUser()).data.user;
+    updateMutation.mutate({
+      id: selectedComplaint.id,
+      updates: {
+        status: 'resolved',
+        resolution,
+        resolved_at: new Date().toISOString(),
+        resolved_by: user?.id,
+      },
+    });
     setIsResolveOpen(false);
     setResolution('');
     setSelectedComplaint(null);
   };
 
   const filteredComplaints = complaints.filter(complaint => {
-    const matchesSearch = 
-      complaint.complaint_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    const matchesSearch =
+      complaint.complaint_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       complaint.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
       complaint.reporter_name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || complaint.status === statusFilter;
@@ -325,10 +298,16 @@ export default function ComplaintsDashboard() {
                 </CardTitle>
                 <CardDescription>Review and handle customer complaints</CardDescription>
               </div>
-              <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
-                <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-                Refresh
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
+                  <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+                <Button onClick={() => setIsCreateOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  New Complaint
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -370,96 +349,102 @@ export default function ComplaintsDashboard() {
             </div>
 
             {/* Table */}
-            <div className="border rounded-lg overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Complaint #</TableHead>
-                    <TableHead>Subject</TableHead>
-                    <TableHead>Reporter</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Priority</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredComplaints.map((complaint) => (
-                    <TableRow key={complaint.id}>
-                      <TableCell className="font-mono text-sm">{complaint.complaint_number}</TableCell>
-                      <TableCell className="max-w-[200px] truncate font-medium">
-                        {complaint.subject}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          {complaint.reporter_type === 'rider' ? (
-                            <User className="h-4 w-4 text-muted-foreground" />
-                          ) : (
-                            <Car className="h-4 w-4 text-muted-foreground" />
-                          )}
-                          <span>{complaint.reporter_name}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{complaint.category}</Badge>
-                      </TableCell>
-                      <TableCell>{getPriorityBadge(complaint.priority)}</TableCell>
-                      <TableCell>{getStatusBadge(complaint.status)}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {format(new Date(complaint.created_at), 'MMM d, HH:mm')}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreVertical className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => {
-                              setSelectedComplaint(complaint);
-                              setIsViewOpen(true);
-                            }}>
-                              <Eye className="h-4 w-4 mr-2" />
-                              View Details
-                            </DropdownMenuItem>
-                            {complaint.status === 'new' && (
-                              <DropdownMenuItem onClick={() => handleStatusChange(complaint.id, 'in_progress')}>
-                                <Clock className="h-4 w-4 mr-2" />
-                                Start Processing
-                              </DropdownMenuItem>
-                            )}
-                            {complaint.status !== 'resolved' && complaint.status !== 'dismissed' && (
-                              <>
-                                <DropdownMenuItem onClick={() => {
-                                  setSelectedComplaint(complaint);
-                                  setIsResolveOpen(true);
-                                }}>
-                                  <CheckCircle className="h-4 w-4 mr-2" />
-                                  Resolve
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleStatusChange(complaint.id, 'dismissed')}>
-                                  <XCircle className="h-4 w-4 mr-2" />
-                                  Dismiss
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {filteredComplaints.length === 0 && (
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            ) : (
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader>
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                        No complaints found
-                      </TableCell>
+                      <TableHead>Complaint #</TableHead>
+                      <TableHead>Subject</TableHead>
+                      <TableHead>Reporter</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead>Priority</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredComplaints.map((complaint) => (
+                      <TableRow key={complaint.id}>
+                        <TableCell className="font-mono text-sm">{complaint.complaint_number}</TableCell>
+                        <TableCell className="max-w-[200px] truncate font-medium">
+                          {complaint.subject}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            {complaint.reporter_type === 'rider' ? (
+                              <User className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <Car className="h-4 w-4 text-muted-foreground" />
+                            )}
+                            <span>{complaint.reporter_name}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{complaint.category}</Badge>
+                        </TableCell>
+                        <TableCell>{getPriorityBadge(complaint.priority)}</TableCell>
+                        <TableCell>{getStatusBadge(complaint.status)}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {format(new Date(complaint.created_at), 'MMM d, HH:mm')}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon">
+                                <MoreVertical className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => {
+                                setSelectedComplaint(complaint);
+                                setIsViewOpen(true);
+                              }}>
+                                <Eye className="h-4 w-4 mr-2" />
+                                View Details
+                              </DropdownMenuItem>
+                              {complaint.status === 'new' && (
+                                <DropdownMenuItem onClick={() => handleStatusChange(complaint.id, 'in_progress')}>
+                                  <Clock className="h-4 w-4 mr-2" />
+                                  Start Processing
+                                </DropdownMenuItem>
+                              )}
+                              {complaint.status !== 'resolved' && complaint.status !== 'dismissed' && (
+                                <>
+                                  <DropdownMenuItem onClick={() => {
+                                    setSelectedComplaint(complaint);
+                                    setIsResolveOpen(true);
+                                  }}>
+                                    <CheckCircle className="h-4 w-4 mr-2" />
+                                    Resolve
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handleStatusChange(complaint.id, 'dismissed')}>
+                                    <XCircle className="h-4 w-4 mr-2" />
+                                    Dismiss
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {filteredComplaints.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                          {complaints.length === 0 ? 'No complaints yet. Create one to get started.' : 'No complaints match your filters.'}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -568,6 +553,99 @@ export default function ComplaintsDashboard() {
             <Button onClick={handleResolve}>
               <CheckCircle className="h-4 w-4 mr-2" />
               Mark Resolved
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Complaint Dialog */}
+      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>New Complaint</DialogTitle>
+            <DialogDescription>Log a new complaint from a rider or driver.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Reporter Type</Label>
+                <Select value={newComplaint.reporter_type} onValueChange={v => setNewComplaint(p => ({ ...p, reporter_type: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="rider">Rider</SelectItem>
+                    <SelectItem value="driver">Driver</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Reported User Type</Label>
+                <Select value={newComplaint.reported_user_type} onValueChange={v => setNewComplaint(p => ({ ...p, reported_user_type: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="rider">Rider</SelectItem>
+                    <SelectItem value="driver">Driver</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Reporter Name *</Label>
+                <Input value={newComplaint.reporter_name} onChange={e => setNewComplaint(p => ({ ...p, reporter_name: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Reported User Name *</Label>
+                <Input value={newComplaint.reported_user_name} onChange={e => setNewComplaint(p => ({ ...p, reported_user_name: e.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Reporter Email</Label>
+              <Input type="email" value={newComplaint.reporter_email} onChange={e => setNewComplaint(p => ({ ...p, reporter_email: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Subject *</Label>
+              <Input value={newComplaint.subject} onChange={e => setNewComplaint(p => ({ ...p, subject: e.target.value }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Category</Label>
+                <Select value={newComplaint.category} onValueChange={v => setNewComplaint(p => ({ ...p, category: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Priority</Label>
+                <Select value={newComplaint.priority} onValueChange={v => setNewComplaint(p => ({ ...p, priority: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="urgent">Urgent</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Trip ID (optional)</Label>
+              <Input placeholder="e.g. MK001" value={newComplaint.trip_id} onChange={e => setNewComplaint(p => ({ ...p, trip_id: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Description *</Label>
+              <Textarea rows={3} value={newComplaint.description} onChange={e => setNewComplaint(p => ({ ...p, description: e.target.value }))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => createMutation.mutate(newComplaint)}
+              disabled={!newComplaint.reporter_name || !newComplaint.reported_user_name || !newComplaint.subject || !newComplaint.description || createMutation.isPending}
+            >
+              {createMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Create Complaint
             </Button>
           </DialogFooter>
         </DialogContent>
