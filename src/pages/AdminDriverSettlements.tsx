@@ -15,112 +15,19 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import {
+  useDriverFinancialSummaries,
+  useDriverFinancialSummary,
+  useDriverLedger,
+  formatPence,
+  getEntryTypeDisplay,
+  type DriverFinancialSummary,
+} from '@/hooks/useDriverWallet';
 import { 
-  Search, 
-  Download, 
-  DollarSign,
-  TrendingUp,
-  Eye,
-  RefreshCw,
-  User,
-  Car,
-  Banknote,
-  Wallet,
-  CheckCircle2,
-  AlertTriangle,
-  CreditCard,
-  Plus,
-  Minus,
-  ArrowDownRight,
-  ArrowUpRight
+  Search, Download, DollarSign, TrendingUp, Eye, RefreshCw, User, Car,
+  Banknote, Wallet, CheckCircle2, AlertTriangle, CreditCard, Plus, Minus,
+  ArrowDownRight, ArrowUpRight
 } from 'lucide-react';
-
-// Matches camelCase response from admin-driver-settlements edge function
-interface DriverSettlement {
-  id: string;
-  name: string;
-  email: string;
-  phone: string | null;
-  isOnline: boolean;
-  rating: number | null;
-  totalTrips: number;
-  totalGross: number;
-  totalCommission: number;
-  totalNet: number;
-  walletAvailable: number;
-  walletDebt: number;
-  walletEarnings: number;
-  payoutsEnabled: boolean;
-  onboardingComplete: boolean;
-  canPayout: boolean;
-  stripeAccountId: string | null;
-  approvalStatus: string;
-}
-
-// Matches camelCase response from admin-driver-wallet-detail edge function
-interface WalletDetail {
-  driver: {
-    id: string;
-    name: string;
-    email: string;
-    phone: string | null;
-    isOnline: boolean;
-    rating: number | null;
-    totalTrips: number;
-    stripeAccountId: string | null;
-    payoutsEnabled: boolean;
-    onboardingComplete: boolean;
-    approvalStatus: string;
-  };
-  wallet: {
-    available: number;
-    debt: number;
-    earnings: number;
-    canPayout: boolean;
-    canEarlyCashout: boolean;
-  };
-  periodSummary: {
-    earnings: number;
-    debts: number;
-    payouts: number;
-    adjustments: number;
-    fees: number;
-  };
-  ledgerEntries: Array<{
-    id: string;
-    type: string;
-    amount: number;
-    currency: string;
-    description: string | null;
-    tripId: string | null;
-    referenceId: string | null;
-    createdAt: string;
-  }>;
-  settings: {
-    earlyCashoutFee: number;
-    globalPayoutsEnabled: boolean;
-  };
-}
-
-const formatPence = (pence: number): string => {
-  const prefix = pence < 0 ? '-' : '';
-  return `${prefix}£${(Math.abs(pence) / 100).toFixed(2)}`;
-};
-
-const getEntryTypeDisplay = (type: string): { label: string; color: string } => {
-  const types: Record<string, { label: string; color: string }> = {
-    'TRIP_EARNING_NET': { label: 'Trip Earning', color: 'text-green-600' },
-    'CASH_COMMISSION_DEBT': { label: 'Cash Commission Debt', color: 'text-red-600' },
-    'WEEKLY_PAYOUT': { label: 'Weekly Payout', color: 'text-blue-600' },
-    'EARLY_CASHOUT': { label: 'Early Cashout', color: 'text-blue-600' },
-    'CASHOUT_FEE': { label: 'Cashout Fee', color: 'text-red-600' },
-    'ADJUSTMENT': { label: 'Adjustment', color: 'text-amber-600' },
-    'BONUS': { label: 'Bonus', color: 'text-green-600' },
-    'REFUND_DEBIT': { label: 'Refund Debit', color: 'text-red-600' },
-    'MANUAL_PAYOUT': { label: 'Manual Payout', color: 'text-blue-600' },
-  };
-  return types[type] || { label: type, color: 'text-muted-foreground' };
-};
 
 export default function AdminDriverSettlements() {
   const [activeTab, setActiveTab] = useState('all');
@@ -133,34 +40,30 @@ export default function AdminDriverSettlements() {
   
   const queryClient = useQueryClient();
 
-  // Fetch driver settlements via GET with query params
-  const { data: settlementsData, isLoading, refetch } = useQuery({
-    queryKey: ['admin-driver-settlements', searchTerm],
-    queryFn: async () => {
-      const params = new URLSearchParams({ page: '1', limit: '100' });
-      if (searchTerm) params.set('search', searchTerm);
-      
-      const { data, error } = await supabase.functions.invoke(`admin-driver-settlements?${params.toString()}`, {
-        method: 'GET',
-      });
-      if (error) throw error;
-      return data;
-    },
-  });
-  const settlements: DriverSettlement[] = settlementsData?.drivers || [];
+  const { data: drivers = [], isLoading, refetch } = useDriverFinancialSummaries();
+  const { data: selectedDriverDetail } = useDriverFinancialSummary(selectedDriverId);
+  const { data: ledgerEntries = [], isLoading: isLoadingLedger } = useDriverLedger(selectedDriverId);
 
-  // Fetch wallet detail for selected driver via GET
-  const { data: walletDetail, isLoading: isLoadingWallet } = useQuery<WalletDetail>({
-    queryKey: ['admin-driver-wallet-detail', selectedDriverId],
-    enabled: !!selectedDriverId,
-    queryFn: async () => {
-      const params = new URLSearchParams({ driver_id: selectedDriverId! });
-      const { data, error } = await supabase.functions.invoke(`admin-driver-wallet-detail?${params.toString()}`, {
-        method: 'GET',
+  // Adjustment mutation
+  const adjustmentMutation = useMutation({
+    mutationFn: async ({ driverId, amountPence, reason }: { driverId: string; amountPence: number; reason: string }) => {
+      const { data, error } = await supabase.functions.invoke('admin-driver-adjustment', {
+        body: { driver_id: driverId, amount_pence: amountPence, reason },
       });
       if (error) throw error;
+      if (!data.success) throw new Error(data.error || 'Adjustment failed');
       return data;
     },
+    onSuccess: () => {
+      toast.success('Adjustment added successfully');
+      setShowAdjustmentDialog(false);
+      setAdjustmentAmount('');
+      setAdjustmentReason('');
+      queryClient.invalidateQueries({ queryKey: ['driver-financial-summaries'] });
+      queryClient.invalidateQueries({ queryKey: ['driver-financial-summary', selectedDriverId] });
+      queryClient.invalidateQueries({ queryKey: ['driver-ledger', selectedDriverId] });
+    },
+    onError: (error: Error) => toast.error(`Adjustment failed: ${error.message}`),
   });
 
   // Payout mutation
@@ -175,39 +78,10 @@ export default function AdminDriverSettlements() {
     },
     onSuccess: () => {
       toast.success('Payout initiated successfully');
-      queryClient.invalidateQueries({ queryKey: ['admin-driver-settlements'] });
-      queryClient.invalidateQueries({ queryKey: ['admin-driver-wallet-detail'] });
+      queryClient.invalidateQueries({ queryKey: ['driver-financial-summaries'] });
+      queryClient.invalidateQueries({ queryKey: ['driver-financial-summary', selectedDriverId] });
     },
-    onError: (error: Error) => {
-      toast.error(`Payout failed: ${error.message}`);
-    },
-  });
-
-  // Adjustment mutation
-  const adjustmentMutation = useMutation({
-    mutationFn: async ({ driverId, amountPence, reason }: { driverId: string; amountPence: number; reason: string }) => {
-      const { data, error } = await supabase.functions.invoke('admin-driver-adjustment', {
-        body: { 
-          driver_id: driverId, 
-          amount_pence: amountPence, 
-          reason 
-        },
-      });
-      if (error) throw error;
-      if (!data.success) throw new Error(data.error || 'Adjustment failed');
-      return data;
-    },
-    onSuccess: () => {
-      toast.success('Adjustment added successfully');
-      setShowAdjustmentDialog(false);
-      setAdjustmentAmount('');
-      setAdjustmentReason('');
-      queryClient.invalidateQueries({ queryKey: ['admin-driver-settlements'] });
-      queryClient.invalidateQueries({ queryKey: ['admin-driver-wallet-detail'] });
-    },
-    onError: (error: Error) => {
-      toast.error(`Adjustment failed: ${error.message}`);
-    },
+    onError: (error: Error) => toast.error(`Payout failed: ${error.message}`),
   });
 
   const handleAddAdjustment = () => {
@@ -217,44 +91,27 @@ export default function AdminDriverSettlements() {
     }
     const amountPence = Math.round(parseFloat(adjustmentAmount) * 100);
     const finalAmount = adjustmentType === 'deduct' ? -amountPence : amountPence;
-    adjustmentMutation.mutate({ 
-      driverId: selectedDriverId, 
-      amountPence: finalAmount, 
-      reason: adjustmentReason 
-    });
+    adjustmentMutation.mutate({ driverId: selectedDriverId, amountPence: finalAmount, reason: adjustmentReason });
   };
 
-  const filteredSettlements = settlements.filter(driver => {
-    const driverName = driver.name || '';
-    const driverEmail = driver.email || '';
-    const search = searchTerm.toLowerCase();
-    
-    const matchesSearch = 
-      driverName.toLowerCase().includes(search) ||
-      driverEmail.toLowerCase().includes(search);
-    
-    if (activeTab === 'with_earnings') {
-      return matchesSearch && (driver.walletAvailable || 0) > 0;
-    }
-    if (activeTab === 'in_debt') {
-      return matchesSearch && (driver.walletAvailable || 0) < 0;
-    }
-    if (activeTab === 'online') {
-      return matchesSearch && driver.isOnline;
-    }
+  const filteredDrivers = drivers.filter(d => {
+    const name = `${d.first_name} ${d.last_name}`.toLowerCase();
+    const matchesSearch = name.includes(searchTerm.toLowerCase()) || d.email.toLowerCase().includes(searchTerm.toLowerCase());
+    if (activeTab === 'with_earnings') return matchesSearch && d.available_for_payout > 0;
+    if (activeTab === 'in_debt') return matchesSearch && d.wallet_balance < 0;
+    if (activeTab === 'online') return matchesSearch && d.is_online;
     return matchesSearch;
   });
 
-  // Use API summary data instead of recalculating from paginated results
-  const summary = settlementsData?.summary;
-  const totalDriverNet = summary?.totalDriverEarnings || 0;
-  const totalCommission = summary?.totalPlatformCommission || 0;
-  const driversWithEarnings = summary?.driversWithEarnings || 0;
-  const onlineDrivers = summary?.onlineDrivers || 0;
+  // Stats from unified source
+  const totalGross = drivers.reduce((s, d) => s + d.gross_trip_total, 0);
+  const totalCommission = drivers.reduce((s, d) => s + d.company_commission_total, 0);
+  const driversWithEarnings = drivers.filter(d => d.available_for_payout > 0).length;
+  const onlineDrivers = drivers.filter(d => d.is_online).length;
 
-  if (isLoading && settlements.length === 0) {
+  if (isLoading && drivers.length === 0) {
     return (
-      <AdminLayout title="Driver Payouts & Settlements" description="Manage driver settlements">
+      <AdminLayout title="Driver Settlements" description="Manage driver settlements">
         <div className="flex items-center justify-center h-64">
           <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -265,21 +122,20 @@ export default function AdminDriverSettlements() {
   return (
     <AdminLayout 
       title="Driver Settlements" 
-      description="Settlement summary derived from wallet ledger — manage payouts and adjustments"
+      description="Unified financial view — all numbers derived from driver_financial_summary"
     >
       <div className="space-y-6">
         {/* Stats */}
         <div className="grid gap-4 md:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Driver Earnings</CardTitle>
+              <CardTitle className="text-sm font-medium">Gross Trip Fares</CardTitle>
               <DollarSign className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-500">{formatPence(totalDriverNet)}</div>
+              <div className="text-2xl font-bold text-green-500">{formatPence(totalGross)}</div>
               <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <TrendingUp className="h-3 w-3 text-green-500" />
-                Net after commission
+                <TrendingUp className="h-3 w-3 text-green-500" /> All completed trips
               </p>
             </CardContent>
           </Card>
@@ -290,17 +146,17 @@ export default function AdminDriverSettlements() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-blue-500">{formatPence(totalCommission)}</div>
-              <p className="text-xs text-muted-foreground">Total collected</p>
+              <p className="text-xs text-muted-foreground">Total earned by ONECAB</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Drivers with Earnings</CardTitle>
-              <User className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Ready for Payout</CardTitle>
+              <Wallet className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{driversWithEarnings}</div>
-              <p className="text-xs text-muted-foreground">Can request payout</p>
+              <p className="text-xs text-muted-foreground">Drivers with positive balance</p>
             </CardContent>
           </Card>
           <Card>
@@ -318,36 +174,18 @@ export default function AdminDriverSettlements() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <div className="flex flex-col sm:flex-row justify-between gap-4">
             <TabsList>
-              <TabsTrigger value="all">All ({settlements.length})</TabsTrigger>
-              <TabsTrigger value="with_earnings">
-                With Earnings
-                {driversWithEarnings > 0 && (
-                  <Badge variant="secondary" className="ml-1 h-5 min-w-5 rounded-full p-0 flex items-center justify-center text-xs">
-                    {driversWithEarnings}
-                  </Badge>
-                )}
-              </TabsTrigger>
+              <TabsTrigger value="all">All ({drivers.length})</TabsTrigger>
+              <TabsTrigger value="with_earnings">Ready for Payout ({driversWithEarnings})</TabsTrigger>
               <TabsTrigger value="in_debt">In Debt</TabsTrigger>
               <TabsTrigger value="online">Online ({onlineDrivers})</TabsTrigger>
             </TabsList>
-
             <div className="flex gap-2">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input 
-                  placeholder="Search drivers..." 
-                  className="pl-9 w-[200px]"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
+                <Input placeholder="Search drivers..." className="pl-9 w-[200px]" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
               </div>
-              <Button variant="outline" size="icon" onClick={() => refetch()}>
-                <RefreshCw className="h-4 w-4" />
-              </Button>
-              <Button variant="outline">
-                <Download className="h-4 w-4 mr-2" />
-                Export
-              </Button>
+              <Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
+              <Button variant="outline"><Download className="h-4 w-4 mr-2" />Export</Button>
             </div>
           </div>
 
@@ -360,7 +198,7 @@ export default function AdminDriverSettlements() {
                       <TableHead>Driver</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Trips</TableHead>
-                      <TableHead className="text-right">Total Earnings</TableHead>
+                      <TableHead className="text-right">Gross Fares</TableHead>
                       <TableHead className="text-right">Commission</TableHead>
                       <TableHead className="text-right">Wallet Balance</TableHead>
                       <TableHead>Rating</TableHead>
@@ -368,52 +206,36 @@ export default function AdminDriverSettlements() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredSettlements.length === 0 ? (
+                    {filteredDrivers.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                          No drivers found
-                        </TableCell>
+                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No drivers found</TableCell>
                       </TableRow>
                     ) : (
-                      filteredSettlements.map((driver) => (
-                        <TableRow key={driver.id}>
+                      filteredDrivers.map((d) => (
+                        <TableRow key={d.driver_id}>
                           <TableCell>
                             <div className="flex items-center gap-2">
-                              <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
-                                <User className="h-4 w-4" />
-                              </div>
+                              <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center"><User className="h-4 w-4" /></div>
                               <div>
-                                <p className="font-medium">{driver.name}</p>
-                                <p className="text-xs text-muted-foreground">{driver.email}</p>
+                                <p className="font-medium">{d.first_name} {d.last_name}</p>
+                                <p className="text-xs text-muted-foreground">{d.email}</p>
                               </div>
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant={driver.isOnline ? 'default' : 'secondary'} className={driver.isOnline ? 'bg-green-500' : ''}>
-                              {driver.isOnline ? 'Online' : 'Offline'}
+                            <Badge variant={d.is_online ? 'default' : 'secondary'} className={d.is_online ? 'bg-green-500' : ''}>
+                              {d.is_online ? 'Online' : 'Offline'}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-right">{driver.totalTrips || 0}</TableCell>
-                          <TableCell className="text-right">{formatPence(driver.totalGross || 0)}</TableCell>
-                          <TableCell className="text-right text-muted-foreground">-{formatPence(driver.totalCommission || 0)}</TableCell>
-                          <TableCell className={`text-right font-medium ${(driver.walletAvailable || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {formatPence(driver.walletAvailable || 0)}
+                          <TableCell className="text-right">{d.completed_trips}</TableCell>
+                          <TableCell className="text-right">{formatPence(d.gross_trip_total)}</TableCell>
+                          <TableCell className="text-right text-muted-foreground">-{formatPence(d.company_commission_total)}</TableCell>
+                          <TableCell className={`text-right font-medium ${d.wallet_balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {formatPence(d.wallet_balance)}
                           </TableCell>
-                          <TableCell>
-                            {driver.rating ? (
-                              <span className="flex items-center gap-1">
-                                ⭐ {driver.rating.toFixed(1)}
-                              </span>
-                            ) : '-'}
-                          </TableCell>
+                          <TableCell>{d.rating ? <span className="flex items-center gap-1">⭐ {d.rating.toFixed(1)}</span> : '-'}</TableCell>
                           <TableCell className="text-right">
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
-                              onClick={() => setSelectedDriverId(driver.id)}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => setSelectedDriverId(d.driver_id)}><Eye className="h-4 w-4" /></Button>
                           </TableCell>
                         </TableRow>
                       ))
@@ -429,152 +251,63 @@ export default function AdminDriverSettlements() {
         <Dialog open={!!selectedDriverId} onOpenChange={() => setSelectedDriverId(null)}>
           <DialogContent className="max-w-2xl max-h-[85vh]">
             <DialogHeader>
-              <DialogTitle>Driver Wallet Details</DialogTitle>
+              <DialogTitle>Driver Settlement Details</DialogTitle>
               <DialogDescription>
-                {walletDetail?.driver?.name} - {walletDetail?.driver?.email}
+                {selectedDriverDetail?.first_name} {selectedDriverDetail?.last_name} — {selectedDriverDetail?.email}
               </DialogDescription>
             </DialogHeader>
-            {isLoadingWallet ? (
-              <div className="flex items-center justify-center py-8">
-                <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : walletDetail ? (
+            {selectedDriverDetail ? (
               <div className="space-y-4">
-                {/* Balance Summary */}
-                <div className="grid grid-cols-3 gap-4">
-                  <Card>
-                    <CardContent className="pt-4">
-                      <p className="text-xs text-muted-foreground">Available</p>
-                      <p className={`text-xl font-bold ${(walletDetail.wallet?.available || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {formatPence(walletDetail.wallet?.available || 0)}
-                      </p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="pt-4">
-                      <p className="text-xs text-muted-foreground">Total Earnings</p>
-                      <p className="text-xl font-bold text-green-600">
-                        {formatPence(walletDetail.wallet?.earnings || 0)}
-                      </p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="pt-4">
-                      <p className="text-xs text-muted-foreground">Outstanding Debt</p>
-                      <p className="text-xl font-bold text-red-600">
-                        {formatPence(walletDetail.wallet?.debt || 0)}
-                      </p>
-                    </CardContent>
-                  </Card>
+                {/* Summary Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Gross Fares</p><p className="text-lg font-bold">{formatPence(selectedDriverDetail.gross_trip_total)}</p></CardContent></Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Commission</p><p className="text-lg font-bold text-blue-600">{formatPence(selectedDriverDetail.company_commission_total)}</p></CardContent></Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Wallet Balance</p><p className={`text-lg font-bold ${selectedDriverDetail.wallet_balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatPence(selectedDriverDetail.wallet_balance)}</p></CardContent></Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Available Payout</p><p className="text-lg font-bold text-green-600">{formatPence(selectedDriverDetail.available_for_payout)}</p></CardContent></Card>
                 </div>
 
-                {/* Period Summary */}
-                {walletDetail.periodSummary && (
-                  <Card>
-                    <CardContent className="pt-4">
-                      <h4 className="text-sm font-medium mb-2">Period Summary</h4>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Earnings</span>
-                          <span className="text-green-600">{formatPence(walletDetail.periodSummary.earnings)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Payouts</span>
-                          <span className="text-blue-600">{formatPence(walletDetail.periodSummary.payouts)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Debts</span>
-                          <span className="text-red-600">{formatPence(walletDetail.periodSummary.debts)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Adjustments</span>
-                          <span>{formatPence(walletDetail.periodSummary.adjustments)}</span>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Connected Account Status */}
+                {/* Wallet Breakdown */}
                 <Card>
-                  <CardContent className="pt-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <CreditCard className="h-4 w-4" />
-                        <span className="font-medium">Stripe Account</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {walletDetail.driver?.payoutsEnabled ? (
-                          <Badge className="bg-green-500"><CheckCircle2 className="h-3 w-3 mr-1" /> Payouts Enabled</Badge>
-                        ) : (
-                          <Badge variant="destructive"><AlertTriangle className="h-3 w-3 mr-1" /> Not Ready</Badge>
-                        )}
-                      </div>
-                    </div>
-                    {walletDetail.driver?.stripeAccountId && (
-                      <p className="text-xs text-muted-foreground mt-2">
-                        Account: <code className="bg-muted px-1 rounded">{walletDetail.driver.stripeAccountId}</code>
-                      </p>
+                  <CardContent className="pt-4 space-y-2 text-sm">
+                    <div className="flex justify-between"><span className="text-muted-foreground flex items-center gap-1"><CreditCard className="h-3 w-3" /> Card Net Credits</span><span className="text-green-600">+{formatPence(selectedDriverDetail.card_net_credits)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground flex items-center gap-1"><Banknote className="h-3 w-3" /> Cash Commission Debits</span><span className="text-red-600">-{formatPence(selectedDriverDetail.cash_commission_debits)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Payouts Sent</span><span className="text-blue-600">-{formatPence(selectedDriverDetail.total_payouts_sent)}</span></div>
+                    {selectedDriverDetail.adjustments_total !== 0 && (
+                      <div className="flex justify-between"><span className="text-muted-foreground">Adjustments</span><span className={selectedDriverDetail.adjustments_total >= 0 ? 'text-green-600' : 'text-red-600'}>{selectedDriverDetail.adjustments_total >= 0 ? '+' : ''}{formatPence(selectedDriverDetail.adjustments_total)}</span></div>
+                    )}
+                    <Separator />
+                    <div className="flex justify-between font-medium"><span>= Wallet Balance</span><span className={selectedDriverDetail.wallet_balance >= 0 ? 'text-green-600' : 'text-red-600'}>{formatPence(selectedDriverDetail.wallet_balance)}</span></div>
+                    {selectedDriverDetail.amount_owed_to_onecab > 0 && (
+                      <div className="flex justify-between text-red-600 font-medium"><span className="flex items-center gap-1"><AlertTriangle className="h-3 w-3" /> Owed to ONECAB</span><span>{formatPence(selectedDriverDetail.amount_owed_to_onecab)}</span></div>
                     )}
                   </CardContent>
                 </Card>
 
-                {/* Actions */}
-                <div className="flex gap-2">
-                  <Button 
-                    onClick={() => payoutMutation.mutate(selectedDriverId!)}
-                    disabled={!walletDetail.wallet?.canPayout || payoutMutation.isPending}
-                    className="bg-green-600 hover:bg-green-700"
-                  >
-                    <Wallet className="h-4 w-4 mr-2" />
-                    {payoutMutation.isPending ? 'Processing...' : 'Pay Now'}
-                  </Button>
-                  <Button variant="outline" onClick={() => setShowAdjustmentDialog(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Adjustment
-                  </Button>
-                </div>
-
-                <Separator />
-
                 {/* Ledger */}
                 <div>
                   <h4 className="font-medium mb-2">Transaction History</h4>
-                  <ScrollArea className="h-[250px]">
-                    {(!walletDetail.ledgerEntries || walletDetail.ledgerEntries.length === 0) ? (
-                      <p className="text-center text-muted-foreground py-8">No transactions yet</p>
+                  <ScrollArea className="h-[200px]">
+                    {isLoadingLedger ? (
+                      <div className="flex items-center justify-center py-8"><RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+                    ) : ledgerEntries.length === 0 ? (
+                      <p className="text-center text-muted-foreground py-8">No ledger transactions yet</p>
                     ) : (
                       <div className="space-y-2">
-                        {walletDetail.ledgerEntries.map((entry) => {
-                          const { label, color } = getEntryTypeDisplay(entry.type);
-                          const isPositive = entry.amount > 0;
+                        {ledgerEntries.map((entry) => {
+                          const { label, color } = getEntryTypeDisplay(entry.entry_type);
+                          const isPositive = entry.amount_pence > 0;
                           return (
                             <div key={entry.id} className="flex items-center justify-between p-3 rounded-lg border">
                               <div className="flex items-center gap-3">
                                 <div className={`h-8 w-8 rounded-full flex items-center justify-center ${isPositive ? 'bg-green-100' : 'bg-red-100'}`}>
-                                  {isPositive ? (
-                                    <ArrowDownRight className="h-4 w-4 text-green-600" />
-                                  ) : (
-                                    <ArrowUpRight className="h-4 w-4 text-red-600" />
-                                  )}
+                                  {isPositive ? <ArrowDownRight className="h-4 w-4 text-green-600" /> : <ArrowUpRight className="h-4 w-4 text-red-600" />}
                                 </div>
                                 <div>
                                   <p className={`font-medium ${color}`}>{label}</p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {format(new Date(entry.createdAt), 'dd MMM yyyy, HH:mm')}
-                                  </p>
+                                  <p className="text-xs text-muted-foreground">{format(new Date(entry.created_at), 'dd MMM yyyy, HH:mm')}</p>
                                 </div>
                               </div>
-                              <div className="text-right">
-                                <p className={`font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                                  {isPositive ? '+' : ''}{formatPence(entry.amount)}
-                                </p>
-                                {entry.description && (
-                                  <p className="text-xs text-muted-foreground max-w-[180px] truncate">
-                                    {entry.description}
-                                  </p>
-                                )}
-                              </div>
+                              <p className={`font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>{isPositive ? '+' : ''}{formatPence(entry.amount_pence)}</p>
                             </div>
                           );
                         })}
@@ -583,11 +316,19 @@ export default function AdminDriverSettlements() {
                   </ScrollArea>
                 </div>
               </div>
-            ) : null}
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setSelectedDriverId(null)}>
-                Close
+            ) : (
+              <div className="flex items-center justify-center py-8"><RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+            )}
+            <DialogFooter className="gap-2 flex-wrap">
+              <Button variant="outline" size="sm" onClick={() => { setAdjustmentType('add'); setShowAdjustmentDialog(true); }}>
+                <Plus className="h-4 w-4 mr-1" /> Adjustment
               </Button>
+              {selectedDriverDetail && selectedDriverDetail.available_for_payout > 0 && (
+                <Button size="sm" onClick={() => selectedDriverId && payoutMutation.mutate(selectedDriverId)} disabled={payoutMutation.isPending}>
+                  <Wallet className="h-4 w-4 mr-1" /> Payout {formatPence(selectedDriverDetail.available_for_payout)}
+                </Button>
+              )}
+              <Button variant="outline" onClick={() => setSelectedDriverId(null)}>Close</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -596,63 +337,20 @@ export default function AdminDriverSettlements() {
         <Dialog open={showAdjustmentDialog} onOpenChange={setShowAdjustmentDialog}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Add Wallet Adjustment</DialogTitle>
-              <DialogDescription>
-                Add or deduct funds from driver's wallet
-              </DialogDescription>
+              <DialogTitle>Add Adjustment</DialogTitle>
+              <DialogDescription>Add a manual credit or debit to the driver's wallet</DialogDescription>
             </DialogHeader>
-            <div className="space-y-4 py-4">
+            <div className="space-y-4">
               <div className="flex gap-2">
-                <Button
-                  variant={adjustmentType === 'add' ? 'default' : 'outline'}
-                  onClick={() => setAdjustmentType('add')}
-                  className={adjustmentType === 'add' ? 'bg-green-600' : ''}
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Funds
-                </Button>
-                <Button
-                  variant={adjustmentType === 'deduct' ? 'default' : 'outline'}
-                  onClick={() => setAdjustmentType('deduct')}
-                  className={adjustmentType === 'deduct' ? 'bg-red-600' : ''}
-                >
-                  <Minus className="h-4 w-4 mr-2" />
-                  Deduct Funds
-                </Button>
+                <Button variant={adjustmentType === 'add' ? 'default' : 'outline'} size="sm" onClick={() => setAdjustmentType('add')}><Plus className="h-4 w-4 mr-1" />Credit</Button>
+                <Button variant={adjustmentType === 'deduct' ? 'destructive' : 'outline'} size="sm" onClick={() => setAdjustmentType('deduct')}><Minus className="h-4 w-4 mr-1" />Debit</Button>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="amount">Amount (£)</Label>
-                <Input
-                  id="amount"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00"
-                  value={adjustmentAmount}
-                  onChange={(e) => setAdjustmentAmount(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="reason">Reason</Label>
-                <Textarea
-                  id="reason"
-                  placeholder="Enter reason for adjustment..."
-                  value={adjustmentReason}
-                  onChange={(e) => setAdjustmentReason(e.target.value)}
-                />
-              </div>
+              <div><Label>Amount (£)</Label><Input type="number" step="0.01" placeholder="0.00" value={adjustmentAmount} onChange={e => setAdjustmentAmount(e.target.value)} /></div>
+              <div><Label>Reason</Label><Textarea placeholder="Reason for adjustment..." value={adjustmentReason} onChange={e => setAdjustmentReason(e.target.value)} /></div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setShowAdjustmentDialog(false)}>
-                Cancel
-              </Button>
-              <Button 
-                onClick={handleAddAdjustment}
-                disabled={adjustmentMutation.isPending}
-                className={adjustmentType === 'add' ? 'bg-green-600' : 'bg-red-600'}
-              >
-                {adjustmentMutation.isPending ? 'Processing...' : `${adjustmentType === 'add' ? 'Add' : 'Deduct'} ${adjustmentAmount ? `£${adjustmentAmount}` : ''}`}
-              </Button>
+              <Button variant="outline" onClick={() => setShowAdjustmentDialog(false)}>Cancel</Button>
+              <Button onClick={handleAddAdjustment} disabled={adjustmentMutation.isPending}>{adjustmentMutation.isPending ? 'Processing...' : 'Submit'}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

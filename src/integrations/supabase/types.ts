@@ -1380,7 +1380,7 @@ export type Database = {
             foreignKeyName: "dispatch_candidates_log_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -1759,7 +1759,7 @@ export type Database = {
             foreignKeyName: "documents_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -1904,7 +1904,7 @@ export type Database = {
             foreignKeyName: "driver_inbox_messages_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -1969,7 +1969,7 @@ export type Database = {
             foreignKeyName: "driver_ledger_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -2045,7 +2045,7 @@ export type Database = {
             foreignKeyName: "driver_live_locations_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: true
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -2122,7 +2122,7 @@ export type Database = {
             foreignKeyName: "driver_presence_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: true
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -2172,7 +2172,7 @@ export type Database = {
             foreignKeyName: "driver_service_areas_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -2268,7 +2268,7 @@ export type Database = {
             foreignKeyName: "driver_settings_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: true
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -2339,7 +2339,7 @@ export type Database = {
             foreignKeyName: "driver_support_tickets_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -2395,7 +2395,7 @@ export type Database = {
             foreignKeyName: "driver_vehicle_categories_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -2470,7 +2470,7 @@ export type Database = {
             foreignKeyName: "driver_wallet_ledger_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -2540,7 +2540,7 @@ export type Database = {
             foreignKeyName: "driver_wallets_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: true
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -2739,7 +2739,7 @@ export type Database = {
             foreignKeyName: "geofence_events_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -2885,7 +2885,7 @@ export type Database = {
             foreignKeyName: "lost_property_cases_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -3351,7 +3351,7 @@ export type Database = {
             foreignKeyName: "passenger_ratings_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -3473,7 +3473,7 @@ export type Database = {
             foreignKeyName: "payments_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -3637,7 +3637,7 @@ export type Database = {
             foreignKeyName: "payout_items_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -3958,7 +3958,7 @@ export type Database = {
             foreignKeyName: "push_tokens_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -4151,7 +4151,7 @@ export type Database = {
             foreignKeyName: "ride_offers_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -4236,7 +4236,7 @@ export type Database = {
             foreignKeyName: "rider_feedback_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -4342,7 +4342,7 @@ export type Database = {
             foreignKeyName: "scheduled_offer_attempts_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -4865,7 +4865,7 @@ export type Database = {
             foreignKeyName: "support_conversations_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -5271,7 +5271,7 @@ export type Database = {
             foreignKeyName: "trip_offers_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -5728,7 +5728,7 @@ export type Database = {
             foreignKeyName: "trips_confirmed_driver_id_fkey"
             columns: ["confirmed_driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -5763,7 +5763,7 @@ export type Database = {
             foreignKeyName: "trips_current_offer_driver_id_fkey"
             columns: ["current_offer_driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -5791,7 +5791,7 @@ export type Database = {
             foreignKeyName: "trips_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -5833,7 +5833,7 @@ export type Database = {
             foreignKeyName: "trips_pre_assigned_driver_id_fkey"
             columns: ["pre_assigned_driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -5962,7 +5962,7 @@ export type Database = {
             foreignKeyName: "vehicle_change_requests_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -6094,7 +6094,7 @@ export type Database = {
             foreignKeyName: "vehicles_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -6485,7 +6485,7 @@ export type Database = {
             foreignKeyName: "trips_confirmed_driver_id_fkey"
             columns: ["confirmed_driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -6513,7 +6513,7 @@ export type Database = {
             foreignKeyName: "trips_current_offer_driver_id_fkey"
             columns: ["current_offer_driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -6541,7 +6541,7 @@ export type Database = {
             foreignKeyName: "trips_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -6583,7 +6583,7 @@ export type Database = {
             foreignKeyName: "trips_pre_assigned_driver_id_fkey"
             columns: ["pre_assigned_driver_id"]
             isOneToOne: false
-            referencedRelation: "driver_wallet_balance"
+            referencedRelation: "driver_financial_summary"
             referencedColumns: ["driver_id"]
           },
           {
@@ -6653,16 +6653,40 @@ export type Database = {
         }
         Relationships: []
       }
-      driver_wallet_balance: {
+      driver_financial_summary: {
         Row: {
-          available_pence: number | null
+          adjustments_total: number | null
+          amount_owed_to_onecab: number | null
+          approval_status: string | null
+          available_for_payout: number | null
+          card_commission_total: number | null
+          card_gross_total: number | null
+          card_net_credits: number | null
+          card_trip_count: number | null
+          cash_commission_debits: number | null
+          cash_gross_total: number | null
+          cash_net_earnings: number | null
+          cash_trip_count: number | null
+          company_commission_total: number | null
+          completed_trips: number | null
           driver_id: string | null
           email: string | null
           first_name: string | null
+          gross_trip_total: number | null
+          is_online: boolean | null
           last_name: string | null
-          total_debt_pence: number | null
-          total_earnings_pence: number | null
-          trip_count: number | null
+          onboarding_complete: boolean | null
+          payouts_enabled: boolean | null
+          phone: string | null
+          rating: number | null
+          stripe_account_id: string | null
+          today_card_earnings: number | null
+          today_cash_earnings: number | null
+          today_gross_earnings: number | null
+          today_trip_count: number | null
+          total_fees: number | null
+          total_payouts_sent: number | null
+          wallet_balance: number | null
         }
         Relationships: []
       }
