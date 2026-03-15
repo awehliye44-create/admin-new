@@ -9,6 +9,7 @@ export interface SidebarCounts {
   activePromoCodes: number;
   pendingAccountRequests: number;
   pendingDrivers: number;
+  pendingVehicleChanges: number;
 }
 
 const CACHE_KEY = 'sidebar-counts-cache';
