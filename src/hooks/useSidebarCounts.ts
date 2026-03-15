@@ -209,6 +209,11 @@ export function useSidebarCounts() {
         { event: '*', schema: 'public', table: 'admin_settings' },
         () => fetchCounts(true)
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'vehicle_change_requests' },
+        () => fetchCounts(true)
+      )
       .subscribe();
 
     return () => {
