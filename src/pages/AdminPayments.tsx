@@ -148,13 +148,14 @@ export default function AdminPayments() {
   });
 
   // Fetch payment detail when viewing
-  const { data: paymentDetail, isLoading: isLoadingDetail } = useQuery<PaymentDetail>({
+  const { data: paymentDetail, isLoading: isLoadingDetail, error: detailError } = useQuery<PaymentDetail>({
     queryKey: ['admin-payment-detail', viewingTripId],
     enabled: !!viewingTripId,
+    retry: false,
     queryFn: async () => {
       const path = `admin-payment-detail?trip_id=${viewingTripId}`;
       const { data, error } = await supabase.functions.invoke(path, { method: 'GET' });
-      if (error) throw error;
+      if (error) throw new Error(data?.error || error.message || 'Failed to load payment details');
 
       // Normalize camelCase edge response to the shape used by this page
       return {
