@@ -9,6 +9,7 @@ export interface SidebarCounts {
   activePromoCodes: number;
   pendingAccountRequests: number;
   pendingDrivers: number;
+  pendingVehicleChanges: number;
 }
 
 const CACHE_KEY = 'sidebar-counts-cache';
@@ -28,6 +29,7 @@ const defaultCounts: SidebarCounts = {
   activePromoCodes: 0,
   pendingAccountRequests: 0,
   pendingDrivers: 0,
+  pendingVehicleChanges: 0,
 };
 
 export function useSidebarCounts() {
@@ -62,6 +64,7 @@ export function useSidebarCounts() {
         activePromoCodesResult,
         accountRequestsResult,
         pendingDriversResult,
+        pendingVehicleChangesResult,
       ] = await Promise.all([
         // Active trips (status is pending, accepted, arrived, in_progress)
         supabase
@@ -106,6 +109,12 @@ export function useSidebarCounts() {
           .from('drivers')
           .select('id', { count: 'exact', head: true })
           .eq('approval_status', 'pending'),
+        
+        // Pending vehicle change requests
+        supabase
+          .from('vehicle_change_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'pending'),
       ]);
 
       // Parse account requests from JSON
@@ -125,6 +134,7 @@ export function useSidebarCounts() {
         activePromoCodes: activePromoCodesResult.count || 0,
         pendingAccountRequests,
         pendingDrivers: pendingDriversResult.count || 0,
+        pendingVehicleChanges: pendingVehicleChangesResult.count || 0,
       };
 
       setCounts(newCounts);
@@ -197,6 +207,11 @@ export function useSidebarCounts() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'admin_settings' },
+        () => fetchCounts(true)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'vehicle_change_requests' },
         () => fetchCounts(true)
       )
       .subscribe();
