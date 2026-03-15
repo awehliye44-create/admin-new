@@ -229,6 +229,7 @@ export default function AdminPayments() {
     },
   });
 
+  const handleRefresh = () => {
     refetchSummary();
     refetchList();
   };
