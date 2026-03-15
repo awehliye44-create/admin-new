@@ -108,6 +108,12 @@ export function useSidebarCounts() {
           .from('drivers')
           .select('id', { count: 'exact', head: true })
           .eq('approval_status', 'pending'),
+        
+        // Pending vehicle change requests
+        supabase
+          .from('vehicle_change_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'pending'),
       ]);
 
       // Parse account requests from JSON
