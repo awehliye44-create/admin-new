@@ -208,7 +208,27 @@ export default function AdminPayments() {
     },
   });
 
-  const handleRefresh = () => {
+  // Confirm payment mutation
+  const confirmPaymentMutation = useMutation({
+    mutationFn: async (tripId: string) => {
+      const { data, error } = await supabase.functions.invoke('admin-payment-detail', {
+        body: { trip_id: tripId, action: 'confirm_payment' },
+      });
+      if (error) throw new Error(data?.error || error.message || 'Failed to confirm payment');
+      if (!data.success) throw new Error(data.error || 'Failed to confirm payment');
+      return data;
+    },
+    onSuccess: (data) => {
+      toast.success(`Payment ${data.newStatus || 'confirmed'} successfully`);
+      queryClient.invalidateQueries({ queryKey: ['admin-payment-detail', viewingTripId] });
+      queryClient.invalidateQueries({ queryKey: ['admin-payments-list'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-payments-summary'] });
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to confirm: ${error.message}`);
+    },
+  });
+
     refetchSummary();
     refetchList();
   };
