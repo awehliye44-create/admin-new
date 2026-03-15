@@ -9,116 +9,36 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
-  Search, 
-  UserX, 
-  ShieldOff, 
-  RefreshCw, 
-  Eye, 
-  UserCheck, 
-  Clock, 
-  AlertTriangle,
-  Ban,
-  History,
-  Filter,
-  MoreVertical,
-  Calendar
+  Search, UserX, ShieldOff, RefreshCw, Eye, UserCheck, Clock, AlertTriangle,
+  Ban, History, MoreVertical, Loader2
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
 interface Suspension {
   id: string;
-  user_type: 'driver' | 'rider';
+  user_type: string;
   user_id: string;
   user_name: string;
   user_email: string;
   reason: string;
-  status: 'active' | 'lifted' | 'expired';
+  status: string;
   suspended_at: string;
-  suspended_by: string;
+  suspended_by: string | null;
+  suspended_by_name: string;
   duration_days: number | null;
   expires_at: string | null;
   lifted_at: string | null;
   lifted_by: string | null;
+  lifted_by_name: string | null;
   notes: string;
 }
-
-const defaultSuspensions: Suspension[] = [
-  {
-    id: '1',
-    user_type: 'driver',
-    user_id: 'drv-001',
-    user_name: 'Michael Brown',
-    user_email: 'michael.b@email.com',
-    reason: 'Multiple complaints from riders',
-    status: 'active',
-    suspended_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    suspended_by: 'Admin User',
-    duration_days: 14,
-    expires_at: new Date(Date.now() + 9 * 24 * 60 * 60 * 1000).toISOString(),
-    lifted_at: null,
-    lifted_by: null,
-    notes: 'Third offense - extended suspension period applied',
-  },
-  {
-    id: '2',
-    user_type: 'rider',
-    user_id: 'rid-002',
-    user_name: 'Sarah Wilson',
-    user_email: 'sarah.w@email.com',
-    reason: 'Fraudulent payment activity',
-    status: 'active',
-    suspended_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    suspended_by: 'System',
-    duration_days: null,
-    expires_at: null,
-    lifted_at: null,
-    lifted_by: null,
-    notes: 'Pending investigation - permanent until resolved',
-  },
-  {
-    id: '3',
-    user_type: 'driver',
-    user_id: 'drv-003',
-    user_name: 'James Carter',
-    user_email: 'james.c@email.com',
-    reason: 'Document verification failure',
-    status: 'lifted',
-    suspended_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
-    suspended_by: 'Admin User',
-    duration_days: 7,
-    expires_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-    lifted_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
-    lifted_by: 'Admin User',
-    notes: 'Documents re-verified and approved',
-  },
-  {
-    id: '4',
-    user_type: 'rider',
-    user_id: 'rid-004',
-    user_name: 'Emily Davis',
-    user_email: 'emily.d@email.com',
-    reason: 'Inappropriate behavior reported by driver',
-    status: 'expired',
-    suspended_at: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
-    suspended_by: 'Admin User',
-    duration_days: 7,
-    expires_at: new Date(Date.now() - 13 * 24 * 60 * 60 * 1000).toISOString(),
-    lifted_at: null,
-    lifted_by: null,
-    notes: 'First offense - warning issued',
-  },
-];
 
 export default function AccountSuspension() {
   const queryClient = useQueryClient();
@@ -132,98 +52,102 @@ export default function AccountSuspension() {
   
   const [newSuspension, setNewSuspension] = useState({
     user_type: 'driver' as 'driver' | 'rider',
+    user_name: '',
     user_email: '',
     reason: '',
     duration_days: '',
     notes: '',
   });
 
-  const { data: suspensions = defaultSuspensions, isLoading, refetch } = useQuery({
-    queryKey: ['suspensions'],
+  const { data: suspensions = [], isLoading, refetch } = useQuery({
+    queryKey: ['account-suspensions'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('admin_settings')
-        .select('*')
-        .eq('setting_key', 'account_suspensions')
-        .single();
+      // Auto-expire first
+      await supabase
+        .from('account_suspensions')
+        .update({ status: 'expired' } as any)
+        .eq('status', 'active')
+        .not('expires_at', 'is', null)
+        .lt('expires_at', new Date().toISOString());
 
-      if (error || !data) return defaultSuspensions;
-      return (data.setting_value as unknown as Suspension[]) || defaultSuspensions;
+      const { data, error } = await supabase
+        .from('account_suspensions')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return (data || []) as unknown as Suspension[];
     },
   });
 
-  const saveMutation = useMutation({
-    mutationFn: async (updatedSuspensions: Suspension[]) => {
+  const createMutation = useMutation({
+    mutationFn: async (suspension: typeof newSuspension) => {
+      const expiresAt = suspension.duration_days 
+        ? new Date(Date.now() + parseInt(suspension.duration_days) * 86400000).toISOString()
+        : null;
+
       const { error } = await supabase
-        .from('admin_settings')
-        .upsert({
-          setting_key: 'account_suspensions',
-          setting_value: updatedSuspensions as any,
-          description: 'Account suspension records',
-        } as any, { onConflict: 'setting_key' });
+        .from('account_suspensions')
+        .insert({
+          user_type: suspension.user_type,
+          user_id: crypto.randomUUID(), // placeholder – real integration would look up actual user
+          user_name: suspension.user_name,
+          user_email: suspension.user_email,
+          reason: suspension.reason,
+          duration_days: suspension.duration_days ? parseInt(suspension.duration_days) : null,
+          expires_at: expiresAt,
+          notes: suspension.notes || '',
+          suspended_by_name: 'Admin',
+        } as any);
 
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['suspensions'] });
-      toast.success('Suspension updated successfully');
+      queryClient.invalidateQueries({ queryKey: ['account-suspensions'] });
+      toast.success('Account suspended successfully');
+      setIsNewSuspensionOpen(false);
+      setNewSuspension({ user_type: 'driver', user_name: '', user_email: '', reason: '', duration_days: '', notes: '' });
     },
-    onError: () => {
-      toast.error('Failed to update suspension');
+    onError: () => toast.error('Failed to create suspension'),
+  });
+
+  const liftMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('account_suspensions')
+        .update({ 
+          status: 'lifted', 
+          lifted_at: new Date().toISOString(),
+          lifted_by_name: 'Admin',
+        } as any)
+        .eq('id', id);
+
+      if (error) throw error;
     },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['account-suspensions'] });
+      toast.success('Suspension lifted successfully');
+      setIsLiftOpen(false);
+      setSelectedSuspension(null);
+    },
+    onError: () => toast.error('Failed to lift suspension'),
   });
 
   const handleCreateSuspension = () => {
-    if (!newSuspension.user_email || !newSuspension.reason) {
+    if (!newSuspension.user_name || !newSuspension.reason) {
       toast.error('Please fill in required fields');
       return;
     }
-
-    const suspension: Suspension = {
-      id: Date.now().toString(),
-      user_type: newSuspension.user_type,
-      user_id: `${newSuspension.user_type.slice(0, 3)}-${Date.now()}`,
-      user_name: newSuspension.user_email.split('@')[0],
-      user_email: newSuspension.user_email,
-      reason: newSuspension.reason,
-      status: 'active',
-      suspended_at: new Date().toISOString(),
-      suspended_by: 'Admin User',
-      duration_days: newSuspension.duration_days ? parseInt(newSuspension.duration_days) : null,
-      expires_at: newSuspension.duration_days 
-        ? new Date(Date.now() + parseInt(newSuspension.duration_days) * 24 * 60 * 60 * 1000).toISOString()
-        : null,
-      lifted_at: null,
-      lifted_by: null,
-      notes: newSuspension.notes,
-    };
-
-    saveMutation.mutate([...suspensions, suspension]);
-    setIsNewSuspensionOpen(false);
-    setNewSuspension({ user_type: 'driver', user_email: '', reason: '', duration_days: '', notes: '' });
+    createMutation.mutate(newSuspension);
   };
 
-  const handleLiftSuspension = () => {
-    if (!selectedSuspension) return;
-
-    const updated = suspensions.map(s => 
-      s.id === selectedSuspension.id 
-        ? { ...s, status: 'lifted' as const, lifted_at: new Date().toISOString(), lifted_by: 'Admin User' }
-        : s
-    );
-
-    saveMutation.mutate(updated);
-    setIsLiftOpen(false);
-    setSelectedSuspension(null);
-  };
-
-  const filteredSuspensions = suspensions.filter(suspension => {
+  const filteredSuspensions = suspensions.filter(s => {
     const matchesSearch = 
-      suspension.user_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      suspension.user_email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      suspension.reason.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || suspension.status === statusFilter;
-    const matchesType = userTypeFilter === 'all' || suspension.user_type === userTypeFilter;
+      s.user_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.user_email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.reason.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || s.status === statusFilter;
+    const matchesType = userTypeFilter === 'all' || s.user_type === userTypeFilter;
     return matchesSearch && matchesStatus && matchesType;
   });
 
@@ -357,82 +281,88 @@ export default function AccountSuspension() {
             </div>
 
             {/* Table */}
-            <div className="border rounded-lg overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>User</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Reason</TableHead>
-                    <TableHead>Suspended</TableHead>
-                    <TableHead>Duration</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredSuspensions.map((suspension) => (
-                    <TableRow key={suspension.id}>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{suspension.user_name}</p>
-                          <p className="text-sm text-muted-foreground">{suspension.user_email}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="capitalize">
-                          {suspension.user_type}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="max-w-[200px] truncate">
-                        {suspension.reason}
-                      </TableCell>
-                      <TableCell>
-                        {format(new Date(suspension.suspended_at), 'MMM d, yyyy')}
-                      </TableCell>
-                      <TableCell>
-                        {suspension.duration_days ? `${suspension.duration_days} days` : 'Permanent'}
-                      </TableCell>
-                      <TableCell>{getStatusBadge(suspension.status)}</TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreVertical className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => {
-                              setSelectedSuspension(suspension);
-                              setIsViewOpen(true);
-                            }}>
-                              <Eye className="h-4 w-4 mr-2" />
-                              View Details
-                            </DropdownMenuItem>
-                            {suspension.status === 'active' && (
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>User</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Reason</TableHead>
+                      <TableHead>Suspended</TableHead>
+                      <TableHead>Duration</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredSuspensions.map((suspension) => (
+                      <TableRow key={suspension.id}>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{suspension.user_name}</p>
+                            <p className="text-sm text-muted-foreground">{suspension.user_email}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="capitalize">
+                            {suspension.user_type}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="max-w-[200px] truncate">
+                          {suspension.reason}
+                        </TableCell>
+                        <TableCell>
+                          {format(new Date(suspension.suspended_at), 'MMM d, yyyy')}
+                        </TableCell>
+                        <TableCell>
+                          {suspension.duration_days ? `${suspension.duration_days} days` : 'Permanent'}
+                        </TableCell>
+                        <TableCell>{getStatusBadge(suspension.status)}</TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon">
+                                <MoreVertical className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
                               <DropdownMenuItem onClick={() => {
                                 setSelectedSuspension(suspension);
-                                setIsLiftOpen(true);
+                                setIsViewOpen(true);
                               }}>
-                                <UserCheck className="h-4 w-4 mr-2" />
-                                Lift Suspension
+                                <Eye className="h-4 w-4 mr-2" />
+                                View Details
                               </DropdownMenuItem>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {filteredSuspensions.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                        No suspensions found
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+                              {suspension.status === 'active' && (
+                                <DropdownMenuItem onClick={() => {
+                                  setSelectedSuspension(suspension);
+                                  setIsLiftOpen(true);
+                                }}>
+                                  <UserCheck className="h-4 w-4 mr-2" />
+                                  Lift Suspension
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {filteredSuspensions.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                          No suspensions found
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -442,9 +372,7 @@ export default function AccountSuspension() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Suspension Details</DialogTitle>
-            <DialogDescription>
-              Full details of the account suspension
-            </DialogDescription>
+            <DialogDescription>Full details of the account suspension</DialogDescription>
           </DialogHeader>
           {selectedSuspension && (
             <div className="space-y-4">
@@ -483,7 +411,7 @@ export default function AccountSuspension() {
                 )}
                 <div>
                   <Label className="text-muted-foreground">Suspended By</Label>
-                  <p className="font-medium">{selectedSuspension.suspended_by}</p>
+                  <p className="font-medium">{selectedSuspension.suspended_by_name}</p>
                 </div>
               </div>
               <div>
@@ -505,7 +433,7 @@ export default function AccountSuspension() {
                     </div>
                     <div>
                       <Label className="text-muted-foreground">Lifted By</Label>
-                      <p className="font-medium">{selectedSuspension.lifted_by}</p>
+                      <p className="font-medium">{selectedSuspension.lifted_by_name}</p>
                     </div>
                   </div>
                 </div>
@@ -523,9 +451,7 @@ export default function AccountSuspension() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Suspend Account</DialogTitle>
-            <DialogDescription>
-              Create a new account suspension
-            </DialogDescription>
+            <DialogDescription>Create a new account suspension</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -534,9 +460,7 @@ export default function AccountSuspension() {
                 value={newSuspension.user_type} 
                 onValueChange={(v) => setNewSuspension({ ...newSuspension, user_type: v as 'driver' | 'rider' })}
               >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="driver">Driver</SelectItem>
                   <SelectItem value="rider">Rider</SelectItem>
@@ -544,7 +468,15 @@ export default function AccountSuspension() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>User Email *</Label>
+              <Label>User Name *</Label>
+              <Input
+                placeholder="Full name"
+                value={newSuspension.user_name}
+                onChange={(e) => setNewSuspension({ ...newSuspension, user_name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>User Email</Label>
               <Input
                 type="email"
                 placeholder="user@example.com"
@@ -558,9 +490,7 @@ export default function AccountSuspension() {
                 value={newSuspension.reason} 
                 onValueChange={(v) => setNewSuspension({ ...newSuspension, reason: v })}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select reason" />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Select reason" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Multiple complaints">Multiple complaints</SelectItem>
                   <SelectItem value="Fraudulent activity">Fraudulent activity</SelectItem>
@@ -593,7 +523,8 @@ export default function AccountSuspension() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsNewSuspensionOpen(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleCreateSuspension}>
+            <Button variant="destructive" onClick={handleCreateSuspension} disabled={createMutation.isPending}>
+              {createMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               <Ban className="h-4 w-4 mr-2" />
               Suspend Account
             </Button>
@@ -623,7 +554,11 @@ export default function AccountSuspension() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsLiftOpen(false)}>Cancel</Button>
-            <Button onClick={handleLiftSuspension}>
+            <Button 
+              onClick={() => selectedSuspension && liftMutation.mutate(selectedSuspension.id)}
+              disabled={liftMutation.isPending}
+            >
+              {liftMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               <UserCheck className="h-4 w-4 mr-2" />
               Lift Suspension
             </Button>
