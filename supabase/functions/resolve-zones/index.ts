@@ -198,14 +198,16 @@ serve(async (req) => {
           ? {
               id: zoneRoutePricing.id,
               fixed_fare: Number(zoneRoutePricing.fixed_fare),
+              pickup_fee: Number(zoneRoutePricing.pickup_fee ?? 0),
+              dropoff_fee: Number(zoneRoutePricing.dropoff_fee ?? 0),
               vehicle_type_id: zoneRoutePricing.vehicle_type_id,
               priority: zoneRoutePricing.priority,
               use_fixed_fare: true,
             }
           : null,
         pricing_modifiers: {
-          pickup_fee: zoneRoutePricing ? 0 : pickupFee,
-          dropoff_fee: zoneRoutePricing ? 0 : dropoffFee,
+          pickup_fee: zoneRoutePricing ? Number(zoneRoutePricing.pickup_fee ?? 0) : pickupFee,
+          dropoff_fee: zoneRoutePricing ? Number(zoneRoutePricing.dropoff_fee ?? 0) : dropoffFee,
           airport_fee_pickup: zoneRoutePricing ? 0 : (pm.airport_fee_pickup || 0),
           airport_fee_dropoff: zoneRoutePricing ? 0 : (dm.airport_fee_dropoff || 0),
           surcharge_pct: zoneRoutePricing ? 0 : surcharge_pct,
@@ -213,7 +215,9 @@ serve(async (req) => {
           fare_override_value: zoneRoutePricing ? Number(zoneRoutePricing.fixed_fare) : fare_override_value,
           surge_multiplier: zoneRoutePricing ? 1 : surgeMultiplier,
           min_fare_override: zoneRoutePricing ? null : minFareOverride,
-          total_zone_fees: zoneRoutePricing ? 0 : (pickupFee + dropoffFee),
+          total_zone_fees: zoneRoutePricing
+            ? Number(zoneRoutePricing.pickup_fee ?? 0) + Number(zoneRoutePricing.dropoff_fee ?? 0)
+            : (pickupFee + dropoffFee),
         },
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
