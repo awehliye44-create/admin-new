@@ -29,6 +29,7 @@ const defaultCounts: SidebarCounts = {
   activePromoCodes: 0,
   pendingAccountRequests: 0,
   pendingDrivers: 0,
+  pendingVehicleChanges: 0,
 };
 
 export function useSidebarCounts() {
