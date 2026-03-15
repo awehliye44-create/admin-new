@@ -134,6 +134,7 @@ export function useSidebarCounts() {
         activePromoCodes: activePromoCodesResult.count || 0,
         pendingAccountRequests,
         pendingDrivers: pendingDriversResult.count || 0,
+        pendingVehicleChanges: pendingVehicleChangesResult.count || 0,
       };
 
       setCounts(newCounts);
