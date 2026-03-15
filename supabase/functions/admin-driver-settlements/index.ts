@@ -193,7 +193,16 @@ serve(async (req) => {
         totalNet: 0,
         tripCount: 0 
       };
-      const wallet = walletByDriver[d.id] || { available: 0, debt: 0, earnings: 0 };
+      // If ledger is empty, derive wallet from trip data
+      const wallet = walletByDriver[d.id] || (
+        !hasLedgerEntries && tripStats.tripCount > 0
+          ? {
+              available: tripStats.totalNet - tripStats.totalCommission,
+              debt: tripStats.totalCommission,
+              earnings: tripStats.totalNet,
+            }
+          : { available: 0, debt: 0, earnings: 0 }
+      );
 
       return {
         id: d.id,
