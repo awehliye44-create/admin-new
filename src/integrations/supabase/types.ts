@@ -14,6 +14,69 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_suspensions: {
+        Row: {
+          created_at: string
+          duration_days: number | null
+          expires_at: string | null
+          id: string
+          lifted_at: string | null
+          lifted_by: string | null
+          lifted_by_name: string | null
+          notes: string | null
+          reason: string
+          status: string
+          suspended_at: string
+          suspended_by: string | null
+          suspended_by_name: string
+          updated_at: string
+          user_email: string
+          user_id: string
+          user_name: string
+          user_type: string
+        }
+        Insert: {
+          created_at?: string
+          duration_days?: number | null
+          expires_at?: string | null
+          id?: string
+          lifted_at?: string | null
+          lifted_by?: string | null
+          lifted_by_name?: string | null
+          notes?: string | null
+          reason: string
+          status?: string
+          suspended_at?: string
+          suspended_by?: string | null
+          suspended_by_name?: string
+          updated_at?: string
+          user_email?: string
+          user_id: string
+          user_name?: string
+          user_type: string
+        }
+        Update: {
+          created_at?: string
+          duration_days?: number | null
+          expires_at?: string | null
+          id?: string
+          lifted_at?: string | null
+          lifted_by?: string | null
+          lifted_by_name?: string | null
+          notes?: string | null
+          reason?: string
+          status?: string
+          suspended_at?: string
+          suspended_by?: string | null
+          suspended_by_name?: string
+          updated_at?: string
+          user_email?: string
+          user_id?: string
+          user_name?: string
+          user_type?: string
+        }
+        Relationships: []
+      }
       admin_settings: {
         Row: {
           created_at: string
@@ -6755,6 +6818,10 @@ export type Database = {
           p_max_location_age_seconds?: number
           p_require_push_token?: boolean
         }
+        Returns: boolean
+      }
+      is_user_suspended: {
+        Args: { p_user_id: string; p_user_type: string }
         Returns: boolean
       }
       lock_driver_vehicle: { Args: { p_driver_id: string }; Returns: undefined }
