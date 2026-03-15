@@ -64,6 +64,7 @@ export function useSidebarCounts() {
         activePromoCodesResult,
         accountRequestsResult,
         pendingDriversResult,
+        pendingVehicleChangesResult,
       ] = await Promise.all([
         // Active trips (status is pending, accepted, arrived, in_progress)
         supabase
