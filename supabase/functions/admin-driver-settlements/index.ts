@@ -161,25 +161,37 @@ serve(async (req) => {
       earnings: number;
     }> = {};
 
-    allLedgerEntries?.forEach((entry) => {
-      if (!entry.driver_id) return;
-      if (!walletByDriver[entry.driver_id]) {
-        walletByDriver[entry.driver_id] = { available: 0, debt: 0, earnings: 0 };
-      }
+    const hasLedgerEntries = (allLedgerEntries && allLedgerEntries.length > 0);
 
-      const amount = entry.amount_pence || 0;
-      walletByDriver[entry.driver_id].available += amount;
-      if (amount > 0) {
-        walletByDriver[entry.driver_id].earnings += amount;
-      }
-      if (entry.entry_type === 'CASH_COMMISSION_DEBT') {
-        walletByDriver[entry.driver_id].debt += Math.abs(amount);
-      }
-    });
+    if (hasLedgerEntries) {
+      allLedgerEntries?.forEach((entry) => {
+        if (!entry.driver_id) return;
+        if (!walletByDriver[entry.driver_id]) {
+          walletByDriver[entry.driver_id] = { available: 0, debt: 0, earnings: 0 };
+        }
 
-    const driversWithEarnings = Object.values(walletByDriver).filter(
-      (wallet) => wallet.available > 0 || wallet.earnings > 0 || wallet.debt > 0
-    ).length;
+        const amount = entry.amount_pence || 0;
+        walletByDriver[entry.driver_id].available += amount;
+        if (amount > 0) {
+          walletByDriver[entry.driver_id].earnings += amount;
+        }
+        if (entry.entry_type === 'CASH_COMMISSION_DEBT') {
+          walletByDriver[entry.driver_id].debt += Math.abs(amount);
+        }
+      });
+    }
+
+    // Count drivers with earnings - from ledger or trip data
+    let driversWithEarnings = 0;
+    if (hasLedgerEntries) {
+      driversWithEarnings = Object.values(walletByDriver).filter(
+        (wallet) => wallet.available > 0 || wallet.earnings > 0 || wallet.debt > 0
+      ).length;
+    } else {
+      driversWithEarnings = Object.values(tripStatsByDriver).filter(
+        (stats) => stats.totalGross > 0
+      ).length;
+    }
 
     // Transform drivers data
     const transformedDrivers = drivers?.map(d => {
@@ -189,7 +201,18 @@ serve(async (req) => {
         totalNet: 0,
         tripCount: 0 
       };
-      const wallet = walletByDriver[d.id] || { available: 0, debt: 0, earnings: 0 };
+      // If ledger is empty, derive wallet from trip financial data
+      // For cash trips: driver collected fare, owes commission → debt
+      // For digital trips: driver earned net amount → positive balance
+      const wallet = walletByDriver[d.id] || (
+        !hasLedgerEntries && tripStats.tripCount > 0
+          ? {
+              available: -tripStats.totalCommission, // Commission owed as debt
+              debt: tripStats.totalCommission,
+              earnings: tripStats.totalNet,
+            }
+          : { available: 0, debt: 0, earnings: 0 }
+      );
 
       return {
         id: d.id,

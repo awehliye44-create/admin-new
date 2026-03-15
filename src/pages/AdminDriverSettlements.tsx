@@ -245,11 +245,12 @@ export default function AdminDriverSettlements() {
     return matchesSearch;
   });
 
-  // Stats
-  const totalDriverNet = settlements.reduce((sum, d) => sum + (d.totalNet || 0), 0);
-  const totalCommission = settlements.reduce((sum, d) => sum + (d.totalCommission || 0), 0);
-  const driversWithEarnings = settlements.filter(d => (d.walletAvailable || 0) > 0).length;
-  const onlineDrivers = settlements.filter(d => d.isOnline).length;
+  // Use API summary data instead of recalculating from paginated results
+  const summary = settlementsData?.summary;
+  const totalDriverNet = summary?.totalDriverEarnings || 0;
+  const totalCommission = summary?.totalPlatformCommission || 0;
+  const driversWithEarnings = summary?.driversWithEarnings || 0;
+  const onlineDrivers = summary?.onlineDrivers || 0;
 
   if (isLoading && settlements.length === 0) {
     return (
