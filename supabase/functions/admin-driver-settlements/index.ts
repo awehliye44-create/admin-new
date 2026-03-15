@@ -16,12 +16,10 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get authorization header to verify admin
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
@@ -29,8 +27,7 @@ serve(async (req) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
@@ -43,224 +40,91 @@ serve(async (req) => {
 
     if (!roleData) {
       return new Response(JSON.stringify({ error: 'Admin access required' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Parse query parameters
     const url = new URL(req.url);
-    const page = parseInt(url.searchParams.get('page') || '1');
-    const limit = parseInt(url.searchParams.get('limit') || '20');
     const search = url.searchParams.get('search');
-    const status = url.searchParams.get('status'); // 'online', 'offline', 'all'
+    const page = parseInt(url.searchParams.get('page') || '1');
+    const limit = parseInt(url.searchParams.get('limit') || '100');
 
-    // Get summary stats first
-    const { data: allDrivers } = await supabase
-      .from('drivers')
-      .select('id, is_online');
-
-    const onlineDrivers = allDrivers?.filter(d => d.is_online).length || 0;
-
-    // Get total earnings and commission from completed trips
-    const { data: tripStats } = await supabase
-      .from('trips')
-      .select('driver_net_pence, commission_pence')
-      .eq('status', 'completed');
-
-    const totalDriverEarnings = tripStats?.reduce((sum, t) => sum + (t.driver_net_pence || 0), 0) || 0;
-    const totalPlatformCommission = tripStats?.reduce((sum, t) => sum + (t.commission_pence || 0), 0) || 0;
-
-    // Build wallet stats from live driver ledger entries (source of truth)
-    const allDriverIds = allDrivers?.map(d => d.id) || [];
-    const { data: allLedgerEntries } = allDriverIds.length > 0
-      ? await supabase
-          .from('driver_ledger')
-          .select('driver_id, entry_type, amount_pence')
-          .in('driver_id', allDriverIds)
-      : { data: [] as Array<{ driver_id: string | null; entry_type: string; amount_pence: number | null }> };
-
-    // Build drivers query
-    const offset = (page - 1) * limit;
-    let driversQuery = supabase
-      .from('drivers')
-      .select(`
-        id,
-        first_name,
-        last_name,
-        email,
-        phone,
-        is_online,
-        rating,
-        total_trips,
-        stripe_account_id,
-        payouts_enabled,
-        charges_enabled,
-        onboarding_complete,
-        approval_status,
-        created_at
-      `, { count: 'exact' })
-      .order('created_at', { ascending: false });
-
-    if (status === 'online') {
-      driversQuery = driversQuery.eq('is_online', true);
-    } else if (status === 'offline') {
-      driversQuery = driversQuery.eq('is_online', false);
-    }
+    // Query the unified financial summary view
+    let query = supabase
+      .from('driver_financial_summary')
+      .select('*');
 
     if (search) {
-      driversQuery = driversQuery.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`);
+      query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`);
     }
 
-    driversQuery = driversQuery.range(offset, offset + limit - 1);
+    const { data: drivers, error: queryError } = await query;
 
-    const { data: drivers, count, error: driversError } = await driversQuery;
+    if (queryError) throw queryError;
 
-    if (driversError) {
-      throw driversError;
-    }
+    const allDrivers = drivers || [];
 
-    // Get trip stats and wallet data for each driver
-    const driverIds = drivers?.map(d => d.id) || [];
-
-    // Get trip totals per driver
-    const { data: driverTripStats } = await supabase
-      .from('trips')
-      .select('driver_id, gross_fare_pence, commission_pence, driver_net_pence')
-      .eq('status', 'completed')
-      .in('driver_id', driverIds);
-
-    // Group trip stats by driver
-    const tripStatsByDriver: Record<string, { 
-      totalGross: number; 
-      totalCommission: number; 
-      totalNet: number;
-      tripCount: number;
-    }> = {};
-    
-    driverTripStats?.forEach(trip => {
-      if (!trip.driver_id) return;
-      if (!tripStatsByDriver[trip.driver_id]) {
-        tripStatsByDriver[trip.driver_id] = { 
-          totalGross: 0, 
-          totalCommission: 0, 
-          totalNet: 0,
-          tripCount: 0 
-        };
-      }
-      tripStatsByDriver[trip.driver_id].totalGross += trip.gross_fare_pence || 0;
-      tripStatsByDriver[trip.driver_id].totalCommission += trip.commission_pence || 0;
-      tripStatsByDriver[trip.driver_id].totalNet += trip.driver_net_pence || 0;
-      tripStatsByDriver[trip.driver_id].tripCount += 1;
-    });
-
-    // Create live wallet map from ledger
-    const walletByDriver: Record<string, {
-      available: number;
-      debt: number;
-      earnings: number;
-    }> = {};
-
-    const hasLedgerEntries = (allLedgerEntries && allLedgerEntries.length > 0);
-
-    if (hasLedgerEntries) {
-      allLedgerEntries?.forEach((entry) => {
-        if (!entry.driver_id) return;
-        if (!walletByDriver[entry.driver_id]) {
-          walletByDriver[entry.driver_id] = { available: 0, debt: 0, earnings: 0 };
-        }
-
-        const amount = entry.amount_pence || 0;
-        walletByDriver[entry.driver_id].available += amount;
-        if (amount > 0) {
-          walletByDriver[entry.driver_id].earnings += amount;
-        }
-        if (entry.entry_type === 'CASH_COMMISSION_DEBT') {
-          walletByDriver[entry.driver_id].debt += Math.abs(amount);
-        }
-      });
-    }
-
-    // Count drivers with earnings - from ledger or trip data
-    let driversWithEarnings = 0;
-    if (hasLedgerEntries) {
-      driversWithEarnings = Object.values(walletByDriver).filter(
-        (wallet) => wallet.available > 0 || wallet.earnings > 0 || wallet.debt > 0
-      ).length;
-    } else {
-      driversWithEarnings = Object.values(tripStatsByDriver).filter(
-        (stats) => stats.totalGross > 0
-      ).length;
-    }
-
-    // Transform drivers data
-    const transformedDrivers = drivers?.map(d => {
-      const tripStats = tripStatsByDriver[d.id] || { 
-        totalGross: 0, 
-        totalCommission: 0, 
-        totalNet: 0,
-        tripCount: 0 
-      };
-      // If ledger is empty, derive wallet from trip financial data
-      // For cash trips: driver collected fare, owes commission → debt
-      // For digital trips: driver earned net amount → positive balance
-      const wallet = walletByDriver[d.id] || (
-        !hasLedgerEntries && tripStats.tripCount > 0
-          ? {
-              available: -tripStats.totalCommission, // Commission owed as debt
-              debt: tripStats.totalCommission,
-              earnings: tripStats.totalNet,
-            }
-          : { available: 0, debt: 0, earnings: 0 }
-      );
-
-      return {
-        id: d.id,
-        name: `${d.first_name} ${d.last_name}`,
-        email: d.email,
-        phone: d.phone,
-        isOnline: d.is_online,
-        rating: d.rating,
-        totalTrips: d.total_trips || tripStats.tripCount,
-        approvalStatus: d.approval_status,
-        stripeAccountId: d.stripe_account_id,
-        payoutsEnabled: d.payouts_enabled,
-        chargesEnabled: d.charges_enabled,
-        onboardingComplete: d.onboarding_complete,
-        totalGross: tripStats.totalGross,
-        totalCommission: tripStats.totalCommission,
-        totalNet: tripStats.totalNet,
-        walletAvailable: wallet.available,
-        walletDebt: wallet.debt,
-        walletEarnings: wallet.earnings,
-        canPayout: wallet.available > 0 && d.payouts_enabled,
-      };
-    }) || [];
-
-    const response = {
-      summary: {
-        totalDriverEarnings,
-        totalPlatformCommission,
-        driversWithEarnings,
-        onlineDrivers,
-        totalDrivers: allDrivers?.length || 0,
-      },
-      drivers: transformedDrivers,
-      total: count || 0,
-      page,
-      limit,
-      totalPages: Math.ceil((count || 0) / limit),
+    // Compute aggregated summary from the same view
+    const summary = {
+      totalDriverEarnings: allDrivers.reduce((s, d) => s + Number(d.gross_trip_total || 0), 0),
+      totalDriverNet: allDrivers.reduce((s, d) => s + Number(d.card_net_credits || 0) + Number(d.cash_net_earnings || 0), 0),
+      totalPlatformCommission: allDrivers.reduce((s, d) => s + Number(d.company_commission_total || 0), 0),
+      driversWithEarnings: allDrivers.filter(d => Number(d.gross_trip_total || 0) > 0).length,
+      onlineDrivers: allDrivers.filter(d => d.is_online).length,
+      totalDrivers: allDrivers.length,
+      totalWalletBalance: allDrivers.reduce((s, d) => s + Number(d.wallet_balance || 0), 0),
+      totalPayoutsSent: allDrivers.reduce((s, d) => s + Number(d.total_payouts_sent || 0), 0),
     };
 
-    return new Response(JSON.stringify(response), {
+    // Transform to camelCase for frontend
+    const transformedDrivers = allDrivers.map(d => ({
+      id: d.driver_id,
+      name: `${d.first_name} ${d.last_name}`,
+      email: d.email,
+      phone: d.phone,
+      isOnline: d.is_online,
+      rating: d.rating,
+      approvalStatus: d.approval_status,
+      stripeAccountId: d.stripe_account_id,
+      payoutsEnabled: d.payouts_enabled,
+      onboardingComplete: d.onboarding_complete,
+      // Trip totals
+      totalTrips: Number(d.completed_trips || 0),
+      totalGross: Number(d.gross_trip_total || 0),
+      totalCommission: Number(d.company_commission_total || 0),
+      totalNet: Number(d.card_net_credits || 0) + Number(d.cash_net_earnings || 0),
+      // Wallet
+      walletBalance: Number(d.wallet_balance || 0),
+      availableForPayout: Number(d.available_for_payout || 0),
+      amountOwed: Number(d.amount_owed_to_onecab || 0),
+      totalPayoutsSent: Number(d.total_payouts_sent || 0),
+      // Breakdown
+      cardNetCredits: Number(d.card_net_credits || 0),
+      cashCommissionDebits: Number(d.cash_commission_debits || 0),
+      cashGrossTotal: Number(d.cash_gross_total || 0),
+      cardGrossTotal: Number(d.card_gross_total || 0),
+      canPayout: Number(d.available_for_payout || 0) > 0 && d.payouts_enabled,
+    }));
+
+    // Paginate
+    const offset = (page - 1) * limit;
+    const paginatedDrivers = transformedDrivers.slice(offset, offset + limit);
+
+    return new Response(JSON.stringify({
+      summary,
+      drivers: paginatedDrivers,
+      total: transformedDrivers.length,
+      page,
+      limit,
+      totalPages: Math.ceil(transformedDrivers.length / limit),
+    }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error) {
     console.error('Error in admin-driver-settlements:', error);
     return new Response(JSON.stringify({ error: (error as Error).message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 });
