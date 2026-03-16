@@ -60,10 +60,7 @@ import { StaffProfileProvider } from "@/hooks/useStaffProfile";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AdminShell } from "@/components/layout/AdminShell";
 
-import {
-  Airports,
-  System,
-} from "./pages/PlaceholderPage";
+import { Airports } from "./pages/PlaceholderPage";
 import ManageContent from "./pages/ManageContent";
 import LiveChat from "./pages/LiveChat";
 import OnecabDocuments from "./pages/OnecabDocuments";
