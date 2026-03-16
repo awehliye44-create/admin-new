@@ -83,7 +83,7 @@ interface DispatchSettings {
   simulateMode: boolean;
   blockMultipleActiveRides: boolean;
   cancelProtection: boolean;
-  driverFareDisplay: 'net_earnings' | 'full_breakdown';
+  driverFareDisplay: 'net_earnings' | 'gross_fare' | 'smart_display';
 }
 
 const defaultSettings: DispatchSettings = {
