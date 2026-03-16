@@ -77,3 +77,6 @@ verify_jwt = false
 
 [functions.calculate-final-fare]
 verify_jwt = false
+
+[functions.stop-waiting]
+verify_jwt = false
