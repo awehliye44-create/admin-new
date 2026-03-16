@@ -79,7 +79,7 @@ export function DriverTiersConfig() {
     setSelectedTier(tier);
     setFormData({
       category_priority: tier.category_priority?.toString() || '10',
-      commission_pct: tier.commission_pct?.toString() || '20',
+      commission_pct: tier.commission_pct?.toString() || '',
       trip_target: tier.trip_target?.toString() || '',
       description: tier.description || '',
       is_active: tier.is_active,
