@@ -9,7 +9,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { 
   Car, 
   MapPin, 
-  PoundSterling,
   CircleDollarSign,
   RefreshCw,
   Clock,
