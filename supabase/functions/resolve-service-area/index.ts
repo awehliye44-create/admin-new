@@ -50,7 +50,6 @@ function isPointInPolygon(point: LatLng, polygon: LatLng[]): boolean {
 }
 
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -67,116 +66,165 @@ serve(async (req) => {
 
     if (!pickup_lat || !pickup_lng) {
       return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Pickup coordinates are required',
-          settings: null
-        }),
+        JSON.stringify({ success: false, error: 'Pickup coordinates are required', settings: null }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     const pickupPoint: LatLng = { lat: pickup_lat, lng: pickup_lng };
 
-    // Get all active regions with their settings
+    // Get all active regions
     const { data: regions, error: regError } = await supabase
       .from('regions')
       .select('id, name, geo_boundary, currency_code, distance_unit, timezone, updated_at')
       .eq('status', 'active');
 
-    if (regError) {
-      console.error('Error fetching regions:', regError);
-      throw regError;
-    }
+    if (regError) throw regError;
 
-    // Find which region the pickup point is in
+    // Find matching region
     let matchingRegion: {
-      id: string;
-      name: string;
-      currency_code: string;
-      distance_unit: string;
-      timezone: string;
-      updated_at: string;
+      id: string; name: string; currency_code: string;
+      distance_unit: string; timezone: string; updated_at: string;
     } | null = null;
 
     for (const region of regions || []) {
       if (region.geo_boundary && isPointInPolygon(pickupPoint, region.geo_boundary as LatLng[])) {
         matchingRegion = {
-          id: region.id,
-          name: region.name,
-          currency_code: region.currency_code,
-          distance_unit: region.distance_unit,
-          timezone: region.timezone,
-          updated_at: region.updated_at,
+          id: region.id, name: region.name,
+          currency_code: region.currency_code, distance_unit: region.distance_unit,
+          timezone: region.timezone, updated_at: region.updated_at,
         };
-        console.log('Pickup is in region:', region.name, 'Currency:', region.currency_code, 'Unit:', region.distance_unit);
         break;
       }
     }
 
     if (!matchingRegion) {
-      console.log('Pickup location is not within any active region');
       return new Response(
         JSON.stringify({
-          success: false,
-          error: 'Pickup location is outside service coverage area',
-          settings: null,
-          message: 'This location is not currently covered by our service.'
+          success: false, error: 'Pickup location is outside service coverage area',
+          settings: null, message: 'This location is not currently covered by our service.'
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Get service areas for this region WITH polygon boundaries
+    // Get service areas for this region
     const { data: serviceAreas, error: saError } = await supabase
       .from('service_areas')
       .select('id, name, geo_boundary, updated_at')
       .eq('region_id', matchingRegion.id)
       .eq('is_active', true);
 
-    if (saError) {
-      console.error('Error fetching service areas:', saError);
-      throw saError;
-    }
+    if (saError) throw saError;
 
-    // Find the service area whose polygon contains the pickup point
+    // Find matching service area
     let primaryServiceArea: { id: string; name: string; updated_at: string } | null = null;
     for (const sa of serviceAreas || []) {
       if (sa.geo_boundary) {
         const boundary = Array.isArray(sa.geo_boundary) ? sa.geo_boundary : [];
         if (boundary.length >= 3 && isPointInPolygon(pickupPoint, boundary as LatLng[])) {
           primaryServiceArea = { id: sa.id, name: sa.name, updated_at: sa.updated_at };
-          console.log('Pickup is in service area:', sa.name);
           break;
         }
       }
     }
 
     if (!primaryServiceArea) {
-      console.log('Pickup location is not inside any service area polygon');
       return new Response(
         JSON.stringify({
-          success: false,
-          error: 'Pickup location is not inside any active service area',
-          settings: null,
-          message: 'No valid service area polygon contains this pickup location.'
+          success: false, error: 'Pickup location is not inside any active service area',
+          settings: null, message: 'No valid service area polygon contains this pickup location.'
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Check offer schedule for primary service area
-    let offersAllowedNow = false;
-    if (primaryServiceArea) {
-      const { data: offerConfig } = await supabase
+    // Fetch vehicle types, fare settings, offer config, and payment methods in parallel
+    const [vehicleTypesRes, fareSettingsRes, offerConfigRes, paymentRes] = await Promise.all([
+      // Vehicle types assigned to this service area (joined with vehicle_types metadata)
+      supabase
+        .from('service_area_vehicle_types')
+        .select('vehicle_type_id, display_order, is_active')
+        .eq('service_area_id', primaryServiceArea.id)
+        .eq('is_active', true)
+        .order('display_order'),
+
+      // Fare Engine settings for this service area
+      supabase
+        .from('fare_pricing_settings')
+        .select('pricing_mode, base_fare_pence, per_km_rate_pence, per_minute_rate_pence, booking_fee_pence, minimum_fare_pence, free_waiting_minutes, waiting_per_minute_pence, extra_stop_flat_fee_pence, currency_code')
+        .eq('service_area_id', primaryServiceArea.id)
+        .maybeSingle(),
+
+      // Offer schedule
+      supabase
         .from('preset_offer_configs')
         .select('is_enabled, schedule_enabled, schedule_days, schedule_start_time, schedule_end_time')
         .eq('service_area_id', primaryServiceArea.id)
-        .maybeSingle();
+        .maybeSingle(),
 
-      const scheduleCheck = checkOfferSchedule(offerConfig as any, matchingRegion.timezone);
-      offersAllowedNow = scheduleCheck.offersAllowedNow;
+      // Payment methods
+      supabase
+        .from('service_area_payment_methods')
+        .select('cash_enabled, card_enabled, wallet_enabled, apple_pay_enabled, google_pay_enabled')
+        .eq('service_area_id', primaryServiceArea.id)
+        .maybeSingle(),
+    ]);
+
+    // Get vehicle type metadata for assigned types
+    const assignedVtIds = (vehicleTypesRes.data || []).map((r: any) => r.vehicle_type_id);
+    let vehicleTypes: any[] = [];
+
+    if (assignedVtIds.length > 0) {
+      const { data: vtData } = await supabase
+        .from('vehicle_types')
+        .select('id, name, slug, description, icon_url, capacity, features, is_active')
+        .in('id', assignedVtIds)
+        .eq('is_active', true);
+
+      // Merge with display_order and return in order
+      const orderMap = new Map((vehicleTypesRes.data || []).map((r: any) => [r.vehicle_type_id, r.display_order]));
+      vehicleTypes = (vtData || [])
+        .map((vt: any) => ({
+          id: vt.id,
+          name: vt.name,
+          slug: vt.slug,
+          description: vt.description,
+          iconUrl: vt.icon_url,
+          capacity: vt.capacity,
+          features: vt.features,
+          displayOrder: orderMap.get(vt.id) ?? 0,
+        }))
+        .sort((a: any, b: any) => a.displayOrder - b.displayOrder);
     }
+
+    // Build fare pricing response
+    const fareSettings = fareSettingsRes.data;
+    const farePricing = fareSettings ? {
+      pricingMode: fareSettings.pricing_mode,
+      baseFarePence: fareSettings.base_fare_pence,
+      perKmRatePence: fareSettings.per_km_rate_pence,
+      perMinuteRatePence: fareSettings.per_minute_rate_pence,
+      bookingFeePence: fareSettings.booking_fee_pence,
+      minimumFarePence: fareSettings.minimum_fare_pence,
+      freeWaitingMinutes: fareSettings.free_waiting_minutes,
+      waitingPerMinutePence: fareSettings.waiting_per_minute_pence,
+      extraStopFlatFeePence: fareSettings.extra_stop_flat_fee_pence,
+      currencyCode: fareSettings.currency_code,
+    } : null;
+
+    // Build payment methods
+    const pm = paymentRes.data;
+    const paymentMethods = pm ? {
+      cash: pm.cash_enabled ?? true,
+      card: pm.card_enabled ?? true,
+      wallet: pm.wallet_enabled ?? false,
+      applePay: pm.apple_pay_enabled ?? false,
+      googlePay: pm.google_pay_enabled ?? false,
+    } : { cash: true, card: true, wallet: false, applePay: false, googlePay: false };
+
+    // Check offer schedule
+    const scheduleCheck = checkOfferSchedule(offerConfigRes.data as any, matchingRegion.timezone);
 
     const settings: RegionSettings = {
       region_id: matchingRegion.id,
@@ -184,19 +232,22 @@ serve(async (req) => {
       currency_code: matchingRegion.currency_code,
       distance_unit: matchingRegion.distance_unit,
       timezone: matchingRegion.timezone,
-      service_area_id: primaryServiceArea?.id || null,
-      service_area_name: primaryServiceArea?.name || null,
+      service_area_id: primaryServiceArea.id,
+      service_area_name: primaryServiceArea.name,
     };
 
-    console.log('Resolved settings:', settings);
+    console.log('Resolved settings with', vehicleTypes.length, 'vehicle types, fare engine:', !!farePricing);
 
     return new Response(
       JSON.stringify({
         success: true,
         settings,
-        offers_allowed_now: offersAllowedNow,
-        service_area_ids: primaryServiceArea ? [primaryServiceArea.id] : [],
-        cache_key: `${matchingRegion.id}_${matchingRegion.updated_at}`,
+        vehicleTypes,
+        farePricing,
+        paymentMethods,
+        offersAllowedNow: scheduleCheck.offersAllowedNow,
+        serviceAreaIds: primaryServiceArea ? [primaryServiceArea.id] : [],
+        cacheKey: `${matchingRegion.id}_${primaryServiceArea.updated_at}`,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -205,11 +256,7 @@ serve(async (req) => {
     console.error('Error in resolve-service-area:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     return new Response(
-      JSON.stringify({
-        success: false,
-        error: errorMessage,
-        settings: null
-      }),
+      JSON.stringify({ success: false, error: errorMessage, settings: null }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

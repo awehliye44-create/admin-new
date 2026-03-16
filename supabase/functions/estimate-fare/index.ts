@@ -33,6 +33,31 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Validate vehicle_type_id is assigned to this service area (if provided)
+    if (vehicle_type_id) {
+      const { data: assignment, error: assignError } = await supabase
+        .from('service_area_vehicle_types')
+        .select('id')
+        .eq('service_area_id', service_area_id)
+        .eq('vehicle_type_id', vehicle_type_id)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (assignError) {
+        console.error('Error checking vehicle type assignment:', assignError);
+      }
+
+      if (!assignment) {
+        return new Response(
+          JSON.stringify({ 
+            error: "Vehicle type is not available in this service area",
+            code: "VEHICLE_TYPE_NOT_AVAILABLE"
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
     // Fetch fare pricing settings for the service area
     const { data: settings, error: settingsError } = await supabase
       .from("fare_pricing_settings")
@@ -68,6 +93,7 @@ Deno.serve(async (req) => {
         quotedFarePence: breakdown.quoted_fare_pence,
         estimatedDistanceKm: estimated_distance_km,
         estimatedDurationMin: estimated_duration_min,
+        vehicleTypeId: vehicle_type_id || null,
         fareBreakdown: {
           baseFarePence: breakdown.base_fare_pence,
           distanceChargePence: breakdown.distance_charge_pence,
