@@ -83,7 +83,7 @@ interface DispatchSettings {
   simulateMode: boolean;
   blockMultipleActiveRides: boolean;
   cancelProtection: boolean;
-  driverFareDisplay: 'net_earnings' | 'full_breakdown';
+  driverFareDisplay: 'net_earnings' | 'gross_fare' | 'smart_display';
 }
 
 const defaultSettings: DispatchSettings = {
@@ -130,7 +130,7 @@ const defaultSettings: DispatchSettings = {
   simulateMode: false,
   blockMultipleActiveRides: false,
   cancelProtection: false,
-  driverFareDisplay: 'net_earnings',
+  driverFareDisplay: 'smart_display',
 };
 
 interface ServiceArea {
@@ -182,7 +182,7 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   simulateMode: (data.simulate_mode as boolean) ?? defaultSettings.simulateMode,
   blockMultipleActiveRides: (data.block_multiple_active_rides as boolean) ?? defaultSettings.blockMultipleActiveRides,
   cancelProtection: (data.cancel_protection as boolean) ?? defaultSettings.cancelProtection,
-  driverFareDisplay: (data.driver_fare_display as 'net_earnings' | 'full_breakdown') ?? defaultSettings.driverFareDisplay,
+  driverFareDisplay: (data.driver_fare_display as 'net_earnings' | 'gross_fare' | 'smart_display') ?? defaultSettings.driverFareDisplay,
 });
 
 const mapSettingsToDb = (settings: DispatchSettings, serviceAreaId: string | null) => ({
@@ -924,19 +924,211 @@ export default function AutoDispatchRules() {
               </div>
               <Switch checked={settings.cancelProtection} onCheckedChange={(checked) => updateSetting('cancelProtection', checked)} disabled={isLoading} />
             </div>
-            <div className="p-4 border rounded-lg space-y-2">
-              <Label>Driver Fare Display</Label>
-              <Select value={settings.driverFareDisplay} 
-                onValueChange={(value: 'net_earnings' | 'full_breakdown') => updateSetting('driverFareDisplay', value)}
-                disabled={isLoading}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="net_earnings">Net Earnings Only</SelectItem>
-                  <SelectItem value="full_breakdown">Full Fare Breakdown</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">What fare information drivers see in ride offers</p>
+          </CardContent>
+        </Card>
+
+        {/* Driver Fare Display — Smart Display */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              Driver Fare Display
+              {settings.driverFareDisplay === 'smart_display' && (
+                <Badge className="bg-green-500/10 text-green-600 border-green-200">Recommended</Badge>
+              )}
+            </CardTitle>
+            <CardDescription>Control what fare information drivers see in ride offers, trip summaries, and wallet</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Display Mode Selection */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {([
+                {
+                  value: 'net_earnings' as const,
+                  label: 'Net Earnings Only',
+                  description: 'Drivers always see their net earnings after commission, regardless of payment method.',
+                },
+                {
+                  value: 'gross_fare' as const,
+                  label: 'Gross Fare Only',
+                  description: 'Drivers always see the full customer fare, regardless of payment method.',
+                },
+                {
+                  value: 'smart_display' as const,
+                  label: 'Smart Display',
+                  description: 'Adapts based on payment method — shows gross for cash, net for digital payments.',
+                  recommended: true,
+                },
+              ]).map((mode) => (
+                <button
+                  key={mode.value}
+                  type="button"
+                  onClick={() => updateSetting('driverFareDisplay', mode.value)}
+                  disabled={isLoading}
+                  className={`relative p-4 border-2 rounded-lg text-left transition-all ${
+                    settings.driverFareDisplay === mode.value
+                      ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
+                      : 'border-border hover:border-muted-foreground/30'
+                  } disabled:opacity-50`}
+                >
+                  {'recommended' in mode && mode.recommended && (
+                    <Badge className="absolute -top-2 right-3 bg-primary text-primary-foreground text-[10px] px-1.5 py-0">
+                      Recommended
+                    </Badge>
+                  )}
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className={`h-3 w-3 rounded-full border-2 ${
+                      settings.driverFareDisplay === mode.value ? 'border-primary bg-primary' : 'border-muted-foreground/40'
+                    }`} />
+                    <p className="font-medium text-sm">{mode.label}</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground ml-5">{mode.description}</p>
+                </button>
+              ))}
             </div>
+
+            {/* Smart Display Preview */}
+            {settings.driverFareDisplay === 'smart_display' && (
+              <div className="space-y-4">
+                <div className="flex items-start gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                  <Info className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+                  <div className="text-sm text-blue-700 dark:text-blue-400">
+                    <p className="font-medium">Smart Display Logic</p>
+                    <p className="mt-1"><strong>Cash trips:</strong> Show gross fare (driver collects cash) + commission breakdown in details.</p>
+                    <p><strong>Digital trips</strong> (Card, Apple Pay, Google Pay): Show net earnings (what arrives in wallet).</p>
+                  </div>
+                </div>
+
+                {/* Ride Offer Card Previews */}
+                <div>
+                  <p className="text-sm font-medium mb-3">Ride Offer Card Preview</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Cash Trip Preview */}
+                    <div className="border rounded-lg overflow-hidden">
+                      <div className="bg-muted/50 px-4 py-2 flex items-center justify-between">
+                        <span className="text-xs font-medium text-muted-foreground">Cash Trip</span>
+                        <Badge className="bg-green-500/10 text-green-600 border-green-200 text-[10px]">CASH</Badge>
+                      </div>
+                      <div className="p-4 space-y-2">
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-xs text-muted-foreground">Fare</span>
+                          <span className="text-xl font-bold">£70.00</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">You keep £59.50</p>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1 border-t">
+                          <span>📍 Pickup → Dropoff</span>
+                          <span>•</span>
+                          <span>4.2 mi</span>
+                        </div>
+                      </div>
+                    </div>
+                    {/* Digital Trip Preview */}
+                    <div className="border rounded-lg overflow-hidden">
+                      <div className="bg-muted/50 px-4 py-2 flex items-center justify-between">
+                        <span className="text-xs font-medium text-muted-foreground">Digital Trip</span>
+                        <Badge className="bg-blue-500/10 text-blue-600 border-blue-200 text-[10px]">CARD</Badge>
+                      </div>
+                      <div className="p-4 space-y-2">
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-xs text-muted-foreground">You earn</span>
+                          <span className="text-xl font-bold">£59.50</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1 border-t">
+                          <span>📍 Pickup → Dropoff</span>
+                          <span>•</span>
+                          <span>4.2 mi</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Completed Trip Summary Previews */}
+                <div>
+                  <p className="text-sm font-medium mb-3">Completed Trip Summary Preview</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Cash Completed */}
+                    <div className="border rounded-lg overflow-hidden">
+                      <div className="bg-muted/50 px-4 py-2">
+                        <span className="text-xs font-medium text-muted-foreground">Cash — Completed</span>
+                      </div>
+                      <div className="p-4 space-y-1.5 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Payment Method</span>
+                          <Badge className="bg-green-500/10 text-green-600 border-green-200 text-[10px]">Cash</Badge>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Fare Collected</span>
+                          <span className="font-medium">£70.00</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">ONECAB Commission</span>
+                          <span className="text-red-500">−£10.50</span>
+                        </div>
+                        <div className="flex justify-between pt-1.5 border-t font-medium">
+                          <span>Your Net Earnings</span>
+                          <span className="text-green-600">£59.50</span>
+                        </div>
+                      </div>
+                    </div>
+                    {/* Digital Completed */}
+                    <div className="border rounded-lg overflow-hidden">
+                      <div className="bg-muted/50 px-4 py-2">
+                        <span className="text-xs font-medium text-muted-foreground">Digital — Completed</span>
+                      </div>
+                      <div className="p-4 space-y-1.5 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Payment Method</span>
+                          <Badge className="bg-blue-500/10 text-blue-600 border-blue-200 text-[10px]">Card</Badge>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Customer Paid Digitally</span>
+                          <span className="font-medium">£70.00</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">ONECAB Commission</span>
+                          <span className="text-red-500">−£10.50</span>
+                        </div>
+                        <div className="flex justify-between pt-1.5 border-t font-medium">
+                          <span>Your Net Earnings</span>
+                          <span className="text-green-600">£59.50</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground pt-1">Paid to wallet/payout</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Wallet Page Breakdown */}
+                <div>
+                  <p className="text-sm font-medium mb-3">Wallet Page Breakdown</p>
+                  <div className="border rounded-lg p-4 max-w-sm">
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between font-medium text-base">
+                        <span>Today's Earnings</span>
+                        <span>£189.50</span>
+                      </div>
+                      <div className="border-t pt-2 space-y-1.5">
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>💳 Card Total</span>
+                          <span>£119.50</span>
+                        </div>
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>💵 Cash Total</span>
+                          <span>£70.00</span>
+                        </div>
+                      </div>
+                      <div className="border-t pt-2">
+                        <div className="flex justify-between font-medium text-green-600">
+                          <span>Available Payout</span>
+                          <span>£119.50</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">Digital earnings only — cash already collected</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
