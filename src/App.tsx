@@ -125,7 +125,8 @@ const App = () => (
               <Route path="account-requests" element={<AccountRequests />} />
               <Route path="corporate-billing" element={<CorporateBilling />} />
               <Route path="corporate-reports" element={<CorporateReports />} />
-              <Route path="corporate-settings" element={<CorporateSettings />} />
+               <Route path="corporate-fares" element={<CorporateFares />} />
+               <Route path="corporate-settings" element={<CorporateSettings />} />
               
               {/* Users & Support */}
               <Route path="rider-feedback" element={<RiderFeedback />} />

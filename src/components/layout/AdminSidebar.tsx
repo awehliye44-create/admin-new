@@ -287,7 +287,8 @@ export function AdminSidebar() {
               <P pageSlug="account-requests" to="/account-requests" icon={<FileText className="h-4 w-4" />} label="Account Requests" active={currentPath === '/account-requests'} badge={counts.pendingAccountRequests} collapsed={isCollapsed} />
               <P pageSlug="corporate-billing" to="/corporate-billing" icon={<CreditCard className="h-4 w-4" />} label="Corporate Billing" active={currentPath === '/corporate-billing'} collapsed={isCollapsed} />
               <P pageSlug="corporate-reports" to="/corporate-reports" icon={<BarChart3 className="h-4 w-4" />} label="Corporate Reports" active={currentPath === '/corporate-reports'} collapsed={isCollapsed} />
-              <P pageSlug="corporate-settings" to="/corporate-settings" icon={<Settings className="h-4 w-4" />} label="Corporate Settings" active={currentPath === '/corporate-settings'} collapsed={isCollapsed} />
+               <P pageSlug="corporate-fares" to="/corporate-fares" icon={<Building2 className="h-4 w-4" />} label="Corporate Fare Rules" active={currentPath === '/corporate-fares'} collapsed={isCollapsed} />
+               <P pageSlug="corporate-settings" to="/corporate-settings" icon={<Settings className="h-4 w-4" />} label="Corporate Settings" active={currentPath === '/corporate-settings'} collapsed={isCollapsed} />
             </div>
           </div>
 
