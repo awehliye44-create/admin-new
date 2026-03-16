@@ -1,0 +1,530 @@
+import { useEffect, useState } from 'react';
+import { AdminLayout } from '@/components/layout/AdminLayout';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Separator } from '@/components/ui/separator';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { supabase } from '@/integrations/supabase/client';
+import { 
+  Save, Loader2, Calculator, Zap, Lock, 
+  Clock, MapPin, PlusCircle, Settings2, 
+  AlertCircle, CheckCircle2, TrendingUp
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { getCurrencySymbol } from '@/lib/regionSettings';
+import { FareSimulatorCard } from '@/components/pricing/FareSimulatorCard';
+
+interface ServiceArea {
+  id: string;
+  name: string;
+  region?: { currency_code: string; distance_unit: string };
+}
+
+interface FarePricingSettings {
+  id?: string;
+  service_area_id: string;
+  pricing_mode: 'fixed' | 'dynamic';
+  currency_code: string;
+  base_fare_pence: number;
+  per_km_rate_pence: number;
+  per_min_rate_pence: number;
+  booking_fee_pence: number;
+  minimum_fare_pence: number;
+  free_waiting_minutes: number;
+  waiting_per_minute_pence: number;
+  extra_stop_flat_fee_pence: number;
+  recalculate_on_waiting: boolean;
+  recalculate_on_stop_added: boolean;
+  recalculate_on_dropoff_changed: boolean;
+  enable_surge: boolean;
+  surge_multiplier_default: number;
+  peak_hour_multiplier: number;
+  zone_multiplier: number;
+  traffic_multiplier: number;
+  demand_supply_multiplier: number;
+}
+
+const DEFAULT_SETTINGS: Omit<FarePricingSettings, 'service_area_id'> = {
+  pricing_mode: 'fixed',
+  currency_code: 'GBP',
+  base_fare_pence: 300,
+  per_km_rate_pence: 150,
+  per_min_rate_pence: 20,
+  booking_fee_pence: 100,
+  minimum_fare_pence: 500,
+  free_waiting_minutes: 3,
+  waiting_per_minute_pence: 30,
+  extra_stop_flat_fee_pence: 200,
+  recalculate_on_waiting: true,
+  recalculate_on_stop_added: true,
+  recalculate_on_dropoff_changed: true,
+  enable_surge: false,
+  surge_multiplier_default: 1.0,
+  peak_hour_multiplier: 1.0,
+  zone_multiplier: 1.0,
+  traffic_multiplier: 1.0,
+  demand_supply_multiplier: 1.0,
+};
+
+export default function FareSettings() {
+  const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
+  const [selectedAreaId, setSelectedAreaId] = useState('');
+  const [settings, setSettings] = useState<FarePricingSettings | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
+
+  const currencyCode = settings?.currency_code || 'GBP';
+  const symbol = getCurrencySymbol(currencyCode);
+
+  useEffect(() => {
+    fetchServiceAreas();
+  }, []);
+
+  useEffect(() => {
+    if (selectedAreaId) fetchSettings(selectedAreaId);
+  }, [selectedAreaId]);
+
+  const fetchServiceAreas = async () => {
+    setIsLoading(true);
+    const { data } = await supabase
+      .from('service_areas')
+      .select('id, name, region:regions(currency_code, distance_unit)')
+      .order('name');
+    if (data) {
+      setServiceAreas(data as unknown as ServiceArea[]);
+      if (data.length > 0 && !selectedAreaId) {
+        setSelectedAreaId(data[0].id);
+      }
+    }
+    setIsLoading(false);
+  };
+
+  const fetchSettings = async (areaId: string) => {
+    const { data } = await supabase
+      .from('fare_pricing_settings')
+      .select('*')
+      .eq('service_area_id', areaId)
+      .maybeSingle();
+
+    if (data) {
+      setSettings(data as unknown as FarePricingSettings);
+    } else {
+      const sa = serviceAreas.find(s => s.id === areaId);
+      setSettings({
+        ...DEFAULT_SETTINGS,
+        service_area_id: areaId,
+        currency_code: sa?.region?.currency_code || 'GBP',
+      });
+    }
+    setHasChanges(false);
+  };
+
+  const updateField = <K extends keyof FarePricingSettings>(key: K, value: FarePricingSettings[K]) => {
+    if (!settings) return;
+    setSettings({ ...settings, [key]: value });
+    setHasChanges(true);
+  };
+
+  const penceField = (key: keyof FarePricingSettings, label: string, helpText?: string) => {
+    const val = (settings?.[key] as number) ?? 0;
+    return (
+      <div className="space-y-1">
+        <Label className="text-sm">{label}</Label>
+        <div className="relative">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">{symbol}</span>
+          <Input
+            type="number"
+            step="0.01"
+            min="0"
+            value={(val / 100).toFixed(2)}
+            onChange={(e) => updateField(key, Math.round(parseFloat(e.target.value || '0') * 100) as never)}
+            className="pl-7"
+          />
+        </div>
+        {helpText && <p className="text-xs text-muted-foreground">{helpText}</p>}
+      </div>
+    );
+  };
+
+  const handleSave = async () => {
+    if (!settings) return;
+    setIsSaving(true);
+    try {
+      if (settings.id) {
+        const { error } = await supabase
+          .from('fare_pricing_settings')
+          .update({
+            pricing_mode: settings.pricing_mode,
+            currency_code: settings.currency_code,
+            base_fare_pence: settings.base_fare_pence,
+            per_km_rate_pence: settings.per_km_rate_pence,
+            per_min_rate_pence: settings.per_min_rate_pence,
+            booking_fee_pence: settings.booking_fee_pence,
+            minimum_fare_pence: settings.minimum_fare_pence,
+            free_waiting_minutes: settings.free_waiting_minutes,
+            waiting_per_minute_pence: settings.waiting_per_minute_pence,
+            extra_stop_flat_fee_pence: settings.extra_stop_flat_fee_pence,
+            recalculate_on_waiting: settings.recalculate_on_waiting,
+            recalculate_on_stop_added: settings.recalculate_on_stop_added,
+            recalculate_on_dropoff_changed: settings.recalculate_on_dropoff_changed,
+            enable_surge: settings.enable_surge,
+            surge_multiplier_default: settings.surge_multiplier_default,
+            peak_hour_multiplier: settings.peak_hour_multiplier,
+            zone_multiplier: settings.zone_multiplier,
+            traffic_multiplier: settings.traffic_multiplier,
+            demand_supply_multiplier: settings.demand_supply_multiplier,
+          })
+          .eq('id', settings.id);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase
+          .from('fare_pricing_settings')
+          .insert({
+            service_area_id: settings.service_area_id,
+            pricing_mode: settings.pricing_mode,
+            currency_code: settings.currency_code,
+            base_fare_pence: settings.base_fare_pence,
+            per_km_rate_pence: settings.per_km_rate_pence,
+            per_min_rate_pence: settings.per_min_rate_pence,
+            booking_fee_pence: settings.booking_fee_pence,
+            minimum_fare_pence: settings.minimum_fare_pence,
+            free_waiting_minutes: settings.free_waiting_minutes,
+            waiting_per_minute_pence: settings.waiting_per_minute_pence,
+            extra_stop_flat_fee_pence: settings.extra_stop_flat_fee_pence,
+            recalculate_on_waiting: settings.recalculate_on_waiting,
+            recalculate_on_stop_added: settings.recalculate_on_stop_added,
+            recalculate_on_dropoff_changed: settings.recalculate_on_dropoff_changed,
+            enable_surge: settings.enable_surge,
+            surge_multiplier_default: settings.surge_multiplier_default,
+            peak_hour_multiplier: settings.peak_hour_multiplier,
+            zone_multiplier: settings.zone_multiplier,
+            traffic_multiplier: settings.traffic_multiplier,
+            demand_supply_multiplier: settings.demand_supply_multiplier,
+          })
+          .select()
+          .single();
+        if (error) throw error;
+        if (data) setSettings(data as unknown as FarePricingSettings);
+      }
+      setHasChanges(false);
+      toast.success('Fare pricing settings saved');
+    } catch (err) {
+      console.error('Error saving fare settings:', err);
+      toast.error('Failed to save fare pricing settings');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <AdminLayout title="Fare Pricing Engine" description="Configure fixed and dynamic pricing strategies">
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  return (
+    <AdminLayout
+      title="Fare Pricing Engine"
+      description="Configure fixed and dynamic pricing strategies per service area"
+    >
+      {/* Service Area Selector */}
+      <div className="flex flex-col md:flex-row items-start md:items-center gap-4 mb-6">
+        <div className="w-full md:w-72">
+          <Select value={selectedAreaId} onValueChange={setSelectedAreaId}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select service area..." />
+            </SelectTrigger>
+            <SelectContent>
+              {serviceAreas.map(sa => (
+                <SelectItem key={sa.id} value={sa.id}>{sa.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {hasChanges && (
+          <Button onClick={handleSave} disabled={isSaving}>
+            {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+            Save Settings
+          </Button>
+        )}
+      </div>
+
+      {settings && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left column: Settings */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Pricing Mode Toggle */}
+            <Card>
+              <CardHeader className="pb-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Settings2 className="h-5 w-5 text-primary" />
+                      Pricing Mode
+                    </CardTitle>
+                    <CardDescription>Choose the active pricing strategy</CardDescription>
+                  </div>
+                  <Badge 
+                    variant="outline"
+                    className={settings.pricing_mode === 'fixed' 
+                      ? 'bg-blue-100 text-blue-700 border-blue-300' 
+                      : 'bg-amber-100 text-amber-700 border-amber-300'}
+                  >
+                    {settings.pricing_mode === 'fixed' ? (
+                      <><Lock className="h-3 w-3 mr-1" /> Fixed Pricing</>
+                    ) : (
+                      <><TrendingUp className="h-3 w-3 mr-1" /> Dynamic Pricing</>
+                    )}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg">
+                  <div className={`flex-1 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                    settings.pricing_mode === 'fixed' 
+                      ? 'border-primary bg-primary/5' 
+                      : 'border-transparent hover:border-muted-foreground/20'
+                  }`}
+                    onClick={() => updateField('pricing_mode', 'fixed')}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Lock className="h-4 w-4" />
+                      <span className="font-medium">Fixed</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Fare locked at booking. No changes from route differences.
+                    </p>
+                  </div>
+                  <div className={`flex-1 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                    settings.pricing_mode === 'dynamic' 
+                      ? 'border-primary bg-primary/5' 
+                      : 'border-transparent hover:border-muted-foreground/20'
+                  }`}
+                    onClick={() => updateField('pricing_mode', 'dynamic')}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Zap className="h-4 w-4" />
+                      <span className="font-medium">Dynamic</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Fare adjusts with surge, zone, and demand multipliers.
+                    </p>
+                  </div>
+                </div>
+                {settings.pricing_mode === 'fixed' && (
+                  <div className="mt-3 flex items-start gap-2 p-3 border rounded-lg bg-blue-500/5 border-blue-500/20">
+                    <AlertCircle className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+                    <p className="text-xs text-blue-700">
+                      <strong>Startup Mode:</strong> Fixed pricing is active. Fares are locked at booking and only change for waiting, added stops, or destination changes.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Base Fare Configuration */}
+            <Card>
+              <CardHeader className="pb-4">
+                <CardTitle className="flex items-center gap-2">
+                  <Calculator className="h-5 w-5 text-primary" />
+                  Base Fare Configuration
+                </CardTitle>
+                <CardDescription>Core fare calculation parameters</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {penceField('base_fare_pence', 'Base Fare', 'Starting fare for every trip')}
+                  {penceField('per_km_rate_pence', 'Per Km Rate', 'Charge per kilometre')}
+                  {penceField('per_min_rate_pence', 'Per Minute Rate', 'Charge per minute')}
+                  {penceField('booking_fee_pence', 'Booking Fee', 'Platform booking fee')}
+                  {penceField('minimum_fare_pence', 'Minimum Fare', 'Floor fare amount')}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Waiting & Stop Charges */}
+            <Card>
+              <CardHeader className="pb-4">
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="h-5 w-5 text-primary" />
+                  Waiting & Stop Charges
+                </CardTitle>
+                <CardDescription>Additional fare adjustments</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div className="space-y-1">
+                    <Label className="text-sm">Free Waiting (minutes)</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={settings.free_waiting_minutes}
+                      onChange={(e) => updateField('free_waiting_minutes', parseInt(e.target.value) || 0)}
+                    />
+                  </div>
+                  {penceField('waiting_per_minute_pence', 'Waiting Per Minute', 'After free minutes expire')}
+                  {penceField('extra_stop_flat_fee_pence', 'Extra Stop Fee', 'Flat fee per added stop')}
+                </div>
+
+                <Separator />
+
+                <div className="space-y-3">
+                  <p className="text-sm font-medium">Fare Adjustment Rules</p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                      <div>
+                        <Label className="text-sm font-medium">Waiting Charge</Label>
+                        <p className="text-xs text-muted-foreground">Apply after free minutes</p>
+                      </div>
+                      <Switch
+                        checked={settings.recalculate_on_waiting}
+                        onCheckedChange={(v) => updateField('recalculate_on_waiting', v)}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                      <div>
+                        <Label className="text-sm font-medium">Stop Added</Label>
+                        <p className="text-xs text-muted-foreground">Charge for extra stops</p>
+                      </div>
+                      <Switch
+                        checked={settings.recalculate_on_stop_added}
+                        onCheckedChange={(v) => updateField('recalculate_on_stop_added', v)}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                      <div>
+                        <Label className="text-sm font-medium">Destination Change</Label>
+                        <p className="text-xs text-muted-foreground">Recalculate on dropoff change</p>
+                      </div>
+                      <Switch
+                        checked={settings.recalculate_on_dropoff_changed}
+                        onCheckedChange={(v) => updateField('recalculate_on_dropoff_changed', v)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Dynamic Pricing Settings */}
+            <Card className={settings.pricing_mode === 'fixed' ? 'opacity-60' : ''}>
+              <CardHeader className="pb-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Zap className="h-5 w-5 text-amber-500" />
+                      Dynamic Pricing
+                    </CardTitle>
+                    <CardDescription>
+                      {settings.pricing_mode === 'fixed' 
+                        ? 'Currently inactive — switch to Dynamic mode to enable' 
+                        : 'Surge and multiplier configuration'}
+                    </CardDescription>
+                  </div>
+                  {settings.pricing_mode === 'dynamic' && (
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm">Enable Surge</Label>
+                      <Switch
+                        checked={settings.enable_surge}
+                        onCheckedChange={(v) => updateField('enable_surge', v)}
+                      />
+                    </div>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {[
+                    { key: 'surge_multiplier_default' as const, label: 'Surge Multiplier' },
+                    { key: 'peak_hour_multiplier' as const, label: 'Peak Hour Multiplier' },
+                    { key: 'zone_multiplier' as const, label: 'Zone Multiplier' },
+                    { key: 'traffic_multiplier' as const, label: 'Traffic Multiplier' },
+                    { key: 'demand_supply_multiplier' as const, label: 'Demand/Supply Multiplier' },
+                  ].map(({ key, label }) => (
+                    <div key={key} className="space-y-1">
+                      <Label className="text-sm">{label}</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0.1"
+                        max="10"
+                        value={settings[key]}
+                        onChange={(e) => updateField(key, parseFloat(e.target.value) || 1)}
+                        disabled={settings.pricing_mode === 'fixed'}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Right column: Simulator */}
+          <div className="space-y-6">
+            <FareSimulatorCard settings={settings} currencySymbol={symbol} />
+
+            {/* Settings Summary */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-green-500" />
+                  Active Configuration
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Mode</span>
+                  <Badge variant="outline">{settings.pricing_mode}</Badge>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Base Fare</span>
+                  <span className="font-mono">{symbol}{(settings.base_fare_pence / 100).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Per Km</span>
+                  <span className="font-mono">{symbol}{(settings.per_km_rate_pence / 100).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Per Min</span>
+                  <span className="font-mono">{symbol}{(settings.per_min_rate_pence / 100).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Min Fare</span>
+                  <span className="font-mono">{symbol}{(settings.minimum_fare_pence / 100).toFixed(2)}</span>
+                </div>
+                <Separator />
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Free Waiting</span>
+                  <span>{settings.free_waiting_minutes} min</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Waiting/Min</span>
+                  <span className="font-mono">{symbol}{(settings.waiting_per_minute_pence / 100).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Stop Fee</span>
+                  <span className="font-mono">{symbol}{(settings.extra_stop_flat_fee_pence / 100).toFixed(2)}</span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+    </AdminLayout>
+  );
+}

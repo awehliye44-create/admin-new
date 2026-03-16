@@ -2689,6 +2689,143 @@ export type Database = {
           },
         ]
       }
+      fare_audit_logs: {
+        Row: {
+          adjustment_pence: number | null
+          created_at: string
+          event_type: string
+          id: string
+          metadata: Json | null
+          new_fare_pence: number | null
+          old_fare_pence: number | null
+          reason: string | null
+          trip_id: string
+        }
+        Insert: {
+          adjustment_pence?: number | null
+          created_at?: string
+          event_type: string
+          id?: string
+          metadata?: Json | null
+          new_fare_pence?: number | null
+          old_fare_pence?: number | null
+          reason?: string | null
+          trip_id: string
+        }
+        Update: {
+          adjustment_pence?: number | null
+          created_at?: string
+          event_type?: string
+          id?: string
+          metadata?: Json | null
+          new_fare_pence?: number | null
+          old_fare_pence?: number | null
+          reason?: string | null
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fare_audit_logs_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fare_audit_logs_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fare_pricing_settings: {
+        Row: {
+          base_fare_pence: number
+          booking_fee_pence: number
+          created_at: string
+          currency_code: string
+          demand_supply_multiplier: number
+          enable_surge: boolean
+          extra_stop_flat_fee_pence: number
+          free_waiting_minutes: number
+          id: string
+          minimum_fare_pence: number
+          peak_hour_multiplier: number
+          per_km_rate_pence: number
+          per_min_rate_pence: number
+          pricing_mode: string
+          recalculate_on_dropoff_changed: boolean
+          recalculate_on_stop_added: boolean
+          recalculate_on_waiting: boolean
+          service_area_id: string
+          surge_multiplier_default: number
+          traffic_multiplier: number
+          updated_at: string
+          waiting_per_minute_pence: number
+          zone_multiplier: number
+        }
+        Insert: {
+          base_fare_pence?: number
+          booking_fee_pence?: number
+          created_at?: string
+          currency_code?: string
+          demand_supply_multiplier?: number
+          enable_surge?: boolean
+          extra_stop_flat_fee_pence?: number
+          free_waiting_minutes?: number
+          id?: string
+          minimum_fare_pence?: number
+          peak_hour_multiplier?: number
+          per_km_rate_pence?: number
+          per_min_rate_pence?: number
+          pricing_mode?: string
+          recalculate_on_dropoff_changed?: boolean
+          recalculate_on_stop_added?: boolean
+          recalculate_on_waiting?: boolean
+          service_area_id: string
+          surge_multiplier_default?: number
+          traffic_multiplier?: number
+          updated_at?: string
+          waiting_per_minute_pence?: number
+          zone_multiplier?: number
+        }
+        Update: {
+          base_fare_pence?: number
+          booking_fee_pence?: number
+          created_at?: string
+          currency_code?: string
+          demand_supply_multiplier?: number
+          enable_surge?: boolean
+          extra_stop_flat_fee_pence?: number
+          free_waiting_minutes?: number
+          id?: string
+          minimum_fare_pence?: number
+          peak_hour_multiplier?: number
+          per_km_rate_pence?: number
+          per_min_rate_pence?: number
+          pricing_mode?: string
+          recalculate_on_dropoff_changed?: boolean
+          recalculate_on_stop_added?: boolean
+          recalculate_on_waiting?: boolean
+          service_area_id?: string
+          surge_multiplier_default?: number
+          traffic_multiplier?: number
+          updated_at?: string
+          waiting_per_minute_pence?: number
+          zone_multiplier?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fare_pricing_settings_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: true
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       geofence_events: {
         Row: {
           created_at: string
@@ -5385,6 +5522,7 @@ export type Database = {
           current_offer_expires_at: string | null
           current_stop_index: number | null
           debt_recovery_pence: number | null
+          destination_change_adjustment_pence: number | null
           dispatch_mode: string | null
           dispatch_status: string | null
           driver_confirm_deadline_at: string | null
@@ -5415,6 +5553,7 @@ export type Database = {
           extras_pence: number | null
           fare: number | null
           fare_amount: number | null
+          fare_breakdown: Json | null
           final_fare_pence: number | null
           final_payout_pence: number | null
           gross_fare_pence: number | null
@@ -5438,8 +5577,10 @@ export type Database = {
           pickup_zone_id: string | null
           platform_commission_amount: number | null
           pre_assigned_driver_id: string | null
+          pricing_mode: string | null
           pricing_version: string | null
           qr_session_id: string | null
+          quoted_fare_pence: number | null
           refund_amount_pence: number | null
           refund_reason: string | null
           refunded_at: string | null
@@ -5455,6 +5596,7 @@ export type Database = {
           stacked_trip_id: string | null
           started_at: string | null
           status: string | null
+          stop_charge_total_pence: number | null
           stops: Json | null
           stripe_charge_id: string | null
           stripe_fee_amount: number | null
@@ -5471,6 +5613,8 @@ export type Database = {
           updated_at: string
           vehicle_type: string | null
           vehicle_type_id: string | null
+          waiting_charge_pence: number | null
+          waiting_minutes: number | null
           wallet_applied_pence: number | null
           wallet_balance_after: number | null
           wallet_balance_before: number | null
@@ -5502,6 +5646,7 @@ export type Database = {
           current_offer_expires_at?: string | null
           current_stop_index?: number | null
           debt_recovery_pence?: number | null
+          destination_change_adjustment_pence?: number | null
           dispatch_mode?: string | null
           dispatch_status?: string | null
           driver_confirm_deadline_at?: string | null
@@ -5532,6 +5677,7 @@ export type Database = {
           extras_pence?: number | null
           fare?: number | null
           fare_amount?: number | null
+          fare_breakdown?: Json | null
           final_fare_pence?: number | null
           final_payout_pence?: number | null
           gross_fare_pence?: number | null
@@ -5555,8 +5701,10 @@ export type Database = {
           pickup_zone_id?: string | null
           platform_commission_amount?: number | null
           pre_assigned_driver_id?: string | null
+          pricing_mode?: string | null
           pricing_version?: string | null
           qr_session_id?: string | null
+          quoted_fare_pence?: number | null
           refund_amount_pence?: number | null
           refund_reason?: string | null
           refunded_at?: string | null
@@ -5572,6 +5720,7 @@ export type Database = {
           stacked_trip_id?: string | null
           started_at?: string | null
           status?: string | null
+          stop_charge_total_pence?: number | null
           stops?: Json | null
           stripe_charge_id?: string | null
           stripe_fee_amount?: number | null
@@ -5588,6 +5737,8 @@ export type Database = {
           updated_at?: string
           vehicle_type?: string | null
           vehicle_type_id?: string | null
+          waiting_charge_pence?: number | null
+          waiting_minutes?: number | null
           wallet_applied_pence?: number | null
           wallet_balance_after?: number | null
           wallet_balance_before?: number | null
@@ -5619,6 +5770,7 @@ export type Database = {
           current_offer_expires_at?: string | null
           current_stop_index?: number | null
           debt_recovery_pence?: number | null
+          destination_change_adjustment_pence?: number | null
           dispatch_mode?: string | null
           dispatch_status?: string | null
           driver_confirm_deadline_at?: string | null
@@ -5649,6 +5801,7 @@ export type Database = {
           extras_pence?: number | null
           fare?: number | null
           fare_amount?: number | null
+          fare_breakdown?: Json | null
           final_fare_pence?: number | null
           final_payout_pence?: number | null
           gross_fare_pence?: number | null
@@ -5672,8 +5825,10 @@ export type Database = {
           pickup_zone_id?: string | null
           platform_commission_amount?: number | null
           pre_assigned_driver_id?: string | null
+          pricing_mode?: string | null
           pricing_version?: string | null
           qr_session_id?: string | null
+          quoted_fare_pence?: number | null
           refund_amount_pence?: number | null
           refund_reason?: string | null
           refunded_at?: string | null
@@ -5689,6 +5844,7 @@ export type Database = {
           stacked_trip_id?: string | null
           started_at?: string | null
           status?: string | null
+          stop_charge_total_pence?: number | null
           stops?: Json | null
           stripe_charge_id?: string | null
           stripe_fee_amount?: number | null
@@ -5705,6 +5861,8 @@ export type Database = {
           updated_at?: string
           vehicle_type?: string | null
           vehicle_type_id?: string | null
+          waiting_charge_pence?: number | null
+          waiting_minutes?: number | null
           wallet_applied_pence?: number | null
           wallet_balance_after?: number | null
           wallet_balance_before?: number | null

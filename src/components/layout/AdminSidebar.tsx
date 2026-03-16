@@ -262,6 +262,7 @@ export function AdminSidebar() {
           <div>
             <NavSection label="Pricing & Fares" collapsed={isCollapsed} />
             <div className="space-y-1">
+              <P pageSlug="fare-settings" to="/fare-settings" icon={<Settings className="h-4 w-4" />} label="Fare Pricing Engine" active={currentPath === '/fare-settings'} collapsed={isCollapsed} />
               <P pageSlug="promo-codes" to="/promo-codes" icon={<Tag className="h-4 w-4" />} label="Promo Codes" active={currentPath === '/promo-codes'} badge={counts.activePromoCodes > 0 ? counts.activePromoCodes : undefined} collapsed={isCollapsed} />
               <P pageSlug="custom-zones" to="/custom-zones" icon={<CircleDollarSign className="h-4 w-4" />} label="Custom Zones" active={currentPath === '/custom-zones'} collapsed={isCollapsed} />
               <P pageSlug="zone-pricing" to="/zone-pricing" icon={<Target className="h-4 w-4" />} label="Geofence & Zone Pricing" active={currentPath === '/zone-pricing'} collapsed={isCollapsed} />
