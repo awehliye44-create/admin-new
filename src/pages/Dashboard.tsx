@@ -219,7 +219,7 @@ export default function Dashboard() {
     async function fetchServiceAreas() {
       const { data } = await supabase
         .from('service_areas')
-        .select('id, name, region_id')
+        .select('id, name, region_id, region:regions(currency_code)')
         .eq('is_active', true)
         .order('name');
       
