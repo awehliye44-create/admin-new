@@ -7037,10 +7037,15 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
       }
-      approve_corporate_request: {
-        Args: { p_request_id: string; p_reviewed_by?: string }
-        Returns: string
-      }
+      approve_corporate_request:
+        | {
+            Args: { p_request_id: string; p_reviewed_by?: string }
+            Returns: string
+          }
+        | {
+            Args: { p_request_id: string; p_reviewed_by?: string }
+            Returns: string
+          }
       assign_trip_number: {
         Args: { p_service_area_id: string; p_trip_id: string }
         Returns: Json
@@ -7289,10 +7294,15 @@ export type Database = {
         Args: { p_account_id: string }
         Returns: undefined
       }
-      suspend_corporate_request: {
-        Args: { p_request_id: string; p_reviewed_by?: string }
-        Returns: undefined
-      }
+      suspend_corporate_request:
+        | {
+            Args: { p_request_id: string; p_reviewed_by?: string }
+            Returns: undefined
+          }
+        | {
+            Args: { p_request_id: string; p_reviewed_by?: string }
+            Returns: undefined
+          }
       tick_stop_waiting: { Args: { p_waiting_id: string }; Returns: Json }
       timeout_scheduled_offer: {
         Args: { p_driver_id: string; p_trip_id: string }
