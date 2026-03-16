@@ -24,7 +24,9 @@ import {
   Percent,
   Timer,
   Loader2,
-  CheckCircle2
+  CheckCircle2,
+  MapPin,
+  Banknote
 } from 'lucide-react';
 import { DriverTiersConfig } from '@/components/dispatch/DriverTiersConfig';
 import { toast } from 'sonner';
@@ -84,6 +86,14 @@ interface DispatchSettings {
   blockMultipleActiveRides: boolean;
   cancelProtection: boolean;
   driverFareDisplay: 'net_earnings' | 'gross_fare' | 'smart_display';
+
+  // Stop Waiting & Get Paid
+  stopRadiusEnabled: boolean;
+  stopRadiusMeters: number;
+  stopWaitingChargeIntervalSeconds: number;
+  stopWaitingGracePeriodSeconds: number;
+  stopWaitingRatePencePerMinute: number;
+  stopWaitingMaxMinutes: number | null;
 }
 
 const defaultSettings: DispatchSettings = {
@@ -131,6 +141,12 @@ const defaultSettings: DispatchSettings = {
   blockMultipleActiveRides: false,
   cancelProtection: false,
   driverFareDisplay: 'smart_display',
+  stopRadiusEnabled: false,
+  stopRadiusMeters: 100,
+  stopWaitingChargeIntervalSeconds: 10,
+  stopWaitingGracePeriodSeconds: 0,
+  stopWaitingRatePencePerMinute: 30,
+  stopWaitingMaxMinutes: null,
 };
 
 interface ServiceArea {
@@ -183,6 +199,12 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   blockMultipleActiveRides: (data.block_multiple_active_rides as boolean) ?? defaultSettings.blockMultipleActiveRides,
   cancelProtection: (data.cancel_protection as boolean) ?? defaultSettings.cancelProtection,
   driverFareDisplay: (data.driver_fare_display as 'net_earnings' | 'gross_fare' | 'smart_display') ?? defaultSettings.driverFareDisplay,
+  stopRadiusEnabled: (data.stop_radius_enabled as boolean) ?? defaultSettings.stopRadiusEnabled,
+  stopRadiusMeters: (data.stop_radius_meters as number) ?? defaultSettings.stopRadiusMeters,
+  stopWaitingChargeIntervalSeconds: (data.stop_waiting_charge_interval_seconds as number) ?? defaultSettings.stopWaitingChargeIntervalSeconds,
+  stopWaitingGracePeriodSeconds: (data.stop_waiting_grace_period_seconds as number) ?? defaultSettings.stopWaitingGracePeriodSeconds,
+  stopWaitingRatePencePerMinute: (data.stop_waiting_rate_pence_per_minute as number) ?? defaultSettings.stopWaitingRatePencePerMinute,
+  stopWaitingMaxMinutes: (data.stop_waiting_max_minutes as number | null) ?? defaultSettings.stopWaitingMaxMinutes,
 });
 
 const mapSettingsToDb = (settings: DispatchSettings, serviceAreaId: string | null) => ({
@@ -233,6 +255,12 @@ const mapSettingsToDb = (settings: DispatchSettings, serviceAreaId: string | nul
   block_multiple_active_rides: settings.blockMultipleActiveRides,
   cancel_protection: settings.cancelProtection,
   driver_fare_display: settings.driverFareDisplay,
+  stop_radius_enabled: settings.stopRadiusEnabled,
+  stop_radius_meters: settings.stopRadiusMeters,
+  stop_waiting_charge_interval_seconds: settings.stopWaitingChargeIntervalSeconds,
+  stop_waiting_grace_period_seconds: settings.stopWaitingGracePeriodSeconds,
+  stop_waiting_rate_pence_per_minute: settings.stopWaitingRatePencePerMinute,
+  stop_waiting_max_minutes: settings.stopWaitingMaxMinutes,
 });
 
 export default function AutoDispatchRules() {
@@ -927,7 +955,159 @@ export default function AutoDispatchRules() {
           </CardContent>
         </Card>
 
-        {/* Driver Fare Display — Smart Display */}
+        {/* Stop Waiting & Get Paid */}
+        <Card className="border-primary/50">
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <Banknote className="h-5 w-5 text-primary" />
+              <div>
+                <CardTitle>Stop Waiting & Get Paid</CardTitle>
+                <CardDescription>Configure the "Get Paid" button for driver-controlled stops — charges passengers for waiting time at stops</CardDescription>
+              </div>
+              <Badge className="ml-auto bg-primary text-primary-foreground">Driver App</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* How it works */}
+            <div className="flex items-start gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <Info className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+              <div className="text-sm text-blue-700 dark:text-blue-400">
+                <p className="font-medium">How "Get Paid" Works</p>
+                <ol className="list-decimal list-inside mt-1 space-y-1">
+                  <li>Driver arrives at a stop and taps <strong>"Get Paid"</strong> — charging starts immediately (no grace period by default)</li>
+                  <li>Waiting charge accumulates live every {settings.stopWaitingChargeIntervalSeconds}s and is added to trip fare</li>
+                  <li>Driver taps <strong>"Next"</strong> — charging stops, button hides for that stop, navigation starts to next stop/destination</li>
+                  <li>State persists in backend — survives app refresh/reconnect</li>
+                </ol>
+              </div>
+            </div>
+
+            {/* Radius Restriction */}
+            <div className="flex items-center justify-between p-4 border rounded-lg">
+              <div className="flex items-center gap-3">
+                <MapPin className="h-4 w-4 text-muted-foreground" />
+                <div>
+                  <p className="font-medium">GPS Radius Restriction</p>
+                  <p className="text-sm text-muted-foreground">Only show "Get Paid" when driver is within configured radius of the stop location. Disable for testing.</p>
+                </div>
+              </div>
+              <Switch checked={settings.stopRadiusEnabled} onCheckedChange={(checked) => updateSetting('stopRadiusEnabled', checked)} disabled={isLoading} />
+            </div>
+
+            {settings.stopRadiusEnabled && (
+              <div className="ml-7 space-y-2">
+                <Label>Stop Radius (meters)</Label>
+                <Input type="number" min="10" max="1000" step="10" value={settings.stopRadiusMeters}
+                  onChange={(e) => updateSetting('stopRadiusMeters', Math.max(10, Math.min(1000, parseInt(e.target.value) || 100)))}
+                  disabled={isLoading} className="max-w-xs" />
+                <p className="text-xs text-muted-foreground">Driver must be within {settings.stopRadiusMeters}m of the stop to see "Get Paid"</p>
+              </div>
+            )}
+
+            {/* Charging Settings */}
+            <div>
+              <h4 className="text-sm font-semibold mb-3">Charging Configuration</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="space-y-2">
+                  <Label>Waiting Rate (pence/min)</Label>
+                  <Input type="number" min="0" max="500" value={settings.stopWaitingRatePencePerMinute}
+                    onChange={(e) => updateSetting('stopWaitingRatePencePerMinute', Math.max(0, parseInt(e.target.value) || 0))}
+                    disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">£{(settings.stopWaitingRatePencePerMinute / 100).toFixed(2)}/min</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Charge Interval (seconds)</Label>
+                  <Input type="number" min="5" max="60" value={settings.stopWaitingChargeIntervalSeconds}
+                    onChange={(e) => updateSetting('stopWaitingChargeIntervalSeconds', Math.max(5, Math.min(60, parseInt(e.target.value) || 10)))}
+                    disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Fare updates every {settings.stopWaitingChargeIntervalSeconds}s</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Grace Period (seconds)</Label>
+                  <Input type="number" min="0" max="300" value={settings.stopWaitingGracePeriodSeconds}
+                    onChange={(e) => updateSetting('stopWaitingGracePeriodSeconds', Math.max(0, Math.min(300, parseInt(e.target.value) || 0)))}
+                    disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">{settings.stopWaitingGracePeriodSeconds === 0 ? 'No grace period — charges start immediately' : `${settings.stopWaitingGracePeriodSeconds}s free before charging`}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Max Waiting (minutes)</Label>
+                  <Input type="number" min="0" max="120" value={settings.stopWaitingMaxMinutes ?? 0}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || 0;
+                      updateSetting('stopWaitingMaxMinutes', val === 0 ? null : val);
+                    }}
+                    disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">{settings.stopWaitingMaxMinutes ? `Max ${settings.stopWaitingMaxMinutes} min` : 'No limit'}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Live Preview */}
+            <div>
+              <p className="text-sm font-medium mb-3">Driver App Preview</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Before Get Paid */}
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="bg-muted/50 px-4 py-2">
+                    <span className="text-xs font-medium text-muted-foreground">Stop Active — Before Tap</span>
+                  </div>
+                  <div className="p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-medium">Stop 1: 45 High Street</span>
+                    </div>
+                    <Button className="w-full bg-green-600 hover:bg-green-700 text-white">
+                      <Banknote className="mr-2 h-4 w-4" />
+                      Get Paid
+                    </Button>
+                    <p className="text-xs text-center text-muted-foreground">
+                      {settings.stopRadiusEnabled ? `Within ${settings.stopRadiusMeters}m of stop` : 'GPS radius check disabled'}
+                    </p>
+                  </div>
+                </div>
+                {/* During Charging */}
+                <div className="border rounded-lg overflow-hidden border-green-200 dark:border-green-800">
+                  <div className="bg-green-50 dark:bg-green-900/20 px-4 py-2">
+                    <span className="text-xs font-medium text-green-700 dark:text-green-400">Charging in Progress</span>
+                  </div>
+                  <div className="p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Waiting Time</span>
+                      <span className="font-mono font-bold text-lg">02:30</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Waiting Charge</span>
+                      <span className="font-mono font-bold text-lg text-green-600">+£{((settings.stopWaitingRatePencePerMinute * 2.5) / 100).toFixed(2)}</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground text-center">
+                      Rate: £{(settings.stopWaitingRatePencePerMinute / 100).toFixed(2)}/min • Updates every {settings.stopWaitingChargeIntervalSeconds}s
+                    </div>
+                    <Button className="w-full" variant="default">
+                      Next Stop →
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Backend Persistence Info */}
+            <div className="flex items-start gap-2 p-3 bg-muted/50 rounded-lg">
+              <Info className="h-4 w-4 text-muted-foreground mt-0.5" />
+              <div className="text-sm text-muted-foreground">
+                <p className="font-medium text-foreground">Backend Persistence</p>
+                <ul className="list-disc list-inside mt-1 space-y-1">
+                  <li>Active waiting state stored in <code>trip_stop_waiting</code> table</li>
+                  <li>Duplicate prevention: only one active session per trip at a time</li>
+                  <li>On app refresh: driver app calls <code>get_active_stop_waiting</code> to restore timer</li>
+                  <li>Fare ticks via <code>tick_stop_waiting</code> RPC every {settings.stopWaitingChargeIntervalSeconds}s</li>
+                  <li>On "Next" tap: <code>stop_stop_waiting</code> finalizes charge and updates trip stop</li>
+                </ul>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

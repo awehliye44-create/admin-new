@@ -1468,6 +1468,12 @@ export type Database = {
           stacked_rides_enabled: boolean
           stacked_search_radius_meters: number
           stacked_show_eta_to_driver: boolean
+          stop_radius_enabled: boolean
+          stop_radius_meters: number
+          stop_waiting_charge_interval_seconds: number
+          stop_waiting_grace_period_seconds: number
+          stop_waiting_max_minutes: number | null
+          stop_waiting_rate_pence_per_minute: number
           suppress_recent_offers_seconds: number
           updated_at: string
           urgent_dispatch_trigger_minutes_before_pickup: number
@@ -1541,6 +1547,12 @@ export type Database = {
           stacked_rides_enabled?: boolean
           stacked_search_radius_meters?: number
           stacked_show_eta_to_driver?: boolean
+          stop_radius_enabled?: boolean
+          stop_radius_meters?: number
+          stop_waiting_charge_interval_seconds?: number
+          stop_waiting_grace_period_seconds?: number
+          stop_waiting_max_minutes?: number | null
+          stop_waiting_rate_pence_per_minute?: number
           suppress_recent_offers_seconds?: number
           updated_at?: string
           urgent_dispatch_trigger_minutes_before_pickup?: number
@@ -1614,6 +1626,12 @@ export type Database = {
           stacked_rides_enabled?: boolean
           stacked_search_radius_meters?: number
           stacked_show_eta_to_driver?: boolean
+          stop_radius_enabled?: boolean
+          stop_radius_meters?: number
+          stop_waiting_charge_interval_seconds?: number
+          stop_waiting_grace_period_seconds?: number
+          stop_waiting_max_minutes?: number | null
+          stop_waiting_rate_pence_per_minute?: number
           suppress_recent_offers_seconds?: number
           updated_at?: string
           urgent_dispatch_trigger_minutes_before_pickup?: number
@@ -5434,6 +5452,110 @@ export type Database = {
           },
         ]
       }
+      trip_stop_waiting: {
+        Row: {
+          charge_interval_seconds: number
+          created_at: string
+          driver_id: string
+          ended_at: string | null
+          grace_period_seconds: number
+          id: string
+          last_tick_at: string
+          rate_pence_per_minute: number
+          started_at: string
+          status: string
+          stop_id: string
+          total_charge_pence: number
+          total_waiting_seconds: number
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          charge_interval_seconds?: number
+          created_at?: string
+          driver_id: string
+          ended_at?: string | null
+          grace_period_seconds?: number
+          id?: string
+          last_tick_at?: string
+          rate_pence_per_minute?: number
+          started_at?: string
+          status?: string
+          stop_id: string
+          total_charge_pence?: number
+          total_waiting_seconds?: number
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          charge_interval_seconds?: number
+          created_at?: string
+          driver_id?: string
+          ended_at?: string | null
+          grace_period_seconds?: number
+          id?: string
+          last_tick_at?: string
+          rate_pence_per_minute?: number
+          started_at?: string
+          status?: string
+          stop_id?: string
+          total_charge_pence?: number
+          total_waiting_seconds?: number
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trip_stop_waiting_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_stop_waiting_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_stop_waiting_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_stop_waiting_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_stop_waiting_stop_id_fkey"
+            columns: ["stop_id"]
+            isOneToOne: false
+            referencedRelation: "trip_stops"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_stop_waiting_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_stop_waiting_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trip_stops: {
         Row: {
           address: string
@@ -5441,6 +5563,7 @@ export type Database = {
           completed_at: string | null
           created_at: string
           id: string
+          last_waiting_charge_update_at: string | null
           lat: number | null
           lng: number | null
           status: string
@@ -5448,6 +5571,11 @@ export type Database = {
           trip_id: string
           type: string
           updated_at: string
+          waiting_charge_active: boolean
+          waiting_started_at: string | null
+          waiting_stopped_at: string | null
+          waiting_total_amount_pence: number
+          waiting_total_seconds: number
         }
         Insert: {
           address: string
@@ -5455,6 +5583,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           id?: string
+          last_waiting_charge_update_at?: string | null
           lat?: number | null
           lng?: number | null
           status?: string
@@ -5462,6 +5591,11 @@ export type Database = {
           trip_id: string
           type: string
           updated_at?: string
+          waiting_charge_active?: boolean
+          waiting_started_at?: string | null
+          waiting_stopped_at?: string | null
+          waiting_total_amount_pence?: number
+          waiting_total_seconds?: number
         }
         Update: {
           address?: string
@@ -5469,6 +5603,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           id?: string
+          last_waiting_charge_update_at?: string | null
           lat?: number | null
           lng?: number | null
           status?: string
@@ -5476,6 +5611,11 @@ export type Database = {
           trip_id?: string
           type?: string
           updated_at?: string
+          waiting_charge_active?: boolean
+          waiting_started_at?: string | null
+          waiting_stopped_at?: string | null
+          waiting_total_amount_pence?: number
+          waiting_total_seconds?: number
         }
         Relationships: [
           {
@@ -5607,6 +5747,7 @@ export type Database = {
           tip_amount_pence: number
           tip_pence: number | null
           total_stops: number | null
+          total_waiting_charge_pence: number
           trip_code: string | null
           trip_number: string | null
           trip_type: string | null
@@ -5731,6 +5872,7 @@ export type Database = {
           tip_amount_pence?: number
           tip_pence?: number | null
           total_stops?: number | null
+          total_waiting_charge_pence?: number
           trip_code?: string | null
           trip_number?: string | null
           trip_type?: string | null
@@ -5855,6 +5997,7 @@ export type Database = {
           tip_amount_pence?: number
           tip_pence?: number | null
           total_stops?: number | null
+          total_waiting_charge_pence?: number
           trip_code?: string | null
           trip_number?: string | null
           trip_type?: string | null
@@ -6987,6 +7130,7 @@ export type Database = {
           trip_number: string
         }[]
       }
+      get_active_stop_waiting: { Args: { p_driver_id: string }; Returns: Json }
       get_driver_wallet_balance: {
         Args: { p_driver_id: string }
         Returns: {
@@ -7112,6 +7256,19 @@ export type Database = {
           zone_type: string
         }[]
       }
+      start_stop_waiting: {
+        Args: {
+          p_charge_interval_seconds?: number
+          p_driver_id: string
+          p_grace_period_seconds?: number
+          p_rate_pence_per_minute?: number
+          p_stop_id: string
+          p_trip_id: string
+        }
+        Returns: string
+      }
+      stop_stop_waiting: { Args: { p_waiting_id: string }; Returns: Json }
+      tick_stop_waiting: { Args: { p_waiting_id: string }; Returns: Json }
       timeout_scheduled_offer: {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
