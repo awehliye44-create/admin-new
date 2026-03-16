@@ -9,16 +9,11 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
+import { formatPence } from '@/hooks/useDriverWallet';
 import { format } from 'date-fns';
 import { 
-  RefreshCw,
-  CheckCircle2,
-  Clock,
-  XCircle,
-  Eye,
-  Calendar,
-  Users,
-  DollarSign
+  RefreshCw, CheckCircle2, Clock, XCircle, Eye, Calendar, Users,
+  DollarSign, Wallet, TrendingUp
 } from 'lucide-react';
 
 interface PayoutItem {
@@ -54,19 +49,17 @@ interface PayoutResponse {
   summary: {
     totalBatches: number;
     totalPaidOut: number;
+    totalPaidOutBatches: number;
     pendingBatches: number;
     failedBatches: number;
+    availableForPayout: number;
+    driversReadyForPayout: number;
   };
   total: number;
   page: number;
   limit: number;
   totalPages: number;
 }
-
-const formatPence = (pence: number, currencyCode: string = 'GBP'): string => {
-  const symbol = getCurrencySymbol(currencyCode);
-  return `${symbol}${(pence / 100).toFixed(2)}`;
-};
 
 export default function AdminPayoutBatches() {
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
@@ -82,7 +75,6 @@ export default function AdminPayoutBatches() {
 
   const batches = responseData?.batches || [];
   const summary = responseData?.summary;
-
   const selectedBatch = batches.find(b => b.id === selectedBatchId);
   const batchItems = selectedBatch?.items || [];
 
@@ -94,12 +86,7 @@ export default function AdminPayoutBatches() {
       failed: { variant: 'destructive', icon: <XCircle className="h-3 w-3 mr-1" /> },
     };
     const { variant, icon } = config[status] || { variant: 'outline' as const, icon: null };
-    return (
-      <Badge variant={variant} className="flex items-center w-fit">
-        {icon}
-        {status}
-      </Badge>
-    );
+    return <Badge variant={variant} className="flex items-center w-fit">{icon}{status}</Badge>;
   };
 
   const getKindDisplay = (kind: string) => {
@@ -110,14 +97,6 @@ export default function AdminPayoutBatches() {
     };
     return kinds[kind] || kind;
   };
-
-  // Stats from summary or calculated
-  const totalBatches = summary?.totalBatches || batches.length;
-  const completedBatches = batches.filter(b => b.status === 'completed').length;
-  const totalPaidOut = summary?.totalPaidOut || 0;
-  const totalDriversPaid = batches
-    .filter(b => b.status === 'completed')
-    .reduce((sum, b) => sum + (b.successfulPayouts || 0), 0);
 
   if (isLoading) {
     return (
@@ -132,29 +111,19 @@ export default function AdminPayoutBatches() {
   return (
     <AdminLayout 
       title="Payout Batches & Audit" 
-      description="Reconciliation view — Stripe transfer/payout IDs, statuses, and execution history"
+      description="Unified payout reporting — totalPaidOut derived from driver_financial_summary"
     >
       <div className="space-y-6">
-        {/* Stats */}
-        <div className="grid gap-4 md:grid-cols-4">
+        {/* Stats — unified source */}
+        <div className="grid gap-4 md:grid-cols-5">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Batches</CardTitle>
               <Calendar className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{totalBatches}</div>
+              <div className="text-2xl font-bold">{summary?.totalBatches || 0}</div>
               <p className="text-xs text-muted-foreground">All time</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Completed</CardTitle>
-              <CheckCircle2 className="h-4 w-4 text-green-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-500">{completedBatches}</div>
-              <p className="text-xs text-muted-foreground">Successful runs</p>
             </CardContent>
           </Card>
           <Card>
@@ -163,18 +132,38 @@ export default function AdminPayoutBatches() {
               <DollarSign className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-500">{formatPence(totalPaidOut)}</div>
-              <p className="text-xs text-muted-foreground">Lifetime</p>
+              <div className="text-2xl font-bold text-green-500">{formatPence(summary?.totalPaidOut || 0)}</div>
+              <p className="text-xs text-muted-foreground">From unified ledger</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Drivers Paid</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Available for Payout</CardTitle>
+              <Wallet className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{totalDriversPaid}</div>
-              <p className="text-xs text-muted-foreground">Total payouts</p>
+              <div className="text-2xl font-bold text-blue-500">{formatPence(summary?.availableForPayout || 0)}</div>
+              <p className="text-xs text-muted-foreground">{summary?.driversReadyForPayout || 0} drivers ready</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Pending</CardTitle>
+              <Clock className="h-4 w-4 text-amber-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-amber-500">{summary?.pendingBatches || 0}</div>
+              <p className="text-xs text-muted-foreground">In progress</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Failed</CardTitle>
+              <XCircle className="h-4 w-4 text-red-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-red-500">{summary?.failedBatches || 0}</div>
+              <p className="text-xs text-muted-foreground">Need attention</p>
             </CardContent>
           </Card>
         </div>
@@ -183,9 +172,7 @@ export default function AdminPayoutBatches() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Payout Batches</CardTitle>
-            <Button variant="outline" size="icon" onClick={() => refetch()}>
-              <RefreshCw className="h-4 w-4" />
-            </Button>
+            <Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
           </CardHeader>
           <CardContent className="p-0">
             <Table>
@@ -204,9 +191,7 @@ export default function AdminPayoutBatches() {
               <TableBody>
                 {batches.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                      No payout batches yet
-                    </TableCell>
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No payout batches yet</TableCell>
                   </TableRow>
                 ) : (
                   batches.map((batch) => (
@@ -217,19 +202,11 @@ export default function AdminPayoutBatches() {
                       <TableCell>{getKindDisplay(batch.kind)}</TableCell>
                       <TableCell>{getStatusBadge(batch.status)}</TableCell>
                       <TableCell className="text-right">{batch.totalDrivers || 0}</TableCell>
-                      <TableCell className="text-right font-medium text-green-600">
-                        {formatPence(batch.totalAmount || 0)}
-                      </TableCell>
+                      <TableCell className="text-right font-medium text-green-600">{formatPence(batch.totalAmount || 0)}</TableCell>
                       <TableCell className="text-right text-green-600">{batch.successfulPayouts || 0}</TableCell>
                       <TableCell className="text-right text-red-600">{batch.failedPayouts || 0}</TableCell>
                       <TableCell className="text-right">
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          onClick={() => setSelectedBatchId(batch.id)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => setSelectedBatchId(batch.id)}><Eye className="h-4 w-4" /></Button>
                       </TableCell>
                     </TableRow>
                   ))
@@ -250,46 +227,17 @@ export default function AdminPayoutBatches() {
             </DialogHeader>
             {selectedBatch && (
               <div className="space-y-4">
-                {/* Batch Summary */}
                 <div className="grid grid-cols-4 gap-4">
-                  <Card>
-                    <CardContent className="pt-4">
-                      <p className="text-xs text-muted-foreground">Status</p>
-                      {getStatusBadge(selectedBatch.status)}
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="pt-4">
-                      <p className="text-xs text-muted-foreground">Total</p>
-                      <p className="text-lg font-bold text-green-600">
-                        {formatPence(selectedBatch.totalAmount || 0)}
-                      </p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="pt-4">
-                      <p className="text-xs text-muted-foreground">Success</p>
-                      <p className="text-lg font-bold text-green-600">{selectedBatch.successfulPayouts || 0}</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="pt-4">
-                      <p className="text-xs text-muted-foreground">Failed</p>
-                      <p className="text-lg font-bold text-red-600">{selectedBatch.failedPayouts || 0}</p>
-                    </CardContent>
-                  </Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Status</p>{getStatusBadge(selectedBatch.status)}</CardContent></Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Total</p><p className="text-lg font-bold text-green-600">{formatPence(selectedBatch.totalAmount || 0)}</p></CardContent></Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Success</p><p className="text-lg font-bold text-green-600">{selectedBatch.successfulPayouts || 0}</p></CardContent></Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Failed</p><p className="text-lg font-bold text-red-600">{selectedBatch.failedPayouts || 0}</p></CardContent></Card>
                 </div>
 
                 {selectedBatch.notes && (
-                  <Card>
-                    <CardContent className="pt-4">
-                      <p className="text-sm text-muted-foreground">Notes</p>
-                      <p className="text-sm">{selectedBatch.notes}</p>
-                    </CardContent>
-                  </Card>
+                  <Card><CardContent className="pt-4"><p className="text-sm text-muted-foreground">Notes</p><p className="text-sm">{selectedBatch.notes}</p></CardContent></Card>
                 )}
 
-                {/* Payout Items */}
                 <div>
                   <h4 className="font-medium mb-2">Individual Payouts</h4>
                   <ScrollArea className="h-[250px]">
@@ -302,6 +250,7 @@ export default function AdminPayoutBatches() {
                             <TableHead>Driver</TableHead>
                             <TableHead className="text-right">Amount</TableHead>
                             <TableHead>Status</TableHead>
+                            <TableHead>Stripe Transfer</TableHead>
                             <TableHead>Error</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -311,9 +260,8 @@ export default function AdminPayoutBatches() {
                               <TableCell className="font-medium">{item.driverName || item.driverId?.substring(0, 8)}</TableCell>
                               <TableCell className="text-right text-green-600">{formatPence(item.amount || 0)}</TableCell>
                               <TableCell>{getStatusBadge(item.status)}</TableCell>
-                              <TableCell className="text-xs text-red-600 max-w-[150px] truncate">
-                                {item.errorMessage || '-'}
-                              </TableCell>
+                              <TableCell className="text-xs font-mono">{item.stripeTransferId ? item.stripeTransferId.substring(0, 16) + '...' : '-'}</TableCell>
+                              <TableCell className="text-xs text-red-600 max-w-[150px] truncate">{item.errorMessage || '-'}</TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
@@ -324,9 +272,7 @@ export default function AdminPayoutBatches() {
               </div>
             )}
             <DialogFooter>
-              <Button variant="outline" onClick={() => setSelectedBatchId(null)}>
-                Close
-              </Button>
+              <Button variant="outline" onClick={() => setSelectedBatchId(null)}>Close</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

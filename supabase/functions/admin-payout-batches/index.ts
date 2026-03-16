@@ -16,12 +16,10 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get authorization header to verify admin
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
@@ -29,8 +27,7 @@ serve(async (req) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
@@ -43,8 +40,7 @@ serve(async (req) => {
 
     if (!roleData) {
       return new Response(JSON.stringify({ error: 'Admin access required' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
@@ -61,43 +57,28 @@ serve(async (req) => {
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false });
 
-    if (kind) {
-      query = query.eq('kind', kind);
-    }
-
-    if (status) {
-      query = query.eq('status', status);
-    }
-
+    if (kind) query = query.eq('kind', kind);
+    if (status) query = query.eq('status', status);
     query = query.range(offset, offset + limit - 1);
 
     const { data: batches, count, error } = await query;
-
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     // Get items for each batch
     const batchIds = batches?.map(b => b.id) || [];
-    const { data: allItems } = await supabase
+    const { data: allItems } = batchIds.length > 0 ? await supabase
       .from('payout_items')
       .select(`
         *,
         drivers:driver_id (
-          id,
-          first_name,
-          last_name,
-          email
+          id, first_name, last_name, email
         )
       `)
-      .in('batch_id', batchIds);
+      .in('batch_id', batchIds) : { data: [] };
 
-    // Group items by batch
     const itemsByBatch: Record<string, any[]> = {};
     allItems?.forEach((item: any) => {
-      if (!itemsByBatch[item.batch_id]) {
-        itemsByBatch[item.batch_id] = [];
-      }
+      if (!itemsByBatch[item.batch_id]) itemsByBatch[item.batch_id] = [];
       itemsByBatch[item.batch_id].push(item);
     });
 
@@ -127,17 +108,29 @@ serve(async (req) => {
       })) || [],
     })) || [];
 
-    // Get summary stats
+    // ── Unified stats from driver_financial_summary ──
+    const { data: financialRows } = await supabase
+      .from('driver_financial_summary')
+      .select('total_payouts_sent, wallet_balance, available_for_payout');
+
+    const unifiedTotalPayouts = financialRows?.reduce((s, d) => s + Number(d.total_payouts_sent || 0), 0) || 0;
+    const unifiedAvailablePayout = financialRows?.reduce((s, d) => s + Number(d.available_for_payout || 0), 0) || 0;
+    const driversReadyForPayout = financialRows?.filter(d => Number(d.available_for_payout || 0) > 0).length || 0;
+
+    // Batch-level summary
     const { data: summaryData } = await supabase
       .from('payout_batches')
       .select('status, total_amount_pence');
 
     const summary = {
       totalBatches: summaryData?.length || 0,
-      totalPaidOut: summaryData?.filter(b => b.status === 'completed')
+      totalPaidOut: unifiedTotalPayouts, // From unified view
+      totalPaidOutBatches: summaryData?.filter(b => b.status === 'completed')
         .reduce((sum, b) => sum + (b.total_amount_pence || 0), 0) || 0,
       pendingBatches: summaryData?.filter(b => b.status === 'pending' || b.status === 'processing').length || 0,
       failedBatches: summaryData?.filter(b => b.status === 'failed').length || 0,
+      availableForPayout: unifiedAvailablePayout,
+      driversReadyForPayout,
     };
 
     return new Response(JSON.stringify({
@@ -154,8 +147,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Error in admin-payout-batches:', error);
     return new Response(JSON.stringify({ error: (error as Error).message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 });

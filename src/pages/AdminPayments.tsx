@@ -15,29 +15,27 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { getTripDisplayId } from '@/lib/tripUtils';
+import { formatPence as formatPenceUnified } from '@/hooks/useDriverWallet';
 import { 
-  CreditCard, 
-  Search, 
-  Download, 
-  DollarSign,
-  TrendingUp,
-  Eye,
-  RefreshCw,
-  ArrowUpRight,
-  ArrowDownLeft,
-  Wallet,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  Banknote,
-  Smartphone
+  CreditCard, Search, Download, DollarSign, TrendingUp, Eye, RefreshCw,
+  ArrowUpRight, ArrowDownLeft, Wallet, Clock, CheckCircle2, XCircle,
+  Banknote, Smartphone
 } from 'lucide-react';
 
 interface PaymentSummary {
+  totalGrossFares: number;
+  totalCommission: number;
+  totalDriverNet: number;
+  totalCashCommission: number;
+  totalPayoutsSent: number;
+  totalWalletBalance: number;
+  totalCardGross: number;
+  totalCashGross: number;
   totalRevenue: number;
   totalTransactions: number;
   pendingAmount: number;
   todayTransactions: number;
+  todayGrossEarnings: number;
   completedTrips: number;
   refundedTrips: number;
   totalRefunds: number;
@@ -121,7 +119,7 @@ export default function AdminPayments() {
   const [viewingTripId, setViewingTripId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
-  // Fetch summary from edge function
+  // Fetch summary from edge function (uses driver_financial_summary view)
   const { data: summary, isLoading: isLoadingSummary, refetch: refetchSummary } = useQuery<PaymentSummary>({
     queryKey: ['admin-payments-summary'],
     queryFn: async () => {
@@ -133,7 +131,7 @@ export default function AdminPayments() {
     },
   });
 
-  // Fetch transactions from edge function (GET query params)
+  // Fetch transactions from edge function
   const { data: transactions = [], isLoading: isLoadingList, refetch: refetchList } = useQuery<PaymentTransaction[]>({
     queryKey: ['admin-payments-list', statusFilter, methodFilter, searchTerm],
     queryFn: async () => {
@@ -149,7 +147,7 @@ export default function AdminPayments() {
     },
   });
 
-  // Fetch payment detail when viewing
+  // Fetch payment detail
   const { data: paymentDetail, isLoading: isLoadingDetail, error: detailError } = useQuery<PaymentDetail>({
     queryKey: ['admin-payment-detail', viewingTripId],
     enabled: !!viewingTripId,
@@ -158,8 +156,6 @@ export default function AdminPayments() {
       const path = `admin-payment-detail?trip_id=${viewingTripId}`;
       const { data, error } = await supabase.functions.invoke(path, { method: 'GET' });
       if (error) throw new Error(data?.error || error.message || 'Failed to load payment details');
-
-      // Normalize camelCase edge response to the shape used by this page
       return {
         trip: {
           id: data.trip?.id,
@@ -176,10 +172,7 @@ export default function AdminPayments() {
         fare_breakdown: {
           estimated_total_pence: data.fareBreakdown?.estimatedFare || 0,
           authorised_amount_pence: data.fareBreakdown?.authorisedAmount || 0,
-          final_fare_pence: Math.max(
-            0,
-            (data.fareBreakdown?.grossFare || 0) - (data.fareBreakdown?.extras || 0) - (data.fareBreakdown?.tip || 0)
-          ),
+          final_fare_pence: Math.max(0, (data.fareBreakdown?.grossFare || 0) - (data.fareBreakdown?.extras || 0) - (data.fareBreakdown?.tip || 0)),
           extras_pence: data.fareBreakdown?.extras || 0,
           tip_pence: data.fareBreakdown?.tip || 0,
           gross_fare_pence: data.fareBreakdown?.grossFare || 0,
@@ -198,11 +191,7 @@ export default function AdminPayments() {
           stripe_charge_id: data.stripe?.chargeId || null,
         },
         refund_info: data.refund
-          ? {
-              refund_amount_pence: data.refund.amount || 0,
-              refund_reason: data.refund.reason || null,
-              refunded_at: data.refund.refundedAt || null,
-            }
+          ? { refund_amount_pence: data.refund.amount || 0, refund_reason: data.refund.reason || null, refunded_at: data.refund.refundedAt || null }
           : null,
       };
     },
@@ -224,15 +213,10 @@ export default function AdminPayments() {
       queryClient.invalidateQueries({ queryKey: ['admin-payments-list'] });
       queryClient.invalidateQueries({ queryKey: ['admin-payments-summary'] });
     },
-    onError: (error: Error) => {
-      toast.error(`Failed to confirm: ${error.message}`);
-    },
+    onError: (error: Error) => toast.error(`Failed to confirm: ${error.message}`),
   });
 
-  const handleRefresh = () => {
-    refetchSummary();
-    refetchList();
-  };
+  const handleRefresh = () => { refetchSummary(); refetchList(); };
 
   const filteredTransactions = transactions.filter(tx => {
     const matchesTab = activeTab === 'all' || tx.type === activeTab;
@@ -242,6 +226,7 @@ export default function AdminPayments() {
   const getStatusBadge = (status: string) => {
     const config: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline', icon: React.ReactNode, label: string }> = {
       captured: { variant: 'default', icon: <CheckCircle2 className="h-3 w-3 mr-1" />, label: 'Paid' },
+      confirmed: { variant: 'default', icon: <CheckCircle2 className="h-3 w-3 mr-1" />, label: 'Confirmed' },
       completed: { variant: 'default', icon: <CheckCircle2 className="h-3 w-3 mr-1" />, label: 'Completed' },
       collected_cash: { variant: 'default', icon: <Banknote className="h-3 w-3 mr-1" />, label: 'Cash Collected' },
       authorized: { variant: 'secondary', icon: <Clock className="h-3 w-3 mr-1" />, label: 'Authorized' },
@@ -249,20 +234,14 @@ export default function AdminPayments() {
       failed: { variant: 'destructive', icon: <XCircle className="h-3 w-3 mr-1" />, label: 'Failed' },
       refunded: { variant: 'outline', icon: <ArrowUpRight className="h-3 w-3 mr-1" />, label: 'Refunded' },
     };
-    const { variant, icon, label } = config[status] || { variant: 'outline', icon: null, label: status };
-    return (
-      <Badge variant={variant} className="flex items-center w-fit">
-        {icon}
-        {label}
-      </Badge>
-    );
+    const { variant, icon, label } = config[status] || { variant: 'outline' as const, icon: null, label: status };
+    return <Badge variant={variant} className="flex items-center w-fit">{icon}{label}</Badge>;
   };
 
   const getMethodIcon = (method: string) => {
     switch (method?.toLowerCase()) {
       case 'card': return <CreditCard className="h-4 w-4" />;
-      case 'apple_pay': return <Smartphone className="h-4 w-4" />;
-      case 'google_pay': return <Smartphone className="h-4 w-4" />;
+      case 'apple_pay': case 'google_pay': return <Smartphone className="h-4 w-4" />;
       case 'wallet': return <Wallet className="h-4 w-4" />;
       case 'cash': return <Banknote className="h-4 w-4" />;
       default: return <CreditCard className="h-4 w-4" />;
@@ -270,13 +249,7 @@ export default function AdminPayments() {
   };
 
   const getMethodDisplay = (method: string) => {
-    const methods: Record<string, string> = {
-      cash: 'Cash',
-      card: 'Card',
-      apple_pay: 'Apple Pay',
-      google_pay: 'Google Pay',
-      wallet: 'Wallet',
-    };
+    const methods: Record<string, string> = { cash: 'Cash', card: 'Card', apple_pay: 'Apple Pay', google_pay: 'Google Pay', wallet: 'Wallet' };
     return methods[method?.toLowerCase()] || method || 'Unknown';
   };
 
@@ -295,56 +268,63 @@ export default function AdminPayments() {
   return (
     <AdminLayout 
       title="Payments & Transactions" 
-      description="Platform-wide payment reporting — derived from trip payments, refunds, and wallet events"
+      description="Unified financial reporting — all stats derived from driver_financial_summary"
     >
       <div className="space-y-6">
-        {/* Stats */}
-        <div className="grid gap-4 md:grid-cols-4">
+        {/* Stats — all from unified driver_financial_summary */}
+        <div className="grid gap-4 md:grid-cols-5">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Platform Revenue</CardTitle>
-              <DollarSign className="h-4 w-4 text-green-500" />
+              <CardTitle className="text-sm font-medium">Gross Trip Fares</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-500">
-                {formatPence(summary?.totalRevenue || 0)}
-              </div>
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <TrendingUp className="h-3 w-3 text-green-500" />
-                Commission - Stripe fees
+              <div className="text-2xl font-bold">{formatPence(summary?.totalGrossFares || 0)}</div>
+              <p className="text-xs text-muted-foreground">
+                Card: {formatPence(summary?.totalCardGross || 0)} · Cash: {formatPence(summary?.totalCashGross || 0)}
               </p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Transactions</CardTitle>
-              <CreditCard className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Platform Commission</CardTitle>
+              <TrendingUp className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{summary?.totalTransactions || 0}</div>
-              <p className="text-xs text-muted-foreground">All completed trips</p>
+              <div className="text-2xl font-bold text-green-500">{formatPence(summary?.totalCommission || 0)}</div>
+              <p className="text-xs text-muted-foreground">ONECAB revenue</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending Amount</CardTitle>
+              <CardTitle className="text-sm font-medium">Driver Wallet Balance</CardTitle>
+              <Wallet className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${(summary?.totalWalletBalance || 0) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                {formatPence(summary?.totalWalletBalance || 0)}
+              </div>
+              <p className="text-xs text-muted-foreground">Payouts sent: {formatPence(summary?.totalPayoutsSent || 0)}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Pending Capture</CardTitle>
               <Clock className="h-4 w-4 text-amber-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-amber-500">
-                {formatPence(summary?.pendingAmount || 0)}
-              </div>
+              <div className="text-2xl font-bold text-amber-500">{formatPence(summary?.pendingAmount || 0)}</div>
               <p className="text-xs text-muted-foreground">Awaiting capture</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Today's Transactions</CardTitle>
-              <Wallet className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Today</CardTitle>
+              <CreditCard className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{summary?.todayTransactions || 0}</div>
-              <p className="text-xs text-muted-foreground">Transactions today</p>
+              <div className="text-2xl font-bold">{formatPence(summary?.todayGrossEarnings || 0)}</div>
+              <p className="text-xs text-muted-foreground">{summary?.todayTransactions || 0} trips today</p>
             </CardContent>
           </Card>
         </div>
@@ -360,20 +340,14 @@ export default function AdminPayments() {
             <div className="flex gap-2 flex-wrap">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input 
-                  placeholder="Search..." 
-                  className="pl-9 w-[180px]"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
+                <Input placeholder="Search..." className="pl-9 w-[180px]" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
               </div>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[130px]">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
+                <SelectTrigger className="w-[130px]"><SelectValue placeholder="Status" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="captured">Paid (Captured)</SelectItem>
+                  <SelectItem value="confirmed">Confirmed</SelectItem>
                   <SelectItem value="collected_cash">Cash Collected</SelectItem>
                   <SelectItem value="authorized">Authorized</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
@@ -382,9 +356,7 @@ export default function AdminPayments() {
                 </SelectContent>
               </Select>
               <Select value={methodFilter} onValueChange={setMethodFilter}>
-                <SelectTrigger className="w-[130px]">
-                  <SelectValue placeholder="Method" />
-                </SelectTrigger>
+                <SelectTrigger className="w-[130px]"><SelectValue placeholder="Method" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Methods</SelectItem>
                   <SelectItem value="card">Card</SelectItem>
@@ -394,13 +366,8 @@ export default function AdminPayments() {
                   <SelectItem value="cash">Cash</SelectItem>
                 </SelectContent>
               </Select>
-              <Button variant="outline" size="icon" onClick={handleRefresh}>
-                <RefreshCw className="h-4 w-4" />
-              </Button>
-              <Button variant="outline">
-                <Download className="h-4 w-4 mr-2" />
-                Export
-              </Button>
+              <Button variant="outline" size="icon" onClick={handleRefresh}><RefreshCw className="h-4 w-4" /></Button>
+              <Button variant="outline"><Download className="h-4 w-4 mr-2" />Export</Button>
             </div>
           </div>
 
@@ -413,7 +380,9 @@ export default function AdminPayments() {
                       <TableHead>Trip Code</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Route</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead className="text-right">Gross Fare</TableHead>
+                      <TableHead className="text-right">Commission</TableHead>
+                      <TableHead className="text-right">Driver Net</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Method</TableHead>
                       <TableHead>Date</TableHead>
@@ -423,9 +392,7 @@ export default function AdminPayments() {
                   <TableBody>
                     {filteredTransactions.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                          No transactions found
-                        </TableCell>
+                        <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">No transactions found</TableCell>
                       </TableRow>
                     ) : (
                       filteredTransactions.map((tx) => (
@@ -441,17 +408,13 @@ export default function AdminPayments() {
                           </TableCell>
                           <TableCell>
                             <div>
-                              <p className="text-sm truncate max-w-[200px]">
-                                {tx.route || 'Unknown route'}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {tx.customer} {tx.driver && `• ${tx.driver}`}
-                              </p>
+                              <p className="text-sm truncate max-w-[200px]">{tx.route || 'Unknown route'}</p>
+                              <p className="text-xs text-muted-foreground">{tx.customer} {tx.driver && `• ${tx.driver}`}</p>
                             </div>
                           </TableCell>
-                          <TableCell className="text-right font-medium text-green-600">
-                            {formatPence(tx.amount || 0)}
-                          </TableCell>
+                          <TableCell className="text-right font-medium">{formatPence(tx.amount || 0)}</TableCell>
+                          <TableCell className="text-right text-blue-600">{formatPence(tx.commission || 0)}</TableCell>
+                          <TableCell className="text-right text-green-600">{formatPence(tx.driverNet || 0)}</TableCell>
                           <TableCell>{getStatusBadge(tx.status)}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
@@ -463,13 +426,7 @@ export default function AdminPayments() {
                             {tx.date ? format(new Date(tx.date), 'dd MMM yyyy') : '-'}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
-                              onClick={() => setViewingTripId(tx.id)}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => setViewingTripId(tx.id)}><Eye className="h-4 w-4" /></Button>
                           </TableCell>
                         </TableRow>
                       ))
@@ -486,14 +443,10 @@ export default function AdminPayments() {
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>Transaction Details</DialogTitle>
-              <DialogDescription>
-                {paymentDetail?.trip?.trip_number || paymentDetail?.trip?.trip_code || viewingTripId}
-              </DialogDescription>
+              <DialogDescription>{paymentDetail?.trip?.trip_number || paymentDetail?.trip?.trip_code || viewingTripId}</DialogDescription>
             </DialogHeader>
             {isLoadingDetail ? (
-              <div className="flex items-center justify-center py-8">
-                <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
+              <div className="flex items-center justify-center py-8"><RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" /></div>
             ) : detailError ? (
               <div className="flex flex-col items-center justify-center py-8 text-center">
                 <XCircle className="h-10 w-10 text-destructive mb-3" />
@@ -543,7 +496,7 @@ export default function AdminPayments() {
                       <Separator />
                       <div className="flex justify-between font-medium">
                         <span>Gross Total</span>
-                        <span className="text-green-600">{formatPence(paymentDetail.fare_breakdown.gross_fare_pence || 0)}</span>
+                        <span>{formatPence(paymentDetail.fare_breakdown.gross_fare_pence || 0)}</span>
                       </div>
                     </CardContent>
                   </Card>
@@ -551,7 +504,7 @@ export default function AdminPayments() {
 
                 {/* Commission Breakdown */}
                 <div>
-                  <h4 className="font-medium mb-2">Commission Breakdown</h4>
+                  <h4 className="font-medium mb-2">Commission & Settlement</h4>
                   <Card>
                     <CardContent className="pt-4 space-y-2">
                       <div className="flex justify-between text-sm">
@@ -591,16 +544,12 @@ export default function AdminPayments() {
                       <CardContent className="pt-4 space-y-2 text-sm">
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Payment Intent</span>
-                          <code className="bg-muted px-2 py-0.5 rounded text-xs">
-                            {paymentDetail.payment_info.stripe_payment_intent_id}
-                          </code>
+                          <code className="bg-muted px-2 py-0.5 rounded text-xs">{paymentDetail.payment_info.stripe_payment_intent_id}</code>
                         </div>
                         {paymentDetail.payment_info.stripe_charge_id && (
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Charge ID</span>
-                            <code className="bg-muted px-2 py-0.5 rounded text-xs">
-                              {paymentDetail.payment_info.stripe_charge_id}
-                            </code>
+                            <code className="bg-muted px-2 py-0.5 rounded text-xs">{paymentDetail.payment_info.stripe_charge_id}</code>
                           </div>
                         )}
                       </CardContent>
@@ -649,23 +598,13 @@ export default function AdminPayments() {
               </div>
             ) : null}
             <DialogFooter className="gap-2">
-              {paymentDetail && 
-                paymentDetail.payment_info.payment_status === 'pending' && (
-                <Button 
-                  onClick={() => viewingTripId && confirmPaymentMutation.mutate(viewingTripId)}
-                  disabled={confirmPaymentMutation.isPending}
-                >
-                  {confirmPaymentMutation.isPending ? (
-                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="h-4 w-4 mr-2" />
-                  )}
+              {paymentDetail && paymentDetail.payment_info.payment_status === 'pending' && (
+                <Button onClick={() => viewingTripId && confirmPaymentMutation.mutate(viewingTripId)} disabled={confirmPaymentMutation.isPending}>
+                  {confirmPaymentMutation.isPending ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
                   Confirm Payment
                 </Button>
               )}
-              <Button variant="outline" onClick={() => setViewingTripId(null)}>
-                Close
-              </Button>
+              <Button variant="outline" onClick={() => setViewingTripId(null)}>Close</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
