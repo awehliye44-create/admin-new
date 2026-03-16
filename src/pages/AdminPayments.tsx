@@ -15,8 +15,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { getTripDisplayId } from '@/lib/tripUtils';
-import { formatPence as formatPenceUnified } from '@/hooks/useDriverWallet';
-import { 
+import {
   CreditCard, Search, Download, DollarSign, TrendingUp, Eye, RefreshCw,
   ArrowUpRight, ArrowDownLeft, Wallet, Clock, CheckCircle2, XCircle,
   Banknote, Smartphone
