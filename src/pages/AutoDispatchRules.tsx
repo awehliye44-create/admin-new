@@ -141,6 +141,12 @@ const defaultSettings: DispatchSettings = {
   blockMultipleActiveRides: false,
   cancelProtection: false,
   driverFareDisplay: 'smart_display',
+  stopRadiusEnabled: false,
+  stopRadiusMeters: 100,
+  stopWaitingChargeIntervalSeconds: 10,
+  stopWaitingGracePeriodSeconds: 0,
+  stopWaitingRatePencePerMinute: 30,
+  stopWaitingMaxMinutes: null,
 };
 
 interface ServiceArea {
