@@ -86,6 +86,14 @@ interface DispatchSettings {
   blockMultipleActiveRides: boolean;
   cancelProtection: boolean;
   driverFareDisplay: 'net_earnings' | 'gross_fare' | 'smart_display';
+
+  // Stop Waiting & Get Paid
+  stopRadiusEnabled: boolean;
+  stopRadiusMeters: number;
+  stopWaitingChargeIntervalSeconds: number;
+  stopWaitingGracePeriodSeconds: number;
+  stopWaitingRatePencePerMinute: number;
+  stopWaitingMaxMinutes: number | null;
 }
 
 const defaultSettings: DispatchSettings = {
