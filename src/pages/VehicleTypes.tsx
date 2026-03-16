@@ -274,6 +274,8 @@ export default function VehicleTypes() {
       categories: type.categories || ['Standard'],
       features: type.features || [],
       is_active: type.is_active,
+      is_default: type.is_default,
+      driver_controllable: type.driver_controllable,
       display_order: type.display_order || 0,
     });
     setIsEditDialogOpen(true);
