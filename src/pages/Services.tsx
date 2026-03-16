@@ -228,7 +228,7 @@ export default function Services() {
         
         const [driverServiceAreasRes, pricingRes, cancellationRes] = await Promise.all([
           supabase.from('driver_service_areas').select('service_area_id'),
-          supabase.from('service_area_vehicle_pricing').select('service_area_id, is_enabled, base_fare').in('service_area_id', areaIds),
+          supabase.from('fare_pricing_settings').select('service_area_id, base_fare_pence').in('service_area_id', areaIds),
           supabase.from('service_area_cancellation_fees').select('service_area_id').in('service_area_id', areaIds),
         ]);
 
