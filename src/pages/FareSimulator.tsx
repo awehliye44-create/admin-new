@@ -457,7 +457,7 @@ export default function FareSimulator() {
                   <Label>Service Area *</Label>
                   <Select
                     value={formData.service_area_id}
-                    onValueChange={(value) => setFormData({ ...formData, service_area_id: value })}
+                    onValueChange={(value) => setFormData({ ...formData, service_area_id: value, vehicle_type_id: "" })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select area" />
@@ -469,6 +469,29 @@ export default function FareSimulator() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                {formData.service_area_id && assignedVehicleTypes.length > 0 && (
+                  <div className="grid gap-2">
+                    <Label className="flex items-center gap-2">
+                      <Car className="h-4 w-4" />
+                      Vehicle Type
+                    </Label>
+                    <Select
+                      value={formData.vehicle_type_id || "any"}
+                      onValueChange={(value) => setFormData({ ...formData, vehicle_type_id: value === "any" ? "" : value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Any (default pricing)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="any">Any (default pricing)</SelectItem>
+                        {assignedVehicleTypes.map((vt) => (
+                          <SelectItem key={vt.id} value={vt.id}>{vt.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
 
                 {fareSettings && (
                   <div className="flex items-center gap-2">
