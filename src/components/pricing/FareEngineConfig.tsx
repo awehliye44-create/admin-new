@@ -72,7 +72,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
-  const currencyCode = settings?.currency_code || regionCurrencyCode || 'GBP';
+  const currencyCode = regionCurrencyCode || settings?.currency_code || 'GBP';
   const symbol = getCurrencySymbol(currencyCode);
 
   useEffect(() => {
@@ -93,7 +93,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
       setSettings({
         ...DEFAULT_SETTINGS,
         service_area_id: serviceAreaId,
-        currency_code: regionCurrencyCode || 'GBP',
+        currency_code: currencyCode,
       });
     }
     setHasChanges(false);
@@ -133,7 +133,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
     try {
       const payload = {
         pricing_mode: settings.pricing_mode,
-        currency_code: settings.currency_code,
+        currency_code: currencyCode,
         base_fare_pence: settings.base_fare_pence,
         per_km_rate_pence: settings.per_km_rate_pence,
         per_min_rate_pence: settings.per_min_rate_pence,
