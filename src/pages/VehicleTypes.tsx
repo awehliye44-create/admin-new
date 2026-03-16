@@ -148,6 +148,8 @@ export default function VehicleTypes() {
       categories: ['Standard'],
       features: [],
       is_active: true,
+      is_default: false,
+      driver_controllable: false,
       display_order: vehicleTypes.length,
     });
   };
