@@ -276,69 +276,94 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
     <div className="space-y-6">
       {/* Vehicle Type Selector */}
       <Card>
-        <CardHeader className="pb-4">
+        <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2">
             <Car className="h-5 w-5 text-primary" />
             Vehicle Type Pricing
           </CardTitle>
           <CardDescription>
-            Configure fare settings per vehicle type. Each vehicle type can have its own pricing mode, rates, and fees.
-            The "Default" config applies when no vehicle-type-specific config exists.
+            Select a vehicle type to configure its fare settings. Types without pricing will fall back to the area-wide default.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-4">
-            <div className="flex-1 max-w-xs">
-              <Label className="text-sm mb-1.5 block">Select Vehicle Type</Label>
-              <Select value={selectedVehicleTypeId} onValueChange={setSelectedVehicleTypeId}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__default__">
-                    <span className="flex items-center gap-2">
-                      Default (Area-wide)
-                      {configuredVtIds.has('__default__') && (
-                        <CheckCircle2 className="h-3 w-3 text-green-500" />
-                      )}
-                    </span>
-                  </SelectItem>
-                  {assignedVehicleTypes.map(vt => (
-                    <SelectItem key={vt.id} value={vt.id}>
-                      <span className="flex items-center gap-2">
-                        {vt.name}
-                        {configuredVtIds.has(vt.id) && (
-                          <CheckCircle2 className="h-3 w-3 text-green-500" />
-                        )}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center gap-2 mt-5">
-              {configuredVtIds.has(selectedVehicleTypeId) ? (
-                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                  <CheckCircle2 className="h-3 w-3 mr-1" />
-                  Configured
-                </Badge>
-              ) : selectedVehicleTypeId === '__default__' ? (
-                <Badge variant="outline" className="bg-muted text-muted-foreground border-border">
-                  <AlertCircle className="h-3 w-3 mr-1" />
-                  No area-wide default set
-                </Badge>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {/* Default / Area-wide card */}
+            <button
+              type="button"
+              onClick={() => setSelectedVehicleTypeId('__default__')}
+              className={`relative flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all text-center cursor-pointer
+                ${selectedVehicleTypeId === '__default__'
+                  ? 'border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20'
+                  : 'border-border hover:border-primary/40 hover:bg-accent/50'
+                }`}
+            >
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                selectedVehicleTypeId === '__default__' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
+              }`}>
+                <Settings2 className="h-5 w-5" />
+              </div>
+              <span className="text-sm font-medium leading-tight">Default</span>
+              <span className="text-[10px] text-muted-foreground leading-tight">Area-wide</span>
+              {configuredVtIds.has('__default__') ? (
+                <span className="absolute top-1.5 right-1.5">
+                  <CheckCircle2 className="h-4 w-4 text-green-500" />
+                </span>
               ) : (
-                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-                  <AlertCircle className="h-3 w-3 mr-1" />
-                  Not configured — will use Default
-                </Badge>
+                <span className="absolute top-1.5 right-1.5">
+                  <AlertCircle className="h-4 w-4 text-muted-foreground/40" />
+                </span>
               )}
-            </div>
+            </button>
+
+            {/* Vehicle type cards */}
+            {assignedVehicleTypes.map(vt => {
+              const isSelected = selectedVehicleTypeId === vt.id;
+              const isConfigured = configuredVtIds.has(vt.id);
+              return (
+                <button
+                  key={vt.id}
+                  type="button"
+                  onClick={() => setSelectedVehicleTypeId(vt.id)}
+                  className={`relative flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all text-center cursor-pointer
+                    ${isSelected
+                      ? 'border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20'
+                      : 'border-border hover:border-primary/40 hover:bg-accent/50'
+                    }`}
+                >
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                    isSelected ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
+                  }`}>
+                    <Car className="h-5 w-5" />
+                  </div>
+                  <span className="text-sm font-medium leading-tight">{vt.name}</span>
+                  <span className="text-[10px] text-muted-foreground leading-tight">{vt.slug}</span>
+                  {isConfigured ? (
+                    <span className="absolute top-1.5 right-1.5">
+                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                    </span>
+                  ) : (
+                    <span className="absolute top-1.5 right-1.5">
+                      <AlertCircle className="h-4 w-4 text-amber-400" />
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
+
           {assignedVehicleTypes.length === 0 && (
             <p className="text-xs text-muted-foreground mt-3">
               No vehicle types assigned to this service area. Assign vehicle types in the Vehicle Types tab first.
             </p>
+          )}
+
+          {/* Status legend */}
+          {assignedVehicleTypes.length > 0 && (
+            <div className="flex items-center gap-4 mt-4 pt-3 border-t text-xs text-muted-foreground">
+              <span className="flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-green-500" /> Configured</span>
+              <span className="flex items-center gap-1"><AlertCircle className="h-3 w-3 text-amber-400" /> Uses default</span>
+              <span className="flex items-center gap-1"><AlertCircle className="h-3 w-3 text-muted-foreground/40" /> Not set</span>
+            </div>
           )}
         </CardContent>
       </Card>
