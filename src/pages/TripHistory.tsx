@@ -957,6 +957,11 @@ export default function TripHistory() {
                   <CheckCircle className="h-3 w-3 mr-1" />
                   Completed
                 </Badge>
+                {selectedTrip.stacked_trip_id && (
+                  <Badge variant="outline" className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
+                    ⚡ Stacked Ride
+                  </Badge>
+                )}
                 {selectedTrip.payment_method && (
                   <Badge variant="secondary">
                     {selectedTrip.payment_method}
