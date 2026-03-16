@@ -60,6 +60,7 @@ interface ServiceAreaRevenue {
   revenue: number;
   trips: number;
   commission: number;
+  currency_code: string;
 }
 
 interface RecentTrip {
