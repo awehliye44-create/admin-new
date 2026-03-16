@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getDriverCommissionPct } from "../_shared/commission.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import {
   corsHeaders,
@@ -124,7 +125,7 @@ serve(async (req) => {
 
     // === Get driver's connected account ===
     let driverStripeAccountId: string | null = null;
-    let commissionPercentage = 20; // default fallback only if no tier assigned
+    let commissionPercentage = 0;
 
     if (trip.driver_id) {
       const { data: driver } = await supabase
@@ -134,17 +135,7 @@ serve(async (req) => {
         .single();
 
       driverStripeAccountId = driver?.stripe_account_id || null;
-
-      if (driver?.category_id) {
-        const { data: category } = await supabase
-          .from("driver_categories")
-          .select("commission_pct")
-          .eq("id", driver.category_id)
-          .single();
-        if (category?.commission_pct != null) {
-          commissionPercentage = category.commission_pct;
-        }
-      }
+      commissionPercentage = await getDriverCommissionPct(supabase, trip.driver_id);
     }
 
     const applicationFeeAmount = Math.round(estimated_fare_pence * commissionPercentage / 100);

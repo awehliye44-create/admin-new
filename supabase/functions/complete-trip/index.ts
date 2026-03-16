@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getDriverCommissionPct } from "../_shared/commission.ts";
 import { 
   securityHeaders, 
   corsHeaders, 
@@ -101,23 +102,13 @@ serve(async (req) => {
     }
 
     // === Get commission rate from driver tier (single source of truth) ===
-    let commissionPercentage = 20; // default fallback only if no tier assigned
     const { data: driver } = await supabase
       .from('drivers')
       .select('category_id, stripe_account_id')
       .eq('id', driver_id)
       .single();
 
-    if (driver?.category_id) {
-      const { data: category } = await supabase
-        .from('driver_categories')
-        .select('commission_pct')
-        .eq('id', driver.category_id)
-        .single();
-      if (category?.commission_pct != null) {
-        commissionPercentage = category.commission_pct;
-      }
-    }
+    const commissionPercentage = await getDriverCommissionPct(supabase, driver_id);
 
     // Commission applied to commissionable subtotal only (tip excluded)
     const platform_commission = Math.round(commissionable_subtotal * commissionPercentage / 100);

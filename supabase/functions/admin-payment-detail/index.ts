@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getDriverCommissionPct } from "../_shared/commission.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -198,17 +199,10 @@ serve(async (req) => {
       customer = customerData;
     }
 
-    // Get commission rate from driver's tier
-    let commissionPercent = 20;
-    if (trip.drivers?.category_id) {
-      const { data: category } = await supabase
-        .from('driver_categories')
-        .select('commission_pct, name')
-        .eq('id', trip.drivers.category_id)
-        .single();
-      if (category?.commission_pct != null) {
-        commissionPercent = category.commission_pct;
-      }
+    // Get commission rate from driver's tier (Bronze default if unassigned)
+    let commissionPercent = 0;
+    if (trip.drivers?.id) {
+      commissionPercent = await getDriverCommissionPct(supabase, trip.drivers.id);
     }
 
     // Get related ledger entries
