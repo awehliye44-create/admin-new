@@ -266,7 +266,7 @@ export function AdminSidebar() {
               <P pageSlug="promo-codes" to="/promo-codes" icon={<Tag className="h-4 w-4" />} label="Promo Codes" active={currentPath === '/promo-codes'} badge={counts.activePromoCodes > 0 ? counts.activePromoCodes : undefined} collapsed={isCollapsed} />
               <P pageSlug="custom-zones" to="/custom-zones" icon={<CircleDollarSign className="h-4 w-4" />} label="Custom Zones" active={currentPath === '/custom-zones'} collapsed={isCollapsed} />
               <P pageSlug="zone-pricing" to="/zone-pricing" icon={<Target className="h-4 w-4" />} label="Geofence & Zone Pricing" active={currentPath === '/zone-pricing'} collapsed={isCollapsed} />
-              <P pageSlug="corporate-fares" to="/corporate-fares" icon={<Building2 className="h-4 w-4" />} label="Corporate Fare Rules" active={currentPath === '/corporate-fares'} collapsed={isCollapsed} />
+              
               <P pageSlug="fare-simulator" to="/fare-simulator" icon={<Calculator className="h-4 w-4" />} label="Fare Simulator" active={currentPath === '/fare-simulator'} collapsed={isCollapsed} />
             </div>
           </div>
