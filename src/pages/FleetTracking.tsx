@@ -212,7 +212,6 @@ export default function FleetTracking() {
         },
         (payload) => {
           const updatedDriver = payload.new as any;
-          console.log('Driver location update received:', updatedDriver.id, updatedDriver.current_lat, updatedDriver.current_lng);
           
           setDrivers(prev => prev.map(driver => {
             if (driver.id === updatedDriver.id) {
