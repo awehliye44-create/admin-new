@@ -697,7 +697,7 @@ export default function Dashboard() {
                       <span className="font-medium">{area.name}</span>
                       <div className="flex items-center gap-4 text-muted-foreground">
                         <span>{area.trips} trips</span>
-                        <span className="font-semibold text-foreground">£{area.revenue.toFixed(2)}</span>
+                        <span className="font-semibold text-foreground">{getCurrencySymbol(area.currency_code)}{area.revenue.toFixed(2)}</span>
                       </div>
                     </div>
                     <div className="h-2 rounded-full bg-muted overflow-hidden">
