@@ -133,7 +133,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
     try {
       const payload = {
         pricing_mode: settings.pricing_mode,
-        currency_code: settings.currency_code,
+        currency_code: currencyCode,
         base_fare_pence: settings.base_fare_pence,
         per_km_rate_pence: settings.per_km_rate_pence,
         per_min_rate_pence: settings.per_min_rate_pence,
