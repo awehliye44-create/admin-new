@@ -134,7 +134,7 @@ export default function ActiveTrips() {
             *,
             driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone)
           `)
-          .in('status', ['pending', 'searching', 'offered', 'driver_assigned', 'accepted', 'arrived', 'in_progress'])
+          .in('status', ['pending', 'searching', 'offered', 'driver_assigned', 'accepted', 'arrived', 'in_progress', 'started', 'on_trip', 'ongoing'])
           .order('created_at', { ascending: false }),
         supabase
           .from('drivers')
