@@ -861,7 +861,7 @@ export default function TripHistory() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1">
+                      <div className="flex flex-wrap items-center gap-1">
                         <Badge variant="outline" className="bg-blue-500/10 text-blue-600">
                           {getIntermediateStopsCount(trip)}
                         </Badge>
@@ -869,6 +869,11 @@ export default function TripHistory() {
                           <span className="text-xs text-muted-foreground">
                             via {getIntermediateStopsCount(trip)} stop{getIntermediateStopsCount(trip) > 1 ? 's' : ''}
                           </span>
+                        )}
+                        {trip.stacked_trip_id && (
+                          <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-300 text-[10px]">
+                            ⚡ Stacked
+                          </Badge>
                         )}
                       </div>
                     </TableCell>
