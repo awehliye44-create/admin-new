@@ -82,6 +82,8 @@ interface VehicleType {
   capacity: number;
   categories: string[];
   features: string[];
+  is_default: boolean;
+  driver_controllable: boolean;
 }
 
 interface DriverVehicleCategory {
