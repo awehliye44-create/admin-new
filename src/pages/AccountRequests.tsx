@@ -107,9 +107,10 @@ export default function AccountRequests() {
   // Approve via RPC — creates corporate_account automatically
   const approveMutation = useMutation({
     mutationFn: async (requestId: string) => {
+      const userId = (await supabase.auth.getUser()).data.user?.id;
       const { data, error } = await supabase.rpc('approve_corporate_request', {
         p_request_id: requestId,
-        p_reviewed_by: 'Admin',
+        p_reviewed_by: userId,
       });
       if (error) throw error;
       return data;
