@@ -150,17 +150,53 @@ export default function FareSimulator() {
     };
   }, [formData.service_area_id, serviceAreas, regions]);
 
+  // Fetch assigned vehicle types for selected service area
+  const { data: assignedVehicleTypes = [] } = useQuery({
+    queryKey: ['assigned-vt', formData.service_area_id],
+    queryFn: async () => {
+      if (!formData.service_area_id) return [];
+      const { data: assignments } = await supabase
+        .from('service_area_vehicle_types')
+        .select('vehicle_type_id')
+        .eq('service_area_id', formData.service_area_id)
+        .eq('is_active', true);
+      if (!assignments || assignments.length === 0) return [];
+      const vtIds = assignments.map((a: any) => a.vehicle_type_id);
+      const { data: vtData } = await supabase
+        .from('vehicle_types')
+        .select('id, name, slug')
+        .in('id', vtIds)
+        .eq('is_active', true)
+        .order('name');
+      return (vtData || []) as VehicleType[];
+    },
+    enabled: !!formData.service_area_id,
+  });
+
   const { data: fareSettings } = useQuery({
-    queryKey: ['fare-pricing-settings', formData.service_area_id],
+    queryKey: ['fare-pricing-settings', formData.service_area_id, formData.vehicle_type_id],
     queryFn: async () => {
       if (!formData.service_area_id) return null;
-      const { data, error } = await supabase
+
+      // Try vehicle-type-specific config first
+      if (formData.vehicle_type_id) {
+        const { data } = await supabase
+          .from('fare_pricing_settings')
+          .select('*')
+          .eq('service_area_id', formData.service_area_id)
+          .eq('vehicle_type_id', formData.vehicle_type_id)
+          .maybeSingle();
+        if (data) return data as FarePricingSettings;
+      }
+
+      // Fall back to default (vehicle_type_id IS NULL)
+      const { data } = await supabase
         .from('fare_pricing_settings')
         .select('*')
         .eq('service_area_id', formData.service_area_id)
-        .single();
-      if (error) return null;
-      return data as FarePricingSettings;
+        .is('vehicle_type_id', null)
+        .maybeSingle();
+      return data as FarePricingSettings | null;
     },
     enabled: !!formData.service_area_id,
   });
