@@ -310,7 +310,7 @@ export default function ActiveTrips() {
 
   const pendingCount = trips.filter(t => t.status === 'pending' || t.status === 'searching' || t.status === 'offered').length;
   const acceptedCount = trips.filter(t => t.status === 'accepted' || t.status === 'arrived' || t.status === 'driver_assigned').length;
-  const inProgressCount = trips.filter(t => t.status === 'in_progress').length;
+  const inProgressCount = trips.filter(t => ['in_progress', 'started', 'on_trip', 'ongoing'].includes(t.status)).length;
 
   return (
     <AdminLayout 
