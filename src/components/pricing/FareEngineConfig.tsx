@@ -72,7 +72,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
-  const currencyCode = settings?.currency_code || regionCurrencyCode || 'GBP';
+  const currencyCode = regionCurrencyCode || settings?.currency_code || 'GBP';
   const symbol = getCurrencySymbol(currencyCode);
 
   useEffect(() => {
