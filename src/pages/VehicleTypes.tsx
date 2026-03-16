@@ -591,12 +591,24 @@ export default function VehicleTypes() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge 
-                        variant={type.is_active ? 'default' : 'secondary'}
-                        className={type.is_active ? 'bg-green-500 hover:bg-green-600' : ''}
-                      >
-                        {type.is_active ? 'Active' : 'Inactive'}
-                      </Badge>
+                      <div className="flex flex-wrap gap-1">
+                        <Badge 
+                          variant={type.is_active ? 'default' : 'secondary'}
+                          className={type.is_active ? 'bg-green-500 hover:bg-green-600' : ''}
+                        >
+                          {type.is_active ? 'Active' : 'Inactive'}
+                        </Badge>
+                        {type.is_default && (
+                          <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200 text-xs">
+                            Default
+                          </Badge>
+                        )}
+                        {type.driver_controllable && (
+                          <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-200 text-xs">
+                            Driver Toggle
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
