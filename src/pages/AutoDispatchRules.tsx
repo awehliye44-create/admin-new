@@ -255,6 +255,12 @@ const mapSettingsToDb = (settings: DispatchSettings, serviceAreaId: string | nul
   block_multiple_active_rides: settings.blockMultipleActiveRides,
   cancel_protection: settings.cancelProtection,
   driver_fare_display: settings.driverFareDisplay,
+  stop_radius_enabled: settings.stopRadiusEnabled,
+  stop_radius_meters: settings.stopRadiusMeters,
+  stop_waiting_charge_interval_seconds: settings.stopWaitingChargeIntervalSeconds,
+  stop_waiting_grace_period_seconds: settings.stopWaitingGracePeriodSeconds,
+  stop_waiting_rate_pence_per_minute: settings.stopWaitingRatePencePerMinute,
+  stop_waiting_max_minutes: settings.stopWaitingMaxMinutes,
 });
 
 export default function AutoDispatchRules() {
