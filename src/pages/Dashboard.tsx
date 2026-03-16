@@ -9,7 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { 
   Car, 
   MapPin, 
-  PoundSterling,
+  CircleDollarSign,
   RefreshCw,
   Clock,
   ArrowRight,
@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/select";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar } from 'recharts';
 import { getEnhancedCarIcon, preloadMarkerImage } from '@/lib/mapMarkers';
+import { getCurrencySymbol } from '@/lib/regionSettings';
 
 interface Stats {
   totalDrivers: number;
@@ -60,6 +61,7 @@ interface ServiceAreaRevenue {
   revenue: number;
   trips: number;
   commission: number;
+  currency_code: string;
 }
 
 interface RecentTrip {
@@ -77,6 +79,7 @@ interface ServiceArea {
   id: string;
   name: string;
   region_id: string;
+  region?: { currency_code: string } | null;
 }
 
 interface Driver {
@@ -217,7 +220,7 @@ export default function Dashboard() {
     async function fetchServiceAreas() {
       const { data } = await supabase
         .from('service_areas')
-        .select('id, name, region_id')
+        .select('id, name, region_id, region:regions(currency_code)')
         .eq('is_active', true)
         .order('name');
       
@@ -345,7 +348,7 @@ export default function Dashboard() {
           const areaTrips = completedTripsData.filter(t => t.service_area_id === area.id);
           const revenue = areaTrips.reduce((sum, t) => sum + (t.fare || 0), 0);
           const commission = areaTrips.reduce((sum, t) => sum + ((t.commission_pence || 0) / 100), 0);
-          return { name: area.name, revenue, trips: areaTrips.length, commission };
+          return { name: area.name, revenue, trips: areaTrips.length, commission, currency_code: (area.region as any)?.currency_code || 'GBP' };
         }).filter(a => a.trips > 0).sort((a, b) => b.revenue - a.revenue);
         setServiceAreaRevenues(revenueByArea);
       } else {
@@ -495,6 +498,11 @@ export default function Dashboard() {
   const revenueChange = calculateChange(stats.totalRevenue, stats.previousRevenue);
   const commissionChange = calculateChange(stats.commissionRevenue, stats.previousCommission);
 
+  // Resolve currency symbol for the selected service area
+  const selectedArea = serviceAreas.find(sa => sa.id === selectedServiceArea);
+  const activeCurrencyCode = (selectedArea?.region as any)?.currency_code || 'GBP';
+  const currencySymbol = getCurrencySymbol(activeCurrencyCode);
+
   const onlineDriversCount = drivers.filter(d => d.is_online).length;
   const onTripCount = drivers.filter(d => d.current_trip_id).length;
   const availableCount = drivers.filter(d => d.is_online && !d.current_trip_id).length;
@@ -617,11 +625,11 @@ export default function Dashboard() {
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Total Revenue
             </CardTitle>
-            <PoundSterling className="h-4 w-4 text-muted-foreground" />
+            <CircleDollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              £{isLoading ? '...' : stats.totalRevenue.toFixed(2)}
+              {currencySymbol}{isLoading ? '...' : stats.totalRevenue.toFixed(2)}
             </div>
             <p className="text-xs">
               <span className={revenueChange >= 0 ? 'text-green-500' : 'text-red-500'}>
@@ -654,11 +662,11 @@ export default function Dashboard() {
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Commission Revenue
             </CardTitle>
-            <PoundSterling className="h-4 w-4 text-muted-foreground" />
+            <CircleDollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              £{isLoading ? '...' : stats.commissionRevenue.toFixed(2)}
+              {currencySymbol}{isLoading ? '...' : stats.commissionRevenue.toFixed(2)}
             </div>
             <p className="text-xs">
               <span className={commissionChange >= 0 ? 'text-green-500' : 'text-red-500'}>
@@ -688,7 +696,7 @@ export default function Dashboard() {
                       <span className="font-medium">{area.name}</span>
                       <div className="flex items-center gap-4 text-muted-foreground">
                         <span>{area.trips} trips</span>
-                        <span className="font-semibold text-foreground">£{area.revenue.toFixed(2)}</span>
+                        <span className="font-semibold text-foreground">{getCurrencySymbol(area.currency_code)}{area.revenue.toFixed(2)}</span>
                       </div>
                     </div>
                     <div className="h-2 rounded-full bg-muted overflow-hidden">
@@ -698,7 +706,7 @@ export default function Dashboard() {
                       />
                     </div>
                     <div className="flex justify-end">
-                      <span className="text-xs text-muted-foreground">Commission: £{area.commission.toFixed(2)}</span>
+                      <span className="text-xs text-muted-foreground">Commission: {getCurrencySymbol(area.currency_code)}{area.commission.toFixed(2)}</span>
                     </div>
                   </div>
                 );
