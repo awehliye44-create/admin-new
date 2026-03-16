@@ -130,7 +130,7 @@ const defaultSettings: DispatchSettings = {
   simulateMode: false,
   blockMultipleActiveRides: false,
   cancelProtection: false,
-  driverFareDisplay: 'net_earnings',
+  driverFareDisplay: 'smart_display',
 };
 
 interface ServiceArea {
