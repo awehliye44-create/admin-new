@@ -24,7 +24,9 @@ import {
   Percent,
   Timer,
   Loader2,
-  CheckCircle2
+  CheckCircle2,
+  MapPin,
+  Banknote
 } from 'lucide-react';
 import { DriverTiersConfig } from '@/components/dispatch/DriverTiersConfig';
 import { toast } from 'sonner';
