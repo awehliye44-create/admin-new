@@ -126,22 +126,7 @@ serve(async (req) => {
 
     // If not set, calculate from driver tier commission (single source of truth)
     if (commissionPence <= 0) {
-      let commissionPercentage = 20; // default fallback only if no tier assigned
-
-      const { data: driverData } = await supabase
-        .from('drivers')
-        .select('category_id')
-        .eq('id', trip.driver_id)
-        .single();
-
-      if (driverData?.category_id) {
-        const { data: cat } = await supabase
-          .from('driver_categories')
-          .select('commission_pct')
-          .eq('id', driverData.category_id)
-          .single();
-        if (cat?.commission_pct != null) commissionPercentage = cat.commission_pct;
-      }
+      const commissionPercentage = await getDriverCommissionPct(supabase, trip.driver_id);
 
       commissionPence = Math.round(totalGrossPence * commissionPercentage / 100);
       commissionPence = Math.max(0, Math.min(commissionPence, totalGrossPence));
