@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,11 +14,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,17 +31,15 @@ import {
   Save, 
   Loader2, 
   Car, 
-  ChevronUp, 
-  ChevronDown,
-  Plus, 
-  Trash2, 
   Ban,
   Banknote,
   AlertCircle,
   Users,
   FileText,
   Globe,
-  Calculator
+  Calculator,
+  Info,
+  ShieldAlert
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ServiceAreaPaymentConfig } from '@/components/payment/ServiceAreaPaymentConfig';
@@ -54,36 +47,18 @@ import { getCurrencySymbol } from '@/lib/regionSettings';
 import { PresetOffersConfig } from '@/components/pricing/PresetOffersConfig';
 import { FareEngineConfig } from '@/components/pricing/FareEngineConfig';
 
-interface VehicleType {
+interface ServiceArea {
   id: string;
   name: string;
-  slug: string;
-  description: string | null;
-  display_order: number;
+  region_id: string;
   is_active: boolean;
-}
-
-interface PricingTier {
-  from_km?: number;
-  from_min?: number;
-  rate: number;
-}
-
-interface VehiclePricing {
-  id?: string;
-  vehicle_type_id: string;
-  is_enabled: boolean;
-  base_fare: number;
-  minimum_fare: number;
-  currency_code: string;
-  distance_pricing: PricingTier[];
-  time_pricing: PricingTier[];
-  isExpanded?: boolean;
-}
-
-interface WaitingCharges {
-  pickup_waiting_charges: PricingTier[];
-  stops_waiting_charges: PricingTier[];
+  per_booking_fee_enabled: boolean;
+  per_booking_fee_pence: number;
+  region?: { 
+    name: string;
+    currency_code: string;
+    distance_unit: string;
+  };
 }
 
 interface CancellationFees {
@@ -93,22 +68,6 @@ interface CancellationFees {
   currency_code: string;
 }
 
-interface ServiceArea {
-  id: string;
-  name: string;
-  region_id: string;
-  is_active: boolean;
-  per_booking_fee_enabled: boolean;
-  per_booking_fee_pence: number;
-  pickup_waiting_charges: PricingTier[] | null;
-  stops_waiting_charges: PricingTier[] | null;
-  region?: { 
-    name: string;
-    currency_code: string;
-    distance_unit: string;
-  };
-}
-
 export default function ServiceAreaPricing() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -116,17 +75,11 @@ export default function ServiceAreaPricing() {
 
   const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
   const [selectedServiceAreaId, setSelectedServiceAreaId] = useState<string>(serviceAreaIdFromParams || '');
-  const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
-  const [vehiclePricing, setVehiclePricing] = useState<Record<string, VehiclePricing>>({});
   const [cancellationFees, setCancellationFees] = useState<CancellationFees>({
     free_cancellation_window_minutes: 5,
     cancellation_fee: 5,
     no_show_fee: 10,
     currency_code: 'GBP',
-  });
-  const [waitingCharges, setWaitingCharges] = useState<WaitingCharges>({
-    pickup_waiting_charges: [{ from_min: 0, rate: 0.2 }],
-    stops_waiting_charges: [{ from_min: 0, rate: 0.3 }],
   });
   
   const [isLoading, setIsLoading] = useState(true);
@@ -134,59 +87,34 @@ export default function ServiceAreaPricing() {
   const [hasChanges, setHasChanges] = useState(false);
 
   const selectedServiceArea = serviceAreas.find(sa => sa.id === selectedServiceAreaId);
-  
-  // Get region settings with fallbacks
   const regionCurrency = selectedServiceArea?.region?.currency_code || 'GBP';
-  const regionDistanceUnit = selectedServiceArea?.region?.distance_unit || 'mile';
-  const distanceLabel = regionDistanceUnit === 'km' ? 'km' : 'mi';
 
   useEffect(() => {
     fetchInitialData();
   }, []);
 
   useEffect(() => {
-    if (selectedServiceAreaId && vehicleTypes.length > 0) {
+    if (selectedServiceAreaId) {
       fetchPricingData(selectedServiceAreaId);
-      // Load waiting charges from the selected service area
-      const sa = serviceAreas.find(s => s.id === selectedServiceAreaId);
-      if (sa) {
-        setWaitingCharges({
-          pickup_waiting_charges: sa.pickup_waiting_charges || [{ from_min: 0, rate: 0.2 }],
-          stops_waiting_charges: sa.stops_waiting_charges || [{ from_min: 0, rate: 0.3 }],
-        });
-      }
     }
-  }, [selectedServiceAreaId, vehicleTypes]);
+  }, [selectedServiceAreaId]);
 
   const fetchInitialData = async () => {
     try {
       setIsLoading(true);
-      const [areasRes, typesRes] = await Promise.all([
-        supabase
-          .from('service_areas')
-          .select('id, name, region_id, is_active, per_booking_fee_enabled, per_booking_fee_pence, pickup_waiting_charges, stops_waiting_charges, region:regions(name, currency_code, distance_unit)')
-          .order('name'),
-        supabase
-          .from('vehicle_types')
-          .select('*')
-          .eq('is_active', true)
-          .order('display_order'),
-      ]);
+      const { data, error } = await supabase
+        .from('service_areas')
+        .select('id, name, region_id, is_active, per_booking_fee_enabled, per_booking_fee_pence, region:regions(name, currency_code, distance_unit)')
+        .order('name');
 
-      if (areasRes.error) throw areasRes.error;
-      if (typesRes.error) throw typesRes.error;
+      if (error) throw error;
 
-      setServiceAreas((areasRes.data || []).map((sa: any) => ({
-        ...sa,
-        pickup_waiting_charges: (sa.pickup_waiting_charges as PricingTier[] | null),
-        stops_waiting_charges: (sa.stops_waiting_charges as PricingTier[] | null),
-      })));
-      setVehicleTypes(typesRes.data || []);
+      setServiceAreas(data || []);
 
-      if (serviceAreaIdFromParams && areasRes.data?.some(sa => sa.id === serviceAreaIdFromParams)) {
+      if (serviceAreaIdFromParams && data?.some(sa => sa.id === serviceAreaIdFromParams)) {
         setSelectedServiceAreaId(serviceAreaIdFromParams);
-      } else if (areasRes.data && areasRes.data.length > 0) {
-        setSelectedServiceAreaId(areasRes.data[0].id);
+      } else if (data && data.length > 0) {
+        setSelectedServiceAreaId(data[0].id);
       }
     } catch (err) {
       console.error('Error fetching data:', err);
@@ -198,66 +126,22 @@ export default function ServiceAreaPricing() {
 
   const fetchPricingData = async (serviceAreaId: string) => {
     try {
-      const [pricingRes, feesRes] = await Promise.all([
-        supabase
-          .from('service_area_vehicle_pricing')
-          .select('*')
-          .eq('service_area_id', serviceAreaId),
-        supabase
-          .from('service_area_cancellation_fees')
-          .select('*')
-          .eq('service_area_id', serviceAreaId)
-          .single(),
-      ]);
+      const { data: feesData } = await supabase
+        .from('service_area_cancellation_fees')
+        .select('*')
+        .eq('service_area_id', serviceAreaId)
+        .single();
 
-      // Build pricing map
-      const pricingMap: Record<string, VehiclePricing> = {};
-      vehicleTypes.forEach(vt => {
-        const existingPricing = pricingRes.data?.find(p => p.vehicle_type_id === vt.id);
-        if (existingPricing) {
-          pricingMap[vt.id] = {
-            id: existingPricing.id,
-            vehicle_type_id: vt.id,
-            is_enabled: existingPricing.is_enabled,
-            base_fare: Number(existingPricing.base_fare),
-            minimum_fare: Number(existingPricing.minimum_fare),
-            currency_code: existingPricing.currency_code,
-            distance_pricing: (existingPricing.distance_pricing as unknown as PricingTier[]) || [{ from_km: 0, rate: 1.5 }],
-            time_pricing: (existingPricing.time_pricing as unknown as PricingTier[]) || [{ from_min: 0, rate: 0.25 }],
-            isExpanded: existingPricing.is_enabled,
-          };
-        } else {
-          // Get region currency for defaults
-          const serviceArea = serviceAreas.find(sa => sa.id === serviceAreaId);
-          const defaultCurrency = serviceArea?.region?.currency_code || 'GBP';
-          
-          pricingMap[vt.id] = {
-            vehicle_type_id: vt.id,
-            is_enabled: false,
-            base_fare: 3,
-            minimum_fare: 5,
-            currency_code: defaultCurrency,
-            distance_pricing: [{ from_km: 0, rate: 1.5 }],
-            time_pricing: [{ from_min: 0, rate: 0.25 }],
-            isExpanded: false,
-          };
-        }
-      });
-      setVehiclePricing(pricingMap);
-
-      // Set cancellation fees
-      if (feesRes.data) {
+      if (feesData) {
         setCancellationFees({
-          free_cancellation_window_minutes: feesRes.data.free_cancellation_window_minutes,
-          cancellation_fee: Number(feesRes.data.cancellation_fee),
-          no_show_fee: Number(feesRes.data.no_show_fee),
-          currency_code: feesRes.data.currency_code,
+          free_cancellation_window_minutes: feesData.free_cancellation_window_minutes,
+          cancellation_fee: Number(feesData.cancellation_fee),
+          no_show_fee: Number(feesData.no_show_fee),
+          currency_code: feesData.currency_code,
         });
       } else {
-        // Get region currency for defaults
         const serviceArea = serviceAreas.find(sa => sa.id === serviceAreaId);
         const defaultCurrency = serviceArea?.region?.currency_code || 'GBP';
-        
         setCancellationFees({
           free_cancellation_window_minutes: 5,
           cancellation_fee: 5,
@@ -270,93 +154,6 @@ export default function ServiceAreaPricing() {
     } catch (err) {
       console.error('Error fetching pricing:', err);
     }
-  };
-
-  const toggleVehicleEnabled = (vehicleTypeId: string) => {
-    setVehiclePricing(prev => ({
-      ...prev,
-      [vehicleTypeId]: {
-        ...prev[vehicleTypeId],
-        is_enabled: !prev[vehicleTypeId].is_enabled,
-        isExpanded: !prev[vehicleTypeId].is_enabled,
-      },
-    }));
-    setHasChanges(true);
-  };
-
-  const toggleExpanded = (vehicleTypeId: string) => {
-    setVehiclePricing(prev => ({
-      ...prev,
-      [vehicleTypeId]: {
-        ...prev[vehicleTypeId],
-        isExpanded: !prev[vehicleTypeId].isExpanded,
-      },
-    }));
-  };
-
-  const updatePricing = (vehicleTypeId: string, field: keyof VehiclePricing, value: any) => {
-    setVehiclePricing(prev => ({
-      ...prev,
-      [vehicleTypeId]: {
-        ...prev[vehicleTypeId],
-        [field]: value,
-      },
-    }));
-    setHasChanges(true);
-  };
-
-  const addPricingTier = (vehicleTypeId: string, field: 'distance_pricing' | 'time_pricing') => {
-    const pricing = vehiclePricing[vehicleTypeId];
-    const tiers = [...pricing[field]];
-    const lastTier = tiers[tiers.length - 1];
-    
-    if (field === 'distance_pricing') {
-      tiers.push({ from_km: (lastTier?.from_km || 0) + 5, rate: lastTier?.rate || 1.5 });
-    } else {
-      tiers.push({ from_min: (lastTier?.from_min || 0) + 5, rate: lastTier?.rate || 0.25 });
-    }
-    
-    updatePricing(vehicleTypeId, field, tiers);
-  };
-
-  const removePricingTier = (vehicleTypeId: string, field: 'distance_pricing' | 'time_pricing', index: number) => {
-    const pricing = vehiclePricing[vehicleTypeId];
-    const tiers = pricing[field].filter((_, i) => i !== index);
-    updatePricing(vehicleTypeId, field, tiers);
-  };
-
-  const updatePricingTier = (
-    vehicleTypeId: string, 
-    field: 'distance_pricing' | 'time_pricing', 
-    index: number, 
-    tierField: string, 
-    value: number
-  ) => {
-    const pricing = vehiclePricing[vehicleTypeId];
-    const tiers = [...pricing[field]];
-    tiers[index] = { ...tiers[index], [tierField]: value };
-    updatePricing(vehicleTypeId, field, tiers);
-  };
-
-  const addWaitingTier = (field: 'pickup_waiting_charges' | 'stops_waiting_charges') => {
-    const tiers = [...waitingCharges[field]];
-    const lastTier = tiers[tiers.length - 1];
-    tiers.push({ from_min: (lastTier?.from_min || 0) + 5, rate: lastTier?.rate || 0.25 });
-    setWaitingCharges(prev => ({ ...prev, [field]: tiers }));
-    setHasChanges(true);
-  };
-
-  const removeWaitingTier = (field: 'pickup_waiting_charges' | 'stops_waiting_charges', index: number) => {
-    const tiers = waitingCharges[field].filter((_, i) => i !== index);
-    setWaitingCharges(prev => ({ ...prev, [field]: tiers }));
-    setHasChanges(true);
-  };
-
-  const updateWaitingTier = (field: 'pickup_waiting_charges' | 'stops_waiting_charges', index: number, tierField: string, value: number) => {
-    const tiers = [...waitingCharges[field]];
-    tiers[index] = { ...tiers[index], [tierField]: value };
-    setWaitingCharges(prev => ({ ...prev, [field]: tiers }));
-    setHasChanges(true);
   };
 
   const updatePerBookingFee = (field: 'per_booking_fee_enabled' | 'per_booking_fee_pence', value: boolean | number) => {
@@ -380,57 +177,8 @@ export default function ServiceAreaPricing() {
           .update({
             per_booking_fee_enabled: selectedServiceArea.per_booking_fee_enabled,
             per_booking_fee_pence: selectedServiceArea.per_booking_fee_pence,
-            pickup_waiting_charges: JSON.parse(JSON.stringify(waitingCharges.pickup_waiting_charges)),
-            stops_waiting_charges: JSON.parse(JSON.stringify(waitingCharges.stops_waiting_charges)),
           })
           .eq('id', selectedServiceAreaId);
-      }
-
-      // Save vehicle pricing
-      for (const [vehicleTypeId, pricing] of Object.entries(vehiclePricing)) {
-        if (pricing.is_enabled) {
-          const data: Record<string, unknown> = {
-            service_area_id: selectedServiceAreaId,
-            vehicle_type_id: vehicleTypeId,
-            is_enabled: pricing.is_enabled,
-            base_fare: pricing.base_fare,
-            minimum_fare: pricing.minimum_fare,
-            currency_code: pricing.currency_code,
-            distance_pricing: JSON.parse(JSON.stringify(pricing.distance_pricing)),
-            time_pricing: JSON.parse(JSON.stringify(pricing.time_pricing)),
-          };
-
-          if (pricing.id) {
-            await supabase
-              .from('service_area_vehicle_pricing')
-              .update(data as any)
-              .eq('id', pricing.id);
-          } else {
-            const { data: newPricing } = await supabase
-              .from('service_area_vehicle_pricing')
-              .insert(data as any)
-              .select()
-              .single();
-            
-            if (newPricing) {
-              setVehiclePricing(prev => ({
-                ...prev,
-                [vehicleTypeId]: { ...prev[vehicleTypeId], id: newPricing.id },
-              }));
-            }
-          }
-        } else if (pricing.id) {
-          // Delete if disabled and exists
-          await supabase
-            .from('service_area_vehicle_pricing')
-            .delete()
-            .eq('id', pricing.id);
-          
-          setVehiclePricing(prev => ({
-            ...prev,
-            [vehicleTypeId]: { ...prev[vehicleTypeId], id: undefined },
-          }));
-        }
       }
 
       // Save cancellation fees
@@ -466,8 +214,6 @@ export default function ServiceAreaPricing() {
     }
   };
 
-  // getCurrencySymbol imported from regionSettings
-
   if (isLoading) {
     return (
       <AdminLayout title="Services" description="Loading...">
@@ -481,13 +227,13 @@ export default function ServiceAreaPricing() {
   return (
     <AdminLayout 
       title="Services" 
-      description="Service Areas › Services"
+      description="Service Areas › Pricing & Fares"
     >
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div className="flex items-center gap-4">
           <p className="text-sm text-muted-foreground">
-            Create a new service area with pricing per vehicle type
+            Configure pricing for each service area. <strong>Fare Engine</strong> is the single source of truth for all fare calculations.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -518,230 +264,53 @@ export default function ServiceAreaPricing() {
         </div>
       </div>
 
+      {/* Fare Engine Authority Banner */}
+      <div className="mb-6 flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
+        <Calculator className="h-5 w-5 text-primary mt-0.5 shrink-0" />
+        <div>
+          <p className="font-semibold text-sm text-foreground">Fare Engine is the single source of truth</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            All fare calculations — for the Customer App, Driver App, Corporate Portal, and Admin Panel — are powered exclusively by the Fare Engine.
+            Vehicle Types define metadata only (name, icon, capacity, features) and do not control pricing.
+          </p>
+        </div>
+      </div>
+
       {/* Main Tabs */}
-      <Tabs defaultValue="vehicle-pricing" className="space-y-6">
+      <Tabs defaultValue="fare-engine" className="space-y-6">
         <TabsList>
-          <TabsTrigger value="vehicle-pricing" className="flex items-center gap-2">
-            <Car className="h-4 w-4" />
-            Vehicle Pricing
-          </TabsTrigger>
           <TabsTrigger value="fare-engine" className="flex items-center gap-2">
             <Calculator className="h-4 w-4" />
             Fare Engine
+            <Badge variant="default" className="ml-1 text-[10px] px-1.5 py-0">PRIMARY</Badge>
+          </TabsTrigger>
+          <TabsTrigger value="fees" className="flex items-center gap-2">
+            <Ban className="h-4 w-4" />
+            Fees & Charges
+          </TabsTrigger>
+          <TabsTrigger value="offers" className="flex items-center gap-2">
+            <Banknote className="h-4 w-4" />
+            Offers & Payment
+          </TabsTrigger>
+          <TabsTrigger value="assignments" className="flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            Assignments
           </TabsTrigger>
         </TabsList>
 
-        {/* Vehicle Pricing Tab */}
-        <TabsContent value="vehicle-pricing" className="space-y-6">
-          {/* Vehicle Types Pricing */}
-          <Card>
-            <CardContent className="p-6 space-y-4">
-              {vehicleTypes.map(vt => {
-                const pricing = vehiclePricing[vt.id];
-                if (!pricing) return null;
-
-                if (!pricing.is_enabled) {
-                  return (
-                    <div 
-                      key={vt.id} 
-                      className="flex items-center justify-between p-4 border rounded-lg bg-muted/30"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-muted rounded-lg flex items-center justify-center">
-                          <Car className="h-5 w-5 text-muted-foreground" />
-                        </div>
-                        <div>
-                          <p className="font-medium">{vt.name}</p>
-                          <p className="text-sm text-muted-foreground">{vt.slug}</p>
-                        </div>
-                      </div>
-                      <Button variant="outline" onClick={() => toggleVehicleEnabled(vt.id)}>
-                        <Plus className="mr-2 h-4 w-4" />
-                        Enable
-                      </Button>
-                    </div>
-                  );
-                }
-
-                return (
-                  <Collapsible key={vt.id} open={pricing.isExpanded} onOpenChange={() => toggleExpanded(vt.id)}>
-                    <div className="border rounded-lg overflow-hidden">
-                      {/* Header */}
-                      <div className="flex items-center justify-between p-4 bg-muted/30">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
-                            <Car className="h-5 w-5 text-primary" />
-                          </div>
-                          <div>
-                            <p className="font-medium">{vt.name}</p>
-                            <p className="text-sm text-muted-foreground">{vt.slug}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <Badge variant="outline" className="bg-primary/5">
-                            {getCurrencySymbol(regionCurrency)}{pricing.base_fare.toFixed(2)} base
-                          </Badge>
-                          <Badge variant="outline" className="bg-muted">
-                            {getCurrencySymbol(regionCurrency)}{(pricing.distance_pricing[0]?.rate || 0).toFixed(2)}/{distanceLabel}
-                          </Badge>
-                          <Badge variant="outline" className="bg-muted">
-                            {getCurrencySymbol(regionCurrency)}{(pricing.time_pricing[0]?.rate || 0).toFixed(2)}/min
-                          </Badge>
-                          <CollapsibleTrigger asChild>
-                            <Button variant="ghost" size="sm">
-                              {pricing.isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                              {pricing.isExpanded ? 'Collapse' : 'Expand'}
-                            </Button>
-                          </CollapsibleTrigger>
-                          <Button 
-                            variant="ghost" 
-                            size="icon"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => toggleVehicleEnabled(vt.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-
-                      <CollapsibleContent>
-                        <div className="p-6 space-y-6 border-t">
-                          {/* Base Fare & Minimum Fare */}
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label>Base Fare ({getCurrencySymbol(regionCurrency)})</Label>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                value={pricing.base_fare}
-                                onChange={e => updatePricing(vt.id, 'base_fare', parseFloat(e.target.value) || 0)}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Minimum Fare ({getCurrencySymbol(regionCurrency)})</Label>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                value={pricing.minimum_fare}
-                                onChange={e => updatePricing(vt.id, 'minimum_fare', parseFloat(e.target.value) || 0)}
-                              />
-                            </div>
-                          </div>
-
-                          {/* Fare Breakdown Summary */}
-                          <div className="p-4 bg-muted/30 rounded-lg border">
-                            <p className="text-sm font-medium mb-3">Fare Breakdown Summary</p>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                              <div>
-                                <p className="text-muted-foreground">Base Fare</p>
-                                <p className="font-semibold">{getCurrencySymbol(regionCurrency)}{pricing.base_fare.toFixed(2)}</p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground">Per {distanceLabel}</p>
-                                <p className="font-semibold">{getCurrencySymbol(regionCurrency)}{(pricing.distance_pricing[0]?.rate || 0).toFixed(2)}</p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground">Per Minute</p>
-                                <p className="font-semibold">{getCurrencySymbol(regionCurrency)}{(pricing.time_pricing[0]?.rate || 0).toFixed(2)}</p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground">Minimum Fare</p>
-                                <p className="font-semibold">{getCurrencySymbol(regionCurrency)}{pricing.minimum_fare.toFixed(2)}</p>
-                              </div>
-                            </div>
-                            <div className="mt-3 pt-3 border-t border-border/50">
-                              <p className="text-xs text-muted-foreground">
-                                <span className="font-medium">Commission</span> is calculated from the driver's tier in <span className="font-medium">Driver Categories</span>.
-                              </p>
-                            </div>
-                          </div>
-
-                          {/* Distance Pricing */}
-                          <PricingTierSection
-                            title="Distance Pricing"
-                            description={`Rate per ${distanceLabel} at different distance ranges`}
-                            tiers={pricing.distance_pricing}
-                            fromLabel={`From ${distanceLabel}:`}
-                            fromField="from_km"
-                            rateUnit={`/${distanceLabel}`}
-                            currencySymbol={getCurrencySymbol(regionCurrency)}
-                            onAdd={() => addPricingTier(vt.id, 'distance_pricing')}
-                            onRemove={(index) => removePricingTier(vt.id, 'distance_pricing', index)}
-                            onUpdate={(index, field, value) => updatePricingTier(vt.id, 'distance_pricing', index, field, value)}
-                          />
-
-                          {/* Time Pricing */}
-                          <PricingTierSection
-                            title="Time Pricing"
-                            description="Rate per minute at different duration ranges"
-                            tiers={pricing.time_pricing}
-                            fromLabel="From min:"
-                            fromField="from_min"
-                            rateUnit="/min"
-                            currencySymbol={getCurrencySymbol(regionCurrency)}
-                            onAdd={() => addPricingTier(vt.id, 'time_pricing')}
-                            onRemove={(index) => removePricingTier(vt.id, 'time_pricing', index)}
-                            onUpdate={(index, field, value) => updatePricingTier(vt.id, 'time_pricing', index, field, value)}
-                          />
-                        </div>
-                      </CollapsibleContent>
-                    </div>
-                  </Collapsible>
-                );
-              })}
-            </CardContent>
-          </Card>
-
-          {/* Unified Waiting Time Charges */}
+        {/* Fare Engine Tab (PRIMARY) */}
+        <TabsContent value="fare-engine">
           {selectedServiceAreaId && (
-            <Card>
-              <CardContent className="p-6 space-y-6">
-                <div className="flex items-center gap-2">
-                  <AlertCircle className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <h3 className="text-lg font-semibold">Waiting Time Charges</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Unified waiting time rates applied across all vehicle types in this service area
-                    </p>
-                  </div>
-                </div>
-
-                <PricingTierSection
-                  title="Pickup Waiting Charges"
-                  description="Rate per minute for waiting at pickup location"
-                  tiers={waitingCharges.pickup_waiting_charges}
-                  fromLabel="From min:"
-                  fromField="from_min"
-                  rateUnit="/min"
-                  currencySymbol={getCurrencySymbol(regionCurrency)}
-                  onAdd={() => addWaitingTier('pickup_waiting_charges')}
-                  onRemove={(index) => removeWaitingTier('pickup_waiting_charges', index)}
-                  onUpdate={(index, field, value) => updateWaitingTier('pickup_waiting_charges', index, field, value)}
-                />
-
-                <PricingTierSection
-                  title="Stops Waiting Charges"
-                  description="Rate per minute for waiting at intermediate stops"
-                  tiers={waitingCharges.stops_waiting_charges}
-                  fromLabel="From min:"
-                  fromField="from_min"
-                  rateUnit="/min"
-                  currencySymbol={getCurrencySymbol(regionCurrency)}
-                  onAdd={() => addWaitingTier('stops_waiting_charges')}
-                  onRemove={(index) => removeWaitingTier('stops_waiting_charges', index)}
-                  onUpdate={(index, field, value) => updateWaitingTier('stops_waiting_charges', index, field, value)}
-                />
-
-                <div className="flex items-center gap-2 p-3 bg-muted/50 border rounded-lg">
-                  <AlertCircle className="h-4 w-4 text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground">
-                    <span className="font-semibold">NO grace period</span> – Charging for stops waiting starts immediately at minute 0.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+            <FareEngineConfig 
+              serviceAreaId={selectedServiceAreaId}
+              regionCurrencyCode={regionCurrency}
+            />
           )}
+        </TabsContent>
 
+        {/* Fees & Charges Tab */}
+        <TabsContent value="fees" className="space-y-6">
+          {/* Cancellation & No-Show Fees */}
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center gap-2 mb-4">
@@ -844,7 +413,10 @@ export default function ServiceAreaPricing() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
 
+        {/* Offers & Payment Tab */}
+        <TabsContent value="offers" className="space-y-6">
           {/* Preset Fare Offers */}
           {selectedServiceAreaId && (
             <PresetOffersConfig
@@ -860,8 +432,10 @@ export default function ServiceAreaPricing() {
               serviceAreaName={selectedServiceArea?.name}
             />
           )}
+        </TabsContent>
 
-          {/* Service Area Assignments */}
+        {/* Assignments Tab */}
+        <TabsContent value="assignments">
           <Card>
             <CardContent className="p-6">
               <h3 className="text-lg font-semibold mb-2">Service Area Assignments</h3>
@@ -894,94 +468,7 @@ export default function ServiceAreaPricing() {
             </CardContent>
           </Card>
         </TabsContent>
-
-        {/* Fare Engine Tab */}
-        <TabsContent value="fare-engine">
-          {selectedServiceAreaId && (
-            <FareEngineConfig 
-              serviceAreaId={selectedServiceAreaId}
-              regionCurrencyCode={regionCurrency}
-            />
-          )}
-        </TabsContent>
       </Tabs>
     </AdminLayout>
-  );
-}
-
-// Pricing Tier Section Component
-interface PricingTierSectionProps {
-  title: string;
-  description: string;
-  tiers: PricingTier[];
-  fromLabel: string;
-  fromField: 'from_km' | 'from_min';
-  rateUnit: string;
-  currencySymbol: string;
-  onAdd: () => void;
-  onRemove: (index: number) => void;
-  onUpdate: (index: number, field: string, value: number) => void;
-}
-
-function PricingTierSection({ 
-  title, 
-  description, 
-  tiers, 
-  fromLabel, 
-  fromField, 
-  rateUnit,
-  currencySymbol,
-  onAdd, 
-  onRemove, 
-  onUpdate 
-}: PricingTierSectionProps) {
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="font-medium">{title}</p>
-          <p className="text-sm text-muted-foreground">{description}</p>
-        </div>
-        <Button variant="outline" size="sm" onClick={onAdd}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add
-        </Button>
-      </div>
-      
-      {tiers.map((tier, index) => (
-        <div key={index} className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground w-16">{fromLabel}</span>
-            <Input
-              type="number"
-              className="w-24"
-              value={tier[fromField] ?? 0}
-              onChange={e => onUpdate(index, fromField, parseFloat(e.target.value) || 0)}
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Rate:</span>
-            <span className="text-sm font-medium">{currencySymbol}</span>
-            <Input
-              type="number"
-              step="0.01"
-              className="w-24"
-              value={tier.rate}
-              onChange={e => onUpdate(index, 'rate', parseFloat(e.target.value) || 0)}
-            />
-            <span className="text-sm text-muted-foreground">{rateUnit}</span>
-          </div>
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={() => onRemove(index)}
-            disabled={tiers.length === 1}
-            className="text-muted-foreground hover:text-destructive"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-      ))}
-    </div>
   );
 }

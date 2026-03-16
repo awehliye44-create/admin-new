@@ -454,8 +454,19 @@ export default function VehicleTypes() {
   return (
     <AdminLayout
       title="Vehicle Types"
-      description="Manage vehicle categories available for booking"
+      description="Manage vehicle metadata — name, icon, capacity, and features"
     >
+      {/* Fare Engine Authority Notice */}
+      <div className="mb-6 flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
+        <Zap className="h-5 w-5 text-primary mt-0.5 shrink-0" />
+        <div>
+          <p className="font-semibold text-sm text-foreground">Pricing is controlled by the Fare Engine</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Vehicle Types define metadata only (name, icon, capacity, features). All fare calculations are managed exclusively in the <strong>Fare Engine</strong> under Service Area Pricing.
+          </p>
+        </div>
+      </div>
+
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <Card>
