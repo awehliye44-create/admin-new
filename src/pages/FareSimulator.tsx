@@ -102,6 +102,7 @@ export default function FareSimulator() {
 
   const [formData, setFormData] = useState({
     service_area_id: "",
+    vehicle_type_id: "",
     distance_km: 5,
     duration_minutes: 15,
     waiting_minutes: 0,
