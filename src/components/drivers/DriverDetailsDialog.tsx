@@ -812,8 +812,11 @@ export function DriverDetailsDialog({
                 </p>
 
                 {(() => {
-                  const enabledTypes = vehicleTypes.filter(vt => isCategoryEnabled(vt.id));
-                  const disabledTypes = vehicleTypes.filter(vt => !isCategoryEnabled(vt.id));
+                  // Filter out default types (ONECAB) - they're always assigned automatically
+                  const assignableTypes = vehicleTypes.filter(vt => !vt.is_default);
+                  const defaultTypes = vehicleTypes.filter(vt => vt.is_default);
+                  const enabledTypes = assignableTypes.filter(vt => isCategoryEnabled(vt.id));
+                  const disabledTypes = assignableTypes.filter(vt => !isCategoryEnabled(vt.id));
 
                   return (
                     <>
