@@ -114,7 +114,7 @@ const App = () => (
               <Route path="zone-pricing" element={<ZonePricing />} />
               
               
-              <Route path="corporate-fares" element={<CorporateFares />} />
+              
               <Route path="fare-simulator" element={<FareSimulator />} />
               
               {/* Airports & Terminals */}
