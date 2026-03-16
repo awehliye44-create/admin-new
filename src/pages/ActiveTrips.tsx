@@ -97,6 +97,9 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }>
   accepted: { label: 'Accepted', color: 'bg-purple-100 text-purple-700 border-purple-200', icon: CheckCircle2 },
   arrived: { label: 'Arrived', color: 'bg-indigo-100 text-indigo-700 border-indigo-200', icon: MapPin },
   in_progress: { label: 'In Progress', color: 'bg-amber-100 text-amber-700 border-amber-200', icon: Car },
+  started: { label: 'Started', color: 'bg-amber-100 text-amber-700 border-amber-200', icon: Play },
+  on_trip: { label: 'On Trip', color: 'bg-orange-100 text-orange-700 border-orange-200', icon: Navigation },
+  ongoing: { label: 'Ongoing', color: 'bg-orange-100 text-orange-700 border-orange-200', icon: Navigation },
   completed: { label: 'Completed', color: 'bg-green-100 text-green-700 border-green-200', icon: CheckCircle2 },
   cancelled: { label: 'Cancelled', color: 'bg-red-100 text-red-700 border-red-200', icon: XCircle },
 };
