@@ -941,34 +941,7 @@ export default function Dashboard() {
       </div>
 
       {/* Quick Actions */}
-      <div className="mt-6">
-        <h3 className="text-lg font-semibold mb-4">Quick Actions</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
-          {[
-            { icon: Send, label: 'Dispatch', path: '/dispatch', color: 'text-blue-500', bg: 'bg-blue-500/10' },
-            { icon: UserPlus, label: 'Add Driver', path: '/drivers', color: 'text-green-500', bg: 'bg-green-500/10' },
-            { icon: Route, label: 'Active Trips', path: '/active-trips', color: 'text-amber-500', bg: 'bg-amber-500/10' },
-            { icon: CreditCard, label: 'Payments', path: '/payments', color: 'text-purple-500', bg: 'bg-purple-500/10' },
-            { icon: FileText, label: 'Documents', path: '/documents', color: 'text-cyan-500', bg: 'bg-cyan-500/10' },
-            { icon: AlertTriangle, label: 'Disputes', path: '/disputes', color: 'text-red-500', bg: 'bg-red-500/10' },
-            { icon: BarChart3, label: 'Trip History', path: '/trip-history', color: 'text-indigo-500', bg: 'bg-indigo-500/10' },
-            { icon: Settings, label: 'Settings', path: '/settings', color: 'text-muted-foreground', bg: 'bg-muted' },
-          ].map((action) => (
-            <button
-              key={action.path}
-              onClick={() => navigate(action.path)}
-              className="flex flex-col items-center gap-2 p-4 rounded-xl border bg-card hover:bg-accent/50 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 group"
-            >
-              <div className={cn("flex items-center justify-center w-10 h-10 rounded-lg transition-colors", action.bg)}>
-                <action.icon className={cn("h-5 w-5", action.color)} />
-              </div>
-              <span className="text-xs font-medium text-muted-foreground group-hover:text-foreground transition-colors">
-                {action.label}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
+      <QuickActionsPanel navigate={navigate} />
     </AdminLayout>
   );
 }
