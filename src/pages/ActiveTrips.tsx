@@ -399,6 +399,9 @@ export default function ActiveTrips() {
                 <SelectItem value="accepted">Accepted</SelectItem>
                 <SelectItem value="arrived">Arrived</SelectItem>
                 <SelectItem value="in_progress">In Progress</SelectItem>
+                <SelectItem value="started">Started</SelectItem>
+                <SelectItem value="on_trip">On Trip</SelectItem>
+                <SelectItem value="ongoing">Ongoing</SelectItem>
               </SelectContent>
             </Select>
             <Button variant="outline" onClick={fetchData} disabled={isLoading}>
