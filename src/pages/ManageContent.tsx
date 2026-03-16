@@ -314,6 +314,9 @@ export default function ManageContent() {
             <TabsTrigger value="corporate" className="gap-1.5">
               <Building2 className="h-3.5 w-3.5" /> Corporate Page
             </TabsTrigger>
+            <TabsTrigger value="legal" className="gap-1.5">
+              <Scale className="h-3.5 w-3.5" /> Legal Content
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="contact">
