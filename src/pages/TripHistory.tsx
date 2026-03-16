@@ -105,6 +105,7 @@ interface CompletedTrip {
   driver_location_lat: number | null;
   driver_location_lng: number | null;
   stripe_payment_intent_id: string | null;
+  stacked_trip_id: string | null;
   driver?: {
     id: string;
     first_name: string;
@@ -860,7 +861,7 @@ export default function TripHistory() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1">
+                      <div className="flex flex-wrap items-center gap-1">
                         <Badge variant="outline" className="bg-blue-500/10 text-blue-600">
                           {getIntermediateStopsCount(trip)}
                         </Badge>
@@ -868,6 +869,11 @@ export default function TripHistory() {
                           <span className="text-xs text-muted-foreground">
                             via {getIntermediateStopsCount(trip)} stop{getIntermediateStopsCount(trip) > 1 ? 's' : ''}
                           </span>
+                        )}
+                        {trip.stacked_trip_id && (
+                          <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-300 text-[10px]">
+                            ⚡ Stacked
+                          </Badge>
                         )}
                       </div>
                     </TableCell>
@@ -951,6 +957,11 @@ export default function TripHistory() {
                   <CheckCircle className="h-3 w-3 mr-1" />
                   Completed
                 </Badge>
+                {selectedTrip.stacked_trip_id && (
+                  <Badge variant="outline" className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
+                    ⚡ Stacked Ride
+                  </Badge>
+                )}
                 {selectedTrip.payment_method && (
                   <Badge variant="secondary">
                     {selectedTrip.payment_method}
