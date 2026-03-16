@@ -2607,6 +2607,7 @@ export type Database = {
           profile_photo_url: string | null
           rating: number | null
           region_id: string
+          service_area_id: string | null
           speed: number | null
           stripe_account_id: string | null
           total_trips: number | null
@@ -2642,6 +2643,7 @@ export type Database = {
           profile_photo_url?: string | null
           rating?: number | null
           region_id: string
+          service_area_id?: string | null
           speed?: number | null
           stripe_account_id?: string | null
           total_trips?: number | null
@@ -2677,6 +2679,7 @@ export type Database = {
           profile_photo_url?: string | null
           rating?: number | null
           region_id?: string
+          service_area_id?: string | null
           speed?: number | null
           stripe_account_id?: string | null
           total_trips?: number | null
@@ -2712,6 +2715,13 @@ export type Database = {
             columns: ["region_id"]
             isOneToOne: false
             referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drivers_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
             referencedColumns: ["id"]
           },
         ]
@@ -5733,6 +5743,7 @@ export type Database = {
           refund_amount_pence: number | null
           refund_reason: string | null
           refunded_at: string | null
+          region_id: string | null
           scheduled_accepted_at: string | null
           scheduled_at: string | null
           scheduled_broadcast_at: string | null
@@ -5858,6 +5869,7 @@ export type Database = {
           refund_amount_pence?: number | null
           refund_reason?: string | null
           refunded_at?: string | null
+          region_id?: string | null
           scheduled_accepted_at?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
@@ -5983,6 +5995,7 @@ export type Database = {
           refund_amount_pence?: number | null
           refund_reason?: string | null
           refunded_at?: string | null
+          region_id?: string | null
           scheduled_accepted_at?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
@@ -6151,6 +6164,13 @@ export type Database = {
             columns: ["pre_assigned_driver_id"]
             isOneToOne: false
             referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
             referencedColumns: ["id"]
           },
           {
@@ -7045,6 +7065,10 @@ export type Database = {
         Args: { p_service_area_id: string; p_trip_id: string }
         Returns: Json
       }
+      can_corporate_user_view_driver: {
+        Args: { p_driver_id: string; p_user_id: string }
+        Returns: boolean
+      }
       can_driver_edit_vehicle: {
         Args: { p_driver_id: string }
         Returns: boolean
@@ -7083,6 +7107,7 @@ export type Database = {
       }
       current_customer_id: { Args: never; Returns: string }
       current_driver_id: { Args: never; Returns: string }
+      current_driver_profile_id: { Args: never; Returns: string }
       decline_ride_offer:
         | { Args: { p_driver_id: string; p_offer_id: string }; Returns: Json }
         | {
