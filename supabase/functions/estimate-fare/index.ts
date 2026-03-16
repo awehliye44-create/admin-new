@@ -1,0 +1,96 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { FareEngine, type FarePricingSettings } from "../_shared/fareEngine.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+};
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, serviceKey);
+
+    const body = await req.json();
+    const {
+      service_area_id,
+      estimated_distance_km,
+      estimated_duration_min,
+      vehicle_type_id,
+      stops_count = 0,
+    } = body;
+
+    if (!service_area_id || estimated_distance_km == null || estimated_duration_min == null) {
+      return new Response(
+        JSON.stringify({ error: "Missing required fields: service_area_id, estimated_distance_km, estimated_duration_min" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Fetch fare pricing settings for the service area
+    const { data: settings, error: settingsError } = await supabase
+      .from("fare_pricing_settings")
+      .select("*")
+      .eq("service_area_id", service_area_id)
+      .single();
+
+    if (settingsError || !settings) {
+      return new Response(
+        JSON.stringify({ error: "Fare pricing settings not found for this service area" }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const engine = new FareEngine(settings as FarePricingSettings);
+
+    const breakdown = engine.estimateFare({
+      estimated_distance_km,
+      estimated_duration_min,
+      stops_count,
+    });
+
+    // Build rider message based on pricing mode
+    const riderMessage =
+      settings.pricing_mode === "fixed"
+        ? "Fixed fare confirmed. Your fare will not change due to route differences. Extra charges apply only for waiting time, added stops, or destination changes."
+        : "Your fare is estimated and may change based on actual distance, time, and demand conditions.";
+
+    return new Response(
+      JSON.stringify({
+        pricingMode: settings.pricing_mode,
+        currencyCode: settings.currency_code,
+        quotedFarePence: breakdown.quoted_fare_pence,
+        estimatedDistanceKm: estimated_distance_km,
+        estimatedDurationMin: estimated_duration_min,
+        fareBreakdown: {
+          baseFarePence: breakdown.base_fare_pence,
+          distanceChargePence: breakdown.distance_charge_pence,
+          timeChargePence: breakdown.time_charge_pence,
+          bookingFeePence: breakdown.booking_fee_pence,
+          subtotalPence: breakdown.subtotal_pence,
+          minimumApplied: breakdown.minimum_applied,
+          surgeMultiplier: breakdown.surge_multiplier ?? null,
+          zoneMultiplier: breakdown.zone_multiplier ?? null,
+          trafficMultiplier: breakdown.traffic_multiplier ?? null,
+        },
+        riderMessage,
+        freeWaitingMinutes: settings.free_waiting_minutes,
+        waitingPerMinutePence: settings.waiting_per_minute_pence,
+        extraStopFlatFeePence: settings.extra_stop_flat_fee_pence,
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  } catch (err) {
+    console.error("estimate-fare error:", err);
+    return new Response(
+      JSON.stringify({ error: "Internal server error" }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+});
