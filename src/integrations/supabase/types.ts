@@ -2800,6 +2800,7 @@ export type Database = {
           surge_multiplier_default: number
           traffic_multiplier: number
           updated_at: string
+          vehicle_type_id: string | null
           waiting_per_minute_pence: number
           zone_multiplier: number
         }
@@ -2825,6 +2826,7 @@ export type Database = {
           surge_multiplier_default?: number
           traffic_multiplier?: number
           updated_at?: string
+          vehicle_type_id?: string | null
           waiting_per_minute_pence?: number
           zone_multiplier?: number
         }
@@ -2850,6 +2852,7 @@ export type Database = {
           surge_multiplier_default?: number
           traffic_multiplier?: number
           updated_at?: string
+          vehicle_type_id?: string | null
           waiting_per_minute_pence?: number
           zone_multiplier?: number
         }
@@ -2857,8 +2860,15 @@ export type Database = {
           {
             foreignKeyName: "fare_pricing_settings_service_area_id_fkey"
             columns: ["service_area_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fare_pricing_settings_vehicle_type_id_fkey"
+            columns: ["vehicle_type_id"]
+            isOneToOne: false
+            referencedRelation: "vehicle_types"
             referencedColumns: ["id"]
           },
         ]
