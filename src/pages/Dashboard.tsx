@@ -499,6 +499,11 @@ export default function Dashboard() {
   const revenueChange = calculateChange(stats.totalRevenue, stats.previousRevenue);
   const commissionChange = calculateChange(stats.commissionRevenue, stats.previousCommission);
 
+  // Resolve currency symbol for the selected service area
+  const selectedArea = serviceAreas.find(sa => sa.id === selectedServiceArea);
+  const activeCurrencyCode = (selectedArea?.region as any)?.currency_code || 'GBP';
+  const currencySymbol = getCurrencySymbol(activeCurrencyCode);
+
   const onlineDriversCount = drivers.filter(d => d.is_online).length;
   const onTripCount = drivers.filter(d => d.current_trip_id).length;
   const availableCount = drivers.filter(d => d.is_online && !d.current_trip_id).length;
