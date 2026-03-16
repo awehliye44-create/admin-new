@@ -126,6 +126,7 @@ serve(async (req) => {
     // === Get driver's connected account ===
     let driverStripeAccountId: string | null = null;
     let commissionPercentage = 0;
+    let applicationFeeAmount = 0;
 
     if (trip.driver_id) {
       const { data: driver } = await supabase
@@ -135,10 +136,10 @@ serve(async (req) => {
         .single();
 
       driverStripeAccountId = driver?.stripe_account_id || null;
-      commissionPercentage = await getDriverCommissionPct(supabase, trip.driver_id);
+      const result = await calculateCommission(supabase, trip.driver_id, estimated_fare_pence);
+      commissionPercentage = result.commission_pct;
+      applicationFeeAmount = result.commission_pence;
     }
-
-    const applicationFeeAmount = Math.round(estimated_fare_pence * commissionPercentage / 100);
 
     // === Determine payment method types ===
     // Card covers Apple Pay and Google Pay via Stripe's Payment Request Button
