@@ -197,10 +197,10 @@ serve(async (req) => {
     if (assignedVtIds.length > 0) {
       const { data: vtData, error: vtError } = await supabase
         .from('vehicle_types')
-        .select('id, name, slug, description, icon_url, capacity, features, is_active')
+        .select('id, name, slug, description, icon, capacity, features, is_active')
         .in('id', assignedVtIds)
         .eq('is_active', true);
-      console.log('vtData query error:', vtError, 'vtData count:', vtData?.length, 'vtData:', JSON.stringify(vtData));
+      if (vtError) console.log('vtData query error:', vtError);
 
       const orderMap = new Map((vehicleTypesRes.data || []).map((r: any) => [r.vehicle_type_id, r.display_order]));
       vehicleTypes = (vtData || [])
