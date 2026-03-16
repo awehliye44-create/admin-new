@@ -191,11 +191,12 @@ serve(async (req) => {
     const defaultFarePricing = fareConfigMap.get(null) || null;
 
     if (assignedVtIds.length > 0) {
-      const { data: vtData } = await supabase
+      const { data: vtData, error: vtError } = await supabase
         .from('vehicle_types')
-        .select('id, name, slug, description, icon_url, capacity, features, is_active')
+        .select('id, name, slug, description, icon, capacity, features, is_active')
         .in('id', assignedVtIds)
         .eq('is_active', true);
+      if (vtError) console.log('vtData query error:', vtError);
 
       const orderMap = new Map((vehicleTypesRes.data || []).map((r: any) => [r.vehicle_type_id, r.display_order]));
       vehicleTypes = (vtData || [])
@@ -204,7 +205,7 @@ serve(async (req) => {
           name: vt.name,
           slug: vt.slug,
           description: vt.description,
-          iconUrl: vt.icon_url,
+          icon: vt.icon,
           capacity: vt.capacity,
           features: vt.features,
           displayOrder: orderMap.get(vt.id) ?? 0,
