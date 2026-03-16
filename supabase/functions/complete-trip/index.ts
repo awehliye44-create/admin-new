@@ -101,18 +101,15 @@ serve(async (req) => {
       return errorResponse('Trip does not belong to this driver', 403);
     }
 
-    // === Get commission rate from driver tier (single source of truth) ===
+    // === Get driver info ===
     const { data: driver } = await supabase
       .from('drivers')
       .select('category_id, stripe_account_id')
       .eq('id', driver_id)
       .single();
 
-    const commissionPercentage = await getDriverCommissionPct(supabase, driver_id);
-
-    // Commission applied to commissionable subtotal only (tip excluded)
-    const platform_commission = Math.round(commissionable_subtotal * commissionPercentage / 100);
-    const driver_net_before_tip = commissionable_subtotal - platform_commission;
+    // === Commission from shared utility (single source of truth) ===
+    const { commission_pct: commissionPercentage, commission_pence: platform_commission, driver_net_pence: driver_net_before_tip } = await calculateCommission(supabase, driver_id, commissionable_subtotal);
     const driver_total_earnings = driver_net_before_tip + tip_amount_pence;
     const currency_code = trip.currency || 'GBP';
     const isCashPayment = payment_method === 'CASH';
