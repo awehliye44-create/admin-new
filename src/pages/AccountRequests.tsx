@@ -154,9 +154,10 @@ export default function AccountRequests() {
   // Suspend
   const suspendMutation = useMutation({
     mutationFn: async (requestId: string) => {
+      const userId = (await supabase.auth.getUser()).data.user?.id;
       const { error } = await supabase.rpc('suspend_corporate_request', {
         p_request_id: requestId,
-        p_reviewed_by: 'Admin',
+        p_reviewed_by: userId,
       });
       if (error) throw error;
     },
