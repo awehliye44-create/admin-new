@@ -172,6 +172,8 @@ export default function VehicleTypes() {
           categories: formData.categories,
           features: formData.features,
           is_active: formData.is_active,
+          is_default: formData.is_default,
+          driver_controllable: formData.driver_controllable,
           display_order: formData.display_order,
         })
         .select()
