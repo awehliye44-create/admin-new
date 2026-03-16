@@ -97,6 +97,9 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }>
   accepted: { label: 'Accepted', color: 'bg-purple-100 text-purple-700 border-purple-200', icon: CheckCircle2 },
   arrived: { label: 'Arrived', color: 'bg-indigo-100 text-indigo-700 border-indigo-200', icon: MapPin },
   in_progress: { label: 'In Progress', color: 'bg-amber-100 text-amber-700 border-amber-200', icon: Car },
+  started: { label: 'Started', color: 'bg-amber-100 text-amber-700 border-amber-200', icon: Play },
+  on_trip: { label: 'On Trip', color: 'bg-orange-100 text-orange-700 border-orange-200', icon: Navigation },
+  ongoing: { label: 'Ongoing', color: 'bg-orange-100 text-orange-700 border-orange-200', icon: Navigation },
   completed: { label: 'Completed', color: 'bg-green-100 text-green-700 border-green-200', icon: CheckCircle2 },
   cancelled: { label: 'Cancelled', color: 'bg-red-100 text-red-700 border-red-200', icon: XCircle },
 };
@@ -131,7 +134,7 @@ export default function ActiveTrips() {
             *,
             driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone)
           `)
-          .in('status', ['pending', 'searching', 'offered', 'driver_assigned', 'accepted', 'arrived', 'in_progress'])
+          .in('status', ['pending', 'searching', 'offered', 'driver_assigned', 'accepted', 'arrived', 'in_progress', 'started', 'on_trip', 'ongoing'])
           .order('created_at', { ascending: false }),
         supabase
           .from('drivers')
@@ -307,7 +310,7 @@ export default function ActiveTrips() {
 
   const pendingCount = trips.filter(t => t.status === 'pending' || t.status === 'searching' || t.status === 'offered').length;
   const acceptedCount = trips.filter(t => t.status === 'accepted' || t.status === 'arrived' || t.status === 'driver_assigned').length;
-  const inProgressCount = trips.filter(t => t.status === 'in_progress').length;
+  const inProgressCount = trips.filter(t => ['in_progress', 'started', 'on_trip', 'ongoing'].includes(t.status)).length;
 
   return (
     <AdminLayout 
@@ -396,6 +399,9 @@ export default function ActiveTrips() {
                 <SelectItem value="accepted">Accepted</SelectItem>
                 <SelectItem value="arrived">Arrived</SelectItem>
                 <SelectItem value="in_progress">In Progress</SelectItem>
+                <SelectItem value="started">Started</SelectItem>
+                <SelectItem value="on_trip">On Trip</SelectItem>
+                <SelectItem value="ongoing">Ongoing</SelectItem>
               </SelectContent>
             </Select>
             <Button variant="outline" onClick={fetchData} disabled={isLoading}>
