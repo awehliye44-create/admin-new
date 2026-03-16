@@ -209,7 +209,7 @@ serve(async (req) => {
           name: vt.name,
           slug: vt.slug,
           description: vt.description,
-          iconUrl: vt.icon_url,
+          icon: vt.icon,
           capacity: vt.capacity,
           features: vt.features,
           displayOrder: orderMap.get(vt.id) ?? 0,
