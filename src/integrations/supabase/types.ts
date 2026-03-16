@@ -1468,6 +1468,12 @@ export type Database = {
           stacked_rides_enabled: boolean
           stacked_search_radius_meters: number
           stacked_show_eta_to_driver: boolean
+          stop_radius_enabled: boolean
+          stop_radius_meters: number
+          stop_waiting_charge_interval_seconds: number
+          stop_waiting_grace_period_seconds: number
+          stop_waiting_max_minutes: number | null
+          stop_waiting_rate_pence_per_minute: number
           suppress_recent_offers_seconds: number
           updated_at: string
           urgent_dispatch_trigger_minutes_before_pickup: number
@@ -1541,6 +1547,12 @@ export type Database = {
           stacked_rides_enabled?: boolean
           stacked_search_radius_meters?: number
           stacked_show_eta_to_driver?: boolean
+          stop_radius_enabled?: boolean
+          stop_radius_meters?: number
+          stop_waiting_charge_interval_seconds?: number
+          stop_waiting_grace_period_seconds?: number
+          stop_waiting_max_minutes?: number | null
+          stop_waiting_rate_pence_per_minute?: number
           suppress_recent_offers_seconds?: number
           updated_at?: string
           urgent_dispatch_trigger_minutes_before_pickup?: number
@@ -1614,6 +1626,12 @@ export type Database = {
           stacked_rides_enabled?: boolean
           stacked_search_radius_meters?: number
           stacked_show_eta_to_driver?: boolean
+          stop_radius_enabled?: boolean
+          stop_radius_meters?: number
+          stop_waiting_charge_interval_seconds?: number
+          stop_waiting_grace_period_seconds?: number
+          stop_waiting_max_minutes?: number | null
+          stop_waiting_rate_pence_per_minute?: number
           suppress_recent_offers_seconds?: number
           updated_at?: string
           urgent_dispatch_trigger_minutes_before_pickup?: number
@@ -5441,6 +5459,7 @@ export type Database = {
           completed_at: string | null
           created_at: string
           id: string
+          last_waiting_charge_update_at: string | null
           lat: number | null
           lng: number | null
           status: string
@@ -5448,6 +5467,11 @@ export type Database = {
           trip_id: string
           type: string
           updated_at: string
+          waiting_charge_active: boolean
+          waiting_started_at: string | null
+          waiting_stopped_at: string | null
+          waiting_total_amount_pence: number
+          waiting_total_seconds: number
         }
         Insert: {
           address: string
@@ -5455,6 +5479,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           id?: string
+          last_waiting_charge_update_at?: string | null
           lat?: number | null
           lng?: number | null
           status?: string
@@ -5462,6 +5487,11 @@ export type Database = {
           trip_id: string
           type: string
           updated_at?: string
+          waiting_charge_active?: boolean
+          waiting_started_at?: string | null
+          waiting_stopped_at?: string | null
+          waiting_total_amount_pence?: number
+          waiting_total_seconds?: number
         }
         Update: {
           address?: string
@@ -5469,6 +5499,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           id?: string
+          last_waiting_charge_update_at?: string | null
           lat?: number | null
           lng?: number | null
           status?: string
@@ -5476,6 +5507,11 @@ export type Database = {
           trip_id?: string
           type?: string
           updated_at?: string
+          waiting_charge_active?: boolean
+          waiting_started_at?: string | null
+          waiting_stopped_at?: string | null
+          waiting_total_amount_pence?: number
+          waiting_total_seconds?: number
         }
         Relationships: [
           {
@@ -5607,6 +5643,7 @@ export type Database = {
           tip_amount_pence: number
           tip_pence: number | null
           total_stops: number | null
+          total_waiting_charge_pence: number
           trip_code: string | null
           trip_number: string | null
           trip_type: string | null
@@ -5731,6 +5768,7 @@ export type Database = {
           tip_amount_pence?: number
           tip_pence?: number | null
           total_stops?: number | null
+          total_waiting_charge_pence?: number
           trip_code?: string | null
           trip_number?: string | null
           trip_type?: string | null
@@ -5855,6 +5893,7 @@ export type Database = {
           tip_amount_pence?: number
           tip_pence?: number | null
           total_stops?: number | null
+          total_waiting_charge_pence?: number
           trip_code?: string | null
           trip_number?: string | null
           trip_type?: string | null
