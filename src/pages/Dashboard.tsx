@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/select";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar } from 'recharts';
 import { getEnhancedCarIcon, preloadMarkerImage } from '@/lib/mapMarkers';
+import { getCurrencySymbol } from '@/lib/regionSettings';
 
 interface Stats {
   totalDrivers: number;
