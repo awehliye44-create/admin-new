@@ -226,10 +226,11 @@ export default function Services() {
       if (areasRes.data && areasRes.data.length > 0) {
         const areaIds = areasRes.data.map(a => a.id);
         
-        const [driverServiceAreasRes, pricingRes, cancellationRes] = await Promise.all([
+        const [driverServiceAreasRes, pricingRes, cancellationRes, vehicleAssignRes] = await Promise.all([
           supabase.from('driver_service_areas').select('service_area_id'),
           supabase.from('fare_pricing_settings').select('service_area_id, base_fare_pence').in('service_area_id', areaIds),
           supabase.from('service_area_cancellation_fees').select('service_area_id').in('service_area_id', areaIds),
+          supabase.from('service_area_vehicle_types').select('service_area_id').eq('is_active', true).in('service_area_id', areaIds),
         ]);
 
         // Count drivers per area
@@ -241,14 +242,20 @@ export default function Services() {
           setDriverCounts(counts);
         }
 
-        // Build pricing status from Fare Engine settings
+        // Count assigned vehicle types per area
+        const vtCounts: Record<string, number> = {};
+        (vehicleAssignRes.data || []).forEach((row: any) => {
+          vtCounts[row.service_area_id] = (vtCounts[row.service_area_id] || 0) + 1;
+        });
+
+        // Build pricing status from Fare Engine settings + vehicle type assignments
         const status: Record<string, PricingStatus> = {};
         areasRes.data.forEach(area => {
           const fareEngineConfig = pricingRes.data?.find(p => p.service_area_id === area.id);
           const hasCancellation = cancellationRes.data?.some(c => c.service_area_id === area.id) || false;
           
           status[area.id] = {
-            vehicleTypesConfigured: fareEngineConfig ? 1 : 0,
+            vehicleTypesConfigured: vtCounts[area.id] || 0,
             totalVehicleTypes,
             hasBaseFare: fareEngineConfig ? fareEngineConfig.base_fare_pence > 0 : false,
             hasCancellationFees: hasCancellation,
