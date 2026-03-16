@@ -409,6 +409,34 @@ export default function VehicleTypes() {
 
       <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
         <div>
+          <Label htmlFor="is_default" className="font-medium">Default Category</Label>
+          <p className="text-xs text-muted-foreground">
+            {formData.is_default ? 'Always visible to all drivers (e.g. ONECAB)' : 'Requires admin assignment'}
+          </p>
+        </div>
+        <Switch
+          id="is_default"
+          checked={formData.is_default}
+          onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_default: checked }))}
+        />
+      </div>
+
+      <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+        <div>
+          <Label htmlFor="driver_controllable" className="font-medium">Driver Controllable</Label>
+          <p className="text-xs text-muted-foreground">
+            {formData.driver_controllable ? 'Driver can toggle ON/OFF' : 'Only admin can control'}
+          </p>
+        </div>
+        <Switch
+          id="driver_controllable"
+          checked={formData.driver_controllable}
+          onCheckedChange={(checked) => setFormData(prev => ({ ...prev, driver_controllable: checked }))}
+        />
+      </div>
+
+      <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+        <div>
           <Label htmlFor="is_active" className="font-medium">Active Status</Label>
           <p className="text-xs text-muted-foreground">
             {formData.is_active ? 'Available for booking' : 'Hidden from customers'}
