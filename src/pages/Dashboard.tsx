@@ -78,6 +78,7 @@ interface ServiceArea {
   id: string;
   name: string;
   region_id: string;
+  region?: { currency_code: string } | null;
 }
 
 interface Driver {
