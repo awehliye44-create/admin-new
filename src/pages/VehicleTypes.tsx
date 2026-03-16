@@ -47,6 +47,8 @@ interface VehicleType {
   slug: string;
   icon: string | null;
   is_active: boolean;
+  is_default: boolean;
+  driver_controllable: boolean;
   display_order: number | null;
   capacity: number;
   categories: string[];
@@ -80,6 +82,8 @@ export default function VehicleTypes() {
     categories: ['Standard'] as string[],
     features: [] as string[],
     is_active: true,
+    is_default: false,
+    driver_controllable: false,
     display_order: 0,
   });
 
@@ -144,6 +148,8 @@ export default function VehicleTypes() {
       categories: ['Standard'],
       features: [],
       is_active: true,
+      is_default: false,
+      driver_controllable: false,
       display_order: vehicleTypes.length,
     });
   };
@@ -166,6 +172,8 @@ export default function VehicleTypes() {
           categories: formData.categories,
           features: formData.features,
           is_active: formData.is_active,
+          is_default: formData.is_default,
+          driver_controllable: formData.driver_controllable,
           display_order: formData.display_order,
         })
         .select()
@@ -204,6 +212,8 @@ export default function VehicleTypes() {
           categories: formData.categories,
           features: formData.features,
           is_active: formData.is_active,
+          is_default: formData.is_default,
+          driver_controllable: formData.driver_controllable,
           display_order: formData.display_order,
         })
         .eq('id', selectedType.id);
@@ -264,6 +274,8 @@ export default function VehicleTypes() {
       categories: type.categories || ['Standard'],
       features: type.features || [],
       is_active: type.is_active,
+      is_default: type.is_default,
+      driver_controllable: type.driver_controllable,
       display_order: type.display_order || 0,
     });
     setIsEditDialogOpen(true);
@@ -393,6 +405,34 @@ export default function VehicleTypes() {
             </Badge>
           ))}
         </div>
+      </div>
+
+      <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+        <div>
+          <Label htmlFor="is_default" className="font-medium">Default Category</Label>
+          <p className="text-xs text-muted-foreground">
+            {formData.is_default ? 'Always visible to all drivers (e.g. ONECAB)' : 'Requires admin assignment'}
+          </p>
+        </div>
+        <Switch
+          id="is_default"
+          checked={formData.is_default}
+          onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_default: checked }))}
+        />
+      </div>
+
+      <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+        <div>
+          <Label htmlFor="driver_controllable" className="font-medium">Driver Controllable</Label>
+          <p className="text-xs text-muted-foreground">
+            {formData.driver_controllable ? 'Driver can toggle ON/OFF' : 'Only admin can control'}
+          </p>
+        </div>
+        <Switch
+          id="driver_controllable"
+          checked={formData.driver_controllable}
+          onCheckedChange={(checked) => setFormData(prev => ({ ...prev, driver_controllable: checked }))}
+        />
       </div>
 
       <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
@@ -551,12 +591,24 @@ export default function VehicleTypes() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge 
-                        variant={type.is_active ? 'default' : 'secondary'}
-                        className={type.is_active ? 'bg-green-500 hover:bg-green-600' : ''}
-                      >
-                        {type.is_active ? 'Active' : 'Inactive'}
-                      </Badge>
+                      <div className="flex flex-wrap gap-1">
+                        <Badge 
+                          variant={type.is_active ? 'default' : 'secondary'}
+                          className={type.is_active ? 'bg-green-500 hover:bg-green-600' : ''}
+                        >
+                          {type.is_active ? 'Active' : 'Inactive'}
+                        </Badge>
+                        {type.is_default && (
+                          <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200 text-xs">
+                            Default
+                          </Badge>
+                        )}
+                        {type.driver_controllable && (
+                          <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-200 text-xs">
+                            Driver Toggle
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">

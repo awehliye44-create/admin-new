@@ -2409,13 +2409,6 @@ export type Database = {
             foreignKeyName: "driver_vehicle_categories_vehicle_type_id_fkey"
             columns: ["vehicle_type_id"]
             isOneToOne: false
-            referencedRelation: "driver_assigned_vehicle_types"
-            referencedColumns: ["vehicle_type_id"]
-          },
-          {
-            foreignKeyName: "driver_vehicle_categories_vehicle_type_id_fkey"
-            columns: ["vehicle_type_id"]
-            isOneToOne: false
             referencedRelation: "vehicle_types"
             referencedColumns: ["id"]
           },
@@ -4619,13 +4612,6 @@ export type Database = {
             foreignKeyName: "service_area_vehicle_pricing_vehicle_type_id_fkey"
             columns: ["vehicle_type_id"]
             isOneToOne: false
-            referencedRelation: "driver_assigned_vehicle_types"
-            referencedColumns: ["vehicle_type_id"]
-          },
-          {
-            foreignKeyName: "service_area_vehicle_pricing_vehicle_type_id_fkey"
-            columns: ["vehicle_type_id"]
-            isOneToOne: false
             referencedRelation: "vehicle_types"
             referencedColumns: ["id"]
           },
@@ -5882,13 +5868,6 @@ export type Database = {
             foreignKeyName: "trips_vehicle_type_id_fkey"
             columns: ["vehicle_type_id"]
             isOneToOne: false
-            referencedRelation: "driver_assigned_vehicle_types"
-            referencedColumns: ["vehicle_type_id"]
-          },
-          {
-            foreignKeyName: "trips_vehicle_type_id_fkey"
-            columns: ["vehicle_type_id"]
-            isOneToOne: false
             referencedRelation: "vehicle_types"
             referencedColumns: ["id"]
           },
@@ -6009,10 +5988,12 @@ export type Database = {
           created_at: string
           description: string | null
           display_order: number | null
+          driver_controllable: boolean
           features: string[] | null
           icon: string | null
           id: string
           is_active: boolean
+          is_default: boolean
           name: string
           slug: string
           updated_at: string
@@ -6023,10 +6004,12 @@ export type Database = {
           created_at?: string
           description?: string | null
           display_order?: number | null
+          driver_controllable?: boolean
           features?: string[] | null
           icon?: string | null
           id?: string
           is_active?: boolean
+          is_default?: boolean
           name: string
           slug: string
           updated_at?: string
@@ -6037,10 +6020,12 @@ export type Database = {
           created_at?: string
           description?: string | null
           display_order?: number | null
+          driver_controllable?: boolean
           features?: string[] | null
           icon?: string | null
           id?: string
           is_active?: boolean
+          is_default?: boolean
           name?: string
           slug?: string
           updated_at?: string
@@ -6129,13 +6114,6 @@ export type Database = {
             foreignKeyName: "vehicles_vehicle_type_id_fkey"
             columns: ["vehicle_type_id"]
             isOneToOne: false
-            referencedRelation: "driver_assigned_vehicle_types"
-            referencedColumns: ["vehicle_type_id"]
-          },
-          {
-            foreignKeyName: "vehicles_vehicle_type_id_fkey"
-            columns: ["vehicle_type_id"]
-            isOneToOne: false
             referencedRelation: "vehicle_types"
             referencedColumns: ["id"]
           },
@@ -6185,13 +6163,6 @@ export type Database = {
           zone_id?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "zone_pricing_rules_vehicle_type_id_fkey"
-            columns: ["vehicle_type_id"]
-            isOneToOne: false
-            referencedRelation: "driver_assigned_vehicle_types"
-            referencedColumns: ["vehicle_type_id"]
-          },
           {
             foreignKeyName: "zone_pricing_rules_vehicle_type_id_fkey"
             columns: ["vehicle_type_id"]
@@ -6272,13 +6243,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "custom_zones"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "zone_route_pricing_vehicle_type_id_fkey"
-            columns: ["vehicle_type_id"]
-            isOneToOne: false
-            referencedRelation: "driver_assigned_vehicle_types"
-            referencedColumns: ["vehicle_type_id"]
           },
           {
             foreignKeyName: "zone_route_pricing_vehicle_type_id_fkey"
@@ -6688,45 +6652,18 @@ export type Database = {
           categories: string[] | null
           description: string | null
           display_order: number | null
+          driver_controllable: boolean | null
           driver_id: string | null
           features: string[] | null
           icon: string | null
           is_active: boolean | null
+          is_default: boolean | null
           is_enabled: boolean | null
           name: string | null
           slug: string | null
           vehicle_type_id: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "driver_vehicle_categories_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "dispatchable_drivers"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "driver_vehicle_categories_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "driver_document_status"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "driver_vehicle_categories_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "driver_financial_summary"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "driver_vehicle_categories_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "drivers"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       driver_document_status: {
         Row: {

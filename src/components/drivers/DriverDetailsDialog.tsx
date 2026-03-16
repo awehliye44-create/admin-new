@@ -82,6 +82,8 @@ interface VehicleType {
   capacity: number;
   categories: string[];
   features: string[];
+  is_default: boolean;
+  driver_controllable: boolean;
 }
 
 interface DriverVehicleCategory {
@@ -810,12 +812,40 @@ export function DriverDetailsDialog({
                 </p>
 
                 {(() => {
-                  const enabledTypes = vehicleTypes.filter(vt => isCategoryEnabled(vt.id));
-                  const disabledTypes = vehicleTypes.filter(vt => !isCategoryEnabled(vt.id));
+                  // Filter out default types (ONECAB) - they're always assigned automatically
+                  const assignableTypes = vehicleTypes.filter(vt => !vt.is_default);
+                  const defaultTypes = vehicleTypes.filter(vt => vt.is_default);
+                  const enabledTypes = assignableTypes.filter(vt => isCategoryEnabled(vt.id));
+                  const disabledTypes = assignableTypes.filter(vt => !isCategoryEnabled(vt.id));
 
                   return (
                     <>
-                      {enabledTypes.length === 0 ? (
+                      {/* Default categories (always visible) */}
+                      {defaultTypes.length > 0 && (
+                        <div className="space-y-2">
+                          {defaultTypes.map((vt) => (
+                            <div 
+                              key={vt.id}
+                              className="flex items-center justify-between p-3 border rounded-lg border-green-500/50 bg-green-500/5"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="h-10 w-10 rounded-lg flex items-center justify-center bg-green-500/10 text-green-600">
+                                  <Crown className="h-5 w-5" />
+                                </div>
+                                <div>
+                                  <p className="font-medium">{vt.name}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Default category • Always active
+                                  </p>
+                                </div>
+                              </div>
+                              <Badge className="bg-green-500/10 text-green-600 border-green-500/30">Default</Badge>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {enabledTypes.length === 0 && defaultTypes.length === 0 ? (
                         <div className="text-center py-8 text-muted-foreground">
                           <Truck className="h-12 w-12 mx-auto mb-3 opacity-30" />
                           <p>No categories assigned to this driver</p>
