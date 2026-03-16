@@ -16,22 +16,18 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get authorization header to verify admin
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Verify admin role
     const token = authHeader.replace('Bearer ', '');
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
@@ -44,36 +40,29 @@ serve(async (req) => {
 
     if (!roleData) {
       return new Response(JSON.stringify({ error: 'Admin access required' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Calculate KPI metrics
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayISO = today.toISOString();
+    // ── Unified aggregates from driver_financial_summary ──
+    const { data: summaryRows } = await supabase
+      .from('driver_financial_summary')
+      .select('gross_trip_total, company_commission_total, card_net_credits, cash_commission_debits, total_payouts_sent, wallet_balance, completed_trips, today_gross_earnings, today_trip_count, card_gross_total, cash_gross_total');
 
-    // Total Revenue (platform commission from captured/completed digital trips)
-    const { data: revenueData } = await supabase
-      .from('trips')
-      .select('commission_pence, stripe_processing_fee_pence')
-      .eq('status', 'completed')
-      .in('payment_status', ['captured', 'collected_cash', 'paid']);
+    const all = summaryRows || [];
+    const totalGrossFares = all.reduce((s, d) => s + Number(d.gross_trip_total || 0), 0);
+    const totalCommission = all.reduce((s, d) => s + Number(d.company_commission_total || 0), 0);
+    const totalDriverNet = all.reduce((s, d) => s + Number(d.card_net_credits || 0), 0);
+    const totalCashCommission = all.reduce((s, d) => s + Number(d.cash_commission_debits || 0), 0);
+    const totalPayoutsSent = all.reduce((s, d) => s + Number(d.total_payouts_sent || 0), 0);
+    const totalWalletBalance = all.reduce((s, d) => s + Number(d.wallet_balance || 0), 0);
+    const totalTrips = all.reduce((s, d) => s + Number(d.completed_trips || 0), 0);
+    const todayGross = all.reduce((s, d) => s + Number(d.today_gross_earnings || 0), 0);
+    const todayTrips = all.reduce((s, d) => s + Number(d.today_trip_count || 0), 0);
+    const totalCardGross = all.reduce((s, d) => s + Number(d.card_gross_total || 0), 0);
+    const totalCashGross = all.reduce((s, d) => s + Number(d.cash_gross_total || 0), 0);
 
-    const totalRevenue = revenueData?.reduce((sum, trip) => {
-      const commission = trip.commission_pence || 0;
-      const stripeFee = trip.stripe_processing_fee_pence || 0;
-      return sum + commission - stripeFee;
-    }, 0) || 0;
-
-    // Total Transactions count
-    const { count: totalTransactions } = await supabase
-      .from('trips')
-      .select('id', { count: 'exact', head: true })
-      .not('payment_method', 'is', null);
-
-    // Pending Amount (authorized but not captured)
+    // ── Trip-level stats that need direct queries ──
     const { data: pendingData } = await supabase
       .from('trips')
       .select('authorised_amount_pence, gross_fare_pence')
@@ -82,19 +71,6 @@ serve(async (req) => {
     const pendingAmount = pendingData?.reduce((sum, trip) => {
       return sum + (trip.authorised_amount_pence || trip.gross_fare_pence || 0);
     }, 0) || 0;
-
-    // Today's Transactions
-    const { count: todayTransactions } = await supabase
-      .from('trips')
-      .select('id', { count: 'exact', head: true })
-      .gte('created_at', todayISO)
-      .not('payment_method', 'is', null);
-
-    // Additional stats
-    const { count: completedTrips } = await supabase
-      .from('trips')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'completed');
 
     const { count: refundedTrips } = await supabase
       .from('trips')
@@ -121,11 +97,25 @@ serve(async (req) => {
     }, {}) || {};
 
     const response = {
-      totalRevenue,
-      totalTransactions: totalTransactions || 0,
+      // Unified financial summary (single source of truth)
+      totalGrossFares,
+      totalCommission,       // Platform commission (ONECAB revenue)
+      totalDriverNet,        // Card net credits to drivers
+      totalCashCommission,   // Cash commission owed by drivers
+      totalPayoutsSent,
+      totalWalletBalance,
+      totalCardGross,
+      totalCashGross,
+
+      // Legacy field (maps to totalCommission for backwards compat)
+      totalRevenue: totalCommission,
+
+      // Trip-level stats
+      totalTransactions: totalTrips,
       pendingAmount,
-      todayTransactions: todayTransactions || 0,
-      completedTrips: completedTrips || 0,
+      todayTransactions: todayTrips,
+      todayGrossEarnings: todayGross,
+      completedTrips: totalTrips,
       refundedTrips: refundedTrips || 0,
       totalRefunds,
       paymentMethods,
@@ -138,8 +128,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Error in admin-payments-summary:', error);
     return new Response(JSON.stringify({ error: (error as Error).message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 });
