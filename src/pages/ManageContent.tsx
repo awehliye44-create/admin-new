@@ -9,9 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { Save, Send, Phone, Building2, Car, Users, Loader2, Eye, Code2, Globe } from 'lucide-react';
+import { Save, Send, Phone, Building2, Car, Users, Loader2, Eye, Code2, Globe, Scale } from 'lucide-react';
 
-type AppScope = 'customer' | 'driver' | 'corporate' | 'shared';
+type AppScope = 'customer' | 'driver' | 'corporate' | 'shared' | 'legal';
 
 interface ContentItem {
   id: string;
@@ -314,6 +314,9 @@ export default function ManageContent() {
             <TabsTrigger value="corporate" className="gap-1.5">
               <Building2 className="h-3.5 w-3.5" /> Corporate Page
             </TabsTrigger>
+            <TabsTrigger value="legal" className="gap-1.5">
+              <Scale className="h-3.5 w-3.5" /> Legal Content
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="contact">
@@ -352,6 +355,16 @@ export default function ManageContent() {
               items={byScope('corporate')}
               onRefresh={fetchItems}
               apiParam="corporate"
+            />
+          </TabsContent>
+
+          <TabsContent value="legal">
+            <ScopeSection
+              scope="Legal Content"
+              icon={<Scale className="h-5 w-5 text-primary" />}
+              items={byScope('legal')}
+              onRefresh={fetchItems}
+              apiParam="legal"
             />
           </TabsContent>
         </Tabs>

@@ -7381,7 +7381,7 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
-      app_scope: "customer" | "driver" | "corporate" | "shared"
+      app_scope: "customer" | "driver" | "corporate" | "shared" | "legal"
       content_status: "draft" | "published"
       staff_role:
         | "super_admin"
@@ -7529,7 +7529,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "moderator", "user"],
-      app_scope: ["customer", "driver", "corporate", "shared"],
+      app_scope: ["customer", "driver", "corporate", "shared", "legal"],
       content_status: ["draft", "published"],
       staff_role: [
         "super_admin",
