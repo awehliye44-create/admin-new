@@ -79,7 +79,7 @@ export function DriverTiersConfig() {
     setSelectedTier(tier);
     setFormData({
       category_priority: tier.category_priority?.toString() || '10',
-      commission_pct: tier.commission_pct?.toString() || '20',
+      commission_pct: tier.commission_pct?.toString() || '',
       trip_target: tier.trip_target?.toString() || '',
       description: tier.description || '',
       is_active: tier.is_active,
@@ -95,7 +95,7 @@ export function DriverTiersConfig() {
     try {
       const updateData: Record<string, any> = {
         category_priority: formData.category_priority ? parseInt(formData.category_priority) : 10,
-        commission_pct: formData.commission_pct ? parseFloat(formData.commission_pct) : 20,
+        commission_pct: formData.commission_pct ? parseFloat(formData.commission_pct) : null,
         trip_target: formData.trip_target ? parseInt(formData.trip_target) : null,
         description: formData.description.trim() || null,
         is_active: formData.is_active,
