@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { Save, Send, Phone, Building2, Car, Users, Loader2, Eye, Code2, Globe } from 'lucide-react';
+import { Save, Send, Phone, Building2, Car, Users, Loader2, Eye, Code2, Globe, Scale } from 'lucide-react';
 
 type AppScope = 'customer' | 'driver' | 'corporate' | 'shared';
 
