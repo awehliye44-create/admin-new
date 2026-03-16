@@ -5452,6 +5452,110 @@ export type Database = {
           },
         ]
       }
+      trip_stop_waiting: {
+        Row: {
+          charge_interval_seconds: number
+          created_at: string
+          driver_id: string
+          ended_at: string | null
+          grace_period_seconds: number
+          id: string
+          last_tick_at: string
+          rate_pence_per_minute: number
+          started_at: string
+          status: string
+          stop_id: string
+          total_charge_pence: number
+          total_waiting_seconds: number
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          charge_interval_seconds?: number
+          created_at?: string
+          driver_id: string
+          ended_at?: string | null
+          grace_period_seconds?: number
+          id?: string
+          last_tick_at?: string
+          rate_pence_per_minute?: number
+          started_at?: string
+          status?: string
+          stop_id: string
+          total_charge_pence?: number
+          total_waiting_seconds?: number
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          charge_interval_seconds?: number
+          created_at?: string
+          driver_id?: string
+          ended_at?: string | null
+          grace_period_seconds?: number
+          id?: string
+          last_tick_at?: string
+          rate_pence_per_minute?: number
+          started_at?: string
+          status?: string
+          stop_id?: string
+          total_charge_pence?: number
+          total_waiting_seconds?: number
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trip_stop_waiting_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_stop_waiting_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_stop_waiting_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_stop_waiting_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_stop_waiting_stop_id_fkey"
+            columns: ["stop_id"]
+            isOneToOne: false
+            referencedRelation: "trip_stops"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_stop_waiting_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_stop_waiting_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trip_stops: {
         Row: {
           address: string
@@ -7026,6 +7130,7 @@ export type Database = {
           trip_number: string
         }[]
       }
+      get_active_stop_waiting: { Args: { p_driver_id: string }; Returns: Json }
       get_driver_wallet_balance: {
         Args: { p_driver_id: string }
         Returns: {
@@ -7151,6 +7256,19 @@ export type Database = {
           zone_type: string
         }[]
       }
+      start_stop_waiting: {
+        Args: {
+          p_charge_interval_seconds?: number
+          p_driver_id: string
+          p_grace_period_seconds?: number
+          p_rate_pence_per_minute?: number
+          p_stop_id: string
+          p_trip_id: string
+        }
+        Returns: string
+      }
+      stop_stop_waiting: { Args: { p_waiting_id: string }; Returns: Json }
+      tick_stop_waiting: { Args: { p_waiting_id: string }; Returns: Json }
       timeout_scheduled_offer: {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
