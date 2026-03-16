@@ -125,11 +125,10 @@ serve(async (req) => {
     // Use commission already calculated on the trip (from complete-trip)
     let commissionPence = trip.commission_pence || 0;
 
-    // If not set, calculate from driver tier commission (single source of truth)
+    // If not set, calculate from shared commission utility (single source of truth)
     if (commissionPence <= 0) {
-      const commissionPercentage = await getDriverCommissionPct(supabase, trip.driver_id);
-
-      commissionPence = Math.round(totalGrossPence * commissionPercentage / 100);
+      const result = await calculateCommission(supabase, trip.driver_id, totalGrossPence);
+      commissionPence = result.commission_pence;
       commissionPence = Math.max(0, Math.min(commissionPence, totalGrossPence));
     }
 
