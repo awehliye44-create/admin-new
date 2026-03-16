@@ -17,7 +17,7 @@ Deno.serve(async (req) => {
 
     if (!app || !["customer", "driver", "corporate", "legal"].includes(app)) {
       return new Response(
-        JSON.stringify({ error: "app query param must be customer, driver, or corporate" }),
+        JSON.stringify({ error: "app query param must be customer, driver, corporate, or legal" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
