@@ -82,6 +82,8 @@ export default function VehicleTypes() {
     categories: ['Standard'] as string[],
     features: [] as string[],
     is_active: true,
+    is_default: false,
+    driver_controllable: false,
     display_order: 0,
   });
 
