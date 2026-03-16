@@ -11,14 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { Calculator, MapPin, Navigation, Car, Clock, Percent, DollarSign, ArrowRight, RotateCcw, Info, TrendingUp, Building2 } from "lucide-react";
-import { getCurrencySymbol, getDistanceUnitShort, formatDistance, convertDistance } from "@/lib/regionSettings";
-
-interface VehicleType {
-  id: string;
-  name: string;
-  slug: string;
-}
+import { Calculator, MapPin, Navigation, Clock, Percent, DollarSign, ArrowRight, RotateCcw, Info, TrendingUp, Building2, Zap } from "lucide-react";
+import { getCurrencySymbol, getDistanceUnitShort } from "@/lib/regionSettings";
 
 interface ServiceArea {
   id: string;
@@ -33,15 +27,28 @@ interface Region {
   distance_unit: string;
 }
 
-interface VehiclePricing {
+interface FarePricingSettings {
   id: string;
   service_area_id: string;
-  vehicle_type_id: string;
-  base_fare: number;
-  minimum_fare: number;
-  distance_pricing: any;
-  time_pricing: any;
+  pricing_mode: string;
   currency_code: string;
+  base_fare_pence: number;
+  per_km_rate_pence: number;
+  per_min_rate_pence: number;
+  booking_fee_pence: number;
+  minimum_fare_pence: number;
+  free_waiting_minutes: number;
+  waiting_per_minute_pence: number;
+  extra_stop_flat_fee_pence: number;
+  recalculate_on_waiting: boolean;
+  recalculate_on_stop_added: boolean;
+  recalculate_on_dropoff_changed: boolean;
+  enable_surge: boolean;
+  surge_multiplier_default: number;
+  peak_hour_multiplier: number;
+  zone_multiplier: number;
+  traffic_multiplier: number;
+  demand_supply_multiplier: number;
 }
 
 interface CustomZone {
@@ -65,13 +72,18 @@ interface FareBreakdown {
   baseFare: number;
   distanceFare: number;
   timeFare: number;
+  bookingFee: number;
   zoneSurcharge: number;
   zoneDiscount: number;
   corporateDiscount: number;
   promoDiscount: number;
+  waitingCharge: number;
+  stopCharge: number;
   subtotal: number;
   minimumFare: number;
   finalFare: number;
+  pricingMode: string;
+  surgeMultiplier: number;
   appliedRules: string[];
   currencyCode: string;
   distanceUnit: string;
@@ -84,29 +96,17 @@ export default function FareSimulator() {
 
   const [formData, setFormData] = useState({
     service_area_id: "",
-    vehicle_type_id: "",
     distance_km: 5,
     duration_minutes: 15,
+    waiting_minutes: 0,
+    extra_stops: 0,
     pickup_zone_id: "",
     dropoff_zone_id: "",
     is_corporate: false,
     corporate_discount: 0,
     promo_code: "",
     promo_discount: 0,
-    surge_multiplier: 1.0,
-  });
-
-  const { data: vehicleTypes = [] } = useQuery({
-    queryKey: ['vehicle-types'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('vehicle_types')
-        .select('id, name, slug')
-        .eq('is_active', true)
-        .order('display_order');
-      if (error) throw error;
-      return data as VehicleType[];
-    },
+    surge_override: null as number | null,
   });
 
   const { data: serviceAreas = [] } = useQuery({
@@ -134,7 +134,6 @@ export default function FareSimulator() {
     },
   });
 
-  // Get current region settings based on selected service area
   const currentRegionSettings = useMemo(() => {
     const selectedArea = serviceAreas.find(sa => sa.id === formData.service_area_id);
     const region = regions.find(r => r.id === selectedArea?.region_id);
@@ -144,16 +143,19 @@ export default function FareSimulator() {
     };
   }, [formData.service_area_id, serviceAreas, regions]);
 
-  const { data: vehiclePricing = [] } = useQuery({
-    queryKey: ['vehicle-pricing'],
+  const { data: fareSettings } = useQuery({
+    queryKey: ['fare-pricing-settings', formData.service_area_id],
     queryFn: async () => {
+      if (!formData.service_area_id) return null;
       const { data, error } = await supabase
-        .from('service_area_vehicle_pricing')
+        .from('fare_pricing_settings')
         .select('*')
-        .eq('is_enabled', true);
-      if (error) throw error;
-      return data as VehiclePricing[];
+        .eq('service_area_id', formData.service_area_id)
+        .single();
+      if (error) return null;
+      return data as FarePricingSettings;
     },
+    enabled: !!formData.service_area_id,
   });
 
   const { data: customZones = [] } = useQuery({
@@ -181,168 +183,187 @@ export default function FareSimulator() {
     },
   });
 
+  const currencySymbol = getCurrencySymbol(currentRegionSettings.currencyCode);
+  const fmt = (pence: number) => `${currencySymbol}${(pence / 100).toFixed(2)}`;
+
   const calculateFare = () => {
-    if (!formData.service_area_id || !formData.vehicle_type_id) {
-      toast({ title: "Please select a service area and vehicle type", variant: "destructive" });
+    if (!formData.service_area_id) {
+      toast({ title: "Please select a service area", variant: "destructive" });
+      return;
+    }
+
+    if (!fareSettings) {
+      toast({ title: "No Fare Engine settings found for this service area. Configure the Fare Engine first.", variant: "destructive" });
       return;
     }
 
     setIsCalculating(true);
 
-    // Simulate calculation delay for UX
     setTimeout(() => {
-      const pricing = vehiclePricing.find(
-        p => p.service_area_id === formData.service_area_id && p.vehicle_type_id === formData.vehicle_type_id
-      );
-
-      if (!pricing) {
-        toast({ title: "No pricing found for this combination", variant: "destructive" });
-        setIsCalculating(false);
-        return;
-      }
-
+      const s = fareSettings;
       const appliedRules: string[] = [];
 
-      // Base fare
-      const baseFare = pricing.base_fare;
-      appliedRules.push(`Base fare: £${baseFare.toFixed(2)}`);
+      // Base fare calculation (mirrors fareEngine.ts logic)
+      const base = s.base_fare_pence;
+      const distCharge = Math.round(formData.distance_km * s.per_km_rate_pence);
+      const timeCharge = Math.round(formData.duration_minutes * s.per_min_rate_pence);
+      const booking = s.booking_fee_pence;
 
-      // Calculate distance fare (simplified - using first tier)
-      const distancePricing = pricing.distance_pricing as { rate: number; from_km: number }[];
-      let distanceFare = 0;
-      if (distancePricing && distancePricing.length > 0) {
-        const rate = distancePricing[0].rate || 1.5;
-        distanceFare = formData.distance_km * rate;
-        appliedRules.push(`Distance: ${formData.distance_km}km × £${rate.toFixed(2)} = £${distanceFare.toFixed(2)}`);
+      appliedRules.push(`Base fare: ${fmt(base)}`);
+      appliedRules.push(`Distance: ${formData.distance_km}km × ${fmt(s.per_km_rate_pence)}/km = ${fmt(distCharge)}`);
+      appliedRules.push(`Time: ${formData.duration_minutes}min × ${fmt(s.per_min_rate_pence)}/min = ${fmt(timeCharge)}`);
+      appliedRules.push(`Booking fee: ${fmt(booking)}`);
+
+      let subtotal: number;
+      let surgeMultiplier = 1;
+
+      if (s.pricing_mode === 'dynamic') {
+        surgeMultiplier = s.enable_surge ? (formData.surge_override ?? s.surge_multiplier_default) : 1;
+        const zoneMultiplier = s.zone_multiplier;
+        const trafficMultiplier = s.traffic_multiplier;
+        const rawSubtotal = base + distCharge + timeCharge;
+        const multiplied = Math.round(rawSubtotal * surgeMultiplier * zoneMultiplier * trafficMultiplier);
+        subtotal = multiplied + booking;
+
+        if (surgeMultiplier > 1) appliedRules.push(`Surge multiplier: ${surgeMultiplier}x`);
+        if (zoneMultiplier !== 1) appliedRules.push(`Zone multiplier: ${zoneMultiplier}x`);
+        if (trafficMultiplier !== 1) appliedRules.push(`Traffic multiplier: ${trafficMultiplier}x`);
+        appliedRules.push(`Pricing mode: Dynamic`);
+      } else {
+        subtotal = base + distCharge + timeCharge + booking;
+        appliedRules.push(`Pricing mode: Fixed`);
       }
 
-      // Calculate time fare (simplified - using first tier)
-      const timePricing = pricing.time_pricing as { rate: number; from_min: number }[];
-      let timeFare = 0;
-      if (timePricing && timePricing.length > 0) {
-        const rate = timePricing[0].rate || 0.25;
-        timeFare = formData.duration_minutes * rate;
-        appliedRules.push(`Time: ${formData.duration_minutes}min × £${rate.toFixed(2)} = £${timeFare.toFixed(2)}`);
+      const minimumApplied = subtotal < s.minimum_fare_pence;
+      let quotedFare = Math.max(subtotal, s.minimum_fare_pence);
+      if (minimumApplied) {
+        appliedRules.push(`Minimum fare applied: ${fmt(s.minimum_fare_pence)}`);
       }
 
-      // Zone adjustments
+      // Zone adjustments (on top of Fare Engine)
       let zoneSurcharge = 0;
       let zoneDiscount = 0;
 
-      // Pickup zone rules
       if (formData.pickup_zone_id) {
         const pickupZone = customZones.find(z => z.id === formData.pickup_zone_id);
         const pickupRules = zonePricingRules.filter(
           r => r.zone_id === formData.pickup_zone_id && 
-          (!r.vehicle_type_id || r.vehicle_type_id === formData.vehicle_type_id) &&
           (r.applies_to === 'both' || r.applies_to === 'pickup')
         );
-
         pickupRules.forEach(rule => {
           if (rule.rule_type === 'multiplier' && rule.value > 1) {
-            const surcharge = (baseFare + distanceFare + timeFare) * (rule.value - 1);
+            const surcharge = Math.round(quotedFare * (rule.value - 1));
             zoneSurcharge += surcharge;
-            appliedRules.push(`Pickup zone "${pickupZone?.name}": ${rule.value}x multiplier (+£${surcharge.toFixed(2)})`);
+            appliedRules.push(`Pickup zone "${pickupZone?.name}": ${rule.value}x multiplier (+${fmt(surcharge)})`);
           } else if (rule.rule_type === 'flat_rate') {
-            zoneSurcharge += rule.value;
-            appliedRules.push(`Pickup zone "${pickupZone?.name}": +£${rule.value.toFixed(2)} flat rate`);
+            const flatPence = Math.round(rule.value * 100);
+            zoneSurcharge += flatPence;
+            appliedRules.push(`Pickup zone "${pickupZone?.name}": +${fmt(flatPence)} flat rate`);
           } else if (rule.rule_type === 'percentage_discount') {
-            const discount = (baseFare + distanceFare + timeFare) * (rule.value / 100);
+            const discount = Math.round(quotedFare * (rule.value / 100));
             zoneDiscount += discount;
-            appliedRules.push(`Pickup zone "${pickupZone?.name}": ${rule.value}% discount (-£${discount.toFixed(2)})`);
+            appliedRules.push(`Pickup zone "${pickupZone?.name}": ${rule.value}% discount (-${fmt(discount)})`);
           }
         });
       }
 
-      // Dropoff zone rules
       if (formData.dropoff_zone_id) {
         const dropoffZone = customZones.find(z => z.id === formData.dropoff_zone_id);
         const dropoffRules = zonePricingRules.filter(
           r => r.zone_id === formData.dropoff_zone_id && 
-          (!r.vehicle_type_id || r.vehicle_type_id === formData.vehicle_type_id) &&
           (r.applies_to === 'both' || r.applies_to === 'dropoff')
         );
-
         dropoffRules.forEach(rule => {
           if (rule.rule_type === 'multiplier' && rule.value > 1) {
-            const surcharge = (baseFare + distanceFare + timeFare) * (rule.value - 1);
+            const surcharge = Math.round(quotedFare * (rule.value - 1));
             zoneSurcharge += surcharge;
-            appliedRules.push(`Dropoff zone "${dropoffZone?.name}": ${rule.value}x multiplier (+£${surcharge.toFixed(2)})`);
+            appliedRules.push(`Dropoff zone "${dropoffZone?.name}": ${rule.value}x multiplier (+${fmt(surcharge)})`);
           } else if (rule.rule_type === 'flat_rate') {
-            zoneSurcharge += rule.value;
-            appliedRules.push(`Dropoff zone "${dropoffZone?.name}": +£${rule.value.toFixed(2)} flat rate`);
+            const flatPence = Math.round(rule.value * 100);
+            zoneSurcharge += flatPence;
+            appliedRules.push(`Dropoff zone "${dropoffZone?.name}": +${fmt(flatPence)} flat rate`);
           } else if (rule.rule_type === 'percentage_discount') {
-            const discount = (baseFare + distanceFare + timeFare) * (rule.value / 100);
+            const discount = Math.round(quotedFare * (rule.value / 100));
             zoneDiscount += discount;
-            appliedRules.push(`Dropoff zone "${dropoffZone?.name}": ${rule.value}% discount (-£${discount.toFixed(2)})`);
+            appliedRules.push(`Dropoff zone "${dropoffZone?.name}": ${rule.value}% discount (-${fmt(discount)})`);
           }
         });
       }
 
-      // Surge multiplier
-      let subtotal = baseFare + distanceFare + timeFare + zoneSurcharge - zoneDiscount;
-      if (formData.surge_multiplier > 1) {
-        const surgePremium = subtotal * (formData.surge_multiplier - 1);
-        subtotal += surgePremium;
-        appliedRules.push(`Surge pricing: ${formData.surge_multiplier}x (+£${surgePremium.toFixed(2)})`);
+      // Waiting charge
+      let waitingCharge = 0;
+      if (s.recalculate_on_waiting && formData.waiting_minutes > 0) {
+        const billable = Math.max(0, formData.waiting_minutes - s.free_waiting_minutes);
+        waitingCharge = Math.round(billable * s.waiting_per_minute_pence);
+        if (billable > 0) {
+          appliedRules.push(`Waiting: ${formData.waiting_minutes}min (free: ${s.free_waiting_minutes}min, billable: ${billable}min) = ${fmt(waitingCharge)}`);
+        }
       }
+
+      // Stop charges
+      let stopCharge = 0;
+      if (s.recalculate_on_stop_added && formData.extra_stops > 0) {
+        stopCharge = formData.extra_stops * s.extra_stop_flat_fee_pence;
+        appliedRules.push(`Extra stops: ${formData.extra_stops} × ${fmt(s.extra_stop_flat_fee_pence)} = ${fmt(stopCharge)}`);
+      }
+
+      let fareAfterZones = quotedFare + zoneSurcharge - zoneDiscount;
 
       // Corporate discount
       let corporateDiscount = 0;
       if (formData.is_corporate && formData.corporate_discount > 0) {
-        corporateDiscount = subtotal * (formData.corporate_discount / 100);
-        appliedRules.push(`Corporate discount: ${formData.corporate_discount}% (-£${corporateDiscount.toFixed(2)})`);
+        corporateDiscount = Math.round(fareAfterZones * (formData.corporate_discount / 100));
+        appliedRules.push(`Corporate discount: ${formData.corporate_discount}% (-${fmt(corporateDiscount)})`);
       }
 
       // Promo discount
       let promoDiscount = 0;
       if (formData.promo_code && formData.promo_discount > 0) {
-        promoDiscount = (subtotal - corporateDiscount) * (formData.promo_discount / 100);
-        appliedRules.push(`Promo code "${formData.promo_code}": ${formData.promo_discount}% (-£${promoDiscount.toFixed(2)})`);
+        promoDiscount = Math.round((fareAfterZones - corporateDiscount) * (formData.promo_discount / 100));
+        appliedRules.push(`Promo "${formData.promo_code}": ${formData.promo_discount}% (-${fmt(promoDiscount)})`);
       }
 
-      // Calculate final fare
-      let finalFare = subtotal - corporateDiscount - promoDiscount;
-      const minimumFare = pricing.minimum_fare;
-
-      if (finalFare < minimumFare) {
-        appliedRules.push(`Minimum fare applied: £${minimumFare.toFixed(2)}`);
-        finalFare = minimumFare;
-      }
+      const finalFare = Math.max(0, fareAfterZones - corporateDiscount - promoDiscount + waitingCharge + stopCharge);
 
       setFareBreakdown({
-        baseFare,
-        distanceFare,
-        timeFare,
+        baseFare: base,
+        distanceFare: distCharge,
+        timeFare: timeCharge,
+        bookingFee: booking,
         zoneSurcharge,
         zoneDiscount,
         corporateDiscount,
         promoDiscount,
+        waitingCharge,
+        stopCharge,
         subtotal,
-        minimumFare,
+        minimumFare: s.minimum_fare_pence,
         finalFare,
+        pricingMode: s.pricing_mode,
+        surgeMultiplier,
         appliedRules,
         currencyCode: currentRegionSettings.currencyCode,
         distanceUnit: currentRegionSettings.distanceUnit,
       });
 
       setIsCalculating(false);
-    }, 500);
+    }, 300);
   };
 
   const resetSimulator = () => {
     setFormData({
       service_area_id: "",
-      vehicle_type_id: "",
       distance_km: 5,
       duration_minutes: 15,
+      waiting_minutes: 0,
+      extra_stops: 0,
       pickup_zone_id: "",
       dropoff_zone_id: "",
       is_corporate: false,
       corporate_discount: 0,
       promo_code: "",
       promo_discount: 0,
-      surge_multiplier: 1.0,
+      surge_override: null,
     });
     setFareBreakdown(null);
   };
@@ -354,12 +375,26 @@ export default function FareSimulator() {
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Fare Simulator</h1>
-            <p className="text-muted-foreground">Test and preview fare calculations with different parameters</p>
+            <p className="text-muted-foreground">
+              Test fare calculations powered by the <strong>Fare Engine</strong> — the single source of truth for all pricing.
+            </p>
           </div>
           <Button variant="outline" onClick={resetSimulator}>
             <RotateCcw className="mr-2 h-4 w-4" />
             Reset
           </Button>
+        </div>
+
+        {/* Fare Engine info banner */}
+        <div className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
+          <Calculator className="h-5 w-5 text-primary mt-0.5 shrink-0" />
+          <div>
+            <p className="font-semibold text-sm">Powered by Fare Engine</p>
+            <p className="text-sm text-muted-foreground">
+              This simulator uses <code className="text-xs bg-muted px-1 rounded">fare_pricing_settings</code> configured per service area.
+              Vehicle Types no longer control pricing. Select a service area to begin.
+            </p>
+          </div>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
@@ -368,46 +403,47 @@ export default function FareSimulator() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Car className="h-5 w-5" />
+                  <Navigation className="h-5 w-5" />
                   Trip Details
                 </CardTitle>
                 <CardDescription>Configure the trip parameters</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label>Service Area *</Label>
-                    <Select
-                      value={formData.service_area_id}
-                      onValueChange={(value) => setFormData({ ...formData, service_area_id: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select area" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {serviceAreas.map((area) => (
-                          <SelectItem key={area.id} value={area.id}>{area.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Vehicle Type *</Label>
-                    <Select
-                      value={formData.vehicle_type_id}
-                      onValueChange={(value) => setFormData({ ...formData, vehicle_type_id: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select vehicle" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {vehicleTypes.map((type) => (
-                          <SelectItem key={type.id} value={type.id}>{type.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className="grid gap-2">
+                  <Label>Service Area *</Label>
+                  <Select
+                    value={formData.service_area_id}
+                    onValueChange={(value) => setFormData({ ...formData, service_area_id: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select area" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {serviceAreas.map((area) => (
+                        <SelectItem key={area.id} value={area.id}>{area.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
+
+                {fareSettings && (
+                  <div className="flex items-center gap-2">
+                    <Badge variant={fareSettings.pricing_mode === 'fixed' ? 'secondary' : 'default'}>
+                      <Zap className="h-3 w-3 mr-1" />
+                      {fareSettings.pricing_mode === 'fixed' ? 'Fixed Pricing' : 'Dynamic Pricing'}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      Base: {fmt(fareSettings.base_fare_pence)} · Per km: {fmt(fareSettings.per_km_rate_pence)} · Per min: {fmt(fareSettings.per_min_rate_pence)}
+                    </span>
+                  </div>
+                )}
+
+                {formData.service_area_id && !fareSettings && (
+                  <div className="flex items-center gap-2 text-sm text-destructive">
+                    <Info className="h-4 w-4" />
+                    No Fare Engine settings found. Configure the Fare Engine for this service area first.
+                  </div>
+                )}
 
                 <Separator />
 
@@ -434,6 +470,27 @@ export default function FareSimulator() {
                       type="number"
                       value={formData.duration_minutes}
                       onChange={(e) => setFormData({ ...formData, duration_minutes: parseInt(e.target.value) || 0 })}
+                      min={0}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label>Waiting Time (min)</Label>
+                    <Input
+                      type="number"
+                      value={formData.waiting_minutes}
+                      onChange={(e) => setFormData({ ...formData, waiting_minutes: parseInt(e.target.value) || 0 })}
+                      min={0}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Extra Stops</Label>
+                    <Input
+                      type="number"
+                      value={formData.extra_stops}
+                      onChange={(e) => setFormData({ ...formData, extra_stops: parseInt(e.target.value) || 0 })}
                       min={0}
                     />
                   </div>
@@ -503,36 +560,41 @@ export default function FareSimulator() {
                   </div>
                 </div>
 
-                <div className="grid gap-2">
-                  <Label className="flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4" />
-                    Surge Multiplier
-                  </Label>
-                  <div className="flex items-center gap-4">
-                    <Input
-                      type="number"
-                      step="0.1"
-                      value={formData.surge_multiplier}
-                      onChange={(e) => setFormData({ ...formData, surge_multiplier: parseFloat(e.target.value) || 1 })}
-                      min={1}
-                      max={5}
-                      className="max-w-[120px]"
-                    />
-                    <div className="flex gap-2">
-                      {[1, 1.5, 2, 2.5].map((mult) => (
-                        <Button
-                          key={mult}
-                          type="button"
-                          variant={formData.surge_multiplier === mult ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => setFormData({ ...formData, surge_multiplier: mult })}
-                        >
-                          {mult}x
-                        </Button>
-                      ))}
+                {fareSettings?.pricing_mode === 'dynamic' && fareSettings.enable_surge && (
+                  <div className="grid gap-2">
+                    <Label className="flex items-center gap-2">
+                      <TrendingUp className="h-4 w-4" />
+                      Surge Override
+                    </Label>
+                    <div className="flex items-center gap-4">
+                      <Input
+                        type="number"
+                        step="0.1"
+                        value={formData.surge_override ?? fareSettings.surge_multiplier_default}
+                        onChange={(e) => setFormData({ ...formData, surge_override: parseFloat(e.target.value) || 1 })}
+                        min={1}
+                        max={5}
+                        className="max-w-[120px]"
+                      />
+                      <div className="flex gap-2">
+                        {[1, 1.5, 2, 2.5].map((mult) => (
+                          <Button
+                            key={mult}
+                            type="button"
+                            variant={(formData.surge_override ?? fareSettings.surge_multiplier_default) === mult ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setFormData({ ...formData, surge_override: mult })}
+                          >
+                            {mult}x
+                          </Button>
+                        ))}
+                      </div>
                     </div>
+                    <p className="text-xs text-muted-foreground">
+                      Default from Fare Engine: {fareSettings.surge_multiplier_default}x
+                    </p>
                   </div>
-                </div>
+                )}
               </CardContent>
             </Card>
 
@@ -613,7 +675,7 @@ export default function FareSimulator() {
                   Fare Breakdown
                 </CardTitle>
                 <CardDescription>
-                  {fareBreakdown ? "Calculated fare estimate" : "Configure trip details and click Calculate"}
+                  {fareBreakdown ? `Calculated using Fare Engine (${fareBreakdown.pricingMode} mode)` : "Configure trip details and click Calculate"}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -621,7 +683,7 @@ export default function FareSimulator() {
                   <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
                     <Calculator className="h-12 w-12 mb-4 opacity-50" />
                     <p>No calculation yet</p>
-                    <p className="text-sm">Fill in the trip details and click Calculate Fare</p>
+                    <p className="text-sm">Select a service area and click Calculate Fare</p>
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -629,8 +691,12 @@ export default function FareSimulator() {
                     <div className="rounded-lg bg-primary/10 p-6 text-center">
                       <p className="text-sm text-muted-foreground mb-1">Estimated Fare</p>
                       <p className="text-4xl font-bold text-primary">
-                        £{fareBreakdown.finalFare.toFixed(2)}
+                        {fmt(fareBreakdown.finalFare)}
                       </p>
+                      <Badge variant="outline" className="mt-2">
+                        {fareBreakdown.pricingMode === 'fixed' ? '🔒 Fixed' : '⚡ Dynamic'}
+                        {fareBreakdown.surgeMultiplier > 1 && ` · ${fareBreakdown.surgeMultiplier}x surge`}
+                      </Badge>
                     </div>
 
                     <Separator />
@@ -639,28 +705,46 @@ export default function FareSimulator() {
                     <div className="space-y-3">
                       <div className="flex justify-between text-sm">
                         <span>Base Fare</span>
-                        <span>£{fareBreakdown.baseFare.toFixed(2)}</span>
+                        <span>{fmt(fareBreakdown.baseFare)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span>Distance ({formData.distance_km}km)</span>
-                        <span>£{fareBreakdown.distanceFare.toFixed(2)}</span>
+                        <span>{fmt(fareBreakdown.distanceFare)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span>Time ({formData.duration_minutes}min)</span>
-                        <span>£{fareBreakdown.timeFare.toFixed(2)}</span>
+                        <span>{fmt(fareBreakdown.timeFare)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span>Booking Fee</span>
+                        <span>{fmt(fareBreakdown.bookingFee)}</span>
                       </div>
                       
                       {fareBreakdown.zoneSurcharge > 0 && (
                         <div className="flex justify-between text-sm text-orange-500">
                           <span>Zone Surcharges</span>
-                          <span>+£{fareBreakdown.zoneSurcharge.toFixed(2)}</span>
+                          <span>+{fmt(fareBreakdown.zoneSurcharge)}</span>
                         </div>
                       )}
                       
                       {fareBreakdown.zoneDiscount > 0 && (
                         <div className="flex justify-between text-sm text-green-500">
                           <span>Zone Discounts</span>
-                          <span>-£{fareBreakdown.zoneDiscount.toFixed(2)}</span>
+                          <span>-{fmt(fareBreakdown.zoneDiscount)}</span>
+                        </div>
+                      )}
+
+                      {fareBreakdown.waitingCharge > 0 && (
+                        <div className="flex justify-between text-sm text-orange-500">
+                          <span>Waiting Charge</span>
+                          <span>+{fmt(fareBreakdown.waitingCharge)}</span>
+                        </div>
+                      )}
+
+                      {fareBreakdown.stopCharge > 0 && (
+                        <div className="flex justify-between text-sm text-orange-500">
+                          <span>Extra Stop Charges</span>
+                          <span>+{fmt(fareBreakdown.stopCharge)}</span>
                         </div>
                       )}
 
@@ -668,20 +752,20 @@ export default function FareSimulator() {
 
                       <div className="flex justify-between font-medium">
                         <span>Subtotal</span>
-                        <span>£{fareBreakdown.subtotal.toFixed(2)}</span>
+                        <span>{fmt(fareBreakdown.subtotal)}</span>
                       </div>
 
                       {fareBreakdown.corporateDiscount > 0 && (
                         <div className="flex justify-between text-sm text-green-500">
                           <span>Corporate Discount</span>
-                          <span>-£{fareBreakdown.corporateDiscount.toFixed(2)}</span>
+                          <span>-{fmt(fareBreakdown.corporateDiscount)}</span>
                         </div>
                       )}
 
                       {fareBreakdown.promoDiscount > 0 && (
                         <div className="flex justify-between text-sm text-green-500">
                           <span>Promo Discount</span>
-                          <span>-£{fareBreakdown.promoDiscount.toFixed(2)}</span>
+                          <span>-{fmt(fareBreakdown.promoDiscount)}</span>
                         </div>
                       )}
 
@@ -689,13 +773,13 @@ export default function FareSimulator() {
 
                       <div className="flex justify-between text-lg font-bold">
                         <span>Final Fare</span>
-                        <span className="text-primary">£{fareBreakdown.finalFare.toFixed(2)}</span>
+                        <span className="text-primary">{fmt(fareBreakdown.finalFare)}</span>
                       </div>
 
-                      {fareBreakdown.finalFare === fareBreakdown.minimumFare && (
+                      {fareBreakdown.finalFare <= fareBreakdown.minimumFare && (
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <Info className="h-3 w-3" />
-                          <span>Minimum fare of £{fareBreakdown.minimumFare.toFixed(2)} applied</span>
+                          <span>Minimum fare of {fmt(fareBreakdown.minimumFare)} applied</span>
                         </div>
                       )}
                     </div>
@@ -711,7 +795,7 @@ export default function FareSimulator() {
                     <Info className="h-5 w-5" />
                     Applied Rules
                   </CardTitle>
-                  <CardDescription>Pricing rules that affected this calculation</CardDescription>
+                  <CardDescription>Fare Engine rules that affected this calculation</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
