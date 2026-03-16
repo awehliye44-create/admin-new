@@ -105,6 +105,7 @@ interface CompletedTrip {
   driver_location_lat: number | null;
   driver_location_lng: number | null;
   stripe_payment_intent_id: string | null;
+  stacked_trip_id: string | null;
   driver?: {
     id: string;
     first_name: string;
