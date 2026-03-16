@@ -199,6 +199,12 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   blockMultipleActiveRides: (data.block_multiple_active_rides as boolean) ?? defaultSettings.blockMultipleActiveRides,
   cancelProtection: (data.cancel_protection as boolean) ?? defaultSettings.cancelProtection,
   driverFareDisplay: (data.driver_fare_display as 'net_earnings' | 'gross_fare' | 'smart_display') ?? defaultSettings.driverFareDisplay,
+  stopRadiusEnabled: (data.stop_radius_enabled as boolean) ?? defaultSettings.stopRadiusEnabled,
+  stopRadiusMeters: (data.stop_radius_meters as number) ?? defaultSettings.stopRadiusMeters,
+  stopWaitingChargeIntervalSeconds: (data.stop_waiting_charge_interval_seconds as number) ?? defaultSettings.stopWaitingChargeIntervalSeconds,
+  stopWaitingGracePeriodSeconds: (data.stop_waiting_grace_period_seconds as number) ?? defaultSettings.stopWaitingGracePeriodSeconds,
+  stopWaitingRatePencePerMinute: (data.stop_waiting_rate_pence_per_minute as number) ?? defaultSettings.stopWaitingRatePencePerMinute,
+  stopWaitingMaxMinutes: (data.stop_waiting_max_minutes as number | null) ?? defaultSettings.stopWaitingMaxMinutes,
 });
 
 const mapSettingsToDb = (settings: DispatchSettings, serviceAreaId: string | null) => ({
