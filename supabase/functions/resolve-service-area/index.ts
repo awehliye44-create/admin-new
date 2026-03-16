@@ -167,12 +167,8 @@ serve(async (req) => {
         .maybeSingle(),
     ]);
 
-    console.log('vehicleTypesRes error:', vehicleTypesRes.error, 'data count:', vehicleTypesRes.data?.length);
-    console.log('fareSettingsRes error:', fareSettingsRes.error, 'data count:', fareSettingsRes.data?.length);
-
     // Get vehicle type metadata for assigned types
     const assignedVtIds = (vehicleTypesRes.data || []).map((r: any) => r.vehicle_type_id);
-    console.log('assignedVtIds:', assignedVtIds);
     let vehicleTypes: any[] = [];
 
     // Build fare pricing map: vehicle_type_id -> config (null key = default)
