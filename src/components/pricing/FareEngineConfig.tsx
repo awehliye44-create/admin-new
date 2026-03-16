@@ -93,7 +93,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
       setSettings({
         ...DEFAULT_SETTINGS,
         service_area_id: serviceAreaId,
-        currency_code: regionCurrencyCode || 'GBP',
+        currency_code: currencyCode,
       });
     }
     setHasChanges(false);
