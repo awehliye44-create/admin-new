@@ -73,6 +73,7 @@ const App = () => (
     <AuthProvider>
       <StaffProfileProvider>
       <TooltipProvider>
+        <OfflineDetector />
         <Toaster />
         <Sonner />
         <BrowserRouter>
