@@ -108,6 +108,7 @@ declare global {
   }
 }
 
+// Quick Actions panel with live badge counts
 function QuickActionsPanel({ navigate }: { navigate: (path: string) => void }) {
   const { counts } = useSidebarCounts();
 
