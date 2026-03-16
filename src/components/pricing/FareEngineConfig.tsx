@@ -322,6 +322,11 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
                   <CheckCircle2 className="h-3 w-3 mr-1" />
                   Configured
                 </Badge>
+              ) : selectedVehicleTypeId === '__default__' ? (
+                <Badge variant="outline" className="bg-muted text-muted-foreground border-border">
+                  <AlertCircle className="h-3 w-3 mr-1" />
+                  No area-wide default set
+                </Badge>
               ) : (
                 <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
                   <AlertCircle className="h-3 w-3 mr-1" />
