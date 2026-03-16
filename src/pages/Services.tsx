@@ -241,17 +241,16 @@ export default function Services() {
           setDriverCounts(counts);
         }
 
-        // Build pricing status
+        // Build pricing status from Fare Engine settings
         const status: Record<string, PricingStatus> = {};
         areasRes.data.forEach(area => {
-          const areasPricing = pricingRes.data?.filter(p => p.service_area_id === area.id) || [];
-          const enabledPricing = areasPricing.filter(p => p.is_enabled);
+          const fareEngineConfig = pricingRes.data?.find(p => p.service_area_id === area.id);
           const hasCancellation = cancellationRes.data?.some(c => c.service_area_id === area.id) || false;
           
           status[area.id] = {
-            vehicleTypesConfigured: enabledPricing.length,
+            vehicleTypesConfigured: fareEngineConfig ? 1 : 0,
             totalVehicleTypes,
-            hasBaseFare: enabledPricing.some(p => p.base_fare > 0),
+            hasBaseFare: fareEngineConfig ? fareEngineConfig.base_fare_pence > 0 : false,
             hasCancellationFees: hasCancellation,
           };
         });
