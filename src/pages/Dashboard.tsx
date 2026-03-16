@@ -22,8 +22,11 @@ import {
   Settings,
   AlertTriangle,
   CreditCard,
-  BarChart3
+  BarChart3,
+  MessageSquare,
+  Shield
 } from 'lucide-react';
+import { useSidebarCounts } from '@/hooks/useSidebarCounts';
 import { cn } from '@/lib/utils';
 import { useNavigate } from 'react-router-dom';
 import { format, subDays, subWeeks, subMonths, startOfDay, endOfDay, startOfWeek, startOfMonth } from 'date-fns';
