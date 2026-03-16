@@ -117,6 +117,7 @@ const App = () => (
               <Route path="promo-codes" element={<PromoCodes />} />
               <Route path="custom-zones" element={<CustomZones />} />
               <Route path="zone-pricing" element={<ZonePricing />} />
+              <Route path="fare-settings" element={<FareSettings />} />
               
               <Route path="corporate-fares" element={<CorporateFares />} />
               <Route path="fare-simulator" element={<FareSimulator />} />
