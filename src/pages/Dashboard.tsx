@@ -707,7 +707,7 @@ export default function Dashboard() {
                       />
                     </div>
                     <div className="flex justify-end">
-                      <span className="text-xs text-muted-foreground">Commission: £{area.commission.toFixed(2)}</span>
+                      <span className="text-xs text-muted-foreground">Commission: {getCurrencySymbol(area.currency_code)}{area.commission.toFixed(2)}</span>
                     </div>
                   </div>
                 );
