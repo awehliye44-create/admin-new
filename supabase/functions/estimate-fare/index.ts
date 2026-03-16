@@ -58,14 +58,34 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Fetch fare pricing settings for the service area
-    const { data: settings, error: settingsError } = await supabase
-      .from("fare_pricing_settings")
-      .select("*")
-      .eq("service_area_id", service_area_id)
-      .single();
+    // Fetch fare pricing settings: try vehicle-type-specific first, fall back to area default
+    let settings: any = null;
 
-    if (settingsError || !settings) {
+    if (vehicle_type_id) {
+      const { data } = await supabase
+        .from("fare_pricing_settings")
+        .select("*")
+        .eq("service_area_id", service_area_id)
+        .eq("vehicle_type_id", vehicle_type_id)
+        .maybeSingle();
+      settings = data;
+    }
+
+    // Fallback to area-wide default (vehicle_type_id IS NULL)
+    if (!settings) {
+      const { data, error } = await supabase
+        .from("fare_pricing_settings")
+        .select("*")
+        .eq("service_area_id", service_area_id)
+        .is("vehicle_type_id", null)
+        .maybeSingle();
+      if (error) {
+        console.error("Error fetching default fare settings:", error);
+      }
+      settings = data;
+    }
+
+    if (!settings) {
       return new Response(
         JSON.stringify({ error: "Fare pricing settings not found for this service area" }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }

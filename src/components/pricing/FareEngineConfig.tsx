@@ -6,10 +6,17 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { 
   Save, Loader2, Calculator, Zap, Lock, 
-  Clock, Settings2, AlertCircle, CheckCircle2, TrendingUp
+  Clock, Settings2, AlertCircle, CheckCircle2, TrendingUp, Car
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getCurrencySymbol } from '@/lib/regionSettings';
@@ -18,6 +25,7 @@ import { FareSimulatorCard } from '@/components/pricing/FareSimulatorCard';
 interface FarePricingSettings {
   id?: string;
   service_area_id: string;
+  vehicle_type_id?: string | null;
   pricing_mode: 'fixed' | 'dynamic';
   currency_code: string;
   base_fare_pence: number;
@@ -61,6 +69,12 @@ const DEFAULT_SETTINGS: Omit<FarePricingSettings, 'service_area_id'> = {
   demand_supply_multiplier: 1.0,
 };
 
+interface VehicleType {
+  id: string;
+  name: string;
+  slug: string;
+}
+
 interface FareEngineConfigProps {
   serviceAreaId: string;
   regionCurrencyCode?: string;
@@ -72,20 +86,74 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
+  // Vehicle type selector
+  const [assignedVehicleTypes, setAssignedVehicleTypes] = useState<VehicleType[]>([]);
+  const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState<string>('__default__');
+  const [configuredVtIds, setConfiguredVtIds] = useState<Set<string>>(new Set());
+
   const currencyCode = regionCurrencyCode || settings?.currency_code || 'GBP';
   const symbol = getCurrencySymbol(currencyCode);
 
+  // Fetch assigned vehicle types for this service area
+  useEffect(() => {
+    fetchAssignedVehicleTypes();
+  }, [serviceAreaId]);
+
+  // Fetch fare settings when vehicle type changes
   useEffect(() => {
     fetchSettings();
-  }, [serviceAreaId]);
+  }, [serviceAreaId, selectedVehicleTypeId]);
+
+  const fetchAssignedVehicleTypes = async () => {
+    const { data: assignments } = await supabase
+      .from('service_area_vehicle_types')
+      .select('vehicle_type_id')
+      .eq('service_area_id', serviceAreaId)
+      .eq('is_active', true);
+
+    if (assignments && assignments.length > 0) {
+      const vtIds = assignments.map((a: any) => a.vehicle_type_id);
+      const { data: vtData } = await supabase
+        .from('vehicle_types')
+        .select('id, name, slug')
+        .in('id', vtIds)
+        .eq('is_active', true)
+        .order('name');
+      setAssignedVehicleTypes(vtData || []);
+    } else {
+      setAssignedVehicleTypes([]);
+    }
+
+    // Check which vehicle types already have fare configs
+    const { data: configs } = await supabase
+      .from('fare_pricing_settings')
+      .select('vehicle_type_id')
+      .eq('service_area_id', serviceAreaId);
+
+    const ids = new Set<string>();
+    (configs || []).forEach((c: any) => {
+      if (c.vehicle_type_id) ids.add(c.vehicle_type_id);
+      else ids.add('__default__');
+    });
+    setConfiguredVtIds(ids);
+  };
 
   const fetchSettings = async () => {
     setIsLoading(true);
-    const { data } = await supabase
+    const vehicleTypeId = selectedVehicleTypeId === '__default__' ? null : selectedVehicleTypeId;
+
+    let query = supabase
       .from('fare_pricing_settings')
       .select('*')
-      .eq('service_area_id', serviceAreaId)
-      .maybeSingle();
+      .eq('service_area_id', serviceAreaId);
+
+    if (vehicleTypeId) {
+      query = query.eq('vehicle_type_id', vehicleTypeId);
+    } else {
+      query = query.is('vehicle_type_id', null);
+    }
+
+    const { data } = await query.maybeSingle();
 
     if (data) {
       setSettings(data as unknown as FarePricingSettings);
@@ -93,6 +161,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
       setSettings({
         ...DEFAULT_SETTINGS,
         service_area_id: serviceAreaId,
+        vehicle_type_id: vehicleTypeId,
         currency_code: currencyCode,
       });
     }
@@ -131,6 +200,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
     if (!settings) return;
     setIsSaving(true);
     try {
+      const vehicleTypeId = selectedVehicleTypeId === '__default__' ? null : selectedVehicleTypeId;
       const payload = {
         pricing_mode: settings.pricing_mode,
         currency_code: currencyCode,
@@ -162,14 +232,28 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
       } else {
         const { data, error } = await supabase
           .from('fare_pricing_settings')
-          .insert({ service_area_id: serviceAreaId, ...payload })
+          .insert({ 
+            service_area_id: serviceAreaId, 
+            vehicle_type_id: vehicleTypeId,
+            ...payload 
+          })
           .select()
           .single();
         if (error) throw error;
         if (data) setSettings(data as unknown as FarePricingSettings);
       }
       setHasChanges(false);
-      toast.success('Fare pricing settings saved');
+      // Update configured set
+      setConfiguredVtIds(prev => {
+        const next = new Set(prev);
+        next.add(selectedVehicleTypeId);
+        return next;
+      });
+
+      const vtName = selectedVehicleTypeId === '__default__' 
+        ? 'Default' 
+        : assignedVehicleTypes.find(v => v.id === selectedVehicleTypeId)?.name || 'Vehicle';
+      toast.success(`Fare settings saved for ${vtName}`);
     } catch (err) {
       console.error('Error saving fare settings:', err);
       toast.error('Failed to save fare pricing settings');
@@ -190,6 +274,70 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
 
   return (
     <div className="space-y-6">
+      {/* Vehicle Type Selector */}
+      <Card>
+        <CardHeader className="pb-4">
+          <CardTitle className="flex items-center gap-2">
+            <Car className="h-5 w-5 text-primary" />
+            Vehicle Type Pricing
+          </CardTitle>
+          <CardDescription>
+            Configure fare settings per vehicle type. Each vehicle type can have its own pricing mode, rates, and fees.
+            The "Default" config applies when no vehicle-type-specific config exists.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-4">
+            <div className="flex-1 max-w-xs">
+              <Label className="text-sm mb-1.5 block">Select Vehicle Type</Label>
+              <Select value={selectedVehicleTypeId} onValueChange={setSelectedVehicleTypeId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__default__">
+                    <span className="flex items-center gap-2">
+                      Default (Area-wide)
+                      {configuredVtIds.has('__default__') && (
+                        <CheckCircle2 className="h-3 w-3 text-green-500" />
+                      )}
+                    </span>
+                  </SelectItem>
+                  {assignedVehicleTypes.map(vt => (
+                    <SelectItem key={vt.id} value={vt.id}>
+                      <span className="flex items-center gap-2">
+                        {vt.name}
+                        {configuredVtIds.has(vt.id) && (
+                          <CheckCircle2 className="h-3 w-3 text-green-500" />
+                        )}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2 mt-5">
+              {configuredVtIds.has(selectedVehicleTypeId) ? (
+                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                  Configured
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                  <AlertCircle className="h-3 w-3 mr-1" />
+                  Not configured — will use Default
+                </Badge>
+              )}
+            </div>
+          </div>
+          {assignedVehicleTypes.length === 0 && (
+            <p className="text-xs text-muted-foreground mt-3">
+              No vehicle types assigned to this service area. Assign vehicle types in the Vehicle Types tab first.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       {hasChanges && (
         <div className="flex justify-end">
           <Button onClick={handleSave} disabled={isSaving}>
@@ -421,6 +569,14 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Vehicle Type</span>
+                <Badge variant="outline">
+                  {selectedVehicleTypeId === '__default__' 
+                    ? 'Default' 
+                    : assignedVehicleTypes.find(v => v.id === selectedVehicleTypeId)?.name || 'Unknown'}
+                </Badge>
+              </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Mode</span>
                 <Badge variant="outline">{settings.pricing_mode}</Badge>
