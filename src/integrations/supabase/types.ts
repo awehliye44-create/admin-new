@@ -7037,6 +7037,10 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
       }
+      approve_corporate_request: {
+        Args: { p_request_id: string; p_reviewed_by?: string }
+        Returns: string
+      }
       assign_trip_number: {
         Args: { p_service_area_id: string; p_trip_id: string }
         Returns: Json
@@ -7225,6 +7229,10 @@ export type Database = {
         Args: { point_lat: number; point_lng: number; polygon_geojson: Json }
         Returns: boolean
       }
+      reactivate_corporate_account: {
+        Args: { p_account_id: string }
+        Returns: undefined
+      }
       recalculate_driver_wallet: {
         Args: { p_driver_id: string }
         Returns: undefined
@@ -7277,6 +7285,14 @@ export type Database = {
         Returns: string
       }
       stop_stop_waiting: { Args: { p_waiting_id: string }; Returns: Json }
+      suspend_corporate_account: {
+        Args: { p_account_id: string }
+        Returns: undefined
+      }
+      suspend_corporate_request: {
+        Args: { p_request_id: string; p_reviewed_by?: string }
+        Returns: undefined
+      }
       tick_stop_waiting: { Args: { p_waiting_id: string }; Returns: Json }
       timeout_scheduled_offer: {
         Args: { p_driver_id: string; p_trip_id: string }
