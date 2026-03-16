@@ -357,6 +357,16 @@ export default function ManageContent() {
               apiParam="corporate"
             />
           </TabsContent>
+
+          <TabsContent value="legal">
+            <ScopeSection
+              scope="Legal Content"
+              icon={<Scale className="h-5 w-5 text-primary" />}
+              items={byScope('legal')}
+              onRefresh={fetchItems}
+              apiParam="legal"
+            />
+          </TabsContent>
         </Tabs>
       )}
     </AdminLayout>
