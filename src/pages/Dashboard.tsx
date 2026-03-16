@@ -22,8 +22,11 @@ import {
   Settings,
   AlertTriangle,
   CreditCard,
-  BarChart3
+  BarChart3,
+  MessageSquare,
+  Shield
 } from 'lucide-react';
+import { useSidebarCounts } from '@/hooks/useSidebarCounts';
 import { cn } from '@/lib/utils';
 import { useNavigate } from 'react-router-dom';
 import { format, subDays, subWeeks, subMonths, startOfDay, endOfDay, startOfWeek, startOfMonth } from 'date-fns';
@@ -103,6 +106,98 @@ declare global {
   interface Window {
     google: any;
   }
+}
+
+function QuickActionsPanel({ navigate }: { navigate: (path: string) => void }) {
+  const { counts } = useSidebarCounts();
+
+  const actions = [
+    {
+      icon: UserPlus,
+      label: 'Approve Drivers',
+      description: counts.pendingDrivers > 0
+        ? `${counts.pendingDrivers} pending application${counts.pendingDrivers !== 1 ? 's' : ''}`
+        : 'No pending applications',
+      path: '/drivers',
+      badge: counts.pendingDrivers,
+    },
+    {
+      icon: MessageSquare,
+      label: 'Send Notifications',
+      description: 'Broadcast messages to drivers',
+      path: '/notifications',
+      badge: 0,
+    },
+    {
+      icon: BarChart3,
+      label: 'Analytics',
+      description: 'View detailed performance reports',
+      path: '/trip-history',
+      badge: 0,
+      highlight: true,
+    },
+    {
+      icon: CreditCard,
+      label: 'Payments',
+      description: counts.pendingDocuments > 0
+        ? `${counts.pendingDocuments} pending payouts`
+        : 'Manage payouts & billing',
+      path: '/payments',
+      badge: counts.pendingDocuments,
+    },
+    {
+      icon: Shield,
+      label: 'Safety Center',
+      description: counts.pendingFeedback > 0
+        ? `${counts.pendingFeedback} active alert${counts.pendingFeedback !== 1 ? 's' : ''}`
+        : 'No active alerts',
+      path: '/disputes',
+      badge: counts.pendingFeedback,
+    },
+  ];
+
+  return (
+    <div className="mt-6">
+      <h3 className="text-lg font-semibold mb-4">Quick Actions</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        {actions.map((action) => (
+          <Card
+            key={action.path}
+            className="relative flex flex-col justify-between hover:shadow-md transition-shadow"
+          >
+            {action.badge > 0 && (
+              <span className="absolute -top-2 -right-2 flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full bg-destructive text-destructive-foreground text-xs font-bold">
+                {action.badge}
+              </span>
+            )}
+            <CardContent className="pt-5 pb-3 flex flex-col gap-3">
+              <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-muted">
+                <action.icon className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="font-semibold text-sm">{action.label}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{action.description}</p>
+              </div>
+            </CardContent>
+            <div className="px-5 pb-4">
+              <Button
+                onClick={() => navigate(action.path)}
+                className={cn(
+                  "w-full",
+                  action.highlight
+                    ? "bg-amber-400 hover:bg-amber-500 text-foreground"
+                    : ""
+                )}
+                variant={action.highlight ? "default" : "default"}
+              >
+                Open
+              </Button>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function Dashboard() {
@@ -938,34 +1033,7 @@ export default function Dashboard() {
       </div>
 
       {/* Quick Actions */}
-      <div className="mt-6">
-        <h3 className="text-lg font-semibold mb-4">Quick Actions</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
-          {[
-            { icon: Send, label: 'Dispatch', path: '/dispatch', color: 'text-blue-500', bg: 'bg-blue-500/10' },
-            { icon: UserPlus, label: 'Add Driver', path: '/drivers', color: 'text-green-500', bg: 'bg-green-500/10' },
-            { icon: Route, label: 'Active Trips', path: '/active-trips', color: 'text-amber-500', bg: 'bg-amber-500/10' },
-            { icon: CreditCard, label: 'Payments', path: '/payments', color: 'text-purple-500', bg: 'bg-purple-500/10' },
-            { icon: FileText, label: 'Documents', path: '/documents', color: 'text-cyan-500', bg: 'bg-cyan-500/10' },
-            { icon: AlertTriangle, label: 'Disputes', path: '/disputes', color: 'text-red-500', bg: 'bg-red-500/10' },
-            { icon: BarChart3, label: 'Trip History', path: '/trip-history', color: 'text-indigo-500', bg: 'bg-indigo-500/10' },
-            { icon: Settings, label: 'Settings', path: '/settings', color: 'text-muted-foreground', bg: 'bg-muted' },
-          ].map((action) => (
-            <button
-              key={action.path}
-              onClick={() => navigate(action.path)}
-              className="flex flex-col items-center gap-2 p-4 rounded-xl border bg-card hover:bg-accent/50 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 group"
-            >
-              <div className={cn("flex items-center justify-center w-10 h-10 rounded-lg transition-colors", action.bg)}>
-                <action.icon className={cn("h-5 w-5", action.color)} />
-              </div>
-              <span className="text-xs font-medium text-muted-foreground group-hover:text-foreground transition-colors">
-                {action.label}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
+      <QuickActionsPanel navigate={navigate} />
     </AdminLayout>
   );
 }
