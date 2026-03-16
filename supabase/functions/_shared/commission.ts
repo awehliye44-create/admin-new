@@ -58,3 +58,35 @@ export async function getDriverCommissionPct(
   // Should never reach here if driver_categories table has data
   throw new Error('No driver categories found in database — cannot determine commission rate');
 }
+
+/**
+ * Commission calculation result.
+ */
+export interface CommissionResult {
+  commission_pct: number;
+  commission_pence: number;
+  driver_net_pence: number;
+}
+
+/**
+ * Calculate commission from a gross fare using the driver's tier rate.
+ *
+ * Formula:
+ *   commission_pence = round(gross_fare_pence * commission_pct / 100)
+ *   driver_net_pence = gross_fare_pence - commission_pence
+ *
+ * @param supabase  Supabase client (service role)
+ * @param driverId  Driver UUID
+ * @param grossFarePence  The commissionable gross fare in pence (tip excluded)
+ */
+export async function calculateCommission(
+  supabase: SupabaseClient,
+  driverId: string,
+  grossFarePence: number,
+): Promise<CommissionResult> {
+  const commission_pct = await getDriverCommissionPct(supabase, driverId);
+  const commission_pence = Math.round(grossFarePence * commission_pct / 100);
+  const driver_net_pence = grossFarePence - commission_pence;
+
+  return { commission_pct, commission_pence, driver_net_pence };
+}
