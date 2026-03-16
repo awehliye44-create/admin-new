@@ -47,6 +47,8 @@ interface VehicleType {
   slug: string;
   icon: string | null;
   is_active: boolean;
+  is_default: boolean;
+  driver_controllable: boolean;
   display_order: number | null;
   capacity: number;
   categories: string[];
