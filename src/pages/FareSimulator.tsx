@@ -11,8 +11,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { Calculator, MapPin, Navigation, Clock, Percent, DollarSign, ArrowRight, RotateCcw, Info, TrendingUp, Building2, Zap } from "lucide-react";
+import { Calculator, MapPin, Navigation, Clock, Percent, DollarSign, ArrowRight, RotateCcw, Info, TrendingUp, Building2, Zap, Car } from "lucide-react";
 import { getCurrencySymbol, getDistanceUnitShort } from "@/lib/regionSettings";
+
+interface VehicleType {
+  id: string;
+  name: string;
+  slug: string;
+}
 
 interface ServiceArea {
   id: string;
