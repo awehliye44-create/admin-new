@@ -388,6 +388,7 @@ export type Database = {
       corporate_account_requests: {
         Row: {
           address: string | null
+          approved_at: string | null
           city: string | null
           company_name: string
           contact_email: string
@@ -405,11 +406,14 @@ export type Database = {
           reviewed_by: string | null
           service_area_id: string | null
           status: string
+          suspended_at: string | null
           tax_id: string | null
           updated_at: string
+          user_id: string | null
         }
         Insert: {
           address?: string | null
+          approved_at?: string | null
           city?: string | null
           company_name: string
           contact_email: string
@@ -427,11 +431,14 @@ export type Database = {
           reviewed_by?: string | null
           service_area_id?: string | null
           status?: string
+          suspended_at?: string | null
           tax_id?: string | null
           updated_at?: string
+          user_id?: string | null
         }
         Update: {
           address?: string | null
+          approved_at?: string | null
           city?: string | null
           company_name?: string
           contact_email?: string
@@ -449,8 +456,10 @@ export type Database = {
           reviewed_by?: string | null
           service_area_id?: string | null
           status?: string
+          suspended_at?: string | null
           tax_id?: string | null
           updated_at?: string
+          user_id?: string | null
         }
         Relationships: [
           {
