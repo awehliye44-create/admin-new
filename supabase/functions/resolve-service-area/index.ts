@@ -139,9 +139,8 @@ serve(async (req) => {
       );
     }
 
-    // Fetch vehicle types, fare settings, offer config, and payment methods in parallel
+    // Fetch vehicle types, fare settings (all configs), offer config, and payment methods in parallel
     const [vehicleTypesRes, fareSettingsRes, offerConfigRes, paymentRes] = await Promise.all([
-      // Vehicle types assigned to this service area (joined with vehicle_types metadata)
       supabase
         .from('service_area_vehicle_types')
         .select('vehicle_type_id, display_order, is_active')
@@ -149,21 +148,18 @@ serve(async (req) => {
         .eq('is_active', true)
         .order('display_order'),
 
-      // Fare Engine settings for this service area
+      // Fetch ALL fare configs for this service area (default + per-vehicle-type)
       supabase
         .from('fare_pricing_settings')
-        .select('pricing_mode, base_fare_pence, per_km_rate_pence, per_minute_rate_pence, booking_fee_pence, minimum_fare_pence, free_waiting_minutes, waiting_per_minute_pence, extra_stop_flat_fee_pence, currency_code')
-        .eq('service_area_id', primaryServiceArea.id)
-        .maybeSingle(),
+        .select('vehicle_type_id, pricing_mode, base_fare_pence, per_km_rate_pence, per_min_rate_pence, booking_fee_pence, minimum_fare_pence, free_waiting_minutes, waiting_per_minute_pence, extra_stop_flat_fee_pence, currency_code')
+        .eq('service_area_id', primaryServiceArea.id),
 
-      // Offer schedule
       supabase
         .from('preset_offer_configs')
         .select('is_enabled, schedule_enabled, schedule_days, schedule_start_time, schedule_end_time')
         .eq('service_area_id', primaryServiceArea.id)
         .maybeSingle(),
 
-      // Payment methods
       supabase
         .from('service_area_payment_methods')
         .select('cash_enabled, card_enabled, wallet_enabled, apple_pay_enabled, google_pay_enabled')
@@ -175,6 +171,25 @@ serve(async (req) => {
     const assignedVtIds = (vehicleTypesRes.data || []).map((r: any) => r.vehicle_type_id);
     let vehicleTypes: any[] = [];
 
+    // Build fare pricing map: vehicle_type_id -> config (null key = default)
+    const fareConfigMap = new Map<string | null, any>();
+    for (const fc of fareSettingsRes.data || []) {
+      fareConfigMap.set(fc.vehicle_type_id, {
+        pricingMode: fc.pricing_mode,
+        baseFarePence: fc.base_fare_pence,
+        perKmRatePence: fc.per_km_rate_pence,
+        perMinuteRatePence: fc.per_min_rate_pence,
+        bookingFeePence: fc.booking_fee_pence,
+        minimumFarePence: fc.minimum_fare_pence,
+        freeWaitingMinutes: fc.free_waiting_minutes,
+        waitingPerMinutePence: fc.waiting_per_minute_pence,
+        extraStopFlatFeePence: fc.extra_stop_flat_fee_pence,
+        currencyCode: fc.currency_code,
+      });
+    }
+
+    const defaultFarePricing = fareConfigMap.get(null) || null;
+
     if (assignedVtIds.length > 0) {
       const { data: vtData } = await supabase
         .from('vehicle_types')
@@ -182,7 +197,6 @@ serve(async (req) => {
         .in('id', assignedVtIds)
         .eq('is_active', true);
 
-      // Merge with display_order and return in order
       const orderMap = new Map((vehicleTypesRes.data || []).map((r: any) => [r.vehicle_type_id, r.display_order]));
       vehicleTypes = (vtData || [])
         .map((vt: any) => ({
@@ -194,24 +208,11 @@ serve(async (req) => {
           capacity: vt.capacity,
           features: vt.features,
           displayOrder: orderMap.get(vt.id) ?? 0,
+          // Attach vehicle-type-specific pricing or fall back to default
+          farePricing: fareConfigMap.get(vt.id) || defaultFarePricing,
         }))
         .sort((a: any, b: any) => a.displayOrder - b.displayOrder);
     }
-
-    // Build fare pricing response
-    const fareSettings = fareSettingsRes.data;
-    const farePricing = fareSettings ? {
-      pricingMode: fareSettings.pricing_mode,
-      baseFarePence: fareSettings.base_fare_pence,
-      perKmRatePence: fareSettings.per_km_rate_pence,
-      perMinuteRatePence: fareSettings.per_minute_rate_pence,
-      bookingFeePence: fareSettings.booking_fee_pence,
-      minimumFarePence: fareSettings.minimum_fare_pence,
-      freeWaitingMinutes: fareSettings.free_waiting_minutes,
-      waitingPerMinutePence: fareSettings.waiting_per_minute_pence,
-      extraStopFlatFeePence: fareSettings.extra_stop_flat_fee_pence,
-      currencyCode: fareSettings.currency_code,
-    } : null;
 
     // Build payment methods
     const pm = paymentRes.data;
@@ -236,14 +237,14 @@ serve(async (req) => {
       service_area_name: primaryServiceArea.name,
     };
 
-    console.log('Resolved settings with', vehicleTypes.length, 'vehicle types, fare engine:', !!farePricing);
+    console.log('Resolved settings with', vehicleTypes.length, 'vehicle types,', fareConfigMap.size, 'fare configs');
 
     return new Response(
       JSON.stringify({
         success: true,
         settings,
         vehicleTypes,
-        farePricing,
+        farePricing: defaultFarePricing,
         paymentMethods,
         offersAllowedNow: scheduleCheck.offersAllowedNow,
         serviceAreaIds: primaryServiceArea ? [primaryServiceArea.id] : [],

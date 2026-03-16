@@ -11,8 +11,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { Calculator, MapPin, Navigation, Clock, Percent, DollarSign, ArrowRight, RotateCcw, Info, TrendingUp, Building2, Zap } from "lucide-react";
+import { Calculator, MapPin, Navigation, Clock, Percent, DollarSign, ArrowRight, RotateCcw, Info, TrendingUp, Building2, Zap, Car } from "lucide-react";
 import { getCurrencySymbol, getDistanceUnitShort } from "@/lib/regionSettings";
+
+interface VehicleType {
+  id: string;
+  name: string;
+  slug: string;
+}
 
 interface ServiceArea {
   id: string;
@@ -96,6 +102,7 @@ export default function FareSimulator() {
 
   const [formData, setFormData] = useState({
     service_area_id: "",
+    vehicle_type_id: "",
     distance_km: 5,
     duration_minutes: 15,
     waiting_minutes: 0,
@@ -143,17 +150,53 @@ export default function FareSimulator() {
     };
   }, [formData.service_area_id, serviceAreas, regions]);
 
+  // Fetch assigned vehicle types for selected service area
+  const { data: assignedVehicleTypes = [] } = useQuery({
+    queryKey: ['assigned-vt', formData.service_area_id],
+    queryFn: async () => {
+      if (!formData.service_area_id) return [];
+      const { data: assignments } = await supabase
+        .from('service_area_vehicle_types')
+        .select('vehicle_type_id')
+        .eq('service_area_id', formData.service_area_id)
+        .eq('is_active', true);
+      if (!assignments || assignments.length === 0) return [];
+      const vtIds = assignments.map((a: any) => a.vehicle_type_id);
+      const { data: vtData } = await supabase
+        .from('vehicle_types')
+        .select('id, name, slug')
+        .in('id', vtIds)
+        .eq('is_active', true)
+        .order('name');
+      return (vtData || []) as VehicleType[];
+    },
+    enabled: !!formData.service_area_id,
+  });
+
   const { data: fareSettings } = useQuery({
-    queryKey: ['fare-pricing-settings', formData.service_area_id],
+    queryKey: ['fare-pricing-settings', formData.service_area_id, formData.vehicle_type_id],
     queryFn: async () => {
       if (!formData.service_area_id) return null;
-      const { data, error } = await supabase
+
+      // Try vehicle-type-specific config first
+      if (formData.vehicle_type_id) {
+        const { data } = await supabase
+          .from('fare_pricing_settings')
+          .select('*')
+          .eq('service_area_id', formData.service_area_id)
+          .eq('vehicle_type_id', formData.vehicle_type_id)
+          .maybeSingle();
+        if (data) return data as FarePricingSettings;
+      }
+
+      // Fall back to default (vehicle_type_id IS NULL)
+      const { data } = await supabase
         .from('fare_pricing_settings')
         .select('*')
         .eq('service_area_id', formData.service_area_id)
-        .single();
-      if (error) return null;
-      return data as FarePricingSettings;
+        .is('vehicle_type_id', null)
+        .maybeSingle();
+      return data as FarePricingSettings | null;
     },
     enabled: !!formData.service_area_id,
   });
@@ -353,6 +396,7 @@ export default function FareSimulator() {
   const resetSimulator = () => {
     setFormData({
       service_area_id: "",
+      vehicle_type_id: "",
       distance_km: 5,
       duration_minutes: 15,
       waiting_minutes: 0,
@@ -413,7 +457,7 @@ export default function FareSimulator() {
                   <Label>Service Area *</Label>
                   <Select
                     value={formData.service_area_id}
-                    onValueChange={(value) => setFormData({ ...formData, service_area_id: value })}
+                    onValueChange={(value) => setFormData({ ...formData, service_area_id: value, vehicle_type_id: "" })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select area" />
@@ -425,6 +469,29 @@ export default function FareSimulator() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                {formData.service_area_id && assignedVehicleTypes.length > 0 && (
+                  <div className="grid gap-2">
+                    <Label className="flex items-center gap-2">
+                      <Car className="h-4 w-4" />
+                      Vehicle Type
+                    </Label>
+                    <Select
+                      value={formData.vehicle_type_id || "any"}
+                      onValueChange={(value) => setFormData({ ...formData, vehicle_type_id: value === "any" ? "" : value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Any (default pricing)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="any">Any (default pricing)</SelectItem>
+                        {assignedVehicleTypes.map((vt) => (
+                          <SelectItem key={vt.id} value={vt.id}>{vt.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
 
                 {fareSettings && (
                   <div className="flex items-center gap-2">
