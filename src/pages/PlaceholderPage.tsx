@@ -32,4 +32,3 @@ export function PlaceholderPage({ title, description }: PlaceholderPageProps) {
 
 // Only exports that are actually used in App.tsx routes
 export const Airports = () => <PlaceholderPage title="Manage Airports" description="Configure airport pickup and dropoff zones" />;
-export const System = () => <PlaceholderPage title="System Requirements" description="View system requirements and status" />;

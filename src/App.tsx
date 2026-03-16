@@ -60,10 +60,7 @@ import { StaffProfileProvider } from "@/hooks/useStaffProfile";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AdminShell } from "@/components/layout/AdminShell";
 
-import {
-  Airports,
-  System,
-} from "./pages/PlaceholderPage";
+import { Airports } from "./pages/PlaceholderPage";
 import ManageContent from "./pages/ManageContent";
 import LiveChat from "./pages/LiveChat";
 import OnecabDocuments from "./pages/OnecabDocuments";
@@ -103,10 +100,8 @@ const App = () => (
               <Route path="regions" element={<Regions />} />
               <Route path="services" element={<Services />} />
               <Route path="service-area-pricing" element={<ServiceAreaPricing />} />
-              <Route path="driver-profiles" element={<Drivers />} />
               <Route path="vehicle-types" element={<VehicleTypes />} />
               <Route path="documents" element={<Documents />} />
-              
               
               {/* Fleet Management */}
               <Route path="drivers" element={<Drivers />} />
@@ -142,7 +137,6 @@ const App = () => (
               
               {/* Finance & Payouts */}
               <Route path="payments" element={<AdminPayments />} />
-              <Route path="admin-payments" element={<AdminPayments />} />
               <Route path="admin-settlements" element={<AdminDriverSettlements />} />
               <Route path="driver-wallet" element={<DriverWallet />} />
               <Route path="payout-batches" element={<AdminPayoutBatches />} />

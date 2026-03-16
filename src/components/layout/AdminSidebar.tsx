@@ -241,7 +241,7 @@ export function AdminSidebar() {
           <div>
             <NavSection label="Fleet Management" collapsed={isCollapsed} />
             <div className="space-y-1">
-              <P pageSlug="drivers" to="/drivers" icon={<UserCircle className="h-4 w-4" />} label="Driver List" active={currentPath === '/drivers' || currentPath === '/driver-profiles'} badge={counts.pendingDrivers > 0 ? counts.pendingDrivers : undefined} collapsed={isCollapsed} />
+              <P pageSlug="drivers" to="/drivers" icon={<UserCircle className="h-4 w-4" />} label="Driver List" active={currentPath === '/drivers'} badge={counts.pendingDrivers > 0 ? counts.pendingDrivers : undefined} collapsed={isCollapsed} />
               <P pageSlug="vehicles" to="/vehicles" icon={<Car className="h-4 w-4" />} label="Vehicle List" active={currentPath === '/vehicles'} badge={counts.pendingVehicleChanges > 0 ? counts.pendingVehicleChanges : undefined} collapsed={isCollapsed} />
               <P pageSlug="vehicle-types" to="/vehicle-types" icon={<CarTaxiFront className="h-4 w-4" />} label="Vehicle Types" active={currentPath === '/vehicle-types'} collapsed={isCollapsed} />
               <P pageSlug="documents" to="/documents" icon={<FolderOpen className="h-4 w-4" />} label="Driver Documents" active={currentPath === '/documents'} badge={counts.pendingDocuments > 0 ? counts.pendingDocuments : undefined} collapsed={isCollapsed} />
@@ -316,7 +316,7 @@ export function AdminSidebar() {
           <div>
             <NavSection label="Finance & Payouts" collapsed={isCollapsed} />
             <div className="space-y-1">
-              <P pageSlug="admin-payments" to="/admin-payments" icon={<CreditCard className="h-4 w-4" />} label="Payments & Transactions" active={currentPath === '/admin-payments' || currentPath === '/payments'} collapsed={isCollapsed} />
+              <P pageSlug="payments" to="/payments" icon={<CreditCard className="h-4 w-4" />} label="Payments & Transactions" active={currentPath === '/payments'} collapsed={isCollapsed} />
               <P pageSlug="driver-wallet" to="/driver-wallet" icon={<Wallet className="h-4 w-4" />} label="Driver Wallet & Ledger" active={currentPath === '/driver-wallet'} collapsed={isCollapsed} />
               <P pageSlug="admin-settlements" to="/admin-settlements" icon={<DollarSign className="h-4 w-4" />} label="Driver Settlements" active={currentPath === '/admin-settlements'} collapsed={isCollapsed} />
               <P pageSlug="payout-batches" to="/payout-batches" icon={<History className="h-4 w-4" />} label="Payout Batches & Audit" active={currentPath === '/payout-batches'} collapsed={isCollapsed} />
