@@ -630,7 +630,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              £{isLoading ? '...' : stats.totalRevenue.toFixed(2)}
+              {currencySymbol}{isLoading ? '...' : stats.totalRevenue.toFixed(2)}
             </div>
             <p className="text-xs">
               <span className={revenueChange >= 0 ? 'text-green-500' : 'text-red-500'}>
