@@ -129,13 +129,14 @@ export default function AccountRequests() {
   // Reject
   const rejectMutation = useMutation({
     mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      const userId = (await supabase.auth.getUser()).data.user?.id;
       const { error } = await supabase
         .from('corporate_account_requests')
         .update({
           status: 'rejected',
           rejection_reason: reason || null,
           reviewed_at: new Date().toISOString(),
-          reviewed_by: 'Admin',
+          reviewed_by: userId,
         })
         .eq('id', id);
       if (error) throw error;
