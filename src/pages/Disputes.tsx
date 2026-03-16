@@ -87,10 +87,6 @@ export default function Disputes() {
     .reduce((sum, a) => sum + Math.abs(a.amount_pence), 0);
   const netAmount = totalCredits - totalDebits;
 
-  const formatPence = (pence: number) => {
-    const abs = Math.abs(pence);
-    return `£${(abs / 100).toFixed(2)}`;
-  };
 
   const getTypeBadge = (type: string) => {
     const config: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; className?: string }> = {
