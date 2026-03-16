@@ -29,7 +29,7 @@ import ZonePricing from "./pages/ZonePricing";
 
 import CorporateFares from "./pages/CorporateFares";
 import FareSimulator from "./pages/FareSimulator";
-import FareSettings from "./pages/FareSettings";
+
 import PromoCodes from "./pages/PromoCodes";
 import CorporateAccounts from "./pages/CorporateAccounts";
 import CorporateBilling from "./pages/CorporateBilling";
@@ -117,7 +117,7 @@ const App = () => (
               <Route path="promo-codes" element={<PromoCodes />} />
               <Route path="custom-zones" element={<CustomZones />} />
               <Route path="zone-pricing" element={<ZonePricing />} />
-              <Route path="fare-settings" element={<FareSettings />} />
+              
               
               <Route path="corporate-fares" element={<CorporateFares />} />
               <Route path="fare-simulator" element={<FareSimulator />} />

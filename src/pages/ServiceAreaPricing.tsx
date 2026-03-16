@@ -45,12 +45,14 @@ import {
   AlertCircle,
   Users,
   FileText,
-  Globe
+  Globe,
+  Calculator
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ServiceAreaPaymentConfig } from '@/components/payment/ServiceAreaPaymentConfig';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { PresetOffersConfig } from '@/components/pricing/PresetOffersConfig';
+import { FareEngineConfig } from '@/components/pricing/FareEngineConfig';
 
 interface VehicleType {
   id: string;
@@ -516,373 +518,393 @@ export default function ServiceAreaPricing() {
         </div>
       </div>
 
-      {/* Vehicle Types Pricing */}
-      <Card className="mb-6">
-        <CardContent className="p-6 space-y-4">
-          {vehicleTypes.map(vt => {
-            const pricing = vehiclePricing[vt.id];
-            if (!pricing) return null;
+      {/* Main Tabs */}
+      <Tabs defaultValue="vehicle-pricing" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="vehicle-pricing" className="flex items-center gap-2">
+            <Car className="h-4 w-4" />
+            Vehicle Pricing
+          </TabsTrigger>
+          <TabsTrigger value="fare-engine" className="flex items-center gap-2">
+            <Calculator className="h-4 w-4" />
+            Fare Engine
+          </TabsTrigger>
+        </TabsList>
 
-            if (!pricing.is_enabled) {
-              return (
-                <div 
-                  key={vt.id} 
-                  className="flex items-center justify-between p-4 border rounded-lg bg-muted/30"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-muted rounded-lg flex items-center justify-center">
-                      <Car className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <p className="font-medium">{vt.name}</p>
-                      <p className="text-sm text-muted-foreground">{vt.slug}</p>
-                    </div>
-                  </div>
-                  <Button variant="outline" onClick={() => toggleVehicleEnabled(vt.id)}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Enable
-                  </Button>
-                </div>
-              );
-            }
+        {/* Vehicle Pricing Tab */}
+        <TabsContent value="vehicle-pricing" className="space-y-6">
+          {/* Vehicle Types Pricing */}
+          <Card>
+            <CardContent className="p-6 space-y-4">
+              {vehicleTypes.map(vt => {
+                const pricing = vehiclePricing[vt.id];
+                if (!pricing) return null;
 
-            return (
-              <Collapsible key={vt.id} open={pricing.isExpanded} onOpenChange={() => toggleExpanded(vt.id)}>
-                <div className="border rounded-lg overflow-hidden">
-                  {/* Header */}
-                  <div className="flex items-center justify-between p-4 bg-muted/30">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
-                        <Car className="h-5 w-5 text-primary" />
+                if (!pricing.is_enabled) {
+                  return (
+                    <div 
+                      key={vt.id} 
+                      className="flex items-center justify-between p-4 border rounded-lg bg-muted/30"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-muted rounded-lg flex items-center justify-center">
+                          <Car className="h-5 w-5 text-muted-foreground" />
+                        </div>
+                        <div>
+                          <p className="font-medium">{vt.name}</p>
+                          <p className="text-sm text-muted-foreground">{vt.slug}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-medium">{vt.name}</p>
-                        <p className="text-sm text-muted-foreground">{vt.slug}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Badge variant="outline" className="bg-primary/5">
-                        {getCurrencySymbol(regionCurrency)}{pricing.base_fare.toFixed(2)} base
-                      </Badge>
-                      <Badge variant="outline" className="bg-muted">
-                        {getCurrencySymbol(regionCurrency)}{(pricing.distance_pricing[0]?.rate || 0).toFixed(2)}/{distanceLabel}
-                      </Badge>
-                      <Badge variant="outline" className="bg-muted">
-                        {getCurrencySymbol(regionCurrency)}{(pricing.time_pricing[0]?.rate || 0).toFixed(2)}/min
-                      </Badge>
-                      <CollapsibleTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          {pricing.isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                          {pricing.isExpanded ? 'Collapse' : 'Expand'}
-                        </Button>
-                      </CollapsibleTrigger>
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => toggleVehicleEnabled(vt.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
+                      <Button variant="outline" onClick={() => toggleVehicleEnabled(vt.id)}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Enable
                       </Button>
                     </div>
-                  </div>
+                  );
+                }
 
-                  <CollapsibleContent>
-                    <div className="p-6 space-y-6 border-t">
-                      {/* Base Fare & Minimum Fare */}
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Base Fare ({getCurrencySymbol(regionCurrency)})</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={pricing.base_fare}
-                            onChange={e => updatePricing(vt.id, 'base_fare', parseFloat(e.target.value) || 0)}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Minimum Fare ({getCurrencySymbol(regionCurrency)})</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={pricing.minimum_fare}
-                            onChange={e => updatePricing(vt.id, 'minimum_fare', parseFloat(e.target.value) || 0)}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Fare Breakdown Summary */}
-                      <div className="p-4 bg-muted/30 rounded-lg border">
-                        <p className="text-sm font-medium mb-3">Fare Breakdown Summary</p>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                          <div>
-                            <p className="text-muted-foreground">Base Fare</p>
-                            <p className="font-semibold">{getCurrencySymbol(regionCurrency)}{pricing.base_fare.toFixed(2)}</p>
+                return (
+                  <Collapsible key={vt.id} open={pricing.isExpanded} onOpenChange={() => toggleExpanded(vt.id)}>
+                    <div className="border rounded-lg overflow-hidden">
+                      {/* Header */}
+                      <div className="flex items-center justify-between p-4 bg-muted/30">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                            <Car className="h-5 w-5 text-primary" />
                           </div>
                           <div>
-                            <p className="text-muted-foreground">Per {distanceLabel}</p>
-                            <p className="font-semibold">{getCurrencySymbol(regionCurrency)}{(pricing.distance_pricing[0]?.rate || 0).toFixed(2)}</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">Per Minute</p>
-                            <p className="font-semibold">{getCurrencySymbol(regionCurrency)}{(pricing.time_pricing[0]?.rate || 0).toFixed(2)}</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">Minimum Fare</p>
-                            <p className="font-semibold">{getCurrencySymbol(regionCurrency)}{pricing.minimum_fare.toFixed(2)}</p>
+                            <p className="font-medium">{vt.name}</p>
+                            <p className="text-sm text-muted-foreground">{vt.slug}</p>
                           </div>
                         </div>
-                        <div className="mt-3 pt-3 border-t border-border/50">
-                          <p className="text-xs text-muted-foreground">
-                            <span className="font-medium">Commission</span> is calculated from the driver's tier in <span className="font-medium">Driver Categories</span>.
-                          </p>
+                        <div className="flex items-center gap-3">
+                          <Badge variant="outline" className="bg-primary/5">
+                            {getCurrencySymbol(regionCurrency)}{pricing.base_fare.toFixed(2)} base
+                          </Badge>
+                          <Badge variant="outline" className="bg-muted">
+                            {getCurrencySymbol(regionCurrency)}{(pricing.distance_pricing[0]?.rate || 0).toFixed(2)}/{distanceLabel}
+                          </Badge>
+                          <Badge variant="outline" className="bg-muted">
+                            {getCurrencySymbol(regionCurrency)}{(pricing.time_pricing[0]?.rate || 0).toFixed(2)}/min
+                          </Badge>
+                          <CollapsibleTrigger asChild>
+                            <Button variant="ghost" size="sm">
+                              {pricing.isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                              {pricing.isExpanded ? 'Collapse' : 'Expand'}
+                            </Button>
+                          </CollapsibleTrigger>
+                          <Button 
+                            variant="ghost" 
+                            size="icon"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => toggleVehicleEnabled(vt.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
 
-                      {/* Distance Pricing */}
-                      <PricingTierSection
-                        title="Distance Pricing"
-                        description={`Rate per ${distanceLabel} at different distance ranges`}
-                        tiers={pricing.distance_pricing}
-                        fromLabel={`From ${distanceLabel}:`}
-                        fromField="from_km"
-                        rateUnit={`/${distanceLabel}`}
-                        currencySymbol={getCurrencySymbol(regionCurrency)}
-                        onAdd={() => addPricingTier(vt.id, 'distance_pricing')}
-                        onRemove={(index) => removePricingTier(vt.id, 'distance_pricing', index)}
-                        onUpdate={(index, field, value) => updatePricingTier(vt.id, 'distance_pricing', index, field, value)}
-                      />
+                      <CollapsibleContent>
+                        <div className="p-6 space-y-6 border-t">
+                          {/* Base Fare & Minimum Fare */}
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label>Base Fare ({getCurrencySymbol(regionCurrency)})</Label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={pricing.base_fare}
+                                onChange={e => updatePricing(vt.id, 'base_fare', parseFloat(e.target.value) || 0)}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Minimum Fare ({getCurrencySymbol(regionCurrency)})</Label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={pricing.minimum_fare}
+                                onChange={e => updatePricing(vt.id, 'minimum_fare', parseFloat(e.target.value) || 0)}
+                              />
+                            </div>
+                          </div>
 
-                      {/* Time Pricing */}
-                      <PricingTierSection
-                        title="Time Pricing"
-                        description="Rate per minute at different duration ranges"
-                        tiers={pricing.time_pricing}
-                        fromLabel="From min:"
-                        fromField="from_min"
-                        rateUnit="/min"
-                        currencySymbol={getCurrencySymbol(regionCurrency)}
-                        onAdd={() => addPricingTier(vt.id, 'time_pricing')}
-                        onRemove={(index) => removePricingTier(vt.id, 'time_pricing', index)}
-                        onUpdate={(index, field, value) => updatePricingTier(vt.id, 'time_pricing', index, field, value)}
-                      />
+                          {/* Fare Breakdown Summary */}
+                          <div className="p-4 bg-muted/30 rounded-lg border">
+                            <p className="text-sm font-medium mb-3">Fare Breakdown Summary</p>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                              <div>
+                                <p className="text-muted-foreground">Base Fare</p>
+                                <p className="font-semibold">{getCurrencySymbol(regionCurrency)}{pricing.base_fare.toFixed(2)}</p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Per {distanceLabel}</p>
+                                <p className="font-semibold">{getCurrencySymbol(regionCurrency)}{(pricing.distance_pricing[0]?.rate || 0).toFixed(2)}</p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Per Minute</p>
+                                <p className="font-semibold">{getCurrencySymbol(regionCurrency)}{(pricing.time_pricing[0]?.rate || 0).toFixed(2)}</p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Minimum Fare</p>
+                                <p className="font-semibold">{getCurrencySymbol(regionCurrency)}{pricing.minimum_fare.toFixed(2)}</p>
+                              </div>
+                            </div>
+                            <div className="mt-3 pt-3 border-t border-border/50">
+                              <p className="text-xs text-muted-foreground">
+                                <span className="font-medium">Commission</span> is calculated from the driver's tier in <span className="font-medium">Driver Categories</span>.
+                              </p>
+                            </div>
+                          </div>
 
+                          {/* Distance Pricing */}
+                          <PricingTierSection
+                            title="Distance Pricing"
+                            description={`Rate per ${distanceLabel} at different distance ranges`}
+                            tiers={pricing.distance_pricing}
+                            fromLabel={`From ${distanceLabel}:`}
+                            fromField="from_km"
+                            rateUnit={`/${distanceLabel}`}
+                            currencySymbol={getCurrencySymbol(regionCurrency)}
+                            onAdd={() => addPricingTier(vt.id, 'distance_pricing')}
+                            onRemove={(index) => removePricingTier(vt.id, 'distance_pricing', index)}
+                            onUpdate={(index, field, value) => updatePricingTier(vt.id, 'distance_pricing', index, field, value)}
+                          />
 
+                          {/* Time Pricing */}
+                          <PricingTierSection
+                            title="Time Pricing"
+                            description="Rate per minute at different duration ranges"
+                            tiers={pricing.time_pricing}
+                            fromLabel="From min:"
+                            fromField="from_min"
+                            rateUnit="/min"
+                            currencySymbol={getCurrencySymbol(regionCurrency)}
+                            onAdd={() => addPricingTier(vt.id, 'time_pricing')}
+                            onRemove={(index) => removePricingTier(vt.id, 'time_pricing', index)}
+                            onUpdate={(index, field, value) => updatePricingTier(vt.id, 'time_pricing', index, field, value)}
+                          />
+                        </div>
+                      </CollapsibleContent>
                     </div>
-                  </CollapsibleContent>
+                  </Collapsible>
+                );
+              })}
+            </CardContent>
+          </Card>
+
+          {/* Unified Waiting Time Charges */}
+          {selectedServiceAreaId && (
+            <Card>
+              <CardContent className="p-6 space-y-6">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-muted-foreground" />
+                  <div>
+                    <h3 className="text-lg font-semibold">Waiting Time Charges</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Unified waiting time rates applied across all vehicle types in this service area
+                    </p>
+                  </div>
                 </div>
-              </Collapsible>
-            );
-          })}
-        </CardContent>
-      </Card>
 
-      {/* Unified Waiting Time Charges */}
-      {selectedServiceAreaId && (
-        <Card className="mb-6">
-          <CardContent className="p-6 space-y-6">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-muted-foreground" />
-              <div>
-                <h3 className="text-lg font-semibold">Waiting Time Charges</h3>
-                <p className="text-sm text-muted-foreground">
-                  Unified waiting time rates applied across all vehicle types in this service area
-                </p>
-              </div>
-            </div>
-
-            <PricingTierSection
-              title="Pickup Waiting Charges"
-              description="Rate per minute for waiting at pickup location"
-              tiers={waitingCharges.pickup_waiting_charges}
-              fromLabel="From min:"
-              fromField="from_min"
-              rateUnit="/min"
-              currencySymbol={getCurrencySymbol(regionCurrency)}
-              onAdd={() => addWaitingTier('pickup_waiting_charges')}
-              onRemove={(index) => removeWaitingTier('pickup_waiting_charges', index)}
-              onUpdate={(index, field, value) => updateWaitingTier('pickup_waiting_charges', index, field, value)}
-            />
-
-            <PricingTierSection
-              title="Stops Waiting Charges"
-              description="Rate per minute for waiting at intermediate stops"
-              tiers={waitingCharges.stops_waiting_charges}
-              fromLabel="From min:"
-              fromField="from_min"
-              rateUnit="/min"
-              currencySymbol={getCurrencySymbol(regionCurrency)}
-              onAdd={() => addWaitingTier('stops_waiting_charges')}
-              onRemove={(index) => removeWaitingTier('stops_waiting_charges', index)}
-              onUpdate={(index, field, value) => updateWaitingTier('stops_waiting_charges', index, field, value)}
-            />
-
-            <div className="flex items-center gap-2 p-3 bg-muted/50 border rounded-lg">
-              <AlertCircle className="h-4 w-4 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">
-                <span className="font-semibold">NO grace period</span> – Charging for stops waiting starts immediately at minute 0.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card className="mb-6">
-        <CardContent className="p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Ban className="h-5 w-5 text-muted-foreground" />
-            <h3 className="text-lg font-semibold">Cancellation & No-Show Fees</h3>
-          </div>
-          <p className="text-sm text-muted-foreground mb-6">
-            Fees charged when a ride is cancelled or the rider doesn't show
-          </p>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="space-y-2">
-              <Label>Free Cancellation Window (minutes)</Label>
-              <Input
-                type="number"
-                value={cancellationFees.free_cancellation_window_minutes}
-                onChange={e => {
-                  setCancellationFees(prev => ({ 
-                    ...prev, 
-                    free_cancellation_window_minutes: parseInt(e.target.value) || 0 
-                  }));
-                  setHasChanges(true);
-                }}
-              />
-              <p className="text-xs text-muted-foreground">No fee if cancelled within this time</p>
-            </div>
-            <div className="space-y-2">
-              <Label>Cancellation Fee ({getCurrencySymbol(regionCurrency)})</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={cancellationFees.cancellation_fee}
-                onChange={e => {
-                  setCancellationFees(prev => ({ 
-                    ...prev, 
-                    cancellation_fee: parseFloat(e.target.value) || 0 
-                  }));
-                  setHasChanges(true);
-                }}
-              />
-              <p className="text-xs text-muted-foreground">Fee after free window expires</p>
-            </div>
-            <div className="space-y-2">
-              <Label>No-Show Fee ({getCurrencySymbol(regionCurrency)})</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={cancellationFees.no_show_fee}
-                onChange={e => {
-                  setCancellationFees(prev => ({ 
-                    ...prev, 
-                    no_show_fee: parseFloat(e.target.value) || 0 
-                  }));
-                  setHasChanges(true);
-                }}
-              />
-              <p className="text-xs text-muted-foreground">Fee when rider doesn't show</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-
-      {/* Per Booking Fee */}
-      <Card className="mb-6">
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
-                <Banknote className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold">Per Booking Fee</h3>
-                <p className="text-sm text-muted-foreground">
-                  Apply a fixed fee to each booking in this service area
-                </p>
-              </div>
-            </div>
-            <Switch
-              checked={selectedServiceArea?.per_booking_fee_enabled ?? false}
-              onCheckedChange={(checked) => updatePerBookingFee('per_booking_fee_enabled', checked)}
-            />
-          </div>
-          
-          {selectedServiceArea?.per_booking_fee_enabled && (
-            <div className="mt-4 pt-4 border-t">
-              <div className="max-w-xs space-y-2">
-                <Label>Fee Amount ({getCurrencySymbol(regionCurrency)})</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={(selectedServiceArea?.per_booking_fee_pence ?? 0) / 100}
-                  onChange={e => updatePerBookingFee('per_booking_fee_pence', Math.round((parseFloat(e.target.value) || 0) * 100))}
+                <PricingTierSection
+                  title="Pickup Waiting Charges"
+                  description="Rate per minute for waiting at pickup location"
+                  tiers={waitingCharges.pickup_waiting_charges}
+                  fromLabel="From min:"
+                  fromField="from_min"
+                  rateUnit="/min"
+                  currencySymbol={getCurrencySymbol(regionCurrency)}
+                  onAdd={() => addWaitingTier('pickup_waiting_charges')}
+                  onRemove={(index) => removeWaitingTier('pickup_waiting_charges', index)}
+                  onUpdate={(index, field, value) => updateWaitingTier('pickup_waiting_charges', index, field, value)}
                 />
-                <p className="text-xs text-muted-foreground">
-                  This fee is added to every trip in this service area
-                </p>
-              </div>
-            </div>
+
+                <PricingTierSection
+                  title="Stops Waiting Charges"
+                  description="Rate per minute for waiting at intermediate stops"
+                  tiers={waitingCharges.stops_waiting_charges}
+                  fromLabel="From min:"
+                  fromField="from_min"
+                  rateUnit="/min"
+                  currencySymbol={getCurrencySymbol(regionCurrency)}
+                  onAdd={() => addWaitingTier('stops_waiting_charges')}
+                  onRemove={(index) => removeWaitingTier('stops_waiting_charges', index)}
+                  onUpdate={(index, field, value) => updateWaitingTier('stops_waiting_charges', index, field, value)}
+                />
+
+                <div className="flex items-center gap-2 p-3 bg-muted/50 border rounded-lg">
+                  <AlertCircle className="h-4 w-4 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">
+                    <span className="font-semibold">NO grace period</span> – Charging for stops waiting starts immediately at minute 0.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
           )}
-        </CardContent>
-      </Card>
 
-      {/* Preset Fare Offers */}
-      {selectedServiceAreaId && (
-        <div className="mb-6">
-          <PresetOffersConfig
-            serviceAreaId={selectedServiceAreaId}
-            currencySymbol={getCurrencySymbol(regionCurrency)}
-          />
-        </div>
-      )}
-
-      {/* Payment Methods */}
-      {selectedServiceAreaId && (
-        <div className="mb-6">
-          <ServiceAreaPaymentConfig 
-            serviceAreaId={selectedServiceAreaId} 
-            serviceAreaName={selectedServiceArea?.name}
-          />
-        </div>
-      )}
-
-      {/* Service Area Assignments */}
-      <Card>
-        <CardContent className="p-6">
-          <h3 className="text-lg font-semibold mb-2">Service Area Assignments</h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            Assign drivers and document requirements to this service area
-          </p>
-
-          <Tabs defaultValue="drivers">
-            <TabsList>
-              <TabsTrigger value="drivers" className="flex items-center gap-2">
-                <Users className="h-4 w-4" />
-                Drivers
-              </TabsTrigger>
-              <TabsTrigger value="documents" className="flex items-center gap-2">
-                <FileText className="h-4 w-4" />
-                Document Requirements
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="drivers" className="mt-4">
-              <p className="text-sm text-muted-foreground">
-                Driver assignments are managed from the Drivers page. Go to Drivers → Select a driver → Assign Service Areas.
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Ban className="h-5 w-5 text-muted-foreground" />
+                <h3 className="text-lg font-semibold">Cancellation & No-Show Fees</h3>
+              </div>
+              <p className="text-sm text-muted-foreground mb-6">
+                Fees charged when a ride is cancelled or the rider doesn't show
               </p>
-            </TabsContent>
-            <TabsContent value="documents" className="mt-4">
-              <p className="text-sm text-muted-foreground">
-                Document requirements for this service area coming soon.
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="space-y-2">
+                  <Label>Free Cancellation Window (minutes)</Label>
+                  <Input
+                    type="number"
+                    value={cancellationFees.free_cancellation_window_minutes}
+                    onChange={e => {
+                      setCancellationFees(prev => ({ 
+                        ...prev, 
+                        free_cancellation_window_minutes: parseInt(e.target.value) || 0 
+                      }));
+                      setHasChanges(true);
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">No fee if cancelled within this time</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Cancellation Fee ({getCurrencySymbol(regionCurrency)})</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={cancellationFees.cancellation_fee}
+                    onChange={e => {
+                      setCancellationFees(prev => ({ 
+                        ...prev, 
+                        cancellation_fee: parseFloat(e.target.value) || 0 
+                      }));
+                      setHasChanges(true);
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">Fee after free window expires</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>No-Show Fee ({getCurrencySymbol(regionCurrency)})</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={cancellationFees.no_show_fee}
+                    onChange={e => {
+                      setCancellationFees(prev => ({ 
+                        ...prev, 
+                        no_show_fee: parseFloat(e.target.value) || 0 
+                      }));
+                      setHasChanges(true);
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">Fee when rider doesn't show</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Per Booking Fee */}
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                    <Banknote className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold">Per Booking Fee</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Apply a fixed fee to each booking in this service area
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  checked={selectedServiceArea?.per_booking_fee_enabled ?? false}
+                  onCheckedChange={(checked) => updatePerBookingFee('per_booking_fee_enabled', checked)}
+                />
+              </div>
+              
+              {selectedServiceArea?.per_booking_fee_enabled && (
+                <div className="mt-4 pt-4 border-t">
+                  <div className="max-w-xs space-y-2">
+                    <Label>Fee Amount ({getCurrencySymbol(regionCurrency)})</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={(selectedServiceArea?.per_booking_fee_pence ?? 0) / 100}
+                      onChange={e => updatePerBookingFee('per_booking_fee_pence', Math.round((parseFloat(e.target.value) || 0) * 100))}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      This fee is added to every trip in this service area
+                    </p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Preset Fare Offers */}
+          {selectedServiceAreaId && (
+            <PresetOffersConfig
+              serviceAreaId={selectedServiceAreaId}
+              currencySymbol={getCurrencySymbol(regionCurrency)}
+            />
+          )}
+
+          {/* Payment Methods */}
+          {selectedServiceAreaId && (
+            <ServiceAreaPaymentConfig 
+              serviceAreaId={selectedServiceAreaId} 
+              serviceAreaName={selectedServiceArea?.name}
+            />
+          )}
+
+          {/* Service Area Assignments */}
+          <Card>
+            <CardContent className="p-6">
+              <h3 className="text-lg font-semibold mb-2">Service Area Assignments</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Assign drivers and document requirements to this service area
               </p>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+
+              <Tabs defaultValue="drivers">
+                <TabsList>
+                  <TabsTrigger value="drivers" className="flex items-center gap-2">
+                    <Users className="h-4 w-4" />
+                    Drivers
+                  </TabsTrigger>
+                  <TabsTrigger value="documents" className="flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    Document Requirements
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="drivers" className="mt-4">
+                  <p className="text-sm text-muted-foreground">
+                    Driver assignments are managed from the Drivers page. Go to Drivers → Select a driver → Assign Service Areas.
+                  </p>
+                </TabsContent>
+                <TabsContent value="documents" className="mt-4">
+                  <p className="text-sm text-muted-foreground">
+                    Document requirements for this service area coming soon.
+                  </p>
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Fare Engine Tab */}
+        <TabsContent value="fare-engine">
+          {selectedServiceAreaId && (
+            <FareEngineConfig 
+              serviceAreaId={selectedServiceAreaId}
+              regionCurrencyCode={regionCurrency}
+            />
+          )}
+        </TabsContent>
+      </Tabs>
     </AdminLayout>
   );
 }
