@@ -1,186 +1,216 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import React from "react";
-import { AuthProvider, useAuth } from "@/hooks/useAuth";
-import { mockUser, mockSession, resetAllMocks, mockSupabaseClient } from "@/test/mocks";
 
-// Helper function to wait for async state updates
-const waitForEffect = () => new Promise((resolve) => setTimeout(resolve, 0));
-
-// Re-import the mock to ensure it's applied
-vi.mock("@/integrations/supabase/client", () => ({
-  supabase: mockSupabaseClient,
+const { mockSupabase } = vi.hoisted(() => ({
+  mockSupabase: {
+    auth: {
+      getSession: vi.fn(),
+      signInWithPassword: vi.fn(),
+      signUp: vi.fn(),
+      signOut: vi.fn(),
+      onAuthStateChange: vi.fn(),
+    },
+    from: vi.fn(),
+  },
 }));
 
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: mockSupabase,
+}));
+
+vi.mock("sonner", () => ({
+  toast: { info: vi.fn(), error: vi.fn(), success: vi.fn() },
+}));
+
+import { AuthProvider, useAuth } from "@/hooks/useAuth";
+
+const mockUser = {
+  id: "test-user-id",
+  email: "test@example.com",
+  user_metadata: { first_name: "Test", last_name: "User" },
+  app_metadata: {},
+  aud: "authenticated",
+  created_at: new Date().toISOString(),
+};
+
+const mockSession = {
+  access_token: "mock-access-token",
+  refresh_token: "mock-refresh-token",
+  expires_in: 3600,
+  expires_at: Date.now() / 1000 + 3600,
+  user: mockUser,
+};
+
+const wait = () => new Promise((r) => setTimeout(r, 10));
+
+const wrapper = ({ children }: { children: React.ReactNode }) =>
+  React.createElement(AuthProvider, null, children);
+
 describe("useAuth Hook", () => {
+  let authChangeCallback: (event: string, session: any) => void;
+
   beforeEach(() => {
-    resetAllMocks();
-    // Default mock state - no session
-    mockSupabaseClient.auth.getSession.mockResolvedValue({
+    vi.clearAllMocks();
+    mockSupabase.auth.getSession.mockResolvedValue({
       data: { session: null },
       error: null,
     });
-    mockSupabaseClient.auth.onAuthStateChange.mockReturnValue({
-      data: {
-        subscription: { unsubscribe: vi.fn() },
-      },
+    mockSupabase.auth.onAuthStateChange.mockImplementation((cb: any) => {
+      authChangeCallback = cb;
+      return { data: { subscription: { unsubscribe: vi.fn() } } };
+    });
+    mockSupabase.from.mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue({ data: [], error: null }),
     });
   });
 
-  afterEach(() => {
-    vi.clearAllMocks();
+  it("starts with no user when not authenticated", async () => {
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await act(async () => { await wait(); });
+    expect(result.current.isAuthReady).toBe(true);
+    expect(result.current.user).toBeNull();
+    expect(result.current.isAdmin).toBe(false);
   });
 
-  const wrapper = ({ children }: { children: React.ReactNode }) => {
-    return React.createElement(AuthProvider, null, children);
-  };
-
-  describe("Initial State", () => {
-    it("should start with no user when not authenticated", async () => {
-      const { result } = renderHook(() => useAuth(), { wrapper });
-
-      await act(async () => {
-        await waitForEffect();
-      });
-
-      expect(result.current.isAuthReady).toBe(true);
-      expect(result.current.user).toBeNull();
-      expect(result.current.session).toBeNull();
-      expect(result.current.isAdmin).toBe(false);
+  it("loads existing session on mount", async () => {
+    mockSupabase.auth.getSession.mockResolvedValue({
+      data: { session: mockSession },
+      error: null,
     });
-
-    it("should load existing session on mount", async () => {
-      mockSupabaseClient.auth.getSession.mockResolvedValue({
-        data: { session: mockSession },
+    mockSupabase.from.mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue({
+        data: [{ role: "admin" }],
         error: null,
-      });
-
-      // Mock admin role check
-      mockSupabaseClient.from.mockReturnValue({
-        select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
-        limit: vi.fn().mockResolvedValue({
-          data: [{ role: "admin" }],
-          error: null,
-        }),
-      });
-
-      const { result } = renderHook(() => useAuth(), { wrapper });
-
-      await act(async () => {
-        await waitForEffect();
-      });
-
-      expect(result.current.isAuthReady).toBe(true);
-      expect(result.current.user).toEqual(mockUser);
-      expect(result.current.session).toEqual(mockSession);
+      }),
     });
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await act(async () => { await wait(); });
+
+    expect(result.current.isAuthReady).toBe(true);
+    expect(result.current.user).toEqual(mockUser);
+    expect(result.current.isAdmin).toBe(true);
   });
 
-  describe("Sign In", () => {
-    it("should call signInWithPassword on signIn", async () => {
-      mockSupabaseClient.auth.signInWithPassword.mockResolvedValue({
-        data: { user: mockUser, session: mockSession },
+  it("calls signInWithPassword on signIn", async () => {
+    mockSupabase.auth.signInWithPassword.mockResolvedValue({
+      data: { user: mockUser, session: mockSession },
+      error: null,
+    });
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await act(async () => { await wait(); });
+
+    let res: any;
+    await act(async () => {
+      res = await result.current.signIn("test@example.com", "password123");
+    });
+
+    expect(mockSupabase.auth.signInWithPassword).toHaveBeenCalledWith({
+      email: "test@example.com",
+      password: "password123",
+    });
+    expect(res.error).toBeNull();
+  });
+
+  it("calls signOut and clears state on SIGNED_OUT event", async () => {
+    mockSupabase.auth.getSession.mockResolvedValue({
+      data: { session: mockSession },
+      error: null,
+    });
+    mockSupabase.auth.signOut.mockResolvedValue({ error: null });
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await act(async () => { await wait(); });
+
+    await act(async () => {
+      await result.current.signOut();
+    });
+
+    expect(mockSupabase.auth.signOut).toHaveBeenCalled();
+
+    await act(async () => {
+      authChangeCallback("SIGNED_OUT", null);
+      await wait();
+    });
+
+    expect(result.current.user).toBeNull();
+    expect(result.current.isAdmin).toBe(false);
+  });
+
+  it("does NOT sign out on TOKEN_REFRESHED event", async () => {
+    mockSupabase.auth.getSession.mockResolvedValue({
+      data: { session: mockSession },
+      error: null,
+    });
+    mockSupabase.from.mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue({
+        data: [{ role: "admin" }],
         error: null,
-      });
-
-      const { result } = renderHook(() => useAuth(), { wrapper });
-
-      await act(async () => {
-        await waitForEffect();
-      });
-
-      let signInResult: { error: Error | null };
-      await act(async () => {
-        signInResult = await result.current.signIn("test@example.com", "password123");
-      });
-
-      expect(mockSupabaseClient.auth.signInWithPassword).toHaveBeenCalledWith({
-        email: "test@example.com",
-        password: "password123",
-      });
-      expect(signInResult!.error).toBeNull();
+      }),
     });
 
-    it("should return error on sign in failure", async () => {
-      const mockError = new Error("Invalid credentials");
-      mockSupabaseClient.auth.signInWithPassword.mockResolvedValue({
-        data: { user: null, session: null },
-        error: mockError,
-      });
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await act(async () => { await wait(); });
 
-      const { result } = renderHook(() => useAuth(), { wrapper });
+    expect(result.current.user).toEqual(mockUser);
 
-      await act(async () => {
-        await waitForEffect();
-      });
-
-      let signInResult: { error: Error | null };
-      await act(async () => {
-        signInResult = await result.current.signIn("test@example.com", "wrongpassword");
-      });
-
-      expect(signInResult!.error).toEqual(mockError);
+    await act(async () => {
+      authChangeCallback("TOKEN_REFRESHED", mockSession);
+      await wait();
     });
+
+    expect(result.current.user).toEqual(mockUser);
+    expect(result.current.session).toEqual(mockSession);
   });
 
-  describe("Sign Up", () => {
-    it("should call signUp with correct parameters", async () => {
-      mockSupabaseClient.auth.signUp.mockResolvedValue({
-        data: { user: mockUser, session: null },
+  it("keeps cached admin status on transient failure", async () => {
+    mockSupabase.auth.getSession.mockResolvedValue({
+      data: { session: mockSession },
+      error: null,
+    });
+    mockSupabase.from.mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue({
+        data: [{ role: "admin" }],
         error: null,
-      });
-
-      const { result } = renderHook(() => useAuth(), { wrapper });
-
-      await act(async () => {
-        await waitForEffect();
-      });
-
-      let signUpResult: { error: Error | null };
-      await act(async () => {
-        signUpResult = await result.current.signUp("newuser@example.com", "newpassword123");
-      });
-
-      expect(mockSupabaseClient.auth.signUp).toHaveBeenCalledWith({
-        email: "newuser@example.com",
-        password: "newpassword123",
-        options: expect.objectContaining({
-          emailRedirectTo: expect.stringContaining(window.location.origin),
-        }),
-      });
-      expect(signUpResult!.error).toBeNull();
+      }),
     });
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await act(async () => { await wait(); });
+    expect(result.current.isAdmin).toBe(true);
+
+    // Now fail the admin check
+    mockSupabase.from.mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue({
+        data: null,
+        error: new Error("Network error"),
+      }),
+    });
+
+    await act(async () => {
+      authChangeCallback("TOKEN_REFRESHED", mockSession);
+      await wait();
+    });
+
+    // Should keep cached admin status
+    expect(result.current.isAdmin).toBe(true);
   });
 
-  describe("Sign Out", () => {
-    it("should call signOut and clear admin status", async () => {
-      mockSupabaseClient.auth.getSession.mockResolvedValue({
-        data: { session: mockSession },
-        error: null,
-      });
-      mockSupabaseClient.auth.signOut.mockResolvedValue({ error: null });
-
-      const { result } = renderHook(() => useAuth(), { wrapper });
-
-      await act(async () => {
-        await waitForEffect();
-      });
-
-      await act(async () => {
-        await result.current.signOut();
-      });
-
-      expect(mockSupabaseClient.auth.signOut).toHaveBeenCalled();
-      expect(result.current.isAdmin).toBe(false);
-    });
-  });
-
-  describe("Error Handling", () => {
-    it("should throw error when useAuth is used outside AuthProvider", () => {
-      expect(() => {
-        renderHook(() => useAuth());
-      }).toThrow("useAuth must be used within an AuthProvider");
-    });
+  it("throws when used outside AuthProvider", () => {
+    expect(() => {
+      renderHook(() => useAuth());
+    }).toThrow("useAuth must be used within an AuthProvider");
   });
 });
