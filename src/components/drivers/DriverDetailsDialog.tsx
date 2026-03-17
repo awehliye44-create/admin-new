@@ -209,13 +209,17 @@ export function DriverDetailsDialog({
       }
 
       // Filter to only effectively required types
+      const hasSaRules = saRules.length > 0;
       const requiredTypes = allTypes.filter((dt) => {
         const saRule = saRuleMap[dt.id];
         if (saRule) {
           // Service area rule overrides: must be both active and mandatory
           return saRule.is_active && saRule.mandatory;
         }
-        // No SA rule configured — fall back to global default
+        // No SA rule for this doc type:
+        // If driver has SA rules at all, only SA-configured docs count
+        if (hasSaRules) return false;
+        // No SA rules exist at all — fall back to global default
         return dt.is_required;
       });
 
