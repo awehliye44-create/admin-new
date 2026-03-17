@@ -195,7 +195,13 @@ export default function TripHistory() {
       const { data: tripsData, error: tripsError } = await supabase
         .from('trips')
         .select(`
-          *,
+          id, trip_code, trip_number, status, passenger_name, passenger_phone,
+          pickup_address, pickup_latitude, pickup_longitude, dropoff_address, dropoff_latitude, dropoff_longitude,
+          estimated_fare, fare, gross_fare_pence, commission_pence, driver_net_pence, final_fare_pence,
+          payment_status, payment_method, currency_code, estimated_distance_km, estimated_duration_minutes,
+          total_stops, created_at, started_at, completed_at, surge_multiplier, driver_id,
+          driver_location_lat, driver_location_lng, stripe_payment_intent_id, stacked_trip_id,
+          pricing_mode, fare_locked, vehicle_type_id, vehicle_type, service_area_id, fare_engine_config_id,
           driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, driver_code, region_id)
         `)
         .eq('status', 'completed')

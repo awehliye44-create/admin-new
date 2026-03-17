@@ -133,7 +133,7 @@ export default function RiderFeedback() {
       const { data, error } = await supabase
         .from('rider_feedback')
         .select(`
-          *,
+          id, trip_id, customer_id, driver_id, rating, comment, feedback_type, status, admin_notes, created_at, updated_at,
           driver:drivers(first_name, last_name),
           trip:trips(pickup_address, dropoff_address)
         `)

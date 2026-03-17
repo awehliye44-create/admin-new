@@ -228,16 +228,16 @@ export default function Notifications() {
       const [notifRes, templatesRes, settingsRes] = await Promise.all([
         supabase
           .from('notifications')
-          .select('*')
+          .select('id, type, category, title, message, priority, target_audience, target_region_id, target_service_area_id, target_user_id, is_read, is_dismissed, action_url, action_label, metadata, expires_at, created_at, created_by')
           .order('created_at', { ascending: false })
           .limit(100),
         supabase
           .from('notification_templates')
-          .select('*')
+          .select('id, name, type, category, title_template, message_template, priority, is_active, created_at')
           .order('name'),
         supabase
           .from('notification_settings')
-          .select('*'),
+          .select('id, setting_key, setting_value, description'),
       ]);
 
       if (notifRes.error) throw notifRes.error;

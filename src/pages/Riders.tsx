@@ -70,7 +70,7 @@ export default function Riders() {
       // Fetch riders from customers table (NOT drivers table)
       const { data: ridersData, error: ridersError } = await supabase
         .from('customers')
-        .select('*')
+        .select('id, user_id, first_name, last_name, phone, created_at, updated_at')
         .order('created_at', { ascending: false });
 
       if (ridersError) throw ridersError;
