@@ -243,7 +243,7 @@ export default function PromoCodes() {
       toast.success('Promo code deleted successfully');
       setIsDeleteOpen(false);
       setSelectedPromo(null);
-      fetchPromoCodes();
+      refreshData();
     } catch (err: any) {
       console.error('Error deleting promo code:', err);
       toast.error(err.message || 'Failed to delete promo code');
