@@ -118,9 +118,16 @@ interface DriverServiceArea {
 }
 
 export default function Drivers() {
+  // Shared cached reference data — no duplicate fetches
+  const { data: regionsList = [], isLoading: regionsLoading } = useRegions();
+  const { data: serviceAreasList = [], isLoading: serviceAreasLoading } = useServiceAreas({ activeOnly: true });
+
+  // Build regions lookup map
+  const regions: Record<string, { id: string; name: string }> = {};
+  regionsList.forEach(r => { regions[r.id] = r; });
+
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [vehicles, setVehicles] = useState<Record<string, Vehicle[]>>({});
-  const [regions, setRegions] = useState<Record<string, Region>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -130,7 +137,6 @@ export default function Drivers() {
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
-  const [regionsList, setRegionsList] = useState<Region[]>([]);
   const [categories, setCategories] = useState<DriverCategory[]>([]);
 
   // Region and Service Area filter state
