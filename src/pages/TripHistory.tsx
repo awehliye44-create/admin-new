@@ -29,6 +29,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import { useRegions } from '@/hooks/useRegions';
+import { useServiceAreas as useSharedServiceAreas } from '@/hooks/useServiceAreas';
 import { 
   History, Loader2, Search, RefreshCw, MapPin, Phone,
   Eye, CheckCircle, Route, DollarSign,
