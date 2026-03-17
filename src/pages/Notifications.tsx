@@ -216,9 +216,9 @@ export default function Notifications() {
   });
 
   // Fetch data
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (isBackground = false) => {
     try {
-      setIsLoading(true);
+      if (!isBackground) setIsLoading(true);
       
       const [notifRes, templatesRes, settingsRes, regionsRes, areasRes] = await Promise.all([
         supabase

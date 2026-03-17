@@ -87,9 +87,9 @@ export default function VehicleTypes() {
     display_order: 0,
   });
 
-  const fetchVehicleTypes = async () => {
+  const fetchVehicleTypes = async (isBackground = false) => {
     try {
-      setIsLoading(true);
+      if (!isBackground) setIsLoading(true);
       const { data, error } = await supabase
         .from('vehicle_types')
         .select('*')
