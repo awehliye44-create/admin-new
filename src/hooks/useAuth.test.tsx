@@ -10,6 +10,8 @@ vi.mock("sonner", () => ({
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { mockUser, mockSession, resetAllMocks, mockSupabaseClient } from "@/test/mocks";
 
+const waitForEffect = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 describe("useAuth Hook", () => {
   let authChangeCallback: (event: string, session: any) => void;
 
