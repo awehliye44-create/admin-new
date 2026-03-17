@@ -92,6 +92,27 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Determine fare lock status based on pricing mode (source of truth)
+    const fareLocked = settings.pricing_mode === "fixed";
+
+    // Build fare snapshot for downstream persistence
+    const fareSnapshotJson = {
+      config_id: settings.id,
+      pricing_mode: settings.pricing_mode,
+      base_fare_pence: settings.base_fare_pence,
+      per_km_rate_pence: settings.per_km_rate_pence,
+      per_min_rate_pence: settings.per_min_rate_pence,
+      booking_fee_pence: settings.booking_fee_pence,
+      minimum_fare_pence: settings.minimum_fare_pence,
+      free_waiting_minutes: settings.free_waiting_minutes,
+      waiting_per_minute_pence: settings.waiting_per_minute_pence,
+      extra_stop_flat_fee_pence: settings.extra_stop_flat_fee_pence,
+      currency_code: settings.currency_code,
+      enable_surge: settings.enable_surge,
+      surge_multiplier_default: settings.surge_multiplier_default,
+      snapshot_at: new Date().toISOString(),
+    };
+
     const engine = new FareEngine(settings as FarePricingSettings);
 
     const breakdown = engine.estimateFare({
@@ -114,6 +135,10 @@ Deno.serve(async (req) => {
         estimatedDistanceKm: estimated_distance_km,
         estimatedDurationMin: estimated_duration_min,
         vehicleTypeId: vehicle_type_id || null,
+        // Fare Engine source-of-truth fields for downstream persistence
+        fareEngineConfigId: settings.id,
+        fareLocked,
+        fareSnapshotJson,
         fareBreakdown: {
           baseFarePence: breakdown.base_fare_pence,
           distanceChargePence: breakdown.distance_charge_pence,

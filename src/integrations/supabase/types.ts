@@ -5768,6 +5768,9 @@ export type Database = {
           fare: number | null
           fare_amount: number | null
           fare_breakdown: Json | null
+          fare_engine_config_id: string | null
+          fare_locked: boolean | null
+          fare_snapshot_json: Json | null
           final_fare_pence: number | null
           final_payout_pence: number | null
           gross_fare_pence: number | null
@@ -5894,6 +5897,9 @@ export type Database = {
           fare?: number | null
           fare_amount?: number | null
           fare_breakdown?: Json | null
+          fare_engine_config_id?: string | null
+          fare_locked?: boolean | null
+          fare_snapshot_json?: Json | null
           final_fare_pence?: number | null
           final_payout_pence?: number | null
           gross_fare_pence?: number | null
@@ -6020,6 +6026,9 @@ export type Database = {
           fare?: number | null
           fare_amount?: number | null
           fare_breakdown?: Json | null
+          fare_engine_config_id?: string | null
+          fare_locked?: boolean | null
+          fare_snapshot_json?: Json | null
           final_fare_pence?: number | null
           final_payout_pence?: number | null
           gross_fare_pence?: number | null
@@ -6184,6 +6193,13 @@ export type Database = {
             columns: ["dropoff_zone_id"]
             isOneToOne: false
             referencedRelation: "custom_zones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_fare_engine_config_id_fkey"
+            columns: ["fare_engine_config_id"]
+            isOneToOne: false
+            referencedRelation: "fare_pricing_settings"
             referencedColumns: ["id"]
           },
           {

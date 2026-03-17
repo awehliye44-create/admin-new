@@ -32,7 +32,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { 
   History, Loader2, Search, RefreshCw, MapPin, Phone,
   Eye, CheckCircle, Route, DollarSign,
-  Navigation, User, Car, Globe
+  Navigation, User, Car, Globe, Settings2
 } from 'lucide-react';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
@@ -106,6 +106,13 @@ interface CompletedTrip {
   driver_location_lng: number | null;
   stripe_payment_intent_id: string | null;
   stacked_trip_id: string | null;
+  // Fare Engine source-of-truth fields
+  pricing_mode: string | null;
+  fare_locked: boolean | null;
+  vehicle_type_id: string | null;
+  vehicle_type: string | null;
+  service_area_id: string | null;
+  fare_engine_config_id: string | null;
   driver?: {
     id: string;
     first_name: string;
@@ -957,6 +964,22 @@ export default function TripHistory() {
                   <CheckCircle className="h-3 w-3 mr-1" />
                   Completed
                 </Badge>
+                {/* Pricing Mode Badge */}
+                {selectedTrip.pricing_mode && (
+                  <Badge 
+                    variant="outline" 
+                    className={selectedTrip.pricing_mode === 'fixed' 
+                      ? 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-400' 
+                      : 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-400'}
+                  >
+                    {selectedTrip.pricing_mode === 'fixed' ? '🔒 Fixed Fare' : '⚡ Dynamic Fare'}
+                  </Badge>
+                )}
+                {selectedTrip.fare_locked && (
+                  <Badge variant="outline" className="bg-indigo-100 text-indigo-700 border-indigo-300 dark:bg-indigo-900/30 dark:text-indigo-400">
+                    Fare Locked at Booking
+                  </Badge>
+                )}
                 {selectedTrip.stacked_trip_id && (
                   <Badge variant="outline" className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
                     ⚡ Stacked Ride
@@ -972,6 +995,12 @@ export default function TripHistory() {
                     <Globe className="h-3 w-3 mr-1" />
                     {selectedServiceArea.name}
                     {selectedServiceArea.region && ` (${selectedServiceArea.region.name})`}
+                  </Badge>
+                )}
+                {selectedTrip.vehicle_type && (
+                  <Badge variant="outline">
+                    <Car className="h-3 w-3 mr-1" />
+                    {selectedTrip.vehicle_type}
                   </Badge>
                 )}
                 {selectedTrip.surge_multiplier && selectedTrip.surge_multiplier > 1 && (
@@ -1181,6 +1210,42 @@ export default function TripHistory() {
                     })()}
                   </div>
 
+                  {/* Fare Source & Pricing Mode */}
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-semibold flex items-center gap-2">
+                      <Settings2 className="h-4 w-4" />
+                      Fare Source
+                    </h4>
+                    <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Pricing Mode</span>
+                        <Badge variant="outline" className={selectedTrip.pricing_mode === 'fixed' 
+                          ? 'bg-blue-100 text-blue-700 border-blue-300' 
+                          : selectedTrip.pricing_mode === 'dynamic'
+                            ? 'bg-amber-100 text-amber-700 border-amber-300'
+                            : ''}>
+                          {selectedTrip.pricing_mode === 'fixed' ? '🔒 Fixed Fare' 
+                            : selectedTrip.pricing_mode === 'dynamic' ? '⚡ Dynamic Fare' 
+                            : 'Not set'}
+                        </Badge>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Fare Locked at Booking</span>
+                        <span>{selectedTrip.fare_locked ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Fare Source</span>
+                        <span className="text-xs font-mono">Fare Engine</span>
+                      </div>
+                      {selectedTrip.vehicle_type && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Vehicle Type</span>
+                          <span>{selectedTrip.vehicle_type}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   {/* Fare Breakdown */}
                   <div className="space-y-2">
                     <h4 className="text-sm font-semibold flex items-center gap-2">
@@ -1188,10 +1253,6 @@ export default function TripHistory() {
                       Fare Breakdown
                     </h4>
                     <div className="bg-muted/50 rounded-lg p-4 space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Estimated Fare</span>
-                        <span>{getCurrencySymbol(selectedTrip.currency_code)}{(selectedTrip.estimated_fare || 0).toFixed(2)}</span>
-                      </div>
                       {selectedTrip.gross_fare_pence != null && (
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">Gross Fare</span>

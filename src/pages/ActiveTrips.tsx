@@ -71,6 +71,12 @@ interface Trip {
   created_at: string;
   started_at: string | null;
   driver_id: string | null;
+  // Fare Engine source-of-truth fields
+  pricing_mode: string | null;
+  fare_locked: boolean | null;
+  vehicle_type: string | null;
+  vehicle_type_id: string | null;
+  service_area_id: string | null;
   driver?: {
     id: string;
     first_name: string;
@@ -714,9 +720,21 @@ export default function ActiveTrips() {
                 <span className="font-mono text-lg font-medium">
                   {selectedTrip.trip_code || selectedTrip.id.slice(0, 8)}
                 </span>
-                <Badge variant="outline" className={STATUS_CONFIG[selectedTrip.status]?.color}>
-                  {STATUS_CONFIG[selectedTrip.status]?.label || selectedTrip.status}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  {selectedTrip.pricing_mode && (
+                    <Badge 
+                      variant="outline" 
+                      className={selectedTrip.pricing_mode === 'fixed' 
+                        ? 'bg-blue-100 text-blue-700 border-blue-300' 
+                        : 'bg-amber-100 text-amber-700 border-amber-300'}
+                    >
+                      {selectedTrip.pricing_mode === 'fixed' ? '🔒 Fixed Fare' : '⚡ Dynamic Fare'}
+                    </Badge>
+                  )}
+                  <Badge variant="outline" className={STATUS_CONFIG[selectedTrip.status]?.color}>
+                    {STATUS_CONFIG[selectedTrip.status]?.label || selectedTrip.status}
+                  </Badge>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -778,6 +796,21 @@ export default function ActiveTrips() {
                   <p className="font-medium text-sm">
                     {format(new Date(selectedTrip.created_at), 'HH:mm')}
                   </p>
+                </div>
+              </div>
+              {/* Fare Source Info */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="p-3 bg-muted/50 rounded-lg text-center">
+                  <p className="text-xs text-muted-foreground">Fare Source</p>
+                  <p className="font-medium text-xs">Fare Engine</p>
+                </div>
+                <div className="p-3 bg-muted/50 rounded-lg text-center">
+                  <p className="text-xs text-muted-foreground">Fare Locked</p>
+                  <p className="font-medium text-xs">{selectedTrip.fare_locked ? 'Yes' : 'No'}</p>
+                </div>
+                <div className="p-3 bg-muted/50 rounded-lg text-center">
+                  <p className="text-xs text-muted-foreground">Vehicle Type</p>
+                  <p className="font-medium text-xs">{selectedTrip.vehicle_type || 'N/A'}</p>
                 </div>
               </div>
             </div>
