@@ -10,6 +10,10 @@ vi.mock("@/integrations/supabase/client", () => ({
   supabase: mockSupabaseClient,
 }));
 
+vi.mock("sonner", () => ({
+  toast: { info: vi.fn(), error: vi.fn(), success: vi.fn() },
+}));
+
 describe("useAuth Hook", () => {
   let authChangeCallback: (event: string, session: any) => void;
 
