@@ -764,13 +764,34 @@ export function DriverDetailsDialog({
                                   <FileText className="h-4 w-4 text-muted-foreground" />
                                   <span className="text-sm font-medium">{item.name}</span>
                                 </div>
-                                <Badge variant="outline" className={isExpiring ? 'text-yellow-700 bg-yellow-500/10 border-yellow-500/30' : 'text-green-700 bg-green-500/10 border-green-500/30'}>
-                                  {isExpiring ? (
-                                    <><FileWarning className="h-3 w-3 mr-1" />Expiring in {item.daysLeft} days</>
-                                  ) : (
-                                    <><CheckCircle className="h-3 w-3 mr-1" />Approved</>
+                                <div className="flex items-center gap-2">
+                                  {item.fileUrl && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 px-2 text-xs"
+                                      onClick={async () => {
+                                        const { getSignedDocumentUrl } = await import('@/hooks/useDriverFileUrl');
+                                        const url = await getSignedDocumentUrl(item.fileUrl);
+                                        if (url) {
+                                          window.open(url, '_blank');
+                                        } else {
+                                          toast.error('Document file could not be loaded');
+                                        }
+                                      }}
+                                    >
+                                      <Eye className="h-3 w-3 mr-1" />
+                                      View
+                                    </Button>
                                   )}
-                                </Badge>
+                                  <Badge variant="outline" className={isExpiring ? 'text-yellow-700 bg-yellow-500/10 border-yellow-500/30' : 'text-green-700 bg-green-500/10 border-green-500/30'}>
+                                    {isExpiring ? (
+                                      <><FileWarning className="h-3 w-3 mr-1" />Expiring in {item.daysLeft} days</>
+                                    ) : (
+                                      <><CheckCircle className="h-3 w-3 mr-1" />Approved</>
+                                    )}
+                                  </Badge>
+                                </div>
                               </div>
                             );
                           })}
