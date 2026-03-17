@@ -139,9 +139,12 @@ export default function Notifications() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [templates, setTemplates] = useState<NotificationTemplate[]>([]);
   const [settings, setSettings] = useState<NotificationSetting[]>([]);
-  const [regions, setRegions] = useState<Region[]>([]);
-  const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
   
+  // Use shared cached hooks for regions & service areas
+  const { data: regions = [] } = useRegions();
+  const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: true });
+  
+  const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -218,12 +221,11 @@ export default function Notifications() {
     timezone: 'Europe/London',
   });
 
-  // Fetch data
-  const fetchData = useCallback(async (isBackground = false) => {
-    try {
-      if (!isBackground) setIsLoading(true);
-      
-      const [notifRes, templatesRes, settingsRes, regionsRes, areasRes] = await Promise.all([
+  // Fetch notifications data (regions/service areas come from shared hooks now)
+  const { data: _notifData } = useQuery({
+    queryKey: ['notifications-data'],
+    queryFn: async () => {
+      const [notifRes, templatesRes, settingsRes] = await Promise.all([
         supabase
           .from('notifications')
           .select('*')
@@ -236,27 +238,16 @@ export default function Notifications() {
         supabase
           .from('notification_settings')
           .select('*'),
-        supabase
-          .from('regions')
-          .select('id, name')
-          .eq('status', 'active')
-          .order('name'),
-        supabase
-          .from('service_areas')
-          .select('id, name, region_id')
-          .eq('is_active', true)
-          .order('name'),
       ]);
 
       if (notifRes.error) throw notifRes.error;
       if (templatesRes.error) throw templatesRes.error;
       if (settingsRes.error) throw settingsRes.error;
 
+      // Side-effect: update local state for settings parsing
       setNotifications(notifRes.data as Notification[] || []);
       setTemplates(templatesRes.data as NotificationTemplate[] || []);
       setSettings(settingsRes.data as NotificationSetting[] || []);
-      setRegions(regionsRes.data || []);
-      setServiceAreas(areasRes.data || []);
 
       // Parse settings
       const emailSetting = settingsRes.data?.find(s => s.setting_key === 'email_notifications');
@@ -271,17 +262,15 @@ export default function Notifications() {
       if (thresholdSetting) setAlertThresholds(thresholdSetting.setting_value as typeof alertThresholds);
       if (quietSetting) setQuietHours(quietSetting.setting_value as typeof quietHours);
 
-    } catch (err) {
-      console.error('Error fetching notifications data:', err);
-      toast.error('Failed to load notifications');
-    } finally {
       setIsLoading(false);
-    }
-  }, []);
+      return { notifications: notifRes.data, templates: templatesRes.data, settings: settingsRes.data };
+    },
+    staleTime: 30_000,
+  });
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const fetchData = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['notifications-data'] });
+  }, [queryClient]);
 
   // Create notification
   const handleCreateNotification = async () => {
