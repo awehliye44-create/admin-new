@@ -76,7 +76,7 @@ serve(async (req) => {
       .single();
 
     if (tripError || !trip) {
-      return errorResponse("Trip not found", 404);
+      return errorResponse("Trip not found", 404, undefined, "TRIP_NOT_FOUND");
     }
 
     // Idempotency: if PI already exists, return it
