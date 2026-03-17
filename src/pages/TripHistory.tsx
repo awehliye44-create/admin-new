@@ -247,7 +247,7 @@ export default function TripHistory() {
       setIsLoadingStops(true);
       const { data, error } = await supabase
         .from('trip_stops')
-        .select('*')
+        .select('id, trip_id, stop_index, address, lat, lng, type, status, arrived_at, completed_at')
         .eq('trip_id', tripId)
         .order('stop_index', { ascending: true });
 
