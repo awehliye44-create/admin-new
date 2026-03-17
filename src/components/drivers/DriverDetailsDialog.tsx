@@ -249,21 +249,21 @@ export function DriverDetailsDialog({
 
     return requiredTypes.map((dt) => {
       const doc = driverDocs.find((d) => d.document_type === dt.slug);
-      if (!doc) return { name: dt.name, slug: dt.slug, status: 'missing' as const, daysLeft: null };
+      if (!doc) return { name: dt.name, slug: dt.slug, status: 'missing' as const, daysLeft: null, fileUrl: null };
 
-      if (doc.status === 'rejected') return { name: dt.name, slug: dt.slug, status: 'rejected' as const, daysLeft: null };
-      if (doc.status !== 'approved') return { name: dt.name, slug: dt.slug, status: 'pending' as const, daysLeft: null };
+      if (doc.status === 'rejected') return { name: dt.name, slug: dt.slug, status: 'rejected' as const, daysLeft: null, fileUrl: doc.file_url };
+      if (doc.status !== 'approved') return { name: dt.name, slug: dt.slug, status: 'pending' as const, daysLeft: null, fileUrl: doc.file_url };
 
       // Approved — check expiry
       if (doc.expiry_date) {
         const expiry = new Date(doc.expiry_date);
         expiry.setHours(0, 0, 0, 0);
         const daysLeft = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-        if (daysLeft < 0) return { name: dt.name, slug: dt.slug, status: 'expired' as const, daysLeft };
-        if (daysLeft <= 30) return { name: dt.name, slug: dt.slug, status: 'expiring_soon' as const, daysLeft };
+        if (daysLeft < 0) return { name: dt.name, slug: dt.slug, status: 'expired' as const, daysLeft, fileUrl: doc.file_url };
+        if (daysLeft <= 30) return { name: dt.name, slug: dt.slug, status: 'expiring_soon' as const, daysLeft, fileUrl: doc.file_url };
       }
 
-      return { name: dt.name, slug: dt.slug, status: 'valid' as const, daysLeft: null };
+      return { name: dt.name, slug: dt.slug, status: 'valid' as const, daysLeft: null, fileUrl: doc.file_url };
     });
   };
 
