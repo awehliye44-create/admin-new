@@ -163,20 +163,64 @@ export function DriverDetailsDialog({
     if (!driver) return;
     setIsLoadingDocs(true);
     try {
-      const [typesRes, docsRes] = await Promise.all([
+      // Fetch all active doc types, driver docs, driver service areas, and SA rules in parallel
+      const [typesRes, docsRes, dsaRes] = await Promise.all([
         supabase
           .from('document_types')
-          .select('slug, name, has_expiry')
-          .eq('is_required', true)
+          .select('id, slug, name, has_expiry, is_required')
           .eq('is_active', true)
           .order('display_order'),
         supabase
           .from('documents')
           .select('document_type, status, expiry_date')
           .eq('driver_id', driver.id),
+        supabase
+          .from('driver_service_areas')
+          .select('service_area_id')
+          .eq('driver_id', driver.id),
       ]);
+
+      const allTypes = (typesRes.data || []) as { id: string; slug: string; name: string; has_expiry: boolean; is_required: boolean }[];
+      const serviceAreaIds = (dsaRes.data || []).map((d: any) => d.service_area_id);
+
+      // Fetch service area document rules if driver has service areas
+      let saRules: { doc_type_id: string; mandatory: boolean; is_active: boolean }[] = [];
+      if (serviceAreaIds.length > 0) {
+        const { data: rulesData } = await supabase
+          .from('service_area_document_rules')
+          .select('doc_type_id, mandatory, is_active')
+          .in('service_area_id', serviceAreaIds);
+        saRules = (rulesData || []) as any;
+      }
+
+      // Build a map: doc_type_id -> effective mandatory status
+      // Service area rules override global defaults
+      const saRuleMap: Record<string, { mandatory: boolean; is_active: boolean }> = {};
+      for (const rule of saRules) {
+        const existing = saRuleMap[rule.doc_type_id];
+        if (!existing) {
+          saRuleMap[rule.doc_type_id] = { mandatory: rule.mandatory, is_active: rule.is_active };
+        } else {
+          // If driver is in multiple SAs, a doc is required if ANY SA requires it
+          if (rule.mandatory && rule.is_active) {
+            saRuleMap[rule.doc_type_id] = { mandatory: true, is_active: true };
+          }
+        }
+      }
+
+      // Filter to only effectively required types
+      const requiredTypes = allTypes.filter((dt) => {
+        const saRule = saRuleMap[dt.id];
+        if (saRule) {
+          // Service area rule overrides: must be both active and mandatory
+          return saRule.is_active && saRule.mandatory;
+        }
+        // No SA rule configured — fall back to global default
+        return dt.is_required;
+      });
+
       setDocumentCompliance({
-        requiredTypes: (typesRes.data || []) as any,
+        requiredTypes: requiredTypes.map(dt => ({ slug: dt.slug, name: dt.name, has_expiry: dt.has_expiry })),
         driverDocs: (docsRes.data || []) as any,
       });
     } catch (err) {

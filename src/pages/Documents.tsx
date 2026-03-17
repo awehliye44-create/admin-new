@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -47,6 +47,7 @@ import { format, isPast, addDays, isBefore } from 'date-fns';
 import { toast } from 'sonner';
 import { ServiceAreaDocumentRules } from '@/components/documents/ServiceAreaDocumentRules';
 import { DocumentTypeConfig } from '@/components/documents/DocumentTypeConfig';
+import { useDocumentTypes } from '@/hooks/useDocumentTypes';
 
 interface Document {
   id: string;
@@ -68,20 +69,7 @@ interface Document {
   } | null;
 }
 
-// UK Private Hire Required Documents
-const DOCUMENT_TYPES = [
-  { value: 'private_hire_insurance', label: 'Private Hire Insurance Certificate', required: true, hasExpiry: true },
-  { value: 'mot_certificate', label: 'MOT Test Certificate', required: true, hasExpiry: true },
-  { value: 'phv_license', label: 'PHV (Private Hire Vehicle License)', required: true, hasExpiry: true },
-  { value: 'dvla_check_code', label: 'DVLA Electronic Counterpart Check Code', required: true, hasExpiry: false },
-  { value: 'phd_badge', label: 'PHD Badge (Private Hire Driver Badge)', required: true, hasExpiry: true },
-  { value: 'phl_license', label: 'PHL (Private Hire Driver License)', required: true, hasExpiry: true },
-  { value: 'dvla_driving_license', label: 'DVLA Driving License (Pink Card – Front)', required: true, hasExpiry: true },
-  { value: 'profile_photo', label: 'Profile Photo', required: true, hasExpiry: false },
-  { value: 'v5_logbook', label: 'V5 Logbook (Full)', required: true, hasExpiry: false },
-  { value: 'utr_number', label: 'UTR (Unique Taxpayer Reference)', required: true, hasExpiry: false },
-  { value: 'national_insurance', label: 'National Insurance Number', required: true, hasExpiry: false },
-];
+// Document types are now fetched dynamically from the database via useDocumentTypes()
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
   pending: { label: 'Pending Review', color: 'bg-yellow-100 text-yellow-700', icon: Clock },
@@ -91,11 +79,23 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }>
 };
 
 export default function Documents() {
+  const { data: dbDocTypes } = useDocumentTypes();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
+
+  // Derive DOCUMENT_TYPES from DB for all downstream usage
+  const DOCUMENT_TYPES = useMemo(() =>
+    (dbDocTypes || []).filter(dt => dt.is_active).map(dt => ({
+      value: dt.slug,
+      label: dt.name,
+      required: dt.is_required,
+      hasExpiry: dt.has_expiry,
+    })),
+    [dbDocTypes]
+  );
 
   // Dialog states
   const [isViewOpen, setIsViewOpen] = useState(false);
@@ -230,7 +230,7 @@ export default function Documents() {
             Required Documents for Driver Approval
           </CardTitle>
           <CardDescription>
-            Drivers must have all 11 documents approved before they can receive bookings
+            Drivers must have all {DOCUMENT_TYPES.filter(d => d.required).length} required documents approved before they can receive bookings
           </CardDescription>
         </CardHeader>
         <CardContent>
