@@ -57,18 +57,16 @@ interface Rider {
 }
 
 export default function Riders() {
-  const [riders, setRiders] = useState<Rider[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRider, setSelectedRider] = useState<Rider | null>(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [riderToDelete, setRiderToDelete] = useState<Rider | null>(null);
 
-  const fetchRiders = useCallback(async (isBackground = false) => {
-    try {
-      if (!isBackground) setIsLoading(true);
-      
+  const { data: riders = [], isLoading } = useQuery({
+    queryKey: ['riders'],
+    queryFn: async () => {
       // Fetch riders from customers table (NOT drivers table)
       const { data: ridersData, error: ridersError } = await supabase
         .from('customers')
@@ -96,18 +94,12 @@ export default function Riders() {
         })
       );
 
-      setRiders(ridersWithStats);
-    } catch (err) {
-      console.error('Error fetching riders:', err);
-      toast.error('Failed to load riders');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+      return ridersWithStats as Rider[];
+    },
+    staleTime: 30_000,
+  });
 
-  useEffect(() => {
-    fetchRiders();
-  }, [fetchRiders]);
+  const refreshData = () => queryClient.invalidateQueries({ queryKey: ['riders'] });
 
   const handleViewRider = (rider: Rider) => {
     setSelectedRider(rider);

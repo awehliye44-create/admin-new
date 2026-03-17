@@ -64,8 +64,6 @@ interface CancelledTrip {
 }
 
 export default function MissedCancelled() {
-  const [trips, setTrips] = useState<CancelledTrip[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('7days');
@@ -90,9 +88,9 @@ export default function MissedCancelled() {
     }
   }, [dateFilter]);
 
-  const fetchData = useCallback(async (isBackground = false) => {
-    try {
-      if (!isBackground) setIsLoading(true);
+  const { data: trips = [], isLoading } = useQuery({
+    queryKey: ['missed-cancelled', dateFilter],
+    queryFn: async () => {
       const { start, end } = getDateRange();
       
       const { data, error } = await supabase
@@ -107,19 +105,10 @@ export default function MissedCancelled() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-
-      setTrips(data || []);
-    } catch (err) {
-      console.error('Error fetching cancelled trips:', err);
-      toast.error('Failed to load cancelled trips');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [getDateRange]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+      return (data || []) as CancelledTrip[];
+    },
+    staleTime: 30_000,
+  });
 
   // getCurrencySymbol is now imported from @/lib/regionSettings
 
