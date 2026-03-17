@@ -135,6 +135,10 @@ Deno.serve(async (req) => {
         estimatedDistanceKm: estimated_distance_km,
         estimatedDurationMin: estimated_duration_min,
         vehicleTypeId: vehicle_type_id || null,
+        // Fare Engine source-of-truth fields for downstream persistence
+        fareEngineConfigId: settings.id,
+        fareLocked,
+        fareSnapshotJson,
         fareBreakdown: {
           baseFarePence: breakdown.base_fare_pence,
           distanceChargePence: breakdown.distance_charge_pence,
