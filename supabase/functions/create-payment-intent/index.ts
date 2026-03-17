@@ -54,7 +54,7 @@ serve(async (req) => {
     }
 
     if (estimated_fare_pence < 50) {
-      return errorResponse("Minimum fare is 50 pence", 400);
+      return errorResponse("Minimum fare is 50 pence", 400, undefined, "VALIDATION_FAILED");
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
