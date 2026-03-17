@@ -197,20 +197,20 @@ export function DriverDetailsDialog({
       // Service area rules override global defaults
       const saRuleMap: Record<string, { mandatory: boolean; is_active: boolean }> = {};
       for (const rule of saRules) {
-        const existing = saRuleMap.get(rule.doc_type_id);
+        const existing = saRuleMap[rule.doc_type_id];
         if (!existing) {
-          saRuleMap.set(rule.doc_type_id, { mandatory: rule.mandatory, is_active: rule.is_active });
+          saRuleMap[rule.doc_type_id] = { mandatory: rule.mandatory, is_active: rule.is_active };
         } else {
           // If driver is in multiple SAs, a doc is required if ANY SA requires it
           if (rule.mandatory && rule.is_active) {
-            saRuleMap.set(rule.doc_type_id, { mandatory: true, is_active: true });
+            saRuleMap[rule.doc_type_id] = { mandatory: true, is_active: true };
           }
         }
       }
 
       // Filter to only effectively required types
       const requiredTypes = allTypes.filter((dt) => {
-        const saRule = saRuleMap.get(dt.id);
+        const saRule = saRuleMap[dt.id];
         if (saRule) {
           // Service area rule overrides: must be both active and mandatory
           return saRule.is_active && saRule.mandatory;
