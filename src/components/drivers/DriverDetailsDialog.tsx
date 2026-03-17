@@ -36,7 +36,8 @@ import { Progress } from '@/components/ui/progress';
 import { 
   Car, Star, Phone, Mail, MapPin, CheckCircle, XCircle, 
   Loader2, Pencil, Map, AlertTriangle, PawPrint, Users,
-  Truck, Shield, CreditCard, ExternalLink, Send, Crown, Target
+  Truck, Shield, CreditCard, ExternalLink, Send, Crown, Target,
+  FileText, Clock, AlertOctagon, FileWarning
 } from 'lucide-react';
 import { toast } from 'sonner';
 
