@@ -141,6 +141,7 @@ export default function Drivers() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [regionsList, setRegionsList] = useState<Region[]>([]);
+  const [categories, setCategories] = useState<DriverCategory[]>([]);
 
   // Region and Service Area filter state
   const [selectedRegionFilter, setSelectedRegionFilter] = useState<string>('all');
