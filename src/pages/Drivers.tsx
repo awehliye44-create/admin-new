@@ -164,9 +164,11 @@ export default function Drivers() {
   const [selectedServiceAreas, setSelectedServiceAreas] = useState<string[]>([]);
   const [isSavingServiceAreas, setIsSavingServiceAreas] = useState(false);
 
-  const fetchDrivers = async () => {
+  const fetchDrivers = useCallback(async (isBackground = false) => {
     try {
-      setIsLoading(true);
+      // Only show full loading spinner on initial load, not background refreshes
+      if (!isBackground) setIsLoading(true);
+
       const { data, error } = await supabase
         .from('drivers')
         .select('*')
@@ -174,18 +176,6 @@ export default function Drivers() {
 
       if (error) throw error;
       setDrivers(data || []);
-
-      // Fetch regions
-      const { data: regionsData } = await supabase
-        .from('regions')
-        .select('id, name');
-      
-      if (regionsData) {
-        setRegionsList(regionsData);
-        const regionsMap: Record<string, Region> = {};
-        regionsData.forEach(r => { regionsMap[r.id] = r; });
-        setRegions(regionsMap);
-      }
 
       // Fetch driver categories/tiers
       const { data: categoriesData } = await supabase
@@ -198,17 +188,7 @@ export default function Drivers() {
         setCategories(categoriesData as DriverCategory[]);
       }
 
-      // Fetch service areas
-      const { data: serviceAreasData } = await supabase
-        .from('service_areas')
-        .select('*')
-        .eq('is_active', true);
-      
-      if (serviceAreasData) {
-        setServiceAreas(serviceAreasData);
-      }
-
-      // Fetch vehicles for all drivers
+      // Fetch vehicles and service area assignments for all drivers
       if (data && data.length > 0) {
         const driverIds = data.map(d => d.id);
         const [vehiclesRes, driverServiceAreasRes] = await Promise.all([
@@ -248,11 +228,11 @@ export default function Drivers() {
       }
     } catch (err) {
       console.error('Error fetching drivers:', err);
-      setError('Failed to load drivers. Please try again.');
+      if (!isBackground) setError('Failed to load drivers. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchDrivers();
