@@ -139,7 +139,7 @@ const TIMEZONES = [
 export default function Services() {
   const navigate = useNavigate();
   const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
-  const [regions, setRegions] = useState<Region[]>([]);
+  const { data: regions = [] } = useRegions();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
