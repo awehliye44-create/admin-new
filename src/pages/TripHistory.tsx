@@ -964,6 +964,22 @@ export default function TripHistory() {
                   <CheckCircle className="h-3 w-3 mr-1" />
                   Completed
                 </Badge>
+                {/* Pricing Mode Badge */}
+                {selectedTrip.pricing_mode && (
+                  <Badge 
+                    variant="outline" 
+                    className={selectedTrip.pricing_mode === 'fixed' 
+                      ? 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-400' 
+                      : 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-400'}
+                  >
+                    {selectedTrip.pricing_mode === 'fixed' ? '🔒 Fixed Fare' : '⚡ Dynamic Fare'}
+                  </Badge>
+                )}
+                {selectedTrip.fare_locked && (
+                  <Badge variant="outline" className="bg-indigo-100 text-indigo-700 border-indigo-300 dark:bg-indigo-900/30 dark:text-indigo-400">
+                    Fare Locked at Booking
+                  </Badge>
+                )}
                 {selectedTrip.stacked_trip_id && (
                   <Badge variant="outline" className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
                     ⚡ Stacked Ride
@@ -979,6 +995,12 @@ export default function TripHistory() {
                     <Globe className="h-3 w-3 mr-1" />
                     {selectedServiceArea.name}
                     {selectedServiceArea.region && ` (${selectedServiceArea.region.name})`}
+                  </Badge>
+                )}
+                {selectedTrip.vehicle_type && (
+                  <Badge variant="outline">
+                    <Car className="h-3 w-3 mr-1" />
+                    {selectedTrip.vehicle_type}
                   </Badge>
                 )}
                 {selectedTrip.surge_multiplier && selectedTrip.surge_multiplier > 1 && (
