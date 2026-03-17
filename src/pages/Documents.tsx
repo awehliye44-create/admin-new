@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table,
   TableBody,
@@ -41,12 +40,10 @@ import { supabase } from '@/integrations/supabase/client';
 import { 
   FileText, Loader2, Search, RefreshCw, MoreHorizontal, Eye, 
   CheckCircle2, XCircle, Clock, AlertTriangle, FileCheck, FileClock,
-  FileX, Calendar, UserCheck, ShieldCheck, Settings2, ListChecks
+  Calendar
 } from 'lucide-react';
 import { format, isPast, addDays, isBefore } from 'date-fns';
 import { toast } from 'sonner';
-import { ServiceAreaDocumentRules } from '@/components/documents/ServiceAreaDocumentRules';
-import { DocumentTypeConfig } from '@/components/documents/DocumentTypeConfig';
 import { useDocumentTypes } from '@/hooks/useDocumentTypes';
 
 interface Document {
@@ -69,8 +66,6 @@ interface Document {
   } | null;
 }
 
-// Document types are now fetched dynamically from the database via useDocumentTypes()
-
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
   pending: { label: 'Pending Review', color: 'bg-yellow-100 text-yellow-700', icon: Clock },
   approved: { label: 'Approved', color: 'bg-green-100 text-green-700', icon: CheckCircle2 },
@@ -86,13 +81,11 @@ export default function Documents() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
 
-  // Derive DOCUMENT_TYPES from DB for all downstream usage
+  // Only show active document types for filtering
   const DOCUMENT_TYPES = useMemo(() =>
     (dbDocTypes || []).filter(dt => dt.is_active).map(dt => ({
       value: dt.slug,
       label: dt.name,
-      required: dt.is_required,
-      hasExpiry: dt.has_expiry,
     })),
     [dbDocTypes]
   );
@@ -154,7 +147,6 @@ export default function Documents() {
 
       if (error) throw error;
 
-      // The trigger will automatically update the driver's documents_approved status
       toast.success(`Document ${reviewStatus === 'approved' ? 'approved' : 'rejected'} successfully`);
       setIsReviewOpen(false);
       setSelectedDocument(null);
@@ -168,9 +160,6 @@ export default function Documents() {
       setIsSaving(false);
     }
   };
-
-  // Get required document count for stats
-  const requiredDocTypes = DOCUMENT_TYPES.filter(d => d.required).map(d => d.value);
 
   const getDocumentTypeLabel = (type: string) => {
     return DOCUMENT_TYPES.find(t => t.value === type)?.label || type;
@@ -202,422 +191,367 @@ export default function Documents() {
 
   return (
     <AdminLayout 
-      title="Document Management" 
-      description="Review and manage driver documents and configure per-service-area rules."
+      title="Document Review" 
+      description="Review and approve driver-uploaded documents. Document configuration is managed in Document Management."
     >
-      <Tabs defaultValue="review" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="review" className="gap-2">
-            <FileText className="h-4 w-4" />
-            Document Review
-          </TabsTrigger>
-          <TabsTrigger value="types" className="gap-2">
-            <ListChecks className="h-4 w-4" />
-            Document Types
-          </TabsTrigger>
-          <TabsTrigger value="rules" className="gap-2">
-            <Settings2 className="h-4 w-4" />
-            Service Area Rules
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="review" className="space-y-6">
-      {/* Required Documents Info */}
-      <Card className="mb-6 border-primary/20 bg-primary/5">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <ShieldCheck className="h-5 w-5 text-primary" />
-            Required Documents for Driver Approval
-          </CardTitle>
-          <CardDescription>
-            Drivers must have all {DOCUMENT_TYPES.filter(d => d.required).length} required documents approved before they can receive bookings
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-            {DOCUMENT_TYPES.filter(d => d.required).map((docType) => (
-              <div 
-                key={docType.value} 
-                className="flex items-center gap-2 text-sm p-2 rounded-md bg-background border"
-              >
-                <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                <span className="truncate">{docType.label}</span>
-                {docType.hasExpiry && (
-                  <span title="Has expiry date">
-                    <Calendar className="h-3 w-3 text-orange-500 flex-shrink-0" />
-                  </span>
-                )}
+      <div className="space-y-6">
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Documents</p>
+                  <p className="text-2xl font-bold">{documents.length}</p>
+                </div>
+                <FileText className="h-8 w-8 text-primary opacity-80" />
               </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+          <Card className="border-yellow-500/30 bg-yellow-500/5">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Pending Review</p>
+                  <p className="text-2xl font-bold text-yellow-600">{pendingCount}</p>
+                </div>
+                <FileClock className="h-8 w-8 text-yellow-500" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-green-500/30 bg-green-500/5">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Approved</p>
+                  <p className="text-2xl font-bold text-green-600">{approvedCount}</p>
+                </div>
+                <FileCheck className="h-8 w-8 text-green-500" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-orange-500/30 bg-orange-500/5">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Expiring Soon</p>
+                  <p className="text-2xl font-bold text-orange-600">{expiringCount}</p>
+                </div>
+                <AlertTriangle className="h-8 w-8 text-orange-500" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        {/* Documents Table */}
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Total Documents</p>
-                <p className="text-2xl font-bold">{documents.length}</p>
-              </div>
-              <FileText className="h-8 w-8 text-primary opacity-80" />
+          <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-primary" />
+                Uploaded Documents
+              </CardTitle>
+              <CardDescription>
+                Approve or reject driver-submitted documents
+              </CardDescription>
             </div>
-          </CardContent>
-        </Card>
-        <Card className="border-yellow-500/30 bg-yellow-500/5">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Pending Review</p>
-                <p className="text-2xl font-bold text-yellow-600">{pendingCount}</p>
-              </div>
-              <FileClock className="h-8 w-8 text-yellow-500" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-green-500/30 bg-green-500/5">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Approved</p>
-                <p className="text-2xl font-bold text-green-600">{approvedCount}</p>
-              </div>
-              <FileCheck className="h-8 w-8 text-green-500" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-orange-500/30 bg-orange-500/5">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Expiring Soon</p>
-                <p className="text-2xl font-bold text-orange-600">{expiringCount}</p>
-              </div>
-              <AlertTriangle className="h-8 w-8 text-orange-500" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-primary" />
-              Driver Documents
-            </CardTitle>
-            <CardDescription>
-              Review and approve driver documentation
-            </CardDescription>
-          </div>
-          <div className="flex flex-col gap-2 md:flex-row md:items-center">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search documents..."
-                className="pl-9 w-full md:w-[180px]"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full md:w-[140px]">
-                <SelectValue placeholder="All Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="approved">Approved</SelectItem>
-                <SelectItem value="rejected">Rejected</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger className="w-full md:w-[160px]">
-                <SelectValue placeholder="All Types" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                {DOCUMENT_TYPES.map(type => (
-                  <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button variant="outline" onClick={fetchDocuments} disabled={isLoading}>
-              <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-primary" />
-            </div>
-          ) : filteredDocuments.length === 0 ? (
-            <div className="py-12 text-center">
-              <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-medium mb-2">No documents found</h3>
-              <p className="text-muted-foreground">
-                {searchQuery || statusFilter !== 'all' || typeFilter !== 'all'
-                  ? 'Try adjusting your filters' 
-                  : 'No documents have been uploaded yet'}
-              </p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Driver</TableHead>
-                  <TableHead>Document Type</TableHead>
-                  <TableHead>Document Name</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Expiry Date</TableHead>
-                  <TableHead>Uploaded</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredDocuments.map((doc) => {
-                  const statusConfig = STATUS_CONFIG[doc.status] || STATUS_CONFIG.pending;
-                  const StatusIcon = statusConfig.icon;
-                  const expiringSoon = isExpiringSoon(doc.expiry_date);
-                  const expired = doc.expiry_date && isPast(new Date(doc.expiry_date));
-                  
-                  return (
-                    <TableRow key={doc.id}>
-                      <TableCell>
-                        <div className="font-medium">
-                          {doc.driver ? `${doc.driver.first_name} ${doc.driver.last_name}` : 'Unknown'}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {doc.driver?.phone || 'No phone'}
-                        </div>
-                      </TableCell>
-                      <TableCell>{getDocumentTypeLabel(doc.document_type)}</TableCell>
-                      <TableCell className="font-medium">{doc.document_name}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className={statusConfig.color}>
-                          <StatusIcon className="h-3 w-3 mr-1" />
-                          {statusConfig.label}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {doc.expiry_date ? (
-                          <div className={`flex items-center gap-1 ${expired ? 'text-red-600' : expiringSoon ? 'text-orange-600' : ''}`}>
-                            <Calendar className="h-3 w-3" />
-                            {format(new Date(doc.expiry_date), 'MMM d, yyyy')}
-                            {expired && <Badge variant="destructive" className="ml-1 text-xs">Expired</Badge>}
-                            {expiringSoon && !expired && <Badge variant="outline" className="ml-1 text-xs bg-orange-100 text-orange-700">Soon</Badge>}
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">N/A</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {format(new Date(doc.created_at), 'MMM d, yyyy')}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => { setSelectedDocument(doc); setIsViewOpen(true); }}>
-                              <Eye className="h-4 w-4 mr-2" />
-                              View Details
-                            </DropdownMenuItem>
-                            {doc.file_url && (
-                              <DropdownMenuItem onClick={() => window.open(doc.file_url!, '_blank')}>
-                                <FileText className="h-4 w-4 mr-2" />
-                                View File
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuSeparator />
-                            {doc.status === 'pending' && (
-                              <>
-                                <DropdownMenuItem 
-                                  onClick={() => { 
-                                    setSelectedDocument(doc); 
-                                    setReviewStatus('approved'); 
-                                    setRejectionReason('');
-                                    setIsReviewOpen(true); 
-                                  }}
-                                  className="text-green-600"
-                                >
-                                  <CheckCircle2 className="h-4 w-4 mr-2" />
-                                  Approve
-                                </DropdownMenuItem>
-                                <DropdownMenuItem 
-                                  onClick={() => { 
-                                    setSelectedDocument(doc); 
-                                    setReviewStatus('rejected'); 
-                                    setRejectionReason('');
-                                    setIsReviewOpen(true); 
-                                  }}
-                                  className="text-red-600"
-                                >
-                                  <XCircle className="h-4 w-4 mr-2" />
-                                  Reject
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* View Details Dialog */}
-      <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Document Details</DialogTitle>
-            <DialogDescription>
-              {selectedDocument?.document_name}
-            </DialogDescription>
-          </DialogHeader>
-          {selectedDocument && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-muted-foreground">Status</Label>
-                  <div className="mt-1">
-                    {(() => {
-                      const config = STATUS_CONFIG[selectedDocument.status] || STATUS_CONFIG.pending;
-                      const Icon = config.icon;
-                      return (
-                        <Badge variant="outline" className={config.color}>
-                          <Icon className="h-3 w-3 mr-1" />
-                          {config.label}
-                        </Badge>
-                      );
-                    })()}
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Document Type</Label>
-                  <p className="font-medium">{getDocumentTypeLabel(selectedDocument.document_type)}</p>
-                </div>
-              </div>
-
-              <div>
-                <Label className="text-muted-foreground">Driver</Label>
-                <p className="font-medium">
-                  {selectedDocument.driver 
-                    ? `${selectedDocument.driver.first_name} ${selectedDocument.driver.last_name}`
-                    : 'Unknown'}
-                </p>
-                <p className="text-sm text-muted-foreground">{selectedDocument.driver?.phone}</p>
-              </div>
-
-              {selectedDocument.expiry_date && (
-                <div>
-                  <Label className="text-muted-foreground">Expiry Date</Label>
-                  <p className="font-medium">{format(new Date(selectedDocument.expiry_date), 'PPP')}</p>
-                </div>
-              )}
-
-              {selectedDocument.notes && (
-                <div>
-                  <Label className="text-muted-foreground">Notes</Label>
-                  <p className="text-sm bg-muted p-2 rounded">{selectedDocument.notes}</p>
-                </div>
-              )}
-
-              {selectedDocument.rejection_reason && (
-                <div>
-                  <Label className="text-muted-foreground text-red-600">Rejection Reason</Label>
-                  <p className="text-sm bg-red-50 text-red-700 p-2 rounded">{selectedDocument.rejection_reason}</p>
-                </div>
-              )}
-
-              {selectedDocument.reviewed_at && (
-                <div>
-                  <Label className="text-muted-foreground">Reviewed</Label>
-                  <p className="text-sm">{format(new Date(selectedDocument.reviewed_at), 'PPP p')}</p>
-                </div>
-              )}
-
-              <div>
-                <Label className="text-muted-foreground">Uploaded</Label>
-                <p className="text-sm">{format(new Date(selectedDocument.created_at), 'PPP p')}</p>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            {selectedDocument?.file_url && (
-              <Button variant="outline" onClick={() => window.open(selectedDocument.file_url!, '_blank')}>
-                View File
-              </Button>
-            )}
-            <Button onClick={() => setIsViewOpen(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Review Dialog */}
-      <Dialog open={isReviewOpen} onOpenChange={setIsReviewOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {reviewStatus === 'approved' ? 'Approve Document' : 'Reject Document'}
-            </DialogTitle>
-            <DialogDescription>
-              {selectedDocument?.document_name} - {selectedDocument?.driver?.first_name} {selectedDocument?.driver?.last_name}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {reviewStatus === 'rejected' && (
-              <div>
-                <Label htmlFor="rejectionReason">Rejection Reason *</Label>
-                <Textarea
-                  id="rejectionReason"
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
-                  placeholder="Please provide a reason for rejection..."
-                  rows={3}
+            <div className="flex flex-col gap-2 md:flex-row md:items-center">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search documents..."
+                  className="pl-9 w-full md:w-[180px]"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-full md:w-[140px]">
+                  <SelectValue placeholder="All Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger className="w-full md:w-[160px]">
+                  <SelectValue placeholder="All Types" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  {DOCUMENT_TYPES.map(type => (
+                    <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button variant="outline" onClick={fetchDocuments} disabled={isLoading}>
+                <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            ) : filteredDocuments.length === 0 ? (
+              <div className="py-12 text-center">
+                <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium mb-2">No documents found</h3>
+                <p className="text-muted-foreground">
+                  {searchQuery || statusFilter !== 'all' || typeFilter !== 'all'
+                    ? 'Try adjusting your filters' 
+                    : 'No documents have been uploaded yet'}
+                </p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Driver</TableHead>
+                    <TableHead>Document Type</TableHead>
+                    <TableHead>Document Name</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Expiry Date</TableHead>
+                    <TableHead>Uploaded</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredDocuments.map((doc) => {
+                    const statusConfig = STATUS_CONFIG[doc.status] || STATUS_CONFIG.pending;
+                    const StatusIcon = statusConfig.icon;
+                    const expiringSoon = isExpiringSoon(doc.expiry_date);
+                    const expired = doc.expiry_date && isPast(new Date(doc.expiry_date));
+                    
+                    return (
+                      <TableRow key={doc.id}>
+                        <TableCell>
+                          <div className="font-medium">
+                            {doc.driver ? `${doc.driver.first_name} ${doc.driver.last_name}` : 'Unknown'}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {doc.driver?.phone || 'No phone'}
+                          </div>
+                        </TableCell>
+                        <TableCell>{getDocumentTypeLabel(doc.document_type)}</TableCell>
+                        <TableCell className="font-medium">{doc.document_name}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={statusConfig.color}>
+                            <StatusIcon className="h-3 w-3 mr-1" />
+                            {statusConfig.label}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {doc.expiry_date ? (
+                            <div className={`flex items-center gap-1 ${expired ? 'text-red-600' : expiringSoon ? 'text-orange-600' : ''}`}>
+                              <Calendar className="h-3 w-3" />
+                              {format(new Date(doc.expiry_date), 'MMM d, yyyy')}
+                              {expired && <Badge variant="destructive" className="ml-1 text-xs">Expired</Badge>}
+                              {expiringSoon && !expired && <Badge variant="outline" className="ml-1 text-xs bg-orange-100 text-orange-700">Soon</Badge>}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">N/A</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {format(new Date(doc.created_at), 'MMM d, yyyy')}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => { setSelectedDocument(doc); setIsViewOpen(true); }}>
+                                <Eye className="h-4 w-4 mr-2" />
+                                View Details
+                              </DropdownMenuItem>
+                              {doc.file_url && (
+                                <DropdownMenuItem onClick={() => window.open(doc.file_url!, '_blank')}>
+                                  <FileText className="h-4 w-4 mr-2" />
+                                  View File
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuSeparator />
+                              {doc.status === 'pending' && (
+                                <>
+                                  <DropdownMenuItem 
+                                    onClick={() => { 
+                                      setSelectedDocument(doc); 
+                                      setReviewStatus('approved'); 
+                                      setRejectionReason('');
+                                      setIsReviewOpen(true); 
+                                    }}
+                                    className="text-green-600"
+                                  >
+                                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                                    Approve
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem 
+                                    onClick={() => { 
+                                      setSelectedDocument(doc); 
+                                      setReviewStatus('rejected'); 
+                                      setRejectionReason('');
+                                      setIsReviewOpen(true); 
+                                    }}
+                                    className="text-red-600"
+                                  >
+                                    <XCircle className="h-4 w-4 mr-2" />
+                                    Reject
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             )}
-            {reviewStatus === 'approved' && (
-              <p className="text-sm text-muted-foreground">
-                This will approve the document and mark it as verified.
-              </p>
+          </CardContent>
+        </Card>
+
+        {/* View Details Dialog */}
+        <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Document Details</DialogTitle>
+              <DialogDescription>
+                {selectedDocument?.document_name}
+              </DialogDescription>
+            </DialogHeader>
+            {selectedDocument && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-muted-foreground">Status</Label>
+                    <div className="mt-1">
+                      {(() => {
+                        const config = STATUS_CONFIG[selectedDocument.status] || STATUS_CONFIG.pending;
+                        const Icon = config.icon;
+                        return (
+                          <Badge variant="outline" className={config.color}>
+                            <Icon className="h-3 w-3 mr-1" />
+                            {config.label}
+                          </Badge>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-muted-foreground">Document Type</Label>
+                    <p className="font-medium">{getDocumentTypeLabel(selectedDocument.document_type)}</p>
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-muted-foreground">Driver</Label>
+                  <p className="font-medium">
+                    {selectedDocument.driver 
+                      ? `${selectedDocument.driver.first_name} ${selectedDocument.driver.last_name}`
+                      : 'Unknown'}
+                  </p>
+                  <p className="text-sm text-muted-foreground">{selectedDocument.driver?.phone}</p>
+                </div>
+
+                {selectedDocument.expiry_date && (
+                  <div>
+                    <Label className="text-muted-foreground">Expiry Date</Label>
+                    <p className="font-medium">{format(new Date(selectedDocument.expiry_date), 'PPP')}</p>
+                  </div>
+                )}
+
+                {selectedDocument.notes && (
+                  <div>
+                    <Label className="text-muted-foreground">Notes</Label>
+                    <p className="text-sm bg-muted p-2 rounded">{selectedDocument.notes}</p>
+                  </div>
+                )}
+
+                {selectedDocument.rejection_reason && (
+                  <div>
+                    <Label className="text-muted-foreground text-red-600">Rejection Reason</Label>
+                    <p className="text-sm bg-red-50 text-red-700 p-2 rounded">{selectedDocument.rejection_reason}</p>
+                  </div>
+                )}
+
+                {selectedDocument.reviewed_at && (
+                  <div>
+                    <Label className="text-muted-foreground">Reviewed</Label>
+                    <p className="text-sm">{format(new Date(selectedDocument.reviewed_at), 'PPP p')}</p>
+                  </div>
+                )}
+
+                <div>
+                  <Label className="text-muted-foreground">Uploaded</Label>
+                  <p className="text-sm">{format(new Date(selectedDocument.created_at), 'PPP p')}</p>
+                </div>
+              </div>
             )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsReviewOpen(false)}>Cancel</Button>
-            <Button 
-              onClick={handleReview} 
-              disabled={isSaving}
-              variant={reviewStatus === 'rejected' ? 'destructive' : 'default'}
-            >
-              {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              {reviewStatus === 'approved' ? 'Approve' : 'Reject'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-        </TabsContent>
+            <DialogFooter>
+              {selectedDocument?.file_url && (
+                <Button variant="outline" onClick={() => window.open(selectedDocument.file_url!, '_blank')}>
+                  View File
+                </Button>
+              )}
+              <Button onClick={() => setIsViewOpen(false)}>Close</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-        <TabsContent value="types">
-          <DocumentTypeConfig />
-        </TabsContent>
-
-        <TabsContent value="rules">
-          <ServiceAreaDocumentRules />
-        </TabsContent>
-      </Tabs>
+        {/* Review Dialog */}
+        <Dialog open={isReviewOpen} onOpenChange={setIsReviewOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {reviewStatus === 'approved' ? 'Approve Document' : 'Reject Document'}
+              </DialogTitle>
+              <DialogDescription>
+                {selectedDocument?.document_name} - {selectedDocument?.driver?.first_name} {selectedDocument?.driver?.last_name}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              {reviewStatus === 'rejected' && (
+                <div>
+                  <Label htmlFor="rejectionReason">Rejection Reason *</Label>
+                  <Textarea
+                    id="rejectionReason"
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                    placeholder="Please provide a reason for rejection..."
+                    rows={3}
+                  />
+                </div>
+              )}
+              {reviewStatus === 'approved' && (
+                <p className="text-sm text-muted-foreground">
+                  This will approve the document and mark it as verified.
+                </p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsReviewOpen(false)}>Cancel</Button>
+              <Button 
+                onClick={handleReview} 
+                disabled={isSaving}
+                variant={reviewStatus === 'rejected' ? 'destructive' : 'default'}
+              >
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                {reviewStatus === 'approved' ? 'Approve' : 'Reject'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
     </AdminLayout>
   );
 }

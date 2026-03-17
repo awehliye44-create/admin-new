@@ -108,6 +108,7 @@ const App = () => (
               <Route path="service-area-pricing" element={<ServiceAreaPricing />} />
               <Route path="vehicle-types" element={<VehicleTypes />} />
               <Route path="documents" element={<Documents />} />
+              <Route path="document-management" element={<DocumentManagement />} />
               
               {/* Fleet Management */}
               <Route path="drivers" element={<Drivers />} />
