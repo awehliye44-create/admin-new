@@ -254,9 +254,9 @@ export default function Regions() {
   // Stats
   const [regionStats, setRegionStats] = useState<Record<string, RegionStats>>({});
 
-  const fetchRegions = async () => {
+  const fetchRegions = async (isBackground = false) => {
     try {
-      setIsLoading(true);
+      if (!isBackground) setIsLoading(true);
       const { data, error } = await supabase
         .from('regions')
         .select('*')
@@ -276,27 +276,26 @@ export default function Regions() {
       
       setRegions(parsedData);
 
-      // Fetch stats for each region
+      // Fetch all stats in parallel (not N+1)
       if (parsedData.length > 0) {
-        const stats: Record<string, RegionStats> = {};
+        const regionIds = parsedData.map(r => r.id);
+        const [driversRes, areasRes] = await Promise.all([
+          supabase.from('drivers').select('region_id').in('region_id', regionIds),
+          supabase.from('service_areas').select('region_id').in('region_id', regionIds),
+        ]);
         
+        const stats: Record<string, RegionStats> = {};
         for (const region of parsedData) {
-          const [driversRes, areasRes] = await Promise.all([
-            supabase.from('drivers').select('id', { count: 'exact', head: true }).eq('region_id', region.id),
-            supabase.from('service_areas').select('id', { count: 'exact', head: true }).eq('region_id', region.id),
-          ]);
-          
           stats[region.id] = {
-            drivers: driversRes.count || 0,
-            serviceAreas: areasRes.count || 0,
+            drivers: driversRes.data?.filter(d => d.region_id === region.id).length || 0,
+            serviceAreas: areasRes.data?.filter(a => a.region_id === region.id).length || 0,
           };
         }
-        
         setRegionStats(stats);
       }
     } catch (err) {
       console.error('Error fetching regions:', err);
-      setError('Failed to load regions. Please try again.');
+      if (!isBackground) setError('Failed to load regions. Please try again.');
     } finally {
       setIsLoading(false);
     }
