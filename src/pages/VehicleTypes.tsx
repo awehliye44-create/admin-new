@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -62,8 +63,7 @@ const CATEGORY_OPTIONS = ['Economy', 'Standard', 'XL', 'Luxury', 'Premium'];
 const FEATURE_OPTIONS = ['Luxury', 'Pet', 'Wheelchair', 'Child Seat', 'WiFi', 'Charger', 'Electric'];
 
 export default function VehicleTypes() {
-  const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   
   // Dialog states
@@ -87,27 +87,20 @@ export default function VehicleTypes() {
     display_order: 0,
   });
 
-  const fetchVehicleTypes = async (isBackground = false) => {
-    try {
-      if (!isBackground) setIsLoading(true);
+  const { data: vehicleTypes = [], isLoading } = useQuery({
+    queryKey: ['vehicle-types-admin'],
+    queryFn: async () => {
       const { data, error } = await supabase
         .from('vehicle_types')
-        .select('*')
+        .select('id, name, description, slug, icon, is_active, is_default, driver_controllable, display_order, capacity, categories, features, created_at, updated_at')
         .order('display_order', { ascending: true });
-
       if (error) throw error;
-      setVehicleTypes(data || []);
-    } catch (err) {
-      console.error('Error fetching vehicle types:', err);
-      toast.error('Failed to load vehicle types');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+      return (data || []) as VehicleType[];
+    },
+    staleTime: 30_000,
+  });
 
-  useEffect(() => {
-    fetchVehicleTypes();
-  }, []);
+  const fetchVehicleTypes = () => queryClient.invalidateQueries({ queryKey: ['vehicle-types-admin'] });
 
   const generateSlug = (name: string) => {
     return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -181,7 +174,7 @@ export default function VehicleTypes() {
 
       if (error) throw error;
 
-      setVehicleTypes(prev => [...prev, data]);
+      fetchVehicleTypes();
       setIsAddDialogOpen(false);
       resetForm();
       toast.success('Vehicle type created successfully');
@@ -220,11 +213,7 @@ export default function VehicleTypes() {
 
       if (error) throw error;
 
-      setVehicleTypes(prev => prev.map(vt => 
-        vt.id === selectedType.id 
-          ? { ...vt, ...formData, description: formData.description || null }
-          : vt
-      ));
+      fetchVehicleTypes();
       setIsEditDialogOpen(false);
       setSelectedType(null);
       toast.success('Vehicle type updated successfully');
@@ -252,7 +241,7 @@ export default function VehicleTypes() {
 
       if (error) throw error;
 
-      setVehicleTypes(prev => prev.filter(vt => vt.id !== selectedType.id));
+      fetchVehicleTypes();
       setIsDeleteDialogOpen(false);
       setSelectedType(null);
       toast.success('Vehicle type deleted successfully');
