@@ -101,9 +101,9 @@ export default function PromoCodes() {
     is_active: true,
   });
 
-  const fetchPromoCodes = useCallback(async () => {
+  const fetchPromoCodes = useCallback(async (isBackground = false) => {
     try {
-      setIsLoading(true);
+      if (!isBackground) setIsLoading(true);
       const { data, error } = await supabase
         .from('promo_codes')
         .select('*')
@@ -391,7 +391,7 @@ export default function PromoCodes() {
                 <SelectItem value="inactive">Inactive</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" onClick={fetchPromoCodes} disabled={isLoading}>
+            <Button variant="outline" onClick={() => fetchPromoCodes()} disabled={isLoading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>

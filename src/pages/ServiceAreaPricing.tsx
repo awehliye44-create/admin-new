@@ -112,9 +112,9 @@ export default function ServiceAreaPricing() {
     }
   }, [selectedServiceAreaId]);
 
-  const fetchInitialData = async () => {
+  const fetchInitialData = async (isBackground = false) => {
     try {
-      setIsLoading(true);
+      if (!isBackground) setIsLoading(true);
       const [areasRes, vtRes] = await Promise.all([
         supabase
           .from('service_areas')

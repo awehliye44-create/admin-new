@@ -195,9 +195,9 @@ export default function Services() {
     });
   };
 
-  const fetchData = async () => {
+  const fetchData = async (isBackground = false) => {
     try {
-      setIsLoading(true);
+      if (!isBackground) setIsLoading(true);
       
       const [areasRes, regionsRes, vehicleTypesRes] = await Promise.all([
         supabase

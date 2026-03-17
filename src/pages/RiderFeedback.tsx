@@ -126,9 +126,9 @@ export default function RiderFeedback() {
   });
   const [isCreating, setIsCreating] = useState(false);
 
-  const fetchFeedback = useCallback(async () => {
+  const fetchFeedback = useCallback(async (isBackground = false) => {
     try {
-      setIsLoading(true);
+      if (!isBackground) setIsLoading(true);
       
       const { data, error } = await supabase
         .from('rider_feedback')
@@ -429,7 +429,7 @@ export default function RiderFeedback() {
                   ))}
                 </SelectContent>
               </Select>
-              <Button variant="outline" size="icon" onClick={fetchFeedback}>
+              <Button variant="outline" size="icon" onClick={() => fetchFeedback()}>
                 <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               </Button>
             </div>

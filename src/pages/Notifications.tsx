@@ -216,9 +216,9 @@ export default function Notifications() {
   });
 
   // Fetch data
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (isBackground = false) => {
     try {
-      setIsLoading(true);
+      if (!isBackground) setIsLoading(true);
       
       const [notifRes, templatesRes, settingsRes, regionsRes, areasRes] = await Promise.all([
         supabase
@@ -705,7 +705,7 @@ export default function Notifications() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Button variant="outline" onClick={fetchData} disabled={isLoading}>
+                <Button variant="outline" onClick={() => fetchData()} disabled={isLoading}>
                   <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
                   Refresh
                 </Button>
