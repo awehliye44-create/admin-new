@@ -2,17 +2,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import React from "react";
 
-// Create mock before vi.mock calls
-const mockSupabase = {
-  auth: {
-    getSession: vi.fn(),
-    signInWithPassword: vi.fn(),
-    signUp: vi.fn(),
-    signOut: vi.fn(),
-    onAuthStateChange: vi.fn(),
+const { mockSupabase } = vi.hoisted(() => ({
+  mockSupabase: {
+    auth: {
+      getSession: vi.fn(),
+      signInWithPassword: vi.fn(),
+      signUp: vi.fn(),
+      signOut: vi.fn(),
+      onAuthStateChange: vi.fn(),
+    },
+    from: vi.fn(),
   },
-  from: vi.fn(),
-};
+}));
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: mockSupabase,
