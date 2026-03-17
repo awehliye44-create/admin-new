@@ -125,8 +125,6 @@ export function DriverDetailsDialog({
 }: DriverDetailsDialogProps) {
   const [activeTab, setActiveTab] = useState('overview');
   const [isUpdating, setIsUpdating] = useState(false);
-  const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
-  const [driverCategories, setDriverCategories] = useState<DriverVehicleCategory[]>([]);
   const [isPetFriendly, setIsPetFriendly] = useState(driver?.is_pet_friendly ?? false);
   
   // Vehicle rejection dialog state
