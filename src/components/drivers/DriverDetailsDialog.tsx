@@ -195,7 +195,7 @@ export function DriverDetailsDialog({
 
       // Build a map: doc_type_id -> effective mandatory status
       // Service area rules override global defaults
-      const saRuleMap = new Map<string, { mandatory: boolean; is_active: boolean }>();
+      const saRuleMap: Record<string, { mandatory: boolean; is_active: boolean }> = {};
       for (const rule of saRules) {
         const existing = saRuleMap.get(rule.doc_type_id);
         if (!existing) {
