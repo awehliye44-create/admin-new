@@ -124,6 +124,7 @@ export default function FleetTracking() {
         .from('drivers')
         .select('*, region:regions(name)')
         .eq('approval_status', 'approved')
+        .eq('documents_approved', true)
         .order('is_online', { ascending: false });
       
       const regionsRes = await supabase
