@@ -12,6 +12,7 @@ import {
   CarTaxiFront,
   Navigation,
   Settings,
+  Settings2,
   LogOut,
   ChevronDown,
   Send,
