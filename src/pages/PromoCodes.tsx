@@ -215,7 +215,7 @@ export default function PromoCodes() {
 
       setIsFormOpen(false);
       resetForm();
-      fetchPromoCodes();
+      refreshData();
     } catch (err: any) {
       console.error('Error saving promo code:', err);
       if (err.message?.includes('duplicate')) {
