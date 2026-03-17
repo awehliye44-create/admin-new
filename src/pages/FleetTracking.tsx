@@ -436,7 +436,7 @@ export default function FleetTracking() {
                   <span className="text-xs text-muted-foreground">
                     Last updated: {lastRefresh.toLocaleTimeString()}
                   </span>
-                  <Button variant="outline" size="sm" onClick={fetchData} disabled={isLoading}>
+                  <Button variant="outline" size="sm" onClick={() => fetchData()} disabled={isLoading}>
                     <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
                   </Button>
                 </div>
