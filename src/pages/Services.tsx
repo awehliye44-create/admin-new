@@ -200,14 +200,10 @@ export default function Services() {
     try {
       if (!isBackground) setIsLoading(true);
       
-      const [areasRes, regionsRes, vehicleTypesRes] = await Promise.all([
+      const [areasRes, vehicleTypesRes] = await Promise.all([
         supabase
           .from('service_areas')
           .select(`*, region:regions(id, name, distance_unit, currency_code, timezone, status, geo_boundary)`)
-          .order('name', { ascending: true }),
-        supabase
-          .from('regions')
-          .select('id, name, distance_unit, currency_code, timezone, status, geo_boundary')
           .order('name', { ascending: true }),
         supabase
           .from('vehicle_types')
@@ -216,10 +212,8 @@ export default function Services() {
       ]);
 
       if (areasRes.error) throw areasRes.error;
-      if (regionsRes.error) throw regionsRes.error;
 
       setServiceAreas(areasRes.data || []);
-      setRegions(regionsRes.data || []);
 
       const totalVehicleTypes = vehicleTypesRes.data?.length || 0;
 
