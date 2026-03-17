@@ -21,6 +21,7 @@ import Drivers from "./pages/Drivers";
 import Vehicles from "./pages/Vehicles";
 import FleetTracking from "./pages/FleetTracking";
 import Documents from "./pages/Documents";
+import DocumentManagement from "./pages/DocumentManagement";
 
 import Regions from "./pages/Regions";
 import Services from "./pages/Services";
