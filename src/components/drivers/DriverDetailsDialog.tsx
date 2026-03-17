@@ -142,21 +142,48 @@ export function DriverDetailsDialog({
   const [commissionOverride] = useState<string>('');
   const [isSavingCommission, setIsSavingCommission] = useState(false);
 
-  // Document compliance state
-  const [documentCompliance, setDocumentCompliance] = useState<{
-    requiredTypes: { slug: string; name: string; has_expiry: boolean }[];
-    driverDocs: { document_type: string; status: string; expiry_date: string | null }[];
-  }>({ requiredTypes: [], driverDocs: [] });
-  const [isLoadingDocs, setIsLoadingDocs] = useState(false);
+  // React Query: vehicle types (cached globally)
+  const { data: vehicleTypes = [] } = useQuery({
+    queryKey: ['vehicle-types-dialog'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('vehicle_types')
+        .select('*')
+        .eq('is_active', true)
+        .order('display_order');
+      return (data || []) as VehicleType[];
+    },
+    staleTime: 5 * 60_000,
+    enabled: open,
+  });
+
+  // React Query: driver categories
+  const { data: driverCategories = [], refetch: refetchDriverCategories } = useQuery({
+    queryKey: ['driver-categories', driver?.id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('driver_vehicle_categories')
+        .select('*')
+        .eq('driver_id', driver!.id);
+      return (data || []) as DriverVehicleCategory[];
+    },
+    staleTime: 30_000,
+    enabled: open && !!driver?.id,
+  });
+
+  // React Query: document compliance
+  const { data: documentCompliance = { requiredTypes: [], driverDocs: [] }, isLoading: isLoadingDocs } = useQuery({
+    queryKey: ['driver-doc-compliance', driver?.id],
+    queryFn: () => fetchDocumentComplianceData(driver!.id),
+    staleTime: 60_000,
+    enabled: open && !!driver?.id,
+  });
 
   useEffect(() => {
     if (open && driver) {
       setIsPetFriendly(driver.is_pet_friendly ?? false);
-      fetchVehicleTypes();
-      fetchDriverCategories();
       fetchTierCategories();
       fetchDriverCommissionData();
-      fetchDocumentCompliance();
     }
   }, [open, driver?.id]);
 
