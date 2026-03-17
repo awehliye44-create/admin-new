@@ -230,7 +230,7 @@ export default function Documents() {
             Required Documents for Driver Approval
           </CardTitle>
           <CardDescription>
-            Drivers must have all 11 documents approved before they can receive bookings
+            Drivers must have all {DOCUMENT_TYPES.filter(d => d.required).length} required documents approved before they can receive bookings
           </CardDescription>
         </CardHeader>
         <CardContent>
