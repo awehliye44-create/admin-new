@@ -75,8 +75,7 @@ interface PromoCode {
 }
 
 export default function PromoCodes() {
-  const [promoCodes, setPromoCodes] = useState<PromoCode[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
@@ -102,27 +101,21 @@ export default function PromoCodes() {
     is_active: true,
   });
 
-  const fetchPromoCodes = useCallback(async (isBackground = false) => {
-    try {
-      if (!isBackground) setIsLoading(true);
+  const { data: promoCodes = [], isLoading } = useQuery({
+    queryKey: ['promo-codes'],
+    queryFn: async () => {
       const { data, error } = await supabase
         .from('promo_codes')
         .select('*')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setPromoCodes(data || []);
-    } catch (err) {
-      console.error('Error fetching promo codes:', err);
-      toast.error('Failed to load promo codes');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+      return (data || []) as PromoCode[];
+    },
+    staleTime: 30_000,
+  });
 
-  useEffect(() => {
-    fetchPromoCodes();
-  }, [fetchPromoCodes]);
+  const refreshData = () => queryClient.invalidateQueries({ queryKey: ['promo-codes'] });
 
   const resetForm = () => {
     setFormData({
