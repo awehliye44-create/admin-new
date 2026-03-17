@@ -79,11 +79,23 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }>
 };
 
 export default function Documents() {
+  const { data: dbDocTypes } = useDocumentTypes();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
+
+  // Derive DOCUMENT_TYPES from DB for all downstream usage
+  const DOCUMENT_TYPES = useMemo(() =>
+    (dbDocTypes || []).filter(dt => dt.is_active).map(dt => ({
+      value: dt.slug,
+      label: dt.name,
+      required: dt.is_required,
+      hasExpiry: dt.has_expiry,
+    })),
+    [dbDocTypes]
+  );
 
   // Dialog states
   const [isViewOpen, setIsViewOpen] = useState(false);
