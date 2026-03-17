@@ -213,11 +213,7 @@ export default function VehicleTypes() {
 
       if (error) throw error;
 
-      setVehicleTypes(prev => prev.map(vt => 
-        vt.id === selectedType.id 
-          ? { ...vt, ...formData, description: formData.description || null }
-          : vt
-      ));
+      fetchVehicleTypes();
       setIsEditDialogOpen(false);
       setSelectedType(null);
       toast.success('Vehicle type updated successfully');
