@@ -217,7 +217,7 @@ export default function TripHistory() {
       if (tripIds.length > 0) {
         const { data: stopsData, error: stopsError } = await supabase
           .from('trip_stops')
-          .select('*')
+          .select('id, trip_id, stop_index, address, lat, lng, type, status, arrived_at, completed_at')
           .in('trip_id', tripIds)
           .order('stop_index', { ascending: true });
 
