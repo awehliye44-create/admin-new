@@ -64,6 +64,7 @@ interface CancelledTrip {
 }
 
 export default function MissedCancelled() {
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('7days');
