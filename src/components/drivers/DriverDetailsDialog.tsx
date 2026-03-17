@@ -196,7 +196,7 @@ export function DriverDetailsDialog({
         .order('display_order'),
       supabase
         .from('documents')
-        .select('document_type, status, expiry_date')
+        .select('id, document_type, document_name, status, expiry_date, file_url')
         .eq('driver_id', driverId),
       supabase
         .from('driver_service_areas')
