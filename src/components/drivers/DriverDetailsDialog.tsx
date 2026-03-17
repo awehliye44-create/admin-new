@@ -530,7 +530,7 @@ export function DriverDetailsDialog({
             {/* Profile Header */}
             <div className="flex items-start gap-4">
               <Avatar className="h-20 w-20 border-2 border-border">
-                <AvatarImage src={driver.profile_photo_url || ''} />
+                <AvatarImage src={resolvedPhotoUrl || driver.profile_photo_url || ''} />
                 <AvatarFallback className="text-2xl bg-primary/10 text-primary">
                   {driver.first_name[0]}{driver.last_name[0]}
                 </AvatarFallback>
