@@ -127,6 +127,7 @@ export function DriverDetailsDialog({
   const [activeTab, setActiveTab] = useState('overview');
   const [isUpdating, setIsUpdating] = useState(false);
   const [isPetFriendly, setIsPetFriendly] = useState(driver?.is_pet_friendly ?? false);
+  const { photoUrl: resolvedPhotoUrl } = useDriverProfilePhoto(open ? driver?.id : null);
   
   // Vehicle rejection dialog state
   const [rejectVehicleId, setRejectVehicleId] = useState<string | null>(null);
