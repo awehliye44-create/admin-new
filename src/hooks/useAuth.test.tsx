@@ -1,18 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import React from "react";
-import { AuthProvider, useAuth } from "@/hooks/useAuth";
-import { mockUser, mockSession, resetAllMocks, mockSupabaseClient } from "@/test/mocks";
 
-const waitForEffect = () => new Promise((resolve) => setTimeout(resolve, 0));
-
-vi.mock("@/integrations/supabase/client", () => ({
-  supabase: mockSupabaseClient,
-}));
-
+// Must mock before imports that use these modules
 vi.mock("sonner", () => ({
   toast: { info: vi.fn(), error: vi.fn(), success: vi.fn() },
 }));
+
+import { AuthProvider, useAuth } from "@/hooks/useAuth";
+import { mockUser, mockSession, resetAllMocks, mockSupabaseClient } from "@/test/mocks";
 
 describe("useAuth Hook", () => {
   let authChangeCallback: (event: string, session: any) => void;
