@@ -111,18 +111,6 @@ interface Vehicle {
   driver_id: string;
 }
 
-interface Region {
-  id: string;
-  name: string;
-}
-
-interface ServiceArea {
-  id: string;
-  name: string;
-  region_id: string;
-  is_active: boolean;
-}
-
 interface DriverServiceArea {
   id: string;
   driver_id: string;
