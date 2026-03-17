@@ -798,6 +798,21 @@ export default function ActiveTrips() {
                   </p>
                 </div>
               </div>
+              {/* Fare Source Info */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="p-3 bg-muted/50 rounded-lg text-center">
+                  <p className="text-xs text-muted-foreground">Fare Source</p>
+                  <p className="font-medium text-xs">Fare Engine</p>
+                </div>
+                <div className="p-3 bg-muted/50 rounded-lg text-center">
+                  <p className="text-xs text-muted-foreground">Fare Locked</p>
+                  <p className="font-medium text-xs">{selectedTrip.fare_locked ? 'Yes' : 'No'}</p>
+                </div>
+                <div className="p-3 bg-muted/50 rounded-lg text-center">
+                  <p className="text-xs text-muted-foreground">Vehicle Type</p>
+                  <p className="font-medium text-xs">{selectedTrip.vehicle_type || 'N/A'}</p>
+                </div>
+              </div>
             </div>
           )}
 
