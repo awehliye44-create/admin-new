@@ -458,12 +458,9 @@ export function DriverDetailsDialog({
           .eq('id', existingCategory.id);
 
         if (error) throw error;
-        
-        setDriverCategories(prev => 
-          prev.map(dc => dc.id === existingCategory.id ? { ...dc, is_enabled: !currentlyEnabled } : dc)
-        );
+        await refetchDriverCategories();
       } else {
-        const { data, error } = await supabase
+        const { error } = await supabase
           .from('driver_vehicle_categories')
           .insert({
             driver_id: driver.id,
@@ -474,7 +471,7 @@ export function DriverDetailsDialog({
           .single();
 
         if (error) throw error;
-        if (data) setDriverCategories(prev => [...prev, data]);
+        await refetchDriverCategories();
       }
       
       toast.success('Category updated');
