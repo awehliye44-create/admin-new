@@ -157,9 +157,9 @@ export default function Drivers() {
   const [editDriver, setEditDriver] = useState<Driver | null>(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
-  // Service areas state
+  // Service areas state (use shared data for the list, local state for driver assignments)
   const [isServiceAreasDialogOpen, setIsServiceAreasDialogOpen] = useState(false);
-  const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
+  const serviceAreas = serviceAreasList;
   const [driverServiceAreas, setDriverServiceAreas] = useState<DriverServiceArea[]>([]);
   const [selectedServiceAreas, setSelectedServiceAreas] = useState<string[]>([]);
   const [isSavingServiceAreas, setIsSavingServiceAreas] = useState(false);
