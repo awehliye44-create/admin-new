@@ -129,9 +129,9 @@ export default function ActiveTrips() {
   const [forceEndFare, setForceEndFare] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (isBackground = false) => {
     try {
-      setIsLoading(true);
+      if (!isBackground) setIsLoading(true);
       
       const [tripsRes, driversRes] = await Promise.all([
         supabase
@@ -157,7 +157,7 @@ export default function ActiveTrips() {
       setLastRefresh(new Date());
     } catch (err) {
       console.error('Error fetching trips:', err);
-      toast.error('Failed to load active trips');
+      if (!isBackground) toast.error('Failed to load active trips');
     } finally {
       setIsLoading(false);
     }
