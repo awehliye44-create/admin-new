@@ -129,7 +129,7 @@ interface CompletedTrip {
 }
 
 export default function TripHistory() {
-  const [trips, setTrips] = useState<CompletedTrip[]>([]);
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('7days');
 
