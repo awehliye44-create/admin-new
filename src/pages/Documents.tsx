@@ -47,6 +47,7 @@ import { format, isPast, addDays, isBefore } from 'date-fns';
 import { toast } from 'sonner';
 import { ServiceAreaDocumentRules } from '@/components/documents/ServiceAreaDocumentRules';
 import { DocumentTypeConfig } from '@/components/documents/DocumentTypeConfig';
+import { useDocumentTypes } from '@/hooks/useDocumentTypes';
 
 interface Document {
   id: string;
