@@ -151,7 +151,7 @@ serve(async (req) => {
       // Fetch ALL fare configs for this service area (default + per-vehicle-type)
       supabase
         .from('fare_pricing_settings')
-        .select('vehicle_type_id, pricing_mode, base_fare_pence, per_km_rate_pence, per_min_rate_pence, booking_fee_pence, minimum_fare_pence, free_waiting_minutes, waiting_per_minute_pence, extra_stop_flat_fee_pence, currency_code')
+        .select('id, vehicle_type_id, pricing_mode, base_fare_pence, per_km_rate_pence, per_min_rate_pence, booking_fee_pence, minimum_fare_pence, free_waiting_minutes, waiting_per_minute_pence, extra_stop_flat_fee_pence, currency_code')
         .eq('service_area_id', primaryServiceArea.id),
 
       supabase
