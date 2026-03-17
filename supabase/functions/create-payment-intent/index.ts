@@ -62,7 +62,7 @@ serve(async (req) => {
     const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
 
     if (!stripeSecretKey) {
-      return errorResponse("Stripe not configured", 500);
+      return errorResponse("Stripe not configured", 500, undefined, "PAYMENT_STRIPE_ERROR");
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
