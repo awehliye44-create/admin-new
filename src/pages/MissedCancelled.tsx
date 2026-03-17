@@ -266,7 +266,7 @@ export default function MissedCancelled() {
                 <SelectItem value="90days">Last 90 Days</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" onClick={() => {}} disabled={isLoading}>
+            <Button variant="outline" onClick={() => queryClient.invalidateQueries({ queryKey: ['missed-cancelled'] })} disabled={isLoading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
