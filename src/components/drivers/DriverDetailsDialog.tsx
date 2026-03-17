@@ -539,8 +539,19 @@ export function DriverDetailsDialog({
 
             {/* Tabs */}
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid w-full grid-cols-5">
+              <TabsList className="grid w-full grid-cols-6">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="documents" className="relative">
+                  Documents
+                  {(() => {
+                    const items = getDocComplianceItems();
+                    const issues = items.filter(i => i.status !== 'valid' && i.status !== 'expiring_soon');
+                    if (issues.length > 0) return (
+                      <span className="ml-1 inline-flex items-center justify-center h-4 w-4 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold">{issues.length}</span>
+                    );
+                    return null;
+                  })()}
+                </TabsTrigger>
                 <TabsTrigger value="vehicles">Vehicles ({driverVehicles.length})</TabsTrigger>
                 <TabsTrigger value="commission">Commission</TabsTrigger>
                 <TabsTrigger value="categories">Categories</TabsTrigger>
