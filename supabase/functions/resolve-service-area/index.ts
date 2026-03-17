@@ -175,6 +175,7 @@ serve(async (req) => {
     const fareConfigMap = new Map<string | null, any>();
     for (const fc of fareSettingsRes.data || []) {
       fareConfigMap.set(fc.vehicle_type_id, {
+        fareEngineConfigId: fc.id,
         pricingMode: fc.pricing_mode,
         baseFarePence: fc.base_fare_pence,
         perKmRatePence: fc.per_km_rate_pence,
@@ -185,6 +186,7 @@ serve(async (req) => {
         waitingPerMinutePence: fc.waiting_per_minute_pence,
         extraStopFlatFeePence: fc.extra_stop_flat_fee_pence,
         currencyCode: fc.currency_code,
+        fareLocked: fc.pricing_mode === 'fixed',
       });
     }
 
