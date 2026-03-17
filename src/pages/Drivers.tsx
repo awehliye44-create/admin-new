@@ -191,6 +191,17 @@ export default function Drivers() {
         setRegions(regionsMap);
       }
 
+      // Fetch driver categories/tiers
+      const { data: categoriesData } = await supabase
+        .from('driver_categories')
+        .select('id, name, color, icon, trip_target, level_order')
+        .eq('is_active', true)
+        .order('level_order', { ascending: true });
+      
+      if (categoriesData) {
+        setCategories(categoriesData as DriverCategory[]);
+      }
+
       // Fetch service areas
       const { data: serviceAreasData } = await supabase
         .from('service_areas')
