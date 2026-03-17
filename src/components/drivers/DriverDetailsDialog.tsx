@@ -140,6 +140,14 @@ export function DriverDetailsDialog({
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
   const [commissionOverride] = useState<string>('');
   const [isSavingCommission, setIsSavingCommission] = useState(false);
+
+  // Document compliance state
+  const [documentCompliance, setDocumentCompliance] = useState<{
+    requiredTypes: { slug: string; name: string; has_expiry: boolean }[];
+    driverDocs: { document_type: string; status: string; expiry_date: string | null }[];
+  }>({ requiredTypes: [], driverDocs: [] });
+  const [isLoadingDocs, setIsLoadingDocs] = useState(false);
+
   useEffect(() => {
     if (open && driver) {
       setIsPetFriendly(driver.is_pet_friendly ?? false);
@@ -147,8 +155,67 @@ export function DriverDetailsDialog({
       fetchDriverCategories();
       fetchTierCategories();
       fetchDriverCommissionData();
+      fetchDocumentCompliance();
     }
   }, [open, driver?.id]);
+
+  const fetchDocumentCompliance = async () => {
+    if (!driver) return;
+    setIsLoadingDocs(true);
+    try {
+      const [typesRes, docsRes] = await Promise.all([
+        supabase
+          .from('document_types')
+          .select('slug, name, has_expiry')
+          .eq('is_required', true)
+          .eq('is_active', true)
+          .order('display_order'),
+        supabase
+          .from('documents')
+          .select('document_type, status, expiry_date')
+          .eq('driver_id', driver.id),
+      ]);
+      setDocumentCompliance({
+        requiredTypes: (typesRes.data || []) as any,
+        driverDocs: (docsRes.data || []) as any,
+      });
+    } catch (err) {
+      console.error('Error fetching document compliance:', err);
+    } finally {
+      setIsLoadingDocs(false);
+    }
+  };
+
+  const getDocComplianceItems = () => {
+    const { requiredTypes, driverDocs } = documentCompliance;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return requiredTypes.map((dt) => {
+      const doc = driverDocs.find((d) => d.document_type === dt.slug);
+      if (!doc) return { name: dt.name, slug: dt.slug, status: 'missing' as const, daysLeft: null };
+
+      if (doc.status === 'rejected') return { name: dt.name, slug: dt.slug, status: 'rejected' as const, daysLeft: null };
+      if (doc.status !== 'approved') return { name: dt.name, slug: dt.slug, status: 'pending' as const, daysLeft: null };
+
+      // Approved — check expiry
+      if (doc.expiry_date) {
+        const expiry = new Date(doc.expiry_date);
+        expiry.setHours(0, 0, 0, 0);
+        const daysLeft = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysLeft < 0) return { name: dt.name, slug: dt.slug, status: 'expired' as const, daysLeft };
+        if (daysLeft <= 30) return { name: dt.name, slug: dt.slug, status: 'expiring_soon' as const, daysLeft };
+      }
+
+      return { name: dt.name, slug: dt.slug, status: 'valid' as const, daysLeft: null };
+    });
+  };
+
+  const canApproveDriver = () => {
+    const items = getDocComplianceItems();
+    if (items.length === 0) return true; // No required docs configured
+    return items.every((i) => i.status === 'valid' || i.status === 'expiring_soon');
+  };
 
   const fetchTierCategories = async () => {
     const { data } = await supabase
