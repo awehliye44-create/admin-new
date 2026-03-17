@@ -726,6 +726,18 @@ export default function Drivers() {
                     </TableCell>
                     <TableCell>
                       <Badge
+                        variant="secondary"
+                        className={
+                          driver.documents_approved
+                            ? 'bg-green-500/10 text-green-600'
+                            : 'bg-orange-500/10 text-orange-600'
+                        }
+                      >
+                        {driver.documents_approved ? 'Approved' : 'Pending'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge
                         variant={driver.is_online ? 'default' : 'secondary'}
                         className={
                           driver.is_online
@@ -735,6 +747,28 @@ export default function Drivers() {
                       >
                         {driver.is_online ? 'Online' : 'Offline'}
                       </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const tier = categories.find(c => c.id === driver.category_id);
+                        if (!tier) return <span className="text-xs text-muted-foreground">—</span>;
+                        const trips = driver.total_trips || 0;
+                        const target = tier.trip_target;
+                        const progress = target ? Math.min(100, Math.round((trips / target) * 100)) : 100;
+                        return (
+                          <div className="space-y-1 min-w-[80px]">
+                            <Badge variant="secondary" className="text-xs" style={{ backgroundColor: tier.color ? `${tier.color}20` : undefined, color: tier.color || undefined }}>
+                              {tier.name}
+                            </Badge>
+                            {target && (
+                              <div className="flex items-center gap-1.5">
+                                <Progress value={progress} className="h-1.5 w-16" />
+                                <span className="text-[10px] text-muted-foreground">{trips}/{target}</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
