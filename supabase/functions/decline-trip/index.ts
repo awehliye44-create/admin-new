@@ -41,7 +41,7 @@ serve(async (req) => {
     try {
       body = await req.json();
     } catch {
-      return errorResponse('Invalid JSON in request body', 400);
+      return errorResponse('Invalid JSON in request body', 400, undefined, 'VALIDATION_INVALID_FORMAT');
     }
 
     const validation = validateSchema<DeclineTripRequest>(body, declineTripSchema);
