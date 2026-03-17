@@ -21,6 +21,7 @@ import Drivers from "./pages/Drivers";
 import Vehicles from "./pages/Vehicles";
 import FleetTracking from "./pages/FleetTracking";
 import Documents from "./pages/Documents";
+import DocumentManagement from "./pages/DocumentManagement";
 
 import Regions from "./pages/Regions";
 import Services from "./pages/Services";
@@ -107,6 +108,7 @@ const App = () => (
               <Route path="service-area-pricing" element={<ServiceAreaPricing />} />
               <Route path="vehicle-types" element={<VehicleTypes />} />
               <Route path="documents" element={<Documents />} />
+              <Route path="document-management" element={<DocumentManagement />} />
               
               {/* Fleet Management */}
               <Route path="drivers" element={<Drivers />} />

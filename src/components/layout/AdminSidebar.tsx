@@ -12,6 +12,7 @@ import {
   CarTaxiFront,
   Navigation,
   Settings,
+  Settings2,
   LogOut,
   ChevronDown,
   Send,
@@ -244,8 +245,9 @@ export function AdminSidebar() {
               <P pageSlug="drivers" to="/drivers" icon={<UserCircle className="h-4 w-4" />} label="Driver List" active={currentPath === '/drivers'} badge={counts.pendingDrivers > 0 ? counts.pendingDrivers : undefined} collapsed={isCollapsed} />
               <P pageSlug="vehicles" to="/vehicles" icon={<Car className="h-4 w-4" />} label="Vehicle List" active={currentPath === '/vehicles'} badge={counts.pendingVehicleChanges > 0 ? counts.pendingVehicleChanges : undefined} collapsed={isCollapsed} />
               <P pageSlug="vehicle-types" to="/vehicle-types" icon={<CarTaxiFront className="h-4 w-4" />} label="Vehicle Types" active={currentPath === '/vehicle-types'} collapsed={isCollapsed} />
-              <P pageSlug="documents" to="/documents" icon={<FolderOpen className="h-4 w-4" />} label="Driver Documents" active={currentPath === '/documents'} badge={counts.pendingDocuments > 0 ? counts.pendingDocuments : undefined} collapsed={isCollapsed} />
-              
+              <P pageSlug="documents" to="/documents" icon={<FolderOpen className="h-4 w-4" />} label="Document Review" active={currentPath === '/documents'} badge={counts.pendingDocuments > 0 ? counts.pendingDocuments : undefined} collapsed={isCollapsed} />
+              <P pageSlug="document-management" to="/document-management" icon={<Settings2 className="h-4 w-4" />} label="Document Management" active={currentPath === '/document-management'} collapsed={isCollapsed} />
+
             </div>
           </div>
 
