@@ -313,26 +313,7 @@ export function DriverDetailsDialog({
     }
   };
 
-  const fetchVehicleTypes = async () => {
-    const { data } = await supabase
-      .from('vehicle_types')
-      .select('*')
-      .eq('is_active', true)
-      .order('display_order');
-    
-    if (data) setVehicleTypes(data);
-  };
-
-  const fetchDriverCategories = async () => {
-    if (!driver) return;
-    
-    const { data } = await supabase
-      .from('driver_vehicle_categories')
-      .select('*')
-      .eq('driver_id', driver.id);
-    
-    if (data) setDriverCategories(data);
-  };
+  // Old fetchVehicleTypes and fetchDriverCategories removed — now powered by React Query above
 
   const getStatusColor = (status: string) => {
     switch (status) {
