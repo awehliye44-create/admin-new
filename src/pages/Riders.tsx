@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -56,18 +57,16 @@ interface Rider {
 }
 
 export default function Riders() {
-  const [riders, setRiders] = useState<Rider[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRider, setSelectedRider] = useState<Rider | null>(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [riderToDelete, setRiderToDelete] = useState<Rider | null>(null);
 
-  const fetchRiders = useCallback(async (isBackground = false) => {
-    try {
-      if (!isBackground) setIsLoading(true);
-      
+  const { data: riders = [], isLoading } = useQuery({
+    queryKey: ['riders'],
+    queryFn: async () => {
       // Fetch riders from customers table (NOT drivers table)
       const { data: ridersData, error: ridersError } = await supabase
         .from('customers')
@@ -95,18 +94,12 @@ export default function Riders() {
         })
       );
 
-      setRiders(ridersWithStats);
-    } catch (err) {
-      console.error('Error fetching riders:', err);
-      toast.error('Failed to load riders');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+      return ridersWithStats as Rider[];
+    },
+    staleTime: 30_000,
+  });
 
-  useEffect(() => {
-    fetchRiders();
-  }, [fetchRiders]);
+  const refreshData = () => queryClient.invalidateQueries({ queryKey: ['riders'] });
 
   const handleViewRider = (rider: Rider) => {
     setSelectedRider(rider);
@@ -129,8 +122,8 @@ export default function Riders() {
 
       if (error) throw error;
 
-      setRiders(prev => prev.filter(r => r.id !== riderToDelete.id));
       toast.success('Rider deleted successfully');
+      refreshData();
     } catch (err) {
       console.error('Error deleting rider:', err);
       toast.error('Failed to delete rider');
@@ -140,9 +133,9 @@ export default function Riders() {
     }
   };
 
-  const handleRiderUpdate = (updatedRider: Rider) => {
-    setRiders(prev => prev.map(r => r.id === updatedRider.id ? updatedRider : r));
-    setSelectedRider(updatedRider);
+  const handleRiderUpdate = (_updatedRider: Rider) => {
+    setSelectedRider(_updatedRider);
+    refreshData();
   };
 
   const getInitials = (firstName: string | null, lastName: string | null) => {
@@ -247,7 +240,7 @@ export default function Riders() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
-              <Button variant="outline" size="icon" onClick={() => fetchRiders()}>
+              <Button variant="outline" size="icon" onClick={refreshData}>
                 <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               </Button>
             </div>

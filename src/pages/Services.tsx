@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
+import { useRegions } from '@/hooks/useRegions';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -138,7 +139,7 @@ const TIMEZONES = [
 export default function Services() {
   const navigate = useNavigate();
   const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
-  const [regions, setRegions] = useState<Region[]>([]);
+  const { data: regions = [] } = useRegions();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -199,14 +200,10 @@ export default function Services() {
     try {
       if (!isBackground) setIsLoading(true);
       
-      const [areasRes, regionsRes, vehicleTypesRes] = await Promise.all([
+      const [areasRes, vehicleTypesRes] = await Promise.all([
         supabase
           .from('service_areas')
           .select(`*, region:regions(id, name, distance_unit, currency_code, timezone, status, geo_boundary)`)
-          .order('name', { ascending: true }),
-        supabase
-          .from('regions')
-          .select('id, name, distance_unit, currency_code, timezone, status, geo_boundary')
           .order('name', { ascending: true }),
         supabase
           .from('vehicle_types')
@@ -215,10 +212,8 @@ export default function Services() {
       ]);
 
       if (areasRes.error) throw areasRes.error;
-      if (regionsRes.error) throw regionsRes.error;
 
       setServiceAreas(areasRes.data || []);
-      setRegions(regionsRes.data || []);
 
       const totalVehicleTypes = vehicleTypesRes.data?.length || 0;
 

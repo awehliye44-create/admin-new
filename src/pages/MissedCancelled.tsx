@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -63,8 +64,7 @@ interface CancelledTrip {
 }
 
 export default function MissedCancelled() {
-  const [trips, setTrips] = useState<CancelledTrip[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('7days');
@@ -89,9 +89,9 @@ export default function MissedCancelled() {
     }
   }, [dateFilter]);
 
-  const fetchData = useCallback(async (isBackground = false) => {
-    try {
-      if (!isBackground) setIsLoading(true);
+  const { data: trips = [], isLoading } = useQuery({
+    queryKey: ['missed-cancelled', dateFilter],
+    queryFn: async () => {
       const { start, end } = getDateRange();
       
       const { data, error } = await supabase
@@ -106,19 +106,10 @@ export default function MissedCancelled() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-
-      setTrips(data || []);
-    } catch (err) {
-      console.error('Error fetching cancelled trips:', err);
-      toast.error('Failed to load cancelled trips');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [getDateRange]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+      return (data || []) as CancelledTrip[];
+    },
+    staleTime: 30_000,
+  });
 
   // getCurrencySymbol is now imported from @/lib/regionSettings
 
@@ -275,7 +266,7 @@ export default function MissedCancelled() {
                 <SelectItem value="90days">Last 90 Days</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" onClick={() => fetchData()} disabled={isLoading}>
+            <Button variant="outline" onClick={() => queryClient.invalidateQueries({ queryKey: ['missed-cancelled'] })} disabled={isLoading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>

@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useState, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -74,9 +75,8 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }>
 };
 
 export default function Documents() {
+  const queryClient = useQueryClient();
   const { data: dbDocTypes } = useDocumentTypes();
-  const [documents, setDocuments] = useState<Document[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
@@ -98,9 +98,9 @@ export default function Documents() {
   const [rejectionReason, setRejectionReason] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  const fetchDocuments = useCallback(async (isBackground = false) => {
-    try {
-      if (!isBackground) setIsLoading(true);
+  const { data: documents = [], isLoading } = useQuery({
+    queryKey: ['documents-review'],
+    queryFn: async () => {
       const { data, error } = await supabase
         .from('documents')
         .select(`
@@ -110,18 +110,12 @@ export default function Documents() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setDocuments(data || []);
-    } catch (err) {
-      console.error('Error fetching documents:', err);
-      toast.error('Failed to load documents');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+      return (data || []) as Document[];
+    },
+    staleTime: 30_000,
+  });
 
-  useEffect(() => {
-    fetchDocuments();
-  }, [fetchDocuments]);
+  const refreshData = () => queryClient.invalidateQueries({ queryKey: ['documents-review'] });
 
   const handleReview = async () => {
     if (!selectedDocument || !reviewStatus) {
@@ -152,7 +146,7 @@ export default function Documents() {
       setSelectedDocument(null);
       setReviewStatus('');
       setRejectionReason('');
-      fetchDocuments();
+      refreshData();
     } catch (err: any) {
       console.error('Error reviewing document:', err);
       toast.error(err.message || 'Failed to review document');
@@ -287,7 +281,7 @@ export default function Documents() {
                   ))}
                 </SelectContent>
               </Select>
-              <Button variant="outline" onClick={() => fetchDocuments()} disabled={isLoading}>
+              <Button variant="outline" onClick={refreshData} disabled={isLoading}>
                 <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
                 Refresh
               </Button>
