@@ -43,7 +43,7 @@ export function LoadingTimeout({
     return (
       <div className="flex flex-col items-center justify-center py-12 px-4 text-center space-y-4">
         <div className="w-12 h-12 rounded-full bg-warning/10 flex items-center justify-center">
-          <AlertTriangle className="h-6 w-6 text-yellow-600" />
+          <AlertTriangle className="h-6 w-6 text-destructive" />
         </div>
         <div className="space-y-1">
           <h3 className="text-lg font-semibold text-foreground">Taking longer than expected</h3>
