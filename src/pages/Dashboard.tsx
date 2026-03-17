@@ -460,64 +460,69 @@ export default function Dashboard() {
     }
   }, [period, selectedServiceArea, customDateFrom, customDateTo]);
 
-  // Fetch booking chart data
+  // Fetch booking chart data — single query, bucketed client-side
   const fetchBookingChartData = async () => {
     const now = new Date();
-    let dataPoints: BookingDataPoint[] = [];
     const timePeriod = period === 'custom' ? 'daily' : period;
-    
-    const applyServiceAreaFilter = (query: any) => {
-      if (selectedServiceArea !== 'all') {
-        return query.eq('service_area_id', selectedServiceArea);
-      }
-      return query;
-    };
-    
+
+    // Calculate range for chart
+    let rangeStart: Date;
+    let rangeEnd: Date = now;
     if (timePeriod === 'daily') {
-      // Last 24 hours by 2-hour intervals (or custom range)
-      const intervals = period === 'custom' && customDateFrom ? 12 : 12;
-      const rangeStart = period === 'custom' && customDateFrom ? startOfDay(customDateFrom) : subDays(now, 1);
-      const rangeEnd = period === 'custom' && customDateTo ? endOfDay(customDateTo) : now;
+      rangeStart = period === 'custom' && customDateFrom ? startOfDay(customDateFrom) : subDays(now, 1);
+      rangeEnd = period === 'custom' && customDateTo ? endOfDay(customDateTo) : now;
+    } else if (timePeriod === 'weekly') {
+      rangeStart = startOfDay(subDays(now, 6));
+    } else {
+      rangeStart = startOfWeek(subWeeks(now, 3));
+    }
+
+    // Single query for all chart data
+    let query = supabase
+      .from('trips')
+      .select('status, created_at')
+      .gte('created_at', rangeStart.toISOString())
+      .lte('created_at', rangeEnd.toISOString())
+      .in('status', ['completed', 'cancelled']);
+    if (selectedServiceArea !== 'all') {
+      query = query.eq('service_area_id', selectedServiceArea);
+    }
+    const { data: allTrips } = await query;
+    const trips = allTrips || [];
+
+    // Bucket client-side
+    let dataPoints: BookingDataPoint[] = [];
+
+    if (timePeriod === 'daily') {
+      const intervals = 12;
       const totalMs = rangeEnd.getTime() - rangeStart.getTime();
       const intervalMs = totalMs / intervals;
-      
       for (let i = 0; i < intervals; i++) {
-        const startTime = new Date(rangeStart.getTime() + i * intervalMs);
-        const endTime = new Date(rangeStart.getTime() + (i + 1) * intervalMs);
-        
-        let query = supabase
-          .from('trips')
-          .select('status')
-          .gte('created_at', startTime.toISOString())
-          .lt('created_at', endTime.toISOString());
-        query = applyServiceAreaFilter(query);
-        const { data: trips } = await query;
-        
+        const bucketStart = rangeStart.getTime() + i * intervalMs;
+        const bucketEnd = rangeStart.getTime() + (i + 1) * intervalMs;
+        const bucket = trips.filter(t => {
+          const ts = new Date(t.created_at).getTime();
+          return ts >= bucketStart && ts < bucketEnd;
+        });
         dataPoints.push({
-          label: format(startTime, 'HH:mm'),
-          completed: trips?.filter(t => t.status === 'completed').length || 0,
-          cancelled: trips?.filter(t => t.status === 'cancelled').length || 0,
+          label: format(new Date(bucketStart), 'HH:mm'),
+          completed: bucket.filter(t => t.status === 'completed').length,
+          cancelled: bucket.filter(t => t.status === 'cancelled').length,
         });
       }
     } else if (timePeriod === 'weekly') {
       for (let i = 6; i >= 0; i--) {
         const date = subDays(now, i);
-        const dayStart = startOfDay(date);
-        const dayEnd = new Date(dayStart);
-        dayEnd.setDate(dayEnd.getDate() + 1);
-        
-        let query = supabase
-          .from('trips')
-          .select('status')
-          .gte('created_at', dayStart.toISOString())
-          .lt('created_at', dayEnd.toISOString());
-        query = applyServiceAreaFilter(query);
-        const { data: trips } = await query;
-        
+        const dayStart = startOfDay(date).getTime();
+        const dayEnd = dayStart + 86400000;
+        const bucket = trips.filter(t => {
+          const ts = new Date(t.created_at).getTime();
+          return ts >= dayStart && ts < dayEnd;
+        });
         dataPoints.push({
           label: format(date, 'EEE'),
-          completed: trips?.filter(t => t.status === 'completed').length || 0,
-          cancelled: trips?.filter(t => t.status === 'cancelled').length || 0,
+          completed: bucket.filter(t => t.status === 'completed').length,
+          cancelled: bucket.filter(t => t.status === 'cancelled').length,
         });
       }
     } else {
@@ -525,23 +530,18 @@ export default function Dashboard() {
         const weekStart = startOfWeek(subWeeks(now, i));
         const weekEnd = new Date(weekStart);
         weekEnd.setDate(weekEnd.getDate() + 7);
-        
-        let query = supabase
-          .from('trips')
-          .select('status')
-          .gte('created_at', weekStart.toISOString())
-          .lt('created_at', weekEnd.toISOString());
-        query = applyServiceAreaFilter(query);
-        const { data: trips } = await query;
-        
+        const bucket = trips.filter(t => {
+          const ts = new Date(t.created_at).getTime();
+          return ts >= weekStart.getTime() && ts < weekEnd.getTime();
+        });
         dataPoints.push({
           label: format(weekStart, 'MMM d'),
-          completed: trips?.filter(t => t.status === 'completed').length || 0,
-          cancelled: trips?.filter(t => t.status === 'cancelled').length || 0,
+          completed: bucket.filter(t => t.status === 'completed').length,
+          cancelled: bucket.filter(t => t.status === 'cancelled').length,
         });
       }
     }
-    
+
     setBookingChartData(dataPoints);
   };
 
