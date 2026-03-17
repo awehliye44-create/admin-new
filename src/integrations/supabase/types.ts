@@ -5723,6 +5723,7 @@ export type Database = {
           cancellation_reason: string | null
           cancelled_at: string | null
           cancelled_by: string | null
+          cancelled_by_role: string | null
           capture_amount_pence: number | null
           check_in_reminder_sent_at: string | null
           client_action_id: string | null
@@ -5852,6 +5853,7 @@ export type Database = {
           cancellation_reason?: string | null
           cancelled_at?: string | null
           cancelled_by?: string | null
+          cancelled_by_role?: string | null
           capture_amount_pence?: number | null
           check_in_reminder_sent_at?: string | null
           client_action_id?: string | null
@@ -5981,6 +5983,7 @@ export type Database = {
           cancellation_reason?: string | null
           cancelled_at?: string | null
           cancelled_by?: string | null
+          cancelled_by_role?: string | null
           capture_amount_pence?: number | null
           check_in_reminder_sent_at?: string | null
           client_action_id?: string | null
