@@ -47,7 +47,7 @@ serve(async (req) => {
     const validation = validateSchema<DeclineTripRequest>(body, declineTripSchema);
     if (!validation.success) {
       console.log(`[decline-trip] Validation failed:`, validation.errors);
-      return errorResponse('Validation failed', 400, { validation_errors: validation.errors });
+      return errorResponse('Validation failed', 400, { validation_errors: validation.errors }, 'VALIDATION_FAILED');
     }
 
     const { trip_id, driver_id, reason } = validation.data!;
