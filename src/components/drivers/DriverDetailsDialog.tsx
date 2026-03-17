@@ -36,7 +36,8 @@ import { Progress } from '@/components/ui/progress';
 import { 
   Car, Star, Phone, Mail, MapPin, CheckCircle, XCircle, 
   Loader2, Pencil, Map, AlertTriangle, PawPrint, Users,
-  Truck, Shield, CreditCard, ExternalLink, Send, Crown, Target
+  Truck, Shield, CreditCard, ExternalLink, Send, Crown, Target,
+  FileText, Clock, AlertOctagon, FileWarning
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -139,6 +140,14 @@ export function DriverDetailsDialog({
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
   const [commissionOverride] = useState<string>('');
   const [isSavingCommission, setIsSavingCommission] = useState(false);
+
+  // Document compliance state
+  const [documentCompliance, setDocumentCompliance] = useState<{
+    requiredTypes: { slug: string; name: string; has_expiry: boolean }[];
+    driverDocs: { document_type: string; status: string; expiry_date: string | null }[];
+  }>({ requiredTypes: [], driverDocs: [] });
+  const [isLoadingDocs, setIsLoadingDocs] = useState(false);
+
   useEffect(() => {
     if (open && driver) {
       setIsPetFriendly(driver.is_pet_friendly ?? false);
@@ -146,8 +155,67 @@ export function DriverDetailsDialog({
       fetchDriverCategories();
       fetchTierCategories();
       fetchDriverCommissionData();
+      fetchDocumentCompliance();
     }
   }, [open, driver?.id]);
+
+  const fetchDocumentCompliance = async () => {
+    if (!driver) return;
+    setIsLoadingDocs(true);
+    try {
+      const [typesRes, docsRes] = await Promise.all([
+        supabase
+          .from('document_types')
+          .select('slug, name, has_expiry')
+          .eq('is_required', true)
+          .eq('is_active', true)
+          .order('display_order'),
+        supabase
+          .from('documents')
+          .select('document_type, status, expiry_date')
+          .eq('driver_id', driver.id),
+      ]);
+      setDocumentCompliance({
+        requiredTypes: (typesRes.data || []) as any,
+        driverDocs: (docsRes.data || []) as any,
+      });
+    } catch (err) {
+      console.error('Error fetching document compliance:', err);
+    } finally {
+      setIsLoadingDocs(false);
+    }
+  };
+
+  const getDocComplianceItems = () => {
+    const { requiredTypes, driverDocs } = documentCompliance;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return requiredTypes.map((dt) => {
+      const doc = driverDocs.find((d) => d.document_type === dt.slug);
+      if (!doc) return { name: dt.name, slug: dt.slug, status: 'missing' as const, daysLeft: null };
+
+      if (doc.status === 'rejected') return { name: dt.name, slug: dt.slug, status: 'rejected' as const, daysLeft: null };
+      if (doc.status !== 'approved') return { name: dt.name, slug: dt.slug, status: 'pending' as const, daysLeft: null };
+
+      // Approved — check expiry
+      if (doc.expiry_date) {
+        const expiry = new Date(doc.expiry_date);
+        expiry.setHours(0, 0, 0, 0);
+        const daysLeft = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysLeft < 0) return { name: dt.name, slug: dt.slug, status: 'expired' as const, daysLeft };
+        if (daysLeft <= 30) return { name: dt.name, slug: dt.slug, status: 'expiring_soon' as const, daysLeft };
+      }
+
+      return { name: dt.name, slug: dt.slug, status: 'valid' as const, daysLeft: null };
+    });
+  };
+
+  const canApproveDriver = () => {
+    const items = getDocComplianceItems();
+    if (items.length === 0) return true; // No required docs configured
+    return items.every((i) => i.status === 'valid' || i.status === 'expiring_soon');
+  };
 
   const fetchTierCategories = async () => {
     const { data } = await supabase
@@ -471,8 +539,19 @@ export function DriverDetailsDialog({
 
             {/* Tabs */}
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid w-full grid-cols-5">
+              <TabsList className="grid w-full grid-cols-6">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="documents" className="relative">
+                  Documents
+                  {(() => {
+                    const items = getDocComplianceItems();
+                    const issues = items.filter(i => i.status !== 'valid' && i.status !== 'expiring_soon');
+                    if (issues.length > 0) return (
+                      <span className="ml-1 inline-flex items-center justify-center h-4 w-4 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold">{issues.length}</span>
+                    );
+                    return null;
+                  })()}
+                </TabsTrigger>
                 <TabsTrigger value="vehicles">Vehicles ({driverVehicles.length})</TabsTrigger>
                 <TabsTrigger value="commission">Commission</TabsTrigger>
                 <TabsTrigger value="categories">Categories</TabsTrigger>
@@ -593,7 +672,14 @@ export function DriverDetailsDialog({
                   </Button>
                   {driver.approval_status !== 'approved' && (
                     <Button 
-                      onClick={() => updateDriverStatus('approved')}
+                      onClick={() => {
+                        if (!canApproveDriver()) {
+                          toast.error('Cannot approve: required documents are missing, pending, rejected, or expired. Check the Documents tab.');
+                          setActiveTab('documents');
+                          return;
+                        }
+                        updateDriverStatus('approved');
+                      }}
                       disabled={isUpdating}
                       className="bg-green-600 hover:bg-green-700"
                     >
@@ -620,6 +706,88 @@ export function DriverDetailsDialog({
                     </Button>
                   )}
                 </div>
+              </TabsContent>
+
+              {/* Documents Compliance Tab */}
+              <TabsContent value="documents" className="space-y-4">
+                {isLoadingDocs ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (() => {
+                  const items = getDocComplianceItems();
+                  const blocking = items.filter(i => ['missing', 'pending', 'rejected', 'expired'].includes(i.status));
+                  const expiringSoon = items.filter(i => i.status === 'expiring_soon');
+
+                  return (
+                    <div className="space-y-4">
+                      {/* Summary Banner */}
+                      {blocking.length > 0 ? (
+                        <div className="p-3 border rounded-lg bg-destructive/10 border-destructive/30 flex items-start gap-2">
+                          <AlertOctagon className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+                          <div className="text-sm">
+                            <p className="font-medium text-destructive">
+                              Driver cannot be approved — {blocking.length} document{blocking.length > 1 ? 's' : ''} need{blocking.length === 1 ? 's' : ''} attention
+                            </p>
+                          </div>
+                        </div>
+                      ) : expiringSoon.length > 0 ? (
+                        <div className="p-3 border rounded-lg bg-yellow-500/10 border-yellow-500/30 flex items-start gap-2">
+                          <FileWarning className="h-4 w-4 text-yellow-600 mt-0.5 shrink-0" />
+                          <div className="text-sm">
+                            <p className="font-medium text-yellow-700">
+                              {expiringSoon.length} document{expiringSoon.length > 1 ? 's' : ''} expiring soon
+                            </p>
+                            <p className="text-yellow-600/80 text-xs">
+                              To avoid service disruption, ensure renewal documents are submitted before expiry.
+                            </p>
+                          </div>
+                        </div>
+                      ) : items.length > 0 ? (
+                        <div className="p-3 border rounded-lg bg-green-500/10 border-green-500/30 flex items-start gap-2">
+                          <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
+                          <p className="text-sm font-medium text-green-700">All required documents are valid</p>
+                        </div>
+                      ) : (
+                        <div className="p-3 border rounded-lg bg-muted/50 flex items-start gap-2">
+                          <Shield className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                          <p className="text-sm text-muted-foreground">No required document types configured</p>
+                        </div>
+                      )}
+
+                      {/* Document List */}
+                      {items.length > 0 && (
+                        <div className="space-y-2">
+                          {items.map((item) => {
+                            const statusConfig = {
+                              missing: { label: 'Missing', icon: XCircle, className: 'text-destructive bg-destructive/10 border-destructive/30' },
+                              pending: { label: 'Pending Review', icon: Clock, className: 'text-yellow-700 bg-yellow-500/10 border-yellow-500/30' },
+                              rejected: { label: 'Rejected', icon: XCircle, className: 'text-destructive bg-destructive/10 border-destructive/30' },
+                              expired: { label: 'Expired', icon: AlertOctagon, className: 'text-destructive bg-destructive/10 border-destructive/30' },
+                              expiring_soon: { label: `Expiring in ${item.daysLeft} days`, icon: FileWarning, className: 'text-yellow-700 bg-yellow-500/10 border-yellow-500/30' },
+                              valid: { label: 'Valid', icon: CheckCircle, className: 'text-green-700 bg-green-500/10 border-green-500/30' },
+                            }[item.status];
+
+                            const StatusIcon = statusConfig.icon;
+
+                            return (
+                              <div key={item.slug} className="flex items-center justify-between p-3 border rounded-lg">
+                                <div className="flex items-center gap-3">
+                                  <FileText className="h-4 w-4 text-muted-foreground" />
+                                  <span className="text-sm font-medium">{item.name}</span>
+                                </div>
+                                <Badge variant="outline" className={statusConfig.className}>
+                                  <StatusIcon className="h-3 w-3 mr-1" />
+                                  {statusConfig.label}
+                                </Badge>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </TabsContent>
 
               {/* Commission Tab */}
