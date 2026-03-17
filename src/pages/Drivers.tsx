@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
+import { useRegions } from '@/hooks/useRegions';
+import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -109,18 +111,6 @@ interface Vehicle {
   driver_id: string;
 }
 
-interface Region {
-  id: string;
-  name: string;
-}
-
-interface ServiceArea {
-  id: string;
-  name: string;
-  region_id: string;
-  is_active: boolean;
-}
-
 interface DriverServiceArea {
   id: string;
   driver_id: string;
@@ -128,9 +118,16 @@ interface DriverServiceArea {
 }
 
 export default function Drivers() {
+  // Shared cached reference data — no duplicate fetches
+  const { data: regionsList = [], isLoading: regionsLoading } = useRegions();
+  const { data: serviceAreasList = [], isLoading: serviceAreasLoading } = useServiceAreas({ activeOnly: true });
+
+  // Build regions lookup map
+  const regions: Record<string, { id: string; name: string }> = {};
+  regionsList.forEach(r => { regions[r.id] = r; });
+
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [vehicles, setVehicles] = useState<Record<string, Vehicle[]>>({});
-  const [regions, setRegions] = useState<Record<string, Region>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -140,7 +137,6 @@ export default function Drivers() {
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
-  const [regionsList, setRegionsList] = useState<Region[]>([]);
   const [categories, setCategories] = useState<DriverCategory[]>([]);
 
   // Region and Service Area filter state
@@ -161,16 +157,18 @@ export default function Drivers() {
   const [editDriver, setEditDriver] = useState<Driver | null>(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
-  // Service areas state
+  // Service areas state (use shared data for the list, local state for driver assignments)
   const [isServiceAreasDialogOpen, setIsServiceAreasDialogOpen] = useState(false);
-  const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
+  const serviceAreas = serviceAreasList;
   const [driverServiceAreas, setDriverServiceAreas] = useState<DriverServiceArea[]>([]);
   const [selectedServiceAreas, setSelectedServiceAreas] = useState<string[]>([]);
   const [isSavingServiceAreas, setIsSavingServiceAreas] = useState(false);
 
-  const fetchDrivers = async () => {
+  const fetchDrivers = useCallback(async (isBackground = false) => {
     try {
-      setIsLoading(true);
+      // Only show full loading spinner on initial load, not background refreshes
+      if (!isBackground) setIsLoading(true);
+
       const { data, error } = await supabase
         .from('drivers')
         .select('*')
@@ -178,18 +176,6 @@ export default function Drivers() {
 
       if (error) throw error;
       setDrivers(data || []);
-
-      // Fetch regions
-      const { data: regionsData } = await supabase
-        .from('regions')
-        .select('id, name');
-      
-      if (regionsData) {
-        setRegionsList(regionsData);
-        const regionsMap: Record<string, Region> = {};
-        regionsData.forEach(r => { regionsMap[r.id] = r; });
-        setRegions(regionsMap);
-      }
 
       // Fetch driver categories/tiers
       const { data: categoriesData } = await supabase
@@ -202,17 +188,7 @@ export default function Drivers() {
         setCategories(categoriesData as DriverCategory[]);
       }
 
-      // Fetch service areas
-      const { data: serviceAreasData } = await supabase
-        .from('service_areas')
-        .select('*')
-        .eq('is_active', true);
-      
-      if (serviceAreasData) {
-        setServiceAreas(serviceAreasData);
-      }
-
-      // Fetch vehicles for all drivers
+      // Fetch vehicles and service area assignments for all drivers
       if (data && data.length > 0) {
         const driverIds = data.map(d => d.id);
         const [vehiclesRes, driverServiceAreasRes] = await Promise.all([
@@ -252,11 +228,11 @@ export default function Drivers() {
       }
     } catch (err) {
       console.error('Error fetching drivers:', err);
-      setError('Failed to load drivers. Please try again.');
+      if (!isBackground) setError('Failed to load drivers. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchDrivers();

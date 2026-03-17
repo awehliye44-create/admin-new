@@ -13,8 +13,7 @@ export interface SidebarCounts {
 }
 
 const CACHE_KEY = 'sidebar-counts-cache';
-const CACHE_TTL_MS = 15000; // 15 seconds
-const POLL_INTERVAL_MS = 30000; // 30 seconds polling fallback
+const CACHE_TTL_MS = 30000; // 30 seconds
 
 interface CachedCounts {
   data: SidebarCounts;
@@ -166,14 +165,7 @@ export function useSidebarCounts() {
     return () => window.removeEventListener('focus', handleFocus);
   }, [fetchCounts]);
 
-  // Periodic polling fallback for guaranteed freshness
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchCounts(true);
-    }, POLL_INTERVAL_MS);
-
-    return () => clearInterval(interval);
-  }, [fetchCounts]);
+  // Realtime subscriptions handle freshness — no polling needed
 
   // Set up real-time subscriptions for all badge-relevant tables
   useEffect(() => {
