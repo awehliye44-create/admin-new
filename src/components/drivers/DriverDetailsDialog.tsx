@@ -238,7 +238,7 @@ export function DriverDetailsDialog({
 
     return {
       requiredTypes: requiredTypes.map(dt => ({ slug: dt.slug, name: dt.name, has_expiry: dt.has_expiry })),
-      driverDocs: (docsRes.data || []) as { document_type: string; status: string; expiry_date: string | null }[],
+      driverDocs: (docsRes.data || []) as { id: string; document_type: string; document_name: string; status: string; expiry_date: string | null; file_url: string | null }[],
     };
   };
 
