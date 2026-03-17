@@ -104,7 +104,7 @@ serve(async (req) => {
       .single();
 
     if (!customer) {
-      return errorResponse("Customer not found", 404);
+      return errorResponse("Customer not found", 404, undefined, "VALIDATION_FAILED");
     }
 
     // Create Stripe Customer if doesn't exist

@@ -82,7 +82,7 @@ serve(async (req) => {
         userAgent,
       });
 
-      return errorResponse('Offer not found or already processed', 404);
+      return errorResponse('Offer not found or already processed', 404, undefined, 'OFFER_NOT_FOUND');
     }
 
     console.log(`[decline-trip] Offer declined successfully`);
