@@ -166,24 +166,20 @@ export default function ActiveTrips() {
   useEffect(() => {
     fetchData();
     
-    // Subscribe to real-time updates
+    // Subscribe to real-time updates — no polling needed
     const channel = supabase
       .channel('active-trips-changes')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'trips' },
         () => {
-          fetchData();
+          fetchData(true); // background refresh, no spinner
         }
       )
       .subscribe();
-
-    // Auto-refresh every 15 seconds
-    const interval = setInterval(fetchData, 15000);
     
     return () => {
       supabase.removeChannel(channel);
-      clearInterval(interval);
     };
   }, [fetchData]);
 
