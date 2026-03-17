@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSignedUrl } from '@/hooks/useDriverFileUrl';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -41,7 +42,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { 
   FileText, Loader2, Search, RefreshCw, MoreHorizontal, Eye, 
   CheckCircle2, XCircle, Clock, AlertTriangle, FileCheck, FileClock,
-  Calendar
+  Calendar, ExternalLink, ImageOff
 } from 'lucide-react';
 import { format, isPast, addDays, isBefore } from 'date-fns';
 import { toast } from 'sonner';
@@ -367,12 +368,6 @@ export default function Documents() {
                                 <Eye className="h-4 w-4 mr-2" />
                                 View Details
                               </DropdownMenuItem>
-                              {doc.file_url && (
-                                <DropdownMenuItem onClick={() => window.open(doc.file_url!, '_blank')}>
-                                  <FileText className="h-4 w-4 mr-2" />
-                                  View File
-                                </DropdownMenuItem>
-                              )}
                               <DropdownMenuSeparator />
                               {doc.status === 'pending' && (
                                 <>
@@ -416,90 +411,11 @@ export default function Documents() {
 
         {/* View Details Dialog */}
         <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Document Details</DialogTitle>
-              <DialogDescription>
-                {selectedDocument?.document_name}
-              </DialogDescription>
-            </DialogHeader>
-            {selectedDocument && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-muted-foreground">Status</Label>
-                    <div className="mt-1">
-                      {(() => {
-                        const config = STATUS_CONFIG[selectedDocument.status] || STATUS_CONFIG.pending;
-                        const Icon = config.icon;
-                        return (
-                          <Badge variant="outline" className={config.color}>
-                            <Icon className="h-3 w-3 mr-1" />
-                            {config.label}
-                          </Badge>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                  <div>
-                    <Label className="text-muted-foreground">Document Type</Label>
-                    <p className="font-medium">{getDocumentTypeLabel(selectedDocument.document_type)}</p>
-                  </div>
-                </div>
-
-                <div>
-                  <Label className="text-muted-foreground">Driver</Label>
-                  <p className="font-medium">
-                    {selectedDocument.driver 
-                      ? `${selectedDocument.driver.first_name} ${selectedDocument.driver.last_name}`
-                      : 'Unknown'}
-                  </p>
-                  <p className="text-sm text-muted-foreground">{selectedDocument.driver?.phone}</p>
-                </div>
-
-                {selectedDocument.expiry_date && (
-                  <div>
-                    <Label className="text-muted-foreground">Expiry Date</Label>
-                    <p className="font-medium">{format(new Date(selectedDocument.expiry_date), 'PPP')}</p>
-                  </div>
-                )}
-
-                {selectedDocument.notes && (
-                  <div>
-                    <Label className="text-muted-foreground">Notes</Label>
-                    <p className="text-sm bg-muted p-2 rounded">{selectedDocument.notes}</p>
-                  </div>
-                )}
-
-                {selectedDocument.rejection_reason && (
-                  <div>
-                    <Label className="text-muted-foreground text-red-600">Rejection Reason</Label>
-                    <p className="text-sm bg-red-50 text-red-700 p-2 rounded">{selectedDocument.rejection_reason}</p>
-                  </div>
-                )}
-
-                {selectedDocument.reviewed_at && (
-                  <div>
-                    <Label className="text-muted-foreground">Reviewed</Label>
-                    <p className="text-sm">{format(new Date(selectedDocument.reviewed_at), 'PPP p')}</p>
-                  </div>
-                )}
-
-                <div>
-                  <Label className="text-muted-foreground">Uploaded</Label>
-                  <p className="text-sm">{format(new Date(selectedDocument.created_at), 'PPP p')}</p>
-                </div>
-              </div>
-            )}
-            <DialogFooter>
-              {selectedDocument?.file_url && (
-                <Button variant="outline" onClick={() => window.open(selectedDocument.file_url!, '_blank')}>
-                  View File
-                </Button>
-              )}
-              <Button onClick={() => setIsViewOpen(false)}>Close</Button>
-            </DialogFooter>
-          </DialogContent>
+          <DocumentViewDialog 
+            document={selectedDocument}
+            onClose={() => setIsViewOpen(false)}
+            getDocumentTypeLabel={getDocumentTypeLabel}
+          />
         </Dialog>
 
         {/* Review Dialog */}
@@ -547,5 +463,147 @@ export default function Documents() {
         </Dialog>
       </div>
     </AdminLayout>
+  );
+}
+
+/** Sub-component for document view dialog — uses useSignedUrl hook */
+function DocumentViewDialog({
+  document: doc,
+  onClose,
+  getDocumentTypeLabel,
+}: {
+  document: Document | null;
+  onClose: () => void;
+  getDocumentTypeLabel: (type: string) => string;
+}) {
+  const { signedUrl, isLoading: isLoadingUrl, error: urlError } = useSignedUrl(doc?.file_url);
+
+  if (!doc) return null;
+
+  const isImage = doc.file_url && /\.(jpg|jpeg|png|gif|webp)$/i.test(doc.file_url);
+
+  return (
+    <DialogContent className="max-w-lg">
+      <DialogHeader>
+        <DialogTitle>Document Details</DialogTitle>
+        <DialogDescription>{doc.document_name}</DialogDescription>
+      </DialogHeader>
+      <div className="space-y-4">
+        {/* Document Preview */}
+        {doc.file_url && (
+          <div className="border rounded-lg overflow-hidden bg-muted/30">
+            {isLoadingUrl ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <span className="ml-2 text-sm text-muted-foreground">Loading document...</span>
+              </div>
+            ) : urlError ? (
+              <div className="flex flex-col items-center justify-center py-8 gap-2">
+                <ImageOff className="h-8 w-8 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">{urlError}</p>
+              </div>
+            ) : isImage && signedUrl ? (
+              <img
+                src={signedUrl}
+                alt={doc.document_name}
+                className="w-full max-h-[300px] object-contain"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                  (e.target as HTMLImageElement).parentElement!.innerHTML = `
+                    <div class="flex flex-col items-center justify-center py-8 gap-2">
+                      <p class="text-sm text-muted-foreground">Document file could not be loaded</p>
+                    </div>`;
+                }}
+              />
+            ) : signedUrl ? (
+              <div className="flex items-center justify-center py-8">
+                <FileText className="h-12 w-12 text-muted-foreground" />
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        {!doc.file_url && (
+          <div className="flex flex-col items-center justify-center py-8 gap-2 border rounded-lg bg-muted/30">
+            <ImageOff className="h-8 w-8 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">No file attached to this document</p>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label className="text-muted-foreground">Status</Label>
+            <div className="mt-1">
+              {(() => {
+                const config = STATUS_CONFIG[doc.status] || STATUS_CONFIG.pending;
+                const Icon = config.icon;
+                return (
+                  <Badge variant="outline" className={config.color}>
+                    <Icon className="h-3 w-3 mr-1" />
+                    {config.label}
+                  </Badge>
+                );
+              })()}
+            </div>
+          </div>
+          <div>
+            <Label className="text-muted-foreground">Document Type</Label>
+            <p className="font-medium">{getDocumentTypeLabel(doc.document_type)}</p>
+          </div>
+        </div>
+
+        <div>
+          <Label className="text-muted-foreground">Driver</Label>
+          <p className="font-medium">
+            {doc.driver
+              ? `${doc.driver.first_name} ${doc.driver.last_name}`
+              : 'Unknown'}
+          </p>
+          <p className="text-sm text-muted-foreground">{doc.driver?.phone}</p>
+        </div>
+
+        {doc.expiry_date && (
+          <div>
+            <Label className="text-muted-foreground">Expiry Date</Label>
+            <p className="font-medium">{format(new Date(doc.expiry_date), 'PPP')}</p>
+          </div>
+        )}
+
+        {doc.notes && (
+          <div>
+            <Label className="text-muted-foreground">Notes</Label>
+            <p className="text-sm bg-muted p-2 rounded">{doc.notes}</p>
+          </div>
+        )}
+
+        {doc.rejection_reason && (
+          <div>
+            <Label className="text-muted-foreground text-red-600">Rejection Reason</Label>
+            <p className="text-sm bg-red-50 text-red-700 p-2 rounded">{doc.rejection_reason}</p>
+          </div>
+        )}
+
+        {doc.reviewed_at && (
+          <div>
+            <Label className="text-muted-foreground">Reviewed</Label>
+            <p className="text-sm">{format(new Date(doc.reviewed_at), 'PPP p')}</p>
+          </div>
+        )}
+
+        <div>
+          <Label className="text-muted-foreground">Uploaded</Label>
+          <p className="text-sm">{format(new Date(doc.created_at), 'PPP p')}</p>
+        </div>
+      </div>
+      <DialogFooter>
+        {signedUrl && (
+          <Button variant="outline" onClick={() => window.open(signedUrl, '_blank')}>
+            <ExternalLink className="h-4 w-4 mr-2" />
+            Open File
+          </Button>
+        )}
+        <Button onClick={onClose}>Close</Button>
+      </DialogFooter>
+    </DialogContent>
   );
 }

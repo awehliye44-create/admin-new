@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { useDriverProfilePhoto } from '@/hooks/useDriverFileUrl';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -38,7 +39,7 @@ import {
   Car, Star, Phone, Mail, MapPin, CheckCircle, XCircle, 
   Loader2, Pencil, Map, AlertTriangle, PawPrint, Users,
   Truck, Shield, CreditCard, ExternalLink, Send, Crown, Target,
-  FileText, Clock, AlertOctagon, FileWarning
+  FileText, Clock, AlertOctagon, FileWarning, Eye
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -126,6 +127,7 @@ export function DriverDetailsDialog({
   const [activeTab, setActiveTab] = useState('overview');
   const [isUpdating, setIsUpdating] = useState(false);
   const [isPetFriendly, setIsPetFriendly] = useState(driver?.is_pet_friendly ?? false);
+  const { photoUrl: resolvedPhotoUrl } = useDriverProfilePhoto(open ? driver?.id : null);
   
   // Vehicle rejection dialog state
   const [rejectVehicleId, setRejectVehicleId] = useState<string | null>(null);
@@ -194,7 +196,7 @@ export function DriverDetailsDialog({
         .order('display_order'),
       supabase
         .from('documents')
-        .select('document_type, status, expiry_date')
+        .select('id, document_type, document_name, status, expiry_date, file_url')
         .eq('driver_id', driverId),
       supabase
         .from('driver_service_areas')
@@ -236,7 +238,7 @@ export function DriverDetailsDialog({
 
     return {
       requiredTypes: requiredTypes.map(dt => ({ slug: dt.slug, name: dt.name, has_expiry: dt.has_expiry })),
-      driverDocs: (docsRes.data || []) as { document_type: string; status: string; expiry_date: string | null }[],
+      driverDocs: (docsRes.data || []) as { id: string; document_type: string; document_name: string; status: string; expiry_date: string | null; file_url: string | null }[],
     };
   };
 
@@ -247,21 +249,21 @@ export function DriverDetailsDialog({
 
     return requiredTypes.map((dt) => {
       const doc = driverDocs.find((d) => d.document_type === dt.slug);
-      if (!doc) return { name: dt.name, slug: dt.slug, status: 'missing' as const, daysLeft: null };
+      if (!doc) return { name: dt.name, slug: dt.slug, status: 'missing' as const, daysLeft: null, fileUrl: null };
 
-      if (doc.status === 'rejected') return { name: dt.name, slug: dt.slug, status: 'rejected' as const, daysLeft: null };
-      if (doc.status !== 'approved') return { name: dt.name, slug: dt.slug, status: 'pending' as const, daysLeft: null };
+      if (doc.status === 'rejected') return { name: dt.name, slug: dt.slug, status: 'rejected' as const, daysLeft: null, fileUrl: doc.file_url };
+      if (doc.status !== 'approved') return { name: dt.name, slug: dt.slug, status: 'pending' as const, daysLeft: null, fileUrl: doc.file_url };
 
       // Approved — check expiry
       if (doc.expiry_date) {
         const expiry = new Date(doc.expiry_date);
         expiry.setHours(0, 0, 0, 0);
         const daysLeft = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-        if (daysLeft < 0) return { name: dt.name, slug: dt.slug, status: 'expired' as const, daysLeft };
-        if (daysLeft <= 30) return { name: dt.name, slug: dt.slug, status: 'expiring_soon' as const, daysLeft };
+        if (daysLeft < 0) return { name: dt.name, slug: dt.slug, status: 'expired' as const, daysLeft, fileUrl: doc.file_url };
+        if (daysLeft <= 30) return { name: dt.name, slug: dt.slug, status: 'expiring_soon' as const, daysLeft, fileUrl: doc.file_url };
       }
 
-      return { name: dt.name, slug: dt.slug, status: 'valid' as const, daysLeft: null };
+      return { name: dt.name, slug: dt.slug, status: 'valid' as const, daysLeft: null, fileUrl: doc.file_url };
     });
   };
 
@@ -528,7 +530,7 @@ export function DriverDetailsDialog({
             {/* Profile Header */}
             <div className="flex items-start gap-4">
               <Avatar className="h-20 w-20 border-2 border-border">
-                <AvatarImage src={driver.profile_photo_url || ''} />
+                <AvatarImage src={resolvedPhotoUrl || driver.profile_photo_url || ''} />
                 <AvatarFallback className="text-2xl bg-primary/10 text-primary">
                   {driver.first_name[0]}{driver.last_name[0]}
                 </AvatarFallback>
@@ -762,13 +764,34 @@ export function DriverDetailsDialog({
                                   <FileText className="h-4 w-4 text-muted-foreground" />
                                   <span className="text-sm font-medium">{item.name}</span>
                                 </div>
-                                <Badge variant="outline" className={isExpiring ? 'text-yellow-700 bg-yellow-500/10 border-yellow-500/30' : 'text-green-700 bg-green-500/10 border-green-500/30'}>
-                                  {isExpiring ? (
-                                    <><FileWarning className="h-3 w-3 mr-1" />Expiring in {item.daysLeft} days</>
-                                  ) : (
-                                    <><CheckCircle className="h-3 w-3 mr-1" />Approved</>
+                                <div className="flex items-center gap-2">
+                                  {item.fileUrl && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 px-2 text-xs"
+                                      onClick={async () => {
+                                        const { getSignedDocumentUrl } = await import('@/hooks/useDriverFileUrl');
+                                        const url = await getSignedDocumentUrl(item.fileUrl);
+                                        if (url) {
+                                          window.open(url, '_blank');
+                                        } else {
+                                          toast.error('Document file could not be loaded');
+                                        }
+                                      }}
+                                    >
+                                      <Eye className="h-3 w-3 mr-1" />
+                                      View
+                                    </Button>
                                   )}
-                                </Badge>
+                                  <Badge variant="outline" className={isExpiring ? 'text-yellow-700 bg-yellow-500/10 border-yellow-500/30' : 'text-green-700 bg-green-500/10 border-green-500/30'}>
+                                    {isExpiring ? (
+                                      <><FileWarning className="h-3 w-3 mr-1" />Expiring in {item.daysLeft} days</>
+                                    ) : (
+                                      <><CheckCircle className="h-3 w-3 mr-1" />Approved</>
+                                    )}
+                                  </Badge>
+                                </div>
                               </div>
                             );
                           })}
