@@ -32,7 +32,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { 
   History, Loader2, Search, RefreshCw, MapPin, Phone,
   Eye, CheckCircle, Route, DollarSign,
-  Navigation, User, Car, Globe
+  Navigation, User, Car, Globe, Settings2
 } from 'lucide-react';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
