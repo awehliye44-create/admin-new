@@ -311,23 +311,20 @@ export default function Dashboard() {
     }
   }, [drivers, isMapLoaded]);
 
-  // Fetch service areas
+  // Fetch service areas — use shared cached hook
+  const { data: sharedServiceAreas } = useServiceAreas({ activeOnly: true });
+  
+  // Sync shared data into local state (keeps existing downstream code working)
   useEffect(() => {
-    async function fetchServiceAreas() {
-      const { data } = await supabase
-        .from('service_areas')
-        .select('id, name, region_id, region:regions(currency_code)')
-        .eq('is_active', true)
-        .order('name');
-      
-      setServiceAreas(data || []);
+    if (sharedServiceAreas) {
+      setServiceAreas(sharedServiceAreas as any[]);
     }
-    fetchServiceAreas();
-  }, []);
+  }, [sharedServiceAreas]);
 
   // Fetch stats based on period and service area
   const fetchStats = useCallback(async () => {
-    setIsLoading(true);
+    // Only show spinner on first load
+    if (stats.totalTrips === 0) setIsLoading(true);
     try {
       // Calculate date ranges based on period
       const now = new Date();
