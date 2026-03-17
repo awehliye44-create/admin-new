@@ -172,6 +172,7 @@ const App = () => (
       </StaffProfileProvider>
     </AuthProvider>
   </QueryClientProvider>
+  </GlobalErrorBoundary>
 );
 
 export default App;
