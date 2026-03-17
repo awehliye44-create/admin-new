@@ -106,6 +106,13 @@ interface CompletedTrip {
   driver_location_lng: number | null;
   stripe_payment_intent_id: string | null;
   stacked_trip_id: string | null;
+  // Fare Engine source-of-truth fields
+  pricing_mode: string | null;
+  fare_locked: boolean | null;
+  vehicle_type_id: string | null;
+  vehicle_type: string | null;
+  service_area_id: string | null;
+  fare_engine_config_id: string | null;
   driver?: {
     id: string;
     first_name: string;
