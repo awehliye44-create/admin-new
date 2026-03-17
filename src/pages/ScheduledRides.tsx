@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -110,9 +111,6 @@ interface Driver {
 }
 
 export default function ScheduledRides() {
-  const [trips, setTrips] = useState<ScheduledTrip[]>([]);
-  const [availableDrivers, setAvailableDrivers] = useState<Driver[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [timeFilter, setTimeFilter] = useState('all');
 
@@ -126,10 +124,12 @@ export default function ScheduledRides() {
   const [cancelReason, setCancelReason] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  const fetchData = useCallback(async (isBackground = false) => {
-    try {
-      if (!isBackground) setIsLoading(true);
-      
+  const queryClient = useQueryClient();
+
+  // React Query: scheduled trips + available drivers in parallel
+  const { data: scheduledData, isLoading } = useQuery({
+    queryKey: ['scheduled-rides'],
+    queryFn: async () => {
       const [tripsRes, driversRes] = await Promise.all([
         supabase
           .from('trips')
@@ -173,33 +173,36 @@ export default function ScheduledRides() {
       if (tripsRes.error) throw tripsRes.error;
       if (driversRes.error) throw driversRes.error;
 
-      setTrips((tripsRes.data as unknown as ScheduledTrip[]) || []);
-      setAvailableDrivers((driversRes.data as unknown as Driver[]) || []);
-    } catch (err) {
-      console.error('Error fetching scheduled rides:', err);
-      toast.error('Failed to load scheduled rides');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+      return {
+        trips: (tripsRes.data as unknown as ScheduledTrip[]) || [],
+        drivers: (driversRes.data as unknown as Driver[]) || [],
+      };
+    },
+    staleTime: 15_000,
+  });
 
+  const trips = scheduledData?.trips ?? [];
+  const availableDrivers = scheduledData?.drivers ?? [];
+
+  const fetchData = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['scheduled-rides'] });
+  }, [queryClient]);
+
+  // Subscribe to real-time updates — silently invalidate cache
   useEffect(() => {
-    fetchData();
-    
-    // Subscribe to real-time updates
     const channel = supabase
       .channel('scheduled-rides-changes')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'trips' },
-        () => fetchData()
+        () => queryClient.invalidateQueries({ queryKey: ['scheduled-rides'] })
       )
       .subscribe();
     
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [fetchData]);
+  }, [queryClient]);
 
   const handleAssignDriver = async () => {
     if (!selectedTrip || !selectedDriverId) {

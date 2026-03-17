@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -128,17 +129,13 @@ interface CompletedTrip {
 }
 
 export default function TripHistory() {
-  const [trips, setTrips] = useState<CompletedTrip[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('7days');
 
   // Region and Service Area filters
-  const [regions, setRegions] = useState<Region[]>([]);
-  const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
   const [selectedRegionId, setSelectedRegionId] = useState<string>('all');
   const [selectedServiceAreaId, setSelectedServiceAreaId] = useState<string>('all');
-  const [activeRegion, setActiveRegion] = useState<Region | null>(null);
 
   // Dialog states
   const [isViewOpen, setIsViewOpen] = useState(false);
@@ -153,6 +150,8 @@ export default function TripHistory() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const markersRef = useRef<any[]>([]);
   const polylineRef = useRef<google.maps.Polyline | null>(null);
+
+  const queryClient = useQueryClient();
 
   const getDateRange = useCallback(() => {
     const now = new Date();
@@ -174,32 +173,25 @@ export default function TripHistory() {
   const { data: sharedRegions = [] } = useRegions();
   const { data: sharedServiceAreas = [] } = useSharedServiceAreas({ activeOnly: true });
 
-  useEffect(() => {
-    setRegions(sharedRegions as any[]);
-  }, [sharedRegions]);
+  const regions = sharedRegions as any[];
+  const serviceAreas = sharedServiceAreas as any[];
 
-  useEffect(() => {
-    setServiceAreas(sharedServiceAreas as any[]);
-  }, [sharedServiceAreas]);
-
-  // Update active region when filter changes
-  useEffect(() => {
-    if (selectedRegionId === 'all') {
-      setActiveRegion(null);
-    } else {
-      const region = regions.find(r => r.id === selectedRegionId);
-      setActiveRegion(region || null);
-    }
-    // Reset service area when region changes
-    setSelectedServiceAreaId('all');
+  const activeRegion = useMemo(() => {
+    if (selectedRegionId === 'all') return null;
+    return regions.find(r => r.id === selectedRegionId) || null;
   }, [selectedRegionId, regions]);
 
-  const fetchData = useCallback(async (isBackground = false) => {
-    try {
-      if (!isBackground) setIsLoading(true);
+  // Reset service area when region changes
+  useEffect(() => {
+    setSelectedServiceAreaId('all');
+  }, [selectedRegionId]);
+
+  // React Query for trip data
+  const { data: trips = [], isLoading } = useQuery({
+    queryKey: ['trip-history', dateFilter],
+    queryFn: async () => {
       const { start, end } = getDateRange();
       
-      // Fetch trips with driver info
       const { data: tripsData, error: tripsError } = await supabase
         .from('trips')
         .select(`
@@ -215,7 +207,6 @@ export default function TripHistory() {
 
       const tripIds = (tripsData || []).map(t => t.id);
       
-      // Fetch all trip stops for these trips in one query
       let stopsMap: Record<string, TripStop[]> = {};
       if (tripIds.length > 0) {
         const { data: stopsData, error: stopsError } = await supabase
@@ -225,35 +216,25 @@ export default function TripHistory() {
           .order('stop_index', { ascending: true });
 
         if (!stopsError && stopsData) {
-          // Group stops by trip_id
           stopsMap = stopsData.reduce((acc, stop) => {
-            if (!acc[stop.trip_id]) {
-              acc[stop.trip_id] = [];
-            }
+            if (!acc[stop.trip_id]) acc[stop.trip_id] = [];
             acc[stop.trip_id].push(stop);
             return acc;
           }, {} as Record<string, TripStop[]>);
         }
       }
 
-      // Combine trips with their stops
-      const tripsWithStops = (tripsData || []).map(trip => ({
+      return (tripsData || []).map(trip => ({
         ...trip,
         trip_stops: stopsMap[trip.id] || [],
-      }));
+      })) as CompletedTrip[];
+    },
+    staleTime: 30_000,
+  });
 
-      setTrips(tripsWithStops as CompletedTrip[]);
-    } catch (err) {
-      console.error('Error fetching completed trips:', err);
-      toast.error('Failed to load trip history');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [getDateRange]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const fetchData = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['trip-history'] });
+  }, [queryClient]);
 
   const fetchTripStops = async (tripId: string) => {
     try {

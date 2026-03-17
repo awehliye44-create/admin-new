@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -124,8 +125,6 @@ export function DriverDetailsDialog({
 }: DriverDetailsDialogProps) {
   const [activeTab, setActiveTab] = useState('overview');
   const [isUpdating, setIsUpdating] = useState(false);
-  const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
-  const [driverCategories, setDriverCategories] = useState<DriverVehicleCategory[]>([]);
   const [isPetFriendly, setIsPetFriendly] = useState(driver?.is_pet_friendly ?? false);
   
   // Vehicle rejection dialog state
@@ -141,97 +140,104 @@ export function DriverDetailsDialog({
   const [commissionOverride] = useState<string>('');
   const [isSavingCommission, setIsSavingCommission] = useState(false);
 
-  // Document compliance state
-  const [documentCompliance, setDocumentCompliance] = useState<{
-    requiredTypes: { slug: string; name: string; has_expiry: boolean }[];
-    driverDocs: { document_type: string; status: string; expiry_date: string | null }[];
-  }>({ requiredTypes: [], driverDocs: [] });
-  const [isLoadingDocs, setIsLoadingDocs] = useState(false);
+  // React Query: vehicle types (cached globally)
+  const { data: vehicleTypes = [] } = useQuery({
+    queryKey: ['vehicle-types-dialog'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('vehicle_types')
+        .select('*')
+        .eq('is_active', true)
+        .order('display_order');
+      return (data || []) as VehicleType[];
+    },
+    staleTime: 5 * 60_000,
+    enabled: open,
+  });
+
+  // React Query: driver categories
+  const { data: driverCategories = [], refetch: refetchDriverCategories } = useQuery({
+    queryKey: ['driver-categories', driver?.id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('driver_vehicle_categories')
+        .select('*')
+        .eq('driver_id', driver!.id);
+      return (data || []) as DriverVehicleCategory[];
+    },
+    staleTime: 30_000,
+    enabled: open && !!driver?.id,
+  });
+
+  // React Query: document compliance
+  const { data: documentCompliance = { requiredTypes: [], driverDocs: [] }, isLoading: isLoadingDocs } = useQuery({
+    queryKey: ['driver-doc-compliance', driver?.id],
+    queryFn: () => fetchDocumentComplianceData(driver!.id),
+    staleTime: 60_000,
+    enabled: open && !!driver?.id,
+  });
 
   useEffect(() => {
     if (open && driver) {
       setIsPetFriendly(driver.is_pet_friendly ?? false);
-      fetchVehicleTypes();
-      fetchDriverCategories();
       fetchTierCategories();
       fetchDriverCommissionData();
-      fetchDocumentCompliance();
     }
   }, [open, driver?.id]);
 
-  const fetchDocumentCompliance = async () => {
-    if (!driver) return;
-    setIsLoadingDocs(true);
-    try {
-      // Fetch all active doc types, driver docs, driver service areas, and SA rules in parallel
-      const [typesRes, docsRes, dsaRes] = await Promise.all([
-        supabase
-          .from('document_types')
-          .select('id, slug, name, has_expiry, is_required')
-          .eq('is_active', true)
-          .order('display_order'),
-        supabase
-          .from('documents')
-          .select('document_type, status, expiry_date')
-          .eq('driver_id', driver.id),
-        supabase
-          .from('driver_service_areas')
-          .select('service_area_id')
-          .eq('driver_id', driver.id),
-      ]);
+  const fetchDocumentComplianceData = async (driverId: string) => {
+    const [typesRes, docsRes, dsaRes] = await Promise.all([
+      supabase
+        .from('document_types')
+        .select('id, slug, name, has_expiry, is_required')
+        .eq('is_active', true)
+        .order('display_order'),
+      supabase
+        .from('documents')
+        .select('document_type, status, expiry_date')
+        .eq('driver_id', driverId),
+      supabase
+        .from('driver_service_areas')
+        .select('service_area_id')
+        .eq('driver_id', driverId),
+    ]);
 
-      const allTypes = (typesRes.data || []) as { id: string; slug: string; name: string; has_expiry: boolean; is_required: boolean }[];
-      const serviceAreaIds = (dsaRes.data || []).map((d: any) => d.service_area_id);
+    const allTypes = (typesRes.data || []) as { id: string; slug: string; name: string; has_expiry: boolean; is_required: boolean }[];
+    const serviceAreaIds = (dsaRes.data || []).map((d: any) => d.service_area_id);
 
-      // Fetch service area document rules if driver has service areas
-      let saRules: { doc_type_id: string; mandatory: boolean; is_active: boolean }[] = [];
-      if (serviceAreaIds.length > 0) {
-        const { data: rulesData } = await supabase
-          .from('service_area_document_rules')
-          .select('doc_type_id, mandatory, is_active')
-          .in('service_area_id', serviceAreaIds);
-        saRules = (rulesData || []) as any;
-      }
-
-      // Build a map: doc_type_id -> effective mandatory status
-      // Service area rules override global defaults
-      const saRuleMap: Record<string, { mandatory: boolean; is_active: boolean }> = {};
-      for (const rule of saRules) {
-        const existing = saRuleMap[rule.doc_type_id];
-        if (!existing) {
-          saRuleMap[rule.doc_type_id] = { mandatory: rule.mandatory, is_active: rule.is_active };
-        } else {
-          // If driver is in multiple SAs, a doc is required if ANY SA requires it
-          if (rule.mandatory && rule.is_active) {
-            saRuleMap[rule.doc_type_id] = { mandatory: true, is_active: true };
-          }
-        }
-      }
-
-      // Filter to only effectively required types
-      const hasSaRules = saRules.length > 0;
-      const requiredTypes = allTypes.filter((dt) => {
-        const saRule = saRuleMap[dt.id];
-        if (saRule) {
-          // Service area rule overrides: must be both active and mandatory
-          return saRule.is_active && saRule.mandatory;
-        }
-        // No SA rule for this doc type:
-        // If driver has SA rules at all, only SA-configured docs count
-        if (hasSaRules) return false;
-        // No SA rules exist at all — fall back to global default
-        return dt.is_required;
-      });
-
-      setDocumentCompliance({
-        requiredTypes: requiredTypes.map(dt => ({ slug: dt.slug, name: dt.name, has_expiry: dt.has_expiry })),
-        driverDocs: (docsRes.data || []) as any,
-      });
-    } catch (err) {
-      console.error('Error fetching document compliance:', err);
-    } finally {
-      setIsLoadingDocs(false);
+    let saRules: { doc_type_id: string; mandatory: boolean; is_active: boolean }[] = [];
+    if (serviceAreaIds.length > 0) {
+      const { data: rulesData } = await supabase
+        .from('service_area_document_rules')
+        .select('doc_type_id, mandatory, is_active')
+        .in('service_area_id', serviceAreaIds);
+      saRules = (rulesData || []) as any;
     }
+
+    const saRuleMap: Record<string, { mandatory: boolean; is_active: boolean }> = {};
+    for (const rule of saRules) {
+      const existing = saRuleMap[rule.doc_type_id];
+      if (!existing) {
+        saRuleMap[rule.doc_type_id] = { mandatory: rule.mandatory, is_active: rule.is_active };
+      } else {
+        if (rule.mandatory && rule.is_active) {
+          saRuleMap[rule.doc_type_id] = { mandatory: true, is_active: true };
+        }
+      }
+    }
+
+    const hasSaRules = saRules.length > 0;
+    const requiredTypes = allTypes.filter((dt) => {
+      const saRule = saRuleMap[dt.id];
+      if (saRule) return saRule.is_active && saRule.mandatory;
+      if (hasSaRules) return false;
+      return dt.is_required;
+    });
+
+    return {
+      requiredTypes: requiredTypes.map(dt => ({ slug: dt.slug, name: dt.name, has_expiry: dt.has_expiry })),
+      driverDocs: (docsRes.data || []) as { document_type: string; status: string; expiry_date: string | null }[],
+    };
   };
 
   const getDocComplianceItems = () => {
@@ -307,26 +313,7 @@ export function DriverDetailsDialog({
     }
   };
 
-  const fetchVehicleTypes = async () => {
-    const { data } = await supabase
-      .from('vehicle_types')
-      .select('*')
-      .eq('is_active', true)
-      .order('display_order');
-    
-    if (data) setVehicleTypes(data);
-  };
-
-  const fetchDriverCategories = async () => {
-    if (!driver) return;
-    
-    const { data } = await supabase
-      .from('driver_vehicle_categories')
-      .select('*')
-      .eq('driver_id', driver.id);
-    
-    if (data) setDriverCategories(data);
-  };
+  // Old fetchVehicleTypes and fetchDriverCategories removed — now powered by React Query above
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -471,12 +458,9 @@ export function DriverDetailsDialog({
           .eq('id', existingCategory.id);
 
         if (error) throw error;
-        
-        setDriverCategories(prev => 
-          prev.map(dc => dc.id === existingCategory.id ? { ...dc, is_enabled: !currentlyEnabled } : dc)
-        );
+        await refetchDriverCategories();
       } else {
-        const { data, error } = await supabase
+        const { error } = await supabase
           .from('driver_vehicle_categories')
           .insert({
             driver_id: driver.id,
@@ -487,7 +471,7 @@ export function DriverDetailsDialog({
           .single();
 
         if (error) throw error;
-        if (data) setDriverCategories(prev => [...prev, data]);
+        await refetchDriverCategories();
       }
       
       toast.success('Category updated');

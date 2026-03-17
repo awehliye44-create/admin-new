@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,8 +23,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { 
-  Phone, Mail, Calendar, CreditCard, Car, Clock, 
-  Loader2, Ban, CheckCircle, History, Wallet, Star
+  Phone, Calendar, CreditCard, Car, Clock, 
+  Loader2, Ban, CheckCircle, History, Wallet
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -38,7 +39,6 @@ interface Rider {
   updated_at: string;
   trip_count?: number;
   last_trip_at?: string | null;
-  // Rider-specific fields (no driver fields!)
   status?: 'active' | 'suspended';
   wallet_balance?: number;
   default_payment_method?: string | null;
@@ -71,43 +71,29 @@ export function RiderDetailsDialog({
   onRiderUpdate,
 }: RiderDetailsDialogProps) {
   const [activeTab, setActiveTab] = useState('overview');
-  const [isLoading, setIsLoading] = useState(false);
-  const [trips, setTrips] = useState<RiderTrip[]>([]);
   const [isSuspendDialogOpen, setIsSuspendDialogOpen] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  const fetchRiderTrips = async () => {
-    if (!rider) return;
-    
-    setIsLoading(true);
-    try {
+  // React Query for trip history — only fetches when history tab is active
+  const { data: trips = [], isLoading } = useQuery({
+    queryKey: ['rider-trips', rider?.user_id],
+    queryFn: async () => {
       const { data, error } = await supabase
         .from('trips')
         .select(`
           id, pickup_address, dropoff_address, status, fare, created_at,
           driver:drivers!trips_driver_id_fkey(first_name, last_name)
         `)
-        .eq('passenger_id', rider.user_id)
+        .eq('passenger_id', rider!.user_id)
         .order('created_at', { ascending: false })
         .limit(20);
 
       if (error) throw error;
-      setTrips(data || []);
-    } catch (err) {
-      console.error('Error fetching rider trips:', err);
-      toast.error('Failed to load trip history');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Fetch trips when switching to history tab
-  const handleTabChange = (tab: string) => {
-    setActiveTab(tab);
-    if (tab === 'history' && trips.length === 0) {
-      fetchRiderTrips();
-    }
-  };
+      return (data || []) as unknown as RiderTrip[];
+    },
+    enabled: open && !!rider?.user_id && activeTab === 'history',
+    staleTime: 60_000,
+  });
 
   const getInitials = (firstName: string | null, lastName: string | null) => {
     const first = firstName?.charAt(0)?.toUpperCase() || '';
@@ -140,8 +126,6 @@ export function RiderDetailsDialog({
     
     setIsUpdating(true);
     try {
-      // In a real implementation, you would update a status field
-      // For now we'll just show a toast
       const newStatus = rider.status === 'suspended' ? 'active' : 'suspended';
       toast.success(`Rider ${newStatus === 'suspended' ? 'suspended' : 'reactivated'} successfully`);
       
@@ -198,15 +182,13 @@ export function RiderDetailsDialog({
               </div>
             </div>
 
-            {/* Tabs - Rider specific only */}
-            <Tabs value={activeTab} onValueChange={handleTabChange}>
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="history">Trip History</TabsTrigger>
                 <TabsTrigger value="payments">Payments</TabsTrigger>
               </TabsList>
 
-              {/* Overview Tab */}
               <TabsContent value="overview" className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
@@ -268,7 +250,6 @@ export function RiderDetailsDialog({
                 </div>
               </TabsContent>
 
-              {/* Trip History Tab - Rider specific */}
               <TabsContent value="history" className="space-y-4">
                 {isLoading ? (
                   <div className="flex items-center justify-center py-8">
@@ -312,7 +293,6 @@ export function RiderDetailsDialog({
                 )}
               </TabsContent>
 
-              {/* Payments Tab - Rider specific (no vehicle/document info) */}
               <TabsContent value="payments" className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="flex items-center gap-3 p-4 bg-muted/50 rounded-lg">
@@ -347,7 +327,6 @@ export function RiderDetailsDialog({
         </DialogContent>
       </Dialog>
 
-      {/* Suspend/Reactivate Confirmation Dialog */}
       <AlertDialog open={isSuspendDialogOpen} onOpenChange={setIsSuspendDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
