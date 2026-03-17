@@ -165,14 +165,7 @@ export function useSidebarCounts() {
     return () => window.removeEventListener('focus', handleFocus);
   }, [fetchCounts]);
 
-  // Periodic polling fallback for guaranteed freshness
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchCounts(true);
-    }, POLL_INTERVAL_MS);
-
-    return () => clearInterval(interval);
-  }, [fetchCounts]);
+  // Realtime subscriptions handle freshness — no polling needed
 
   // Set up real-time subscriptions for all badge-relevant tables
   useEffect(() => {
