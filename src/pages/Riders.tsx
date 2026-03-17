@@ -64,9 +64,9 @@ export default function Riders() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [riderToDelete, setRiderToDelete] = useState<Rider | null>(null);
 
-  const fetchRiders = useCallback(async () => {
+  const fetchRiders = useCallback(async (isBackground = false) => {
     try {
-      setIsLoading(true);
+      if (!isBackground) setIsLoading(true);
       
       // Fetch riders from customers table (NOT drivers table)
       const { data: ridersData, error: ridersError } = await supabase

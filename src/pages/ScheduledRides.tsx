@@ -126,9 +126,9 @@ export default function ScheduledRides() {
   const [cancelReason, setCancelReason] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (isBackground = false) => {
     try {
-      setIsLoading(true);
+      if (!isBackground) setIsLoading(true);
       
       const [tripsRes, driversRes] = await Promise.all([
         supabase

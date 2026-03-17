@@ -98,9 +98,9 @@ export default function Documents() {
   const [rejectionReason, setRejectionReason] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  const fetchDocuments = useCallback(async () => {
+  const fetchDocuments = useCallback(async (isBackground = false) => {
     try {
-      setIsLoading(true);
+      if (!isBackground) setIsLoading(true);
       const { data, error } = await supabase
         .from('documents')
         .select(`

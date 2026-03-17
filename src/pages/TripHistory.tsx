@@ -194,9 +194,9 @@ export default function TripHistory() {
     setSelectedServiceAreaId('all');
   }, [selectedRegionId, regions]);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (isBackground = false) => {
     try {
-      setIsLoading(true);
+      if (!isBackground) setIsLoading(true);
       const { start, end } = getDateRange();
       
       // Fetch trips with driver info

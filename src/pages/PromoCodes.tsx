@@ -101,9 +101,9 @@ export default function PromoCodes() {
     is_active: true,
   });
 
-  const fetchPromoCodes = useCallback(async () => {
+  const fetchPromoCodes = useCallback(async (isBackground = false) => {
     try {
-      setIsLoading(true);
+      if (!isBackground) setIsLoading(true);
       const { data, error } = await supabase
         .from('promo_codes')
         .select('*')

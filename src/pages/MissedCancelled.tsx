@@ -89,9 +89,9 @@ export default function MissedCancelled() {
     }
   }, [dateFilter]);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (isBackground = false) => {
     try {
-      setIsLoading(true);
+      if (!isBackground) setIsLoading(true);
       const { start, end } = getDateRange();
       
       const { data, error } = await supabase
