@@ -429,7 +429,7 @@ export default function RiderFeedback() {
                   ))}
                 </SelectContent>
               </Select>
-              <Button variant="outline" size="icon" onClick={fetchFeedback}>
+              <Button variant="outline" size="icon" onClick={() => fetchFeedback()}>
                 <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               </Button>
             </div>

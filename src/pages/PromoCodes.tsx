@@ -391,7 +391,7 @@ export default function PromoCodes() {
                 <SelectItem value="inactive">Inactive</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" onClick={fetchPromoCodes} disabled={isLoading}>
+            <Button variant="outline" onClick={() => fetchPromoCodes()} disabled={isLoading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>

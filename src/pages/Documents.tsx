@@ -287,7 +287,7 @@ export default function Documents() {
                   ))}
                 </SelectContent>
               </Select>
-              <Button variant="outline" onClick={fetchDocuments} disabled={isLoading}>
+              <Button variant="outline" onClick={() => fetchDocuments()} disabled={isLoading}>
                 <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
                 Refresh
               </Button>
