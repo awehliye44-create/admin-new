@@ -146,7 +146,7 @@ export default function Documents() {
       setSelectedDocument(null);
       setReviewStatus('');
       setRejectionReason('');
-      fetchDocuments();
+      refreshData();
     } catch (err: any) {
       console.error('Error reviewing document:', err);
       toast.error(err.message || 'Failed to review document');
