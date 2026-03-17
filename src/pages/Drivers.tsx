@@ -666,7 +666,9 @@ export default function Drivers() {
                   <TableHead>Contact</TableHead>
                   <TableHead>Region</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Docs</TableHead>
                   <TableHead>Online</TableHead>
+                  <TableHead>Tier</TableHead>
                   <TableHead>Rating</TableHead>
                   <TableHead>Trips</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
