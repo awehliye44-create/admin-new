@@ -589,17 +589,7 @@ export function DriverDetailsDialog({
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList className="grid w-full grid-cols-6">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
-                <TabsTrigger value="documents" className="relative">
-                  Documents
-                  {(() => {
-                    const items = getDocComplianceItems();
-                    const issues = items.filter(i => i.status !== 'valid' && i.status !== 'expiring_soon');
-                    if (issues.length > 0) return (
-                      <span className="ml-1 inline-flex items-center justify-center h-4 w-4 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold">{issues.length}</span>
-                    );
-                    return null;
-                  })()}
-                </TabsTrigger>
+                <TabsTrigger value="documents">Documents</TabsTrigger>
                 <TabsTrigger value="vehicles">Vehicles ({driverVehicles.length})</TabsTrigger>
                 <TabsTrigger value="commission">Commission</TabsTrigger>
                 <TabsTrigger value="categories">Categories</TabsTrigger>
@@ -720,14 +710,7 @@ export function DriverDetailsDialog({
                   </Button>
                   {driver.approval_status !== 'approved' && (
                     <Button 
-                      onClick={() => {
-                        if (!canApproveDriver()) {
-                          toast.error('Cannot approve: required documents are missing, pending, rejected, or expired. Check the Documents tab.');
-                          setActiveTab('documents');
-                          return;
-                        }
-                        updateDriverStatus('approved');
-                      }}
+                      onClick={() => updateDriverStatus('approved')}
                       disabled={isUpdating}
                       className="bg-green-600 hover:bg-green-700"
                     >
