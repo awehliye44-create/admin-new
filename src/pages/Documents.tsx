@@ -368,12 +368,6 @@ export default function Documents() {
                                 <Eye className="h-4 w-4 mr-2" />
                                 View Details
                               </DropdownMenuItem>
-                              {doc.file_url && (
-                                <DropdownMenuItem onClick={() => window.open(doc.file_url!, '_blank')}>
-                                  <FileText className="h-4 w-4 mr-2" />
-                                  View File
-                                </DropdownMenuItem>
-                              )}
                               <DropdownMenuSeparator />
                               {doc.status === 'pending' && (
                                 <>
