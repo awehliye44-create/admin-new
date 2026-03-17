@@ -720,9 +720,21 @@ export default function ActiveTrips() {
                 <span className="font-mono text-lg font-medium">
                   {selectedTrip.trip_code || selectedTrip.id.slice(0, 8)}
                 </span>
-                <Badge variant="outline" className={STATUS_CONFIG[selectedTrip.status]?.color}>
-                  {STATUS_CONFIG[selectedTrip.status]?.label || selectedTrip.status}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  {selectedTrip.pricing_mode && (
+                    <Badge 
+                      variant="outline" 
+                      className={selectedTrip.pricing_mode === 'fixed' 
+                        ? 'bg-blue-100 text-blue-700 border-blue-300' 
+                        : 'bg-amber-100 text-amber-700 border-amber-300'}
+                    >
+                      {selectedTrip.pricing_mode === 'fixed' ? '🔒 Fixed Fare' : '⚡ Dynamic Fare'}
+                    </Badge>
+                  )}
+                  <Badge variant="outline" className={STATUS_CONFIG[selectedTrip.status]?.color}>
+                    {STATUS_CONFIG[selectedTrip.status]?.label || selectedTrip.status}
+                  </Badge>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
