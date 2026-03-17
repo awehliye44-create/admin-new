@@ -107,7 +107,7 @@ export default function FleetTracking() {
 
     googleMapRef.current = new window.google.maps.Map(mapRef.current, {
       center: { lat: 52.0406, lng: -0.7594 },
-      zoom: 10,
+      zoom: 15,
       mapTypeId: 'roadmap',
       styles: [
         { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
