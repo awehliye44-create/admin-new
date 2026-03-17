@@ -2,7 +2,9 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { OfflineDetector } from "@/components/OfflineDetector";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { GlobalErrorBoundary } from "@/components/GlobalErrorBoundary";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createAppQueryClient } from "@/lib/queryConfig";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
@@ -66,9 +68,10 @@ import ManageContent from "./pages/ManageContent";
 import LiveChat from "./pages/LiveChat";
 import OnecabDocuments from "./pages/OnecabDocuments";
 
-const queryClient = new QueryClient();
+const queryClient = createAppQueryClient();
 
 const App = () => (
+  <GlobalErrorBoundary>
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <StaffProfileProvider>
@@ -169,6 +172,7 @@ const App = () => (
       </StaffProfileProvider>
     </AuthProvider>
   </QueryClientProvider>
+  </GlobalErrorBoundary>
 );
 
 export default App;

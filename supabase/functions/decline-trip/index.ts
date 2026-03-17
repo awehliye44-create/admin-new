@@ -41,13 +41,13 @@ serve(async (req) => {
     try {
       body = await req.json();
     } catch {
-      return errorResponse('Invalid JSON in request body', 400);
+      return errorResponse('Invalid JSON in request body', 400, undefined, 'VALIDATION_INVALID_FORMAT');
     }
 
     const validation = validateSchema<DeclineTripRequest>(body, declineTripSchema);
     if (!validation.success) {
       console.log(`[decline-trip] Validation failed:`, validation.errors);
-      return errorResponse('Validation failed', 400, { validation_errors: validation.errors });
+      return errorResponse('Validation failed', 400, { validation_errors: validation.errors }, 'VALIDATION_FAILED');
     }
 
     const { trip_id, driver_id, reason } = validation.data!;
@@ -82,7 +82,7 @@ serve(async (req) => {
         userAgent,
       });
 
-      return errorResponse('Offer not found or already processed', 404);
+      return errorResponse('Offer not found or already processed', 404, undefined, 'OFFER_NOT_FOUND');
     }
 
     console.log(`[decline-trip] Offer declined successfully`);

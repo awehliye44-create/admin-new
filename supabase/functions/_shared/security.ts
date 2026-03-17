@@ -170,12 +170,15 @@ export function isValidPaymentMethod(method: string): boolean {
 export function errorResponse(
   message: string,
   status: number = 400,
-  details?: Record<string, unknown>
+  details?: Record<string, unknown>,
+  errorCode?: string
 ): Response {
   return new Response(
     JSON.stringify({
       success: false,
       error: message,
+      error_code: errorCode || null,
+      retry_allowed: status >= 500, // Server errors are retryable
       ...details,
     }),
     {
@@ -190,7 +193,9 @@ export function validationErrorResponse(errors: string[]): Response {
     JSON.stringify({
       success: false,
       error: 'Validation failed',
+      error_code: 'VALIDATION_FAILED',
       validation_errors: errors,
+      retry_allowed: false,
     }),
     {
       status: 400,

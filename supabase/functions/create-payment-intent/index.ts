@@ -50,11 +50,11 @@ serve(async (req) => {
     } = body;
 
     if (!trip_id || !customer_id || !estimated_fare_pence) {
-      return errorResponse("Missing required fields: trip_id, customer_id, estimated_fare_pence", 400);
+      return errorResponse("Missing required fields: trip_id, customer_id, estimated_fare_pence", 400, undefined, "VALIDATION_MISSING_FIELD");
     }
 
     if (estimated_fare_pence < 50) {
-      return errorResponse("Minimum fare is 50 pence", 400);
+      return errorResponse("Minimum fare is 50 pence", 400, undefined, "VALIDATION_FAILED");
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -62,7 +62,7 @@ serve(async (req) => {
     const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
 
     if (!stripeSecretKey) {
-      return errorResponse("Stripe not configured", 500);
+      return errorResponse("Stripe not configured", 500, undefined, "PAYMENT_STRIPE_ERROR");
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -76,7 +76,7 @@ serve(async (req) => {
       .single();
 
     if (tripError || !trip) {
-      return errorResponse("Trip not found", 404);
+      return errorResponse("Trip not found", 404, undefined, "TRIP_NOT_FOUND");
     }
 
     // Idempotency: if PI already exists, return it
@@ -104,7 +104,7 @@ serve(async (req) => {
       .single();
 
     if (!customer) {
-      return errorResponse("Customer not found", 404);
+      return errorResponse("Customer not found", 404, undefined, "VALIDATION_FAILED");
     }
 
     // Create Stripe Customer if doesn't exist
