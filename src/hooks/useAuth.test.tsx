@@ -4,26 +4,28 @@ import React from "react";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { mockUser, mockSession, resetAllMocks, mockSupabaseClient } from "@/test/mocks";
 
-// Helper function to wait for async state updates
 const waitForEffect = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-// Re-import the mock to ensure it's applied
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: mockSupabaseClient,
 }));
 
 describe("useAuth Hook", () => {
+  let authChangeCallback: (event: string, session: any) => void;
+
   beforeEach(() => {
     resetAllMocks();
-    // Default mock state - no session
     mockSupabaseClient.auth.getSession.mockResolvedValue({
       data: { session: null },
       error: null,
     });
-    mockSupabaseClient.auth.onAuthStateChange.mockReturnValue({
-      data: {
-        subscription: { unsubscribe: vi.fn() },
-      },
+    mockSupabaseClient.auth.onAuthStateChange.mockImplementation((cb: any) => {
+      authChangeCallback = cb;
+      return {
+        data: {
+          subscription: { unsubscribe: vi.fn() },
+        },
+      };
     });
   });
 
@@ -55,7 +57,6 @@ describe("useAuth Hook", () => {
         error: null,
       });
 
-      // Mock admin role check
       mockSupabaseClient.from.mockReturnValue({
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
@@ -172,7 +173,94 @@ describe("useAuth Hook", () => {
       });
 
       expect(mockSupabaseClient.auth.signOut).toHaveBeenCalled();
+      
+      // Simulate the SIGNED_OUT event that Supabase fires after signOut
+      await act(async () => {
+        authChangeCallback('SIGNED_OUT', null);
+        await waitForEffect();
+      });
+
       expect(result.current.isAdmin).toBe(false);
+      expect(result.current.user).toBeNull();
+    });
+  });
+
+  describe("Resilience", () => {
+    it("should NOT sign out on TOKEN_REFRESHED event", async () => {
+      mockSupabaseClient.auth.getSession.mockResolvedValue({
+        data: { session: mockSession },
+        error: null,
+      });
+
+      mockSupabaseClient.from.mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue({
+          data: [{ role: "admin" }],
+          error: null,
+        }),
+      });
+
+      const { result } = renderHook(() => useAuth(), { wrapper });
+
+      await act(async () => {
+        await waitForEffect();
+      });
+
+      expect(result.current.user).toEqual(mockUser);
+
+      // Simulate TOKEN_REFRESHED
+      await act(async () => {
+        authChangeCallback('TOKEN_REFRESHED', mockSession);
+        await waitForEffect();
+      });
+
+      expect(result.current.user).toEqual(mockUser);
+      expect(result.current.session).toEqual(mockSession);
+    });
+
+    it("should NOT flip isAdmin on transient admin check failure", async () => {
+      mockSupabaseClient.auth.getSession.mockResolvedValue({
+        data: { session: mockSession },
+        error: null,
+      });
+
+      // First call succeeds
+      mockSupabaseClient.from.mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue({
+          data: [{ role: "admin" }],
+          error: null,
+        }),
+      });
+
+      const { result } = renderHook(() => useAuth(), { wrapper });
+
+      await act(async () => {
+        await waitForEffect();
+      });
+
+      expect(result.current.isAdmin).toBe(true);
+
+      // Now simulate a transient failure on next admin check
+      mockSupabaseClient.from.mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue({
+          data: null,
+          error: new Error("Network error"),
+        }),
+      });
+
+      // Trigger a TOKEN_REFRESHED event
+      await act(async () => {
+        authChangeCallback('TOKEN_REFRESHED', mockSession);
+        await waitForEffect();
+      });
+
+      // Admin status should remain true (cached)
+      expect(result.current.isAdmin).toBe(true);
     });
   });
 
