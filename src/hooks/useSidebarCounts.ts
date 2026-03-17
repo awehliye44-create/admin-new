@@ -13,8 +13,7 @@ export interface SidebarCounts {
 }
 
 const CACHE_KEY = 'sidebar-counts-cache';
-const CACHE_TTL_MS = 15000; // 15 seconds
-const POLL_INTERVAL_MS = 30000; // 30 seconds polling fallback
+const CACHE_TTL_MS = 30000; // 30 seconds
 
 interface CachedCounts {
   data: SidebarCounts;
