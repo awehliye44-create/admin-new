@@ -411,90 +411,11 @@ export default function Documents() {
 
         {/* View Details Dialog */}
         <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Document Details</DialogTitle>
-              <DialogDescription>
-                {selectedDocument?.document_name}
-              </DialogDescription>
-            </DialogHeader>
-            {selectedDocument && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-muted-foreground">Status</Label>
-                    <div className="mt-1">
-                      {(() => {
-                        const config = STATUS_CONFIG[selectedDocument.status] || STATUS_CONFIG.pending;
-                        const Icon = config.icon;
-                        return (
-                          <Badge variant="outline" className={config.color}>
-                            <Icon className="h-3 w-3 mr-1" />
-                            {config.label}
-                          </Badge>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                  <div>
-                    <Label className="text-muted-foreground">Document Type</Label>
-                    <p className="font-medium">{getDocumentTypeLabel(selectedDocument.document_type)}</p>
-                  </div>
-                </div>
-
-                <div>
-                  <Label className="text-muted-foreground">Driver</Label>
-                  <p className="font-medium">
-                    {selectedDocument.driver 
-                      ? `${selectedDocument.driver.first_name} ${selectedDocument.driver.last_name}`
-                      : 'Unknown'}
-                  </p>
-                  <p className="text-sm text-muted-foreground">{selectedDocument.driver?.phone}</p>
-                </div>
-
-                {selectedDocument.expiry_date && (
-                  <div>
-                    <Label className="text-muted-foreground">Expiry Date</Label>
-                    <p className="font-medium">{format(new Date(selectedDocument.expiry_date), 'PPP')}</p>
-                  </div>
-                )}
-
-                {selectedDocument.notes && (
-                  <div>
-                    <Label className="text-muted-foreground">Notes</Label>
-                    <p className="text-sm bg-muted p-2 rounded">{selectedDocument.notes}</p>
-                  </div>
-                )}
-
-                {selectedDocument.rejection_reason && (
-                  <div>
-                    <Label className="text-muted-foreground text-red-600">Rejection Reason</Label>
-                    <p className="text-sm bg-red-50 text-red-700 p-2 rounded">{selectedDocument.rejection_reason}</p>
-                  </div>
-                )}
-
-                {selectedDocument.reviewed_at && (
-                  <div>
-                    <Label className="text-muted-foreground">Reviewed</Label>
-                    <p className="text-sm">{format(new Date(selectedDocument.reviewed_at), 'PPP p')}</p>
-                  </div>
-                )}
-
-                <div>
-                  <Label className="text-muted-foreground">Uploaded</Label>
-                  <p className="text-sm">{format(new Date(selectedDocument.created_at), 'PPP p')}</p>
-                </div>
-              </div>
-            )}
-            <DialogFooter>
-              {selectedDocument?.file_url && (
-                <Button variant="outline" onClick={() => window.open(selectedDocument.file_url!, '_blank')}>
-                  View File
-                </Button>
-              )}
-              <Button onClick={() => setIsViewOpen(false)}>Close</Button>
-            </DialogFooter>
-          </DialogContent>
+          <DocumentViewDialog 
+            document={selectedDocument}
+            onClose={() => setIsViewOpen(false)}
+            getDocumentTypeLabel={getDocumentTypeLabel}
+          />
         </Dialog>
 
         {/* Review Dialog */}
