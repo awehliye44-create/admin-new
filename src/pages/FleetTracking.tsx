@@ -132,7 +132,7 @@ export default function FleetTracking() {
           .from('regions')
           .select('id, name, geo_boundary')
           .eq('status', 'active'),
-        // @ts-expect-error - Type instantiation too deep in generated Supabase types
+        
         supabase
           .from('service_areas')
           .select('id, name, region_id')
