@@ -406,7 +406,7 @@ export default function ActiveTrips() {
                 <SelectItem value="ongoing">Ongoing</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" onClick={fetchData} disabled={isLoading}>
+            <Button variant="outline" onClick={() => fetchData()} disabled={isLoading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
