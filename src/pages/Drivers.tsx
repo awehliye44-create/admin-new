@@ -80,6 +80,17 @@ interface Driver {
   created_at: string;
   region_id: string;
   is_pet_friendly?: boolean;
+  documents_approved?: boolean;
+  category_id?: string | null;
+}
+
+interface DriverCategory {
+  id: string;
+  name: string;
+  color: string | null;
+  icon: string | null;
+  trip_target: number | null;
+  level_order: number | null;
 }
 
 interface Vehicle {
