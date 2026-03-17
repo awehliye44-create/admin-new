@@ -116,42 +116,41 @@ export default function FleetTracking() {
   }, [isMapLoaded]);
 
   // Fetch data
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (isBackground = false) => {
     try {
-      setIsLoading(true);
+      if (!isBackground) setIsLoading(true);
       
-      const driversRes = await supabase
-        .from('drivers')
-        .select('*, region:regions(name)')
-        .eq('approval_status', 'approved')
-        .eq('documents_approved', true)
-        .order('is_online', { ascending: false });
-      
-      const regionsRes = await supabase
-        .from('regions')
-        .select('id, name, geo_boundary')
-        .eq('status', 'active');
-      
-      // Fetch service areas
-      // @ts-expect-error - Type instantiation too deep in generated Supabase types
-      const { data: rawServiceAreas } = await supabase
-        .from('service_areas')
-        .select('id, name, region_id')
-        .eq('status', 'active');
-      
-      const serviceAreasData: ServiceArea[] = (rawServiceAreas || []).map((sa: any) => ({
+      // Fetch all data in parallel instead of sequentially
+      const [driversRes, regionsRes, serviceAreasRes, tripsRes] = await Promise.all([
+        supabase
+          .from('drivers')
+          .select('*, region:regions(name)')
+          .eq('approval_status', 'approved')
+          .eq('documents_approved', true)
+          .order('is_online', { ascending: false }),
+        supabase
+          .from('regions')
+          .select('id, name, geo_boundary')
+          .eq('status', 'active'),
+        
+        supabase
+          .from('service_areas')
+          .select('id, name, region_id')
+          .eq('is_active', true),
+        supabase
+          .from('trips')
+          .select('id, driver_id, status, pickup_address, dropoff_address')
+          .in('status', ['accepted', 'arrived', 'in_progress']),
+      ]);
+
+      if (driversRes.error) throw driversRes.error;
+      if (regionsRes.error) throw regionsRes.error;
+
+      const serviceAreasData: ServiceArea[] = (serviceAreasRes.data || []).map((sa: any) => ({
         id: sa.id as string,
         name: sa.name as string,
         region_id: sa.region_id as string
       }));
-      
-      const tripsRes = await supabase
-        .from('trips')
-        .select('id, driver_id, status, pickup_address, dropoff_address')
-        .in('status', ['accepted', 'arrived', 'in_progress']);
-
-      if (driversRes.error) throw driversRes.error;
-      if (regionsRes.error) throw regionsRes.error;
 
       // Map active trips to drivers
       const activeTrips = tripsRes.data || [];
@@ -186,7 +185,7 @@ export default function FleetTracking() {
       setLastRefresh(new Date());
     } catch (err) {
       console.error('Error fetching fleet data:', err);
-      toast.error('Failed to load fleet data');
+      if (!isBackground) toast.error('Failed to load fleet data');
     } finally {
       setIsLoading(false);
     }
@@ -195,8 +194,8 @@ export default function FleetTracking() {
   useEffect(() => {
     fetchData();
     
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(fetchData, 30000);
+    // Background refresh every 30s (no spinner)
+    const interval = setInterval(() => fetchData(true), 30000);
     return () => clearInterval(interval);
   }, [fetchData]);
 
@@ -437,7 +436,7 @@ export default function FleetTracking() {
                   <span className="text-xs text-muted-foreground">
                     Last updated: {lastRefresh.toLocaleTimeString()}
                   </span>
-                  <Button variant="outline" size="sm" onClick={fetchData} disabled={isLoading}>
+                  <Button variant="outline" size="sm" onClick={() => fetchData()} disabled={isLoading}>
                     <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
                   </Button>
                 </div>

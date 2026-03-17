@@ -29,6 +29,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import { useRegions } from '@/hooks/useRegions';
+import { useServiceAreas as useSharedServiceAreas } from '@/hooks/useServiceAreas';
 import { 
   History, Loader2, Search, RefreshCw, MapPin, Phone,
   Eye, CheckCircle, Route, DollarSign,
@@ -168,35 +170,17 @@ export default function TripHistory() {
     }
   }, [dateFilter]);
 
-  // Fetch regions and service areas on mount
-  const fetchRegionsAndServiceAreas = useCallback(async () => {
-    try {
-      const [regionsRes, serviceAreasRes] = await Promise.all([
-        supabase
-          .from('regions')
-          .select('id, name, currency_code, distance_unit')
-          .eq('status', 'active')
-          .order('name'),
-        supabase
-          .from('service_areas')
-          .select('id, name, region_id, region:regions(name, currency_code, distance_unit)')
-          .eq('is_active', true)
-          .order('name'),
-      ]);
-
-      if (regionsRes.error) throw regionsRes.error;
-      if (serviceAreasRes.error) throw serviceAreasRes.error;
-
-      setRegions(regionsRes.data || []);
-      setServiceAreas((serviceAreasRes.data || []) as ServiceArea[]);
-    } catch (err) {
-      console.error('Error fetching regions/service areas:', err);
-    }
-  }, []);
+  // Use shared cached hooks for regions/service areas
+  const { data: sharedRegions = [] } = useRegions();
+  const { data: sharedServiceAreas = [] } = useSharedServiceAreas({ activeOnly: true });
 
   useEffect(() => {
-    fetchRegionsAndServiceAreas();
-  }, [fetchRegionsAndServiceAreas]);
+    setRegions(sharedRegions as any[]);
+  }, [sharedRegions]);
+
+  useEffect(() => {
+    setServiceAreas(sharedServiceAreas as any[]);
+  }, [sharedServiceAreas]);
 
   // Update active region when filter changes
   useEffect(() => {
