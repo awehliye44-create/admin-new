@@ -756,7 +756,7 @@ export function DriverDetailsDialog({
                 </div>
               </TabsContent>
 
-              {/* Documents Compliance Tab */}
+              {/* Documents Tab — Approved Only */}
               <TabsContent value="documents" className="space-y-4">
                 {isLoadingDocs ? (
                   <div className="flex items-center justify-center py-8">
@@ -764,73 +764,51 @@ export function DriverDetailsDialog({
                   </div>
                 ) : (() => {
                   const items = getDocComplianceItems();
-                  const blocking = items.filter(i => ['missing', 'pending', 'rejected', 'expired'].includes(i.status));
-                  const expiringSoon = items.filter(i => i.status === 'expiring_soon');
+                  const approvedItems = items.filter(i => i.status === 'valid' || i.status === 'expiring_soon');
 
                   return (
                     <div className="space-y-4">
-                      {/* Summary Banner */}
-                      {blocking.length > 0 ? (
-                        <div className="p-3 border rounded-lg bg-destructive/10 border-destructive/30 flex items-start gap-2">
-                          <AlertOctagon className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
-                          <div className="text-sm">
-                            <p className="font-medium text-destructive">
-                              Driver cannot be approved — {blocking.length} document{blocking.length > 1 ? 's' : ''} need{blocking.length === 1 ? 's' : ''} attention
-                            </p>
-                          </div>
+                      {/* Summary */}
+                      <div className="p-3 border rounded-lg bg-muted/50 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm text-muted-foreground">
+                            {approvedItems.length} of {items.length} required document{items.length !== 1 ? 's' : ''} approved
+                          </span>
                         </div>
-                      ) : expiringSoon.length > 0 ? (
-                        <div className="p-3 border rounded-lg bg-yellow-500/10 border-yellow-500/30 flex items-start gap-2">
-                          <FileWarning className="h-4 w-4 text-yellow-600 mt-0.5 shrink-0" />
-                          <div className="text-sm">
-                            <p className="font-medium text-yellow-700">
-                              {expiringSoon.length} document{expiringSoon.length > 1 ? 's' : ''} expiring soon
-                            </p>
-                            <p className="text-yellow-600/80 text-xs">
-                              To avoid service disruption, ensure renewal documents are submitted before expiry.
-                            </p>
-                          </div>
-                        </div>
-                      ) : items.length > 0 ? (
-                        <div className="p-3 border rounded-lg bg-green-500/10 border-green-500/30 flex items-start gap-2">
-                          <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-                          <p className="text-sm font-medium text-green-700">All required documents are valid</p>
-                        </div>
-                      ) : (
-                        <div className="p-3 border rounded-lg bg-muted/50 flex items-start gap-2">
-                          <Shield className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-                          <p className="text-sm text-muted-foreground">No required document types configured</p>
-                        </div>
-                      )}
+                        {approvedItems.length === items.length && items.length > 0 && (
+                          <Badge variant="outline" className="text-green-700 bg-green-500/10 border-green-500/30">
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                            All Approved
+                          </Badge>
+                        )}
+                      </div>
 
-                      {/* Document List */}
-                      {items.length > 0 && (
+                      {/* Approved Document List */}
+                      {approvedItems.length > 0 ? (
                         <div className="space-y-2">
-                          {items.map((item) => {
-                            const statusConfig = {
-                              missing: { label: 'Missing', icon: XCircle, className: 'text-destructive bg-destructive/10 border-destructive/30' },
-                              pending: { label: 'Pending Review', icon: Clock, className: 'text-yellow-700 bg-yellow-500/10 border-yellow-500/30' },
-                              rejected: { label: 'Rejected', icon: XCircle, className: 'text-destructive bg-destructive/10 border-destructive/30' },
-                              expired: { label: 'Expired', icon: AlertOctagon, className: 'text-destructive bg-destructive/10 border-destructive/30' },
-                              expiring_soon: { label: `Expiring in ${item.daysLeft} days`, icon: FileWarning, className: 'text-yellow-700 bg-yellow-500/10 border-yellow-500/30' },
-                              valid: { label: 'Valid', icon: CheckCircle, className: 'text-green-700 bg-green-500/10 border-green-500/30' },
-                            }[item.status];
-
-                            const StatusIcon = statusConfig.icon;
-
+                          {approvedItems.map((item) => {
+                            const isExpiring = item.status === 'expiring_soon';
                             return (
                               <div key={item.slug} className="flex items-center justify-between p-3 border rounded-lg">
                                 <div className="flex items-center gap-3">
                                   <FileText className="h-4 w-4 text-muted-foreground" />
                                   <span className="text-sm font-medium">{item.name}</span>
                                 </div>
-                                <Badge variant="outline" className={statusConfig.className}>
-                                  <StatusIcon className="h-3 w-3 mr-1" />
-                                  {statusConfig.label}
+                                <Badge variant="outline" className={isExpiring ? 'text-yellow-700 bg-yellow-500/10 border-yellow-500/30' : 'text-green-700 bg-green-500/10 border-green-500/30'}>
+                                  {isExpiring ? (
+                                    <><FileWarning className="h-3 w-3 mr-1" />Expiring in {item.daysLeft} days</>
+                                  ) : (
+                                    <><CheckCircle className="h-3 w-3 mr-1" />Approved</>
+                                  )}
                                 </Badge>
                               </div>
                             );
                           })}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 text-muted-foreground text-sm">
+                          No approved documents yet
                         </div>
                       )}
                     </div>
