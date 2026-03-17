@@ -122,8 +122,8 @@ export default function Riders() {
 
       if (error) throw error;
 
-      setRiders(prev => prev.filter(r => r.id !== riderToDelete.id));
       toast.success('Rider deleted successfully');
+      refreshData();
     } catch (err) {
       console.error('Error deleting rider:', err);
       toast.error('Failed to delete rider');
@@ -133,9 +133,9 @@ export default function Riders() {
     }
   };
 
-  const handleRiderUpdate = (updatedRider: Rider) => {
-    setRiders(prev => prev.map(r => r.id === updatedRider.id ? updatedRider : r));
-    setSelectedRider(updatedRider);
+  const handleRiderUpdate = (_updatedRider: Rider) => {
+    setSelectedRider(_updatedRider);
+    refreshData();
   };
 
   const getInitials = (firstName: string | null, lastName: string | null) => {

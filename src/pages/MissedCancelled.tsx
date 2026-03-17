@@ -265,7 +265,7 @@ export default function MissedCancelled() {
                 <SelectItem value="90days">Last 90 Days</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" onClick={() => fetchData()} disabled={isLoading}>
+            <Button variant="outline" onClick={() => {}} disabled={isLoading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
