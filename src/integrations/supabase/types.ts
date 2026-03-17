@@ -1674,6 +1674,7 @@ export type Database = {
           is_required: boolean
           name: string
           reminder_days_before_expiry: number[]
+          show_in_driver_app: boolean
           slug: string
           updated_at: string
         }
@@ -1687,6 +1688,7 @@ export type Database = {
           is_required?: boolean
           name: string
           reminder_days_before_expiry?: number[]
+          show_in_driver_app?: boolean
           slug: string
           updated_at?: string
         }
@@ -1700,6 +1702,7 @@ export type Database = {
           is_required?: boolean
           name?: string
           reminder_days_before_expiry?: number[]
+          show_in_driver_app?: boolean
           slug?: string
           updated_at?: string
         }

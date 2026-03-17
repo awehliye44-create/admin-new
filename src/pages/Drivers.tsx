@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -80,6 +81,17 @@ interface Driver {
   created_at: string;
   region_id: string;
   is_pet_friendly?: boolean;
+  documents_approved?: boolean;
+  category_id?: string | null;
+}
+
+interface DriverCategory {
+  id: string;
+  name: string;
+  color: string | null;
+  icon: string | null;
+  trip_target: number | null;
+  level_order: number | null;
 }
 
 interface Vehicle {
@@ -129,6 +141,7 @@ export default function Drivers() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [regionsList, setRegionsList] = useState<Region[]>([]);
+  const [categories, setCategories] = useState<DriverCategory[]>([]);
 
   // Region and Service Area filter state
   const [selectedRegionFilter, setSelectedRegionFilter] = useState<string>('all');
@@ -176,6 +189,17 @@ export default function Drivers() {
         const regionsMap: Record<string, Region> = {};
         regionsData.forEach(r => { regionsMap[r.id] = r; });
         setRegions(regionsMap);
+      }
+
+      // Fetch driver categories/tiers
+      const { data: categoriesData } = await supabase
+        .from('driver_categories')
+        .select('id, name, color, icon, trip_target, level_order')
+        .eq('is_active', true)
+        .order('level_order', { ascending: true });
+      
+      if (categoriesData) {
+        setCategories(categoriesData as DriverCategory[]);
       }
 
       // Fetch service areas
@@ -642,7 +666,9 @@ export default function Drivers() {
                   <TableHead>Contact</TableHead>
                   <TableHead>Region</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Docs</TableHead>
                   <TableHead>Online</TableHead>
+                  <TableHead>Tier</TableHead>
                   <TableHead>Rating</TableHead>
                   <TableHead>Trips</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -700,6 +726,18 @@ export default function Drivers() {
                     </TableCell>
                     <TableCell>
                       <Badge
+                        variant="secondary"
+                        className={
+                          driver.documents_approved
+                            ? 'bg-green-500/10 text-green-600'
+                            : 'bg-orange-500/10 text-orange-600'
+                        }
+                      >
+                        {driver.documents_approved ? 'Approved' : 'Pending'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge
                         variant={driver.is_online ? 'default' : 'secondary'}
                         className={
                           driver.is_online
@@ -709,6 +747,28 @@ export default function Drivers() {
                       >
                         {driver.is_online ? 'Online' : 'Offline'}
                       </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const tier = categories.find(c => c.id === driver.category_id);
+                        if (!tier) return <span className="text-xs text-muted-foreground">—</span>;
+                        const trips = driver.total_trips || 0;
+                        const target = tier.trip_target;
+                        const progress = target ? Math.min(100, Math.round((trips / target) * 100)) : 100;
+                        return (
+                          <div className="space-y-1 min-w-[80px]">
+                            <Badge variant="secondary" className="text-xs" style={{ backgroundColor: tier.color ? `${tier.color}20` : undefined, color: tier.color || undefined }}>
+                              {tier.name}
+                            </Badge>
+                            {target && (
+                              <div className="flex items-center gap-1.5">
+                                <Progress value={progress} className="h-1.5 w-16" />
+                                <span className="text-[10px] text-muted-foreground">{trips}/{target}</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
