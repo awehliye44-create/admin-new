@@ -174,7 +174,7 @@ export default function VehicleTypes() {
 
       if (error) throw error;
 
-      setVehicleTypes(prev => [...prev, data]);
+      fetchVehicleTypes();
       setIsAddDialogOpen(false);
       resetForm();
       toast.success('Vehicle type created successfully');
