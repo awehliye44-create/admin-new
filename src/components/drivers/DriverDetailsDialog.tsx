@@ -710,14 +710,7 @@ export function DriverDetailsDialog({
                   </Button>
                   {driver.approval_status !== 'approved' && (
                     <Button 
-                      onClick={() => {
-                        if (!canApproveDriver()) {
-                          toast.error('Cannot approve: required documents are missing, pending, rejected, or expired. Check the Documents tab.');
-                          setActiveTab('documents');
-                          return;
-                        }
-                        updateDriverStatus('approved');
-                      }}
+                      onClick={() => updateDriverStatus('approved')}
                       disabled={isUpdating}
                       className="bg-green-600 hover:bg-green-700"
                     >
