@@ -50,7 +50,7 @@ serve(async (req) => {
     } = body;
 
     if (!trip_id || !customer_id || !estimated_fare_pence) {
-      return errorResponse("Missing required fields: trip_id, customer_id, estimated_fare_pence", 400);
+      return errorResponse("Missing required fields: trip_id, customer_id, estimated_fare_pence", 400, undefined, "VALIDATION_MISSING_FIELD");
     }
 
     if (estimated_fare_pence < 50) {
