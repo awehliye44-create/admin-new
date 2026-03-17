@@ -661,12 +661,12 @@ export default function Drivers() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-3">
-                        <Avatar className="h-9 w-9 border border-border">
-                          <AvatarImage src={driver.profile_photo_url || ''} />
-                          <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                            {driver.first_name[0]}{driver.last_name[0]}
-                          </AvatarFallback>
-                        </Avatar>
+                        <DriverAvatar
+                          driverId={driver.id}
+                          profilePhotoUrl={driver.profile_photo_url}
+                          firstName={driver.first_name}
+                          lastName={driver.last_name}
+                        />
                         <div>
                           <div className="flex items-center gap-2">
                             <p className="font-medium">{driver.first_name} {driver.last_name}</p>
