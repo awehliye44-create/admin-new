@@ -241,7 +241,7 @@ export default function VehicleTypes() {
 
       if (error) throw error;
 
-      setVehicleTypes(prev => prev.filter(vt => vt.id !== selectedType.id));
+      fetchVehicleTypes();
       setIsDeleteDialogOpen(false);
       setSelectedType(null);
       toast.success('Vehicle type deleted successfully');
