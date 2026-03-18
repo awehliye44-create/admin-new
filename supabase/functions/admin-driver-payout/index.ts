@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolveCurrencyFromDriver } from "../_shared/regionCurrency.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 
 const corsHeaders = {
@@ -11,14 +12,7 @@ const corsHeaders = {
  * admin-driver-payout
  * 
  * Pays out from the driver's wallet balance to their Stripe connected account.
- * Wallet balance already accounts for:
- * - TRIP_EARNING_NET (credits from digital trips)
- * - CASH_COMMISSION_DEBT (debits from cash trips)
- * - DEBT_RECOVERY (debits applied during capture)
- * - Previous payouts
- * 
- * The available balance = SUM(driver_ledger.amount_pence)
- * Only positive balance can be paid out.
+ * Currency is resolved from the driver's Region (single source of truth).
  */
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -65,6 +59,18 @@ serve(async (req) => {
       });
     }
 
+    // === Resolve currency from Region (single source of truth) ===
+    let currency_code: string;
+    try {
+      const regionCurrency = await resolveCurrencyFromDriver(supabase, driver_id);
+      currency_code = regionCurrency.currency_code;
+    } catch (e) {
+      console.error('[payout] Currency resolution failed:', e);
+      return new Response(JSON.stringify({ error: (e as Error).message, error_code: 'REGION_CURRENCY_UNRESOLVABLE' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // === Get driver info ===
     const { data: driver, error: driverError } = await supabase
       .from('drivers')
@@ -86,7 +92,7 @@ serve(async (req) => {
     const available = ledgerEntries?.reduce((sum, e) => sum + (e.amount_pence || 0), 0) || 0;
     const payoutAmount = amount_pence || available;
 
-    console.log(`[payout] Driver ${driver_id}: wallet balance = ${available}p, requested payout = ${payoutAmount}p`);
+    console.log(`[payout] Driver ${driver_id}: wallet balance = ${available}p, requested payout = ${payoutAmount}p, currency: ${currency_code}`);
 
     if (payoutAmount <= 0) {
       return new Response(JSON.stringify({ error: 'No funds available for payout', available_pence: available }), {
@@ -152,7 +158,7 @@ serve(async (req) => {
         // Transfer from platform to connected account
         const transfer = await stripe.transfers.create({
           amount: payoutAmount,
-          currency: 'gbp',
+          currency: currency_code.toLowerCase(),
           destination: driver.stripe_account_id,
           description: `Payout for driver ${driver.first_name} ${driver.last_name}`,
           metadata: {
@@ -169,7 +175,7 @@ serve(async (req) => {
         try {
           const payout = await stripe.payouts.create({
             amount: payoutAmount,
-            currency: 'gbp',
+            currency: currency_code.toLowerCase(),
           }, {
             stripeAccount: driver.stripe_account_id,
             idempotencyKey: `${idempotencyKey}_payout`,
@@ -193,8 +199,8 @@ serve(async (req) => {
       .insert({
         driver_id,
         entry_type: ledgerType,
-        amount_pence: -payoutAmount, // Negative = debit
-        currency_code: 'GBP',
+        amount_pence: -payoutAmount,
+        currency_code,
         description: `${kind} payout`,
         reference_id: stripeTransferId,
       })
@@ -236,6 +242,7 @@ serve(async (req) => {
       stripeTransferId,
       stripePayoutId,
       ledgerEntryId: ledgerEntry?.id,
+      currency_code,
       error: stripeError,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

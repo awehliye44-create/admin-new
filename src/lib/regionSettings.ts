@@ -152,7 +152,7 @@ export function formatETA(minutes: number): string {
 export const DEFAULT_REGION_SETTINGS: RegionSettings = {
   region_id: '',
   region_name: 'Unknown',
-  currency_code: 'GBP',
+  currency_code: '',
   distance_unit: 'mile',
   timezone: 'Europe/London',
   service_area_id: null,
@@ -189,8 +189,8 @@ export function validateRegionSettings(region: {
 export function resolveRegionCurrency(region: { currency_code?: string | null } | null | undefined): string {
   const code = region?.currency_code;
   if (!code) {
-    console.warn('[regionSettings] Region currency_code is missing. This is a configuration error. Falling back to GBP.');
-    return 'GBP';
+    console.error('[regionSettings] CRITICAL: Region currency_code is missing. This is a configuration error. Configure currency on the Region.');
+    return '???';
   }
   return code;
 }

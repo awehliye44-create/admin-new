@@ -170,7 +170,7 @@ export default function Dispatch() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {getCurrencySymbol((trip.service_area?.region as any)?.currency_code || 'GBP')}{(trip.fare || trip.estimated_fare || 0).toFixed(2)}
+                      {getCurrencySymbol((trip.service_area?.region as any)?.currency_code || '')}{(trip.fare || trip.estimated_fare || 0).toFixed(2)}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {format(new Date(trip.created_at), 'MMM d, HH:mm')}

@@ -58,7 +58,7 @@ export interface LedgerEntry {
 }
 
 // Format pence to currency string
-export function formatPence(pence: number, currencyCode: string = 'GBP'): string {
+export function formatPence(pence: number, currencyCode: string = ''): string {
   const amount = pence / 100;
   const symbol = getCurrencySymbol(currencyCode);
   const formatted = Math.abs(amount).toFixed(2);

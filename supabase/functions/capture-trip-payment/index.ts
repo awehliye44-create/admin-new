@@ -11,18 +11,8 @@ const corsHeaders = {
  * capture-trip-payment
  * 
  * Uses Stripe Connect DESTINATION CHARGES.
- * 
- * Flow:
- * 1. Capture the pre-authorized PaymentIntent for final_trip_total
- * 2. Stripe automatically splits: platform keeps application_fee, driver gets the rest
- * 3. Record ledger entry for driver earnings
- * 4. Check wallet debt and apply debt recovery
- * 
- * Key difference from old Separate Charges + Transfers:
- * - PaymentIntent is created with transfer_data.destination + application_fee_amount
- * - Stripe handles the split automatically on capture
- * - No manual Transfer creation needed
- * - application_fee_amount = platform_commission
+ * Currency is passed from complete-trip (already resolved from Region).
+ * No hardcoded currency — currency_code is REQUIRED.
  */
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -40,13 +30,13 @@ serve(async (req) => {
       platform_commission_pence,
       driver_total_earnings_pence,
       tip_amount_pence = 0,
-      currency_code = 'GBP',
+      currency_code,
       driver_stripe_account_id,
     } = body;
 
-    // Validate required fields
-    if (!trip_id || !driver_id || !payment_intent_id || !final_trip_total_pence || platform_commission_pence === undefined) {
-      return new Response(JSON.stringify({ error: 'Missing required fields' }), {
+    // Validate required fields — currency_code is mandatory (no GBP fallback)
+    if (!trip_id || !driver_id || !payment_intent_id || !final_trip_total_pence || platform_commission_pence === undefined || !currency_code) {
+      return new Response(JSON.stringify({ error: 'Missing required fields (including currency_code)' }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -64,7 +54,7 @@ serve(async (req) => {
     const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    console.log(`[capture] Starting capture for trip ${trip_id}, PI: ${payment_intent_id}`);
+    console.log(`[capture] Starting capture for trip ${trip_id}, PI: ${payment_intent_id}, currency: ${currency_code}`);
     console.log(`[capture] Total: ${final_trip_total_pence}p, Commission: ${platform_commission_pence}p, DriverEarnings: ${driver_total_earnings_pence}p, Tip: ${tip_amount_pence}p`);
 
     // === IDEMPOTENCY: Check if already processed ===
@@ -94,7 +84,6 @@ serve(async (req) => {
     const walletBalanceBefore = walletEntries?.reduce((sum, e) => sum + (e.amount_pence || 0), 0) || 0;
     let debtRecoveryPence = 0;
 
-    // If wallet is negative (debt from cash trips), recover from this earning
     if (walletBalanceBefore < 0) {
       debtRecoveryPence = Math.min(Math.abs(walletBalanceBefore), driver_total_earnings_pence);
       console.log(`[capture] Wallet debt: ${walletBalanceBefore}p, recovering: ${debtRecoveryPence}p`);
@@ -113,22 +102,10 @@ serve(async (req) => {
       const idempotencyKey = `capture_${trip_id}`;
 
       try {
-        // For Destination Charges, the PaymentIntent was created with:
-        //   transfer_data: { destination: driver_connected_account_id }
-        //   application_fee_amount: platform_commission
-        // On capture, Stripe automatically:
-        //   1. Charges the customer for final_trip_total
-        //   2. Transfers (final_trip_total - application_fee) to driver connected account
-        //   3. Platform keeps the application_fee
-        //   4. Stripe fee is deducted from the platform's portion
-
-        // Update application_fee_amount to match ACTUAL commission (not the estimate from PI creation)
-        // This ensures the platform retains the correct commission even if fare changed
         const captureParams: Record<string, unknown> = {
           amount_to_capture: final_trip_total_pence,
         };
 
-        // Only set application_fee if the PI has a destination (driver connected account)
         if (driver_stripe_account_id) {
           captureParams.application_fee_amount = platform_commission_pence;
         }
@@ -141,7 +118,6 @@ serve(async (req) => {
 
         console.log(`[capture] PaymentIntent captured: ${pi.id}, status: ${pi.status}`);
 
-        // Extract Stripe processing fee
         if (pi.latest_charge) {
           try {
             const charge = await stripe.charges.retrieve(pi.latest_charge as string, {
@@ -152,7 +128,6 @@ serve(async (req) => {
               stripeFee = bt.fee;
               console.log(`[capture] Stripe fee: ${stripeFee}p`);
             }
-            // Get application fee ID
             if (charge.application_fee && typeof charge.application_fee === 'object') {
               stripeApplicationFeeId = charge.application_fee.id;
             } else if (typeof charge.application_fee === 'string') {
@@ -165,13 +140,6 @@ serve(async (req) => {
 
         captureSuccess = true;
 
-        // With Destination Charges, Stripe automatically handles the transfer.
-        // The application_fee_amount we passed during capture ensures the platform
-        // retains the correct commission.
-        //
-        // If driver has no connected account (no transfer_data on PI),
-        // the full amount stays with the platform. A manual payout/transfer 
-        // must be arranged separately.
         if (!driver_stripe_account_id) {
           console.warn(`[capture] No driver connected account — full amount retained by platform. Manual payout required for driver ${driver_id}`);
         }
@@ -192,7 +160,6 @@ serve(async (req) => {
         }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
     } else {
-      // No Stripe key - ledger-only mode (test/dev)
       captureSuccess = true;
       console.log(`[capture] No STRIPE_SECRET_KEY, operating in ledger-only mode`);
     }
@@ -272,6 +239,7 @@ serve(async (req) => {
       wallet_balance_after: walletBalanceAfter,
       platform_net_revenue: platform_commission_pence - stripeFee,
       payment_status: 'captured',
+      currency_code,
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error) {

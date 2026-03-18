@@ -314,7 +314,7 @@ export default function CorporateBilling() {
                 <TrendingUp className="h-4 w-4 text-green-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-green-500">£{totalCorpRevenue.toFixed(2)}</div>
+                <div className="text-2xl font-bold text-green-500">{getCurrencySymbol('')}{totalCorpRevenue.toFixed(2)}</div>
                 <p className="text-xs text-muted-foreground">From corporate trips</p>
               </CardContent>
             </Card>
@@ -565,7 +565,7 @@ export default function CorporateBilling() {
                             </span>
                           </TableCell>
                           <TableCell className="font-medium">
-                            {getCurrencySymbol(trip.currency_code || 'GBP')}
+                            {getCurrencySymbol(trip.currency_code || '')}
                             {(trip.fare || trip.estimated_fare || 0).toFixed(2)}
                           </TableCell>
                           <TableCell>{getTripStatusBadge(trip.status)}</TableCell>

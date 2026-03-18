@@ -499,7 +499,7 @@ export default function TripHistory() {
     if (activeRegion) {
       return getCurrencySymbol(activeRegion.currency_code);
     }
-    return getCurrencySymbol('GBP');
+    return getCurrencySymbol('');
   };
 
   // Get the active distance unit (from filter or default)

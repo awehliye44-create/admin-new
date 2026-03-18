@@ -148,7 +148,7 @@ export default function FareSimulator() {
       console.warn(`[FareSimulator] Region "${region.name}" is missing currency_code.`);
     }
     return {
-      currencyCode: region?.currency_code || 'GBP',
+      currencyCode: region?.currency_code || '',
       distanceUnit: region?.distance_unit || 'mile',
       regionName: region?.name || null,
     };

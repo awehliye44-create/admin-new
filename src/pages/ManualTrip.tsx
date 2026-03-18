@@ -107,7 +107,7 @@ export default function ManualTrip() {
   // Service area settings
   const [selectedServiceAreaId, setSelectedServiceAreaId] = useState('');
   const [paymentConfig, setPaymentConfig] = useState<ServiceAreaPaymentConfig | null>(null);
-  const [currencyCode, setCurrencyCode] = useState('GBP');
+  const [currencyCode, setCurrencyCode] = useState('');
   const [distanceUnit, setDistanceUnit] = useState<'mile' | 'km'>('mile');
   const [serviceAreaCenter, setServiceAreaCenter] = useState<{ lat: number; lng: number } | null>(null);
   const [serviceAreaCountryCode, setServiceAreaCountryCode] = useState<string | null>(null);
@@ -202,7 +202,7 @@ export default function ManualTrip() {
   useEffect(() => {
     if (!selectedServiceAreaId) {
       setPaymentConfig(null);
-      setCurrencyCode('GBP');
+      setCurrencyCode('');
       setDistanceUnit('mile');
       setServiceAreaCenter(null);
       setServiceAreaCountryCode(null);
@@ -212,7 +212,7 @@ export default function ManualTrip() {
     const serviceArea = serviceAreas.find(sa => sa.id === selectedServiceAreaId);
     if (serviceArea) {
       // Currency and distance unit come from Region only (single source of truth)
-      const currency = serviceArea.region?.currency_code || 'GBP';
+      const currency = serviceArea.region?.currency_code || '';
       setCurrencyCode(currency);
       
       const regionUnit = serviceArea.region?.distance_unit;
