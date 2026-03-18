@@ -155,8 +155,9 @@ export default function Riders() {
   const filteredRiders = riders.filter(rider => {
     const fullName = getFullName(rider).toLowerCase();
     const phone = rider.phone?.toLowerCase() || '';
+    const code = rider.customer_code?.toLowerCase() || '';
     const query = searchQuery.toLowerCase();
-    return fullName.includes(query) || phone.includes(query);
+    return fullName.includes(query) || phone.includes(query) || code.includes(query);
   });
 
   const totalRiders = riders.length;
