@@ -107,7 +107,7 @@ export default function ManualTrip() {
   // Service area settings
   const [selectedServiceAreaId, setSelectedServiceAreaId] = useState('');
   const [paymentConfig, setPaymentConfig] = useState<ServiceAreaPaymentConfig | null>(null);
-  const [currencyCode, setCurrencyCode] = useState('GBP');
+  const [currencyCode, setCurrencyCode] = useState('');
   const [distanceUnit, setDistanceUnit] = useState<'mile' | 'km'>('mile');
   const [serviceAreaCenter, setServiceAreaCenter] = useState<{ lat: number; lng: number } | null>(null);
   const [serviceAreaCountryCode, setServiceAreaCountryCode] = useState<string | null>(null);
