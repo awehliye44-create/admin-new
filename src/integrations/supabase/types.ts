@@ -4110,6 +4110,33 @@ export type Database = {
           },
         ]
       }
+      profiles: {
+        Row: {
+          created_at: string
+          full_name: string
+          phone: string | null
+          role: Database["public"]["Enums"]["app_user_role"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          full_name?: string
+          phone?: string | null
+          role: Database["public"]["Enums"]["app_user_role"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          full_name?: string
+          phone?: string | null
+          role?: Database["public"]["Enums"]["app_user_role"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       promo_code_redemptions: {
         Row: {
           amount_credited_pence: number
@@ -7267,7 +7294,6 @@ export type Database = {
           email: string | null
           full_name: string | null
           has_linked_record: boolean | null
-          last_sign_in_at: string | null
           phone: string | null
           status: string | null
           user_id: string | null
@@ -7614,6 +7640,7 @@ export type Database = {
     Enums: {
       app_role: "admin" | "moderator" | "user"
       app_scope: "customer" | "driver" | "corporate" | "shared" | "legal"
+      app_user_role: "admin" | "driver" | "customer" | "corporate"
       content_status: "draft" | "published"
       staff_role:
         | "super_admin"
@@ -7762,6 +7789,7 @@ export const Constants = {
     Enums: {
       app_role: ["admin", "moderator", "user"],
       app_scope: ["customer", "driver", "corporate", "shared", "legal"],
+      app_user_role: ["admin", "driver", "customer", "corporate"],
       content_status: ["draft", "published"],
       staff_role: [
         "super_admin",
