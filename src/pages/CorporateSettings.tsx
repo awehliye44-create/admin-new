@@ -395,21 +395,12 @@ export default function CorporateSettings() {
                 <div className="grid gap-4 md:grid-cols-3">
                   <div className="space-y-2">
                     <Label htmlFor="currency">Currency</Label>
-                    <Select 
-                      value={formData.billing.currency} 
-                      onValueChange={(value) => updateBilling('currency', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="GBP">GBP (£)</SelectItem>
-                        <SelectItem value="USD">USD ($)</SelectItem>
-                        <SelectItem value="EUR">EUR (€)</SelectItem>
-                        <SelectItem value="CAD">CAD ($)</SelectItem>
-                        <SelectItem value="AUD">AUD ($)</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <p className="text-xs text-muted-foreground">Set by Region (source of truth)</p>
+                    <Input
+                      value={regionFilter !== 'all' ? (regions.find(r => r.id === regionFilter)?.currency_code || '—') : 'Per Region'}
+                      disabled
+                      className="bg-muted"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="tax_name">Tax Name</Label>

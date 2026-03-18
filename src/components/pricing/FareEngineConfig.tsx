@@ -49,7 +49,7 @@ interface FarePricingSettings {
 
 const DEFAULT_SETTINGS: Omit<FarePricingSettings, 'service_area_id'> = {
   pricing_mode: 'fixed',
-  currency_code: 'GBP',
+  currency_code: '',
   base_fare_pence: 300,
   per_km_rate_pence: 150,
   per_min_rate_pence: 20,

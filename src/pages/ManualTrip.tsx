@@ -212,7 +212,7 @@ export default function ManualTrip() {
     const serviceArea = serviceAreas.find(sa => sa.id === selectedServiceAreaId);
     if (serviceArea) {
       // Currency and distance unit come from Region only (single source of truth)
-      const currency = serviceArea.region?.currency_code || 'GBP';
+      const currency = serviceArea.region?.currency_code || '';
       setCurrencyCode(currency);
       
       const regionUnit = serviceArea.region?.distance_unit;
