@@ -24,13 +24,18 @@ interface Trip {
   status: string | null;
   fare: number | null;
   estimated_fare: number | null;
-  currency_code: string | null;
   passenger_name: string | null;
   created_at: string;
+  service_area_id: string | null;
   driver?: {
     first_name: string;
     last_name: string;
     driver_code: string | null;
+  } | null;
+  service_area?: {
+    region?: {
+      currency_code: string | null;
+    } | null;
   } | null;
 }
 
@@ -46,7 +51,8 @@ export default function Dispatch() {
           .from('trips')
           .select(`
             *,
-            driver:drivers!trips_driver_id_fkey(first_name, last_name, driver_code)
+            driver:drivers!trips_driver_id_fkey(first_name, last_name, driver_code),
+            service_area:service_areas!trips_service_area_id_fkey(region:regions(currency_code))
           `)
           .order('created_at', { ascending: false })
           .limit(50);
@@ -164,7 +170,7 @@ export default function Dispatch() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {getCurrencySymbol(trip.currency_code || 'GBP')}{(trip.fare || trip.estimated_fare || 0).toFixed(2)}
+                      {getCurrencySymbol((trip.service_area?.region as any)?.currency_code || 'GBP')}{(trip.fare || trip.estimated_fare || 0).toFixed(2)}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {format(new Date(trip.created_at), 'MMM d, HH:mm')}

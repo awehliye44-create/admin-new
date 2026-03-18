@@ -159,8 +159,6 @@ export default function Services() {
     code: string;
     country: string;
     timezone: string;
-    currency_code: string;
-    distance_unit: string;
     region_id: string; 
     is_active: boolean; 
     geo_boundary: any 
@@ -169,8 +167,6 @@ export default function Services() {
     code: '',
     country: '',
     timezone: 'Europe/London',
-    currency_code: 'GBP',
-    distance_unit: 'km',
     region_id: '', 
     is_active: true,
     geo_boundary: null,
@@ -188,8 +184,6 @@ export default function Services() {
       code: '',
       country: '',
       timezone: 'Europe/London',
-      currency_code: 'GBP',
-      distance_unit: 'km',
       region_id: regions[0]?.id || '',
       is_active: true,
       geo_boundary: null,
@@ -300,8 +294,6 @@ export default function Services() {
           code: formData.code.toUpperCase(),
           country: formData.country || null,
           timezone: formData.timezone,
-          currency_code: formData.currency_code,
-          distance_unit: formData.distance_unit,
           region_id: formData.region_id, 
           is_active: formData.is_active,
           geo_boundary: boundaryForDb,
@@ -350,8 +342,6 @@ export default function Services() {
           code: formData.code.toUpperCase(),
           country: formData.country || null,
           timezone: formData.timezone,
-          currency_code: formData.currency_code,
-          distance_unit: formData.distance_unit,
           region_id: formData.region_id, 
           is_active: formData.is_active,
           geo_boundary: boundaryForDb,
@@ -427,8 +417,6 @@ export default function Services() {
       code: area.code || '',
       country: area.country || '',
       timezone: area.timezone || 'Europe/London',
-      currency_code: area.currency_code || 'GBP',
-      distance_unit: area.distance_unit || 'km',
       region_id: area.region_id, 
       is_active: area.is_active, 
       geo_boundary: area.geo_boundary || null 
@@ -829,8 +817,6 @@ export default function Services() {
                         ...prev, 
                         region_id: value, 
                         geo_boundary: null,
-                        currency_code: region?.currency_code || prev.currency_code,
-                        distance_unit: region?.distance_unit || prev.distance_unit,
                         timezone: region?.timezone || prev.timezone,
                       }));
                     }}
@@ -971,8 +957,6 @@ export default function Services() {
                       ...prev, 
                       region_id: value, 
                       geo_boundary: null,
-                      currency_code: region?.currency_code || prev.currency_code,
-                      distance_unit: region?.distance_unit || prev.distance_unit,
                       timezone: region?.timezone || prev.timezone,
                     }));
                   }}

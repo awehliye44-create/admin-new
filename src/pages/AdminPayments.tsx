@@ -105,8 +105,8 @@ interface PaymentDetail {
   } | null;
 }
 
-const formatPence = (pence: number, currencyCode: string = 'GBP'): string => {
-  const symbol = getCurrencySymbol(currencyCode);
+const formatPence = (pence: number, currencyCode?: string): string => {
+  const symbol = getCurrencySymbol(currencyCode || 'GBP');
   return `${symbol}${(pence / 100).toFixed(2)}`;
 };
 
