@@ -69,6 +69,7 @@ import ManageContent from "./pages/ManageContent";
 import LiveChat from "./pages/LiveChat";
 import OnecabDocuments from "./pages/OnecabDocuments";
 import AlertSounds from "./pages/AlertSounds";
+import UserDirectory from "./pages/UserDirectory";
 
 const queryClient = createAppQueryClient();
 
@@ -166,6 +167,7 @@ const App = () => (
               <Route path="roles" element={<RolesPermissions />} />
               <Route path="notifications" element={<Notifications />} />
               <Route path="alert-sounds" element={<AlertSounds />} />
+              <Route path="user-directory" element={<UserDirectory />} />
               <Route path="profile" element={<AdminProfile />} />
             </Route>
             
