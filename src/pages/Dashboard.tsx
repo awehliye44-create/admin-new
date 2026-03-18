@@ -79,12 +79,11 @@ interface RecentTrip {
   } | null;
 }
 
-interface ServiceArea {
+interface DashboardServiceArea {
   id: string;
   name: string;
   region_id: string;
-  /** Joined from regions table — Region is the single source of truth for currency */
-  region?: { currency_code: string } | null;
+  region?: { currency_code: string; distance_unit: string } | null;
 }
 
 interface Driver {
