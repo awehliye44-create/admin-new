@@ -1426,6 +1426,7 @@ export type Database = {
           batch_mode: string
           block_multiple_active_rides: boolean
           cancel_protection: boolean
+          cancellation_fee_after_grace_pence: number
           cascade_batch_size: number
           cascade_step_delay_seconds: number
           cooldown_after_reject_seconds: number
@@ -1457,7 +1458,9 @@ export type Database = {
           max_waiting_bonus_minutes: number
           min_advance_time_minutes: number
           minimum_rating: number
+          no_show_charge_pence: number
           offer_expiry_seconds: number
+          pickup_waiting_grace_period_seconds: number
           priority_order: string
           scheduled_response_window_minutes: number
           scheduled_ride_incentives_enabled: boolean
@@ -1505,6 +1508,7 @@ export type Database = {
           batch_mode?: string
           block_multiple_active_rides?: boolean
           cancel_protection?: boolean
+          cancellation_fee_after_grace_pence?: number
           cascade_batch_size?: number
           cascade_step_delay_seconds?: number
           cooldown_after_reject_seconds?: number
@@ -1536,7 +1540,9 @@ export type Database = {
           max_waiting_bonus_minutes?: number
           min_advance_time_minutes?: number
           minimum_rating?: number
+          no_show_charge_pence?: number
           offer_expiry_seconds?: number
+          pickup_waiting_grace_period_seconds?: number
           priority_order?: string
           scheduled_response_window_minutes?: number
           scheduled_ride_incentives_enabled?: boolean
@@ -1584,6 +1590,7 @@ export type Database = {
           batch_mode?: string
           block_multiple_active_rides?: boolean
           cancel_protection?: boolean
+          cancellation_fee_after_grace_pence?: number
           cascade_batch_size?: number
           cascade_step_delay_seconds?: number
           cooldown_after_reject_seconds?: number
@@ -1615,7 +1622,9 @@ export type Database = {
           max_waiting_bonus_minutes?: number
           min_advance_time_minutes?: number
           minimum_rating?: number
+          no_show_charge_pence?: number
           offer_expiry_seconds?: number
+          pickup_waiting_grace_period_seconds?: number
           priority_order?: string
           scheduled_response_window_minutes?: number
           scheduled_ride_incentives_enabled?: boolean
@@ -2787,6 +2796,9 @@ export type Database = {
         Row: {
           base_fare_pence: number
           booking_fee_pence: number
+          cancellation_apply_after_arrival_only: boolean
+          cancellation_fee_pence: number
+          cancellation_grace_period_minutes: number
           created_at: string
           currency_code: string
           demand_supply_multiplier: number
@@ -2795,6 +2807,9 @@ export type Database = {
           free_waiting_minutes: number
           id: string
           minimum_fare_pence: number
+          no_show_apply_after_arrival_only: boolean
+          no_show_fee_pence: number
+          no_show_wait_time_minutes: number
           peak_hour_multiplier: number
           per_km_rate_pence: number
           per_min_rate_pence: number
@@ -2813,6 +2828,9 @@ export type Database = {
         Insert: {
           base_fare_pence?: number
           booking_fee_pence?: number
+          cancellation_apply_after_arrival_only?: boolean
+          cancellation_fee_pence?: number
+          cancellation_grace_period_minutes?: number
           created_at?: string
           currency_code?: string
           demand_supply_multiplier?: number
@@ -2821,6 +2839,9 @@ export type Database = {
           free_waiting_minutes?: number
           id?: string
           minimum_fare_pence?: number
+          no_show_apply_after_arrival_only?: boolean
+          no_show_fee_pence?: number
+          no_show_wait_time_minutes?: number
           peak_hour_multiplier?: number
           per_km_rate_pence?: number
           per_min_rate_pence?: number
@@ -2839,6 +2860,9 @@ export type Database = {
         Update: {
           base_fare_pence?: number
           booking_fee_pence?: number
+          cancellation_apply_after_arrival_only?: boolean
+          cancellation_fee_pence?: number
+          cancellation_grace_period_minutes?: number
           created_at?: string
           currency_code?: string
           demand_supply_multiplier?: number
@@ -2847,6 +2871,9 @@ export type Database = {
           free_waiting_minutes?: number
           id?: string
           minimum_fare_pence?: number
+          no_show_apply_after_arrival_only?: boolean
+          no_show_fee_pence?: number
+          no_show_wait_time_minutes?: number
           peak_hour_multiplier?: number
           per_km_rate_pence?: number
           per_min_rate_pence?: number
@@ -5799,6 +5826,7 @@ export type Database = {
           fare_snapshot_json: Json | null
           final_fare_pence: number | null
           final_payout_pence: number | null
+          grace_period_expired_at: string | null
           gross_fare_pence: number | null
           id: string
           is_scheduled: boolean | null
@@ -5806,6 +5834,7 @@ export type Database = {
           last_broadcast_at: string | null
           max_broadcast_rounds: number | null
           negotiation_locked_until: string | null
+          no_show_charge_pence: number | null
           offer_snapshot: Json | null
           passenger_id: string
           passenger_name: string | null
@@ -5930,6 +5959,7 @@ export type Database = {
           fare_snapshot_json?: Json | null
           final_fare_pence?: number | null
           final_payout_pence?: number | null
+          grace_period_expired_at?: string | null
           gross_fare_pence?: number | null
           id?: string
           is_scheduled?: boolean | null
@@ -5937,6 +5967,7 @@ export type Database = {
           last_broadcast_at?: string | null
           max_broadcast_rounds?: number | null
           negotiation_locked_until?: string | null
+          no_show_charge_pence?: number | null
           offer_snapshot?: Json | null
           passenger_id: string
           passenger_name?: string | null
@@ -6061,6 +6092,7 @@ export type Database = {
           fare_snapshot_json?: Json | null
           final_fare_pence?: number | null
           final_payout_pence?: number | null
+          grace_period_expired_at?: string | null
           gross_fare_pence?: number | null
           id?: string
           is_scheduled?: boolean | null
@@ -6068,6 +6100,7 @@ export type Database = {
           last_broadcast_at?: string | null
           max_broadcast_rounds?: number | null
           negotiation_locked_until?: string | null
+          no_show_charge_pence?: number | null
           offer_snapshot?: Json | null
           passenger_id?: string
           passenger_name?: string | null
