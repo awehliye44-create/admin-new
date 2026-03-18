@@ -74,12 +74,8 @@ export default function ServiceAreaPricing() {
 
   const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
   const [selectedServiceAreaId, setSelectedServiceAreaId] = useState<string>(serviceAreaIdFromParams || '');
-  const [cancellationFees, setCancellationFees] = useState<CancellationFees>({
-    free_cancellation_window_minutes: 5,
-    cancellation_fee: 5,
-    no_show_fee: 10,
-    currency_code: '',
-  });
+
+
 
   // Vehicle Types state
   const [allVehicleTypes, setAllVehicleTypes] = useState<VehicleType[]>([]);
