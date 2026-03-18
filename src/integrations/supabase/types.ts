@@ -5764,6 +5764,7 @@ export type Database = {
           destination_change_adjustment_pence: number | null
           dispatch_mode: string | null
           dispatch_status: string | null
+          distance_unit: string | null
           driver_confirm_deadline_at: string | null
           driver_id: string | null
           driver_location_lat: number | null
@@ -5894,6 +5895,7 @@ export type Database = {
           destination_change_adjustment_pence?: number | null
           dispatch_mode?: string | null
           dispatch_status?: string | null
+          distance_unit?: string | null
           driver_confirm_deadline_at?: string | null
           driver_id?: string | null
           driver_location_lat?: number | null
@@ -6024,6 +6026,7 @@ export type Database = {
           destination_change_adjustment_pence?: number | null
           dispatch_mode?: string | null
           dispatch_status?: string | null
+          distance_unit?: string | null
           driver_confirm_deadline_at?: string | null
           driver_id?: string | null
           driver_location_lat?: number | null
