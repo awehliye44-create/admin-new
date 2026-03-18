@@ -24,13 +24,18 @@ interface Trip {
   status: string | null;
   fare: number | null;
   estimated_fare: number | null;
-  currency_code: string | null;
   passenger_name: string | null;
   created_at: string;
+  service_area_id: string | null;
   driver?: {
     first_name: string;
     last_name: string;
     driver_code: string | null;
+  } | null;
+  service_area?: {
+    region?: {
+      currency_code: string | null;
+    } | null;
   } | null;
 }
 
