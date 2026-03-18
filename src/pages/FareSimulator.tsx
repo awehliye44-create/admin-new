@@ -438,9 +438,14 @@ export default function FareSimulator() {
           <Calculator className="h-5 w-5 text-primary mt-0.5 shrink-0" />
           <div>
             <p className="font-semibold text-sm">Powered by Fare Engine</p>
-            <p className="text-sm text-muted-foreground">
+           <p className="text-sm text-muted-foreground">
               This simulator uses <code className="text-xs bg-muted px-1 rounded">fare_pricing_settings</code> configured per service area.
               Vehicle Types no longer control pricing. Select a service area to begin.
+              {currentRegionSettings.regionName && (
+                <span className="block mt-1">
+                  <strong>Currency ({currentRegionSettings.currencyCode}) and distance unit ({currentRegionSettings.distanceUnit}) are set by Region "{currentRegionSettings.regionName}".</strong>
+                </span>
+              )}
             </p>
           </div>
         </div>
