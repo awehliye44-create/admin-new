@@ -54,7 +54,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-
+import { getCurrencySymbol, CURRENCY_LIST } from '@/lib/regionSettings';
 
 interface LatLng {
   lat: number;
