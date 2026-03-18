@@ -77,7 +77,8 @@ interface VehicleType {
 
 interface FareEngineConfigProps {
   serviceAreaId: string;
-  regionCurrencyCode?: string;
+  /** Currency code from Region — the SINGLE SOURCE OF TRUTH for currency. Required. */
+  regionCurrencyCode: string;
 }
 
 export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngineConfigProps) {
@@ -91,7 +92,8 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
   const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState<string>('__default__');
   const [configuredVtIds, setConfiguredVtIds] = useState<Set<string>>(new Set());
 
-  const currencyCode = regionCurrencyCode || settings?.currency_code || 'GBP';
+  // Region is the single source of truth for currency — never use settings.currency_code
+  const currencyCode = regionCurrencyCode;
   const symbol = getCurrencySymbol(currencyCode);
 
   // Fetch assigned vehicle types for this service area

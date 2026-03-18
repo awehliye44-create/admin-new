@@ -211,11 +211,10 @@ export default function ManualTrip() {
 
     const serviceArea = serviceAreas.find(sa => sa.id === selectedServiceAreaId);
     if (serviceArea) {
-      // Get currency from service area or fall back to region
-      const currency = serviceArea.currency_code || serviceArea.region?.currency_code || 'GBP';
+      // Currency and distance unit come from Region only (single source of truth)
+      const currency = serviceArea.region?.currency_code || 'GBP';
       setCurrencyCode(currency);
       
-      // Get distance unit from parent region (regions own this setting)
       const regionUnit = serviceArea.region?.distance_unit;
       setDistanceUnit((regionUnit as 'mile' | 'km') || 'mile');
       
