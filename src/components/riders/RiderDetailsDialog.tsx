@@ -32,6 +32,7 @@ import { format, formatDistanceToNow } from 'date-fns';
 interface Rider {
   id: string;
   user_id: string;
+  customer_code: string;
   first_name: string | null;
   last_name: string | null;
   phone: string | null;
