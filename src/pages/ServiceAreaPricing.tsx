@@ -135,36 +135,8 @@ export default function ServiceAreaPricing() {
     }
   };
 
-  const fetchPricingData = async (serviceAreaId: string) => {
-    try {
-      const { data: feesData } = await supabase
-        .from('service_area_cancellation_fees')
-        .select('*')
-        .eq('service_area_id', serviceAreaId)
-        .single();
-
-      if (feesData) {
-        setCancellationFees({
-          free_cancellation_window_minutes: feesData.free_cancellation_window_minutes,
-          cancellation_fee: Number(feesData.cancellation_fee),
-          no_show_fee: Number(feesData.no_show_fee),
-          currency_code: feesData.currency_code,
-        });
-      } else {
-        const serviceArea = serviceAreas.find(sa => sa.id === serviceAreaId);
-        const defaultCurrency = serviceArea?.region?.currency_code || '';
-        setCancellationFees({
-          free_cancellation_window_minutes: 5,
-          cancellation_fee: 5,
-          no_show_fee: 10,
-          currency_code: defaultCurrency,
-        });
-      }
-      
-      setHasChanges(false);
-    } catch (err) {
-      console.error('Error fetching pricing:', err);
-    }
+  const fetchPricingData = async (_serviceAreaId: string) => {
+    setHasChanges(false);
   };
 
   const fetchVehicleTypeAssignments = async (serviceAreaId: string) => {
