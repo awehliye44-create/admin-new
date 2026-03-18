@@ -44,6 +44,7 @@ import { RiderDetailsDialog } from '@/components/riders/RiderDetailsDialog';
 interface Rider {
   id: string;
   user_id: string;
+  customer_code: string;
   first_name: string | null;
   last_name: string | null;
   phone: string | null;
@@ -70,7 +71,7 @@ export default function Riders() {
       // Fetch riders from customers table (NOT drivers table)
       const { data: ridersData, error: ridersError } = await supabase
         .from('customers')
-        .select('id, user_id, first_name, last_name, phone, created_at, updated_at')
+        .select('id, user_id, customer_code, first_name, last_name, phone, created_at, updated_at')
         .order('created_at', { ascending: false });
 
       if (ridersError) throw ridersError;
@@ -154,8 +155,9 @@ export default function Riders() {
   const filteredRiders = riders.filter(rider => {
     const fullName = getFullName(rider).toLowerCase();
     const phone = rider.phone?.toLowerCase() || '';
+    const code = rider.customer_code?.toLowerCase() || '';
     const query = searchQuery.toLowerCase();
-    return fullName.includes(query) || phone.includes(query);
+    return fullName.includes(query) || phone.includes(query) || code.includes(query);
   });
 
   const totalRiders = riders.length;
@@ -234,7 +236,7 @@ export default function Riders() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search by name or phone..."
+                  placeholder="Search by name, phone, or CU ID..."
                   className="pl-9 w-[250px]"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -260,6 +262,7 @@ export default function Riders() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Rider</TableHead>
+                  <TableHead>Customer ID</TableHead>
                   <TableHead>Phone</TableHead>
                   <TableHead>Trips</TableHead>
                   <TableHead>Last Trip</TableHead>
@@ -279,11 +282,13 @@ export default function Riders() {
                         </Avatar>
                         <div>
                           <p className="font-medium">{getFullName(rider)}</p>
-                          <p className="text-xs text-muted-foreground">
-                            ID: {rider.id.slice(0, 8)}...
-                          </p>
                         </div>
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="font-mono text-xs">
+                        {rider.customer_code}
+                      </Badge>
                     </TableCell>
                     <TableCell>
                       {rider.phone ? (

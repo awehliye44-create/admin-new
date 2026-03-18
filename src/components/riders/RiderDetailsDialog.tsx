@@ -32,6 +32,7 @@ import { format, formatDistanceToNow } from 'date-fns';
 interface Rider {
   id: string;
   user_id: string;
+  customer_code: string;
   first_name: string | null;
   last_name: string | null;
   phone: string | null;
@@ -164,8 +165,8 @@ export function RiderDetailsDialog({
               </Avatar>
               <div className="flex-1">
                 <h3 className="text-xl font-semibold">{getFullName(rider)}</h3>
-                <p className="text-sm text-muted-foreground font-mono">
-                  ID: {rider.id.slice(0, 8)}...
+                <p className="text-sm font-mono text-primary font-medium">
+                  {rider.customer_code}
                 </p>
                 <div className="flex items-center gap-2 mt-2">
                   <Badge className={rider.status === 'suspended' 

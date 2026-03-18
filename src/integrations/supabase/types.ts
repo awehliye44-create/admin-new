@@ -1283,6 +1283,7 @@ export type Database = {
         Row: {
           active_trip_id: string | null
           created_at: string
+          customer_code: string
           first_name: string | null
           id: string
           last_name: string | null
@@ -1294,6 +1295,7 @@ export type Database = {
         Insert: {
           active_trip_id?: string | null
           created_at?: string
+          customer_code: string
           first_name?: string | null
           id?: string
           last_name?: string | null
@@ -1305,6 +1307,7 @@ export type Database = {
         Update: {
           active_trip_id?: string | null
           created_at?: string
+          customer_code?: string
           first_name?: string | null
           id?: string
           last_name?: string | null
@@ -2958,6 +2961,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      global_sequences: {
+        Row: {
+          current_value: number
+          sequence_type: string
+          updated_at: string
+        }
+        Insert: {
+          current_value?: number
+          sequence_type: string
+          updated_at?: string
+        }
+        Update: {
+          current_value?: number
+          sequence_type?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       id_sequences: {
         Row: {
@@ -7330,6 +7351,10 @@ export type Database = {
       point_in_polygon: {
         Args: { point_lat: number; point_lng: number; polygon_geojson: Json }
         Returns: boolean
+      }
+      promote_stacked_trip: {
+        Args: { p_completed_trip_id?: string; p_driver_id: string }
+        Returns: Json
       }
       reactivate_corporate_account: {
         Args: { p_account_id: string }
