@@ -144,9 +144,13 @@ export default function FareSimulator() {
   const currentRegionSettings = useMemo(() => {
     const selectedArea = serviceAreas.find(sa => sa.id === formData.service_area_id);
     const region = regions.find(r => r.id === selectedArea?.region_id);
+    if (region && !region.currency_code) {
+      console.warn(`[FareSimulator] Region "${region.name}" is missing currency_code.`);
+    }
     return {
       currencyCode: region?.currency_code || 'GBP',
       distanceUnit: region?.distance_unit || 'mile',
+      regionName: region?.name || null,
     };
   }, [formData.service_area_id, serviceAreas, regions]);
 
