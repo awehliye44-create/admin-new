@@ -443,7 +443,7 @@ export default function Dashboard() {
           const areaTrips = completedTripsData.filter(t => t.service_area_id === area.id);
           const revenue = areaTrips.reduce((sum, t) => sum + (Number(t.gross_fare_pence) || 0), 0) / 100;
           const commission = areaTrips.reduce((sum, t) => sum + (Number(t.commission_pence) || 0), 0) / 100;
-          return { name: area.name, revenue, trips: areaTrips.length, commission, currency_code: (area.region as any)?.currency_code || 'GBP' };
+          return { name: area.name, revenue, trips: areaTrips.length, commission, currency_code: area.region?.currency_code || 'GBP' };
         }).filter(a => a.trips > 0).sort((a, b) => b.revenue - a.revenue);
         setServiceAreaRevenues(revenueByArea);
       } else {
