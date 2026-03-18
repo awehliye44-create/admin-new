@@ -743,9 +743,23 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
                 <span className="text-muted-foreground">Waiting/Min</span>
                 <span className="font-mono">{symbol}{(settings.waiting_per_minute_pence / 100).toFixed(2)}</span>
               </div>
+              <Separator />
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Stop Fee</span>
-                <span className="font-mono">{symbol}{(settings.extra_stop_flat_fee_pence / 100).toFixed(2)}</span>
+                <span className="text-muted-foreground">Cancel Grace</span>
+                <span>{settings.cancellation_grace_period_minutes} min</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Cancel Fee</span>
+                <span className="font-mono">{symbol}{(settings.cancellation_fee_pence / 100).toFixed(2)}</span>
+              </div>
+              <Separator />
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">No-Show Wait</span>
+                <span>{settings.no_show_wait_time_minutes} min</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">No-Show Fee</span>
+                <span className="font-mono">{symbol}{(settings.no_show_fee_pence / 100).toFixed(2)}</span>
               </div>
             </CardContent>
           </Card>
