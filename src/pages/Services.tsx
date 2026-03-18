@@ -159,8 +159,6 @@ export default function Services() {
     code: string;
     country: string;
     timezone: string;
-    currency_code: string;
-    distance_unit: string;
     region_id: string; 
     is_active: boolean; 
     geo_boundary: any 
@@ -169,8 +167,6 @@ export default function Services() {
     code: '',
     country: '',
     timezone: 'Europe/London',
-    currency_code: 'GBP',
-    distance_unit: 'km',
     region_id: '', 
     is_active: true,
     geo_boundary: null,
