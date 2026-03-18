@@ -491,14 +491,14 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
             </CardContent>
           </Card>
 
-          {/* Waiting & Stop Charges */}
+          {/* Waiting Charges */}
           <Card>
             <CardHeader className="pb-4">
               <CardTitle className="flex items-center gap-2">
                 <Clock className="h-5 w-5 text-primary" />
-                Waiting & Stop Charges
+                Waiting Charges
               </CardTitle>
-              <CardDescription>Additional fare adjustments</CardDescription>
+              <CardDescription>Charges applied when driver waits at pickup beyond free minutes</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -510,46 +510,131 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
                     value={settings.free_waiting_minutes}
                     onChange={(e) => updateField('free_waiting_minutes', parseInt(e.target.value) || 0)}
                   />
+                  <p className="text-xs text-muted-foreground">Grace period before charges start</p>
                 </div>
-                {penceField('waiting_per_minute_pence', 'Waiting Per Minute', 'After free minutes expire')}
-                {penceField('extra_stop_flat_fee_pence', 'Extra Stop Fee', 'Flat fee per added stop')}
+                {penceField('waiting_per_minute_pence', 'Per Minute Rate', 'Charge per minute after free waiting expires')}
+                <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg self-start mt-5">
+                  <div>
+                    <Label className="text-sm font-medium">Enable Waiting Charge</Label>
+                    <p className="text-xs text-muted-foreground">Apply after free minutes</p>
+                  </div>
+                  <Switch
+                    checked={settings.recalculate_on_waiting}
+                    onCheckedChange={(v) => updateField('recalculate_on_waiting', v)}
+                  />
+                </div>
               </div>
+            </CardContent>
+          </Card>
 
-              <Separator />
+          {/* Cancellation Rules */}
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="flex items-center gap-2">
+                <Ban className="h-5 w-5 text-destructive" />
+                Cancellation Rules
+              </CardTitle>
+              <CardDescription>Fee applied when customer cancels after driver arrives and grace period expires</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="space-y-1">
+                  <Label className="text-sm">Grace Period (minutes)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={settings.cancellation_grace_period_minutes}
+                    onChange={(e) => updateField('cancellation_grace_period_minutes', parseInt(e.target.value) || 0)}
+                  />
+                  <p className="text-xs text-muted-foreground">Time after arrival before fee applies</p>
+                </div>
+                {penceField('cancellation_fee_pence', 'Cancellation Fee', 'Fixed fee if cancelled after grace period')}
+                <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg self-start mt-5">
+                  <div>
+                    <Label className="text-sm font-medium">After Arrival Only</Label>
+                    <p className="text-xs text-muted-foreground">Fee only when driver has arrived</p>
+                  </div>
+                  <Switch
+                    checked={settings.cancellation_apply_after_arrival_only}
+                    onCheckedChange={(v) => updateField('cancellation_apply_after_arrival_only', v)}
+                  />
+                </div>
+              </div>
+              <div className="flex items-start gap-2 p-3 border rounded-lg bg-muted/30 border-border">
+                <AlertCircle className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                <p className="text-xs text-muted-foreground">
+                  Driver arrives → grace period starts → if customer cancels within grace → no fee → if customer cancels after grace → cancellation fee applied.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
 
-              <div className="space-y-3">
-                <p className="text-sm font-medium">Fare Adjustment Rules</p>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                    <div>
-                      <Label className="text-sm font-medium">Waiting Charge</Label>
-                      <p className="text-xs text-muted-foreground">Apply after free minutes</p>
-                    </div>
-                    <Switch
-                      checked={settings.recalculate_on_waiting}
-                      onCheckedChange={(v) => updateField('recalculate_on_waiting', v)}
-                    />
+          {/* No-Show Rules */}
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="flex items-center gap-2">
+                <UserX className="h-5 w-5 text-amber-500" />
+                No-Show Rules
+              </CardTitle>
+              <CardDescription>Fee applied when customer does not appear after driver waits</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="space-y-1">
+                  <Label className="text-sm">Wait Time (minutes)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={settings.no_show_wait_time_minutes}
+                    onChange={(e) => updateField('no_show_wait_time_minutes', parseInt(e.target.value) || 0)}
+                  />
+                  <p className="text-xs text-muted-foreground">How long driver must wait before no-show</p>
+                </div>
+                {penceField('no_show_fee_pence', 'No-Show Fee', 'Charged to customer on no-show')}
+                <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg self-start mt-5">
+                  <div>
+                    <Label className="text-sm font-medium">After Arrival Only</Label>
+                    <p className="text-xs text-muted-foreground">Only apply if driver has arrived</p>
                   </div>
-                  <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                    <div>
-                      <Label className="text-sm font-medium">Stop Added</Label>
-                      <p className="text-xs text-muted-foreground">Charge for extra stops</p>
-                    </div>
-                    <Switch
-                      checked={settings.recalculate_on_stop_added}
-                      onCheckedChange={(v) => updateField('recalculate_on_stop_added', v)}
-                    />
+                  <Switch
+                    checked={settings.no_show_apply_after_arrival_only}
+                    onCheckedChange={(v) => updateField('no_show_apply_after_arrival_only', v)}
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Fare Adjustment Rules */}
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="flex items-center gap-2">
+                <Settings2 className="h-5 w-5 text-primary" />
+                Fare Adjustment Rules
+              </CardTitle>
+              <CardDescription>Controls for mid-trip fare recalculations</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                  <div>
+                    <Label className="text-sm font-medium">Destination Change</Label>
+                    <p className="text-xs text-muted-foreground">Recalculate on dropoff change</p>
                   </div>
-                  <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                    <div>
-                      <Label className="text-sm font-medium">Destination Change</Label>
-                      <p className="text-xs text-muted-foreground">Recalculate on dropoff change</p>
-                    </div>
-                    <Switch
-                      checked={settings.recalculate_on_dropoff_changed}
-                      onCheckedChange={(v) => updateField('recalculate_on_dropoff_changed', v)}
-                    />
+                  <Switch
+                    checked={settings.recalculate_on_dropoff_changed}
+                    onCheckedChange={(v) => updateField('recalculate_on_dropoff_changed', v)}
+                  />
+                </div>
+                <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                  <div>
+                    <Label className="text-sm font-medium">Stop Added</Label>
+                    <p className="text-xs text-muted-foreground">Charge for extra stops</p>
                   </div>
+                  <Switch
+                    checked={settings.recalculate_on_stop_added}
+                    onCheckedChange={(v) => updateField('recalculate_on_stop_added', v)}
+                  />
                 </div>
               </div>
             </CardContent>
