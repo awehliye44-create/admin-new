@@ -286,6 +286,11 @@ export default function Riders() {
                       </div>
                     </TableCell>
                     <TableCell>
+                      <Badge variant="outline" className="font-mono text-xs">
+                        {rider.customer_code}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
                       {rider.phone ? (
                         <div className="flex items-center gap-1">
                           <Phone className="h-3 w-3 text-muted-foreground" />
