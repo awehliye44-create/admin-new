@@ -162,7 +162,7 @@ export default function ManualTrip() {
             .limit(100),
           supabase
             .from('service_areas')
-            .select('id, name, country, currency_code, center_lat, center_lng, region_id, region:regions(distance_unit, currency_code)')
+            .select('id, name, country, center_lat, center_lng, region_id, region:regions(distance_unit, currency_code)')
             .eq('is_active', true)
             .order('name'),
           supabase
