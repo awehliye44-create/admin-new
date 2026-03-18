@@ -325,8 +325,8 @@ export default function RolesPermissions() {
       await supabase.from('staff_service_areas').delete().eq('staff_id', selectedStaff.id);
       // Remove staff profile
       await supabase.from('staff_profiles').delete().eq('id', selectedStaff.id);
-      // Also remove user_roles entry
-      await supabase.from('user_roles').delete().eq('user_id', selectedStaff.user_id);
+      // Remove profiles entry for this admin
+      await supabase.from('profiles').delete().eq('user_id', selectedStaff.user_id);
 
       setSuccess('Staff member removed');
       setShowRemoveDialog(false);

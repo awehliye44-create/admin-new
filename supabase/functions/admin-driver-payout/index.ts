@@ -42,7 +42,7 @@ serve(async (req) => {
     }
 
     const { data: roleData } = await supabase
-      .from('user_roles').select('role')
+      .from('profiles').select('role')
       .eq('user_id', user.id).eq('role', 'admin').single();
 
     if (!roleData) {
