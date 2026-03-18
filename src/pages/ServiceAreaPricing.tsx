@@ -22,7 +22,7 @@ import {
   Save, 
   Loader2, 
   Car, 
-  Ban,
+  
   Banknote,
   Users,
   FileText,
