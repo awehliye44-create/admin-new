@@ -41,3 +41,22 @@ export function useRegionsMap() {
   query.data?.forEach((r) => map.set(r.id, r));
   return { ...query, map };
 }
+
+/**
+ * Resolve Region settings (currency_code, distance_unit) for a given region_id.
+ * Region is the SINGLE SOURCE OF TRUTH for currency and units.
+ * Service Areas inherit these values from their parent Region and must not override them.
+ */
+export function useRegionSettings(regionId: string | undefined) {
+  const { map, isLoading, error } = useRegionsMap();
+  const region = regionId ? map.get(regionId) : undefined;
+  return {
+    region,
+    currencyCode: region?.currency_code,
+    distanceUnit: region?.distance_unit,
+    isLoading,
+    error,
+    /** True if regionId was provided but region was not found (after loading) */
+    isMissing: !isLoading && !!regionId && !region,
+  };
+}
