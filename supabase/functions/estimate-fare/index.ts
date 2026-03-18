@@ -144,7 +144,7 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({
         pricingMode: settings.pricing_mode,
-        currencyCode: settings.currency_code,
+        currencyCode: regionCurrency,
         quotedFarePence: breakdown.quoted_fare_pence,
         estimatedDistanceKm: estimated_distance_km,
         estimatedDurationMin: estimated_duration_min,
