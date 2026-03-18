@@ -2796,6 +2796,9 @@ export type Database = {
         Row: {
           base_fare_pence: number
           booking_fee_pence: number
+          cancellation_apply_after_arrival_only: boolean
+          cancellation_fee_pence: number
+          cancellation_grace_period_minutes: number
           created_at: string
           currency_code: string
           demand_supply_multiplier: number
@@ -2804,6 +2807,9 @@ export type Database = {
           free_waiting_minutes: number
           id: string
           minimum_fare_pence: number
+          no_show_apply_after_arrival_only: boolean
+          no_show_fee_pence: number
+          no_show_wait_time_minutes: number
           peak_hour_multiplier: number
           per_km_rate_pence: number
           per_min_rate_pence: number
@@ -2822,6 +2828,9 @@ export type Database = {
         Insert: {
           base_fare_pence?: number
           booking_fee_pence?: number
+          cancellation_apply_after_arrival_only?: boolean
+          cancellation_fee_pence?: number
+          cancellation_grace_period_minutes?: number
           created_at?: string
           currency_code?: string
           demand_supply_multiplier?: number
@@ -2830,6 +2839,9 @@ export type Database = {
           free_waiting_minutes?: number
           id?: string
           minimum_fare_pence?: number
+          no_show_apply_after_arrival_only?: boolean
+          no_show_fee_pence?: number
+          no_show_wait_time_minutes?: number
           peak_hour_multiplier?: number
           per_km_rate_pence?: number
           per_min_rate_pence?: number
@@ -2848,6 +2860,9 @@ export type Database = {
         Update: {
           base_fare_pence?: number
           booking_fee_pence?: number
+          cancellation_apply_after_arrival_only?: boolean
+          cancellation_fee_pence?: number
+          cancellation_grace_period_minutes?: number
           created_at?: string
           currency_code?: string
           demand_supply_multiplier?: number
@@ -2856,6 +2871,9 @@ export type Database = {
           free_waiting_minutes?: number
           id?: string
           minimum_fare_pence?: number
+          no_show_apply_after_arrival_only?: boolean
+          no_show_fee_pence?: number
+          no_show_wait_time_minutes?: number
           peak_hour_multiplier?: number
           per_km_rate_pence?: number
           per_min_rate_pence?: number
