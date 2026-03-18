@@ -352,8 +352,8 @@ export default function ServiceAreaPricing() {
             )}
           </TabsTrigger>
           <TabsTrigger value="fees" className="flex items-center gap-2">
-            <Ban className="h-4 w-4" />
-            Fees & Charges
+            <Banknote className="h-4 w-4" />
+            Booking Fees
           </TabsTrigger>
           <TabsTrigger value="offers" className="flex items-center gap-2">
             <Banknote className="h-4 w-4" />
