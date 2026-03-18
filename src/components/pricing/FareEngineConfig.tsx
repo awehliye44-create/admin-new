@@ -45,6 +45,14 @@ interface FarePricingSettings {
   zone_multiplier: number;
   traffic_multiplier: number;
   demand_supply_multiplier: number;
+  // Cancellation
+  cancellation_grace_period_minutes: number;
+  cancellation_fee_pence: number;
+  cancellation_apply_after_arrival_only: boolean;
+  // No-Show
+  no_show_wait_time_minutes: number;
+  no_show_fee_pence: number;
+  no_show_apply_after_arrival_only: boolean;
 }
 
 const DEFAULT_SETTINGS: Omit<FarePricingSettings, 'service_area_id'> = {
