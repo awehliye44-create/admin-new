@@ -494,7 +494,7 @@ export default function TripHistory() {
     return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
   };
 
-  // Get the active currency symbol (from filter or default)
+  // Get the active currency symbol — Region is the single source of truth for currency
   const getActiveCurrencySymbol = () => {
     if (activeRegion) {
       return getCurrencySymbol(activeRegion.currency_code);
