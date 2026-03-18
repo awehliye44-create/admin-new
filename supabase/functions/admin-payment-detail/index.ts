@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getDriverCommissionPct } from "../_shared/commission.ts";
+import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -77,6 +78,19 @@ serve(async (req) => {
           });
         }
 
+        // === Resolve currency from Region (single source of truth) ===
+        let currency_code: string;
+        try {
+          const regionCurrency = await resolveCurrencyFromTrip(supabase, trip_id);
+          currency_code = regionCurrency.currency_code;
+        } catch (e) {
+          console.error('[admin-payment-detail] Currency resolution failed:', e);
+          return new Response(JSON.stringify({ error: (e as Error).message, error_code: 'REGION_CURRENCY_UNRESOLVABLE' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
         // Update payment status to confirmed/paid
         const newStatus = trip.payment_method === 'cash' ? 'confirmed' : 'captured';
         const { error: updateErr } = await supabase
@@ -104,24 +118,22 @@ serve(async (req) => {
 
           if (!existingEntry || existingEntry.length === 0) {
             if (trip.payment_method === 'cash') {
-              // Cash trip: driver owes commission
               await supabase.from('driver_ledger').insert({
                 driver_id: trip.driver_id,
                 trip_id: trip_id,
                 entry_type: 'CASH_COMMISSION_DEBT',
                 amount_pence: -trip.commission_pence,
-                currency_code: 'GBP',
+                currency_code,
                 description: 'Commission owed from cash trip (admin confirmed)',
               });
             } else {
-              // Digital trip: driver earns net
               const netPence = trip.driver_net_pence || (trip.gross_fare_pence || 0) - trip.commission_pence;
               await supabase.from('driver_ledger').insert({
                 driver_id: trip.driver_id,
                 trip_id: trip_id,
                 entry_type: 'TRIP_EARNING_NET',
                 amount_pence: netPence,
-                currency_code: 'GBP',
+                currency_code,
                 description: 'Net earnings from trip (admin confirmed)',
               });
             }

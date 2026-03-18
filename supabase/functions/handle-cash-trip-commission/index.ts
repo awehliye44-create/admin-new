@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { calculateCommission } from "../_shared/commission.ts";
+import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -13,13 +14,7 @@ const corsHeaders = {
  * For cash trips where driver collected cash from passenger.
  * Creates a CASH_COMMISSION_DEBT ledger entry (debt owed to ONECAB).
  * 
- * Cash trip rules:
- * - Passenger pays driver directly in cash
- * - Stripe is NOT involved (no Stripe fee)
- * - ONECAB earns full platform commission
- * - Wallet debit = platform commission
- * - If wallet goes negative, that's acceptable (debt)
- * 
+ * Currency is resolved from Region (single source of truth).
  * Uses driver_ledger as single source of truth (NOT driver_wallet_ledger).
  */
 serve(async (req) => {
@@ -49,6 +44,19 @@ serve(async (req) => {
     }
 
     console.log(`[cash-commission] Processing trip: ${trip_id}`);
+
+    // === Resolve currency from Region (single source of truth) ===
+    let regionCurrency: { currency_code: string };
+    try {
+      regionCurrency = await resolveCurrencyFromTrip(supabase, trip_id);
+    } catch (e) {
+      console.error('[cash-commission] Currency resolution failed:', e);
+      return new Response(
+        JSON.stringify({ error: (e as Error).message, error_code: 'REGION_CURRENCY_UNRESOLVABLE' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    const currency_code = regionCurrency.currency_code;
 
     // === Fetch and validate trip ===
     const { data: trip, error: tripError } = await supabase
@@ -122,10 +130,8 @@ serve(async (req) => {
       );
     }
 
-    // Use commission already calculated on the trip (from complete-trip)
     let commissionPence = trip.commission_pence || 0;
 
-    // If not set, calculate from shared commission utility (single source of truth)
     if (commissionPence <= 0) {
       const result = await calculateCommission(supabase, trip.driver_id, totalGrossPence);
       commissionPence = result.commission_pence;
@@ -134,7 +140,7 @@ serve(async (req) => {
 
     const driverNetPence = totalGrossPence - commissionPence;
 
-    console.log(`[cash-commission] Gross: ${totalGrossPence}p, Commission: ${commissionPence}p, Net: ${driverNetPence}p`);
+    console.log(`[cash-commission] Gross: ${totalGrossPence}p, Commission: ${commissionPence}p, Net: ${driverNetPence}p, Currency: ${currency_code}`);
 
     // === Get wallet balance before ===
     const { data: walletBefore } = await supabase
@@ -147,7 +153,7 @@ serve(async (req) => {
       commission_pence: commissionPence,
       driver_net_pence: driverNetPence,
       payment_status: 'collected_cash',
-      stripe_processing_fee_pence: 0, // No Stripe fee on cash
+      stripe_processing_fee_pence: 0,
       debt_recovery_pence: 0,
       final_payout_pence: 0,
       wallet_balance_before: balanceBefore,
@@ -164,7 +170,7 @@ serve(async (req) => {
           trip_id,
           entry_type: 'CASH_COMMISSION_DEBT',
           amount_pence: -commissionPence,
-          currency_code: 'GBP',
+          currency_code,
           description: 'Cash trip commission owed to platform',
         });
 
@@ -194,9 +200,10 @@ serve(async (req) => {
       commission_pence: commissionPence,
       driver_net_pence: driverNetPence,
       stripe_fee_pence: 0,
-      platform_net_revenue: commissionPence, // Full commission, no Stripe fee
+      platform_net_revenue: commissionPence,
       wallet_balance_before: balanceBefore,
       wallet_balance_after: balanceAfter,
+      currency_code,
     }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error: unknown) {

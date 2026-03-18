@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { calculateCommission } from "../_shared/commission.ts";
+import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
 import { 
   securityHeaders, 
   corsHeaders, 
@@ -63,8 +64,17 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // === Resolve currency from Region (single source of truth) ===
+    let currency_code: string;
+    try {
+      const regionCurrency = await resolveCurrencyFromTrip(supabase, trip_id);
+      currency_code = regionCurrency.currency_code;
+    } catch (e) {
+      console.error('[complete-trip] Currency resolution failed:', e);
+      return errorResponse((e as Error).message, 400);
+    }
+
     // === FARE CALCULATION ===
-    // If legacy final_fare_pence is sent without base_fare, treat it as base_fare
     const effectiveBaseFare = base_fare_pence || legacy_fare_pence || 0;
 
     const commissionable_subtotal =
@@ -75,16 +85,15 @@ serve(async (req) => {
       destination_change_charge_pence +
       extras_charge_pence;
 
-    // Tip is NOT commissionable
     const final_trip_total = commissionable_subtotal + tip_amount_pence;
 
-    console.log(`[complete-trip] Trip ${trip_id}, method: ${payment_method}`);
+    console.log(`[complete-trip] Trip ${trip_id}, method: ${payment_method}, currency: ${currency_code}`);
     console.log(`[complete-trip] Subtotal: ${commissionable_subtotal}p, Tip: ${tip_amount_pence}p, Total: ${final_trip_total}p`);
 
     // === Validate trip ===
     const { data: trip, error: tripError } = await supabase
       .from('trips')
-      .select('id, status, driver_id, service_area_id, currency')
+      .select('id, status, driver_id, service_area_id')
       .eq('id', trip_id)
       .single();
 
@@ -111,7 +120,6 @@ serve(async (req) => {
     // === Commission from shared utility (single source of truth) ===
     const { commission_pct: commissionPercentage, commission_pence: platform_commission, driver_net_pence: driver_net_before_tip } = await calculateCommission(supabase, driver_id, commissionable_subtotal);
     const driver_total_earnings = driver_net_before_tip + tip_amount_pence;
-    const currency_code = trip.currency || 'GBP';
     const isCashPayment = payment_method === 'CASH';
 
     console.log(`[complete-trip] Commission: ${platform_commission}p (${commissionPercentage}%), DriverNet: ${driver_net_before_tip}p, DriverTotal: ${driver_total_earnings}p`);
@@ -311,6 +319,7 @@ serve(async (req) => {
         payment_status: tripUpdate.payment_status,
         debt_recovery_pence: tripUpdate.debt_recovery_pence || 0,
         final_payout_pence: tripUpdate.final_payout_pence,
+        currency_code,
       },
       ipAddress: clientIP, userAgent,
     });
@@ -331,6 +340,7 @@ serve(async (req) => {
       is_cash: isCashPayment,
       debt_recovery_pence: tripUpdate.debt_recovery_pence || 0,
       final_driver_payout_pence: tripUpdate.final_payout_pence,
+      currency_code,
     });
 
   } catch (error) {

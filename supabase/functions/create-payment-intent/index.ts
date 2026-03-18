@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { calculateCommission } from "../_shared/commission.ts";
+import { resolveCurrencyFromTrip, resolveCurrencyFromServiceArea } from "../_shared/regionCurrency.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import {
   corsHeaders,
@@ -18,14 +19,7 @@ const RATE_LIMIT_CONFIG = { limit: 20, windowMs: 60 * 1000 };
  * create-payment-intent
  *
  * Called by the customer app BEFORE the trip starts to pre-authorize payment.
- * Uses Stripe Connect Destination Charges:
- *   - transfer_data.destination = driver's connected account
- *   - application_fee_amount = platform commission
- *
- * Supports: Card, Apple Pay, Google Pay (all via Stripe PaymentIntents API)
- *
- * The PaymentIntent is created with capture_method: 'manual' so the actual
- * capture happens in capture-trip-payment after the trip completes.
+ * Currency is resolved from Region (single source of truth).
  */
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -44,9 +38,8 @@ serve(async (req) => {
       trip_id,
       customer_id,
       estimated_fare_pence,
-      currency_code = "gbp",
-      payment_method_type = "card", // 'card' | 'apple_pay' | 'google_pay'
-      stripe_payment_method_id, // pm_xxx from client-side (optional for Apple/Google Pay)
+      payment_method_type = "card",
+      stripe_payment_method_id,
     } = body;
 
     if (!trip_id || !customer_id || !estimated_fare_pence) {
@@ -68,10 +61,20 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
 
+    // === Resolve currency from Region (single source of truth) ===
+    let currency_code: string;
+    try {
+      const regionCurrency = await resolveCurrencyFromTrip(supabase, trip_id);
+      currency_code = regionCurrency.currency_code.toLowerCase();
+    } catch (e) {
+      console.error('[create-payment-intent] Currency resolution failed:', e);
+      return errorResponse((e as Error).message, 400, undefined, "REGION_CURRENCY_UNRESOLVABLE");
+    }
+
     // === Get trip details ===
     const { data: trip, error: tripError } = await supabase
       .from("trips")
-      .select("id, status, driver_id, service_area_id, currency, stripe_payment_intent_id")
+      .select("id, status, driver_id, service_area_id, stripe_payment_intent_id")
       .eq("id", trip_id)
       .single();
 
@@ -142,19 +145,14 @@ serve(async (req) => {
     }
 
     // === Determine payment method types ===
-    // Card covers Apple Pay and Google Pay via Stripe's Payment Request Button
     const paymentMethodTypes: string[] = ["card"];
-
-    // Apple Pay and Google Pay are handled as 'card' type in Stripe
-    // but we can also explicitly add 'link' for Stripe Link wallets
-    // The client-side Stripe SDK handles Apple/Google Pay detection automatically
 
     // === Create PaymentIntent with Destination Charges ===
     const piParams: Stripe.PaymentIntentCreateParams = {
       amount: estimated_fare_pence,
-      currency: (currency_code || "gbp").toLowerCase(),
+      currency: currency_code,
       customer: stripeCustomerId,
-      capture_method: "manual", // Pre-authorize, capture after trip
+      capture_method: "manual",
       payment_method_types: paymentMethodTypes,
       metadata: {
         trip_id,
@@ -171,7 +169,6 @@ serve(async (req) => {
       };
       piParams.application_fee_amount = applicationFeeAmount;
     } else {
-      // Even without a connected account, store commission in metadata for capture-time enforcement
       console.warn(`[create-payment-intent] Driver has no Stripe connected account for trip ${trip_id}. Commission will be enforced at capture time.`);
       piParams.metadata = {
         ...piParams.metadata,
@@ -189,7 +186,7 @@ serve(async (req) => {
       idempotencyKey: `create_pi_${trip_id}`,
     });
 
-    console.log(`[create-payment-intent] Created PI: ${paymentIntent.id} for trip ${trip_id}`);
+    console.log(`[create-payment-intent] Created PI: ${paymentIntent.id} for trip ${trip_id}, currency: ${currency_code}`);
     console.log(`[create-payment-intent] Amount: ${estimated_fare_pence}p, AppFee: ${applicationFeeAmount}p, Destination: ${driverStripeAccountId || "none"}`);
 
     // Store PI on the trip
@@ -211,6 +208,7 @@ serve(async (req) => {
         application_fee: applicationFeeAmount,
         payment_method_type,
         driver_account: driverStripeAccountId,
+        currency: currency_code,
       },
       ipAddress: clientIP,
       userAgent: req.headers.get("user-agent") || "unknown",

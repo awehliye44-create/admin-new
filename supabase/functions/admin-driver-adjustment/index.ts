@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolveCurrencyFromTrip, resolveCurrencyFromDriver } from "../_shared/regionCurrency.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -86,6 +87,19 @@ serve(async (req) => {
       });
     }
 
+    // === Resolve currency from Region (single source of truth) ===
+    let currency_code: string;
+    try {
+      const regionCurrency = await resolveCurrencyFromDriver(supabase, driver_id);
+      currency_code = regionCurrency.currency_code;
+    } catch (e) {
+      console.error('[admin-driver-adjustment] Currency resolution failed:', e);
+      return new Response(JSON.stringify({ error: (e as Error).message, error_code: 'REGION_CURRENCY_UNRESOLVABLE' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // Create ledger entry
     const { data: ledgerEntry, error: ledgerError } = await supabase
       .from('driver_ledger')
@@ -93,7 +107,7 @@ serve(async (req) => {
         driver_id,
         entry_type,
         amount_pence,
-        currency_code: 'GBP',
+        currency_code,
         description: reason || `${entry_type} by admin`,
         trip_id: trip_id || null,
         reference_id: `admin_${user.id}_${Date.now()}`,
@@ -119,6 +133,7 @@ serve(async (req) => {
         amount: ledgerEntry.amount_pence,
         description: ledgerEntry.description,
         createdAt: ledgerEntry.created_at,
+        currency_code,
       },
       wallet: {
         available: walletLedgerEntries?.reduce((sum, entry) => sum + (entry.amount_pence || 0), 0) || 0,
