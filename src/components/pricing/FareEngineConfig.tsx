@@ -237,6 +237,12 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
         zone_multiplier: settings.zone_multiplier,
         traffic_multiplier: settings.traffic_multiplier,
         demand_supply_multiplier: settings.demand_supply_multiplier,
+        cancellation_grace_period_minutes: settings.cancellation_grace_period_minutes,
+        cancellation_fee_pence: settings.cancellation_fee_pence,
+        cancellation_apply_after_arrival_only: settings.cancellation_apply_after_arrival_only,
+        no_show_wait_time_minutes: settings.no_show_wait_time_minutes,
+        no_show_fee_pence: settings.no_show_fee_pence,
+        no_show_apply_after_arrival_only: settings.no_show_apply_after_arrival_only,
       };
 
       if (settings.id) {
