@@ -102,21 +102,7 @@ interface PricingStatus {
   hasCancellationFees: boolean;
 }
 
-const CURRENCIES: Record<string, { symbol: string; name: string }> = {
-  GBP: { symbol: '£', name: 'British Pound' },
-  USD: { symbol: '$', name: 'US Dollar' },
-  EUR: { symbol: '€', name: 'Euro' },
-  CAD: { symbol: 'C$', name: 'Canadian Dollar' },
-  AUD: { symbol: 'A$', name: 'Australian Dollar' },
-  NZD: { symbol: 'NZ$', name: 'New Zealand Dollar' },
-  INR: { symbol: '₹', name: 'Indian Rupee' },
-  AED: { symbol: 'د.إ', name: 'UAE Dirham' },
-  NGN: { symbol: '₦', name: 'Nigerian Naira' },
-  KES: { symbol: 'KSh', name: 'Kenyan Shilling' },
-  ZAR: { symbol: 'R', name: 'South African Rand' },
-  SGD: { symbol: 'S$', name: 'Singapore Dollar' },
-  JPY: { symbol: '¥', name: 'Japanese Yen' },
-};
+// Currency map removed — use getCurrencySymbol() from regionSettings.ts (single source of truth)
 
 const TIMEZONES = [
   { value: 'Europe/London', label: 'London (GMT/BST)' },

@@ -85,7 +85,7 @@ export default function ServiceAreaPricing() {
     free_cancellation_window_minutes: 5,
     cancellation_fee: 5,
     no_show_fee: 10,
-    currency_code: 'GBP',
+    currency_code: '',
   });
 
   // Vehicle Types state
@@ -100,7 +100,7 @@ export default function ServiceAreaPricing() {
 
   const selectedServiceArea = serviceAreas.find(sa => sa.id === selectedServiceAreaId);
   // Region is the SINGLE SOURCE OF TRUTH for currency — never read from service_area
-  const regionCurrency = selectedServiceArea?.region?.currency_code || 'GBP';
+  const regionCurrency = selectedServiceArea?.region?.currency_code || '';
 
   useEffect(() => {
     fetchInitialData();
@@ -163,7 +163,7 @@ export default function ServiceAreaPricing() {
         });
       } else {
         const serviceArea = serviceAreas.find(sa => sa.id === serviceAreaId);
-        const defaultCurrency = serviceArea?.region?.currency_code || 'GBP';
+        const defaultCurrency = serviceArea?.region?.currency_code || '';
         setCancellationFees({
           free_cancellation_window_minutes: 5,
           cancellation_fee: 5,

@@ -7370,7 +7370,7 @@ export type Database = {
       record_cash_trip_completion: {
         Args: {
           p_commission_pence: number
-          p_currency_code?: string
+          p_currency_code: string
           p_driver_id: string
           p_gross_fare_pence: number
           p_trip_id: string
@@ -7380,7 +7380,7 @@ export type Database = {
       record_digital_trip_payment: {
         Args: {
           p_commission_pence: number
-          p_currency_code?: string
+          p_currency_code: string
           p_driver_id: string
           p_gross_fare_pence: number
           p_stripe_payment_intent_id: string

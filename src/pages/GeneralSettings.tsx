@@ -71,10 +71,8 @@ interface LocalizationSettings {
   defaultLanguage: string;
   supportedLanguages: string[];
   defaultTimezone: string;
-  defaultCurrency: string;
   dateFormat: string;
   timeFormat: string;
-  distanceUnit: string;
 }
 
 interface AppSettings {
@@ -129,10 +127,8 @@ const defaultLocalization: LocalizationSettings = {
   defaultLanguage: 'en',
   supportedLanguages: ['en', 'es', 'fr', 'de', 'pt'],
   defaultTimezone: 'America/New_York',
-  defaultCurrency: 'USD',
   dateFormat: 'MM/DD/YYYY',
   timeFormat: '12h',
-  distanceUnit: 'miles',
 };
 
 const defaultAppSettings: AppSettings = {
@@ -184,16 +180,7 @@ const timezones = [
   'Australia/Sydney',
 ];
 
-const currencies = [
-  { code: 'USD', symbol: '$', name: 'US Dollar' },
-  { code: 'EUR', symbol: '€', name: 'Euro' },
-  { code: 'GBP', symbol: '£', name: 'British Pound' },
-  { code: 'CAD', symbol: 'C$', name: 'Canadian Dollar' },
-  { code: 'AUD', symbol: 'A$', name: 'Australian Dollar' },
-  { code: 'JPY', symbol: '¥', name: 'Japanese Yen' },
-  { code: 'INR', symbol: '₹', name: 'Indian Rupee' },
-  { code: 'MXN', symbol: 'MX$', name: 'Mexican Peso' },
-];
+// Currency and units are configured per Region — no duplicate list needed here.
 
 const fonts = [
   'Inter',
