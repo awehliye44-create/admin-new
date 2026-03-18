@@ -483,70 +483,8 @@ export default function ServiceAreaPricing() {
           </Card>
         </TabsContent>
 
-        {/* Fees & Charges Tab */}
+        {/* Booking Fees Tab */}
         <TabsContent value="fees" className="space-y-6">
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <Ban className="h-5 w-5 text-muted-foreground" />
-                <h3 className="text-lg font-semibold">Cancellation & No-Show Fees</h3>
-              </div>
-              <p className="text-sm text-muted-foreground mb-6">
-                Fees charged when a ride is cancelled or the rider doesn't show
-              </p>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="space-y-2">
-                  <Label>Free Cancellation Window (minutes)</Label>
-                  <Input
-                    type="number"
-                    value={cancellationFees.free_cancellation_window_minutes}
-                    onChange={e => {
-                      setCancellationFees(prev => ({ 
-                        ...prev, 
-                        free_cancellation_window_minutes: parseInt(e.target.value) || 0 
-                      }));
-                      setHasChanges(true);
-                    }}
-                  />
-                  <p className="text-xs text-muted-foreground">No fee if cancelled within this time</p>
-                </div>
-                <div className="space-y-2">
-                  <Label>Cancellation Fee ({getCurrencySymbol(regionCurrency)})</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={cancellationFees.cancellation_fee}
-                    onChange={e => {
-                      setCancellationFees(prev => ({ 
-                        ...prev, 
-                        cancellation_fee: parseFloat(e.target.value) || 0 
-                      }));
-                      setHasChanges(true);
-                    }}
-                  />
-                  <p className="text-xs text-muted-foreground">Fee after free window expires</p>
-                </div>
-                <div className="space-y-2">
-                  <Label>No-Show Fee ({getCurrencySymbol(regionCurrency)})</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={cancellationFees.no_show_fee}
-                    onChange={e => {
-                      setCancellationFees(prev => ({ 
-                        ...prev, 
-                        no_show_fee: parseFloat(e.target.value) || 0 
-                      }));
-                      setHasChanges(true);
-                    }}
-                  />
-                  <p className="text-xs text-muted-foreground">Fee when rider doesn't show</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Per Booking Fee */}
           <Card>
             <CardContent className="p-6">
