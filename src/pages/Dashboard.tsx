@@ -354,10 +354,11 @@ export default function Dashboard() {
         previousEndDate = startDate;
       }
 
-      // Build queries
+      // Build queries — use gross_fare_pence (actual settled fare) not fare (estimate)
+      // Select only needed fields and use .limit(10000) to avoid silent 1000-row cap
       let driversQuery = supabase.from('drivers').select('id, is_online, approval_status, current_lat, current_lng, heading, current_trip_id, first_name, last_name');
-      let tripsQuery = supabase.from('trips').select('id, status, fare, created_at, commission_pence, service_area_id');
-      let previousTripsQuery = supabase.from('trips').select('id, fare, created_at, commission_pence').eq('status', 'completed');
+      let tripsQuery = supabase.from('trips').select('id, status, gross_fare_pence, commission_pence, service_area_id, created_at').limit(10000);
+      let previousTripsQuery = supabase.from('trips').select('id, gross_fare_pence, commission_pence').eq('status', 'completed').limit(10000);
 
       // Apply date filter for trips
       tripsQuery = tripsQuery.gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString());
@@ -402,17 +403,17 @@ export default function Dashboard() {
       const activeTrips = trips.filter(t => ['pending', 'accepted', 'arriving', 'in_progress'].includes(t.status || '')).length;
       const inProgressTrips = trips.filter(t => t.status === 'in_progress').length;
       
+      // Total Revenue = sum of gross_fare_pence (actual settled fare in pence) / 100 → pounds
       const totalRevenue = trips
         .filter(t => t.status === 'completed')
-        .reduce((sum, t) => sum + (t.fare || 0), 0);
-      // Commission from actual trip data only (set from tier config during settlement)
+        .reduce((sum, t) => sum + (Number(t.gross_fare_pence) || 0), 0) / 100;
+      // Commission = sum of commission_pence (platform earnings in pence) / 100 → pounds
       const commissionRevenue = trips
         .filter(t => t.status === 'completed')
-        .reduce((sum, t) => sum + ((t.commission_pence || 0) / 100), 0);
+        .reduce((sum, t) => sum + (Number(t.commission_pence) || 0), 0) / 100;
 
-      const previousRevenue = previousTrips.reduce((sum, t) => sum + (t.fare || 0), 0);
-      const previousCommission = previousTrips
-        .reduce((sum, t) => sum + ((t.commission_pence || 0) / 100), 0);
+      const previousRevenue = previousTrips.reduce((sum, t) => sum + (Number(t.gross_fare_pence) || 0), 0) / 100;
+      const previousCommission = previousTrips.reduce((sum, t) => sum + (Number(t.commission_pence) || 0), 0) / 100;
 
       setStats({
         totalDrivers,
@@ -435,13 +436,13 @@ export default function Dashboard() {
       setDrivers(allDrivers as Driver[]);
       setRecentTrips(recentTripsResult.data || []);
 
-      // Calculate revenue per service area
+      // Calculate revenue per service area using gross_fare_pence
       if (selectedServiceArea === 'all' && serviceAreas.length > 0) {
         const completedTripsData = trips.filter(t => t.status === 'completed');
         const revenueByArea: ServiceAreaRevenue[] = serviceAreas.map(area => {
           const areaTrips = completedTripsData.filter(t => t.service_area_id === area.id);
-          const revenue = areaTrips.reduce((sum, t) => sum + (t.fare || 0), 0);
-          const commission = areaTrips.reduce((sum, t) => sum + ((t.commission_pence || 0) / 100), 0);
+          const revenue = areaTrips.reduce((sum, t) => sum + (Number(t.gross_fare_pence) || 0), 0) / 100;
+          const commission = areaTrips.reduce((sum, t) => sum + (Number(t.commission_pence) || 0), 0) / 100;
           return { name: area.name, revenue, trips: areaTrips.length, commission, currency_code: (area.region as any)?.currency_code || 'GBP' };
         }).filter(a => a.trips > 0).sort((a, b) => b.revenue - a.revenue);
         setServiceAreaRevenues(revenueByArea);
