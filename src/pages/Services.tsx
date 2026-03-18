@@ -417,8 +417,6 @@ export default function Services() {
       code: area.code || '',
       country: area.country || '',
       timezone: area.timezone || 'Europe/London',
-      currency_code: area.currency_code || 'GBP',
-      distance_unit: area.distance_unit || 'km',
       region_id: area.region_id, 
       is_active: area.is_active, 
       geo_boundary: area.geo_boundary || null 
