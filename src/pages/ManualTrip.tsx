@@ -56,7 +56,6 @@ interface ServiceArea {
   id: string;
   name: string;
   country: string | null;
-  currency_code: string | null;
   center_lat: number | null;
   center_lng: number | null;
   region_id: string;
