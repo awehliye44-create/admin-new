@@ -682,7 +682,7 @@ export default function ActiveTrips() {
                 onChange={(e) => setForceEndFare(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                Estimated fare: {getCurrencySymbol(selectedTrip?.currency_code || 'GBP')}
+                Estimated fare: {getCurrencySymbol(selectedTrip?.currency_code)}
                 {selectedTrip?.estimated_fare?.toFixed(2) || '0.00'}
               </p>
             </div>
