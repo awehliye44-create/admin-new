@@ -342,8 +342,6 @@ export default function Services() {
           code: formData.code.toUpperCase(),
           country: formData.country || null,
           timezone: formData.timezone,
-          currency_code: formData.currency_code,
-          distance_unit: formData.distance_unit,
           region_id: formData.region_id, 
           is_active: formData.is_active,
           geo_boundary: boundaryForDb,
