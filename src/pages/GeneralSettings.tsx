@@ -127,10 +127,8 @@ const defaultLocalization: LocalizationSettings = {
   defaultLanguage: 'en',
   supportedLanguages: ['en', 'es', 'fr', 'de', 'pt'],
   defaultTimezone: 'America/New_York',
-  defaultCurrency: 'USD',
   dateFormat: 'MM/DD/YYYY',
   timeFormat: '12h',
-  distanceUnit: 'miles',
 };
 
 const defaultAppSettings: AppSettings = {
