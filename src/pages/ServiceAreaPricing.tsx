@@ -7,7 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
+
 import {
   Select,
   SelectContent,
@@ -22,7 +22,7 @@ import {
   Save, 
   Loader2, 
   Car, 
-  Ban,
+  
   Banknote,
   Users,
   FileText,
@@ -67,13 +67,6 @@ interface ServiceArea {
   };
 }
 
-interface CancellationFees {
-  free_cancellation_window_minutes: number;
-  cancellation_fee: number;
-  no_show_fee: number;
-  currency_code: string;
-}
-
 export default function ServiceAreaPricing() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -81,12 +74,8 @@ export default function ServiceAreaPricing() {
 
   const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
   const [selectedServiceAreaId, setSelectedServiceAreaId] = useState<string>(serviceAreaIdFromParams || '');
-  const [cancellationFees, setCancellationFees] = useState<CancellationFees>({
-    free_cancellation_window_minutes: 5,
-    cancellation_fee: 5,
-    no_show_fee: 10,
-    currency_code: '',
-  });
+
+
 
   // Vehicle Types state
   const [allVehicleTypes, setAllVehicleTypes] = useState<VehicleType[]>([]);
@@ -146,36 +135,8 @@ export default function ServiceAreaPricing() {
     }
   };
 
-  const fetchPricingData = async (serviceAreaId: string) => {
-    try {
-      const { data: feesData } = await supabase
-        .from('service_area_cancellation_fees')
-        .select('*')
-        .eq('service_area_id', serviceAreaId)
-        .single();
-
-      if (feesData) {
-        setCancellationFees({
-          free_cancellation_window_minutes: feesData.free_cancellation_window_minutes,
-          cancellation_fee: Number(feesData.cancellation_fee),
-          no_show_fee: Number(feesData.no_show_fee),
-          currency_code: feesData.currency_code,
-        });
-      } else {
-        const serviceArea = serviceAreas.find(sa => sa.id === serviceAreaId);
-        const defaultCurrency = serviceArea?.region?.currency_code || '';
-        setCancellationFees({
-          free_cancellation_window_minutes: 5,
-          cancellation_fee: 5,
-          no_show_fee: 10,
-          currency_code: defaultCurrency,
-        });
-      }
-      
-      setHasChanges(false);
-    } catch (err) {
-      console.error('Error fetching pricing:', err);
-    }
+  const fetchPricingData = async (_serviceAreaId: string) => {
+    setHasChanges(false);
   };
 
   const fetchVehicleTypeAssignments = async (serviceAreaId: string) => {
@@ -298,28 +259,7 @@ export default function ServiceAreaPricing() {
           .eq('id', selectedServiceAreaId);
       }
 
-      // Save cancellation fees
-      const { data: existingFees } = await supabase
-        .from('service_area_cancellation_fees')
-        .select('id')
-        .eq('service_area_id', selectedServiceAreaId)
-        .single();
 
-      const feesData = {
-        service_area_id: selectedServiceAreaId,
-        ...cancellationFees,
-      };
-
-      if (existingFees) {
-        await supabase
-          .from('service_area_cancellation_fees')
-          .update(feesData)
-          .eq('id', existingFees.id);
-      } else {
-        await supabase
-          .from('service_area_cancellation_fees')
-          .insert(feesData);
-      }
 
       toast.success('Service area pricing saved successfully');
       setHasChanges(false);
@@ -412,8 +352,8 @@ export default function ServiceAreaPricing() {
             )}
           </TabsTrigger>
           <TabsTrigger value="fees" className="flex items-center gap-2">
-            <Ban className="h-4 w-4" />
-            Fees & Charges
+            <Banknote className="h-4 w-4" />
+            Booking Fees
           </TabsTrigger>
           <TabsTrigger value="offers" className="flex items-center gap-2">
             <Banknote className="h-4 w-4" />
@@ -543,70 +483,8 @@ export default function ServiceAreaPricing() {
           </Card>
         </TabsContent>
 
-        {/* Fees & Charges Tab */}
+        {/* Booking Fees Tab */}
         <TabsContent value="fees" className="space-y-6">
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <Ban className="h-5 w-5 text-muted-foreground" />
-                <h3 className="text-lg font-semibold">Cancellation & No-Show Fees</h3>
-              </div>
-              <p className="text-sm text-muted-foreground mb-6">
-                Fees charged when a ride is cancelled or the rider doesn't show
-              </p>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="space-y-2">
-                  <Label>Free Cancellation Window (minutes)</Label>
-                  <Input
-                    type="number"
-                    value={cancellationFees.free_cancellation_window_minutes}
-                    onChange={e => {
-                      setCancellationFees(prev => ({ 
-                        ...prev, 
-                        free_cancellation_window_minutes: parseInt(e.target.value) || 0 
-                      }));
-                      setHasChanges(true);
-                    }}
-                  />
-                  <p className="text-xs text-muted-foreground">No fee if cancelled within this time</p>
-                </div>
-                <div className="space-y-2">
-                  <Label>Cancellation Fee ({getCurrencySymbol(regionCurrency)})</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={cancellationFees.cancellation_fee}
-                    onChange={e => {
-                      setCancellationFees(prev => ({ 
-                        ...prev, 
-                        cancellation_fee: parseFloat(e.target.value) || 0 
-                      }));
-                      setHasChanges(true);
-                    }}
-                  />
-                  <p className="text-xs text-muted-foreground">Fee after free window expires</p>
-                </div>
-                <div className="space-y-2">
-                  <Label>No-Show Fee ({getCurrencySymbol(regionCurrency)})</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={cancellationFees.no_show_fee}
-                    onChange={e => {
-                      setCancellationFees(prev => ({ 
-                        ...prev, 
-                        no_show_fee: parseFloat(e.target.value) || 0 
-                      }));
-                      setHasChanges(true);
-                    }}
-                  />
-                  <p className="text-xs text-muted-foreground">Fee when rider doesn't show</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Per Booking Fee */}
           <Card>
             <CardContent className="p-6">
