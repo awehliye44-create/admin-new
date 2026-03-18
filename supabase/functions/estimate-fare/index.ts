@@ -92,6 +92,20 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Resolve currency from Region (single source of truth) via service_area → region
+    const { data: saData, error: saErr } = await supabase
+      .from("service_areas")
+      .select("region_id, region:regions(currency_code, distance_unit)")
+      .eq("id", service_area_id)
+      .single();
+
+    if (saErr) {
+      console.error("Error fetching service area region:", saErr);
+    }
+
+    const regionCurrency = (saData?.region as any)?.currency_code || settings.currency_code || "GBP";
+    const regionDistanceUnit = (saData?.region as any)?.distance_unit || "mile";
+
     // Determine fare lock status based on pricing mode (source of truth)
     const fareLocked = settings.pricing_mode === "fixed";
 
