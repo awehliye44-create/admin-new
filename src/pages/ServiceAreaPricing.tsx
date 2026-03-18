@@ -391,6 +391,7 @@ export default function ServiceAreaPricing() {
           <p className="text-sm text-muted-foreground mt-1">
             All fare calculations — for the Customer App, Driver App, Corporate Portal, and Admin Panel — are powered exclusively by the Fare Engine.
             Vehicle Types define metadata only (name, icon, capacity, features) and do not control pricing.
+            <strong className="text-foreground"> Currency ({getCurrencySymbol(regionCurrency)} {regionCurrency}) and distance units are inherited from the parent Region.</strong>
           </p>
         </div>
       </div>
