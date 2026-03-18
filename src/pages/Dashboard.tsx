@@ -83,6 +83,7 @@ interface ServiceArea {
   id: string;
   name: string;
   region_id: string;
+  /** Joined from regions table — Region is the single source of truth for currency */
   region?: { currency_code: string } | null;
 }
 
@@ -593,7 +594,7 @@ export default function Dashboard() {
   const revenueChange = calculateChange(stats.totalRevenue, stats.previousRevenue);
   const commissionChange = calculateChange(stats.commissionRevenue, stats.previousCommission);
 
-  // Resolve currency symbol for the selected service area
+  // Resolve currency symbol — Region is the single source of truth for currency
   const selectedArea = serviceAreas.find(sa => sa.id === selectedServiceArea);
   const activeCurrencyCode = (selectedArea?.region as any)?.currency_code || 'GBP';
   const currencySymbol = getCurrencySymbol(activeCurrencyCode);

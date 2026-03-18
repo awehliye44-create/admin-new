@@ -7,7 +7,15 @@ export interface ServiceArea {
   code: string | null;
   country: string | null;
   timezone: string;
+  /**
+   * @deprecated Currency is owned by Region. Use useRegions() to resolve currency.
+   * This field exists in the DB but must NOT be used as a source of truth.
+   */
   currency_code: string;
+  /**
+   * @deprecated Distance unit is owned by Region. Use useRegions() to resolve distance_unit.
+   * This field exists in the DB but must NOT be used as a source of truth.
+   */
   distance_unit: string;
   region_id: string;
   is_active: boolean;

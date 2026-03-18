@@ -92,6 +92,20 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Resolve currency from Region (single source of truth) via service_area → region
+    const { data: saData, error: saErr } = await supabase
+      .from("service_areas")
+      .select("region_id, region:regions(currency_code, distance_unit)")
+      .eq("id", service_area_id)
+      .single();
+
+    if (saErr) {
+      console.error("Error fetching service area region:", saErr);
+    }
+
+    const regionCurrency = (saData?.region as any)?.currency_code || settings.currency_code || "GBP";
+    const regionDistanceUnit = (saData?.region as any)?.distance_unit || "mile";
+
     // Determine fare lock status based on pricing mode (source of truth)
     const fareLocked = settings.pricing_mode === "fixed";
 
@@ -107,7 +121,7 @@ Deno.serve(async (req) => {
       free_waiting_minutes: settings.free_waiting_minutes,
       waiting_per_minute_pence: settings.waiting_per_minute_pence,
       extra_stop_flat_fee_pence: settings.extra_stop_flat_fee_pence,
-      currency_code: settings.currency_code,
+      currency_code: regionCurrency,
       enable_surge: settings.enable_surge,
       surge_multiplier_default: settings.surge_multiplier_default,
       snapshot_at: new Date().toISOString(),
@@ -130,7 +144,7 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({
         pricingMode: settings.pricing_mode,
-        currencyCode: settings.currency_code,
+        currencyCode: regionCurrency,
         quotedFarePence: breakdown.quoted_fare_pence,
         estimatedDistanceKm: estimated_distance_km,
         estimatedDurationMin: estimated_duration_min,

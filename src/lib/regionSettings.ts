@@ -145,7 +145,9 @@ export function formatETA(minutes: number): string {
 }
 
 /**
- * Default settings when region cannot be determined
+ * Default settings when region cannot be determined.
+ * WARNING: These defaults should only be used as a last resort.
+ * Region is the single source of truth for currency and units.
  */
 export const DEFAULT_REGION_SETTINGS: RegionSettings = {
   region_id: '',
@@ -156,3 +158,52 @@ export const DEFAULT_REGION_SETTINGS: RegionSettings = {
   service_area_id: null,
   service_area_name: null,
 };
+
+/**
+ * Validate that a Region has required currency and unit settings.
+ * Returns an error message if validation fails, or null if valid.
+ *
+ * Region is the SINGLE SOURCE OF TRUTH for currency and distance units.
+ * Service Areas must not override these values.
+ */
+export function validateRegionSettings(region: {
+  currency_code?: string | null;
+  distance_unit?: string | null;
+  name?: string;
+}): string | null {
+  if (!region.currency_code) {
+    return `Region "${region.name || 'Unknown'}" is missing a currency code. Please configure it in Region settings.`;
+  }
+  if (!region.distance_unit) {
+    return `Region "${region.name || 'Unknown'}" is missing a distance unit. Please configure it in Region settings.`;
+  }
+  return null;
+}
+
+/**
+ * Resolve currency code from a Region.
+ * Region is the SINGLE SOURCE OF TRUTH — never resolve from Service Area.
+ *
+ * @throws Error if currencyCode is missing and no fallback is desired
+ */
+export function resolveRegionCurrency(region: { currency_code?: string | null } | null | undefined): string {
+  const code = region?.currency_code;
+  if (!code) {
+    console.warn('[regionSettings] Region currency_code is missing. This is a configuration error. Falling back to GBP.');
+    return 'GBP';
+  }
+  return code;
+}
+
+/**
+ * Resolve distance unit from a Region.
+ * Region is the SINGLE SOURCE OF TRUTH — never resolve from Service Area.
+ */
+export function resolveRegionDistanceUnit(region: { distance_unit?: string | null } | null | undefined): string {
+  const unit = region?.distance_unit;
+  if (!unit) {
+    console.warn('[regionSettings] Region distance_unit is missing. This is a configuration error. Falling back to mile.');
+    return 'mile';
+  }
+  return unit;
+}
