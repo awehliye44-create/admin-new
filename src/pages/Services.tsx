@@ -184,8 +184,6 @@ export default function Services() {
       code: '',
       country: '',
       timezone: 'Europe/London',
-      currency_code: 'GBP',
-      distance_unit: 'km',
       region_id: regions[0]?.id || '',
       is_active: true,
       geo_boundary: null,
