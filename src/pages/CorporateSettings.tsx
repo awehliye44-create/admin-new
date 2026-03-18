@@ -93,7 +93,6 @@ const defaultSettings: CorporateSettingsData = {
     invoice_generation_day: 1,
     tax_rate: 20,
     tax_name: 'VAT',
-    currency: 'GBP',
   },
   discounts: {
     enable_volume_discounts: true,
