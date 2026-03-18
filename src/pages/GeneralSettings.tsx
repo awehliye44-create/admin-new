@@ -71,10 +71,8 @@ interface LocalizationSettings {
   defaultLanguage: string;
   supportedLanguages: string[];
   defaultTimezone: string;
-  defaultCurrency: string;
   dateFormat: string;
   timeFormat: string;
-  distanceUnit: string;
 }
 
 interface AppSettings {
