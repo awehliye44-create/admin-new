@@ -167,6 +167,7 @@ const App = () => (
               <Route path="roles" element={<RolesPermissions />} />
               <Route path="notifications" element={<Notifications />} />
               <Route path="alert-sounds" element={<AlertSounds />} />
+              <Route path="user-directory" element={<UserDirectory />} />
               <Route path="profile" element={<AdminProfile />} />
             </Route>
             
