@@ -96,9 +96,6 @@ const DEFAULT_FORM_DATA: RegionFormData = {
   geo_boundary: null,
 };
 
-// Use shared CURRENCY_LIST from regionSettings — single source of truth
-import { CURRENCY_LIST } from '@/lib/regionSettings';
-
 const CURRENCIES = CURRENCY_LIST;
 
 const TIMEZONES = [
