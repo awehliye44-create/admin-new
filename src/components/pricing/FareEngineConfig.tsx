@@ -75,6 +75,12 @@ const DEFAULT_SETTINGS: Omit<FarePricingSettings, 'service_area_id'> = {
   zone_multiplier: 1.0,
   traffic_multiplier: 1.0,
   demand_supply_multiplier: 1.0,
+  cancellation_grace_period_minutes: 3,
+  cancellation_fee_pence: 0,
+  cancellation_apply_after_arrival_only: true,
+  no_show_wait_time_minutes: 5,
+  no_show_fee_pence: 500,
+  no_show_apply_after_arrival_only: true,
 };
 
 interface VehicleType {
