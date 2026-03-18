@@ -282,9 +282,6 @@ export default function Riders() {
                         </Avatar>
                         <div>
                           <p className="font-medium">{getFullName(rider)}</p>
-                          <p className="text-xs text-muted-foreground">
-                            ID: {rider.id.slice(0, 8)}...
-                          </p>
                         </div>
                       </div>
                     </TableCell>
