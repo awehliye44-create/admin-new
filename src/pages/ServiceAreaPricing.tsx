@@ -99,6 +99,7 @@ export default function ServiceAreaPricing() {
   const [hasChanges, setHasChanges] = useState(false);
 
   const selectedServiceArea = serviceAreas.find(sa => sa.id === selectedServiceAreaId);
+  // Region is the SINGLE SOURCE OF TRUTH for currency — never read from service_area
   const regionCurrency = selectedServiceArea?.region?.currency_code || 'GBP';
 
   useEffect(() => {
