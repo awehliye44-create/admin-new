@@ -50,7 +50,6 @@ interface CorporateSettingsData {
     invoice_generation_day: number;
     tax_rate: number;
     tax_name: string;
-    currency: string;
   };
   discounts: {
     enable_volume_discounts: boolean;
