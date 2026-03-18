@@ -672,7 +672,7 @@ export default function ActiveTrips() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="fare">Final Fare ({getCurrencySymbol(selectedTrip?.currency_code || 'GBP')})</Label>
+              <Label htmlFor="fare">Final Fare ({getCurrencySymbol(selectedTrip?.currency_code)})</Label>
               <Input
                 id="fare"
                 type="number"
