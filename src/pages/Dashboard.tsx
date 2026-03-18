@@ -596,7 +596,7 @@ export default function Dashboard() {
 
   // Resolve currency symbol — Region is the single source of truth for currency
   const selectedArea = serviceAreas.find(sa => sa.id === selectedServiceArea);
-  const activeCurrencyCode = (selectedArea?.region as any)?.currency_code || 'GBP';
+  const activeCurrencyCode = selectedArea?.region?.currency_code || (serviceAreas[0]?.region?.currency_code) || 'GBP';
   const currencySymbol = getCurrencySymbol(activeCurrencyCode);
 
   const onlineDriversCount = drivers.filter(d => d.is_online).length;

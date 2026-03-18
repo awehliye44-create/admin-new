@@ -8,13 +8,11 @@ export interface ServiceArea {
   country: string | null;
   timezone: string;
   /**
-   * @deprecated Currency is owned by Region. Use useRegions() to resolve currency.
-   * This field exists in the DB but must NOT be used as a source of truth.
+   * @deprecated Currency is owned by Region. Use region.currency_code instead.
    */
   currency_code: string;
   /**
-   * @deprecated Distance unit is owned by Region. Use useRegions() to resolve distance_unit.
-   * This field exists in the DB but must NOT be used as a source of truth.
+   * @deprecated Distance unit is owned by Region. Use region.distance_unit instead.
    */
   distance_unit: string;
   region_id: string;
@@ -24,11 +22,17 @@ export interface ServiceArea {
   center_lng: number | null;
   created_at: string;
   updated_at: string;
+  /** Joined from regions table — Region is the single source of truth */
+  region?: {
+    currency_code: string;
+    distance_unit: string;
+  } | null;
 }
 
 /**
  * Shared hook for service areas reference data.
  * Cached globally — every page that needs service areas shares this single query.
+ * Joins regions table so currency/units come from Region (single source of truth).
  * staleTime = 5 min (service areas rarely change).
  */
 export function useServiceAreas(options?: { activeOnly?: boolean }) {
@@ -39,7 +43,7 @@ export function useServiceAreas(options?: { activeOnly?: boolean }) {
     queryFn: async () => {
       let query = supabase
         .from("service_areas")
-        .select("*")
+        .select("*, region:regions(currency_code, distance_unit)")
         .order("name", { ascending: true });
 
       if (activeOnly) {
