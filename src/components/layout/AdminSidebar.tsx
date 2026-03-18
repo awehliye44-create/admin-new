@@ -46,6 +46,7 @@ import {
   Server,
   Shield,
   Bell,
+  Volume2,
   FolderOpen,
   UserCircle,
   History,
