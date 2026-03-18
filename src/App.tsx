@@ -68,6 +68,7 @@ import { Airports } from "./pages/PlaceholderPage";
 import ManageContent from "./pages/ManageContent";
 import LiveChat from "./pages/LiveChat";
 import OnecabDocuments from "./pages/OnecabDocuments";
+import AlertSounds from "./pages/AlertSounds";
 
 const queryClient = createAppQueryClient();
 
