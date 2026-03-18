@@ -224,7 +224,7 @@ export default function Dashboard() {
   const [recentTrips, setRecentTrips] = useState<RecentTrip[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('daily');
-  const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
+  const [serviceAreas, setServiceAreas] = useState<DashboardServiceArea[]>([]);
   const [selectedServiceArea, setSelectedServiceArea] = useState<string>('all');
   const [userStatsPeriod, setUserStatsPeriod] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
   const [bookingChartData, setBookingChartData] = useState<BookingDataPoint[]>([]);
