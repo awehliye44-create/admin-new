@@ -104,6 +104,86 @@ export type Database = {
         }
         Relationships: []
       }
+      alert_sound_mappings: {
+        Row: {
+          alert_sound_id: string
+          created_at: string
+          event_type: string
+          id: string
+          is_active: boolean
+          is_default: boolean
+          target_app: string
+          updated_at: string
+        }
+        Insert: {
+          alert_sound_id: string
+          created_at?: string
+          event_type: string
+          id?: string
+          is_active?: boolean
+          is_default?: boolean
+          target_app: string
+          updated_at?: string
+        }
+        Update: {
+          alert_sound_id?: string
+          created_at?: string
+          event_type?: string
+          id?: string
+          is_active?: boolean
+          is_default?: boolean
+          target_app?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "alert_sound_mappings_alert_sound_id_fkey"
+            columns: ["alert_sound_id"]
+            isOneToOne: false
+            referencedRelation: "alert_sounds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      alert_sounds: {
+        Row: {
+          created_at: string
+          duration: number | null
+          file_size: number | null
+          id: string
+          is_active: boolean
+          mime_type: string
+          name: string
+          storage_path: string
+          target_app: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          duration?: number | null
+          file_size?: number | null
+          id?: string
+          is_active?: boolean
+          mime_type?: string
+          name: string
+          storage_path: string
+          target_app?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          duration?: number | null
+          file_size?: number | null
+          id?: string
+          is_active?: boolean
+          mime_type?: string
+          name?: string
+          storage_path?: string
+          target_app?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       audit_logs: {
         Row: {
           created_at: string | null

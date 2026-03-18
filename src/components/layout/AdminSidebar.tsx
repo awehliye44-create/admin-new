@@ -46,6 +46,7 @@ import {
   Server,
   Shield,
   Bell,
+  Volume2,
   FolderOpen,
   UserCircle,
   History,
@@ -353,6 +354,7 @@ export function AdminSidebar() {
               <P pageSlug="system" to="/system" icon={<Server className="h-4 w-4" />} label="System Requirements" active={currentPath === '/system'} collapsed={isCollapsed} />
               <P pageSlug="roles" to="/roles" icon={<Shield className="h-4 w-4" />} label="Roles & Permissions" active={currentPath === '/roles'} collapsed={isCollapsed} />
               <P pageSlug="notifications" to="/notifications" icon={<Bell className="h-4 w-4" />} label="Notifications & Alerts" active={currentPath === '/notifications'} collapsed={isCollapsed} />
+              <P pageSlug="alert-sounds" to="/alert-sounds" icon={<Volume2 className="h-4 w-4" />} label="Alert Sounds" active={currentPath === '/alert-sounds'} collapsed={isCollapsed} />
             </div>
           </div>
         </div>
