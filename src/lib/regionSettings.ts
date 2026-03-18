@@ -152,7 +152,7 @@ export function formatETA(minutes: number): string {
 export const DEFAULT_REGION_SETTINGS: RegionSettings = {
   region_id: '',
   region_name: 'Unknown',
-  currency_code: 'GBP',
+  currency_code: '',
   distance_unit: 'mile',
   timezone: 'Europe/London',
   service_area_id: null,
