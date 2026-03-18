@@ -80,7 +80,7 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
         .maybeSingle();
 
       if (!profile) {
-        // No staff profile - user has admin role in user_roles (backward compat)
+        // No staff profile - user has admin role in profiles (backward compat)
         // Give them full access as super_admin
         setStaffProfile(null);
         const { data: allPerms } = await supabase
