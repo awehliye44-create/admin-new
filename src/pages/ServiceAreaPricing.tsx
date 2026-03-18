@@ -85,7 +85,7 @@ export default function ServiceAreaPricing() {
     free_cancellation_window_minutes: 5,
     cancellation_fee: 5,
     no_show_fee: 10,
-    currency_code: 'GBP',
+    currency_code: '',
   });
 
   // Vehicle Types state
