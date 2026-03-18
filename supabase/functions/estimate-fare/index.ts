@@ -121,7 +121,7 @@ Deno.serve(async (req) => {
       free_waiting_minutes: settings.free_waiting_minutes,
       waiting_per_minute_pence: settings.waiting_per_minute_pence,
       extra_stop_flat_fee_pence: settings.extra_stop_flat_fee_pence,
-      currency_code: settings.currency_code,
+      currency_code: regionCurrency,
       enable_surge: settings.enable_surge,
       surge_multiplier_default: settings.surge_multiplier_default,
       snapshot_at: new Date().toISOString(),
