@@ -67,13 +67,6 @@ interface ServiceArea {
   };
 }
 
-interface CancellationFees {
-  free_cancellation_window_minutes: number;
-  cancellation_fee: number;
-  no_show_fee: number;
-  currency_code: string;
-}
-
 export default function ServiceAreaPricing() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
