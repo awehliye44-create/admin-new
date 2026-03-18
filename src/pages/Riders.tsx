@@ -262,6 +262,7 @@ export default function Riders() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Rider</TableHead>
+                  <TableHead>Customer ID</TableHead>
                   <TableHead>Phone</TableHead>
                   <TableHead>Trips</TableHead>
                   <TableHead>Last Trip</TableHead>
