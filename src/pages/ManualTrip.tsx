@@ -202,7 +202,7 @@ export default function ManualTrip() {
   useEffect(() => {
     if (!selectedServiceAreaId) {
       setPaymentConfig(null);
-      setCurrencyCode('GBP');
+      setCurrencyCode('');
       setDistanceUnit('mile');
       setServiceAreaCenter(null);
       setServiceAreaCountryCode(null);
