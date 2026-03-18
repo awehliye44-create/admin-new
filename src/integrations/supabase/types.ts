@@ -7261,6 +7261,20 @@ export type Database = {
         }
         Relationships: []
       }
+      user_directory: {
+        Row: {
+          created_at: string | null
+          email: string | null
+          full_name: string | null
+          has_linked_record: boolean | null
+          last_sign_in_at: string | null
+          phone: string | null
+          status: string | null
+          user_id: string | null
+          user_type: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       accept_ride_offer: {
