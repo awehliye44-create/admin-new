@@ -817,8 +817,6 @@ export default function Services() {
                         ...prev, 
                         region_id: value, 
                         geo_boundary: null,
-                        currency_code: region?.currency_code || prev.currency_code,
-                        distance_unit: region?.distance_unit || prev.distance_unit,
                         timezone: region?.timezone || prev.timezone,
                       }));
                     }}
