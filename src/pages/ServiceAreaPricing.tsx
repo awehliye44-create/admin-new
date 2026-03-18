@@ -259,28 +259,7 @@ export default function ServiceAreaPricing() {
           .eq('id', selectedServiceAreaId);
       }
 
-      // Save cancellation fees
-      const { data: existingFees } = await supabase
-        .from('service_area_cancellation_fees')
-        .select('id')
-        .eq('service_area_id', selectedServiceAreaId)
-        .single();
 
-      const feesData = {
-        service_area_id: selectedServiceAreaId,
-        ...cancellationFees,
-      };
-
-      if (existingFees) {
-        await supabase
-          .from('service_area_cancellation_fees')
-          .update(feesData)
-          .eq('id', existingFees.id);
-      } else {
-        await supabase
-          .from('service_area_cancellation_fees')
-          .insert(feesData);
-      }
 
       toast.success('Service area pricing saved successfully');
       setHasChanges(false);
