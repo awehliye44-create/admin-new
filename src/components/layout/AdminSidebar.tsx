@@ -53,6 +53,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   ShieldCheck,
+  Contact,
 } from 'lucide-react';
 import {
   Collapsible,
