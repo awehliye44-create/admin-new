@@ -503,7 +503,7 @@ export default function ActiveTrips() {
                       </TableCell>
                       <TableCell>
                         <span className="font-medium">
-                          {getCurrencySymbol(trip.currency_code || 'GBP')}
+                          {getCurrencySymbol(trip.currency_code || '')}
                           {(trip.fare || trip.estimated_fare || 0).toFixed(2)}
                         </span>
                       </TableCell>

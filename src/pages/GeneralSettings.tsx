@@ -922,65 +922,17 @@ export default function GeneralSettings() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="border-amber-200 bg-amber-50/50 dark:bg-amber-950/20 dark:border-amber-800">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <DollarSign className="h-5 w-5 text-primary" />
-                    Currency
+                    <DollarSign className="h-5 w-5 text-amber-600" />
+                    Currency & Units
                   </CardTitle>
                   <CardDescription>
-                    Default currency settings
+                    Currency and distance units are configured per <strong>Region</strong> — the single source of truth.
+                    Go to <strong>Regions</strong> to manage these settings.
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="currency">Default Currency</Label>
-                    <Select
-                      value={localization.defaultCurrency}
-                      onValueChange={(value) => handleLocalizationChange('defaultCurrency', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select currency" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {currencies.map((curr) => (
-                          <SelectItem key={curr.code} value={curr.code}>
-                            {curr.symbol} {curr.name} ({curr.code})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Ruler className="h-5 w-5 text-primary" />
-                    Units
-                  </CardTitle>
-                  <CardDescription>
-                    Measurement units
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="distanceUnit">Distance Unit</Label>
-                    <Select
-                      value={localization.distanceUnit}
-                      onValueChange={(value) => handleLocalizationChange('distanceUnit', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select unit" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="miles">Miles</SelectItem>
-                        <SelectItem value="kilometers">Kilometers</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardContent>
               </Card>
             </div>
           </TabsContent>

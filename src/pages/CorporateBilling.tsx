@@ -565,7 +565,7 @@ export default function CorporateBilling() {
                             </span>
                           </TableCell>
                           <TableCell className="font-medium">
-                            {getCurrencySymbol(trip.currency_code || 'GBP')}
+                            {getCurrencySymbol(trip.currency_code || '')}
                             {(trip.fare || trip.estimated_fare || 0).toFixed(2)}
                           </TableCell>
                           <TableCell>{getTripStatusBadge(trip.status)}</TableCell>
