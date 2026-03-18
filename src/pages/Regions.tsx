@@ -414,9 +414,7 @@ export default function Regions() {
     setIsDeleteDialogOpen(true);
   };
 
-  const getCurrencySymbol = (code: string) => {
-    return CURRENCIES.find(c => c.code === code)?.symbol || code;
-  };
+  // getCurrencySymbol is imported from @/lib/regionSettings
 
   const totalDrivers = Object.values(regionStats).reduce((sum, s) => sum + s.drivers, 0);
   const totalServiceAreas = Object.values(regionStats).reduce((sum, s) => sum + s.serviceAreas, 0);
