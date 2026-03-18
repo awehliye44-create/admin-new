@@ -83,6 +83,7 @@ interface ServiceArea {
   id: string;
   name: string;
   region_id: string;
+  /** Joined from regions table — Region is the single source of truth for currency */
   region?: { currency_code: string } | null;
 }
 
