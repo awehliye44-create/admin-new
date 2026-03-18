@@ -783,7 +783,7 @@ export default function ActiveTrips() {
                 <div className="p-3 bg-muted/50 rounded-lg text-center">
                   <p className="text-xs text-muted-foreground">Final Fare</p>
                   <p className="font-medium">
-                    {getCurrencySymbol(selectedTrip.currency_code || 'GBP')}
+                    {getCurrencySymbol(selectedTrip.currency_code)}
                     {selectedTrip.fare?.toFixed(2) || '—'}
                   </p>
                 </div>

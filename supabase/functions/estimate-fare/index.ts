@@ -103,8 +103,15 @@ Deno.serve(async (req) => {
       console.error("Error fetching service area region:", saErr);
     }
 
-    const regionCurrency = (saData?.region as any)?.currency_code || settings.currency_code || "GBP";
-    const regionDistanceUnit = (saData?.region as any)?.distance_unit || "mile";
+    const regionCurrency = (saData?.region as any)?.currency_code;
+    const regionDistanceUnit = (saData?.region as any)?.distance_unit;
+
+    if (!regionCurrency) {
+      return new Response(
+        JSON.stringify({ error: "REGION_CURRENCY_UNRESOLVABLE: Service area has no Region with currency_code configured. Configure currency on the Region.", error_code: "REGION_CURRENCY_UNRESOLVABLE" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Determine fare lock status based on pricing mode (source of truth)
     const fareLocked = settings.pricing_mode === "fixed";

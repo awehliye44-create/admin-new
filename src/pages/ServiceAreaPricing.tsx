@@ -163,7 +163,7 @@ export default function ServiceAreaPricing() {
         });
       } else {
         const serviceArea = serviceAreas.find(sa => sa.id === serviceAreaId);
-        const defaultCurrency = serviceArea?.region?.currency_code || 'GBP';
+        const defaultCurrency = serviceArea?.region?.currency_code || '';
         setCancellationFees({
           free_cancellation_window_minutes: 5,
           cancellation_fee: 5,
