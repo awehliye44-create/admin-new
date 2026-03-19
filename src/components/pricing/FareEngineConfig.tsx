@@ -807,6 +807,23 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
                 <span className="text-muted-foreground">Cancel Fee</span>
                 <span className="font-mono">{symbol}{(settings.cancellation_fee_pence / 100).toFixed(2)}</span>
               </div>
+              {settings.late_cancel_enabled && (
+                <>
+                  <Separator />
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Late Cancel</span>
+                    <Badge variant="outline" className="text-[10px]">Enabled</Badge>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Threshold</span>
+                    <span>{settings.late_cancel_threshold_minutes} min</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Late Fee</span>
+                    <span className="font-mono">{symbol}{(settings.late_cancel_fee_pence / 100).toFixed(2)}</span>
+                  </div>
+                </>
+              )}
               <Separator />
               <div className="flex justify-between">
                 <span className="text-muted-foreground">No-Show Wait</span>
