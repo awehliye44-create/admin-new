@@ -83,3 +83,6 @@ verify_jwt = false
 
 [functions.repair-commissions]
 verify_jwt = false
+
+[functions.record-financial-outcome]
+verify_jwt = false

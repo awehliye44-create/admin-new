@@ -127,6 +127,7 @@ serve(async (req) => {
     // === Update trip to completed ===
     const tripUpdate: Record<string, unknown> = {
       status: 'completed',
+      financial_outcome: 'COMPLETED',
       completed_at: new Date().toISOString(),
       fare: final_trip_total / 100,
       gross_fare_pence: commissionable_subtotal,
@@ -148,6 +149,9 @@ serve(async (req) => {
       trip_id,
       driver_id,
       service_area_id: trip.service_area_id,
+      financial_status: 'recognized',
+      revenue_type: 'completed_trip_revenue',
+      is_financially_countable: true,
       base_fare_pence: effectiveBaseFare,
       pickup_waiting_charge_pence,
       stop_waiting_charge_pence,

@@ -5461,10 +5461,13 @@ export type Database = {
           extras_charge_pence: number
           final_driver_payout_pence: number | null
           final_trip_total_pence: number
+          financial_status: string
           id: string
+          is_financially_countable: boolean
           payment_method: string
           pickup_waiting_charge_pence: number
           platform_commission_pence: number
+          revenue_type: string
           service_area_id: string | null
           settled_at: string | null
           settlement_status: string
@@ -5495,10 +5498,13 @@ export type Database = {
           extras_charge_pence?: number
           final_driver_payout_pence?: number | null
           final_trip_total_pence?: number
+          financial_status?: string
           id?: string
+          is_financially_countable?: boolean
           payment_method?: string
           pickup_waiting_charge_pence?: number
           platform_commission_pence?: number
+          revenue_type?: string
           service_area_id?: string | null
           settled_at?: string | null
           settlement_status?: string
@@ -5529,10 +5535,13 @@ export type Database = {
           extras_charge_pence?: number
           final_driver_payout_pence?: number | null
           final_trip_total_pence?: number
+          financial_status?: string
           id?: string
+          is_financially_countable?: boolean
           payment_method?: string
           pickup_waiting_charge_pence?: number
           platform_commission_pence?: number
+          revenue_type?: string
           service_area_id?: string | null
           settled_at?: string | null
           settlement_status?: string
@@ -5951,6 +5960,7 @@ export type Database = {
           fare_snapshot_json: Json | null
           final_fare_pence: number | null
           final_payout_pence: number | null
+          financial_outcome: string | null
           grace_period_expired_at: string | null
           gross_fare_pence: number | null
           id: string
@@ -6085,6 +6095,7 @@ export type Database = {
           fare_snapshot_json?: Json | null
           final_fare_pence?: number | null
           final_payout_pence?: number | null
+          financial_outcome?: string | null
           grace_period_expired_at?: string | null
           gross_fare_pence?: number | null
           id?: string
@@ -6219,6 +6230,7 @@ export type Database = {
           fare_snapshot_json?: Json | null
           final_fare_pence?: number | null
           final_payout_pence?: number | null
+          financial_outcome?: string | null
           grace_period_expired_at?: string | null
           gross_fare_pence?: number | null
           id?: string
@@ -7287,6 +7299,8 @@ export type Database = {
           cash_net_earnings: number | null
           cash_trip_count: number | null
           company_commission_total: number | null
+          completed_trip_commission: number | null
+          completed_trip_revenue: number | null
           completed_trips: number | null
           driver_id: string | null
           email: string | null
@@ -7294,6 +7308,10 @@ export type Database = {
           gross_trip_total: number | null
           is_online: boolean | null
           last_name: string | null
+          late_cancel_commission: number | null
+          late_cancel_revenue: number | null
+          no_show_commission: number | null
+          no_show_revenue: number | null
           onboarding_complete: boolean | null
           payouts_enabled: boolean | null
           phone: string | null

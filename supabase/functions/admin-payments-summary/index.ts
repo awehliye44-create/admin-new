@@ -45,9 +45,10 @@ serve(async (req) => {
     }
 
     // ── Unified aggregates from driver_financial_summary ──
+    // Now includes revenue breakdown by type (completed, no_show, late_cancel)
     const { data: summaryRows } = await supabase
       .from('driver_financial_summary')
-      .select('gross_trip_total, company_commission_total, card_net_credits, cash_commission_debits, total_payouts_sent, wallet_balance, completed_trips, today_gross_earnings, today_trip_count, card_gross_total, cash_gross_total');
+      .select('gross_trip_total, company_commission_total, card_net_credits, cash_commission_debits, total_payouts_sent, wallet_balance, completed_trips, today_gross_earnings, today_trip_count, card_gross_total, cash_gross_total, completed_trip_revenue, completed_trip_commission, no_show_revenue, no_show_commission, late_cancel_revenue, late_cancel_commission');
 
     const all = summaryRows || [];
     const totalGrossFares = all.reduce((s, d) => s + Number(d.gross_trip_total || 0), 0);
@@ -96,6 +97,14 @@ serve(async (req) => {
       return acc;
     }, {}) || {};
 
+    // Revenue breakdown by type
+    const completedTripRevenue = all.reduce((s, d) => s + Number(d.completed_trip_revenue || 0), 0);
+    const completedTripCommission = all.reduce((s, d) => s + Number(d.completed_trip_commission || 0), 0);
+    const noShowRevenue = all.reduce((s, d) => s + Number(d.no_show_revenue || 0), 0);
+    const noShowCommission = all.reduce((s, d) => s + Number(d.no_show_commission || 0), 0);
+    const lateCancelRevenue = all.reduce((s, d) => s + Number(d.late_cancel_revenue || 0), 0);
+    const lateCancelCommission = all.reduce((s, d) => s + Number(d.late_cancel_commission || 0), 0);
+
     const response = {
       // Unified financial summary (single source of truth)
       totalGrossFares,
@@ -106,6 +115,16 @@ serve(async (req) => {
       totalWalletBalance,
       totalCardGross,
       totalCashGross,
+
+      // Revenue breakdown by financial outcome type
+      revenueBreakdown: {
+        completed_trip_revenue: completedTripRevenue,
+        completed_trip_commission: completedTripCommission,
+        no_show_revenue: noShowRevenue,
+        no_show_commission: noShowCommission,
+        late_cancellation_revenue: lateCancelRevenue,
+        late_cancellation_commission: lateCancelCommission,
+      },
 
       // Legacy field (maps to totalCommission for backwards compat)
       totalRevenue: totalCommission,
