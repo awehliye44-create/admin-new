@@ -127,6 +127,7 @@ serve(async (req) => {
     // === Update trip to completed ===
     const tripUpdate: Record<string, unknown> = {
       status: 'completed',
+      financial_outcome: 'COMPLETED',
       completed_at: new Date().toISOString(),
       fare: final_trip_total / 100,
       gross_fare_pence: commissionable_subtotal,
