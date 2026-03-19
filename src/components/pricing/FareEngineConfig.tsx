@@ -49,6 +49,10 @@ interface FarePricingSettings {
   cancellation_grace_period_minutes: number;
   cancellation_fee_pence: number;
   cancellation_apply_after_arrival_only: boolean;
+  // Late Passenger Cancellation
+  late_cancel_enabled: boolean;
+  late_cancel_threshold_minutes: number;
+  late_cancel_fee_pence: number;
   // No-Show
   no_show_wait_time_minutes: number;
   no_show_fee_pence: number;
