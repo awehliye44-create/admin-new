@@ -2683,6 +2683,7 @@ export type Database = {
           current_lat: number | null
           current_lng: number | null
           current_trip_id: string | null
+          display_rating: number
           documents_approved: boolean
           driver_code: string | null
           email: string
@@ -2701,6 +2702,8 @@ export type Database = {
           phone: string
           profile_photo_url: string | null
           rating: number | null
+          rating_count: number
+          rating_sum: number
           region_id: string
           service_area_id: string | null
           speed: number | null
@@ -2719,6 +2722,7 @@ export type Database = {
           current_lat?: number | null
           current_lng?: number | null
           current_trip_id?: string | null
+          display_rating?: number
           documents_approved?: boolean
           driver_code?: string | null
           email: string
@@ -2737,6 +2741,8 @@ export type Database = {
           phone: string
           profile_photo_url?: string | null
           rating?: number | null
+          rating_count?: number
+          rating_sum?: number
           region_id: string
           service_area_id?: string | null
           speed?: number | null
@@ -2755,6 +2761,7 @@ export type Database = {
           current_lat?: number | null
           current_lng?: number | null
           current_trip_id?: string | null
+          display_rating?: number
           documents_approved?: boolean
           driver_code?: string | null
           email?: string
@@ -2773,6 +2780,8 @@ export type Database = {
           phone?: string
           profile_photo_url?: string | null
           rating?: number | null
+          rating_count?: number
+          rating_sum?: number
           region_id?: string
           service_area_id?: string | null
           speed?: number | null
@@ -7514,6 +7523,10 @@ export type Database = {
       }
       reactivate_corporate_account: {
         Args: { p_account_id: string }
+        Returns: undefined
+      }
+      recalculate_driver_display_rating: {
+        Args: { p_driver_id: string }
         Returns: undefined
       }
       recalculate_driver_wallet: {
