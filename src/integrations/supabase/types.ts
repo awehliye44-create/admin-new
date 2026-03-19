@@ -5995,6 +5995,7 @@ export type Database = {
           surge_multiplier: number | null
           tip_amount_pence: number
           tip_pence: number | null
+          tip_window_expires_at: string | null
           total_stops: number | null
           total_waiting_charge_pence: number
           trip_code: string | null
@@ -6128,6 +6129,7 @@ export type Database = {
           surge_multiplier?: number | null
           tip_amount_pence?: number
           tip_pence?: number | null
+          tip_window_expires_at?: string | null
           total_stops?: number | null
           total_waiting_charge_pence?: number
           trip_code?: string | null
@@ -6261,6 +6263,7 @@ export type Database = {
           surge_multiplier?: number | null
           tip_amount_pence?: number
           tip_pence?: number | null
+          tip_window_expires_at?: string | null
           total_stops?: number | null
           total_waiting_charge_pence?: number
           trip_code?: string | null
