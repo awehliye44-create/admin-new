@@ -16,7 +16,7 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { 
   Save, Loader2, Calculator, Zap, Lock, 
-  Clock, Settings2, AlertCircle, CheckCircle2, TrendingUp, Car, Ban, UserX
+  Clock, Settings2, AlertCircle, CheckCircle2, TrendingUp, Car, Ban, UserX, Timer
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getCurrencySymbol } from '@/lib/regionSettings';
@@ -49,6 +49,10 @@ interface FarePricingSettings {
   cancellation_grace_period_minutes: number;
   cancellation_fee_pence: number;
   cancellation_apply_after_arrival_only: boolean;
+  // Late Passenger Cancellation
+  late_cancel_enabled: boolean;
+  late_cancel_threshold_minutes: number;
+  late_cancel_fee_pence: number;
   // No-Show
   no_show_wait_time_minutes: number;
   no_show_fee_pence: number;
@@ -78,6 +82,9 @@ const DEFAULT_SETTINGS: Omit<FarePricingSettings, 'service_area_id'> = {
   cancellation_grace_period_minutes: 3,
   cancellation_fee_pence: 0,
   cancellation_apply_after_arrival_only: true,
+  late_cancel_enabled: false,
+  late_cancel_threshold_minutes: 30,
+  late_cancel_fee_pence: 500,
   no_show_wait_time_minutes: 5,
   no_show_fee_pence: 500,
   no_show_apply_after_arrival_only: true,
@@ -240,6 +247,9 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
         cancellation_grace_period_minutes: settings.cancellation_grace_period_minutes,
         cancellation_fee_pence: settings.cancellation_fee_pence,
         cancellation_apply_after_arrival_only: settings.cancellation_apply_after_arrival_only,
+        late_cancel_enabled: settings.late_cancel_enabled,
+        late_cancel_threshold_minutes: settings.late_cancel_threshold_minutes,
+        late_cancel_fee_pence: settings.late_cancel_fee_pence,
         no_show_wait_time_minutes: settings.no_show_wait_time_minutes,
         no_show_fee_pence: settings.no_show_fee_pence,
         no_show_apply_after_arrival_only: settings.no_show_apply_after_arrival_only,
@@ -569,7 +579,52 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
             </CardContent>
           </Card>
 
-          {/* No-Show Rules */}
+          {/* Late Passenger Cancellation */}
+          <Card className={!settings.late_cancel_enabled ? 'opacity-70' : ''}>
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Timer className="h-5 w-5 text-orange-500" />
+                    Late Passenger Cancellation
+                  </CardTitle>
+                  <CardDescription>
+                    Fee applied when a passenger cancels too close to the scheduled pickup time
+                  </CardDescription>
+                </div>
+                <Switch
+                  checked={settings.late_cancel_enabled}
+                  onCheckedChange={(v) => updateField('late_cancel_enabled', v)}
+                />
+              </div>
+            </CardHeader>
+            {settings.late_cancel_enabled && (
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label className="text-sm">Threshold (minutes before pickup)</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={settings.late_cancel_threshold_minutes}
+                      onChange={(e) => updateField('late_cancel_threshold_minutes', parseInt(e.target.value) || 1)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Cancellations within this window before scheduled pickup incur a fee
+                    </p>
+                  </div>
+                  {penceField('late_cancel_fee_pence', 'Late Cancellation Fee', 'Fixed fee charged for late cancellation')}
+                </div>
+                <div className="flex items-start gap-2 p-3 border rounded-lg bg-muted/30 border-border">
+                  <AlertCircle className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                  <p className="text-xs text-muted-foreground">
+                    If a passenger cancels within <strong>{settings.late_cancel_threshold_minutes} minutes</strong> of the scheduled pickup, a fee of <strong>{symbol}{(settings.late_cancel_fee_pence / 100).toFixed(2)}</strong> is charged. Cancellations made earlier than this threshold are free.
+                  </p>
+                </div>
+              </CardContent>
+            )}
+          </Card>
+
           <Card>
             <CardHeader className="pb-4">
               <CardTitle className="flex items-center gap-2">
@@ -752,6 +807,23 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
                 <span className="text-muted-foreground">Cancel Fee</span>
                 <span className="font-mono">{symbol}{(settings.cancellation_fee_pence / 100).toFixed(2)}</span>
               </div>
+              {settings.late_cancel_enabled && (
+                <>
+                  <Separator />
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Late Cancel</span>
+                    <Badge variant="outline" className="text-[10px]">Enabled</Badge>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Threshold</span>
+                    <span>{settings.late_cancel_threshold_minutes} min</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Late Fee</span>
+                    <span className="font-mono">{symbol}{(settings.late_cancel_fee_pence / 100).toFixed(2)}</span>
+                  </div>
+                </>
+              )}
               <Separator />
               <div className="flex justify-between">
                 <span className="text-muted-foreground">No-Show Wait</span>
