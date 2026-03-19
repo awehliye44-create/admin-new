@@ -357,8 +357,8 @@ export default function Dashboard() {
       // Build queries — use gross_fare_pence (actual settled fare) not fare (estimate)
       // Select only needed fields and use .limit(10000) to avoid silent 1000-row cap
       let driversQuery = supabase.from('drivers').select('id, is_online, approval_status, current_lat, current_lng, heading, current_trip_id, first_name, last_name');
-      let tripsQuery = supabase.from('trips').select('id, status, gross_fare_pence, commission_pence, service_area_id, created_at').limit(10000);
-      let previousTripsQuery = supabase.from('trips').select('id, gross_fare_pence, commission_pence').eq('status', 'completed').limit(10000);
+      let tripsQuery = supabase.from('trips').select('id, status, financial_outcome, gross_fare_pence, commission_pence, service_area_id, created_at').limit(10000);
+      let previousTripsQuery = supabase.from('trips').select('id, financial_outcome, gross_fare_pence, commission_pence').in('financial_outcome', ['COMPLETED', 'NO_SHOW', 'LATE_PASSENGER_CANCELLATION']).limit(10000);
 
       // Apply date filter for trips
       tripsQuery = tripsQuery.gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString());
