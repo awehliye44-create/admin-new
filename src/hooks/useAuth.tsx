@@ -140,7 +140,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // ── Session events: accept new session data ──
         if (SESSION_EVENTS.includes(event) && nextSession?.user) {
           setSession(nextSession);
-          setUser(nextSession.user);
+          // Only update user state if the user ID actually changed
+          // This prevents unnecessary re-renders (and downstream loading)
+          // when TOKEN_REFRESHED fires on tab return
+          setUser(prev => {
+            if (prev?.id === nextSession.user.id) return prev;
+            return nextSession.user;
+          });
 
           // Re-check admin role (uses cache for speed, refreshes in background)
           checkAdminRole(nextSession.user.id).then((result) => {

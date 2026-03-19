@@ -60,8 +60,10 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
   const [assignedServiceAreas, setAssignedServiceAreas] = useState<StaffServiceArea[]>([]);
   const [isStaffLoading, setIsStaffLoading] = useState(true);
 
+  const userId = user?.id;
+
   const fetchStaffData = useCallback(async () => {
-    if (!user) {
+    if (!userId) {
       setStaffProfile(null);
       setAllowedPages(new Set());
       setAssignedServiceAreas([]);
@@ -69,13 +71,15 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    setIsStaffLoading(true);
+    // Only show loading on initial fetch, not background refreshes
+    const isInitialLoad = !staffProfile && allowedPages.size === 0;
+    if (isInitialLoad) setIsStaffLoading(true);
     try {
       // Fetch staff profile
       const { data: profile } = await supabase
         .from('staff_profiles')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .eq('is_active', true)
         .maybeSingle();
 
@@ -125,7 +129,7 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsStaffLoading(false);
     }
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => {
     if (isAuthReady) {
