@@ -69,7 +69,9 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    setIsStaffLoading(true);
+    // Only show loading on initial fetch, not background refreshes
+    const isInitialLoad = !staffProfile && allowedPages.size === 0;
+    if (isInitialLoad) setIsStaffLoading(true);
     try {
       // Fetch staff profile
       const { data: profile } = await supabase
