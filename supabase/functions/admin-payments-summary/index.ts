@@ -97,6 +97,14 @@ serve(async (req) => {
       return acc;
     }, {}) || {};
 
+    // Revenue breakdown by type
+    const completedTripRevenue = all.reduce((s, d) => s + Number(d.completed_trip_revenue || 0), 0);
+    const completedTripCommission = all.reduce((s, d) => s + Number(d.completed_trip_commission || 0), 0);
+    const noShowRevenue = all.reduce((s, d) => s + Number(d.no_show_revenue || 0), 0);
+    const noShowCommission = all.reduce((s, d) => s + Number(d.no_show_commission || 0), 0);
+    const lateCancelRevenue = all.reduce((s, d) => s + Number(d.late_cancel_revenue || 0), 0);
+    const lateCancelCommission = all.reduce((s, d) => s + Number(d.late_cancel_commission || 0), 0);
+
     const response = {
       // Unified financial summary (single source of truth)
       totalGrossFares,
@@ -107,6 +115,16 @@ serve(async (req) => {
       totalWalletBalance,
       totalCardGross,
       totalCashGross,
+
+      // Revenue breakdown by financial outcome type
+      revenueBreakdown: {
+        completed_trip_revenue: completedTripRevenue,
+        completed_trip_commission: completedTripCommission,
+        no_show_revenue: noShowRevenue,
+        no_show_commission: noShowCommission,
+        late_cancellation_revenue: lateCancelRevenue,
+        late_cancellation_commission: lateCancelCommission,
+      },
 
       // Legacy field (maps to totalCommission for backwards compat)
       totalRevenue: totalCommission,
