@@ -403,13 +403,17 @@ export default function Dashboard() {
       const activeTrips = trips.filter(t => ['pending', 'accepted', 'arriving', 'in_progress'].includes(t.status || '')).length;
       const inProgressTrips = trips.filter(t => t.status === 'in_progress').length;
       
-      // Total Revenue = sum of gross_fare_pence (actual settled fare in pence) / 100 → pounds
-      const totalRevenue = trips
-        .filter(t => t.status === 'completed')
+      // FINANCIALLY COUNTABLE outcomes only: COMPLETED, NO_SHOW, LATE_PASSENGER_CANCELLATION
+      const COUNTABLE_OUTCOMES = ['COMPLETED', 'NO_SHOW', 'LATE_PASSENGER_CANCELLATION'];
+      const financiallyCountableTrips = trips.filter(t => 
+        COUNTABLE_OUTCOMES.includes(t.financial_outcome || '')
+      );
+      
+      // Total Revenue = sum of gross_fare_pence from financially countable trips only
+      const totalRevenue = financiallyCountableTrips
         .reduce((sum, t) => sum + (Number(t.gross_fare_pence) || 0), 0) / 100;
-      // Commission = sum of commission_pence (platform earnings in pence) / 100 → pounds
-      const commissionRevenue = trips
-        .filter(t => t.status === 'completed')
+      // Commission = sum of commission_pence from financially countable trips only
+      const commissionRevenue = financiallyCountableTrips
         .reduce((sum, t) => sum + (Number(t.commission_pence) || 0), 0) / 100;
 
       const previousRevenue = previousTrips.reduce((sum, t) => sum + (Number(t.gross_fare_pence) || 0), 0) / 100;
@@ -436,11 +440,10 @@ export default function Dashboard() {
       setDrivers(allDrivers as Driver[]);
       setRecentTrips(recentTripsResult.data || []);
 
-      // Calculate revenue per service area using gross_fare_pence
+      // Calculate revenue per service area using only financially countable trips
       if (selectedServiceArea === 'all' && serviceAreas.length > 0) {
-        const completedTripsData = trips.filter(t => t.status === 'completed');
         const revenueByArea: ServiceAreaRevenue[] = serviceAreas.map(area => {
-          const areaTrips = completedTripsData.filter(t => t.service_area_id === area.id);
+          const areaTrips = financiallyCountableTrips.filter(t => t.service_area_id === area.id);
           const revenue = areaTrips.reduce((sum, t) => sum + (Number(t.gross_fare_pence) || 0), 0) / 100;
           const commission = areaTrips.reduce((sum, t) => sum + (Number(t.commission_pence) || 0), 0) / 100;
           return { name: area.name, revenue, trips: areaTrips.length, commission, currency_code: area.region?.currency_code || '' };
