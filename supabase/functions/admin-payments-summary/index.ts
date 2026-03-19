@@ -45,9 +45,10 @@ serve(async (req) => {
     }
 
     // ── Unified aggregates from driver_financial_summary ──
+    // Now includes revenue breakdown by type (completed, no_show, late_cancel)
     const { data: summaryRows } = await supabase
       .from('driver_financial_summary')
-      .select('gross_trip_total, company_commission_total, card_net_credits, cash_commission_debits, total_payouts_sent, wallet_balance, completed_trips, today_gross_earnings, today_trip_count, card_gross_total, cash_gross_total');
+      .select('gross_trip_total, company_commission_total, card_net_credits, cash_commission_debits, total_payouts_sent, wallet_balance, completed_trips, today_gross_earnings, today_trip_count, card_gross_total, cash_gross_total, completed_trip_revenue, completed_trip_commission, no_show_revenue, no_show_commission, late_cancel_revenue, late_cancel_commission');
 
     const all = summaryRows || [];
     const totalGrossFares = all.reduce((s, d) => s + Number(d.gross_trip_total || 0), 0);
