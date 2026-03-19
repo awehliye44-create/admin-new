@@ -579,7 +579,52 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
             </CardContent>
           </Card>
 
-          {/* No-Show Rules */}
+          {/* Late Passenger Cancellation */}
+          <Card className={!settings.late_cancel_enabled ? 'opacity-70' : ''}>
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Timer className="h-5 w-5 text-orange-500" />
+                    Late Passenger Cancellation
+                  </CardTitle>
+                  <CardDescription>
+                    Fee applied when a passenger cancels too close to the scheduled pickup time
+                  </CardDescription>
+                </div>
+                <Switch
+                  checked={settings.late_cancel_enabled}
+                  onCheckedChange={(v) => updateField('late_cancel_enabled', v)}
+                />
+              </div>
+            </CardHeader>
+            {settings.late_cancel_enabled && (
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label className="text-sm">Threshold (minutes before pickup)</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={settings.late_cancel_threshold_minutes}
+                      onChange={(e) => updateField('late_cancel_threshold_minutes', parseInt(e.target.value) || 1)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Cancellations within this window before scheduled pickup incur a fee
+                    </p>
+                  </div>
+                  {penceField('late_cancel_fee_pence', 'Late Cancellation Fee', 'Fixed fee charged for late cancellation')}
+                </div>
+                <div className="flex items-start gap-2 p-3 border rounded-lg bg-muted/30 border-border">
+                  <AlertCircle className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                  <p className="text-xs text-muted-foreground">
+                    If a passenger cancels within <strong>{settings.late_cancel_threshold_minutes} minutes</strong> of the scheduled pickup, a fee of <strong>{symbol}{(settings.late_cancel_fee_pence / 100).toFixed(2)}</strong> is charged. Cancellations made earlier than this threshold are free.
+                  </p>
+                </div>
+              </CardContent>
+            )}
+          </Card>
+
           <Card>
             <CardHeader className="pb-4">
               <CardTitle className="flex items-center gap-2">
