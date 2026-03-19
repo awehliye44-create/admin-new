@@ -2895,6 +2895,9 @@ export type Database = {
           extra_stop_flat_fee_pence: number
           free_waiting_minutes: number
           id: string
+          late_cancel_enabled: boolean
+          late_cancel_fee_pence: number
+          late_cancel_threshold_minutes: number
           minimum_fare_pence: number
           no_show_apply_after_arrival_only: boolean
           no_show_fee_pence: number
@@ -2927,6 +2930,9 @@ export type Database = {
           extra_stop_flat_fee_pence?: number
           free_waiting_minutes?: number
           id?: string
+          late_cancel_enabled?: boolean
+          late_cancel_fee_pence?: number
+          late_cancel_threshold_minutes?: number
           minimum_fare_pence?: number
           no_show_apply_after_arrival_only?: boolean
           no_show_fee_pence?: number
@@ -2959,6 +2965,9 @@ export type Database = {
           extra_stop_flat_fee_pence?: number
           free_waiting_minutes?: number
           id?: string
+          late_cancel_enabled?: boolean
+          late_cancel_fee_pence?: number
+          late_cancel_threshold_minutes?: number
           minimum_fare_pence?: number
           no_show_apply_after_arrival_only?: boolean
           no_show_fee_pence?: number
