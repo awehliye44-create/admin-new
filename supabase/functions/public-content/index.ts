@@ -37,6 +37,19 @@ Deno.serve(async (req) => {
 
     if (error) throw error;
 
+    // Simple server-side HTML sanitizer: strip script/iframe/object/embed tags
+    function stripDangerousTags(html: string): string {
+      return html
+        .replace(/<script[\s>][\s\S]*?<\/script>/gi, '')
+        .replace(/<script[\s>][\s\S]*?$/gi, '')
+        .replace(/<iframe[\s>][\s\S]*?<\/iframe>/gi, '')
+        .replace(/<iframe[\s>][\s\S]*?$/gi, '')
+        .replace(/<object[\s>][\s\S]*?<\/object>/gi, '')
+        .replace(/<embed[\s>][\s\S]*?>/gi, '')
+        .replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, '')
+        .replace(/\bon\w+\s*=\s*\S+/gi, '');
+    }
+
     // Deduplicate: keep highest version per (app_scope, slug)
     const seen = new Set<string>();
     const result: Record<string, any> = {};
@@ -46,7 +59,7 @@ Deno.serve(async (req) => {
         seen.add(key);
         result[row.slug] = {
           title: row.title,
-          content: row.content_html,
+          content: stripDangerousTags(row.content_html),
           version: row.version,
           published_at: row.published_at,
         };

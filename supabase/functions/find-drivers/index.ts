@@ -74,6 +74,22 @@ serve(async (req) => {
   }
 
   try {
+    // ── Authenticate caller ──
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return errorResponse('Missing authorization header', 401);
+    }
+
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !authUser) {
+      return errorResponse('Invalid or expired token', 401);
+    }
+
     // Parse and validate request body
     let body: unknown;
     try {
@@ -89,10 +105,6 @@ serve(async (req) => {
     }
 
     const { pickup_lat, pickup_lng, vehicle_type_id, max_distance_km = 10 } = validation.data!;
-
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     console.log('Finding drivers for pickup:', { pickup_lat, pickup_lng, vehicle_type_id });
 
@@ -243,7 +255,10 @@ serve(async (req) => {
           driver.current_lng!
         );
         return {
-          ...driver,
+          id: driver.id,
+          rating: driver.rating,
+          current_lat: driver.current_lat,
+          current_lng: driver.current_lng,
           distance_km: Math.round(distance * 10) / 10
         };
       })
