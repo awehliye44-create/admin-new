@@ -255,7 +255,10 @@ serve(async (req) => {
           driver.current_lng!
         );
         return {
-          ...driver,
+          id: driver.id,
+          rating: driver.rating,
+          current_lat: driver.current_lat,
+          current_lng: driver.current_lng,
           distance_km: Math.round(distance * 10) / 10
         };
       })

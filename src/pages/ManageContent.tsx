@@ -164,7 +164,7 @@ function ContentEditor({ item, onSaved }: { item: ContentItem; onSaved: () => vo
         ) : showPreview ? (
           <div
             className="prose prose-sm max-w-none rounded-md border border-input bg-background p-4 min-h-[200px] overflow-auto"
-            dangerouslySetInnerHTML={{ __html: content }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content) }}
           />
         ) : (
           <Textarea

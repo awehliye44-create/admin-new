@@ -143,15 +143,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Only update user state if the user ID actually changed
           // This prevents unnecessary re-renders (and downstream loading)
           // when TOKEN_REFRESHED fires on tab return
+          const isNewUser = user?.id !== nextSession.user.id;
           setUser(prev => {
             if (prev?.id === nextSession.user.id) return prev;
             return nextSession.user;
           });
 
-          // Re-check admin role (uses cache for speed, refreshes in background)
-          checkAdminRole(nextSession.user.id).then((result) => {
-            if (mounted) setIsAdmin(result);
-          });
+          // For a brand-new sign-in (different user), reset admin to false
+          // and block rendering until the role check completes
+          if (isNewUser && event === 'SIGNED_IN') {
+            setIsAdmin(false);
+            setIsAuthReady(false);
+            checkAdminRole(nextSession.user.id).then((result) => {
+              if (mounted) {
+                setIsAdmin(result);
+                setIsAuthReady(true);
+              }
+            });
+          } else {
+            // TOKEN_REFRESHED / USER_UPDATED — background refresh only
+            checkAdminRole(nextSession.user.id).then((result) => {
+              if (mounted) setIsAdmin(result);
+            });
+          }
           return;
         }
 
