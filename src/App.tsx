@@ -70,6 +70,7 @@ import LiveChat from "./pages/LiveChat";
 import OnecabDocuments from "./pages/OnecabDocuments";
 import AlertSounds from "./pages/AlertSounds";
 import UserDirectory from "./pages/UserDirectory";
+import QrBookingControl from "./pages/QrBookingControl";
 
 const queryClient = createAppQueryClient();
 
@@ -103,6 +104,7 @@ const App = () => (
               <Route path="trip-history" element={<TripHistory />} />
               <Route path="manual-trip" element={<ManualTrip />} />
               <Route path="dispatch" element={<Dispatch />} />
+              <Route path="qr-booking" element={<QrBookingControl />} />
               
               {/* Service Areas */}
               <Route path="regions" element={<Regions />} />

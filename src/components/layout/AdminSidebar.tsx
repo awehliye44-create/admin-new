@@ -54,6 +54,7 @@ import {
   PanelLeft,
   ShieldCheck,
   Contact,
+  QrCode,
 } from 'lucide-react';
 import {
   Collapsible,
@@ -237,6 +238,7 @@ export function AdminSidebar() {
               <P pageSlug="missed-cancelled" to="/missed-cancelled" icon={<XCircle className="h-4 w-4" />} label="Missed & Canceled" active={currentPath === '/missed-cancelled'} collapsed={isCollapsed} />
               <P pageSlug="trip-history" to="/trip-history" icon={<History className="h-4 w-4" />} label="Trip History" active={currentPath === '/trip-history'} collapsed={isCollapsed} />
               <P pageSlug="manual-trip" to="/manual-trip" icon={<Plus className="h-4 w-4" />} label="Manual Trip Creation" active={currentPath === '/manual-trip'} collapsed={isCollapsed} />
+              <P pageSlug="qr-booking" to="/qr-booking" icon={<QrCode className="h-4 w-4" />} label="QR Booking" active={currentPath === '/qr-booking'} collapsed={isCollapsed} />
             </div>
           </div>
 
