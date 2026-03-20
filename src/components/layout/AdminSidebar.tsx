@@ -54,6 +54,7 @@ import {
   PanelLeft,
   ShieldCheck,
   Contact,
+  QrCode,
 } from 'lucide-react';
 import {
   Collapsible,
