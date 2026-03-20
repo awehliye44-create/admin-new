@@ -70,6 +70,7 @@ import LiveChat from "./pages/LiveChat";
 import OnecabDocuments from "./pages/OnecabDocuments";
 import AlertSounds from "./pages/AlertSounds";
 import UserDirectory from "./pages/UserDirectory";
+import QrBookingControl from "./pages/QrBookingControl";
 
 const queryClient = createAppQueryClient();
 
