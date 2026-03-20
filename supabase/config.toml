@@ -86,3 +86,6 @@ verify_jwt = false
 
 [functions.record-financial-outcome]
 verify_jwt = false
+
+[functions.qr-booking-config]
+verify_jwt = false

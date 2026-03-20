@@ -104,6 +104,7 @@ const App = () => (
               <Route path="trip-history" element={<TripHistory />} />
               <Route path="manual-trip" element={<ManualTrip />} />
               <Route path="dispatch" element={<Dispatch />} />
+              <Route path="qr-booking" element={<QrBookingControl />} />
               
               {/* Service Areas */}
               <Route path="regions" element={<Regions />} />
