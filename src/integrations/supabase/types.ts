@@ -4330,6 +4330,72 @@ export type Database = {
           },
         ]
       }
+      qr_booking_audit_log: {
+        Row: {
+          changed_by: string | null
+          changed_by_email: string | null
+          created_at: string
+          id: string
+          new_values: Json
+          old_values: Json
+        }
+        Insert: {
+          changed_by?: string | null
+          changed_by_email?: string | null
+          created_at?: string
+          id?: string
+          new_values?: Json
+          old_values?: Json
+        }
+        Update: {
+          changed_by?: string | null
+          changed_by_email?: string | null
+          created_at?: string
+          id?: string
+          new_values?: Json
+          old_values?: Json
+        }
+        Relationships: []
+      }
+      qr_booking_config: {
+        Row: {
+          created_at: string
+          id: string
+          pickup_address: string
+          pickup_lat: number
+          pickup_lng: number
+          pickup_name: string
+          qr_url: string
+          status: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          pickup_address?: string
+          pickup_lat?: number
+          pickup_lng?: number
+          pickup_name?: string
+          qr_url?: string
+          status?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          pickup_address?: string
+          pickup_lat?: number
+          pickup_lng?: number
+          pickup_name?: string
+          qr_url?: string
+          status?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       region_payment_methods: {
         Row: {
           apple_pay_enabled: boolean
