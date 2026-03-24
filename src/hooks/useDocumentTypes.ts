@@ -9,6 +9,7 @@ export interface DocumentType {
   description: string | null;
   is_required: boolean;
   has_expiry: boolean;
+  show_in_driver_app: boolean;
   reminder_days_before_expiry: number[];
   display_order: number;
   is_active: boolean;
