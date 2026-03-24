@@ -13,7 +13,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { useDocumentTypes, useUpdateDocumentType, useCreateDocumentType, DocumentType } from "@/hooks/useDocumentTypes";
-import { Settings2, Calendar, Bell, Loader2, FileText, CheckCircle2, Plus } from "lucide-react";
+import { Settings2, Calendar, Bell, Loader2, FileText, CheckCircle2, Plus, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
 export function DocumentTypeConfig() {
@@ -27,17 +27,17 @@ export function DocumentTypeConfig() {
   const [formData, setFormData] = useState({
     has_expiry: false,
     is_required: true,
+    show_in_driver_app: true,
     reminder_days: "30,14,7,3,1",
   });
 
-  // Create form state
   const [createForm, setCreateForm] = useState({
     name: '',
     slug: '',
     description: '',
     is_required: true,
     has_expiry: false,
-    display_in_driver_app: true,
+    show_in_driver_app: true,
     reminder_days: "30,14,7,3,1",
   });
 
@@ -46,6 +46,7 @@ export function DocumentTypeConfig() {
     setFormData({
       has_expiry: docType.has_expiry,
       is_required: docType.is_required,
+      show_in_driver_app: docType.show_in_driver_app,
       reminder_days: docType.reminder_days_before_expiry.join(","),
     });
     setIsEditOpen(true);
@@ -70,6 +71,7 @@ export function DocumentTypeConfig() {
         id: selectedType.id,
         has_expiry: formData.has_expiry,
         is_required: formData.is_required,
+        show_in_driver_app: formData.show_in_driver_app,
         reminder_days_before_expiry: formData.has_expiry ? reminderDays : [],
       },
       {
@@ -102,6 +104,7 @@ export function DocumentTypeConfig() {
         description: createForm.description.trim() || null,
         is_required: createForm.is_required,
         has_expiry: createForm.has_expiry,
+        show_in_driver_app: createForm.show_in_driver_app,
         reminder_days_before_expiry: createForm.has_expiry ? reminderDays : [],
         display_order: (documentTypes?.length || 0) + 1,
         is_active: true,
@@ -111,7 +114,7 @@ export function DocumentTypeConfig() {
           setIsCreateOpen(false);
           setCreateForm({
             name: '', slug: '', description: '',
-            is_required: true, has_expiry: false, display_in_driver_app: true,
+            is_required: true, has_expiry: false, show_in_driver_app: true,
             reminder_days: "30,14,7,3,1",
           });
         },
@@ -122,10 +125,17 @@ export function DocumentTypeConfig() {
   const openCreateDialog = () => {
     setCreateForm({
       name: '', slug: '', description: '',
-      is_required: true, has_expiry: false, display_in_driver_app: true,
+      is_required: true, has_expiry: false, show_in_driver_app: true,
       reminder_days: "30,14,7,3,1",
     });
     setIsCreateOpen(true);
+  };
+
+  const handleQuickToggleVisibility = (docType: DocumentType) => {
+    updateDocumentType.mutate({
+      id: docType.id,
+      show_in_driver_app: !docType.show_in_driver_app,
+    });
   };
 
   if (isLoading) {
@@ -161,6 +171,7 @@ export function DocumentTypeConfig() {
                 <TableHead>Document Type</TableHead>
                 <TableHead>Required</TableHead>
                 <TableHead>Has Expiry</TableHead>
+                <TableHead>Driver App</TableHead>
                 <TableHead>Reminder Schedule</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -202,6 +213,25 @@ export function DocumentTypeConfig() {
                         No Expiry
                       </Badge>
                     )}
+                  </TableCell>
+                  <TableCell>
+                    <button
+                      onClick={() => handleQuickToggleVisibility(docType)}
+                      className="inline-flex items-center gap-1 cursor-pointer"
+                      title={docType.show_in_driver_app ? "Visible in driver app — click to hide" : "Hidden from driver app — click to show"}
+                    >
+                      {docType.show_in_driver_app ? (
+                        <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200">
+                          <Eye className="h-3 w-3 mr-1" />
+                          Visible
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="bg-red-100 text-red-700 border-red-200">
+                          <EyeOff className="h-3 w-3 mr-1" />
+                          Hidden
+                        </Badge>
+                      )}
+                    </button>
                   </TableCell>
                   <TableCell>
                     {docType.has_expiry && docType.reminder_days_before_expiry.length > 0 ? (
@@ -261,6 +291,21 @@ export function DocumentTypeConfig() {
                 checked={formData.has_expiry}
                 onCheckedChange={(checked) =>
                   setFormData({ ...formData, has_expiry: checked })
+                }
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Show in Driver App</Label>
+                <p className="text-sm text-muted-foreground">
+                  When OFF, this document is hidden from the driver app globally
+                </p>
+              </div>
+              <Switch
+                checked={formData.show_in_driver_app}
+                onCheckedChange={(checked) =>
+                  setFormData({ ...formData, show_in_driver_app: checked })
                 }
               />
             </div>
@@ -358,12 +403,12 @@ export function DocumentTypeConfig() {
             </div>
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
-                <Label>Default Display in Driver App</Label>
-                <p className="text-xs text-muted-foreground">Shown in driver app by default</p>
+                <Label>Default Show in Driver App</Label>
+                <p className="text-xs text-muted-foreground">Visible in driver app by default</p>
               </div>
               <Switch
-                checked={createForm.display_in_driver_app}
-                onCheckedChange={(checked) => setCreateForm(prev => ({ ...prev, display_in_driver_app: checked }))}
+                checked={createForm.show_in_driver_app}
+                onCheckedChange={(checked) => setCreateForm(prev => ({ ...prev, show_in_driver_app: checked }))}
               />
             </div>
             {createForm.has_expiry && (
