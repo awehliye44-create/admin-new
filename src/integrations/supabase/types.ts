@@ -5962,11 +5962,13 @@ export type Database = {
       trips: {
         Row: {
           arrived_at: string | null
+          assigned_at: string | null
           authorised_amount_pence: number | null
           base_fare_pence: number | null
           booking_source: string | null
           broadcast_started_at: string | null
           cancellation_fee_pence: number | null
+          cancellation_grace_expires_at: string | null
           cancellation_note: string | null
           cancellation_reason: string | null
           cancelled_at: string | null
@@ -6027,6 +6029,7 @@ export type Database = {
           final_fare_pence: number | null
           final_payout_pence: number | null
           financial_outcome: string | null
+          free_wait_expires_at: string | null
           grace_period_expired_at: string | null
           gross_fare_pence: number | null
           id: string
@@ -6037,6 +6040,7 @@ export type Database = {
           negotiation_locked_until: string | null
           no_show_charge_pence: number | null
           offer_snapshot: Json | null
+          paid_waiting_started_at: string | null
           passenger_id: string
           passenger_name: string | null
           passenger_phone: string | null
@@ -6047,6 +6051,7 @@ export type Database = {
           pickup_address: string
           pickup_latitude: number | null
           pickup_longitude: number | null
+          pickup_waiting_charge_pence: number
           pickup_zone_id: string | null
           platform_commission_amount: number | null
           pre_assigned_driver_id: string | null
@@ -6097,11 +6102,13 @@ export type Database = {
         }
         Insert: {
           arrived_at?: string | null
+          assigned_at?: string | null
           authorised_amount_pence?: number | null
           base_fare_pence?: number | null
           booking_source?: string | null
           broadcast_started_at?: string | null
           cancellation_fee_pence?: number | null
+          cancellation_grace_expires_at?: string | null
           cancellation_note?: string | null
           cancellation_reason?: string | null
           cancelled_at?: string | null
@@ -6162,6 +6169,7 @@ export type Database = {
           final_fare_pence?: number | null
           final_payout_pence?: number | null
           financial_outcome?: string | null
+          free_wait_expires_at?: string | null
           grace_period_expired_at?: string | null
           gross_fare_pence?: number | null
           id?: string
@@ -6172,6 +6180,7 @@ export type Database = {
           negotiation_locked_until?: string | null
           no_show_charge_pence?: number | null
           offer_snapshot?: Json | null
+          paid_waiting_started_at?: string | null
           passenger_id: string
           passenger_name?: string | null
           passenger_phone?: string | null
@@ -6182,6 +6191,7 @@ export type Database = {
           pickup_address: string
           pickup_latitude?: number | null
           pickup_longitude?: number | null
+          pickup_waiting_charge_pence?: number
           pickup_zone_id?: string | null
           platform_commission_amount?: number | null
           pre_assigned_driver_id?: string | null
@@ -6232,11 +6242,13 @@ export type Database = {
         }
         Update: {
           arrived_at?: string | null
+          assigned_at?: string | null
           authorised_amount_pence?: number | null
           base_fare_pence?: number | null
           booking_source?: string | null
           broadcast_started_at?: string | null
           cancellation_fee_pence?: number | null
+          cancellation_grace_expires_at?: string | null
           cancellation_note?: string | null
           cancellation_reason?: string | null
           cancelled_at?: string | null
@@ -6297,6 +6309,7 @@ export type Database = {
           final_fare_pence?: number | null
           final_payout_pence?: number | null
           financial_outcome?: string | null
+          free_wait_expires_at?: string | null
           grace_period_expired_at?: string | null
           gross_fare_pence?: number | null
           id?: string
@@ -6307,6 +6320,7 @@ export type Database = {
           negotiation_locked_until?: string | null
           no_show_charge_pence?: number | null
           offer_snapshot?: Json | null
+          paid_waiting_started_at?: string | null
           passenger_id?: string
           passenger_name?: string | null
           passenger_phone?: string | null
@@ -6317,6 +6331,7 @@ export type Database = {
           pickup_address?: string
           pickup_latitude?: number | null
           pickup_longitude?: number | null
+          pickup_waiting_charge_pence?: number
           pickup_zone_id?: string | null
           platform_commission_amount?: number | null
           pre_assigned_driver_id?: string | null
