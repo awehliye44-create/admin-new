@@ -9,6 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Search } from 'lucide-react';
+import { getCurrencySymbol } from '@/lib/regionSettings';
 
 const ENTRY_TYPES = [
   { value: 'ADJUSTMENT', label: 'Adjustment', description: 'General credit or debit' },
@@ -39,7 +40,7 @@ export function NewAdjustmentDialog({ open, onOpenChange }: NewAdjustmentDialogP
       if (driverSearch.length < 2) return [];
       const { data, error } = await supabase
         .from('drivers')
-        .select('id, first_name, last_name, driver_code')
+        .select('id, first_name, last_name, driver_code, region:regions(currency_code)')
         .or(`first_name.ilike.%${driverSearch}%,last_name.ilike.%${driverSearch}%,driver_code.ilike.%${driverSearch}%`)
         .limit(10);
       if (error) throw error;
@@ -71,7 +72,7 @@ export function NewAdjustmentDialog({ open, onOpenChange }: NewAdjustmentDialogP
       return response.data;
     },
     onSuccess: (data) => {
-      const amountFormatted = `£${Math.abs(data.ledgerEntry.amount / 100).toFixed(2)}`;
+      const amountFormatted = `${getCurrencySymbol('')}${Math.abs(data.ledgerEntry.amount / 100).toFixed(2)}`;
       toast.success(`${isCredit ? 'Credit' : 'Debit'} of ${amountFormatted} applied to ${selectedDriverName}`);
       queryClient.invalidateQueries({ queryKey: ['adjustments-ledger'] });
       resetForm();
@@ -174,7 +175,7 @@ export function NewAdjustmentDialog({ open, onOpenChange }: NewAdjustmentDialogP
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Amount (£)</Label>
+              <Label>Amount ({getCurrencySymbol((drivers.find(d => d.id === selectedDriverId) as any)?.region?.currency_code || '')})</Label>
               <Input
                 type="number"
                 step="0.01"

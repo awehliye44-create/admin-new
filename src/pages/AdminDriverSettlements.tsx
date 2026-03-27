@@ -12,6 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/integrations/supabase/client';
+import { getCurrencySymbol } from '@/lib/regionSettings';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -345,7 +346,7 @@ export default function AdminDriverSettlements() {
                 <Button variant={adjustmentType === 'add' ? 'default' : 'outline'} size="sm" onClick={() => setAdjustmentType('add')}><Plus className="h-4 w-4 mr-1" />Credit</Button>
                 <Button variant={adjustmentType === 'deduct' ? 'destructive' : 'outline'} size="sm" onClick={() => setAdjustmentType('deduct')}><Minus className="h-4 w-4 mr-1" />Debit</Button>
               </div>
-              <div><Label>Amount (£)</Label><Input type="number" step="0.01" placeholder="0.00" value={adjustmentAmount} onChange={e => setAdjustmentAmount(e.target.value)} /></div>
+              <div><Label>Amount ({getCurrencySymbol(selectedDriverDetail?.currency_code || '')})</Label><Input type="number" step="0.01" placeholder="0.00" value={adjustmentAmount} onChange={e => setAdjustmentAmount(e.target.value)} /></div>
               <div><Label>Reason</Label><Textarea placeholder="Reason for adjustment..." value={adjustmentReason} onChange={e => setAdjustmentReason(e.target.value)} /></div>
             </div>
             <DialogFooter>
