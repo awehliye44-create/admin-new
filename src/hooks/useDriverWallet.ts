@@ -15,6 +15,7 @@ export interface DriverFinancialSummary {
   stripe_account_id: string | null;
   payouts_enabled: boolean;
   onboarding_complete: boolean;
+  currency_code: string;
   // Trip totals
   gross_trip_total: number;
   completed_trips: number;
@@ -57,7 +58,7 @@ export interface LedgerEntry {
   created_at: string;
 }
 
-// Format pence to currency string
+// Format pence to currency string — Region currency is REQUIRED
 export function formatPence(pence: number, currencyCode: string = ''): string {
   const amount = pence / 100;
   const symbol = getCurrencySymbol(currencyCode);
@@ -93,6 +94,42 @@ export function getEntryTypeDisplay(entryType: string): { label: string; color: 
   }
 }
 
+const mapSummary = (d: any): DriverFinancialSummary => ({
+  driver_id: d.driver_id,
+  first_name: d.first_name || '',
+  last_name: d.last_name || '',
+  email: d.email || '',
+  phone: d.phone,
+  is_online: d.is_online || false,
+  rating: d.rating,
+  approval_status: d.approval_status || 'pending',
+  stripe_account_id: d.stripe_account_id,
+  payouts_enabled: d.payouts_enabled || false,
+  onboarding_complete: d.onboarding_complete || false,
+  currency_code: d.currency_code || '',
+  gross_trip_total: Number(d.gross_trip_total) || 0,
+  completed_trips: Number(d.completed_trips) || 0,
+  card_net_credits: Number(d.card_net_credits) || 0,
+  card_gross_total: Number(d.card_gross_total) || 0,
+  card_commission_total: Number(d.card_commission_total) || 0,
+  card_trip_count: Number(d.card_trip_count) || 0,
+  cash_gross_total: Number(d.cash_gross_total) || 0,
+  cash_net_earnings: Number(d.cash_net_earnings) || 0,
+  cash_commission_debits: Number(d.cash_commission_debits) || 0,
+  cash_trip_count: Number(d.cash_trip_count) || 0,
+  company_commission_total: Number(d.company_commission_total) || 0,
+  today_gross_earnings: Number(d.today_gross_earnings) || 0,
+  today_cash_earnings: Number(d.today_cash_earnings) || 0,
+  today_card_earnings: Number(d.today_card_earnings) || 0,
+  today_trip_count: Number(d.today_trip_count) || 0,
+  adjustments_total: Number(d.adjustments_total) || 0,
+  total_payouts_sent: Number(d.total_payouts_sent) || 0,
+  total_fees: Number(d.total_fees) || 0,
+  wallet_balance: Number(d.wallet_balance) || 0,
+  available_for_payout: Number(d.available_for_payout) || 0,
+  amount_owed_to_onecab: Number(d.amount_owed_to_onecab) || 0,
+});
+
 // Hook to fetch all driver financial summaries (admin view)
 export function useDriverFinancialSummaries() {
   return useQuery({
@@ -107,40 +144,7 @@ export function useDriverFinancialSummaries() {
         throw error;
       }
 
-      return (data || []).map(d => ({
-        driver_id: d.driver_id,
-        first_name: d.first_name || '',
-        last_name: d.last_name || '',
-        email: d.email || '',
-        phone: d.phone,
-        is_online: d.is_online || false,
-        rating: d.rating,
-        approval_status: d.approval_status || 'pending',
-        stripe_account_id: d.stripe_account_id,
-        payouts_enabled: d.payouts_enabled || false,
-        onboarding_complete: d.onboarding_complete || false,
-        gross_trip_total: Number(d.gross_trip_total) || 0,
-        completed_trips: Number(d.completed_trips) || 0,
-        card_net_credits: Number(d.card_net_credits) || 0,
-        card_gross_total: Number(d.card_gross_total) || 0,
-        card_commission_total: Number(d.card_commission_total) || 0,
-        card_trip_count: Number(d.card_trip_count) || 0,
-        cash_gross_total: Number(d.cash_gross_total) || 0,
-        cash_net_earnings: Number(d.cash_net_earnings) || 0,
-        cash_commission_debits: Number(d.cash_commission_debits) || 0,
-        cash_trip_count: Number(d.cash_trip_count) || 0,
-        company_commission_total: Number(d.company_commission_total) || 0,
-        today_gross_earnings: Number(d.today_gross_earnings) || 0,
-        today_cash_earnings: Number(d.today_cash_earnings) || 0,
-        today_card_earnings: Number(d.today_card_earnings) || 0,
-        today_trip_count: Number(d.today_trip_count) || 0,
-        adjustments_total: Number(d.adjustments_total) || 0,
-        total_payouts_sent: Number(d.total_payouts_sent) || 0,
-        total_fees: Number(d.total_fees) || 0,
-        wallet_balance: Number(d.wallet_balance) || 0,
-        available_for_payout: Number(d.available_for_payout) || 0,
-        amount_owed_to_onecab: Number(d.amount_owed_to_onecab) || 0,
-      }));
+      return (data || []).map(mapSummary);
     }
   });
 }
@@ -163,40 +167,7 @@ export function useDriverFinancialSummary(driverId: string | null) {
         throw error;
       }
 
-      return {
-        driver_id: data.driver_id,
-        first_name: data.first_name || '',
-        last_name: data.last_name || '',
-        email: data.email || '',
-        phone: data.phone,
-        is_online: data.is_online || false,
-        rating: data.rating,
-        approval_status: data.approval_status || 'pending',
-        stripe_account_id: data.stripe_account_id,
-        payouts_enabled: data.payouts_enabled || false,
-        onboarding_complete: data.onboarding_complete || false,
-        gross_trip_total: Number(data.gross_trip_total) || 0,
-        completed_trips: Number(data.completed_trips) || 0,
-        card_net_credits: Number(data.card_net_credits) || 0,
-        card_gross_total: Number(data.card_gross_total) || 0,
-        card_commission_total: Number(data.card_commission_total) || 0,
-        card_trip_count: Number(data.card_trip_count) || 0,
-        cash_gross_total: Number(data.cash_gross_total) || 0,
-        cash_net_earnings: Number(data.cash_net_earnings) || 0,
-        cash_commission_debits: Number(data.cash_commission_debits) || 0,
-        cash_trip_count: Number(data.cash_trip_count) || 0,
-        company_commission_total: Number(data.company_commission_total) || 0,
-        today_gross_earnings: Number(data.today_gross_earnings) || 0,
-        today_cash_earnings: Number(data.today_cash_earnings) || 0,
-        today_card_earnings: Number(data.today_card_earnings) || 0,
-        today_trip_count: Number(data.today_trip_count) || 0,
-        adjustments_total: Number(data.adjustments_total) || 0,
-        total_payouts_sent: Number(data.total_payouts_sent) || 0,
-        total_fees: Number(data.total_fees) || 0,
-        wallet_balance: Number(data.wallet_balance) || 0,
-        available_for_payout: Number(data.available_for_payout) || 0,
-        amount_owed_to_onecab: Number(data.amount_owed_to_onecab) || 0,
-      };
+      return mapSummary(data);
     },
     enabled: !!driverId
   });
