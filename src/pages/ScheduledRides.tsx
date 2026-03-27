@@ -56,7 +56,7 @@ import {
 } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { format, formatDistanceToNow, isPast, isToday, isTomorrow, addHours } from 'date-fns';
-import { getCurrencySymbol } from '@/lib/regionSettings';
+import { getCurrencySymbol, getDistanceUnitShort, convertDistance } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { toast } from 'sonner';
 
@@ -97,6 +97,10 @@ interface ScheduledTrip {
   service_area?: {
     id: string;
     name: string;
+    region?: {
+      currency_code: string;
+      distance_unit: string;
+    } | null;
   } | null;
 }
 
@@ -159,7 +163,7 @@ export default function ScheduledRides() {
             driver_id,
             service_area_id,
             driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, profile_photo_url, rating),
-            service_area:service_areas!trips_service_area_id_fkey(id, name)
+            service_area:service_areas!trips_service_area_id_fkey(id, name, region:regions(currency_code, distance_unit))
           `)
           .eq('is_scheduled', true)
           .not('status', 'in', '(completed,cancelled)')
