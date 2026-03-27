@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { calculateCommission } from "../_shared/commission.ts";
 import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
+import { buildTripAccounting, validateTripAccounting } from "../_shared/tripAccounting.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -119,28 +120,42 @@ serve(async (req) => {
 
     // === Calculate fare and commission ===
     const grossFarePence = trip.gross_fare_pence || 0;
-    const extrasPence = trip.extras_pence || 0;
     const tipPence = trip.tip_pence || 0;
-    const totalGrossPence = grossFarePence + extrasPence + tipPence;
+    const totalGrossPence = grossFarePence + tipPence;
 
-    if (totalGrossPence <= 0) {
+    if (grossFarePence <= 0) {
       return new Response(
         JSON.stringify({ error: 'Trip has no fare amount' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    let commissionPence = trip.commission_pence || 0;
+    const { commission_pence: commissionPence } = await calculateCommission(supabase, trip.driver_id, grossFarePence);
+    const accounting = buildTripAccounting({
+      commissionableSubtotalPence: grossFarePence,
+      commissionPence,
+      tipAmountPence: tipPence,
+    });
+    const accountingError = validateTripAccounting({
+      commissionableSubtotalPence: grossFarePence,
+      commissionPence,
+      tipAmountPence: tipPence,
+      driverNetBeforeTipPence: accounting.driverNetBeforeTipPence,
+      driverTotalEarningsPence: accounting.driverTotalEarningsPence,
+      finalTripTotalPence: accounting.finalTripTotalPence,
+    });
 
-    if (commissionPence <= 0) {
-      const result = await calculateCommission(supabase, trip.driver_id, totalGrossPence);
-      commissionPence = result.commission_pence;
-      commissionPence = Math.max(0, Math.min(commissionPence, totalGrossPence));
+    if (accountingError) {
+      return new Response(
+        JSON.stringify({ error: accountingError }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
-    const driverNetPence = totalGrossPence - commissionPence;
+    const driverNetPence = accounting.driverNetBeforeTipPence;
+    const driverTotalEarningsPence = accounting.driverTotalEarningsPence;
 
-    console.log(`[cash-commission] Gross: ${totalGrossPence}p, Commission: ${commissionPence}p, Net: ${driverNetPence}p, Currency: ${currency_code}`);
+    console.log(`[cash-commission] Gross: ${grossFarePence}p, Tip: ${tipPence}p, Commission: ${commissionPence}p, Net: ${driverNetPence}p, DriverTotal: ${driverTotalEarningsPence}p, Currency: ${currency_code}`);
 
     // === Get wallet balance before ===
     const { data: walletBefore } = await supabase
@@ -149,7 +164,7 @@ serve(async (req) => {
 
     // === Update trip with financial fields ===
     await supabase.from('trips').update({
-      gross_fare_pence: totalGrossPence,
+      gross_fare_pence: grossFarePence,
       commission_pence: commissionPence,
       driver_net_pence: driverNetPence,
       payment_status: 'collected_cash',
@@ -196,9 +211,11 @@ serve(async (req) => {
       success: true,
       trip_id,
       driver_id: trip.driver_id,
-      gross_fare_pence: totalGrossPence,
+      gross_fare_pence: grossFarePence,
+      final_trip_total_pence: totalGrossPence,
       commission_pence: commissionPence,
       driver_net_pence: driverNetPence,
+      driver_total_earnings_pence: driverTotalEarningsPence,
       stripe_fee_pence: 0,
       platform_net_revenue: commissionPence,
       wallet_balance_before: balanceBefore,

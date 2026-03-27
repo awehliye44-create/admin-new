@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@14.21.0";
+import { validateTripAccounting } from "../_shared/tripAccounting.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -45,6 +46,22 @@ serve(async (req) => {
     if (final_trip_total_pence !== commissionable_subtotal_pence + tip_amount_pence) {
       console.error(`[capture] Business rule violation: ${final_trip_total_pence} != ${commissionable_subtotal_pence} + ${tip_amount_pence}`);
       return new Response(JSON.stringify({ error: 'final_trip_total must equal subtotal + tip' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const accountingError = validateTripAccounting({
+      commissionableSubtotalPence: commissionable_subtotal_pence,
+      commissionPence: platform_commission_pence,
+      tipAmountPence: tip_amount_pence,
+      driverNetBeforeTipPence: commissionable_subtotal_pence - platform_commission_pence,
+      driverTotalEarningsPence: driver_total_earnings_pence,
+      finalTripTotalPence: final_trip_total_pence,
+    });
+
+    if (accountingError) {
+      console.error(`[capture] Accounting invariant failed for trip ${trip_id}: ${accountingError}`);
+      return new Response(JSON.stringify({ error: accountingError }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
