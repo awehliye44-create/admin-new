@@ -523,7 +523,8 @@ export default function ScheduledRides() {
                             {trip.estimated_distance_km && (
                               <span className="flex items-center gap-0.5">
                                 <Navigation className="h-3 w-3" />
-                                {trip.estimated_distance_km.toFixed(1)} km
+                                {convertDistance(trip.estimated_distance_km, resolveTripDistanceUnit(trip)).toFixed(1)} {getDistanceUnitShort(resolveTripDistanceUnit(trip))}
+                              </span>
                               </span>
                             )}
                             {trip.estimated_duration_minutes && (
@@ -600,7 +601,7 @@ export default function ScheduledRides() {
                       </TableCell>
                       <TableCell className="font-medium">
                         <div>
-                          {getCurrencySymbol(trip.currency_code || '')}
+                          {getCurrencySymbol(resolveTripCurrency(trip))}
                           {(trip.estimated_fare || 0).toFixed(2)}
                         </div>
                       </TableCell>
