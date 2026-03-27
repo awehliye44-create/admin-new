@@ -514,7 +514,7 @@ export default function TripHistory() {
   const formatTripDistance = (distanceKm: number | null, trip?: CompletedTrip) => {
     if (!distanceKm) return 'N/A';
     // Use trip's driver region unit if available, otherwise use active filter unit, default to 'mile'
-    let unit = 'mile'; // Default to miles
+    let unit = activeRegion?.distance_unit || 'km'; // Default to km, resolved from Region
     
     if (trip?.driver?.region_id) {
       const driverRegion = regions.find(r => r.id === trip.driver?.region_id);
@@ -867,7 +867,9 @@ export default function TripHistory() {
                       </div>
                       {trip.commission_pence != null && (
                         <div className="text-[10px] text-muted-foreground mt-0.5">
-                          Net: {((trip.driver_net_pence || 0) / 100).toFixed(2)}
+                          Net: {trip.currency_code 
+                            ? getCurrencySymbol(trip.currency_code)
+                            : getActiveCurrencySymbol()}{((trip.driver_net_pence || 0) / 100).toFixed(2)}
                         </div>
                       )}
                     </TableCell>

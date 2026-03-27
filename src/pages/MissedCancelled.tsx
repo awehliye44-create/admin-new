@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -32,13 +32,13 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { 
   XCircle, Loader2, Search, RefreshCw, Clock, MapPin, Phone,
-  Eye, AlertTriangle, Ban, UserX, DollarSign, TrendingDown,
-  Calendar
+  Eye, AlertTriangle, Ban, UserX, TrendingDown,
 } from 'lucide-react';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
-import { toast } from 'sonner';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
+import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
+import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 
 interface CancelledTrip {
   id: string;
@@ -55,12 +55,31 @@ interface CancelledTrip {
   completed_at: string | null;
   special_instructions: string | null;
   driver_id: string | null;
+  service_area_id: string | null;
   driver?: {
     id: string;
     first_name: string;
     last_name: string;
     phone: string;
+    region_id: string | null;
   } | null;
+  service_area?: {
+    id: string;
+    name: string;
+    region_id: string;
+    region: {
+      currency_code: string;
+    } | null;
+  } | null;
+}
+
+/** Resolve currency for a trip from the Region chain */
+function resolveTripCurrency(trip: CancelledTrip): string {
+  // 1. Trip's own snapshotted currency
+  if (trip.currency_code) return trip.currency_code;
+  // 2. Trip → service_area → region
+  if (trip.service_area?.region?.currency_code) return trip.service_area.region.currency_code;
+  return '';
 }
 
 export default function MissedCancelled() {
@@ -68,6 +87,7 @@ export default function MissedCancelled() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('7days');
+  const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
 
   // Dialog states
   const [isViewOpen, setIsViewOpen] = useState(false);
@@ -89,7 +109,7 @@ export default function MissedCancelled() {
     }
   }, [dateFilter]);
 
-  const { data: trips = [], isLoading } = useQuery({
+  const { data: allTrips = [], isLoading } = useQuery({
     queryKey: ['missed-cancelled', dateFilter],
     queryFn: async () => {
       const { start, end } = getDateRange();
@@ -97,8 +117,11 @@ export default function MissedCancelled() {
       const { data, error } = await supabase
         .from('trips')
         .select(`
-          *,
-          driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone)
+          id, trip_code, status, passenger_name, passenger_phone,
+          pickup_address, dropoff_address, estimated_fare, fare, currency_code,
+          created_at, completed_at, special_instructions, driver_id, service_area_id,
+          driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, region_id),
+          service_area:service_areas!trips_service_area_id_fkey(id, name, region_id, region:regions(currency_code))
         `)
         .in('status', ['cancelled', 'no_show', 'missed', 'expired'])
         .gte('created_at', start.toISOString())
@@ -111,7 +134,21 @@ export default function MissedCancelled() {
     staleTime: 30_000,
   });
 
-  // getCurrencySymbol is now imported from @/lib/regionSettings
+  // Filter by selected service area's region
+  const trips = useMemo(() => {
+    if (!serviceFilter.regionId) return allTrips;
+    return allTrips.filter(t => {
+      const tripRegion = t.service_area?.region_id || t.driver?.region_id;
+      return tripRegion === serviceFilter.regionId;
+    });
+  }, [allTrips, serviceFilter.regionId]);
+
+  const resolvedCurrency = serviceFilter.currencyCode || getSingleCurrency(
+    trips.filter(t => resolveTripCurrency(t)).map(t => ({ currency_code: resolveTripCurrency(t) }))
+  ) || '';
+  const isMixedCurrency = !serviceFilter.currencyCode && !getSingleCurrency(
+    trips.filter(t => resolveTripCurrency(t)).map(t => ({ currency_code: resolveTripCurrency(t) }))
+  ) && trips.length > 0;
 
   const getStatusConfig = (status: string | null) => {
     switch (status) {
@@ -130,10 +167,7 @@ export default function MissedCancelled() {
 
   const getCancellationReason = (trip: CancelledTrip) => {
     if (trip.special_instructions) {
-      if (trip.special_instructions.includes('Admin cancelled')) {
-        return 'Cancelled by Admin';
-      }
-      if (trip.special_instructions.includes('Cancelled by admin')) {
+      if (trip.special_instructions.includes('Admin cancelled') || trip.special_instructions.includes('Cancelled by admin')) {
         return 'Cancelled by Admin';
       }
       if (trip.special_instructions.includes('Driver cancelled')) {
@@ -164,14 +198,29 @@ export default function MissedCancelled() {
 
   const cancelledCount = trips.filter(t => t.status === 'cancelled').length;
   const noShowCount = trips.filter(t => t.status === 'no_show').length;
-  const missedCount = trips.filter(t => t.status === 'missed' || t.status === 'expired').length;
   const lostRevenue = trips.reduce((sum, t) => sum + (t.estimated_fare || 0), 0);
+
+  /** Format a pence-or-pounds fare value with the trip's resolved currency */
+  const formatTripFare = (trip: CancelledTrip) => {
+    const cc = resolveTripCurrency(trip);
+    return `${getCurrencySymbol(cc)}${(trip.estimated_fare || 0).toFixed(2)}`;
+  };
 
   return (
     <AdminLayout 
       title="Missed & Cancelled" 
       description="Review cancelled, missed, and no-show trips"
     >
+      {/* Service Area Filter */}
+      <div className="flex items-center gap-3 mb-6">
+        <ServiceAreaFinanceFilter value={serviceFilter} onChange={setServiceFilter} />
+        {isMixedCurrency && (
+          <Badge variant="outline" className="text-amber-600 border-amber-300">
+            <AlertTriangle className="h-3 w-3 mr-1" /> Mixed currencies — select a service for totals
+          </Badge>
+        )}
+      </div>
+
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <Card>
@@ -212,9 +261,16 @@ export default function MissedCancelled() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Lost Revenue</p>
-                <p className="text-2xl font-bold text-amber-600">
-                  £{lostRevenue.toFixed(2)}
-                </p>
+                {isMixedCurrency ? (
+                  <CurrencyGroupedStats
+                    items={trips.map(t => ({ currency_code: resolveTripCurrency(t) || '???', amount: Math.round((t.estimated_fare || 0) * 100) }))}
+                    className="text-lg font-bold text-amber-600"
+                  />
+                ) : (
+                  <p className="text-2xl font-bold text-amber-600">
+                    {getCurrencySymbol(resolvedCurrency)}{lostRevenue.toFixed(2)}
+                  </p>
+                )}
               </div>
               <TrendingDown className="h-8 w-8 text-amber-500" />
             </div>
@@ -355,8 +411,7 @@ export default function MissedCancelled() {
                         </span>
                       </TableCell>
                       <TableCell className="font-medium text-red-600">
-                        {getCurrencySymbol(trip.currency_code)}
-                        {(trip.estimated_fare || 0).toFixed(2)}
+                        {formatTripFare(trip)}
                       </TableCell>
                       <TableCell className="text-muted-foreground text-sm">
                         {format(new Date(trip.created_at), 'MMM d, HH:mm')}
@@ -416,8 +471,7 @@ export default function MissedCancelled() {
                 <div>
                   <Label className="text-muted-foreground">Lost Fare</Label>
                   <p className="font-medium text-red-600">
-                    {getCurrencySymbol(selectedTrip.currency_code)}
-                    {(selectedTrip.estimated_fare || 0).toFixed(2)}
+                    {formatTripFare(selectedTrip)}
                   </p>
                 </div>
               </div>
