@@ -111,11 +111,13 @@ serve(async (req) => {
     // ── Unified stats from driver_financial_summary ──
     const { data: financialRows } = await supabase
       .from('driver_financial_summary')
-      .select('total_payouts_sent, wallet_balance, available_for_payout');
+      .select('total_payouts_sent, wallet_balance, available_for_payout, currency_code');
 
     const unifiedTotalPayouts = financialRows?.reduce((s, d) => s + Number(d.total_payouts_sent || 0), 0) || 0;
     const unifiedAvailablePayout = financialRows?.reduce((s, d) => s + Number(d.available_for_payout || 0), 0) || 0;
     const driversReadyForPayout = financialRows?.filter(d => Number(d.available_for_payout || 0) > 0).length || 0;
+    // Resolve dominant currency from Region via drivers
+    const dominantCurrency = financialRows?.find(d => d.currency_code)?.currency_code || '';
 
     // Batch-level summary
     const { data: summaryData } = await supabase
@@ -131,6 +133,7 @@ serve(async (req) => {
       failedBatches: summaryData?.filter(b => b.status === 'failed').length || 0,
       availableForPayout: unifiedAvailablePayout,
       driversReadyForPayout,
+      currencyCode: dominantCurrency,
     };
 
     return new Response(JSON.stringify({
