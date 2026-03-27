@@ -18,7 +18,6 @@ import {
   Save, Loader2, Calculator, Zap, Lock, 
   Settings2, AlertCircle, CheckCircle2, TrendingUp, Car
 } from 'lucide-react';
-} from 'lucide-react';
 import { toast } from 'sonner';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { FareSimulatorCard } from '@/components/pricing/FareSimulatorCard';
