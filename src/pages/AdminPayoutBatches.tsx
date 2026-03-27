@@ -54,6 +54,7 @@ interface PayoutResponse {
     failedBatches: number;
     availableForPayout: number;
     driversReadyForPayout: number;
+    currencyCode: string;
   };
   total: number;
   page: number;
@@ -75,6 +76,7 @@ export default function AdminPayoutBatches() {
 
   const batches = responseData?.batches || [];
   const summary = responseData?.summary;
+  const currencyCode = summary?.currencyCode || '';
   const selectedBatch = batches.find(b => b.id === selectedBatchId);
   const batchItems = selectedBatch?.items || [];
 
@@ -132,7 +134,7 @@ export default function AdminPayoutBatches() {
               <DollarSign className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-500">{formatPence(summary?.totalPaidOut || 0)}</div>
+              <div className="text-2xl font-bold text-green-500">{formatPence(summary?.totalPaidOut || 0, currencyCode)}</div>
               <p className="text-xs text-muted-foreground">From unified ledger</p>
             </CardContent>
           </Card>
@@ -142,7 +144,7 @@ export default function AdminPayoutBatches() {
               <Wallet className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-500">{formatPence(summary?.availableForPayout || 0)}</div>
+              <div className="text-2xl font-bold text-blue-500">{formatPence(summary?.availableForPayout || 0, currencyCode)}</div>
               <p className="text-xs text-muted-foreground">{summary?.driversReadyForPayout || 0} drivers ready</p>
             </CardContent>
           </Card>
@@ -202,7 +204,7 @@ export default function AdminPayoutBatches() {
                       <TableCell>{getKindDisplay(batch.kind)}</TableCell>
                       <TableCell>{getStatusBadge(batch.status)}</TableCell>
                       <TableCell className="text-right">{batch.totalDrivers || 0}</TableCell>
-                      <TableCell className="text-right font-medium text-green-600">{formatPence(batch.totalAmount || 0)}</TableCell>
+                      <TableCell className="text-right font-medium text-green-600">{formatPence(batch.totalAmount || 0, currencyCode)}</TableCell>
                       <TableCell className="text-right text-green-600">{batch.successfulPayouts || 0}</TableCell>
                       <TableCell className="text-right text-red-600">{batch.failedPayouts || 0}</TableCell>
                       <TableCell className="text-right">
@@ -229,7 +231,7 @@ export default function AdminPayoutBatches() {
               <div className="space-y-4">
                 <div className="grid grid-cols-4 gap-4">
                   <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Status</p>{getStatusBadge(selectedBatch.status)}</CardContent></Card>
-                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Total</p><p className="text-lg font-bold text-green-600">{formatPence(selectedBatch.totalAmount || 0)}</p></CardContent></Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Total</p><p className="text-lg font-bold text-green-600">{formatPence(selectedBatch.totalAmount || 0, currencyCode)}</p></CardContent></Card>
                   <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Success</p><p className="text-lg font-bold text-green-600">{selectedBatch.successfulPayouts || 0}</p></CardContent></Card>
                   <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Failed</p><p className="text-lg font-bold text-red-600">{selectedBatch.failedPayouts || 0}</p></CardContent></Card>
                 </div>
@@ -258,7 +260,7 @@ export default function AdminPayoutBatches() {
                           {batchItems.map((item) => (
                             <TableRow key={item.id}>
                               <TableCell className="font-medium">{item.driverName || item.driverId?.substring(0, 8)}</TableCell>
-                              <TableCell className="text-right text-green-600">{formatPence(item.amount || 0)}</TableCell>
+                              <TableCell className="text-right text-green-600">{formatPence(item.amount || 0, currencyCode)}</TableCell>
                               <TableCell>{getStatusBadge(item.status)}</TableCell>
                               <TableCell className="text-xs font-mono">{item.stripeTransferId ? item.stripeTransferId.substring(0, 16) + '...' : '-'}</TableCell>
                               <TableCell className="text-xs text-red-600 max-w-[150px] truncate">{item.errorMessage || '-'}</TableCell>

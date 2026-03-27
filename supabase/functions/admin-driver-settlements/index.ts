@@ -88,6 +88,7 @@ serve(async (req) => {
       stripeAccountId: d.stripe_account_id,
       payoutsEnabled: d.payouts_enabled,
       onboardingComplete: d.onboarding_complete,
+      currencyCode: d.currency_code || '',
       // Trip totals
       totalTrips: Number(d.completed_trips || 0),
       totalGross: Number(d.gross_trip_total || 0),
