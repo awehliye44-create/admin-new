@@ -45,28 +45,31 @@ serve(async (req) => {
       });
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    // Check if using service role key (for server-to-server calls)
+    const isServiceRole = token === supabaseServiceKey;
 
-    const { data: roleData } = await supabase
-      .from('user_roles').select('role')
-      .eq('user_id', user.id).eq('role', 'admin').maybeSingle();
+    if (!isServiceRole) {
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !user) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
 
-    if (!roleData) {
-      // Fallback: check profiles table
-      const { data: profileRole } = await supabase
-        .from('profiles').select('role')
+      const { data: roleData } = await supabase
+        .from('user_roles').select('role')
         .eq('user_id', user.id).eq('role', 'admin').maybeSingle();
 
-      if (!profileRole) {
-        return new Response(JSON.stringify({ error: 'Admin access required' }), {
-          status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+      if (!roleData) {
+        const { data: profileRole } = await supabase
+          .from('profiles').select('role')
+          .eq('user_id', user.id).eq('role', 'admin').maybeSingle();
+
+        if (!profileRole) {
+          return new Response(JSON.stringify({ error: 'Admin access required' }), {
+            status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
       }
     }
 
