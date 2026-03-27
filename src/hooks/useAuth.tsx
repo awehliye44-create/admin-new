@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, createContext, useContext, ReactNod
 import { User, Session, AuthChangeEvent } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { setSentryUser, clearSentryUser } from '@/lib/sentry';
 
 interface AuthContextType {
   user: User | null;
@@ -96,6 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (existingSession?.user) {
         setSession(existingSession);
         setUser(existingSession.user);
+        setSentryUser(existingSession.user);
         const adminStatus = await checkAdminRole(existingSession.user.id);
         if (mounted) {
           setIsAdmin(adminStatus);
@@ -125,6 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setIsAdmin(false);
             adminCache.current = null;
             manualSignOut.current = false;
+            clearSentryUser();
 
             // Show reason if it wasn't manual
             if (!manualSignOut.current && !nextSession) {
@@ -140,6 +143,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // ── Session events: accept new session data ──
         if (SESSION_EVENTS.includes(event) && nextSession?.user) {
           setSession(nextSession);
+          setSentryUser(nextSession.user);
           // Only update user state if the user ID actually changed
           // This prevents unnecessary re-renders (and downstream loading)
           // when TOKEN_REFRESHED fires on tab return

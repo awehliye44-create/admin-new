@@ -1,4 +1,5 @@
 import React from 'react';
+import * as Sentry from '@sentry/react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -29,7 +30,8 @@ export class GlobalErrorBoundary extends React.Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     this.setState({ errorInfo });
-    // Log for debugging
+    // Report to Sentry
+    Sentry.captureException(error, { contexts: { react: { componentStack: errorInfo.componentStack } } });
     console.error('[GlobalErrorBoundary] Uncaught render error:', error, errorInfo);
   }
 
