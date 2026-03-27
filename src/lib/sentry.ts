@@ -10,11 +10,18 @@ export function initSentry() {
     dsn: "https://54e050c3aa8c5fb508ab5efd230dd256@o4510726239551488.ingest.de.sentry.io/4511116063735888",
     sendDefaultPii: true,
 
-    // Performance tracing
-    integrations: [
-      Sentry.browserTracingIntegration(),
-    ],
-    tracesSampleRate: 0.3, // 30 % of transactions
+    integrations: (defaults) => {
+      // Remove the BrowserApiErrors integration that wraps addEventListener
+      // callbacks with sentryWrapped — this breaks React's internal
+      // event dispatching and causes context providers to appear missing.
+      const filtered = defaults.filter(
+        (i) => i.name !== "BrowserApiErrors"
+      );
+      filtered.push(Sentry.browserTracingIntegration());
+      return filtered;
+    },
+
+    tracesSampleRate: 0.3,
 
     // Global tags on every event
     initialScope: {
