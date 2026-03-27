@@ -124,6 +124,13 @@ interface CompletedTrip {
     driver_code: string | null;
     region_id: string | null;
   } | null;
+  /** Joined from service_areas → regions for currency resolution */
+  service_area_join?: {
+    region?: {
+      currency_code: string;
+      distance_unit: string;
+    } | null;
+  } | null;
   // Joined trip_stops for display
   trip_stops?: TripStop[];
 }
