@@ -1244,19 +1244,19 @@ export default function TripHistory() {
                       {selectedTrip.gross_fare_pence != null && (
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">Gross Fare</span>
-                          <span>{getCurrencySymbol(selectedTrip.currency_code)}{(selectedTrip.gross_fare_pence / 100).toFixed(2)}</span>
+                          <span>{getCurrencySymbol(resolveTripCurrency(selectedTrip))}{(selectedTrip.gross_fare_pence / 100).toFixed(2)}</span>
                         </div>
                       )}
                       {selectedTrip.commission_pence != null && (
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">Commission</span>
-                          <span className="text-orange-600">-{getCurrencySymbol(selectedTrip.currency_code)}{(selectedTrip.commission_pence / 100).toFixed(2)}</span>
+                          <span className="text-orange-600">-{getCurrencySymbol(resolveTripCurrency(selectedTrip))}{(selectedTrip.commission_pence / 100).toFixed(2)}</span>
                         </div>
                       )}
                       {selectedTrip.driver_net_pence != null && (
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">Driver Net</span>
-                          <span>{getCurrencySymbol(selectedTrip.currency_code)}{(selectedTrip.driver_net_pence / 100).toFixed(2)}</span>
+                          <span>{getCurrencySymbol(resolveTripCurrency(selectedTrip))}{(selectedTrip.driver_net_pence / 100).toFixed(2)}</span>
                         </div>
                       )}
                       <div className="flex justify-between text-sm">
