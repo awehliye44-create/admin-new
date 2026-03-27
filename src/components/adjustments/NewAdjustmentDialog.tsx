@@ -72,7 +72,7 @@ export function NewAdjustmentDialog({ open, onOpenChange }: NewAdjustmentDialogP
       return response.data;
     },
     onSuccess: (data) => {
-      const amountFormatted = `£${Math.abs(data.ledgerEntry.amount / 100).toFixed(2)}`;
+      const amountFormatted = `${getCurrencySymbol('')}${Math.abs(data.ledgerEntry.amount / 100).toFixed(2)}`;
       toast.success(`${isCredit ? 'Credit' : 'Debit'} of ${amountFormatted} applied to ${selectedDriverName}`);
       queryClient.invalidateQueries({ queryKey: ['adjustments-ledger'] });
       resetForm();
@@ -175,7 +175,7 @@ export function NewAdjustmentDialog({ open, onOpenChange }: NewAdjustmentDialogP
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Amount (£)</Label>
+              <Label>Amount ({getCurrencySymbol((drivers.find(d => d.id === selectedDriverId) as any)?.region?.currency_code || '')})</Label>
               <Input
                 type="number"
                 step="0.01"
