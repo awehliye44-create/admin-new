@@ -209,7 +209,8 @@ export default function TripHistory() {
           total_stops, created_at, started_at, completed_at, surge_multiplier, driver_id,
           driver_location_lat, driver_location_lng, stripe_payment_intent_id, stacked_trip_id,
           pricing_mode, fare_locked, vehicle_type_id, vehicle_type, service_area_id, fare_engine_config_id,
-          driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, driver_code, region_id)
+          driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, driver_code, region_id),
+          service_area_join:service_areas!trips_service_area_id_fkey(region:regions(currency_code, distance_unit))
         `)
         .eq('status', 'completed')
         .gte('created_at', start.toISOString())
@@ -499,6 +500,17 @@ export default function TripHistory() {
     const hrs = Math.floor(minutes / 60);
     const mins = minutes % 60;
     return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+  };
+
+  /**
+   * Resolve currency for a specific trip.
+   * Priority: service_area → region (single source of truth), then trip snapshot, then active region filter.
+   */
+  const resolveTripCurrency = (trip: CompletedTrip): string => {
+    return trip.service_area_join?.region?.currency_code
+      || trip.currency_code
+      || activeRegion?.currency_code
+      || '';
   };
 
   // Get the active currency symbol — Region is the single source of truth for currency
