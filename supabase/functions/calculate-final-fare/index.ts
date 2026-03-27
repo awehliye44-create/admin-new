@@ -80,6 +80,92 @@ Deno.serve(async (req) => {
         break;
       }
 
+      case "start_paid_waiting": {
+        // Called when free waiting expires — marks paid waiting as active
+        const now = new Date().toISOString();
+        updateData.paid_waiting_started_at = now;
+        auditEvent = "paid_waiting_started";
+        auditReason = `Free waiting expired, paid waiting started at rate ${settings.waiting_per_minute_pence}p/min`;
+        break;
+      }
+
+      case "tick_pickup_waiting": {
+        // Called periodically during pickup waiting to accumulate charges
+        // Only charges if: arrived + free wait expired + trip not started
+        if (!trip.arrived_at) {
+          return new Response(
+            JSON.stringify({ error: "Driver has not arrived yet" }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const arrivedAt = new Date(trip.arrived_at);
+        const freeWaitExpiresAt = trip.free_wait_expires_at
+          ? new Date(trip.free_wait_expires_at)
+          : new Date(arrivedAt.getTime() + settings.free_waiting_minutes * 60000);
+        const tickNow = new Date();
+
+        if (tickNow <= freeWaitExpiresAt) {
+          // Still in free waiting
+          return new Response(
+            JSON.stringify({
+              tripId: trip_id,
+              action,
+              in_free_waiting: true,
+              free_wait_remaining_seconds: Math.ceil((freeWaitExpiresAt.getTime() - tickNow.getTime()) / 1000),
+              waitingChargePence: 0,
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        // Calculate total waiting from arrival
+        const totalWaitMinutes = (tickNow.getTime() - arrivedAt.getTime()) / 60000;
+        const result = engine.calculateWaitingCharge(totalWaitMinutes);
+        adjustmentPence = result.waiting_charge_pence - waitingCharge;
+        waitingCharge = result.waiting_charge_pence;
+        waitingMinutes = totalWaitMinutes;
+        updateData.waiting_minutes = waitingMinutes;
+        updateData.waiting_charge_pence = waitingCharge;
+        updateData.pickup_waiting_charge_pence = waitingCharge;
+
+        if (!trip.paid_waiting_started_at) {
+          updateData.paid_waiting_started_at = freeWaitExpiresAt.toISOString();
+        }
+
+        auditEvent = "pickup_waiting_tick";
+        auditReason = `Pickup waiting: total ${totalWaitMinutes.toFixed(1)} min, billable ${result.billable_minutes} min, charge ${waitingCharge}p`;
+        break;
+      }
+
+      case "check_no_show": {
+        // Check if driver has waited long enough to trigger no-show
+        if (!trip.arrived_at) {
+          return new Response(
+            JSON.stringify({ can_no_show: false, reason: "Driver has not arrived" }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const arrivedTime = new Date(trip.arrived_at);
+        const checkNow = new Date();
+        const waitedMinutes = (checkNow.getTime() - arrivedTime.getTime()) / 60000;
+        const noShowThreshold = settings.no_show_wait_time_minutes ?? 5;
+        const canNoShow = waitedMinutes >= noShowThreshold;
+
+        return new Response(
+          JSON.stringify({
+            tripId: trip_id,
+            can_no_show: canNoShow,
+            waited_minutes: Math.floor(waitedMinutes),
+            no_show_threshold_minutes: noShowThreshold,
+            no_show_fee_pence: settings.no_show_fee_pence ?? 0,
+            remaining_seconds: canNoShow ? 0 : Math.ceil((noShowThreshold - waitedMinutes) * 60),
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       case "add_stop": {
         const addDistKm = payload?.additional_distance_km ?? 0;
         const addDurMin = payload?.additional_duration_min ?? 0;
