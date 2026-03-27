@@ -45,6 +45,7 @@ serve(async (req) => {
       });
     }
 
+    const token = authHeader.replace('Bearer ', '');
     // Check if using service role key (for server-to-server calls)
     const isServiceRole = token === supabaseServiceKey;
 
