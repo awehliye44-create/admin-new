@@ -42,6 +42,7 @@ import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/Cu
 
 interface CancelledTrip {
   id: string;
+  trip_number: string | null;
   trip_code: string | null;
   status: string | null;
   passenger_name: string | null;
@@ -73,12 +74,11 @@ interface CancelledTrip {
   } | null;
 }
 
-/** Resolve currency for a trip from the Region chain */
+/** Resolve currency for a trip from the Region chain (Region is single source of truth) */
 function resolveTripCurrency(trip: CancelledTrip): string {
-  // 1. Trip's own snapshotted currency
-  if (trip.currency_code) return trip.currency_code;
-  // 2. Trip → service_area → region
+  // Region is the authoritative source; fall back to trip snapshot only for historical records
   if (trip.service_area?.region?.currency_code) return trip.service_area.region.currency_code;
+  if (trip.currency_code) return trip.currency_code;
   return '';
 }
 
@@ -117,7 +117,7 @@ export default function MissedCancelled() {
       const { data, error } = await supabase
         .from('trips')
         .select(`
-          id, trip_code, status, passenger_name, passenger_phone,
+          id, trip_number, trip_code, status, passenger_name, passenger_phone,
           pickup_address, dropoff_address, estimated_fare, fare, currency_code,
           created_at, completed_at, special_instructions, driver_id, service_area_id,
           driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, region_id),
