@@ -178,6 +178,33 @@ serve(async (req) => {
       });
     }
 
+    // === Fetch cancellation grace period from fare_pricing_settings ===
+    const { data: tripSAData } = await supabase
+      .from('trips')
+      .select('service_area_id, vehicle_type_id')
+      .eq('id', trip_id)
+      .single();
+
+    let gracePeriodMinutes = 3; // sensible default
+    if (tripSAData?.service_area_id) {
+      const fpsQuery = supabase
+        .from('fare_pricing_settings')
+        .select('cancellation_grace_period_minutes')
+        .eq('service_area_id', tripSAData.service_area_id);
+
+      if (tripSAData.vehicle_type_id) {
+        fpsQuery.eq('vehicle_type_id', tripSAData.vehicle_type_id);
+      }
+
+      const { data: fps } = await fpsQuery.maybeSingle();
+      if (fps?.cancellation_grace_period_minutes != null) {
+        gracePeriodMinutes = fps.cancellation_grace_period_minutes;
+      }
+    }
+
+    const now = new Date();
+    const graceExpiresAt = new Date(now.getTime() + gracePeriodMinutes * 60 * 1000);
+
     // ATOMIC OPERATION: Try to claim the trip
     const { data: updatedTrip, error: tripUpdateError } = await supabase
       .from('trips')
@@ -185,7 +212,9 @@ serve(async (req) => {
         status: 'accepted',
         driver_id: driver_id,
         confirmed_driver_id: driver_id,
-        updated_at: new Date().toISOString()
+        assigned_at: now.toISOString(),
+        cancellation_grace_expires_at: graceExpiresAt.toISOString(),
+        updated_at: now.toISOString()
       })
       .eq('id', trip_id)
       .is('confirmed_driver_id', null)
