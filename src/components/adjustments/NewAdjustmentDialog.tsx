@@ -9,6 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Search } from 'lucide-react';
+import { getCurrencySymbol } from '@/lib/regionSettings';
 
 const ENTRY_TYPES = [
   { value: 'ADJUSTMENT', label: 'Adjustment', description: 'General credit or debit' },

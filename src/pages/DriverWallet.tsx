@@ -16,6 +16,7 @@ import {
   getEntryTypeDisplay,
   type DriverFinancialSummary,
 } from '@/hooks/useDriverWallet';
+import { getCurrencySymbol } from '@/lib/regionSettings';
 import { 
   Search, 
   Download, 
@@ -49,19 +50,26 @@ export default function DriverWallet() {
         fullName.includes(searchTerm.toLowerCase()) ||
         d.email.toLowerCase().includes(searchTerm.toLowerCase());
       
-      if (activeTab === 'in_debt') return matchesSearch && d.wallet_balance < 0;
       if (activeTab === 'positive') return matchesSearch && d.wallet_balance > 0;
-      if (activeTab === 'online') return matchesSearch && d.is_online;
+      if (activeTab === 'negative') return matchesSearch && d.wallet_balance < 0;
+      if (activeTab === 'zero') return matchesSearch && d.wallet_balance === 0;
       return matchesSearch;
     });
   }, [drivers, searchTerm, activeTab]);
 
-  // Aggregated stats from unified source
+  // Aggregated stats — use first driver's currency as platform-level display
+  // (in multi-region, these aggregated totals would need per-region grouping)
+  const platformCurrency = drivers[0]?.currency_code || '';
+  const fmt = (pence: number) => formatPence(pence, platformCurrency);
+
   const totalWalletBalance = drivers.reduce((sum, d) => sum + d.wallet_balance, 0);
   const totalCommissionOwed = drivers.reduce((sum, d) => sum + d.amount_owed_to_onecab, 0);
   const totalCardCredits = drivers.reduce((sum, d) => sum + d.card_net_credits, 0);
   const driversInDebt = drivers.filter(d => d.wallet_balance < 0).length;
   const driversWithBalance = drivers.filter(d => d.wallet_balance > 0).length;
+
+  // Per-driver currency formatter
+  const dFmt = (d: DriverFinancialSummary, pence: number) => formatPence(pence, d.currency_code);
 
   if (isLoading) {
     return (
@@ -72,6 +80,10 @@ export default function DriverWallet() {
       </AdminLayout>
     );
   }
+
+  // Selected driver's currency
+  const sc = selectedDriver?.currency_code || '';
+  const sFmt = (pence: number) => formatPence(pence, sc);
 
   return (
     <AdminLayout 
@@ -88,7 +100,7 @@ export default function DriverWallet() {
             </CardHeader>
             <CardContent>
               <div className={`text-2xl font-bold ${totalWalletBalance >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                {formatPence(totalWalletBalance)}
+                {fmt(totalWalletBalance)}
               </div>
               <p className="text-xs text-muted-foreground">All drivers combined</p>
             </CardContent>
@@ -99,7 +111,7 @@ export default function DriverWallet() {
               <TrendingDown className="h-4 w-4 text-red-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-500">{formatPence(totalCommissionOwed)}</div>
+              <div className="text-2xl font-bold text-red-500">{fmt(totalCommissionOwed)}</div>
               <p className="text-xs text-muted-foreground">Cash trip commission debt</p>
             </CardContent>
           </Card>
@@ -109,28 +121,28 @@ export default function DriverWallet() {
               <CreditCard className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-500">{formatPence(totalCardCredits)}</div>
+              <div className="text-2xl font-bold text-green-500">{fmt(totalCardCredits)}</div>
               <p className="text-xs text-muted-foreground">Digital payment credits</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Drivers in Debt</CardTitle>
+              <CardTitle className="text-sm font-medium">In Debt</CardTitle>
               <AlertTriangle className="h-4 w-4 text-red-500" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{driversInDebt}</div>
-              <p className="text-xs text-muted-foreground">Owe commission</p>
+              <p className="text-xs text-muted-foreground">Drivers with negative balance</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Positive Balance</CardTitle>
+              <CardTitle className="text-sm font-medium">Payable</CardTitle>
               <CheckCircle2 className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{driversWithBalance}</div>
-              <p className="text-xs text-muted-foreground">Can request payout</p>
+              <p className="text-xs text-muted-foreground">Drivers with positive balance</p>
             </CardContent>
           </Card>
         </div>
@@ -138,35 +150,22 @@ export default function DriverWallet() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <div className="flex flex-col sm:flex-row justify-between gap-4">
             <TabsList>
-              <TabsTrigger value="all">All ({drivers.length})</TabsTrigger>
-              <TabsTrigger value="in_debt">
-                In Debt
-                {driversInDebt > 0 && (
-                  <Badge variant="destructive" className="ml-1 h-5 min-w-5 rounded-full p-0 flex items-center justify-center text-xs">
-                    {driversInDebt}
-                  </Badge>
-                )}
-              </TabsTrigger>
+              <TabsTrigger value="all">All Drivers ({drivers.length})</TabsTrigger>
               <TabsTrigger value="positive">Positive ({driversWithBalance})</TabsTrigger>
-              <TabsTrigger value="online">Online ({drivers.filter(d => d.is_online).length})</TabsTrigger>
+              <TabsTrigger value="negative">In Debt ({driversInDebt})</TabsTrigger>
             </TabsList>
-
             <div className="flex gap-2">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input 
-                  placeholder="Search drivers..." 
-                  className="pl-9 w-[200px]"
+                <Input
+                  placeholder="Search driver..."
+                  className="pl-9 w-[220px]"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
               <Button variant="outline" size="icon" onClick={() => refetch()}>
                 <RefreshCw className="h-4 w-4" />
-              </Button>
-              <Button variant="outline">
-                <Download className="h-4 w-4 mr-2" />
-                Export
               </Button>
             </div>
           </div>
@@ -181,10 +180,10 @@ export default function DriverWallet() {
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Gross Fares</TableHead>
                       <TableHead className="text-right">Card Credits</TableHead>
-                      <TableHead className="text-right">Cash Commission</TableHead>
-                      <TableHead className="text-right">Wallet Balance</TableHead>
+                      <TableHead className="text-right">Cash Debt</TableHead>
+                      <TableHead className="text-right">Wallet</TableHead>
                       <TableHead className="text-right">Trips</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -195,7 +194,7 @@ export default function DriverWallet() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      filteredDrivers.map((d) => (
+                      filteredDrivers.map(d => (
                         <TableRow key={d.driver_id}>
                           <TableCell>
                             <div className="flex items-center gap-2">
@@ -213,13 +212,13 @@ export default function DriverWallet() {
                               {d.is_online ? 'Online' : 'Offline'}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-right">{formatPence(d.gross_trip_total)}</TableCell>
-                          <TableCell className="text-right text-green-600">{formatPence(d.card_net_credits)}</TableCell>
+                          <TableCell className="text-right">{dFmt(d, d.gross_trip_total)}</TableCell>
+                          <TableCell className="text-right text-green-600">{dFmt(d, d.card_net_credits)}</TableCell>
                           <TableCell className="text-right text-red-500">
-                            {d.cash_commission_debits > 0 ? `-${formatPence(d.cash_commission_debits)}` : formatPence(0)}
+                            {d.cash_commission_debits > 0 ? `-${dFmt(d, d.cash_commission_debits)}` : dFmt(d, 0)}
                           </TableCell>
                           <TableCell className={`text-right font-medium ${d.wallet_balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {formatPence(d.wallet_balance)}
+                            {dFmt(d, d.wallet_balance)}
                           </TableCell>
                           <TableCell className="text-right">{d.completed_trips}</TableCell>
                           <TableCell className="text-right">
@@ -243,7 +242,7 @@ export default function DriverWallet() {
             <DialogHeader>
               <DialogTitle>Wallet Details</DialogTitle>
               <DialogDescription>
-                {selectedDriver?.first_name} {selectedDriver?.last_name} — Financial Summary
+                {selectedDriver?.first_name} {selectedDriver?.last_name} — Financial Summary ({getCurrencySymbol(sc)} {sc || 'N/A'})
               </DialogDescription>
             </DialogHeader>
             {selectedDriver && (
@@ -253,13 +252,13 @@ export default function DriverWallet() {
                   <Card>
                     <CardContent className="pt-4">
                       <p className="text-xs text-muted-foreground">Today's Earnings</p>
-                      <p className="text-lg font-bold">{formatPence(selectedDriver.today_gross_earnings)}</p>
+                      <p className="text-lg font-bold">{sFmt(selectedDriver.today_gross_earnings)}</p>
                       <div className="flex gap-2 mt-1">
                         <span className="text-xs text-muted-foreground flex items-center gap-0.5">
-                          <Banknote className="h-3 w-3" /> {formatPence(selectedDriver.today_cash_earnings)}
+                          <Banknote className="h-3 w-3" /> {sFmt(selectedDriver.today_cash_earnings)}
                         </span>
                         <span className="text-xs text-muted-foreground flex items-center gap-0.5">
-                          <CreditCard className="h-3 w-3" /> {formatPence(selectedDriver.today_card_earnings)}
+                          <CreditCard className="h-3 w-3" /> {sFmt(selectedDriver.today_card_earnings)}
                         </span>
                       </div>
                     </CardContent>
@@ -268,21 +267,21 @@ export default function DriverWallet() {
                     <CardContent className="pt-4">
                       <p className="text-xs text-muted-foreground">Wallet Balance</p>
                       <p className={`text-lg font-bold ${selectedDriver.wallet_balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {formatPence(selectedDriver.wallet_balance)}
+                        {sFmt(selectedDriver.wallet_balance)}
                       </p>
                     </CardContent>
                   </Card>
                   <Card>
                     <CardContent className="pt-4">
                       <p className="text-xs text-muted-foreground">Available Payout</p>
-                      <p className="text-lg font-bold text-green-600">{formatPence(selectedDriver.available_for_payout)}</p>
+                      <p className="text-lg font-bold text-green-600">{sFmt(selectedDriver.available_for_payout)}</p>
                     </CardContent>
                   </Card>
                   <Card>
                     <CardContent className="pt-4">
                       <p className="text-xs text-muted-foreground">Owed to ONECAB</p>
                       <p className={`text-lg font-bold ${selectedDriver.amount_owed_to_onecab > 0 ? 'text-red-600' : 'text-muted-foreground'}`}>
-                        {formatPence(selectedDriver.amount_owed_to_onecab)}
+                        {sFmt(selectedDriver.amount_owed_to_onecab)}
                       </p>
                     </CardContent>
                   </Card>
@@ -293,26 +292,26 @@ export default function DriverWallet() {
                   <CardContent className="pt-4 space-y-2">
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Gross Trip Fares</span>
-                      <span>{formatPence(selectedDriver.gross_trip_total)}</span>
+                      <span>{sFmt(selectedDriver.gross_trip_total)}</span>
                     </div>
                     <Separator />
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground flex items-center gap-1"><CreditCard className="h-3 w-3" /> Card Net Credits</span>
-                      <span className="text-green-600">+{formatPence(selectedDriver.card_net_credits)}</span>
+                      <span className="text-green-600">+{sFmt(selectedDriver.card_net_credits)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground flex items-center gap-1"><Banknote className="h-3 w-3" /> Cash Commission Debits</span>
-                      <span className="text-red-600">-{formatPence(selectedDriver.cash_commission_debits)}</span>
+                      <span className="text-red-600">-{sFmt(selectedDriver.cash_commission_debits)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Payouts Sent</span>
-                      <span className="text-blue-600">-{formatPence(selectedDriver.total_payouts_sent)}</span>
+                      <span className="text-blue-600">-{sFmt(selectedDriver.total_payouts_sent)}</span>
                     </div>
                     {selectedDriver.adjustments_total !== 0 && (
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Adjustments</span>
                         <span className={selectedDriver.adjustments_total >= 0 ? 'text-green-600' : 'text-red-600'}>
-                          {selectedDriver.adjustments_total >= 0 ? '+' : ''}{formatPence(selectedDriver.adjustments_total)}
+                          {selectedDriver.adjustments_total >= 0 ? '+' : ''}{sFmt(selectedDriver.adjustments_total)}
                         </span>
                       </div>
                     )}
@@ -320,7 +319,7 @@ export default function DriverWallet() {
                     <div className="flex justify-between font-medium">
                       <span>Wallet Balance</span>
                       <span className={selectedDriver.wallet_balance >= 0 ? 'text-green-600' : 'text-red-600'}>
-                        {formatPence(selectedDriver.wallet_balance)}
+                        {sFmt(selectedDriver.wallet_balance)}
                       </span>
                     </div>
                   </CardContent>
@@ -332,9 +331,9 @@ export default function DriverWallet() {
                     <CardContent className="pt-4">
                       <p className="text-xs text-muted-foreground mb-2">Cash Trips ({selectedDriver.cash_trip_count})</p>
                       <div className="space-y-1 text-sm">
-                        <div className="flex justify-between"><span>Gross Fares</span><span>{formatPence(selectedDriver.cash_gross_total)}</span></div>
-                        <div className="flex justify-between"><span>Commission Owed</span><span className="text-red-500">-{formatPence(selectedDriver.cash_commission_debits)}</span></div>
-                        <div className="flex justify-between"><span>Driver Kept</span><span>{formatPence(selectedDriver.cash_net_earnings)}</span></div>
+                        <div className="flex justify-between"><span>Gross Fares</span><span>{sFmt(selectedDriver.cash_gross_total)}</span></div>
+                        <div className="flex justify-between"><span>Commission Owed</span><span className="text-red-500">-{sFmt(selectedDriver.cash_commission_debits)}</span></div>
+                        <div className="flex justify-between"><span>Driver Kept</span><span>{sFmt(selectedDriver.cash_net_earnings)}</span></div>
                       </div>
                     </CardContent>
                   </Card>
@@ -342,9 +341,9 @@ export default function DriverWallet() {
                     <CardContent className="pt-4">
                       <p className="text-xs text-muted-foreground mb-2">Card Trips ({selectedDriver.card_trip_count})</p>
                       <div className="space-y-1 text-sm">
-                        <div className="flex justify-between"><span>Gross Fares</span><span>{formatPence(selectedDriver.card_gross_total)}</span></div>
-                        <div className="flex justify-between"><span>Commission</span><span className="text-red-500">-{formatPence(selectedDriver.card_commission_total)}</span></div>
-                        <div className="flex justify-between"><span>Wallet Credit</span><span className="text-green-600">+{formatPence(selectedDriver.card_net_credits)}</span></div>
+                        <div className="flex justify-between"><span>Gross Fares</span><span>{sFmt(selectedDriver.card_gross_total)}</span></div>
+                        <div className="flex justify-between"><span>Commission</span><span className="text-red-500">-{sFmt(selectedDriver.card_commission_total)}</span></div>
+                        <div className="flex justify-between"><span>Wallet Credit</span><span className="text-green-600">+{sFmt(selectedDriver.card_net_credits)}</span></div>
                       </div>
                     </CardContent>
                   </Card>
@@ -380,7 +379,7 @@ export default function DriverWallet() {
                               </div>
                               <div className="text-right">
                                 <p className={`font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                                  {isPositive ? '+' : ''}{formatPence(entry.amount_pence)}
+                                  {isPositive ? '+' : ''}{formatPence(entry.amount_pence, entry.currency_code)}
                                 </p>
                                 {entry.description && (
                                   <p className="text-xs text-muted-foreground max-w-[200px] truncate">{entry.description}</p>
