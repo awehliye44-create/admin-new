@@ -56,7 +56,7 @@ import {
 } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { format, formatDistanceToNow, isPast, isToday, isTomorrow, addHours } from 'date-fns';
-import { getCurrencySymbol } from '@/lib/regionSettings';
+import { getCurrencySymbol, getDistanceUnitShort, convertDistance } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { toast } from 'sonner';
 
@@ -97,6 +97,10 @@ interface ScheduledTrip {
   service_area?: {
     id: string;
     name: string;
+    region?: {
+      currency_code: string;
+      distance_unit: string;
+    } | null;
   } | null;
 }
 
@@ -159,7 +163,7 @@ export default function ScheduledRides() {
             driver_id,
             service_area_id,
             driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, profile_photo_url, rating),
-            service_area:service_areas!trips_service_area_id_fkey(id, name)
+            service_area:service_areas!trips_service_area_id_fkey(id, name, region:regions(currency_code, distance_unit))
           `)
           .eq('is_scheduled', true)
           .not('status', 'in', '(completed,cancelled)')
@@ -294,6 +298,14 @@ export default function ScheduledRides() {
       setIsSaving(false);
     }
   };
+
+  /** Resolve currency: trip snapshot → region (single source of truth) */
+  const resolveTripCurrency = (trip: ScheduledTrip): string =>
+    trip.currency_code || trip.service_area?.region?.currency_code || '';
+
+  /** Resolve distance unit from region */
+  const resolveTripDistanceUnit = (trip: ScheduledTrip): string =>
+    trip.service_area?.region?.distance_unit || 'km';
 
 
   const getScheduleStatus = (scheduledAt: string | null) => {
@@ -511,7 +523,7 @@ export default function ScheduledRides() {
                             {trip.estimated_distance_km && (
                               <span className="flex items-center gap-0.5">
                                 <Navigation className="h-3 w-3" />
-                                {trip.estimated_distance_km.toFixed(1)} km
+                                {convertDistance(trip.estimated_distance_km, resolveTripDistanceUnit(trip)).toFixed(1)} {getDistanceUnitShort(resolveTripDistanceUnit(trip))}
                               </span>
                             )}
                             {trip.estimated_duration_minutes && (
@@ -588,7 +600,7 @@ export default function ScheduledRides() {
                       </TableCell>
                       <TableCell className="font-medium">
                         <div>
-                          {getCurrencySymbol(trip.currency_code || '')}
+                          {getCurrencySymbol(resolveTripCurrency(trip))}
                           {(trip.estimated_fare || 0).toFixed(2)}
                         </div>
                       </TableCell>

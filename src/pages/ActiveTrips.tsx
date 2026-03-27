@@ -54,7 +54,7 @@ import {
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
-import { getCurrencySymbol } from '@/lib/regionSettings';
+import { getCurrencySymbol, getDistanceUnitShort, convertDistance } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
 
 interface Trip {
@@ -82,6 +82,12 @@ interface Trip {
     first_name: string;
     last_name: string;
     phone: string;
+  } | null;
+  service_area?: {
+    region?: {
+      currency_code: string;
+      distance_unit: string;
+    } | null;
   } | null;
 }
 
@@ -138,7 +144,8 @@ export default function ActiveTrips() {
           .from('trips')
           .select(`
             *,
-            driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone)
+            driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone),
+            service_area:service_areas!trips_service_area_id_fkey(region:regions(currency_code, distance_unit))
           `)
           .in('status', ['pending', 'searching', 'offered', 'driver_assigned', 'accepted', 'arrived', 'in_progress', 'started', 'on_trip', 'ongoing'])
           .order('created_at', { ascending: false }),
@@ -297,7 +304,9 @@ export default function ActiveTrips() {
     setIsViewOpen(true);
   };
 
-  // getCurrencySymbol is now imported from @/lib/regionSettings
+  /** Resolve currency: trip snapshot → region (single source of truth) */
+  const resolveTripCurrency = (trip: Trip): string =>
+    trip.currency_code || trip.service_area?.region?.currency_code || '';
 
   const filteredTrips = trips.filter(trip => {
     const matchesSearch = 
@@ -503,7 +512,7 @@ export default function ActiveTrips() {
                       </TableCell>
                       <TableCell>
                         <span className="font-medium">
-                          {getCurrencySymbol(trip.currency_code || '')}
+                          {getCurrencySymbol(resolveTripCurrency(trip))}
                           {(trip.fare || trip.estimated_fare || 0).toFixed(2)}
                         </span>
                       </TableCell>
@@ -672,7 +681,7 @@ export default function ActiveTrips() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="fare">Final Fare ({getCurrencySymbol(selectedTrip?.currency_code)})</Label>
+              <Label htmlFor="fare">Final Fare ({getCurrencySymbol(resolveTripCurrency(selectedTrip!))})</Label>
               <Input
                 id="fare"
                 type="number"
@@ -682,7 +691,7 @@ export default function ActiveTrips() {
                 onChange={(e) => setForceEndFare(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                Estimated fare: {getCurrencySymbol(selectedTrip?.currency_code)}
+                Estimated fare: {getCurrencySymbol(resolveTripCurrency(selectedTrip!))}
                 {selectedTrip?.estimated_fare?.toFixed(2) || '0.00'}
               </p>
             </div>
@@ -776,14 +785,14 @@ export default function ActiveTrips() {
                 <div className="p-3 bg-muted/50 rounded-lg text-center">
                   <p className="text-xs text-muted-foreground">Est. Fare</p>
                   <p className="font-medium">
-                    {getCurrencySymbol(selectedTrip.currency_code)}
+                    {getCurrencySymbol(resolveTripCurrency(selectedTrip))}
                     {selectedTrip.estimated_fare?.toFixed(2) || '0.00'}
                   </p>
                 </div>
                 <div className="p-3 bg-muted/50 rounded-lg text-center">
                   <p className="text-xs text-muted-foreground">Final Fare</p>
                   <p className="font-medium">
-                    {getCurrencySymbol(selectedTrip.currency_code)}
+                    {getCurrencySymbol(resolveTripCurrency(selectedTrip))}
                     {selectedTrip.fare?.toFixed(2) || '—'}
                   </p>
                 </div>
