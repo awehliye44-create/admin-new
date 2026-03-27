@@ -148,7 +148,7 @@ export default function Disputes() {
               <TrendingUp className="h-4 w-4 text-emerald-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-emerald-500">{formatPence(totalCredits)}</div>
+              <div className="text-2xl font-bold text-emerald-500">{formatPence(totalCredits, adjustments[0]?.currency_code)}</div>
               <p className="text-xs text-muted-foreground">Paid to drivers</p>
             </CardContent>
           </Card>
@@ -158,7 +158,7 @@ export default function Disputes() {
               <TrendingDown className="h-4 w-4 text-destructive" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-destructive">{formatPence(totalDebits)}</div>
+              <div className="text-2xl font-bold text-destructive">{formatPence(totalDebits, adjustments[0]?.currency_code)}</div>
               <p className="text-xs text-muted-foreground">Deducted from drivers</p>
             </CardContent>
           </Card>
@@ -169,7 +169,7 @@ export default function Disputes() {
             </CardHeader>
             <CardContent>
               <div className={`text-2xl font-bold ${netAmount >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>
-                {netAmount >= 0 ? '+' : '-'}{formatPence(netAmount)}
+                {netAmount >= 0 ? '+' : '-'}{formatPence(Math.abs(netAmount), adjustments[0]?.currency_code)}
               </div>
               <p className="text-xs text-muted-foreground">Credits − Debits</p>
             </CardContent>
@@ -272,7 +272,7 @@ export default function Disputes() {
                                   entry.amount_pence >= 0 ? 'text-emerald-500' : 'text-destructive'
                                 }`}
                               >
-                                {entry.amount_pence >= 0 ? '+' : '-'}{formatPence(entry.amount_pence)}
+                                {entry.amount_pence >= 0 ? '+' : '-'}{formatPence(Math.abs(entry.amount_pence), entry.currency_code)}
                               </span>
                             </div>
                           </TableCell>
