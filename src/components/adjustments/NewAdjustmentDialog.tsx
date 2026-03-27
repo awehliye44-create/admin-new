@@ -40,7 +40,7 @@ export function NewAdjustmentDialog({ open, onOpenChange }: NewAdjustmentDialogP
       if (driverSearch.length < 2) return [];
       const { data, error } = await supabase
         .from('drivers')
-        .select('id, first_name, last_name, driver_code')
+        .select('id, first_name, last_name, driver_code, region:regions(currency_code)')
         .or(`first_name.ilike.%${driverSearch}%,last_name.ilike.%${driverSearch}%,driver_code.ilike.%${driverSearch}%`)
         .limit(10);
       if (error) throw error;
