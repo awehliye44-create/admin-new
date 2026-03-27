@@ -16,6 +16,7 @@ export interface DriverFinancialSummary {
   payouts_enabled: boolean;
   onboarding_complete: boolean;
   currency_code: string;
+  region_id: string | null;
   // Trip totals
   gross_trip_total: number;
   completed_trips: number;
@@ -107,6 +108,7 @@ const mapSummary = (d: any): DriverFinancialSummary => ({
   payouts_enabled: d.payouts_enabled || false,
   onboarding_complete: d.onboarding_complete || false,
   currency_code: d.currency_code || '',
+  region_id: d.region_id || null,
   gross_trip_total: Number(d.gross_trip_total) || 0,
   completed_trips: Number(d.completed_trips) || 0,
   card_net_credits: Number(d.card_net_credits) || 0,
