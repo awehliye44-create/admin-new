@@ -16,7 +16,8 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { 
   Save, Loader2, Calculator, Zap, Lock, 
-  Clock, Settings2, AlertCircle, CheckCircle2, TrendingUp, Car, Ban, UserX, Timer
+  Settings2, AlertCircle, CheckCircle2, TrendingUp, Car
+} from 'lucide-react';
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getCurrencySymbol } from '@/lib/regionSettings';
