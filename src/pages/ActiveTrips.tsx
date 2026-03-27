@@ -305,8 +305,8 @@ export default function ActiveTrips() {
   };
 
   /** Resolve currency: trip snapshot → region (single source of truth) */
-  const resolveTripCurrency = (trip: Trip): string =>
-    trip.currency_code || trip.service_area?.region?.currency_code || '';
+  const resolveTripCurrency = (trip: Trip | null | undefined): string =>
+    trip?.currency_code || trip?.service_area?.region?.currency_code || '';
 
   const filteredTrips = trips.filter(trip => {
     const matchesSearch = 
