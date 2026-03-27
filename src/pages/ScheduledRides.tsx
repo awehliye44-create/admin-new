@@ -299,6 +299,14 @@ export default function ScheduledRides() {
     }
   };
 
+  /** Resolve currency: trip snapshot → region (single source of truth) */
+  const resolveTripCurrency = (trip: ScheduledTrip): string =>
+    trip.currency_code || trip.service_area?.region?.currency_code || '';
+
+  /** Resolve distance unit from region */
+  const resolveTripDistanceUnit = (trip: ScheduledTrip): string =>
+    trip.service_area?.region?.distance_unit || 'km';
+
 
   const getScheduleStatus = (scheduledAt: string | null) => {
     if (!scheduledAt) return { label: 'No Date', color: 'bg-gray-100 text-gray-700', urgent: false };
