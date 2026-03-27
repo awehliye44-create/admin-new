@@ -10,11 +10,15 @@ export function initSentry() {
     dsn: "https://54e050c3aa8c5fb508ab5efd230dd256@o4510726239551488.ingest.de.sentry.io/4511116063735888",
     sendDefaultPii: true,
 
-    // Performance tracing
+    // Performance tracing — use only non-component-wrapping integrations
     integrations: [
-      Sentry.browserTracingIntegration(),
+      Sentry.browserTracingIntegration({
+        // Disable automatic React component instrumentation
+        // which can interfere with React context providers
+        enableInp: true,
+      }),
     ],
-    tracesSampleRate: 0.3, // 30 % of transactions
+    tracesSampleRate: 0.3,
 
     // Global tags on every event
     initialScope: {
@@ -23,6 +27,9 @@ export function initSentry() {
         role: "admin",
       },
     },
+
+    // Prevent Sentry from wrapping React callbacks that break context
+    defaultIntegrations: undefined,
   });
 }
 
