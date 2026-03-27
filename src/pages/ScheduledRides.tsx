@@ -525,7 +525,6 @@ export default function ScheduledRides() {
                                 <Navigation className="h-3 w-3" />
                                 {convertDistance(trip.estimated_distance_km, resolveTripDistanceUnit(trip)).toFixed(1)} {getDistanceUnitShort(resolveTripDistanceUnit(trip))}
                               </span>
-                              </span>
                             )}
                             {trip.estimated_duration_minutes && (
                               <span className="flex items-center gap-0.5">
