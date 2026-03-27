@@ -221,13 +221,24 @@ export default function RiderFeedback() {
       let customerMap: Record<string, { first_name: string | null; last_name: string | null; phone: string | null }> = {};
 
       if (customerIds.length > 0) {
-        const { data: customersData } = await supabase
+        // Try matching by customers.id first (rider_feedback.customer_id → customers.id)
+        const { data: customersById } = await supabase
           .from('customers')
-          .select('user_id, first_name, last_name, phone')
-          .in('user_id', customerIds);
+          .select('id, user_id, first_name, last_name, phone')
+          .in('id', customerIds);
 
-        if (customersData) {
-          customerMap = Object.fromEntries(customersData.map(c => [c.user_id, c]));
+        if (customersById && customersById.length > 0) {
+          customerMap = Object.fromEntries(customersById.map(c => [c.id, c]));
+        } else {
+          // Fallback: match by user_id for legacy data
+          const { data: customersByUserId } = await supabase
+            .from('customers')
+            .select('id, user_id, first_name, last_name, phone')
+            .in('user_id', customerIds);
+
+          if (customersByUserId) {
+            customerMap = Object.fromEntries(customersByUserId.map(c => [c.user_id, c]));
+          }
         }
       }
 
