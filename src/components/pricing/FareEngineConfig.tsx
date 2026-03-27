@@ -21,6 +21,7 @@ import {
 import { toast } from 'sonner';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { FareSimulatorCard } from '@/components/pricing/FareSimulatorCard';
+import { TripLifecycleTimeline } from '@/components/pricing/TripLifecycleTimeline';
 
 interface FarePricingSettings {
   id?: string;
