@@ -41,6 +41,7 @@ import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
 import { getCurrencySymbol, formatDistance as formatDistanceUtil, getDistanceUnitShort } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
+import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 
 /* global google */
 
@@ -656,6 +657,12 @@ export default function TripHistory() {
   const avgFare = filteredTrips.length > 0 ? totalRevenue / filteredTrips.length : 0;
   const multiStopTrips = filteredTrips.filter(t => isMultiStopTrip(t)).length;
 
+  // Resolve a single currency across all filtered trips for the stats widgets
+  const statsCurrencyItems = filteredTrips.map(t => ({ currency_code: resolveTripCurrency(t) || '???' }));
+  const singleStatsCurrency = getSingleCurrency(statsCurrencyItems);
+  const isMixedCurrency = !singleStatsCurrency && filteredTrips.length > 0;
+  const statsSymbol = getCurrencySymbol(singleStatsCurrency || activeRegion?.currency_code || '');
+
   return (
     <AdminLayout 
       title="Trip History" 
@@ -679,9 +686,16 @@ export default function TripHistory() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Total Revenue</p>
-                <p className="text-2xl font-bold text-green-600">
-                  {getActiveCurrencySymbol()}{totalRevenue.toFixed(2)}
-                </p>
+                {isMixedCurrency ? (
+                  <CurrencyGroupedStats
+                    items={filteredTrips.map(t => ({ currency_code: resolveTripCurrency(t) || '???', amount: Math.round(getTripFarePounds(t) * 100) }))}
+                    className="text-lg font-bold text-green-600"
+                  />
+                ) : (
+                  <p className="text-2xl font-bold text-green-600">
+                    {statsSymbol}{totalRevenue.toFixed(2)}
+                  </p>
+                )}
               </div>
               <DollarSign className="h-8 w-8 text-green-500" />
             </div>
@@ -692,7 +706,7 @@ export default function TripHistory() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Average Fare</p>
-                <p className="text-2xl font-bold">{getActiveCurrencySymbol()}{avgFare.toFixed(2)}</p>
+                <p className="text-2xl font-bold">{statsSymbol}{avgFare.toFixed(2)}</p>
               </div>
               <Route className="h-8 w-8 text-muted-foreground opacity-80" />
             </div>
