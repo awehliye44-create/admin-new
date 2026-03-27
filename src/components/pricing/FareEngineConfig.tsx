@@ -544,7 +544,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
                 <Ban className="h-5 w-5 text-destructive" />
                 Cancellation Rules
               </CardTitle>
-              <CardDescription>Fee applied when customer cancels after driver arrives and grace period expires</CardDescription>
+              <CardDescription>Grace period applies in two phases: after driver is assigned AND after driver arrives. Fee charged only after grace expires.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -556,7 +556,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
                     value={settings.cancellation_grace_period_minutes}
                     onChange={(e) => updateField('cancellation_grace_period_minutes', parseInt(e.target.value) || 0)}
                   />
-                  <p className="text-xs text-muted-foreground">Time after arrival before fee applies</p>
+                  <p className="text-xs text-muted-foreground">Free cancellation window after assignment & after arrival</p>
                 </div>
                 {penceField('cancellation_fee_pence', 'Cancellation Fee', 'Fixed fee if cancelled after grace period')}
                 <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg self-start mt-5">
@@ -573,7 +573,8 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
               <div className="flex items-start gap-2 p-3 border rounded-lg bg-muted/30 border-border">
                 <AlertCircle className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                 <p className="text-xs text-muted-foreground">
-                  Driver arrives → grace period starts → if customer cancels within grace → no fee → if customer cancels after grace → cancellation fee applied.
+                  <strong>Phase 1:</strong> Driver assigned → grace period starts → cancel within grace = free.{' '}
+                  <strong>Phase 2:</strong> Driver arrives → grace resets → cancel within grace = free → cancel after grace = fee applied.
                 </p>
               </div>
             </CardContent>
