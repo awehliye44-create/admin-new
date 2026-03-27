@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
+import { useRegions } from '@/hooks/useRegions';
+import { getCurrencySymbol, formatCurrency } from '@/lib/regionSettings';
 import { 
   BarChart3, 
   Download, 
@@ -16,29 +18,14 @@ import {
   FileText,
   RefreshCw,
   TrendingUp,
-  TrendingDown,
   Users,
   Car,
-  DollarSign,
   Clock,
   MapPin,
   Building2,
-  PieChart,
-  LineChart,
   Globe
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart as RechartsLineChart, Line, PieChart as RechartsPieChart, Pie, Cell } from 'recharts';
-
-interface Region {
-  id: string;
-  name: string;
-}
-
-interface ServiceArea {
-  id: string;
-  name: string;
-  region_id: string;
-}
 
 const COLORS = ['hsl(var(--primary))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))'];
 
@@ -49,22 +36,21 @@ export default function CorporateReports() {
   const [serviceAreaFilter, setServiceAreaFilter] = useState<string>('all');
   const [selectedAccount, setSelectedAccount] = useState<string>('all');
 
-  // Fetch regions
-  const { data: regions = [] } = useQuery({
-    queryKey: ['regions'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('regions')
-        .select('id, name')
-        .order('name');
-      if (error) throw error;
-      return data as Region[];
-    },
-  });
+  // Fetch regions (shared hook, cached)
+  const { data: regions = [] } = useRegions();
+
+  // Resolve currency from selected region
+  const selectedRegion = useMemo(() => {
+    if (regionFilter === 'all') return null;
+    return regions.find(r => r.id === regionFilter) || null;
+  }, [regionFilter, regions]);
+
+  const currencyCode = selectedRegion?.currency_code || '';
+  const currencySymbol = currencyCode ? getCurrencySymbol(currencyCode) : '';
 
   // Fetch service areas based on region filter
   const { data: serviceAreas = [] } = useQuery({
-    queryKey: ['service-areas', regionFilter],
+    queryKey: ['service-areas-corp-reports', regionFilter],
     queryFn: async () => {
       let query = supabase.from('service_areas').select('id, name, region_id').order('name');
       if (regionFilter !== 'all') {
@@ -72,7 +58,7 @@ export default function CorporateReports() {
       }
       const { data, error } = await query;
       if (error) throw error;
-      return data as ServiceArea[];
+      return data || [];
     },
   });
 
@@ -103,65 +89,34 @@ export default function CorporateReports() {
     },
   });
 
-  // Fetch invoices for revenue data
-  const { data: invoices = [] } = useQuery({
-    queryKey: ['corporate-invoices-for-reports', regionFilter, serviceAreaFilter, dateRange],
-    queryFn: async () => {
-      const now = new Date();
-      let startDate = new Date();
-      
-      switch (dateRange) {
-        case 'last7': startDate.setDate(now.getDate() - 7); break;
-        case 'last30': startDate.setDate(now.getDate() - 30); break;
-        case 'last90': startDate.setDate(now.getDate() - 90); break;
-        case 'thisYear': startDate = new Date(now.getFullYear(), 0, 1); break;
-        case 'lastYear': startDate = new Date(now.getFullYear() - 1, 0, 1); break;
-        default: startDate.setDate(now.getDate() - 30);
-      }
+  // Build date range
+  const dateRangeDates = useMemo(() => {
+    const now = new Date();
+    let startDate = new Date();
+    switch (dateRange) {
+      case 'last7': startDate.setDate(now.getDate() - 7); break;
+      case 'last30': startDate.setDate(now.getDate() - 30); break;
+      case 'last90': startDate.setDate(now.getDate() - 90); break;
+      case 'thisYear': startDate = new Date(now.getFullYear(), 0, 1); break;
+      case 'lastYear': startDate = new Date(now.getFullYear() - 1, 0, 1); break;
+      default: startDate.setDate(now.getDate() - 30);
+    }
+    return { start: startDate.toISOString(), end: now.toISOString() };
+  }, [dateRange]);
 
-      let query = supabase
-        .from('corporate_invoices')
-        .select('*')
-        .gte('created_at', startDate.toISOString());
-      
-      if (regionFilter !== 'all') {
-        query = query.eq('region_id', regionFilter);
-      }
-      if (serviceAreaFilter !== 'all') {
-        query = query.eq('service_area_id', serviceAreaFilter);
-      }
-      
-      const { data, error } = await query;
-      if (error) throw error;
-      return data || [];
-    },
-  });
-
-  // Fetch corporate trip data for reports
+  // Fetch corporate trip data — using correct DB columns
   const { data: tripData = [], isLoading } = useQuery({
     queryKey: ['corporate-trip-reports', dateRange, regionFilter, serviceAreaFilter, selectedAccount],
     queryFn: async () => {
-      const now = new Date();
-      let startDate = new Date();
-      
-      switch (dateRange) {
-        case 'last7': startDate.setDate(now.getDate() - 7); break;
-        case 'last30': startDate.setDate(now.getDate() - 30); break;
-        case 'last90': startDate.setDate(now.getDate() - 90); break;
-        case 'thisYear': startDate = new Date(now.getFullYear(), 0, 1); break;
-        case 'lastYear': startDate = new Date(now.getFullYear() - 1, 0, 1); break;
-        default: startDate.setDate(now.getDate() - 30);
-      }
-
       let query = supabase
         .from('trips')
         .select(`
-          id, fare, estimated_fare, created_at, completed_at, status, 
-          service_area_id, corporate_account_id, currency_code,
-          corporate_account:corporate_accounts(id, company_name)
+          id, gross_fare_pence, commission_pence, created_at, completed_at, status,
+          financial_outcome, service_area_id, corporate_account_id,
+          corporate_account:corporate_accounts!trips_corporate_account_id_fkey(id, company_name)
         `)
         .not('corporate_account_id', 'is', null)
-        .gte('created_at', startDate.toISOString());
+        .gte('created_at', dateRangeDates.start);
       
       if (serviceAreaFilter !== 'all') {
         query = query.eq('service_area_id', serviceAreaFilter);
@@ -177,6 +132,18 @@ export default function CorporateReports() {
     },
   });
 
+  // Helper: convert pence to major currency unit
+  const penceToCurrency = (pence: number) => pence / 100;
+
+  // Format amount with resolved currency
+  const fmtAmount = (pence: number) => {
+    if (!currencyCode) {
+      // Mixed currencies — show raw value
+      return `${penceToCurrency(pence).toFixed(2)}`;
+    }
+    return formatCurrency(penceToCurrency(pence), currencyCode);
+  };
+
   // Calculate report data from real corporate trips
   const calculateMonthlyTrends = (trips: any[]) => {
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -187,7 +154,7 @@ export default function CorporateReports() {
       const key = `${date.getFullYear()}-${String(date.getMonth()).padStart(2, '0')}`;
       if (!monthData[key]) monthData[key] = { trips: 0, revenue: 0 };
       monthData[key].trips++;
-      monthData[key].revenue += trip.fare || trip.estimated_fare || 0;
+      monthData[key].revenue += penceToCurrency(trip.gross_fare_pence || 0);
     });
 
     return Object.entries(monthData)
@@ -196,7 +163,7 @@ export default function CorporateReports() {
       .map(([key, data]) => ({
         month: monthNames[parseInt(key.split('-')[1])],
         trips: data.trips,
-        revenue: Math.round(data.revenue),
+        revenue: Math.round(data.revenue * 100) / 100,
       }));
   };
 
@@ -205,7 +172,7 @@ export default function CorporateReports() {
     const distribution: Record<string, number> = {};
     
     trips.forEach(trip => {
-      const companyName = trip.corporate_account?.company_name || 'Unknown';
+      const companyName = (trip.corporate_account as any)?.company_name || 'Unknown';
       distribution[companyName] = (distribution[companyName] || 0) + 1;
     });
     
@@ -234,14 +201,21 @@ export default function CorporateReports() {
     }));
   };
 
-  const completedTrips = tripData.filter((t: any) => t.status === 'completed');
-  const totalRevenue = completedTrips.reduce((sum: number, t: any) => sum + (t.fare || t.estimated_fare || 0), 0);
+  // Only count financially countable trips for revenue
+  const financialTrips = tripData.filter((t: any) => 
+    ['COMPLETED', 'NO_SHOW', 'LATE_PASSENGER_CANCELLATION'].includes(t.financial_outcome)
+  );
+  const totalRevenuePence = financialTrips.reduce((sum: number, t: any) => sum + (t.gross_fare_pence || 0), 0);
+  const totalCommissionPence = financialTrips.reduce((sum: number, t: any) => sum + (t.commission_pence || 0), 0);
   const totalTrips = tripData.length;
-  const avgTripCost = completedTrips.length > 0 ? totalRevenue / completedTrips.length : 0;
+  const avgTripCostPence = financialTrips.length > 0 ? totalRevenuePence / financialTrips.length : 0;
   const activeAccounts = accounts.filter((a: any) => a.status === 'active').length;
-  const monthlyTrends = calculateMonthlyTrends(tripData);
+  const monthlyTrends = calculateMonthlyTrends(financialTrips);
   const tripDistribution = calculateTripDistribution(tripData);
   const usageByTime = calculateUsageByTime(tripData);
+
+  // Currency label for mixed-mode
+  const currencyLabel = currencyCode ? `(${currencyCode})` : '(select region)';
 
   const handleExportReport = (reportType: string) => {
     toast.success(`${reportType} report exported successfully`);
@@ -291,7 +265,9 @@ export default function CorporateReports() {
               <SelectContent>
                 <SelectItem value="all">All Regions</SelectItem>
                 {regions.map((region) => (
-                  <SelectItem key={region.id} value={region.id}>{region.name}</SelectItem>
+                  <SelectItem key={region.id} value={region.id}>
+                    {region.name} ({getCurrencySymbol(region.currency_code)})
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -302,7 +278,7 @@ export default function CorporateReports() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Areas</SelectItem>
-                {serviceAreas.map((area) => (
+                {serviceAreas.map((area: any) => (
                   <SelectItem key={area.id} value={area.id}>{area.name}</SelectItem>
                 ))}
               </SelectContent>
@@ -332,6 +308,13 @@ export default function CorporateReports() {
           </div>
         </div>
 
+        {/* Mixed currency warning */}
+        {!currencyCode && regions.length > 1 && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-3 text-sm text-amber-800 dark:text-amber-200">
+            Select a Region to see revenue in the correct currency. Showing raw totals without currency conversion.
+          </div>
+        )}
+
         {/* Summary Stats */}
         <div className="grid gap-4 md:grid-cols-5">
           <Card>
@@ -354,39 +337,37 @@ export default function CorporateReports() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{totalTrips.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground">In selected period</p>
+              <p className="text-xs text-muted-foreground">{financialTrips.length} with financial outcome</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Gross Revenue {currencyLabel}</CardTitle>
+              <BarChart3 className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${totalRevenue.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground">From paid invoices</p>
+              <div className="text-2xl font-bold">{fmtAmount(totalRevenuePence)}</div>
+              <p className="text-xs text-muted-foreground">From financially countable trips</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Commission {currencyLabel}</CardTitle>
+              <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{fmtAmount(totalCommissionPence)}</div>
+              <p className="text-xs text-muted-foreground">Platform earnings</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Avg Trip Cost</CardTitle>
-              <BarChart3 className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">${avgTripCost.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground">Per trip</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Trips/Account</CardTitle>
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
-                {activeAccounts > 0 ? Math.round(totalTrips / activeAccounts) : 0}
-              </div>
-              <p className="text-xs text-muted-foreground">Average per active account</p>
+              <div className="text-2xl font-bold">{fmtAmount(Math.round(avgTripCostPence))}</div>
+              <p className="text-xs text-muted-foreground">Per financial trip</p>
             </CardContent>
           </Card>
         </div>
@@ -398,7 +379,7 @@ export default function CorporateReports() {
               Overview
             </TabsTrigger>
             <TabsTrigger value="trends" className="flex items-center gap-2">
-              <LineChart className="h-4 w-4" />
+              <Clock className="h-4 w-4" />
               Trends
             </TabsTrigger>
             <TabsTrigger value="accounts" className="flex items-center gap-2">
@@ -416,7 +397,7 @@ export default function CorporateReports() {
               {/* Monthly Revenue Chart */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Monthly Revenue</CardTitle>
+                  <CardTitle>Monthly Revenue {currencyLabel}</CardTitle>
                   <CardDescription>Revenue trend over the past months</CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -428,7 +409,7 @@ export default function CorporateReports() {
                           <XAxis dataKey="month" className="text-xs" />
                           <YAxis className="text-xs" />
                           <Tooltip 
-                            formatter={(value: number) => [`$${value.toLocaleString()}`, 'Revenue']}
+                            formatter={(value: number) => [`${currencySymbol}${value.toLocaleString()}`, 'Revenue']}
                             contentStyle={{ 
                               backgroundColor: 'hsl(var(--background))', 
                               border: '1px solid hsl(var(--border))' 
@@ -450,7 +431,7 @@ export default function CorporateReports() {
               <Card>
                 <CardHeader>
                   <CardTitle>Trip Distribution</CardTitle>
-                  <CardDescription>Breakdown by service type</CardDescription>
+                  <CardDescription>Breakdown by corporate account</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="h-[300px]">
@@ -500,7 +481,7 @@ export default function CorporateReports() {
           <TabsContent value="trends" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Trip & Revenue Trends</CardTitle>
+                <CardTitle>Trip & Revenue Trends {currencyLabel}</CardTitle>
                 <CardDescription>Monthly comparison of trips and revenue</CardDescription>
               </CardHeader>
               <CardContent>
@@ -513,6 +494,10 @@ export default function CorporateReports() {
                         <YAxis yAxisId="left" className="text-xs" />
                         <YAxis yAxisId="right" orientation="right" className="text-xs" />
                         <Tooltip 
+                          formatter={(value: number, name: string) => [
+                            name === 'Revenue' ? `${currencySymbol}${value.toLocaleString()}` : value,
+                            name
+                          ]}
                           contentStyle={{ 
                             backgroundColor: 'hsl(var(--background))', 
                             border: '1px solid hsl(var(--border))' 
@@ -532,7 +517,7 @@ export default function CorporateReports() {
                           dataKey="revenue" 
                           stroke="hsl(var(--chart-2))" 
                           strokeWidth={2}
-                          name="Revenue ($)"
+                          name="Revenue"
                         />
                       </RechartsLineChart>
                     </ResponsiveContainer>
@@ -550,7 +535,7 @@ export default function CorporateReports() {
             <Card>
               <CardHeader>
                 <CardTitle>Corporate Account Performance</CardTitle>
-                <CardDescription>Trip volume and revenue by account for selected period</CardDescription>
+                <CardDescription>Trip volume and revenue by account for selected period {currencyLabel}</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                 <Table>
@@ -560,8 +545,8 @@ export default function CorporateReports() {
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Trips</TableHead>
                       <TableHead className="text-right">Revenue</TableHead>
+                      <TableHead className="text-right">Commission</TableHead>
                       <TableHead className="text-right">Avg Fare</TableHead>
-                      <TableHead className="text-right">Credit Limit</TableHead>
                       <TableHead className="text-right">Discount</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -574,10 +559,12 @@ export default function CorporateReports() {
                       </TableRow>
                     ) : (
                       accounts.map((account: any) => {
-                        const accountTrips = tripData.filter((t: any) => t.corporate_account_id === account.id);
-                        const accountRevenue = accountTrips.reduce((sum: number, t: any) => 
-                          sum + (t.fare || t.estimated_fare || 0), 0);
-                        const avgFare = accountTrips.length > 0 ? accountRevenue / accountTrips.length : 0;
+                        const accountTrips = financialTrips.filter((t: any) => t.corporate_account_id === account.id);
+                        const accountRevenuePence = accountTrips.reduce((sum: number, t: any) => 
+                          sum + (t.gross_fare_pence || 0), 0);
+                        const accountCommissionPence = accountTrips.reduce((sum: number, t: any) => 
+                          sum + (t.commission_pence || 0), 0);
+                        const avgFarePence = accountTrips.length > 0 ? accountRevenuePence / accountTrips.length : 0;
                         
                         return (
                           <TableRow key={account.id}>
@@ -589,10 +576,12 @@ export default function CorporateReports() {
                             </TableCell>
                             <TableCell className="text-right font-medium">{accountTrips.length}</TableCell>
                             <TableCell className="text-right font-medium text-green-600">
-                              ${accountRevenue.toFixed(2)}
+                              {fmtAmount(accountRevenuePence)}
                             </TableCell>
-                            <TableCell className="text-right">${avgFare.toFixed(2)}</TableCell>
-                            <TableCell className="text-right">${(account.credit_limit || 0).toLocaleString()}</TableCell>
+                            <TableCell className="text-right">
+                              {fmtAmount(accountCommissionPence)}
+                            </TableCell>
+                            <TableCell className="text-right">{fmtAmount(Math.round(avgFarePence))}</TableCell>
                             <TableCell className="text-right">{account.discount_percentage || 0}%</TableCell>
                           </TableRow>
                         );
