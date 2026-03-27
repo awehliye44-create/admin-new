@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { calculateCommission } from "../_shared/commission.ts";
 import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
+import { buildTripAccounting } from "../_shared/tripAccounting.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -81,7 +82,7 @@ serve(async (req) => {
     // === Fetch completed trips ===
     let query = supabase
       .from('trips')
-      .select('id, driver_id, service_area_id, gross_fare_pence, commission_pence, driver_net_pence, payment_method, payment_status, currency_code, financial_outcome, completed_at, fare')
+      .select('id, driver_id, service_area_id, gross_fare_pence, commission_pence, driver_net_pence, payment_method, payment_status, currency_code, financial_outcome, completed_at, fare, tip_pence')
       .eq('status', 'completed')
       .not('driver_id', 'is', null);
 
@@ -118,6 +119,7 @@ serve(async (req) => {
     for (const trip of trips) {
       const dId = trip.driver_id;
       const grossFare = trip.gross_fare_pence || 0;
+      const tipPence = trip.tip_pence || 0;
       const isCash = (trip.payment_method || '').toUpperCase() === 'CASH';
       const issues: string[] = [];
 
@@ -157,11 +159,20 @@ serve(async (req) => {
 
       const correctPct = commissionCache[dId].commission_pct;
       const correctCommission = Math.round(grossFare * correctPct / 100);
-      const correctNet = grossFare - correctCommission;
+      const accounting = buildTripAccounting({
+        commissionableSubtotalPence: grossFare,
+        commissionPence: correctCommission,
+        tipAmountPence: tipPence,
+      });
+      const correctNet = accounting.driverNetBeforeTipPence;
+      const correctDriverTotal = accounting.driverTotalEarningsPence;
+      const correctFinalTripTotal = accounting.finalTripTotalPence;
       const oldCommission = trip.commission_pence || 0;
+      const oldDriverNet = trip.driver_net_pence || 0;
       const commissionDelta = correctCommission - oldCommission;
 
       if (commissionDelta !== 0) issues.push(`commission: ${oldCommission} → ${correctCommission}`);
+      if (oldDriverNet !== correctNet) issues.push(`driver_net: ${oldDriverNet} → ${correctNet}`);
 
       // === Check for missing driver_ledger entry ===
       const { data: existingLedger } = await supabase
@@ -192,8 +203,10 @@ serve(async (req) => {
         driver_id: dId,
         gross_fare_pence: grossFare,
         old_commission_pence: oldCommission,
+        old_driver_net_pence: oldDriverNet,
         correct_commission_pence: correctCommission,
         correct_driver_net_pence: correctNet,
+        correct_driver_total_earnings_pence: correctDriverTotal,
         commission_pct: correctPct,
         delta_pence: commissionDelta,
         payment_method: trip.payment_method,
@@ -211,6 +224,7 @@ serve(async (req) => {
         const tripUpdate: Record<string, unknown> = {
           commission_pence: correctCommission,
           driver_net_pence: correctNet,
+          fare: correctFinalTripTotal / 100,
           updated_at: new Date().toISOString(),
         };
 
@@ -274,12 +288,13 @@ serve(async (req) => {
             revenue_type: 'completed_trip_revenue',
             is_financially_countable: true,
             base_fare_pence: grossFare,
+            tip_amount_pence: tipPence,
             commissionable_subtotal_pence: grossFare,
             commission_rate_pct: correctPct,
             platform_commission_pence: correctCommission,
             driver_net_before_tip_pence: correctNet,
-            driver_total_earnings_pence: correctNet,
-            final_trip_total_pence: grossFare,
+            driver_total_earnings_pence: correctDriverTotal,
+            final_trip_total_pence: correctFinalTripTotal,
             payment_method: trip.payment_method,
             currency_code: correctCurrency,
             settlement_status: 'settled',
@@ -308,10 +323,12 @@ serve(async (req) => {
         } else if (existingFinance) {
           // Update existing trip_finance
           await supabase.from('trip_finance').update({
+            tip_amount_pence: tipPence,
             commission_rate_pct: correctPct,
             platform_commission_pence: correctCommission,
             driver_net_before_tip_pence: correctNet,
-            driver_total_earnings_pence: correctNet,
+            driver_total_earnings_pence: correctDriverTotal,
+            final_trip_total_pence: correctFinalTripTotal,
             currency_code: correctCurrency,
           }).eq('trip_id', trip.id);
         }

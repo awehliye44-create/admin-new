@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { calculateCommission } from "../_shared/commission.ts";
 import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
+import { buildTripAccounting, validateTripAccounting } from "../_shared/tripAccounting.ts";
 import { 
   securityHeaders, 
   corsHeaders, 
@@ -85,10 +86,8 @@ serve(async (req) => {
       destination_change_charge_pence +
       extras_charge_pence;
 
-    const final_trip_total = commissionable_subtotal + tip_amount_pence;
-
     console.log(`[complete-trip] Trip ${trip_id}, method: ${payment_method}, currency: ${currency_code}`);
-    console.log(`[complete-trip] Subtotal: ${commissionable_subtotal}p, Tip: ${tip_amount_pence}p, Total: ${final_trip_total}p`);
+    console.log(`[complete-trip] Subtotal: ${commissionable_subtotal}p, Tip: ${tip_amount_pence}p`);
 
     // === Validate trip ===
     const { data: trip, error: tripError } = await supabase
@@ -118,8 +117,29 @@ serve(async (req) => {
       .single();
 
     // === Commission from shared utility (single source of truth) ===
-    const { commission_pct: commissionPercentage, commission_pence: platform_commission, driver_net_pence: driver_net_before_tip } = await calculateCommission(supabase, driver_id, commissionable_subtotal);
-    const driver_total_earnings = driver_net_before_tip + tip_amount_pence;
+    const { commission_pct: commissionPercentage, commission_pence: platform_commission, driver_net_pence: driverNetFromCommission } = await calculateCommission(supabase, driver_id, commissionable_subtotal);
+    const accounting = buildTripAccounting({
+      commissionableSubtotalPence: commissionable_subtotal,
+      commissionPence: platform_commission,
+      tipAmountPence: tip_amount_pence,
+    });
+    const accountingError = validateTripAccounting({
+      commissionableSubtotalPence: commissionable_subtotal,
+      commissionPence: platform_commission,
+      tipAmountPence: tip_amount_pence,
+      driverNetBeforeTipPence: driverNetFromCommission,
+      driverTotalEarningsPence: accounting.driverTotalEarningsPence,
+      finalTripTotalPence: accounting.finalTripTotalPence,
+    });
+
+    if (accountingError) {
+      console.error(`[complete-trip] Accounting invariant failed for trip ${trip_id}: ${accountingError}`);
+      return errorResponse(accountingError, 400);
+    }
+
+    const driver_net_before_tip = accounting.driverNetBeforeTipPence;
+    const driver_total_earnings = accounting.driverTotalEarningsPence;
+    const final_trip_total = accounting.finalTripTotalPence;
     const isCashPayment = payment_method === 'CASH';
 
     console.log(`[complete-trip] Commission: ${platform_commission}p (${commissionPercentage}%), DriverNet: ${driver_net_before_tip}p, DriverTotal: ${driver_total_earnings}p`);
@@ -132,7 +152,7 @@ serve(async (req) => {
       fare: final_trip_total / 100,
       gross_fare_pence: commissionable_subtotal,
       commission_pence: platform_commission,
-      driver_net_pence: driver_total_earnings,
+      driver_net_pence: driver_net_before_tip,
       payment_method,
       updated_at: new Date().toISOString(),
     };
