@@ -42,6 +42,7 @@ import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/Cu
 
 interface CancelledTrip {
   id: string;
+  trip_number: string | null;
   trip_code: string | null;
   status: string | null;
   passenger_name: string | null;
