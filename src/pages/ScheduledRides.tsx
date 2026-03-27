@@ -216,11 +216,15 @@ export default function ScheduledRides() {
 
     setIsSaving(true);
     try {
+      // Lock the driver to the scheduled booking WITHOUT converting to live.
+      // The booking stays "scheduled" with scheduled_status = 'driver_assigned'.
+      // Only when the driver accepts the live dispatch offer does status become 'accepted'.
       const { error } = await supabase
         .from('trips')
         .update({ 
-          driver_id: selectedDriverId,
-          status: 'accepted',
+          confirmed_driver_id: selectedDriverId,
+          scheduled_status: 'driver_assigned',
+          scheduled_accepted_at: new Date().toISOString(),
         })
         .eq('id', selectedTrip.id);
 
@@ -276,12 +280,14 @@ export default function ScheduledRides() {
 
     setIsSaving(true);
     try {
+      // Mark booking as dispatching — alerts go to drivers.
+      // The booking stays scheduled; customer sees "Upcoming" until a driver ACCEPTS.
+      // Only driver acceptance (accept-trip or accept_scheduled_ride) changes status to live.
       const { error } = await supabase
         .from('trips')
         .update({ 
-          status: 'searching',
-          is_scheduled: false,
-          scheduled_at: null,
+          scheduled_status: 'dispatching',
+          dispatch_mode: 'scheduled',
         })
         .eq('id', selectedTrip.id);
 
@@ -584,13 +590,18 @@ export default function ScheduledRides() {
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className={
-                          trip.status === 'accepted' 
-                            ? 'bg-green-100 text-green-700' 
-                            : trip.status === 'searching'
+                          trip.scheduled_status === 'driver_assigned'
+                            ? 'bg-green-100 text-green-700'
+                            : trip.scheduled_status === 'dispatching'
                             ? 'bg-blue-100 text-blue-700'
+                            : trip.status === 'accepted'
+                            ? 'bg-green-100 text-green-700' 
                             : 'bg-gray-100 text-gray-700'
                         }>
-                          {trip.status === 'accepted' ? 'Confirmed' : trip.status === 'searching' ? 'Searching' : 'Pending'}
+                          {trip.scheduled_status === 'driver_assigned' ? 'Driver Assigned'
+                            : trip.scheduled_status === 'dispatching' ? 'Dispatching'
+                            : trip.status === 'accepted' ? 'Confirmed'
+                            : 'Pending'}
                         </Badge>
                         {trip.service_area && (
                           <div className="text-xs text-muted-foreground mt-1">
