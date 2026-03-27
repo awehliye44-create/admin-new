@@ -109,6 +109,8 @@ export default function AdminDriverSettlements() {
   const totalCommission = drivers.reduce((s, d) => s + d.company_commission_total, 0);
   const driversWithEarnings = drivers.filter(d => d.available_for_payout > 0).length;
   const onlineDrivers = drivers.filter(d => d.is_online).length;
+  // Resolve dominant currency from drivers (all drivers in a region share currency)
+  const dominantCurrency = drivers.find(d => d.currency_code)?.currency_code || '';
 
   if (isLoading && drivers.length === 0) {
     return (
@@ -134,7 +136,7 @@ export default function AdminDriverSettlements() {
               <DollarSign className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-500">{formatPence(totalGross)}</div>
+              <div className="text-2xl font-bold text-green-500">{formatPence(totalGross, dominantCurrency)}</div>
               <p className="text-xs text-muted-foreground flex items-center gap-1">
                 <TrendingUp className="h-3 w-3 text-green-500" /> All completed trips
               </p>
@@ -146,7 +148,7 @@ export default function AdminDriverSettlements() {
               <Banknote className="h-4 w-4 text-blue-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-500">{formatPence(totalCommission)}</div>
+              <div className="text-2xl font-bold text-blue-500">{formatPence(totalCommission, dominantCurrency)}</div>
               <p className="text-xs text-muted-foreground">Total earned by ONECAB</p>
             </CardContent>
           </Card>
@@ -229,10 +231,10 @@ export default function AdminDriverSettlements() {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right">{d.completed_trips}</TableCell>
-                          <TableCell className="text-right">{formatPence(d.gross_trip_total)}</TableCell>
-                          <TableCell className="text-right text-muted-foreground">-{formatPence(d.company_commission_total)}</TableCell>
+                          <TableCell className="text-right">{formatPence(d.gross_trip_total, d.currency_code)}</TableCell>
+                          <TableCell className="text-right text-muted-foreground">-{formatPence(d.company_commission_total, d.currency_code)}</TableCell>
                           <TableCell className={`text-right font-medium ${d.wallet_balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {formatPence(d.wallet_balance)}
+                            {formatPence(d.wallet_balance, d.currency_code)}
                           </TableCell>
                           <TableCell>{d.rating ? <span className="flex items-center gap-1">⭐ {d.rating.toFixed(1)}</span> : '-'}</TableCell>
                           <TableCell className="text-right">
@@ -261,25 +263,25 @@ export default function AdminDriverSettlements() {
               <div className="space-y-4">
                 {/* Summary Cards */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Gross Fares</p><p className="text-lg font-bold">{formatPence(selectedDriverDetail.gross_trip_total)}</p></CardContent></Card>
-                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Commission</p><p className="text-lg font-bold text-blue-600">{formatPence(selectedDriverDetail.company_commission_total)}</p></CardContent></Card>
-                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Wallet Balance</p><p className={`text-lg font-bold ${selectedDriverDetail.wallet_balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatPence(selectedDriverDetail.wallet_balance)}</p></CardContent></Card>
-                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Available Payout</p><p className="text-lg font-bold text-green-600">{formatPence(selectedDriverDetail.available_for_payout)}</p></CardContent></Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Gross Fares</p><p className="text-lg font-bold">{formatPence(selectedDriverDetail.gross_trip_total, selectedDriverDetail.currency_code)}</p></CardContent></Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Commission</p><p className="text-lg font-bold text-blue-600">{formatPence(selectedDriverDetail.company_commission_total, selectedDriverDetail.currency_code)}</p></CardContent></Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Wallet Balance</p><p className={`text-lg font-bold ${selectedDriverDetail.wallet_balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatPence(selectedDriverDetail.wallet_balance, selectedDriverDetail.currency_code)}</p></CardContent></Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Available Payout</p><p className="text-lg font-bold text-green-600">{formatPence(selectedDriverDetail.available_for_payout, selectedDriverDetail.currency_code)}</p></CardContent></Card>
                 </div>
 
                 {/* Wallet Breakdown */}
                 <Card>
                   <CardContent className="pt-4 space-y-2 text-sm">
-                    <div className="flex justify-between"><span className="text-muted-foreground flex items-center gap-1"><CreditCard className="h-3 w-3" /> Card Net Credits</span><span className="text-green-600">+{formatPence(selectedDriverDetail.card_net_credits)}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground flex items-center gap-1"><Banknote className="h-3 w-3" /> Cash Commission Debits</span><span className="text-red-600">-{formatPence(selectedDriverDetail.cash_commission_debits)}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Payouts Sent</span><span className="text-blue-600">-{formatPence(selectedDriverDetail.total_payouts_sent)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground flex items-center gap-1"><CreditCard className="h-3 w-3" /> Card Net Credits</span><span className="text-green-600">+{formatPence(selectedDriverDetail.card_net_credits, selectedDriverDetail.currency_code)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground flex items-center gap-1"><Banknote className="h-3 w-3" /> Cash Commission Debits</span><span className="text-red-600">-{formatPence(selectedDriverDetail.cash_commission_debits, selectedDriverDetail.currency_code)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Payouts Sent</span><span className="text-blue-600">-{formatPence(selectedDriverDetail.total_payouts_sent, selectedDriverDetail.currency_code)}</span></div>
                     {selectedDriverDetail.adjustments_total !== 0 && (
-                      <div className="flex justify-between"><span className="text-muted-foreground">Adjustments</span><span className={selectedDriverDetail.adjustments_total >= 0 ? 'text-green-600' : 'text-red-600'}>{selectedDriverDetail.adjustments_total >= 0 ? '+' : ''}{formatPence(selectedDriverDetail.adjustments_total)}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Adjustments</span><span className={selectedDriverDetail.adjustments_total >= 0 ? 'text-green-600' : 'text-red-600'}>{selectedDriverDetail.adjustments_total >= 0 ? '+' : ''}{formatPence(selectedDriverDetail.adjustments_total, selectedDriverDetail.currency_code)}</span></div>
                     )}
                     <Separator />
-                    <div className="flex justify-between font-medium"><span>= Wallet Balance</span><span className={selectedDriverDetail.wallet_balance >= 0 ? 'text-green-600' : 'text-red-600'}>{formatPence(selectedDriverDetail.wallet_balance)}</span></div>
+                    <div className="flex justify-between font-medium"><span>= Wallet Balance</span><span className={selectedDriverDetail.wallet_balance >= 0 ? 'text-green-600' : 'text-red-600'}>{formatPence(selectedDriverDetail.wallet_balance, selectedDriverDetail.currency_code)}</span></div>
                     {selectedDriverDetail.amount_owed_to_onecab > 0 && (
-                      <div className="flex justify-between text-red-600 font-medium"><span className="flex items-center gap-1"><AlertTriangle className="h-3 w-3" /> Owed to ONECAB</span><span>{formatPence(selectedDriverDetail.amount_owed_to_onecab)}</span></div>
+                      <div className="flex justify-between text-red-600 font-medium"><span className="flex items-center gap-1"><AlertTriangle className="h-3 w-3" /> Owed to ONECAB</span><span>{formatPence(selectedDriverDetail.amount_owed_to_onecab, selectedDriverDetail.currency_code)}</span></div>
                     )}
                   </CardContent>
                 </Card>
@@ -308,7 +310,7 @@ export default function AdminDriverSettlements() {
                                   <p className="text-xs text-muted-foreground">{format(new Date(entry.created_at), 'dd MMM yyyy, HH:mm')}</p>
                                 </div>
                               </div>
-                              <p className={`font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>{isPositive ? '+' : ''}{formatPence(entry.amount_pence)}</p>
+                              <p className={`font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>{isPositive ? '+' : ''}{formatPence(entry.amount_pence, entry.currency_code || selectedDriverDetail?.currency_code || '')}</p>
                             </div>
                           );
                         })}
@@ -326,7 +328,7 @@ export default function AdminDriverSettlements() {
               </Button>
               {selectedDriverDetail && selectedDriverDetail.available_for_payout > 0 && (
                 <Button size="sm" onClick={() => selectedDriverId && payoutMutation.mutate(selectedDriverId)} disabled={payoutMutation.isPending}>
-                  <Wallet className="h-4 w-4 mr-1" /> Payout {formatPence(selectedDriverDetail.available_for_payout)}
+                   <Wallet className="h-4 w-4 mr-1" /> Payout {formatPence(selectedDriverDetail.available_for_payout, selectedDriverDetail.currency_code)}
                 </Button>
               )}
               <Button variant="outline" onClick={() => setSelectedDriverId(null)}>Close</Button>
