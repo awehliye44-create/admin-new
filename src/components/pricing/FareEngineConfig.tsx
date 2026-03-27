@@ -514,7 +514,10 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
             lateCancelThresholdMinutes={settings.late_cancel_threshold_minutes}
             lateCancelFeePence={settings.late_cancel_fee_pence}
             cancellationApplyAfterArrivalOnly={settings.cancellation_apply_after_arrival_only}
+            noShowApplyAfterArrivalOnly={settings.no_show_apply_after_arrival_only}
+            recalculateOnWaiting={settings.recalculate_on_waiting}
             currencySymbol={symbol}
+            onUpdate={(key, value) => updateField(key as keyof FarePricingSettings, value as never)}
           />
 
           <Card>
