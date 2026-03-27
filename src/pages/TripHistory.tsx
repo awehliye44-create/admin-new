@@ -124,6 +124,13 @@ interface CompletedTrip {
     driver_code: string | null;
     region_id: string | null;
   } | null;
+  /** Joined from service_areas → regions for currency resolution */
+  service_area_join?: {
+    region?: {
+      currency_code: string;
+      distance_unit: string;
+    } | null;
+  } | null;
   // Joined trip_stops for display
   trip_stops?: TripStop[];
 }
@@ -202,7 +209,8 @@ export default function TripHistory() {
           total_stops, created_at, started_at, completed_at, surge_multiplier, driver_id,
           driver_location_lat, driver_location_lng, stripe_payment_intent_id, stacked_trip_id,
           pricing_mode, fare_locked, vehicle_type_id, vehicle_type, service_area_id, fare_engine_config_id,
-          driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, driver_code, region_id)
+          driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, driver_code, region_id),
+          service_area_join:service_areas!trips_service_area_id_fkey(region:regions(currency_code, distance_unit))
         `)
         .eq('status', 'completed')
         .gte('created_at', start.toISOString())
@@ -492,6 +500,17 @@ export default function TripHistory() {
     const hrs = Math.floor(minutes / 60);
     const mins = minutes % 60;
     return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+  };
+
+  /**
+   * Resolve currency for a specific trip.
+   * Priority: service_area → region (single source of truth), then trip snapshot, then active region filter.
+   */
+  const resolveTripCurrency = (trip: CompletedTrip): string => {
+    return trip.service_area_join?.region?.currency_code
+      || trip.currency_code
+      || activeRegion?.currency_code
+      || '';
   };
 
   // Get the active currency symbol — Region is the single source of truth for currency
@@ -860,16 +879,12 @@ export default function TripHistory() {
                     </TableCell>
                     <TableCell>
                       <div className="font-medium text-green-600">
-                        {trip.currency_code 
-                          ? getCurrencySymbol(trip.currency_code)
-                          : getActiveCurrencySymbol()}
+                        {getCurrencySymbol(resolveTripCurrency(trip))}
                         {getTripFarePounds(trip).toFixed(2)}
                       </div>
                       {trip.commission_pence != null && (
                         <div className="text-[10px] text-muted-foreground mt-0.5">
-                          Net: {trip.currency_code 
-                            ? getCurrencySymbol(trip.currency_code)
-                            : getActiveCurrencySymbol()}{((trip.driver_net_pence || 0) / 100).toFixed(2)}
+                          Net: {getCurrencySymbol(resolveTripCurrency(trip))}{((trip.driver_net_pence || 0) / 100).toFixed(2)}
                         </div>
                       )}
                     </TableCell>
@@ -1229,19 +1244,19 @@ export default function TripHistory() {
                       {selectedTrip.gross_fare_pence != null && (
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">Gross Fare</span>
-                          <span>{getCurrencySymbol(selectedTrip.currency_code)}{(selectedTrip.gross_fare_pence / 100).toFixed(2)}</span>
+                          <span>{getCurrencySymbol(resolveTripCurrency(selectedTrip))}{(selectedTrip.gross_fare_pence / 100).toFixed(2)}</span>
                         </div>
                       )}
                       {selectedTrip.commission_pence != null && (
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">Commission</span>
-                          <span className="text-orange-600">-{getCurrencySymbol(selectedTrip.currency_code)}{(selectedTrip.commission_pence / 100).toFixed(2)}</span>
+                          <span className="text-orange-600">-{getCurrencySymbol(resolveTripCurrency(selectedTrip))}{(selectedTrip.commission_pence / 100).toFixed(2)}</span>
                         </div>
                       )}
                       {selectedTrip.driver_net_pence != null && (
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">Driver Net</span>
-                          <span>{getCurrencySymbol(selectedTrip.currency_code)}{(selectedTrip.driver_net_pence / 100).toFixed(2)}</span>
+                          <span>{getCurrencySymbol(resolveTripCurrency(selectedTrip))}{(selectedTrip.driver_net_pence / 100).toFixed(2)}</span>
                         </div>
                       )}
                       <div className="flex justify-between text-sm">
@@ -1277,7 +1292,7 @@ export default function TripHistory() {
                       <div className="flex justify-between font-semibold">
                         <span>Final Fare</span>
                         <span className="text-green-600">
-                          {getCurrencySymbol(selectedTrip.currency_code)}{getTripFarePounds(selectedTrip).toFixed(2)}
+                          {getCurrencySymbol(resolveTripCurrency(selectedTrip))}{getTripFarePounds(selectedTrip).toFixed(2)}
                         </span>
                       </div>
                     </div>
