@@ -7383,6 +7383,7 @@ export type Database = {
           completed_trip_commission: number | null
           completed_trip_revenue: number | null
           completed_trips: number | null
+          currency_code: string | null
           driver_id: string | null
           email: string | null
           first_name: string | null
