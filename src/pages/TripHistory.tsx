@@ -879,16 +879,12 @@ export default function TripHistory() {
                     </TableCell>
                     <TableCell>
                       <div className="font-medium text-green-600">
-                        {trip.currency_code 
-                          ? getCurrencySymbol(trip.currency_code)
-                          : getActiveCurrencySymbol()}
+                        {getCurrencySymbol(resolveTripCurrency(trip))}
                         {getTripFarePounds(trip).toFixed(2)}
                       </div>
                       {trip.commission_pence != null && (
                         <div className="text-[10px] text-muted-foreground mt-0.5">
-                          Net: {trip.currency_code 
-                            ? getCurrencySymbol(trip.currency_code)
-                            : getActiveCurrencySymbol()}{((trip.driver_net_pence || 0) / 100).toFixed(2)}
+                          Net: {getCurrencySymbol(resolveTripCurrency(trip))}{((trip.driver_net_pence || 0) / 100).toFixed(2)}
                         </div>
                       )}
                     </TableCell>
