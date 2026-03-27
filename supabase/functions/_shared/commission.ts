@@ -1,6 +1,23 @@
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 /**
+ * ╔══════════════════════════════════════════════════════════════════╗
+ * ║  LOCKED MODULE — Commission Calculation                        ║
+ * ║                                                                ║
+ * ║  This is the SINGLE source of truth for commission logic.      ║
+ * ║  Protected by: src/test/commission.test.ts (12 tests)          ║
+ * ║                                                                ║
+ * ║  Rules:                                                        ║
+ * ║  1. Commission % comes ONLY from driver_categories table       ║
+ * ║  2. Bronze tier is the fallback for unassigned drivers          ║
+ * ║  3. Formula: round(gross * pct / 100)                          ║
+ * ║  4. commission + driver_net = gross (conservation law)          ║
+ * ║  5. driver_wallet_ledger is the financial source of truth       ║
+ * ║     (NOT the trips table commission_pence column)               ║
+ * ║                                                                ║
+ * ║  DO NOT hardcode rates. DO NOT bypass this module.             ║
+ * ╚══════════════════════════════════════════════════════════════════╝
+ *
  * Get the commission percentage for a driver.
  *
  * 1. If the driver has a category_id → use that category's commission_pct.
