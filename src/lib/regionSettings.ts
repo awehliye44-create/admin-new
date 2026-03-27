@@ -153,7 +153,7 @@ export const CURRENCY_LIST: { code: string; name: string; symbol: string }[] = [
  * Get currency symbol for a currency code
  */
 export function getCurrencySymbol(currencyCode: string): string {
-  return CURRENCY_SYMBOLS[currencyCode?.toUpperCase()] || currencyCode || '$';
+  return CURRENCY_SYMBOLS[currencyCode?.toUpperCase()] || currencyCode || '';
 }
 
 /**
