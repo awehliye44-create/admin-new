@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,6 +24,8 @@ import {
   getEntryTypeDisplay,
   type DriverFinancialSummary,
 } from '@/hooks/useDriverWallet';
+import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
+import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 import { 
   Search, Download, DollarSign, TrendingUp, Eye, RefreshCw, User, Car,
   Banknote, Wallet, CheckCircle2, AlertTriangle, CreditCard, Plus, Minus,
@@ -38,12 +40,23 @@ export default function AdminDriverSettlements() {
   const [adjustmentAmount, setAdjustmentAmount] = useState('');
   const [adjustmentReason, setAdjustmentReason] = useState('');
   const [adjustmentType, setAdjustmentType] = useState<'add' | 'deduct'>('add');
+  const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
   
   const queryClient = useQueryClient();
 
-  const { data: drivers = [], isLoading, refetch } = useDriverFinancialSummaries();
+  const { data: allDrivers = [], isLoading, refetch } = useDriverFinancialSummaries();
   const { data: selectedDriverDetail } = useDriverFinancialSummary(selectedDriverId);
   const { data: ledgerEntries = [], isLoading: isLoadingLedger } = useDriverLedger(selectedDriverId);
+
+  // Filter by region when a service area is selected
+  const drivers = useMemo(() => {
+    if (!serviceFilter.regionId) return allDrivers;
+    return allDrivers.filter(d => d.region_id === serviceFilter.regionId);
+  }, [allDrivers, serviceFilter.regionId]);
+
+  // Resolved currency
+  const resolvedCurrency = serviceFilter.currencyCode || getSingleCurrency(drivers) || '';
+  const isMixedCurrency = !serviceFilter.currencyCode && !getSingleCurrency(drivers) && drivers.length > 0;
 
   // Adjustment mutation
   const adjustmentMutation = useMutation({
@@ -104,13 +117,11 @@ export default function AdminDriverSettlements() {
     return matchesSearch;
   });
 
-  // Stats from unified source
+  // Stats
   const totalGross = drivers.reduce((s, d) => s + d.gross_trip_total, 0);
   const totalCommission = drivers.reduce((s, d) => s + d.company_commission_total, 0);
   const driversWithEarnings = drivers.filter(d => d.available_for_payout > 0).length;
   const onlineDrivers = drivers.filter(d => d.is_online).length;
-  // Resolve dominant currency from drivers (all drivers in a region share currency)
-  const dominantCurrency = drivers.find(d => d.currency_code)?.currency_code || '';
 
   if (isLoading && drivers.length === 0) {
     return (
@@ -128,6 +139,16 @@ export default function AdminDriverSettlements() {
       description="Unified financial view — all numbers derived from driver_financial_summary"
     >
       <div className="space-y-6">
+        {/* Service Area Filter */}
+        <div className="flex items-center gap-3">
+          <ServiceAreaFinanceFilter value={serviceFilter} onChange={setServiceFilter} />
+          {isMixedCurrency && (
+            <Badge variant="outline" className="text-amber-600 border-amber-300">
+              <AlertTriangle className="h-3 w-3 mr-1" /> Mixed currencies — select a service for totals
+            </Badge>
+          )}
+        </div>
+
         {/* Stats */}
         <div className="grid gap-4 md:grid-cols-4">
           <Card>
@@ -136,10 +157,12 @@ export default function AdminDriverSettlements() {
               <DollarSign className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-500">{formatPence(totalGross, dominantCurrency)}</div>
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <TrendingUp className="h-3 w-3 text-green-500" /> All completed trips
-              </p>
+              {isMixedCurrency ? (
+                <CurrencyGroupedStats items={drivers.map(d => ({ currency_code: d.currency_code, amount: d.gross_trip_total }))} className="text-lg font-bold text-green-500" />
+              ) : (
+                <div className="text-2xl font-bold text-green-500">{formatPence(totalGross, resolvedCurrency)}</div>
+              )}
+              <p className="text-xs text-muted-foreground flex items-center gap-1"><TrendingUp className="h-3 w-3 text-green-500" /> All completed trips</p>
             </CardContent>
           </Card>
           <Card>
@@ -148,7 +171,11 @@ export default function AdminDriverSettlements() {
               <Banknote className="h-4 w-4 text-blue-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-500">{formatPence(totalCommission, dominantCurrency)}</div>
+              {isMixedCurrency ? (
+                <CurrencyGroupedStats items={drivers.map(d => ({ currency_code: d.currency_code, amount: d.company_commission_total }))} className="text-lg font-bold text-blue-500" />
+              ) : (
+                <div className="text-2xl font-bold text-blue-500">{formatPence(totalCommission, resolvedCurrency)}</div>
+              )}
               <p className="text-xs text-muted-foreground">Total earned by ONECAB</p>
             </CardContent>
           </Card>
@@ -261,7 +288,6 @@ export default function AdminDriverSettlements() {
             </DialogHeader>
             {selectedDriverDetail ? (
               <div className="space-y-4">
-                {/* Summary Cards */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Gross Fares</p><p className="text-lg font-bold">{formatPence(selectedDriverDetail.gross_trip_total, selectedDriverDetail.currency_code)}</p></CardContent></Card>
                   <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Commission</p><p className="text-lg font-bold text-blue-600">{formatPence(selectedDriverDetail.company_commission_total, selectedDriverDetail.currency_code)}</p></CardContent></Card>
@@ -269,7 +295,6 @@ export default function AdminDriverSettlements() {
                   <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Available Payout</p><p className="text-lg font-bold text-green-600">{formatPence(selectedDriverDetail.available_for_payout, selectedDriverDetail.currency_code)}</p></CardContent></Card>
                 </div>
 
-                {/* Wallet Breakdown */}
                 <Card>
                   <CardContent className="pt-4 space-y-2 text-sm">
                     <div className="flex justify-between"><span className="text-muted-foreground flex items-center gap-1"><CreditCard className="h-3 w-3" /> Card Net Credits</span><span className="text-green-600">+{formatPence(selectedDriverDetail.card_net_credits, selectedDriverDetail.currency_code)}</span></div>
@@ -286,7 +311,6 @@ export default function AdminDriverSettlements() {
                   </CardContent>
                 </Card>
 
-                {/* Ledger */}
                 <div>
                   <h4 className="font-medium mb-2">Transaction History</h4>
                   <ScrollArea className="h-[200px]">

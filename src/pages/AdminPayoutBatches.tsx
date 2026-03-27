@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { getCurrencySymbol } from '@/lib/regionSettings';
+import { useState, useMemo } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,11 +8,13 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
-import { formatPence } from '@/hooks/useDriverWallet';
+import { useDriverFinancialSummaries, formatPence } from '@/hooks/useDriverWallet';
+import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
+import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 import { format } from 'date-fns';
 import { 
   RefreshCw, CheckCircle2, Clock, XCircle, Eye, Calendar, Users,
-  DollarSign, Wallet, TrendingUp
+  DollarSign, Wallet, TrendingUp, AlertTriangle
 } from 'lucide-react';
 
 interface PayoutItem {
@@ -64,6 +65,7 @@ interface PayoutResponse {
 
 export default function AdminPayoutBatches() {
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
+  const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
 
   const { data: responseData, isLoading, refetch } = useQuery<PayoutResponse>({
     queryKey: ['admin-payout-batches'],
@@ -74,9 +76,32 @@ export default function AdminPayoutBatches() {
     },
   });
 
+  // Also fetch driver summaries for region-based filtering of stats
+  const { data: allDrivers = [] } = useDriverFinancialSummaries();
+
+  // Filter drivers by region for local stat calculation
+  const regionDrivers = useMemo(() => {
+    if (!serviceFilter.regionId) return allDrivers;
+    return allDrivers.filter(d => d.region_id === serviceFilter.regionId);
+  }, [allDrivers, serviceFilter.regionId]);
+
+  const resolvedCurrency = serviceFilter.currencyCode || getSingleCurrency(regionDrivers) || responseData?.summary?.currencyCode || '';
+  const isMixedCurrency = !serviceFilter.currencyCode && !getSingleCurrency(regionDrivers) && regionDrivers.length > 0;
+
+  // When a service is selected, recalculate stats from filtered drivers
+  const isFiltered = !!serviceFilter.regionId;
+  const totalPaidOut = isFiltered 
+    ? regionDrivers.reduce((s, d) => s + d.total_payouts_sent, 0) 
+    : (responseData?.summary?.totalPaidOut || 0);
+  const availableForPayout = isFiltered
+    ? regionDrivers.reduce((s, d) => s + d.available_for_payout, 0)
+    : (responseData?.summary?.availableForPayout || 0);
+  const driversReadyForPayout = isFiltered
+    ? regionDrivers.filter(d => d.available_for_payout > 0).length
+    : (responseData?.summary?.driversReadyForPayout || 0);
+
   const batches = responseData?.batches || [];
   const summary = responseData?.summary;
-  const currencyCode = summary?.currencyCode || '';
   const selectedBatch = batches.find(b => b.id === selectedBatchId);
   const batchItems = selectedBatch?.items || [];
 
@@ -116,7 +141,17 @@ export default function AdminPayoutBatches() {
       description="Unified payout reporting — totalPaidOut derived from driver_financial_summary"
     >
       <div className="space-y-6">
-        {/* Stats — unified source */}
+        {/* Service Area Filter */}
+        <div className="flex items-center gap-3">
+          <ServiceAreaFinanceFilter value={serviceFilter} onChange={setServiceFilter} />
+          {isMixedCurrency && (
+            <Badge variant="outline" className="text-amber-600 border-amber-300">
+              <AlertTriangle className="h-3 w-3 mr-1" /> Mixed currencies — select a service for totals
+            </Badge>
+          )}
+        </div>
+
+        {/* Stats */}
         <div className="grid gap-4 md:grid-cols-5">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -134,7 +169,11 @@ export default function AdminPayoutBatches() {
               <DollarSign className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-500">{formatPence(summary?.totalPaidOut || 0, currencyCode)}</div>
+              {isMixedCurrency ? (
+                <CurrencyGroupedStats items={regionDrivers.map(d => ({ currency_code: d.currency_code, amount: d.total_payouts_sent }))} className="text-lg font-bold text-green-500" />
+              ) : (
+                <div className="text-2xl font-bold text-green-500">{formatPence(totalPaidOut, resolvedCurrency)}</div>
+              )}
               <p className="text-xs text-muted-foreground">From unified ledger</p>
             </CardContent>
           </Card>
@@ -144,8 +183,12 @@ export default function AdminPayoutBatches() {
               <Wallet className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-500">{formatPence(summary?.availableForPayout || 0, currencyCode)}</div>
-              <p className="text-xs text-muted-foreground">{summary?.driversReadyForPayout || 0} drivers ready</p>
+              {isMixedCurrency ? (
+                <CurrencyGroupedStats items={regionDrivers.map(d => ({ currency_code: d.currency_code, amount: d.available_for_payout }))} className="text-lg font-bold text-blue-500" />
+              ) : (
+                <div className="text-2xl font-bold text-blue-500">{formatPence(availableForPayout, resolvedCurrency)}</div>
+              )}
+              <p className="text-xs text-muted-foreground">{driversReadyForPayout} drivers ready</p>
             </CardContent>
           </Card>
           <Card>
@@ -204,7 +247,7 @@ export default function AdminPayoutBatches() {
                       <TableCell>{getKindDisplay(batch.kind)}</TableCell>
                       <TableCell>{getStatusBadge(batch.status)}</TableCell>
                       <TableCell className="text-right">{batch.totalDrivers || 0}</TableCell>
-                      <TableCell className="text-right font-medium text-green-600">{formatPence(batch.totalAmount || 0, currencyCode)}</TableCell>
+                      <TableCell className="text-right font-medium text-green-600">{formatPence(batch.totalAmount || 0, resolvedCurrency)}</TableCell>
                       <TableCell className="text-right text-green-600">{batch.successfulPayouts || 0}</TableCell>
                       <TableCell className="text-right text-red-600">{batch.failedPayouts || 0}</TableCell>
                       <TableCell className="text-right">
@@ -231,7 +274,7 @@ export default function AdminPayoutBatches() {
               <div className="space-y-4">
                 <div className="grid grid-cols-4 gap-4">
                   <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Status</p>{getStatusBadge(selectedBatch.status)}</CardContent></Card>
-                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Total</p><p className="text-lg font-bold text-green-600">{formatPence(selectedBatch.totalAmount || 0, currencyCode)}</p></CardContent></Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Total</p><p className="text-lg font-bold text-green-600">{formatPence(selectedBatch.totalAmount || 0, resolvedCurrency)}</p></CardContent></Card>
                   <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Success</p><p className="text-lg font-bold text-green-600">{selectedBatch.successfulPayouts || 0}</p></CardContent></Card>
                   <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Failed</p><p className="text-lg font-bold text-red-600">{selectedBatch.failedPayouts || 0}</p></CardContent></Card>
                 </div>
@@ -260,7 +303,7 @@ export default function AdminPayoutBatches() {
                           {batchItems.map((item) => (
                             <TableRow key={item.id}>
                               <TableCell className="font-medium">{item.driverName || item.driverId?.substring(0, 8)}</TableCell>
-                              <TableCell className="text-right text-green-600">{formatPence(item.amount || 0, currencyCode)}</TableCell>
+                              <TableCell className="text-right text-green-600">{formatPence(item.amount || 0, resolvedCurrency)}</TableCell>
                               <TableCell>{getStatusBadge(item.status)}</TableCell>
                               <TableCell className="text-xs font-mono">{item.stripeTransferId ? item.stripeTransferId.substring(0, 16) + '...' : '-'}</TableCell>
                               <TableCell className="text-xs text-red-600 max-w-[150px] truncate">{item.errorMessage || '-'}</TableCell>
