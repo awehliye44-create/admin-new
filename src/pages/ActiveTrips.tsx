@@ -54,7 +54,7 @@ import {
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
-import { getCurrencySymbol } from '@/lib/regionSettings';
+import { getCurrencySymbol, getDistanceUnitShort, convertDistance } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
 
 interface Trip {
@@ -82,6 +82,12 @@ interface Trip {
     first_name: string;
     last_name: string;
     phone: string;
+  } | null;
+  service_area?: {
+    region?: {
+      currency_code: string;
+      distance_unit: string;
+    } | null;
   } | null;
 }
 
@@ -138,7 +144,8 @@ export default function ActiveTrips() {
           .from('trips')
           .select(`
             *,
-            driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone)
+            driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone),
+            service_area:service_areas!trips_service_area_id_fkey(region:regions(currency_code, distance_unit))
           `)
           .in('status', ['pending', 'searching', 'offered', 'driver_assigned', 'accepted', 'arrived', 'in_progress', 'started', 'on_trip', 'ongoing'])
           .order('created_at', { ascending: false }),
