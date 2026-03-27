@@ -7398,6 +7398,7 @@ export type Database = {
           payouts_enabled: boolean | null
           phone: string | null
           rating: number | null
+          region_id: string | null
           stripe_account_id: string | null
           today_card_earnings: number | null
           today_cash_earnings: number | null
@@ -7407,7 +7408,15 @@ export type Database = {
           total_payouts_sent: number | null
           wallet_balance: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "drivers_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_directory: {
         Row: {
