@@ -21,6 +21,7 @@ import {
 import { toast } from 'sonner';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { FareSimulatorCard } from '@/components/pricing/FareSimulatorCard';
+import { TripLifecycleTimeline } from '@/components/pricing/TripLifecycleTimeline';
 
 interface FarePricingSettings {
   id?: string;
@@ -501,7 +502,21 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
             </CardContent>
           </Card>
 
-          {/* Waiting Charges */}
+          {/* Trip Lifecycle Timeline */}
+          <TripLifecycleTimeline
+            graceMinutes={settings.cancellation_grace_period_minutes}
+            freeWaitingMinutes={settings.free_waiting_minutes}
+            waitingPerMinutePence={settings.waiting_per_minute_pence}
+            cancellationFeePence={settings.cancellation_fee_pence}
+            noShowWaitMinutes={settings.no_show_wait_time_minutes}
+            noShowFeePence={settings.no_show_fee_pence}
+            lateCancelEnabled={settings.late_cancel_enabled}
+            lateCancelThresholdMinutes={settings.late_cancel_threshold_minutes}
+            lateCancelFeePence={settings.late_cancel_fee_pence}
+            cancellationApplyAfterArrivalOnly={settings.cancellation_apply_after_arrival_only}
+            currencySymbol={symbol}
+          />
+
           <Card>
             <CardHeader className="pb-4">
               <CardTitle className="flex items-center gap-2">
