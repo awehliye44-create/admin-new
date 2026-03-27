@@ -304,8 +304,9 @@ export default function ActiveTrips() {
     setIsViewOpen(true);
   };
 
-  // getCurrencySymbol is now imported from @/lib/regionSettings
-
+  /** Resolve currency: trip snapshot → region (single source of truth) */
+  const resolveTripCurrency = (trip: Trip): string =>
+    trip.currency_code || trip.service_area?.region?.currency_code || '';
   const filteredTrips = trips.filter(trip => {
     const matchesSearch = 
       getTripDisplayId(trip).toLowerCase().includes(searchQuery.toLowerCase()) ||
