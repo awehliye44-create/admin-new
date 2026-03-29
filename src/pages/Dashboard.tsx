@@ -404,9 +404,11 @@ export default function Dashboard() {
       const inProgressTrips = trips.filter(t => t.status === 'in_progress').length;
       
       // FINANCIALLY COUNTABLE outcomes only: COMPLETED, NO_SHOW, LATE_PASSENGER_CANCELLATION
+      // Also include completed trips with null financial_outcome (legacy data)
       const COUNTABLE_OUTCOMES = ['COMPLETED', 'NO_SHOW', 'LATE_PASSENGER_CANCELLATION'];
       const financiallyCountableTrips = trips.filter(t => 
-        COUNTABLE_OUTCOMES.includes(t.financial_outcome || '')
+        COUNTABLE_OUTCOMES.includes(t.financial_outcome || '') ||
+        (t.status === 'completed' && !t.financial_outcome)
       );
       
       // Total Revenue = sum of gross_fare_pence from financially countable trips only
