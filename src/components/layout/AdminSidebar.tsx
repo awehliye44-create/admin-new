@@ -328,6 +328,9 @@ export function AdminSidebar() {
               <P pageSlug="admin-settlements" to="/admin-settlements" icon={<DollarSign className="h-4 w-4" />} label="Driver Settlements" active={currentPath === '/admin-settlements'} collapsed={isCollapsed} />
               <P pageSlug="payout-batches" to="/payout-batches" icon={<History className="h-4 w-4" />} label="Payout Batches & Audit" active={currentPath === '/payout-batches'} collapsed={isCollapsed} />
               <P pageSlug="disputes" to="/disputes" icon={<Scale className="h-4 w-4" />} label="Disputes & Adjustments" active={currentPath === '/disputes'} collapsed={isCollapsed} />
+              <P pageSlug="invoices" to="/invoices" icon={<FileText className="h-4 w-4" />} label="Invoices" active={currentPath === '/invoices'} collapsed={isCollapsed} />
+              <P pageSlug="invoice-templates" to="/invoice-templates" icon={<FileEdit className="h-4 w-4" />} label="Invoice Templates" active={currentPath === '/invoice-templates'} collapsed={isCollapsed} />
+              <P pageSlug="statement-runs" to="/statement-runs" icon={<BarChart3 className="h-4 w-4" />} label="Statement Runs" active={currentPath === '/statement-runs'} collapsed={isCollapsed} />
             </div>
           </div>
 

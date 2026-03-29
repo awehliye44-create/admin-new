@@ -3132,6 +3132,298 @@ export type Database = {
         }
         Relationships: []
       }
+      invoice_delivery_logs: {
+        Row: {
+          delivery_status: string
+          error_message: string | null
+          id: string
+          invoice_id: string
+          sent_at: string
+          sent_by: string | null
+          sent_to_email: string
+        }
+        Insert: {
+          delivery_status?: string
+          error_message?: string | null
+          id?: string
+          invoice_id: string
+          sent_at?: string
+          sent_by?: string | null
+          sent_to_email: string
+        }
+        Update: {
+          delivery_status?: string
+          error_message?: string | null
+          id?: string
+          invoice_id?: string
+          sent_at?: string
+          sent_by?: string | null
+          sent_to_email?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_delivery_logs_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoice_items: {
+        Row: {
+          amount_pence: number
+          description: string
+          id: string
+          invoice_id: string
+          item_type: string
+          metadata: Json | null
+          quantity: number | null
+          sort_order: number
+          unit_price_pence: number
+        }
+        Insert: {
+          amount_pence?: number
+          description: string
+          id?: string
+          invoice_id: string
+          item_type: string
+          metadata?: Json | null
+          quantity?: number | null
+          sort_order?: number
+          unit_price_pence?: number
+        }
+        Update: {
+          amount_pence?: number
+          description?: string
+          id?: string
+          invoice_id?: string
+          item_type?: string
+          metadata?: Json | null
+          quantity?: number | null
+          sort_order?: number
+          unit_price_pence?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_items_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoice_templates: {
+        Row: {
+          company_address: string | null
+          company_email: string | null
+          company_name: string
+          company_phone: string | null
+          company_registration: string | null
+          created_at: string
+          created_by: string | null
+          due_date_label: string | null
+          id: string
+          invoice_title: string
+          is_default: boolean
+          logo_url: string | null
+          name: string
+          notes_footer: string | null
+          payment_terms: string | null
+          table_columns: Json
+          updated_at: string
+        }
+        Insert: {
+          company_address?: string | null
+          company_email?: string | null
+          company_name?: string
+          company_phone?: string | null
+          company_registration?: string | null
+          created_at?: string
+          created_by?: string | null
+          due_date_label?: string | null
+          id?: string
+          invoice_title?: string
+          is_default?: boolean
+          logo_url?: string | null
+          name?: string
+          notes_footer?: string | null
+          payment_terms?: string | null
+          table_columns?: Json
+          updated_at?: string
+        }
+        Update: {
+          company_address?: string | null
+          company_email?: string | null
+          company_name?: string
+          company_phone?: string | null
+          company_registration?: string | null
+          created_at?: string
+          created_by?: string | null
+          due_date_label?: string | null
+          id?: string
+          invoice_title?: string
+          is_default?: boolean
+          logo_url?: string | null
+          name?: string
+          notes_footer?: string | null
+          payment_terms?: string | null
+          table_columns?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      invoices: {
+        Row: {
+          adjustments_pence: number
+          bonuses_pence: number
+          cash_collected_pence: number
+          commission_pence: number
+          completed_trips: number
+          created_at: string
+          currency_code: string
+          driver_id: string
+          finalized_at: string | null
+          gross_earnings_pence: number
+          id: string
+          invoice_number: string
+          late_cancel_trips: number
+          net_earnings_pence: number
+          no_show_trips: number
+          pdf_storage_path: string | null
+          penalties_pence: number
+          period_end: string
+          period_start: string
+          region_id: string | null
+          sent_at: string | null
+          sent_by: string | null
+          service_area_id: string | null
+          statement_run_id: string | null
+          status: string
+          template_id: string | null
+          template_version: number | null
+          viewed_at: string | null
+        }
+        Insert: {
+          adjustments_pence?: number
+          bonuses_pence?: number
+          cash_collected_pence?: number
+          commission_pence?: number
+          completed_trips?: number
+          created_at?: string
+          currency_code: string
+          driver_id: string
+          finalized_at?: string | null
+          gross_earnings_pence?: number
+          id?: string
+          invoice_number: string
+          late_cancel_trips?: number
+          net_earnings_pence?: number
+          no_show_trips?: number
+          pdf_storage_path?: string | null
+          penalties_pence?: number
+          period_end: string
+          period_start: string
+          region_id?: string | null
+          sent_at?: string | null
+          sent_by?: string | null
+          service_area_id?: string | null
+          statement_run_id?: string | null
+          status?: string
+          template_id?: string | null
+          template_version?: number | null
+          viewed_at?: string | null
+        }
+        Update: {
+          adjustments_pence?: number
+          bonuses_pence?: number
+          cash_collected_pence?: number
+          commission_pence?: number
+          completed_trips?: number
+          created_at?: string
+          currency_code?: string
+          driver_id?: string
+          finalized_at?: string | null
+          gross_earnings_pence?: number
+          id?: string
+          invoice_number?: string
+          late_cancel_trips?: number
+          net_earnings_pence?: number
+          no_show_trips?: number
+          pdf_storage_path?: string | null
+          penalties_pence?: number
+          period_end?: string
+          period_start?: string
+          region_id?: string | null
+          sent_at?: string | null
+          sent_by?: string | null
+          service_area_id?: string | null
+          statement_run_id?: string | null
+          status?: string
+          template_id?: string | null
+          template_version?: number | null
+          viewed_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoices_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "invoices_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "invoices_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "invoices_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_statement_run_id_fkey"
+            columns: ["statement_run_id"]
+            isOneToOne: false
+            referencedRelation: "statement_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       lost_property_cases: {
         Row: {
           case_number: string
@@ -5248,6 +5540,69 @@ export type Database = {
             columns: ["staff_id"]
             isOneToOne: false
             referencedRelation: "staff_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      statement_runs: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          currency_code: string
+          id: string
+          notes: string | null
+          period_end: string
+          period_start: string
+          region_id: string | null
+          service_area_id: string | null
+          status: string
+          total_amount_pence: number
+          total_invoices: number
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency_code: string
+          id?: string
+          notes?: string | null
+          period_end: string
+          period_start: string
+          region_id?: string | null
+          service_area_id?: string | null
+          status?: string
+          total_amount_pence?: number
+          total_invoices?: number
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency_code?: string
+          id?: string
+          notes?: string | null
+          period_end?: string
+          period_start?: string
+          region_id?: string | null
+          service_area_id?: string | null
+          status?: string
+          total_amount_pence?: number
+          total_invoices?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "statement_runs_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "statement_runs_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
             referencedColumns: ["id"]
           },
         ]
@@ -7534,6 +7889,7 @@ export type Database = {
         Args: { p_lat: number; p_lng: number }
         Returns: string
       }
+      generate_invoice_number: { Args: never; Returns: string }
       generate_lost_property_case_number: {
         Args: { p_service_area_id: string }
         Returns: string
