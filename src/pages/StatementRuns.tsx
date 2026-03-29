@@ -261,6 +261,14 @@ export default function StatementRuns() {
         </Button>
       </div>
 
+      <Tabs defaultValue="runs" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="runs"><FileText className="h-4 w-4 mr-1.5" /> Statement Runs</TabsTrigger>
+          <TabsTrigger value="schedule"><Settings2 className="h-4 w-4 mr-1.5" /> Automation</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="runs" className="space-y-4">
+
       {/* Runs Table */}
       <Card>
         <CardContent className="p-0">
