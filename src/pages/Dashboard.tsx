@@ -345,8 +345,8 @@ export default function Dashboard() {
         previousStartDate = startOfDay(subDays(now, 1));
         previousEndDate = startDate;
       } else if (period === 'weekly') {
-        startDate = startOfWeek(now);
-        previousStartDate = startOfWeek(subWeeks(now, 1));
+        startDate = startOfWeek(now, { weekStartsOn: 1 });
+        previousStartDate = startOfWeek(subWeeks(now, 1), { weekStartsOn: 1 });
         previousEndDate = startDate;
       } else {
         startDate = startOfMonth(now);
