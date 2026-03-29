@@ -46,11 +46,10 @@ interface VehicleType {
   is_active: boolean;
 }
 
-interface ServiceAreaVehicleType {
+interface VehiclePricingAssignment {
   id?: string;
   vehicle_type_id: string;
-  is_active: boolean;
-  display_order: number;
+  is_enabled: boolean;
 }
 
 interface ServiceArea {
