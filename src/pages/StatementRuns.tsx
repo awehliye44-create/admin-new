@@ -67,7 +67,7 @@ export default function StatementRuns() {
           period_start: periodStart,
           period_end: periodEnd,
           region_id: selectedRegion,
-          service_area_id: selectedServiceArea || null,
+          service_area_id: selectedServiceArea && selectedServiceArea !== "all" ? selectedServiceArea : null,
           currency_code: region.currency_code,
           status: "generating",
         })
@@ -146,7 +146,7 @@ export default function StatementRuns() {
             period_start: periodStart,
             period_end: periodEnd,
             region_id: selectedRegion,
-            service_area_id: selectedServiceArea || null,
+            service_area_id: selectedServiceArea && selectedServiceArea !== "all" ? selectedServiceArea : null,
             currency_code: region.currency_code,
             gross_earnings_pence: grossEarnings,
             commission_pence: commission,
