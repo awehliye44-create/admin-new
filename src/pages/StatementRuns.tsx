@@ -12,10 +12,9 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Progress } from "@/components/ui/progress";
 import { toast } from "@/hooks/use-toast";
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
-import { Play, Clock, CheckCircle, Send, FileText, AlertTriangle, Loader2 } from "lucide-react";
+import { Play, Clock, CheckCircle, Send, FileText, AlertTriangle, Loader2, Globe } from "lucide-react";
 
 const RUN_STATUS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; icon: any }> = {
   draft: { label: "Draft", variant: "secondary", icon: Clock },
@@ -32,7 +31,6 @@ export default function StatementRuns() {
   const { data: serviceAreas = [] } = useServiceAreas();
   const [createOpen, setCreateOpen] = useState(false);
 
-  // Default to previous month
   const prevMonth = subMonths(new Date(), 1);
   const [periodStart, setPeriodStart] = useState(format(startOfMonth(prevMonth), "yyyy-MM-dd"));
   const [periodEnd, setPeriodEnd] = useState(format(endOfMonth(prevMonth), "yyyy-MM-dd"));
@@ -44,7 +42,7 @@ export default function StatementRuns() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("statement_runs")
-        .select("*, regions(name, currency_code)")
+        .select("*, regions(name, currency_code), service_areas(name)")
         .order("created_at", { ascending: false })
         .limit(50);
       if (error) throw error;
@@ -52,13 +50,14 @@ export default function StatementRuns() {
     },
   });
 
-  // Create a new statement run and generate invoices for all eligible drivers
   const createRunMutation = useMutation({
     mutationFn: async () => {
       if (!selectedRegion) throw new Error("Select a region");
 
       const region = regions.find(r => r.id === selectedRegion);
       if (!region?.currency_code) throw new Error("Region has no currency configured");
+
+      const saId = selectedServiceArea && selectedServiceArea !== "all" ? selectedServiceArea : null;
 
       // Create the run record
       const { data: run, error: runError } = await supabase
@@ -67,7 +66,7 @@ export default function StatementRuns() {
           period_start: periodStart,
           period_end: periodEnd,
           region_id: selectedRegion,
-          service_area_id: selectedServiceArea && selectedServiceArea !== "all" ? selectedServiceArea : null,
+          service_area_id: saId,
           currency_code: region.currency_code,
           status: "generating",
         })
@@ -76,7 +75,8 @@ export default function StatementRuns() {
 
       if (runError) throw runError;
 
-      // Find all drivers in this region with ledger activity in period
+      // Find drivers with ledger activity in this region's currency for this period.
+      // If a service area is selected, also filter by drivers assigned to that SA.
       let driverQuery = supabase
         .from("driver_ledger")
         .select("driver_id")
@@ -85,14 +85,28 @@ export default function StatementRuns() {
         .lte("created_at", periodEnd + "T23:59:59Z");
 
       const { data: ledgerDrivers } = await driverQuery;
-      const uniqueDriverIds = [...new Set((ledgerDrivers || []).map((d: any) => d.driver_id))];
+      let uniqueDriverIds = [...new Set((ledgerDrivers || []).map((d: any) => d.driver_id))];
+
+      // If specific service area selected, filter to drivers assigned to it
+      if (saId) {
+        const { data: saDrivers } = await supabase
+          .from("driver_service_areas")
+          .select("driver_id")
+          .eq("service_area_id", saId);
+        const saDriverSet = new Set((saDrivers || []).map((d: any) => d.driver_id));
+        uniqueDriverIds = uniqueDriverIds.filter(id => saDriverSet.has(id));
+      }
 
       if (uniqueDriverIds.length === 0) {
-        await supabase.from("statement_runs").update({ status: "completed", total_invoices: 0, completed_at: new Date().toISOString() }).eq("id", run.id);
+        await supabase.from("statement_runs").update({
+          status: "completed",
+          total_invoices: 0,
+          total_amount_pence: 0,
+          completed_at: new Date().toISOString(),
+        }).eq("id", run.id);
         return { run, count: 0 };
       }
 
-      // Get default template
       const { data: template } = await supabase
         .from("invoice_templates")
         .select("id")
@@ -102,9 +116,8 @@ export default function StatementRuns() {
       let totalAmount = 0;
       let invoiceCount = 0;
 
-      // Generate an invoice for each driver
       for (const driverId of uniqueDriverIds) {
-        // Fetch this driver's ledger entries for the period
+        // Fetch ledger entries filtered by region currency — prevents mixed currencies
         const { data: entries } = await supabase
           .from("driver_ledger")
           .select("entry_type, amount_pence, trip_id")
@@ -131,6 +144,10 @@ export default function StatementRuns() {
           }
         }
 
+        if (grossEarnings === 0 && commission === 0 && bonuses === 0 && penalties === 0 && adjustments === 0 && cashCollected === 0) {
+          continue; // Skip drivers with no meaningful activity
+        }
+
         const netEarnings = grossEarnings - commission + bonuses - penalties + adjustments - cashCollected;
 
         const { data: invNum } = await supabase.rpc("generate_invoice_number");
@@ -146,7 +163,7 @@ export default function StatementRuns() {
             period_start: periodStart,
             period_end: periodEnd,
             region_id: selectedRegion,
-            service_area_id: selectedServiceArea && selectedServiceArea !== "all" ? selectedServiceArea : null,
+            service_area_id: saId,
             currency_code: region.currency_code,
             gross_earnings_pence: grossEarnings,
             commission_pence: commission,
@@ -164,7 +181,6 @@ export default function StatementRuns() {
           .single();
 
         if (inv) {
-          // Create line items
           const items: any[] = [
             { invoice_id: inv.id, item_type: "trip_earnings", description: `Completed trip earnings (${completedTrips.size} trips)`, amount_pence: grossEarnings, sort_order: 1 },
             { invoice_id: inv.id, item_type: "commission", description: "Platform commission", amount_pence: -commission, sort_order: 2 },
@@ -180,7 +196,6 @@ export default function StatementRuns() {
         }
       }
 
-      // Update the run
       await supabase
         .from("statement_runs")
         .update({
@@ -207,16 +222,13 @@ export default function StatementRuns() {
     },
   });
 
-  // Send all invoices in a run
   const sendRunMutation = useMutation({
     mutationFn: async (runId: string) => {
-      // Mark all draft invoices in this run as sent
       const { error } = await supabase
         .from("invoices")
         .update({ status: "sent", sent_at: new Date().toISOString(), finalized_at: new Date().toISOString() })
         .eq("statement_run_id", runId)
         .eq("status", "draft");
-
       if (error) throw error;
 
       await supabase
@@ -240,7 +252,7 @@ export default function StatementRuns() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Statement Runs</h1>
-          <p className="text-muted-foreground">Monthly batch earnings statement generation</p>
+          <p className="text-muted-foreground">Monthly batch earnings statement generation — per region</p>
         </div>
         <Button onClick={() => setCreateOpen(true)}>
           <Play className="h-4 w-4 mr-2" /> New Statement Run
@@ -255,6 +267,7 @@ export default function StatementRuns() {
               <TableRow>
                 <TableHead>Period</TableHead>
                 <TableHead>Region</TableHead>
+                <TableHead>Service Area</TableHead>
                 <TableHead>Invoices</TableHead>
                 <TableHead className="text-right">Total Amount</TableHead>
                 <TableHead>Status</TableHead>
@@ -264,9 +277,9 @@ export default function StatementRuns() {
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
               ) : runs.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                   <FileText className="h-8 w-8 mx-auto mb-2 opacity-40" />
                   No statement runs yet. Start your first monthly run.
                 </TableCell></TableRow>
@@ -279,10 +292,18 @@ export default function StatementRuns() {
                       <TableCell className="font-medium">
                         {format(new Date(run.period_start), "dd MMM")} – {format(new Date(run.period_end), "dd MMM yyyy")}
                       </TableCell>
-                      <TableCell>{run.regions?.name || "—"}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5">
+                          <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                          {run.regions?.name || "—"}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {run.service_areas?.name || "All"}
+                      </TableCell>
                       <TableCell>{run.total_invoices}</TableCell>
                       <TableCell className="text-right font-mono">
-                        {formatCurrency(run.total_amount_pence / 100, run.currency_code)}
+                        {formatCurrency((run.total_amount_pence || 0) / 100, run.currency_code)}
                       </TableCell>
                       <TableCell>
                         <Badge variant={status.variant} className="gap-1">
@@ -326,7 +347,7 @@ export default function StatementRuns() {
               </div>
             </div>
             <div>
-              <Label>Region</Label>
+              <Label>Region (determines currency for all invoices)</Label>
               <Select value={selectedRegion} onValueChange={(v) => { setSelectedRegion(v); setSelectedServiceArea(""); }}>
                 <SelectTrigger><SelectValue placeholder="Select region" /></SelectTrigger>
                 <SelectContent>
@@ -335,6 +356,11 @@ export default function StatementRuns() {
                   ))}
                 </SelectContent>
               </Select>
+              {selectedRegion && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  All invoices will use <strong>{regions.find(r => r.id === selectedRegion)?.currency_code}</strong>
+                </p>
+              )}
             </div>
             {filteredServiceAreas.length > 0 && (
               <div>
@@ -353,12 +379,13 @@ export default function StatementRuns() {
 
             <Card className="bg-muted/50">
               <CardContent className="py-3 text-sm">
-                <p className="font-medium mb-1">What this will do:</p>
+                <p className="font-medium mb-1">Region-based generation rules:</p>
                 <ul className="list-disc list-inside text-muted-foreground space-y-1">
-                  <li>Fetch all drivers with financial activity in the period</li>
-                  <li>Calculate earnings from the driver_ledger (source of truth)</li>
-                  <li>Generate individual earnings statements as drafts</li>
-                  <li>You can review and send them after generation</li>
+                  <li>Fetch all drivers with financial activity in the selected region's currency</li>
+                  <li>Only ledger entries matching the region currency are included</li>
+                  <li>No mixed currencies — one invoice = one region = one currency</li>
+                  <li>For multi-region drivers, run separate statement runs per region</li>
+                  <li>Invoices are generated as drafts — review and send after</li>
                 </ul>
               </CardContent>
             </Card>
