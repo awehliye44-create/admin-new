@@ -249,7 +249,7 @@ export default function ServiceAreaPricing() {
     );
   }
 
-  const assignedCount = Object.values(assignedVehicleTypes).filter(a => a.is_active).length;
+  const assignedCount = Object.values(pricingAssignments).filter(a => a.is_enabled).length;
 
   return (
     <AdminLayout 
@@ -351,18 +351,9 @@ export default function ServiceAreaPricing() {
                 <div>
                   <h3 className="text-lg font-semibold">Vehicle Types for this Service Area</h3>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Select which vehicle types are available for riders to book in this service area. 
-                    Pricing is controlled by the Fare Engine, not by vehicle type.
+                    Toggle vehicle types on/off. Changes are saved immediately to <code>service_area_vehicle_pricing</code> — the single source of truth for fare calculations.
                   </p>
                 </div>
-                <Button 
-                  onClick={saveVehicleTypeAssignments} 
-                  disabled={vehicleTypesSaving}
-                  size="sm"
-                >
-                  {vehicleTypesSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  Save Assignments
-                </Button>
               </div>
 
               {vehicleTypesLoading ? (
@@ -372,8 +363,8 @@ export default function ServiceAreaPricing() {
               ) : (
                 <div className="space-y-3">
                   {allVehicleTypes.map(vt => {
-                    const assignment = assignedVehicleTypes[vt.id];
-                    const isAssigned = assignment?.is_active ?? false;
+                    const assignment = pricingAssignments[vt.id];
+                    const isAssigned = assignment?.is_enabled ?? false;
 
                     return (
                       <div 
