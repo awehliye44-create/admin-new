@@ -2402,6 +2402,118 @@ export type Database = {
           },
         ]
       }
+      driver_statements: {
+        Row: {
+          adjustments_pence: number
+          commission_pence: number
+          created_at: string
+          currency_code: string
+          driver_id: string
+          generated_at: string
+          generated_by: string | null
+          gross_earnings_pence: number
+          id: string
+          net_earnings_pence: number
+          payouts_pence: number
+          period_end: string
+          period_start: string
+          region_id: string
+          service_area_id: string | null
+          statement_data: Json | null
+          status: string
+          tips_pence: number
+          total_trips: number
+          updated_at: string
+        }
+        Insert: {
+          adjustments_pence?: number
+          commission_pence?: number
+          created_at?: string
+          currency_code: string
+          driver_id: string
+          generated_at?: string
+          generated_by?: string | null
+          gross_earnings_pence?: number
+          id?: string
+          net_earnings_pence?: number
+          payouts_pence?: number
+          period_end: string
+          period_start: string
+          region_id: string
+          service_area_id?: string | null
+          statement_data?: Json | null
+          status?: string
+          tips_pence?: number
+          total_trips?: number
+          updated_at?: string
+        }
+        Update: {
+          adjustments_pence?: number
+          commission_pence?: number
+          created_at?: string
+          currency_code?: string
+          driver_id?: string
+          generated_at?: string
+          generated_by?: string | null
+          gross_earnings_pence?: number
+          id?: string
+          net_earnings_pence?: number
+          payouts_pence?: number
+          period_end?: string
+          period_start?: string
+          region_id?: string
+          service_area_id?: string | null
+          statement_data?: Json | null
+          status?: string
+          tips_pence?: number
+          total_trips?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_statements_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_statements_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_statements_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_statements_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_statements_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_statements_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_support_tickets: {
         Row: {
           admin_reply: string | null
