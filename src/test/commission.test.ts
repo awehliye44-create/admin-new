@@ -10,7 +10,7 @@
  * 2. Bronze tier is the fallback default for unassigned drivers
  * 3. Formula: commission_pence = round(gross_fare_pence * pct / 100)
  * 4. driver_net_pence = gross_fare_pence - commission_pence
- * 5. driver_wallet_ledger is the financial source of truth (not trips table)
+ * 5. driver_ledger is the financial source of truth (not trips table)
  */
 
 import { describe, it, expect } from 'vitest';
