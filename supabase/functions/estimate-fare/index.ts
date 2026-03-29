@@ -57,24 +57,23 @@ Deno.serve(async (req) => {
     // Returns fares for ALL active vehicles in the service area.
     // This is the preferred mode for the mobile app.
     if (!vehicle_type_id) {
-      // Step 1: Get ALL active vehicle type assignments for this service area
-      const { data: assignments, error: assignErr } = await supabase
-        .from("service_area_vehicle_types")
-        .select("vehicle_type_id, display_order")
+      // Step 1: Get ALL enabled vehicles from service_area_vehicle_pricing (SSOT)
+      const { data: pricingRows, error: pricingErr } = await supabase
+        .from("service_area_vehicle_pricing")
+        .select("vehicle_type_id")
         .eq("service_area_id", service_area_id)
-        .eq("is_active", true)
-        .order("display_order");
+        .eq("is_enabled", true);
 
-      if (assignErr) {
-        console.error("[estimate-fare] Error fetching vehicle type assignments:", assignErr);
+      if (pricingErr) {
+        console.error("[estimate-fare] Error fetching service_area_vehicle_pricing:", pricingErr);
         return new Response(
           JSON.stringify({ error: "Failed to fetch vehicle types" }),
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      const assignedVtIds = (assignments || []).map((a: any) => a.vehicle_type_id);
-      console.log(`[estimate-fare] BATCH: service_area=${service_area_id}, assigned vehicle types: ${assignedVtIds.length}`, assignedVtIds);
+      const assignedVtIds = (pricingRows || []).map((a: any) => a.vehicle_type_id);
+      console.log(`[estimate-fare] BATCH: service_area=${service_area_id}, vehicles from service_area_vehicle_pricing: ${assignedVtIds.length}`, assignedVtIds);
 
       if (assignedVtIds.length === 0) {
         return new Response(
@@ -114,7 +113,6 @@ Deno.serve(async (req) => {
       }
 
       const vtMetaMap = new Map((vtMeta || []).map((v: any) => [v.id, v]));
-      const orderMap = new Map((assignments || []).map((a: any) => [a.vehicle_type_id, a.display_order]));
 
       // Step 4: Calculate fare for EVERY assigned vehicle — NO FILTERING
       const vehicles: any[] = [];
@@ -149,7 +147,7 @@ Deno.serve(async (req) => {
           vehicleCapacity: meta.capacity,
           vehicleDescription: meta.description,
           vehicleFeatures: meta.features,
-          displayOrder: orderMap.get(vtId) ?? 0,
+          displayOrder: meta.display_order ?? 0,
           pricingMode: settings.pricing_mode,
           currencyCode: regionCurrency,
           quotedFarePence: breakdown.quoted_fare_pence,
