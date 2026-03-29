@@ -46,11 +46,10 @@ interface VehicleType {
   is_active: boolean;
 }
 
-interface ServiceAreaVehicleType {
+interface VehiclePricingAssignment {
   id?: string;
   vehicle_type_id: string;
-  is_active: boolean;
-  display_order: number;
+  is_enabled: boolean;
 }
 
 interface ServiceArea {
@@ -77,9 +76,9 @@ export default function ServiceAreaPricing() {
 
 
 
-  // Vehicle Types state
+  // Vehicle pricing assignments (SSOT: service_area_vehicle_pricing)
   const [allVehicleTypes, setAllVehicleTypes] = useState<VehicleType[]>([]);
-  const [assignedVehicleTypes, setAssignedVehicleTypes] = useState<Record<string, ServiceAreaVehicleType>>({});
+  const [pricingAssignments, setPricingAssignments] = useState<Record<string, VehiclePricingAssignment>>({});
   const [vehicleTypesLoading, setVehicleTypesLoading] = useState(false);
   const [vehicleTypesSaving, setVehicleTypesSaving] = useState(false);
   
@@ -98,7 +97,7 @@ export default function ServiceAreaPricing() {
   useEffect(() => {
     if (selectedServiceAreaId) {
       fetchPricingData(selectedServiceAreaId);
-      fetchVehicleTypeAssignments(selectedServiceAreaId);
+      fetchPricingAssignments(selectedServiceAreaId);
     }
   }, [selectedServiceAreaId]);
 
@@ -139,96 +138,65 @@ export default function ServiceAreaPricing() {
     setHasChanges(false);
   };
 
-  const fetchVehicleTypeAssignments = async (serviceAreaId: string) => {
+  // SSOT: Read vehicle assignments from service_area_vehicle_pricing
+  const fetchPricingAssignments = async (serviceAreaId: string) => {
     try {
       setVehicleTypesLoading(true);
       const { data, error } = await supabase
-        .from('service_area_vehicle_types')
-        .select('*')
+        .from('service_area_vehicle_pricing')
+        .select('id, vehicle_type_id, is_enabled')
         .eq('service_area_id', serviceAreaId);
 
       if (error) throw error;
 
-      const map: Record<string, ServiceAreaVehicleType> = {};
+      const map: Record<string, VehiclePricingAssignment> = {};
       (data || []).forEach((row: any) => {
         map[row.vehicle_type_id] = {
           id: row.id,
           vehicle_type_id: row.vehicle_type_id,
-          is_active: row.is_active,
-          display_order: row.display_order || 0,
+          is_enabled: row.is_enabled,
         };
       });
-      setAssignedVehicleTypes(map);
+      setPricingAssignments(map);
     } catch (err) {
-      console.error('Error fetching vehicle type assignments:', err);
+      console.error('Error fetching pricing assignments:', err);
     } finally {
       setVehicleTypesLoading(false);
     }
   };
 
-  const toggleVehicleType = (vehicleTypeId: string) => {
-    setAssignedVehicleTypes(prev => {
-      const existing = prev[vehicleTypeId];
-      if (existing) {
-        // Toggle active or remove
-        return {
-          ...prev,
-          [vehicleTypeId]: { ...existing, is_active: !existing.is_active },
-        };
-      } else {
-        // Add new assignment
-        return {
-          ...prev,
-          [vehicleTypeId]: {
-            vehicle_type_id: vehicleTypeId,
-            is_active: true,
-            display_order: Object.keys(prev).length,
-          },
-        };
-      }
-    });
-    setHasChanges(true);
-  };
-
-  const saveVehicleTypeAssignments = async () => {
-    if (!selectedServiceAreaId) return;
+  const toggleVehicleType = async (vehicleTypeId: string) => {
+    if (!selectedServiceAreaId || !selectedServiceArea?.region?.currency_code) return;
+    
     setVehicleTypesSaving(true);
     try {
-      // Get current DB state
-      const { data: existing } = await supabase
-        .from('service_area_vehicle_types')
-        .select('id, vehicle_type_id')
-        .eq('service_area_id', selectedServiceAreaId);
-
-      const existingMap = new Map((existing || []).map((e: any) => [e.vehicle_type_id, e.id]));
-
-      for (const [vtId, assignment] of Object.entries(assignedVehicleTypes)) {
-        const existingId = existingMap.get(vtId);
-        if (existingId) {
-          // Update
-          await supabase
-            .from('service_area_vehicle_types')
-            .update({ is_active: assignment.is_active, display_order: assignment.display_order })
-            .eq('id', existingId);
-        } else if (assignment.is_active) {
-          // Insert only if active
-          await supabase
-            .from('service_area_vehicle_types')
-            .insert({
-              service_area_id: selectedServiceAreaId,
-              vehicle_type_id: vtId,
-              is_active: assignment.is_active,
-              display_order: assignment.display_order,
-            });
-        }
+      const existing = pricingAssignments[vehicleTypeId];
+      
+      if (existing?.id) {
+        // Toggle is_enabled
+        const { error } = await supabase
+          .from('service_area_vehicle_pricing')
+          .update({ is_enabled: !existing.is_enabled, updated_at: new Date().toISOString() })
+          .eq('id', existing.id);
+        if (error) throw error;
+      } else {
+        // Insert new row with defaults
+        const { error } = await supabase
+          .from('service_area_vehicle_pricing')
+          .insert({
+            service_area_id: selectedServiceAreaId,
+            vehicle_type_id: vehicleTypeId,
+            is_enabled: true,
+            currency_code: selectedServiceArea.region.currency_code,
+          });
+        if (error) throw error;
       }
-
-      toast.success('Vehicle type assignments saved');
-      await fetchVehicleTypeAssignments(selectedServiceAreaId);
-      setHasChanges(false);
+      
+      toast.success('Vehicle assignment updated');
+      await fetchPricingAssignments(selectedServiceAreaId);
     } catch (err: any) {
-      console.error('Error saving vehicle type assignments:', err);
-      toast.error(err.message || 'Failed to save');
+      console.error('Error toggling vehicle type:', err);
+      toast.error(err.message || 'Failed to update');
     } finally {
       setVehicleTypesSaving(false);
     }
@@ -281,7 +249,7 @@ export default function ServiceAreaPricing() {
     );
   }
 
-  const assignedCount = Object.values(assignedVehicleTypes).filter(a => a.is_active).length;
+  const assignedCount = Object.values(pricingAssignments).filter(a => a.is_enabled).length;
 
   return (
     <AdminLayout 
@@ -383,18 +351,9 @@ export default function ServiceAreaPricing() {
                 <div>
                   <h3 className="text-lg font-semibold">Vehicle Types for this Service Area</h3>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Select which vehicle types are available for riders to book in this service area. 
-                    Pricing is controlled by the Fare Engine, not by vehicle type.
+                    Toggle vehicle types on/off. Changes are saved immediately to <code>service_area_vehicle_pricing</code> — the single source of truth for fare calculations.
                   </p>
                 </div>
-                <Button 
-                  onClick={saveVehicleTypeAssignments} 
-                  disabled={vehicleTypesSaving}
-                  size="sm"
-                >
-                  {vehicleTypesSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  Save Assignments
-                </Button>
               </div>
 
               {vehicleTypesLoading ? (
@@ -404,8 +363,8 @@ export default function ServiceAreaPricing() {
               ) : (
                 <div className="space-y-3">
                   {allVehicleTypes.map(vt => {
-                    const assignment = assignedVehicleTypes[vt.id];
-                    const isAssigned = assignment?.is_active ?? false;
+                    const assignment = pricingAssignments[vt.id];
+                    const isAssigned = assignment?.is_enabled ?? false;
 
                     return (
                       <div 
@@ -456,6 +415,7 @@ export default function ServiceAreaPricing() {
                           )}
                           <Switch
                             checked={isAssigned}
+                            disabled={vehicleTypesSaving}
                             onCheckedChange={() => toggleVehicleType(vt.id)}
                           />
                         </div>
