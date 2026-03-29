@@ -202,6 +202,17 @@ serve(async (req) => {
       } else {
         console.log(`[cash-commission] CASH_COMMISSION_DEBT: -${commissionPence}p`);
       }
+
+      // Record COMPANY_COMMISSION (platform revenue SSOT)
+      await supabase.from('driver_ledger').insert({
+        driver_id: trip.driver_id,
+        trip_id,
+        entry_type: 'COMPANY_COMMISSION',
+        amount_pence: commissionPence,
+        currency_code,
+        description: 'Platform commission from cash trip',
+      });
+      console.log(`[cash-commission] COMPANY_COMMISSION: +${commissionPence}p`);
     }
 
     const balanceAfter = balanceBefore - commissionPence;
