@@ -342,7 +342,7 @@ export default function StatementRuns() {
                 <Select value={selectedServiceArea} onValueChange={setSelectedServiceArea}>
                   <SelectTrigger><SelectValue placeholder="All service areas" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All Service Areas</SelectItem>
+                    <SelectItem value="all">All Service Areas</SelectItem>
                     {filteredServiceAreas.map((sa: any) => (
                       <SelectItem key={sa.id} value={sa.id}>{sa.name}</SelectItem>
                     ))}
