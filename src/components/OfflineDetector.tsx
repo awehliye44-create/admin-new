@@ -1,11 +1,25 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import noInternetImg from "@/assets/no-internet-connection.png";
 
 export const OfflineDetector = () => {
-  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [isOffline, setIsOffline] = useState(false);
+
+  const verifyConnectivity = useCallback(async () => {
+    try {
+      // Ping Supabase health endpoint with cache-bust
+      await fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/`, {
+        method: "HEAD",
+        cache: "no-store",
+        signal: AbortSignal.timeout(5000),
+      });
+      setIsOffline(false);
+    } catch {
+      setIsOffline(true);
+    }
+  }, []);
 
   useEffect(() => {
-    const goOffline = () => setIsOffline(true);
+    const goOffline = () => verifyConnectivity();
     const goOnline = () => setIsOffline(false);
 
     window.addEventListener("offline", goOffline);
@@ -15,7 +29,7 @@ export const OfflineDetector = () => {
       window.removeEventListener("offline", goOffline);
       window.removeEventListener("online", goOnline);
     };
-  }, []);
+  }, [verifyConnectivity]);
 
   if (!isOffline) return null;
 
@@ -33,7 +47,7 @@ export const OfflineDetector = () => {
         Please check your network connection and try again.
       </p>
       <button
-        onClick={() => window.location.reload()}
+        onClick={() => verifyConnectivity()}
         className="mt-6 px-6 py-2 rounded-md bg-primary text-primary-foreground font-medium text-sm hover:opacity-90 transition-opacity"
       >
         Retry
