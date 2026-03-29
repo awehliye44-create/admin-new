@@ -212,16 +212,16 @@ Deno.serve(async (req) => {
     }
 
     // ─── SINGLE VEHICLE MODE (legacy, vehicle_type_id provided) ───
-    // Validate vehicle_type_id is assigned to this service area
-    const { data: assignment } = await supabase
-      .from("service_area_vehicle_types")
+    // Validate vehicle_type_id is enabled in service_area_vehicle_pricing (SSOT)
+    const { data: pricingRow } = await supabase
+      .from("service_area_vehicle_pricing")
       .select("id")
       .eq("service_area_id", service_area_id)
       .eq("vehicle_type_id", vehicle_type_id)
-      .eq("is_active", true)
+      .eq("is_enabled", true)
       .maybeSingle();
 
-    if (!assignment) {
+    if (!pricingRow) {
       return new Response(
         JSON.stringify({
           error: "Vehicle type is not available in this service area",
