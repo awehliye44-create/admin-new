@@ -200,6 +200,20 @@ serve(async (req) => {
       console.log(`[capture] Ledger TRIP_EARNING_NET: +${driver_total_earnings_pence}p`);
     }
 
+    // === LEDGER: Record company commission (platform revenue SSOT) ===
+    if (platform_commission_pence > 0) {
+      await supabase.from('driver_ledger').insert({
+        driver_id,
+        trip_id,
+        entry_type: 'COMPANY_COMMISSION',
+        amount_pence: platform_commission_pence,
+        currency_code,
+        description: `Platform commission from card trip`,
+        reference_id: payment_intent_id,
+      });
+      console.log(`[capture] COMPANY_COMMISSION: +${platform_commission_pence}p`);
+    }
+
     // === LEDGER: Record debt recovery if applicable ===
     if (debtRecoveryPence > 0) {
       const { error: recoveryError } = await supabase

@@ -191,6 +191,19 @@ serve(async (req) => {
       financeRecord.wallet_balance_after_pence = walletBefore + driver_net_pence;
     }
 
+    // Record COMPANY_COMMISSION in ledger (platform revenue SSOT)
+    if (commission_pence > 0) {
+      await supabase.from('driver_ledger').insert({
+        driver_id,
+        trip_id,
+        entry_type: 'COMPANY_COMMISSION',
+        amount_pence: commission_pence,
+        currency_code,
+        description: `Platform commission from ${outcome === 'NO_SHOW' ? 'no-show' : 'late cancellation'} fee`,
+      });
+      console.log(`[record-financial-outcome] COMPANY_COMMISSION: +${commission_pence}p`);
+    }
+
     // Insert trip_finance
     const { error: financeError } = await supabase
       .from('trip_finance')
