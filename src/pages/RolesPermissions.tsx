@@ -676,15 +676,36 @@ export default function RolesPermissions() {
                               <TableCell className="sticky left-0 bg-background z-10 capitalize text-sm">
                                 {page.replace(/-/g, ' ')}
                               </TableCell>
-                              {ROLES_ORDER.map(r => (
-                                <TableCell key={r} className="text-center">
-                                  {permissionMatrix[page]?.[r] ? (
-                                    <CheckCircle className="h-4 w-4 text-green-500 mx-auto" />
-                                  ) : (
-                                    <div className="h-4 w-4 rounded-full border-2 border-muted mx-auto" />
-                                  )}
-                                </TableCell>
-                              ))}
+                              {ROLES_ORDER.map(r => {
+                                const key = `${page}-${r}`;
+                                const hasAccess = permissionMatrix[page]?.[r] ?? false;
+                                const isToggling = togglingPerm === key;
+                                return (
+                                  <TableCell key={r} className="text-center">
+                                    {isToggling ? (
+                                      <Loader2 className="h-4 w-4 animate-spin mx-auto text-muted-foreground" />
+                                    ) : canManageRoles ? (
+                                      <button
+                                        onClick={() => handleTogglePermission(page, r)}
+                                        className="mx-auto block cursor-pointer hover:scale-110 transition-transform"
+                                        title={hasAccess ? `Revoke ${page} from ${ROLE_LABELS[r]}` : `Grant ${page} to ${ROLE_LABELS[r]}`}
+                                      >
+                                        {hasAccess ? (
+                                          <CheckCircle className="h-4 w-4 text-green-500" />
+                                        ) : (
+                                          <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/30 hover:border-primary" />
+                                        )}
+                                      </button>
+                                    ) : (
+                                      hasAccess ? (
+                                        <CheckCircle className="h-4 w-4 text-green-500 mx-auto" />
+                                      ) : (
+                                        <div className="h-4 w-4 rounded-full border-2 border-muted mx-auto" />
+                                      )
+                                    )}
+                                  </TableCell>
+                                );
+                              })}
                             </TableRow>
                           ))}
                         </>
