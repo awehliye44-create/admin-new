@@ -52,6 +52,9 @@ import DriverWallet from "./pages/DriverWallet";
 import AdminPayoutBatches from "./pages/AdminPayoutBatches";
 import Disputes from "./pages/Disputes";
 import DisputeSettings from "./pages/DisputeSettings";
+import Invoices from "./pages/Invoices";
+import InvoiceTemplates from "./pages/InvoiceTemplates";
+import StatementRuns from "./pages/StatementRuns";
 import GeneralSettings from "./pages/GeneralSettings";
 import Integrations from "./pages/Integrations";
 import Webhooks from "./pages/Webhooks";
@@ -154,6 +157,9 @@ const App = () => (
               <Route path="payout-batches" element={<AdminPayoutBatches />} />
               <Route path="disputes" element={<Disputes />} />
               <Route path="dispute-settings" element={<DisputeSettings />} />
+              <Route path="invoices" element={<Invoices />} />
+              <Route path="invoice-templates" element={<InvoiceTemplates />} />
+              <Route path="statement-runs" element={<StatementRuns />} />
               
               {/* ONECAB Documents */}
               <Route path="onecab-documents" element={<OnecabDocuments />} />
