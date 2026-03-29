@@ -142,11 +142,10 @@ serve(async (req) => {
     // Fetch vehicle types, fare settings (all configs), offer config, and payment methods in parallel
     const [vehicleTypesRes, fareSettingsRes, offerConfigRes, paymentRes] = await Promise.all([
       supabase
-        .from('service_area_vehicle_types')
-        .select('vehicle_type_id, display_order, is_active')
+        .from('service_area_vehicle_pricing')
+        .select('vehicle_type_id, is_enabled')
         .eq('service_area_id', primaryServiceArea.id)
-        .eq('is_active', true)
-        .order('display_order'),
+        .eq('is_enabled', true),
 
       // Fetch ALL fare configs for this service area (default + per-vehicle-type)
       supabase
@@ -200,7 +199,7 @@ serve(async (req) => {
         .eq('is_active', true);
       if (vtError) console.log('vtData query error:', vtError);
 
-      const orderMap = new Map((vehicleTypesRes.data || []).map((r: any) => [r.vehicle_type_id, r.display_order]));
+      vehicleTypes = (vtData || [])
       vehicleTypes = (vtData || [])
         .map((vt: any) => ({
           id: vt.id,
@@ -210,7 +209,7 @@ serve(async (req) => {
           icon: vt.icon,
           capacity: vt.capacity,
           features: vt.features,
-          displayOrder: orderMap.get(vt.id) ?? 0,
+          displayOrder: vt.display_order ?? 0,
           // Attach vehicle-type-specific pricing or fall back to default
           farePricing: fareConfigMap.get(vt.id) || defaultFarePricing,
         }))
