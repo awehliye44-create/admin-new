@@ -338,6 +338,12 @@ export default function StatementRuns() {
           </Table>
         </CardContent>
       </Card>
+        </TabsContent>
+
+        <TabsContent value="schedule">
+          <StatementScheduleConfig />
+        </TabsContent>
+      </Tabs>
 
       {/* Create Run Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
