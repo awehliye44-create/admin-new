@@ -12,9 +12,11 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
-import { Play, Clock, CheckCircle, Send, FileText, AlertTriangle, Loader2, Globe } from "lucide-react";
+import { Play, Clock, CheckCircle, Send, FileText, AlertTriangle, Loader2, Globe, Settings2 } from "lucide-react";
+import StatementScheduleConfig from "@/components/statements/StatementScheduleConfig";
 
 const RUN_STATUS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; icon: any }> = {
   draft: { label: "Draft", variant: "secondary", icon: Clock },
