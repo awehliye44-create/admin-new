@@ -3295,7 +3295,7 @@ export type Database = {
           penalties_pence: number
           period_end: string
           period_start: string
-          region_id: string | null
+          region_id: string
           sent_at: string | null
           sent_by: string | null
           service_area_id: string | null
@@ -3325,7 +3325,7 @@ export type Database = {
           penalties_pence?: number
           period_end: string
           period_start: string
-          region_id?: string | null
+          region_id: string
           sent_at?: string | null
           sent_by?: string | null
           service_area_id?: string | null
@@ -3355,7 +3355,7 @@ export type Database = {
           penalties_pence?: number
           period_end?: string
           period_start?: string
-          region_id?: string | null
+          region_id?: string
           sent_at?: string | null
           sent_by?: string | null
           service_area_id?: string | null
@@ -5554,7 +5554,7 @@ export type Database = {
           notes: string | null
           period_end: string
           period_start: string
-          region_id: string | null
+          region_id: string
           service_area_id: string | null
           status: string
           total_amount_pence: number
@@ -5569,7 +5569,7 @@ export type Database = {
           notes?: string | null
           period_end: string
           period_start: string
-          region_id?: string | null
+          region_id: string
           service_area_id?: string | null
           status?: string
           total_amount_pence?: number
@@ -5584,7 +5584,7 @@ export type Database = {
           notes?: string | null
           period_end?: string
           period_start?: string
-          region_id?: string | null
+          region_id?: string
           service_area_id?: string | null
           status?: string
           total_amount_pence?: number
