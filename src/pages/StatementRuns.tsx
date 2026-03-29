@@ -12,9 +12,11 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
-import { Play, Clock, CheckCircle, Send, FileText, AlertTriangle, Loader2, Globe } from "lucide-react";
+import { Play, Clock, CheckCircle, Send, FileText, AlertTriangle, Loader2, Globe, Settings2 } from "lucide-react";
+import StatementScheduleConfig from "@/components/statements/StatementScheduleConfig";
 
 const RUN_STATUS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; icon: any }> = {
   draft: { label: "Draft", variant: "secondary", icon: Clock },
@@ -259,6 +261,14 @@ export default function StatementRuns() {
         </Button>
       </div>
 
+      <Tabs defaultValue="runs" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="runs"><FileText className="h-4 w-4 mr-1.5" /> Statement Runs</TabsTrigger>
+          <TabsTrigger value="schedule"><Settings2 className="h-4 w-4 mr-1.5" /> Automation</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="runs" className="space-y-4">
+
       {/* Runs Table */}
       <Card>
         <CardContent className="p-0">
@@ -328,6 +338,12 @@ export default function StatementRuns() {
           </Table>
         </CardContent>
       </Card>
+        </TabsContent>
+
+        <TabsContent value="schedule">
+          <StatementScheduleConfig />
+        </TabsContent>
+      </Tabs>
 
       {/* Create Run Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
