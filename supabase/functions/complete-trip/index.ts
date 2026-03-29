@@ -216,6 +216,19 @@ serve(async (req) => {
         financeRecord.cash_commission_ledger_id = ledgerEntry?.id;
       }
 
+      // Record COMPANY_COMMISSION in ledger (platform revenue SSOT)
+      if (platform_commission > 0) {
+        await supabase.from('driver_ledger').insert({
+          driver_id,
+          trip_id,
+          entry_type: 'COMPANY_COMMISSION',
+          amount_pence: platform_commission,
+          currency_code,
+          description: `Platform commission from cash trip`,
+        });
+        console.log(`[complete-trip] COMPANY_COMMISSION: +${platform_commission}p`);
+      }
+
       tripUpdate.wallet_balance_before = walletBefore;
       tripUpdate.wallet_balance_after = walletBefore - platform_commission;
       tripUpdate.debt_recovery_pence = 0;

@@ -7380,8 +7380,6 @@ export type Database = {
           cash_net_earnings: number | null
           cash_trip_count: number | null
           company_commission_total: number | null
-          completed_trip_commission: number | null
-          completed_trip_revenue: number | null
           completed_trips: number | null
           currency_code: string | null
           driver_id: string | null
@@ -7390,10 +7388,6 @@ export type Database = {
           gross_trip_total: number | null
           is_online: boolean | null
           last_name: string | null
-          late_cancel_commission: number | null
-          late_cancel_revenue: number | null
-          no_show_commission: number | null
-          no_show_revenue: number | null
           onboarding_complete: boolean | null
           payouts_enabled: boolean | null
           phone: string | null
