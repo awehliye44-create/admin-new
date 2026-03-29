@@ -176,8 +176,13 @@ serve(async (req) => {
     const earlyCashoutFee = parseInt(settingsMap.early_cashout_fee_pence || '50');
     const globalPayoutsEnabled = settingsMap.payouts_enabled !== 'false';
 
-    const available = allLedgerEntriesForWallet?.reduce((sum, entry) => sum + (entry.amount_pence || 0), 0) || 0;
+    // Exclude COMPANY_COMMISSION from wallet balance — it's platform revenue tracking, not driver funds
+    const available = allLedgerEntriesForWallet?.reduce((sum, entry) => {
+      if (entry.entry_type === 'COMPANY_COMMISSION') return sum;
+      return sum + (entry.amount_pence || 0);
+    }, 0) || 0;
     const earnings = allLedgerEntriesForWallet?.reduce((sum, entry) => {
+      if (entry.entry_type === 'COMPANY_COMMISSION') return sum;
       const amount = entry.amount_pence || 0;
       return amount > 0 ? sum + amount : sum;
     }, 0) || 0;
