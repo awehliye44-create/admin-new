@@ -202,7 +202,7 @@ export default function Services() {
         const areaIds = areasRes.data.map(a => a.id);
         
         const [driverServiceAreasRes, pricingRes, cancellationRes, vehicleAssignRes] = await Promise.all([
-          supabase.from('driver_service_areas').select('service_area_id'),
+          supabase.from('drivers').select('service_area_id').not('service_area_id', 'is', null),
           supabase.from('fare_pricing_settings').select('service_area_id, base_fare_pence').in('service_area_id', areaIds),
           supabase.from('service_area_cancellation_fees').select('service_area_id').in('service_area_id', areaIds),
           supabase.from('service_area_vehicle_types').select('service_area_id').eq('is_active', true).in('service_area_id', areaIds),
