@@ -76,9 +76,9 @@ export default function ServiceAreaPricing() {
 
 
 
-  // Vehicle Types state
+  // Vehicle pricing assignments (SSOT: service_area_vehicle_pricing)
   const [allVehicleTypes, setAllVehicleTypes] = useState<VehicleType[]>([]);
-  const [assignedVehicleTypes, setAssignedVehicleTypes] = useState<Record<string, ServiceAreaVehicleType>>({});
+  const [pricingAssignments, setPricingAssignments] = useState<Record<string, VehiclePricingAssignment>>({});
   const [vehicleTypesLoading, setVehicleTypesLoading] = useState(false);
   const [vehicleTypesSaving, setVehicleTypesSaving] = useState(false);
   
