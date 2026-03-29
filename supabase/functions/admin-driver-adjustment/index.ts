@@ -136,12 +136,16 @@ serve(async (req) => {
         currency_code,
       },
       wallet: {
-        available: walletLedgerEntries?.reduce((sum, entry) => sum + (entry.amount_pence || 0), 0) || 0,
+        available: walletLedgerEntries?.reduce((sum, entry) => {
+          if (entry.entry_type === 'COMPANY_COMMISSION') return sum;
+          return sum + (entry.amount_pence || 0);
+        }, 0) || 0,
         debt: walletLedgerEntries?.reduce((sum, entry) => {
           if (entry.entry_type !== 'CASH_COMMISSION_DEBT') return sum;
           return sum + Math.abs(entry.amount_pence || 0);
         }, 0) || 0,
         earnings: walletLedgerEntries?.reduce((sum, entry) => {
+          if (entry.entry_type === 'COMPANY_COMMISSION') return sum;
           const amount = entry.amount_pence || 0;
           return amount > 0 ? sum + amount : sum;
         }, 0) || 0,
