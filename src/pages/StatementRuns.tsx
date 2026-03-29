@@ -422,12 +422,6 @@ export default function StatementRuns() {
           </div>
         </DialogContent>
       </Dialog>
-        </TabsContent>
-
-        <TabsContent value="schedule">
-          <StatementScheduleConfig />
-        </TabsContent>
-      </Tabs>
     </div>
   );
 }
