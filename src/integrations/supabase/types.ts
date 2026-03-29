@@ -5667,10 +5667,12 @@ export type Database = {
           period_end: string
           period_start: string
           region_id: string
+          schedule_config_id: string | null
           service_area_id: string | null
           status: string
           total_amount_pence: number
           total_invoices: number
+          triggered_by: string | null
         }
         Insert: {
           completed_at?: string | null
@@ -5682,10 +5684,12 @@ export type Database = {
           period_end: string
           period_start: string
           region_id: string
+          schedule_config_id?: string | null
           service_area_id?: string | null
           status?: string
           total_amount_pence?: number
           total_invoices?: number
+          triggered_by?: string | null
         }
         Update: {
           completed_at?: string | null
@@ -5697,10 +5701,12 @@ export type Database = {
           period_end?: string
           period_start?: string
           region_id?: string
+          schedule_config_id?: string | null
           service_area_id?: string | null
           status?: string
           total_amount_pence?: number
           total_invoices?: number
+          triggered_by?: string | null
         }
         Relationships: [
           {
@@ -5711,10 +5717,190 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "statement_runs_schedule_config_id_fkey"
+            columns: ["schedule_config_id"]
+            isOneToOne: false
+            referencedRelation: "statement_schedule_configs"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "statement_runs_service_area_id_fkey"
             columns: ["service_area_id"]
             isOneToOne: false
             referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      statement_schedule_configs: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          custom_period_days: number | null
+          due_days_after_generation: number
+          frequency: string
+          generation_day: number
+          id: string
+          is_auto_generate_enabled: boolean
+          is_auto_send_enabled: boolean
+          last_run_at: string | null
+          last_run_error: string | null
+          last_run_invoice_count: number | null
+          last_run_status: string | null
+          next_run_at: string | null
+          scope_region_id: string | null
+          scope_service_area_id: string | null
+          scope_type: string
+          send_day: number | null
+          send_hour: number
+          send_mode: string
+          statement_period_mode: string
+          timezone: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          custom_period_days?: number | null
+          due_days_after_generation?: number
+          frequency?: string
+          generation_day?: number
+          id?: string
+          is_auto_generate_enabled?: boolean
+          is_auto_send_enabled?: boolean
+          last_run_at?: string | null
+          last_run_error?: string | null
+          last_run_invoice_count?: number | null
+          last_run_status?: string | null
+          next_run_at?: string | null
+          scope_region_id?: string | null
+          scope_service_area_id?: string | null
+          scope_type?: string
+          send_day?: number | null
+          send_hour?: number
+          send_mode?: string
+          statement_period_mode?: string
+          timezone?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          custom_period_days?: number | null
+          due_days_after_generation?: number
+          frequency?: string
+          generation_day?: number
+          id?: string
+          is_auto_generate_enabled?: boolean
+          is_auto_send_enabled?: boolean
+          last_run_at?: string | null
+          last_run_error?: string | null
+          last_run_invoice_count?: number | null
+          last_run_status?: string | null
+          next_run_at?: string | null
+          scope_region_id?: string | null
+          scope_service_area_id?: string | null
+          scope_type?: string
+          send_day?: number | null
+          send_hour?: number
+          send_mode?: string
+          statement_period_mode?: string
+          timezone?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "statement_schedule_configs_scope_region_id_fkey"
+            columns: ["scope_region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "statement_schedule_configs_scope_service_area_id_fkey"
+            columns: ["scope_service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      statement_schedule_run_log: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          invoice_count: number | null
+          period_end: string | null
+          period_start: string | null
+          region_id: string | null
+          schedule_config_id: string
+          service_area_id: string | null
+          statement_run_id: string | null
+          status: string
+          triggered_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          invoice_count?: number | null
+          period_end?: string | null
+          period_start?: string | null
+          region_id?: string | null
+          schedule_config_id: string
+          service_area_id?: string | null
+          statement_run_id?: string | null
+          status?: string
+          triggered_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          invoice_count?: number | null
+          period_end?: string | null
+          period_start?: string | null
+          region_id?: string | null
+          schedule_config_id?: string
+          service_area_id?: string | null
+          statement_run_id?: string | null
+          status?: string
+          triggered_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "statement_schedule_run_log_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "statement_schedule_run_log_schedule_config_id_fkey"
+            columns: ["schedule_config_id"]
+            isOneToOne: false
+            referencedRelation: "statement_schedule_configs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "statement_schedule_run_log_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "statement_schedule_run_log_statement_run_id_fkey"
+            columns: ["statement_run_id"]
+            isOneToOne: false
+            referencedRelation: "statement_runs"
             referencedColumns: ["id"]
           },
         ]
