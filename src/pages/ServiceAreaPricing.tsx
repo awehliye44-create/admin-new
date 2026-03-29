@@ -415,6 +415,7 @@ export default function ServiceAreaPricing() {
                           )}
                           <Switch
                             checked={isAssigned}
+                            disabled={vehicleTypesSaving}
                             onCheckedChange={() => toggleVehicleType(vt.id)}
                           />
                         </div>
