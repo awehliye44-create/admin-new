@@ -389,17 +389,54 @@ export default function RolesPermissions() {
   // Permission page groups for the matrix
   const PAGE_GROUPS = [
     { label: 'Dashboard', pages: ['dashboard'] },
-    { label: 'Operations', pages: ['fleet-tracking', 'active-trips', 'auto-dispatch', 'scheduled-rides', 'missed-cancelled', 'trip-history', 'manual-trip'] },
-    { label: 'Fleet', pages: ['drivers', 'vehicles', 'vehicle-types', 'documents'] },
+    { label: 'Operations', pages: ['fleet-tracking', 'active-trips', 'auto-dispatch', 'scheduled-rides', 'missed-cancelled', 'trip-history', 'manual-trip', 'qr-booking'] },
+    { label: 'Fleet', pages: ['drivers', 'vehicles', 'vehicle-types', 'documents', 'document-management'] },
     { label: 'Service Areas', pages: ['regions', 'services'] },
     { label: 'Pricing', pages: ['promo-codes', 'custom-zones', 'zone-pricing', 'corporate-fares', 'fare-simulator'] },
-    { label: 'Corporate', pages: ['corporate-accounts', 'account-requests', 'corporate-billing', 'corporate-reports'] },
-    { label: 'Riders & Support', pages: ['riders', 'rider-feedback', 'suspensions', 'complaints', 'live-chat', 'tickets'] },
-    { label: 'Finance', pages: ['admin-payments', 'driver-wallet', 'admin-settlements', 'payout-batches', 'disputes'] },
-    { label: 'Settings', pages: ['general-settings', 'integrations', 'roles', 'notifications', 'system'] },
+    { label: 'Corporate', pages: ['corporate-accounts', 'account-requests', 'corporate-billing', 'corporate-reports', 'corporate-settings'] },
+    { label: 'Riders & Support', pages: ['riders', 'rider-feedback', 'suspensions', 'complaints', 'live-chat', 'tickets', 'categories'] },
+    { label: 'Finance', pages: ['admin-payments', 'driver-wallet', 'admin-settlements', 'payout-batches', 'disputes', 'dispute-settings', 'invoices', 'invoice-templates', 'statement-runs'] },
+    { label: 'Documents', pages: ['onecab-documents', 'content'] },
+    { label: 'Settings', pages: ['general-settings', 'integrations', 'webhooks', 'system', 'roles', 'user-directory', 'notifications', 'alert-sounds'] },
   ];
 
   const ROLES_ORDER: StaffRole[] = ['super_admin', 'admin', 'operator', 'finance_manager', 'customer_support', 'compliance_officer'];
+
+  const [togglingPerm, setTogglingPerm] = useState<string | null>(null);
+
+  const handleTogglePermission = async (pageSlug: string, role: StaffRole) => {
+    if (!canManageRoles) return;
+    const key = `${pageSlug}-${role}`;
+    setTogglingPerm(key);
+    const currentAccess = permissionMatrix[pageSlug]?.[role] ?? false;
+    const newAccess = !currentAccess;
+
+    try {
+      // Upsert the permission
+      const { error: upsertError } = await supabase
+        .from('role_page_permissions')
+        .upsert(
+          { role: role as any, page_slug: pageSlug, can_access: newAccess },
+          { onConflict: 'role,page_slug' }
+        );
+
+      if (upsertError) throw upsertError;
+
+      // Update local state
+      setPermissionMatrix(prev => ({
+        ...prev,
+        [pageSlug]: {
+          ...prev[pageSlug],
+          [role]: newAccess,
+        },
+      }));
+    } catch (err: any) {
+      console.error('Failed to toggle permission:', err);
+      setError(`Failed to update permission: ${err.message}`);
+    } finally {
+      setTogglingPerm(null);
+    }
+  };
 
   return (
     <AdminLayout
@@ -639,15 +676,36 @@ export default function RolesPermissions() {
                               <TableCell className="sticky left-0 bg-background z-10 capitalize text-sm">
                                 {page.replace(/-/g, ' ')}
                               </TableCell>
-                              {ROLES_ORDER.map(r => (
-                                <TableCell key={r} className="text-center">
-                                  {permissionMatrix[page]?.[r] ? (
-                                    <CheckCircle className="h-4 w-4 text-green-500 mx-auto" />
-                                  ) : (
-                                    <div className="h-4 w-4 rounded-full border-2 border-muted mx-auto" />
-                                  )}
-                                </TableCell>
-                              ))}
+                              {ROLES_ORDER.map(r => {
+                                const key = `${page}-${r}`;
+                                const hasAccess = permissionMatrix[page]?.[r] ?? false;
+                                const isToggling = togglingPerm === key;
+                                return (
+                                  <TableCell key={r} className="text-center">
+                                    {isToggling ? (
+                                      <Loader2 className="h-4 w-4 animate-spin mx-auto text-muted-foreground" />
+                                    ) : canManageRoles ? (
+                                      <button
+                                        onClick={() => handleTogglePermission(page, r)}
+                                        className="mx-auto block cursor-pointer hover:scale-110 transition-transform"
+                                        title={hasAccess ? `Revoke ${page} from ${ROLE_LABELS[r]}` : `Grant ${page} to ${ROLE_LABELS[r]}`}
+                                      >
+                                        {hasAccess ? (
+                                          <CheckCircle className="h-4 w-4 text-green-500" />
+                                        ) : (
+                                          <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/30 hover:border-primary" />
+                                        )}
+                                      </button>
+                                    ) : (
+                                      hasAccess ? (
+                                        <CheckCircle className="h-4 w-4 text-green-500 mx-auto" />
+                                      ) : (
+                                        <div className="h-4 w-4 rounded-full border-2 border-muted mx-auto" />
+                                      )
+                                    )}
+                                  </TableCell>
+                                );
+                              })}
                             </TableRow>
                           ))}
                         </>
