@@ -160,10 +160,10 @@ export default function FareSimulator() {
     queryFn: async () => {
       if (!formData.service_area_id) return [];
       const { data: assignments } = await supabase
-        .from('service_area_vehicle_types')
+        .from('service_area_vehicle_pricing')
         .select('vehicle_type_id')
         .eq('service_area_id', formData.service_area_id)
-        .eq('is_active', true);
+        .eq('is_enabled', true);
       if (!assignments || assignments.length === 0) return [];
       const vtIds = assignments.map((a: any) => a.vehicle_type_id);
       const { data: vtData } = await supabase

@@ -130,10 +130,10 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
 
   const fetchAssignedVehicleTypes = async () => {
     const { data: assignments } = await supabase
-      .from('service_area_vehicle_types')
+      .from('service_area_vehicle_pricing')
       .select('vehicle_type_id')
       .eq('service_area_id', serviceAreaId)
-      .eq('is_active', true);
+      .eq('is_enabled', true);
 
     if (assignments && assignments.length > 0) {
       const vtIds = assignments.map((a: any) => a.vehicle_type_id);
