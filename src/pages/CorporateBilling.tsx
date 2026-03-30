@@ -63,6 +63,10 @@ interface CorporateTrip {
   status: string;
   fare: number | null;
   estimated_fare: number | null;
+  gross_fare_pence: number | null;
+  waiting_charge_pence: number | null;
+  total_waiting_charge_pence: number | null;
+  fare_breakdown: Record<string, number> | null;
   currency_code: string | null;
   pickup_address: string | null;
   dropoff_address: string | null;
@@ -122,8 +126,9 @@ export default function CorporateBilling() {
       const { data, error } = await supabase
         .from('trips')
         .select(`
-          id, trip_number, trip_code, status, fare, estimated_fare, currency_code,
-          pickup_address, dropoff_address, created_at, completed_at, corporate_account_id,
+          id, trip_number, trip_code, status, fare, estimated_fare, gross_fare_pence,
+          waiting_charge_pence, total_waiting_charge_pence, fare_breakdown,
+          currency_code, pickup_address, dropoff_address, created_at, completed_at, corporate_account_id,
           corporate_account:corporate_accounts(id, company_name)
         `)
         .not('corporate_account_id', 'is', null)
@@ -248,7 +253,10 @@ export default function CorporateBilling() {
   const completedCorpTrips = corporateTrips.filter(t => t.status === 'completed').length;
   const totalCorpRevenue = corporateTrips
     .filter(t => t.status === 'completed')
-    .reduce((sum, t) => sum + (t.fare || t.estimated_fare || 0), 0);
+    .reduce((sum, t) => {
+      if (t.gross_fare_pence != null && t.gross_fare_pence > 0) return sum + t.gross_fare_pence / 100;
+      return sum + (t.fare || t.estimated_fare || 0);
+    }, 0);
 
   // Invoice Stats
   const totalRevenue = invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + i.total_amount, 0);
@@ -566,7 +574,16 @@ export default function CorporateBilling() {
                           </TableCell>
                           <TableCell className="font-medium">
                             {getCurrencySymbol(trip.currency_code || '')}
-                            {(trip.fare || trip.estimated_fare || 0).toFixed(2)}
+                            {(trip.gross_fare_pence != null && trip.gross_fare_pence > 0
+                              ? (trip.gross_fare_pence / 100)
+                              : (trip.fare || trip.estimated_fare || 0)
+                            ).toFixed(2)}
+                            {(trip.total_waiting_charge_pence || trip.waiting_charge_pence || 0) > 0 && (
+                              <span className="block text-[10px] text-amber-600">
+                                incl. waiting {getCurrencySymbol(trip.currency_code || '')}
+                                {((trip.total_waiting_charge_pence || trip.waiting_charge_pence || 0) / 100).toFixed(2)}
+                              </span>
+                            )}
                           </TableCell>
                           <TableCell>{getTripStatusBadge(trip.status)}</TableCell>
                           <TableCell>
