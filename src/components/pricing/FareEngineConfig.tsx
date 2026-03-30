@@ -588,6 +588,13 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
             recalculateOnWaiting={settings.recalculate_on_waiting}
             currencySymbol={symbol}
             onUpdate={(key, value) => updateField(key as keyof FarePricingSettings, value as never)}
+            stopRadiusEnabled={stopWaiting.stopRadiusEnabled}
+            stopRadiusMeters={stopWaiting.stopRadiusMeters}
+            stopWaitingChargeIntervalSeconds={stopWaiting.stopWaitingChargeIntervalSeconds}
+            stopWaitingGracePeriodSeconds={stopWaiting.stopWaitingGracePeriodSeconds}
+            stopWaitingRatePencePerMinute={stopWaiting.stopWaitingRatePencePerMinute}
+            stopWaitingMaxMinutes={stopWaiting.stopWaitingMaxMinutes}
+            onStopWaitingUpdate={updateStopWaitingField}
           />
 
 
