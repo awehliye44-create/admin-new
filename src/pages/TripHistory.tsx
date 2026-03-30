@@ -117,6 +117,12 @@ interface CompletedTrip {
   vehicle_type: string | null;
   service_area_id: string | null;
   fare_engine_config_id: string | null;
+  // Waiting & fare breakdown fields
+  waiting_charge_pence: number | null;
+  pickup_waiting_charge_pence: number | null;
+  total_waiting_charge_pence: number | null;
+  waiting_minutes: number | null;
+  fare_breakdown: Record<string, unknown> | null;
   driver?: {
     id: string;
     first_name: string;
