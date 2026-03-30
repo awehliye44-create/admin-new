@@ -459,7 +459,43 @@ export default function ManualTrip() {
         }
       }
 
-      // 3. Create trip — trip_number assigned via DB trigger (assign_trip_number)
+      // 3. Validate scheduled booking rules from dispatch_settings
+      if (isScheduled && resolvedServiceAreaId) {
+        const { data: dsRow } = await supabase
+          .from('dispatch_settings')
+          .select('scheduled_rides_enabled, min_advance_time_minutes, max_advance_days')
+          .eq('service_area_id', resolvedServiceAreaId)
+          .maybeSingle();
+
+        if (dsRow) {
+          if (!dsRow.scheduled_rides_enabled) {
+            toast.error('Scheduled rides are disabled for this service area.');
+            setIsSubmitting(false);
+            return;
+          }
+
+          const scheduledAt = new Date(`${scheduledDate}T${scheduledTime}`);
+          const now = new Date();
+          const minutesUntilPickup = (scheduledAt.getTime() - now.getTime()) / 60000;
+          const daysUntilPickup = minutesUntilPickup / 1440;
+
+          const minAdvance = dsRow.min_advance_time_minutes ?? 30;
+          if (minutesUntilPickup < minAdvance) {
+            toast.error(`Scheduled pickup must be at least ${minAdvance} minutes from now.`);
+            setIsSubmitting(false);
+            return;
+          }
+
+          const maxDays = dsRow.max_advance_days ?? 30;
+          if (daysUntilPickup > maxDays) {
+            toast.error(`Scheduled pickup cannot be more than ${maxDays} days in the future.`);
+            setIsSubmitting(false);
+            return;
+          }
+        }
+      }
+
+      // 4. Create trip — trip_number assigned via DB trigger (assign_trip_number)
       const tripData = {
         passenger_id: passengerId,
         passenger_name: passengerName.trim(),
