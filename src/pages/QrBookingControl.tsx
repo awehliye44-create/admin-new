@@ -43,6 +43,7 @@ export default function QrBookingControl() {
   const [config, setConfig] = useState<QrConfig | null>(null);
   const [form, setForm] = useState({ pickup_name: '', pickup_address: '', pickup_lat: '', pickup_lng: '', status: 'disabled', allow_cash: true, allow_card: true, allow_apple_pay: true, allow_google_pay: true });
   const [saving, setSaving] = useState(false);
+  const [statusSaving, setStatusSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
   const qrRef = useRef<HTMLDivElement>(null);
@@ -138,31 +139,40 @@ export default function QrBookingControl() {
   };
 
   const handleStatusToggle = async (checked: boolean) => {
+    if (!config || statusSaving || checked === (config.status === 'active')) return;
+
+    const previousStatus = config.status;
     const newStatus = checked ? 'active' : 'disabled';
+
+    setStatusSaving(true);
     setForm(prev => ({ ...prev, status: newStatus }));
-    if (!config) return;
+    setConfig(prev => (prev ? { ...prev, status: newStatus } : prev));
 
     const { error } = await supabase
       .from('qr_booking_config')
       .update({ status: newStatus, updated_by: user?.id })
-      .eq('id', config.id);
+      .eq('id', config.id)
+      .select('*')
+      .single();
 
     if (error) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
-      setForm(prev => ({ ...prev, status: config.status })); // revert
+      setForm(prev => ({ ...prev, status: previousStatus }));
+      setConfig(prev => (prev ? { ...prev, status: previousStatus } : prev));
+      setStatusSaving(false);
       return;
     }
 
     await supabase.from('qr_booking_audit_log').insert({
       changed_by: user?.id,
       changed_by_email: user?.email ?? null,
-      old_values: { status: config.status },
+      old_values: { status: previousStatus },
       new_values: { status: newStatus },
     });
 
     toast({ title: 'Saved', description: `QR Booking ${checked ? 'enabled' : 'disabled'}` });
-    fetchConfig();
-    fetchAudit();
+    await Promise.all([fetchConfig(), fetchAudit()]);
+    setStatusSaving(false);
   };
 
   const copyUrl = async () => {
@@ -254,7 +264,7 @@ export default function QrBookingControl() {
                   {isActive ? 'Guest bookings via QR are live' : 'Guest bookings via QR are blocked'}
                 </p>
               </div>
-              <Switch checked={isActive} onCheckedChange={handleStatusToggle} />
+              <Switch checked={isActive} disabled={statusSaving} onCheckedChange={handleStatusToggle} />
             </div>
 
             {/* Payment Methods */}
