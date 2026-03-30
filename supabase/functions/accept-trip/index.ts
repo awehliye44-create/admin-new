@@ -125,6 +125,47 @@ serve(async (req) => {
       }
     }
 
+    // ====== STACKED RIDES ENFORCEMENT ======
+    // Check if driver already has an active trip — if so, enforce Admin max_stacked_rides
+    const { data: driverData } = await supabase
+      .from('drivers')
+      .select('current_trip_id')
+      .eq('id', driver_id)
+      .single();
+
+    if (driverData?.current_trip_id) {
+      // Driver is on an active trip — check stacked rides config
+      const { data: stackedConfig } = await supabase
+        .from('dispatch_settings')
+        .select('stacked_rides_enabled, max_stacked_rides')
+        .eq('service_area_id', tripForSA?.service_area_id)
+        .maybeSingle();
+
+      if (!stackedConfig || !stackedConfig.stacked_rides_enabled) {
+        console.log(`[accept-trip] Stacked rides disabled — driver ${driver_id} already on trip`);
+        return errorResponse('Stacked rides are not enabled for this service area', 403, {
+          code: 'STACKED_RIDES_DISABLED'
+        });
+      }
+
+      // Count driver's current active trips
+      const { count: activeCount } = await supabase
+        .from('trips')
+        .select('id', { count: 'exact', head: true })
+        .eq('driver_id', driver_id)
+        .in('status', ['accepted', 'driver_arriving', 'arrived', 'in_progress']);
+
+      const maxAllowed = stackedConfig.max_stacked_rides + 1; // current + stacked
+      if ((activeCount || 0) >= maxAllowed) {
+        console.log(`[accept-trip] Driver ${driver_id} at stacked limit: ${activeCount}/${maxAllowed}`);
+        return errorResponse('Maximum stacked rides reached', 403, {
+          code: 'MAX_STACKED_RIDES',
+          current: activeCount,
+          max: maxAllowed,
+        });
+      }
+    }
+
     console.log(`[accept-trip] Driver ${driver_id} attempting to accept trip ${trip_id}`);
 
     // Verify the offer exists and is still valid

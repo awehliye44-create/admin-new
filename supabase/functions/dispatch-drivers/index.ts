@@ -48,12 +48,40 @@ interface ScoredCandidate {
   dispatch_score: number;
   lat: number;
   lng: number;
+  is_stacked: boolean;
 }
 
 function minutesSince(dateStr: string | null, fallback: string | null): number {
   const ref = dateStr || fallback;
   if (!ref) return 0;
   return Math.max(0, (Date.now() - new Date(ref).getTime()) / 60000);
+}
+
+function parseSettings(row: Record<string, any>): DispatchSettings {
+  return {
+    search_radius_start_km: row.search_radius_start_km,
+    search_radius_expand_km: row.search_radius_expand_km,
+    search_radius_max_km: row.search_radius_max_km,
+    shortlist_limit: row.shortlist_limit,
+    wave1_size: row.wave1_size,
+    wave2_size: row.wave2_size,
+    wave3_size: row.wave3_size,
+    offer_expiry_seconds: row.offer_expiry_seconds,
+    wave1_offer_expiry_seconds: row.wave1_offer_expiry_seconds,
+    wave2_offer_expiry_seconds: row.wave2_offer_expiry_seconds,
+    wave3_offer_expiry_seconds: row.wave3_offer_expiry_seconds,
+    distance_penalty_per_km: row.distance_penalty_per_km,
+    waiting_bonus_per_minute: row.waiting_bonus_per_minute,
+    max_waiting_bonus_minutes: row.max_waiting_bonus_minutes,
+    fairness_idle_minutes: row.fairness_idle_minutes,
+    fairness_boost_score: row.fairness_boost_score,
+    accept_timeout_seconds: row.accept_timeout_seconds,
+    stacked_rides_enabled: row.stacked_rides_enabled,
+    max_stacked_rides: row.max_stacked_rides,
+    stacked_min_trip_distance_km: row.stacked_min_trip_distance_km,
+    stacked_max_detour_minutes: row.stacked_max_detour_minutes,
+    stacked_priority_mode: row.stacked_priority_mode,
+  };
 }
 
 serve(async (req) => {
@@ -134,72 +162,29 @@ serve(async (req) => {
       return successResponse({ dispatched: true, scan_go: true, offers_sent: 1 });
     }
 
-    // ====== LOAD DISPATCH SETTINGS ======
+    // ====== LOAD DISPATCH SETTINGS (strict — no hardcoded defaults) ======
     const resolvedSaId = service_area_id || trip.service_area_id;
-    let settings: DispatchSettings = { ...DEFAULT_SETTINGS };
 
-    if (resolvedSaId) {
-      const { data: saSettings } = await supabase
-        .from("dispatch_settings")
-        .select("*")
-        .eq("service_area_id", resolvedSaId)
-        .maybeSingle();
-
-      if (saSettings) {
-        settings = {
-          search_radius_start_km: saSettings.search_radius_start_km ?? DEFAULT_SETTINGS.search_radius_start_km,
-          search_radius_expand_km: saSettings.search_radius_expand_km ?? DEFAULT_SETTINGS.search_radius_expand_km,
-          search_radius_max_km: saSettings.search_radius_max_km ?? DEFAULT_SETTINGS.search_radius_max_km,
-          shortlist_limit: saSettings.shortlist_limit ?? DEFAULT_SETTINGS.shortlist_limit,
-          wave1_size: saSettings.wave1_size ?? DEFAULT_SETTINGS.wave1_size,
-          wave2_size: saSettings.wave2_size ?? DEFAULT_SETTINGS.wave2_size,
-          wave3_size: saSettings.wave3_size ?? DEFAULT_SETTINGS.wave3_size,
-          offer_expiry_seconds: saSettings.offer_expiry_seconds ?? DEFAULT_SETTINGS.offer_expiry_seconds,
-          wave1_offer_expiry_seconds: saSettings.wave1_offer_expiry_seconds ?? DEFAULT_SETTINGS.wave1_offer_expiry_seconds,
-          wave2_offer_expiry_seconds: saSettings.wave2_offer_expiry_seconds ?? DEFAULT_SETTINGS.wave2_offer_expiry_seconds,
-          wave3_offer_expiry_seconds: saSettings.wave3_offer_expiry_seconds ?? DEFAULT_SETTINGS.wave3_offer_expiry_seconds,
-          distance_penalty_per_km: saSettings.distance_penalty_per_km ?? DEFAULT_SETTINGS.distance_penalty_per_km,
-          waiting_bonus_per_minute: saSettings.waiting_bonus_per_minute ?? DEFAULT_SETTINGS.waiting_bonus_per_minute,
-          max_waiting_bonus_minutes: saSettings.max_waiting_bonus_minutes ?? DEFAULT_SETTINGS.max_waiting_bonus_minutes,
-          fairness_idle_minutes: saSettings.fairness_idle_minutes ?? DEFAULT_SETTINGS.fairness_idle_minutes,
-          fairness_boost_score: saSettings.fairness_boost_score ?? DEFAULT_SETTINGS.fairness_boost_score,
-          accept_timeout_seconds: saSettings.accept_timeout_seconds ?? DEFAULT_SETTINGS.accept_timeout_seconds,
-        };
-      }
+    if (!resolvedSaId) {
+      return errorResponse("No service area resolved for trip. Configure dispatch_settings in Admin.", 422);
     }
 
-    // Fallback to global settings if no SA-specific
-    if (!resolvedSaId || settings === DEFAULT_SETTINGS) {
-      const { data: globalSettings } = await supabase
-        .from("dispatch_settings")
-        .select("*")
-        .is("service_area_id", null)
-        .maybeSingle();
+    const { data: saSettings } = await supabase
+      .from("dispatch_settings")
+      .select("*")
+      .eq("service_area_id", resolvedSaId)
+      .maybeSingle();
 
-      if (globalSettings) {
-        settings = {
-          search_radius_start_km: globalSettings.search_radius_start_km ?? DEFAULT_SETTINGS.search_radius_start_km,
-          search_radius_expand_km: globalSettings.search_radius_expand_km ?? DEFAULT_SETTINGS.search_radius_expand_km,
-          search_radius_max_km: globalSettings.search_radius_max_km ?? DEFAULT_SETTINGS.search_radius_max_km,
-          shortlist_limit: globalSettings.shortlist_limit ?? DEFAULT_SETTINGS.shortlist_limit,
-          wave1_size: globalSettings.wave1_size ?? DEFAULT_SETTINGS.wave1_size,
-          wave2_size: globalSettings.wave2_size ?? DEFAULT_SETTINGS.wave2_size,
-          wave3_size: globalSettings.wave3_size ?? DEFAULT_SETTINGS.wave3_size,
-          offer_expiry_seconds: globalSettings.offer_expiry_seconds ?? DEFAULT_SETTINGS.offer_expiry_seconds,
-          wave1_offer_expiry_seconds: globalSettings.wave1_offer_expiry_seconds ?? DEFAULT_SETTINGS.wave1_offer_expiry_seconds,
-          wave2_offer_expiry_seconds: globalSettings.wave2_offer_expiry_seconds ?? DEFAULT_SETTINGS.wave2_offer_expiry_seconds,
-          wave3_offer_expiry_seconds: globalSettings.wave3_offer_expiry_seconds ?? DEFAULT_SETTINGS.wave3_offer_expiry_seconds,
-          distance_penalty_per_km: globalSettings.distance_penalty_per_km ?? DEFAULT_SETTINGS.distance_penalty_per_km,
-          waiting_bonus_per_minute: globalSettings.waiting_bonus_per_minute ?? DEFAULT_SETTINGS.waiting_bonus_per_minute,
-          max_waiting_bonus_minutes: globalSettings.max_waiting_bonus_minutes ?? DEFAULT_SETTINGS.max_waiting_bonus_minutes,
-          fairness_idle_minutes: globalSettings.fairness_idle_minutes ?? DEFAULT_SETTINGS.fairness_idle_minutes,
-          fairness_boost_score: globalSettings.fairness_boost_score ?? DEFAULT_SETTINGS.fairness_boost_score,
-          accept_timeout_seconds: globalSettings.accept_timeout_seconds ?? DEFAULT_SETTINGS.accept_timeout_seconds,
-        };
-      }
+    if (!saSettings) {
+      return errorResponse(
+        `No dispatch_settings configured for service area ${resolvedSaId}. Configure in Admin Panel → Auto-Dispatch Rules.`,
+        422
+      );
     }
 
-    console.log(`[dispatch-drivers] Settings loaded: start=${settings.search_radius_start_km}km, waves=${settings.wave1_size}/${settings.wave2_size}/${settings.wave3_size}`);
+    const settings = parseSettings(saSettings);
+
+    console.log(`[dispatch-drivers] Settings loaded: start=${settings.search_radius_start_km}km, waves=${settings.wave1_size}/${settings.wave2_size}/${settings.wave3_size}, stacked=${settings.stacked_rides_enabled}, max_stacked=${settings.max_stacked_rides}`);
 
     // ====== EXPANDING RADIUS SEARCH + SCORING ======
     const radiusSteps = [
@@ -283,6 +268,27 @@ serve(async (req) => {
 
       const busyIds = new Set((pendingOffers || []).map((o: any) => o.driver_id));
 
+      // ====== STACKED RIDES: count active trips per driver ======
+      // Build a map of driver_id → count of active trips for stacking eligibility
+      const activeTripsCountMap = new Map<string, number>();
+      if (settings.stacked_rides_enabled) {
+        // Get drivers who have current_trip_id set (on active trip)
+        const driversOnTrip = (driverDetails || []).filter((d: any) => d.current_trip_id);
+        if (driversOnTrip.length > 0) {
+          const onTripIds = driversOnTrip.map((d: any) => d.id);
+          // Count active (non-completed, non-cancelled) trips per driver
+          const { data: activeTripCounts } = await supabase
+            .from("trips")
+            .select("driver_id")
+            .in("driver_id", onTripIds)
+            .in("status", ["accepted", "driver_arriving", "arrived", "in_progress"]);
+
+          for (const row of activeTripCounts || []) {
+            activeTripsCountMap.set(row.driver_id, (activeTripsCountMap.get(row.driver_id) || 0) + 1);
+          }
+        }
+      }
+
       // Score candidates using category_priority
       const candidates: ScoredCandidate[] = [];
       for (const nd of nearbyDrivers) {
@@ -291,7 +297,32 @@ serve(async (req) => {
         if (offeredDriverIds.has(nd.driver_id)) continue;
 
         const detail = driverMap.get(nd.driver_id);
-        if (!detail || detail.current_trip_id) continue;
+        if (!detail) continue;
+
+        // ====== STACKED RIDES GATE ======
+        const hasActiveTrip = !!detail.current_trip_id;
+        let isStackedCandidate = false;
+
+        if (hasActiveTrip) {
+          // If stacked rides disabled → skip driver entirely
+          if (!settings.stacked_rides_enabled) continue;
+
+          // Check max stacked rides limit from Admin config
+          const currentActiveCount = activeTripsCountMap.get(nd.driver_id) || 1;
+          if (currentActiveCount >= settings.max_stacked_rides + 1) {
+            // Already at max capacity (current trip + max stacked)
+            console.log(`[dispatch-drivers] Driver ${nd.driver_id} at stacked limit (${currentActiveCount}/${settings.max_stacked_rides + 1})`);
+            continue;
+          }
+
+          // Check minimum trip distance for stacking eligibility
+          const distanceKm = nd.distance_meters / 1000;
+          if (distanceKm > settings.stacked_min_trip_distance_km) {
+            continue;
+          }
+
+          isStackedCandidate = true;
+        }
 
         const distanceKm = nd.distance_meters / 1000;
         const waitingMin = Math.min(
@@ -303,19 +334,21 @@ serve(async (req) => {
         const categoryPriority = catInfo?.priority ?? 10;
 
         const distancePenalty = distanceKm * settings.distance_penalty_per_km;
-        const waitingBonus = waitingMin * settings.waiting_bonus_per_minute;
+        const waitingBonus = isStackedCandidate ? 0 : waitingMin * settings.waiting_bonus_per_minute;
 
         let fairnessBoost = 0;
-        if (detail.last_offer_at) {
-          const minSinceOffer = minutesSince(detail.last_offer_at, null);
-          if (minSinceOffer >= settings.fairness_idle_minutes) {
+        if (!isStackedCandidate) {
+          if (detail.last_offer_at) {
+            const minSinceOffer = minutesSince(detail.last_offer_at, null);
+            if (minSinceOffer >= settings.fairness_idle_minutes) {
+              fairnessBoost = settings.fairness_boost_score;
+            }
+          } else {
             fairnessBoost = settings.fairness_boost_score;
           }
-        } else {
-          fairnessBoost = settings.fairness_boost_score; // Never offered = boost
         }
 
-        // PostGIS Dispatch Score: category_priority + waiting_bonus + fairness_boost − distance_penalty
+        // PostGIS Dispatch Score
         const dispatchScore = categoryPriority + waitingBonus + fairnessBoost - distancePenalty;
 
         candidates.push({
@@ -327,14 +360,19 @@ serve(async (req) => {
           dispatch_score: Math.round(dispatchScore * 100) / 100,
           lat: nd.lat,
           lng: nd.lng,
+          is_stacked: isStackedCandidate,
         });
       }
 
-      // Sort by score DESC — single ranking, no secondary sorting
-      candidates.sort((a, b) => b.dispatch_score - a.dispatch_score);
+      // Sort by score DESC — idle drivers first, stacked drivers after
+      candidates.sort((a, b) => {
+        // Non-stacked (idle) always rank above stacked
+        if (a.is_stacked !== b.is_stacked) return a.is_stacked ? 1 : -1;
+        return b.dispatch_score - a.dispatch_score;
+      });
       allCandidates = [...allCandidates, ...candidates];
 
-      console.log(`[dispatch-drivers] ${candidates.length} scored candidates at ${radiusKm}km`);
+      console.log(`[dispatch-drivers] ${candidates.length} scored candidates at ${radiusKm}km (${candidates.filter(c => c.is_stacked).length} stacked)`);
 
       // ====== WAVE DISPATCH ======
       const waves = [
@@ -493,6 +531,7 @@ serve(async (req) => {
         distance_km: c.distance_km,
         waiting_minutes: c.waiting_minutes,
         score: c.dispatch_score,
+        is_stacked: c.is_stacked,
       })),
     });
   } catch (err) {
