@@ -4148,6 +4148,7 @@ export type Database = {
           driver_amount_pence: number | null
           driver_id: string | null
           driver_stripe_account_id: string | null
+          fee_type: string | null
           gross_amount_pence: number | null
           id: string
           last_error: string | null
@@ -4171,6 +4172,7 @@ export type Database = {
           driver_amount_pence?: number | null
           driver_id?: string | null
           driver_stripe_account_id?: string | null
+          fee_type?: string | null
           gross_amount_pence?: number | null
           id?: string
           last_error?: string | null
@@ -4194,6 +4196,7 @@ export type Database = {
           driver_amount_pence?: number | null
           driver_id?: string | null
           driver_stripe_account_id?: string | null
+          fee_type?: string | null
           gross_amount_pence?: number | null
           id?: string
           last_error?: string | null
@@ -6577,6 +6580,7 @@ export type Database = {
           type: string
           updated_at: string
           waiting_charge_active: boolean
+          waiting_charge_pence: number | null
           waiting_started_at: string | null
           waiting_stopped_at: string | null
           waiting_total_amount_pence: number
@@ -6597,6 +6601,7 @@ export type Database = {
           type: string
           updated_at?: string
           waiting_charge_active?: boolean
+          waiting_charge_pence?: number | null
           waiting_started_at?: string | null
           waiting_stopped_at?: string | null
           waiting_total_amount_pence?: number
@@ -6617,6 +6622,7 @@ export type Database = {
           type?: string
           updated_at?: string
           waiting_charge_active?: boolean
+          waiting_charge_pence?: number | null
           waiting_started_at?: string | null
           waiting_stopped_at?: string | null
           waiting_total_amount_pence?: number
