@@ -17,7 +17,7 @@ Deno.serve(async (req) => {
 
     const { data, error } = await supabase
       .from('qr_booking_config')
-      .select('pickup_name, pickup_address, pickup_lat, pickup_lng, status, qr_url')
+      .select('pickup_name, pickup_address, pickup_lat, pickup_lng, status, qr_url, allow_cash, allow_card, allow_apple_pay, allow_google_pay')
       .limit(1)
       .single();
 
@@ -47,6 +47,12 @@ Deno.serve(async (req) => {
         lng: data.pickup_lng,
       },
       qrUrl: data.qr_url,
+      paymentMethods: {
+        cash: data.allow_cash,
+        card: data.allow_card,
+        applePay: data.allow_apple_pay,
+        googlePay: data.allow_google_pay,
+      },
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

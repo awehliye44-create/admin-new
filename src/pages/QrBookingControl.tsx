@@ -24,6 +24,10 @@ interface QrConfig {
   status: string;
   qr_url: string;
   updated_at: string;
+  allow_cash: boolean;
+  allow_card: boolean;
+  allow_apple_pay: boolean;
+  allow_google_pay: boolean;
 }
 
 interface AuditEntry {
@@ -37,7 +41,7 @@ interface AuditEntry {
 export default function QrBookingControl() {
   const { user } = useAuth();
   const [config, setConfig] = useState<QrConfig | null>(null);
-  const [form, setForm] = useState({ pickup_name: '', pickup_address: '', pickup_lat: '', pickup_lng: '', status: 'disabled' });
+  const [form, setForm] = useState({ pickup_name: '', pickup_address: '', pickup_lat: '', pickup_lng: '', status: 'disabled', allow_cash: true, allow_card: true, allow_apple_pay: true, allow_google_pay: true });
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
@@ -54,6 +58,10 @@ export default function QrBookingControl() {
         pickup_lat: String(c.pickup_lat || ''),
         pickup_lng: String(c.pickup_lng || ''),
         status: c.status,
+        allow_cash: c.allow_cash,
+        allow_card: c.allow_card,
+        allow_apple_pay: c.allow_apple_pay,
+        allow_google_pay: c.allow_google_pay,
       });
     }
   }, []);
@@ -89,6 +97,10 @@ export default function QrBookingControl() {
       pickup_lat: config.pickup_lat,
       pickup_lng: config.pickup_lng,
       status: config.status,
+      allow_cash: config.allow_cash,
+      allow_card: config.allow_card,
+      allow_apple_pay: config.allow_apple_pay,
+      allow_google_pay: config.allow_google_pay,
     };
 
     const newValues = {
@@ -97,6 +109,10 @@ export default function QrBookingControl() {
       pickup_lat: parseFloat(form.pickup_lat),
       pickup_lng: parseFloat(form.pickup_lng),
       status: form.status,
+      allow_cash: form.allow_cash,
+      allow_card: form.allow_card,
+      allow_apple_pay: form.allow_apple_pay,
+      allow_google_pay: form.allow_google_pay,
     };
 
     const { error } = await supabase
@@ -215,6 +231,37 @@ export default function QrBookingControl() {
                 </p>
               </div>
               <Switch checked={isActive} onCheckedChange={handleStatusToggle} />
+            </div>
+
+            {/* Payment Methods */}
+            <div className="space-y-3">
+              <Label className="text-base">Allowed Payment Methods</Label>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">Cash</span>
+                  </div>
+                  <Switch checked={form.allow_cash} onCheckedChange={v => setForm(p => ({ ...p, allow_cash: v }))} />
+                </div>
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">Card</span>
+                  </div>
+                  <Switch checked={form.allow_card} onCheckedChange={v => setForm(p => ({ ...p, allow_card: v }))} />
+                </div>
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">Apple Pay</span>
+                  </div>
+                  <Switch checked={form.allow_apple_pay} onCheckedChange={v => setForm(p => ({ ...p, allow_apple_pay: v }))} />
+                </div>
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">Google Pay</span>
+                  </div>
+                  <Switch checked={form.allow_google_pay} onCheckedChange={v => setForm(p => ({ ...p, allow_google_pay: v }))} />
+                </div>
+              </div>
             </div>
 
             {/* QR URL (readonly) */}
