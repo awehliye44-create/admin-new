@@ -137,8 +137,32 @@ export default function QrBookingControl() {
     setSaving(false);
   };
 
-  const handleStatusToggle = (checked: boolean) => {
-    setForm(prev => ({ ...prev, status: checked ? 'active' : 'disabled' }));
+  const handleStatusToggle = async (checked: boolean) => {
+    const newStatus = checked ? 'active' : 'disabled';
+    setForm(prev => ({ ...prev, status: newStatus }));
+    if (!config) return;
+
+    const { error } = await supabase
+      .from('qr_booking_config')
+      .update({ status: newStatus, updated_by: user?.id })
+      .eq('id', config.id);
+
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      setForm(prev => ({ ...prev, status: config.status })); // revert
+      return;
+    }
+
+    await supabase.from('qr_booking_audit_log').insert({
+      changed_by: user?.id,
+      changed_by_email: user?.email ?? null,
+      old_values: { status: config.status },
+      new_values: { status: newStatus },
+    });
+
+    toast({ title: 'Saved', description: `QR Booking ${checked ? 'enabled' : 'disabled'}` });
+    fetchConfig();
+    fetchAudit();
   };
 
   const copyUrl = async () => {
