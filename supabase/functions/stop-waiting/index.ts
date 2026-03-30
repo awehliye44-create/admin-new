@@ -49,43 +49,36 @@ serve(async (req) => {
           return errorResponse("Missing trip_id or stop_id for start", 400);
         }
 
-        // Get dispatch settings for this trip's service area
-        const { data: trip } = await supabase
+        // Get trip's service area — Admin Panel config is the single source of truth.
+        const { data: trip, error: tripErr } = await supabase
           .from("trips")
           .select("service_area_id")
           .eq("id", body.trip_id)
           .single();
 
-        let gracePeriod = 0;
-        let chargeInterval = 10;
-        let ratePence = 30;
-
-        if (trip?.service_area_id) {
-          const { data: ds } = await supabase
-            .from("dispatch_settings")
-            .select("stop_waiting_grace_period_seconds, stop_waiting_charge_interval_seconds, stop_waiting_rate_pence_per_minute")
-            .eq("service_area_id", trip.service_area_id)
-            .maybeSingle();
-
-          if (ds) {
-            gracePeriod = ds.stop_waiting_grace_period_seconds ?? 0;
-            chargeInterval = ds.stop_waiting_charge_interval_seconds ?? 10;
-            ratePence = ds.stop_waiting_rate_pence_per_minute ?? 30;
-          } else {
-            // Fallback to global settings
-            const { data: globalDs } = await supabase
-              .from("dispatch_settings")
-              .select("stop_waiting_grace_period_seconds, stop_waiting_charge_interval_seconds, stop_waiting_rate_pence_per_minute")
-              .is("service_area_id", null)
-              .maybeSingle();
-
-            if (globalDs) {
-              gracePeriod = globalDs.stop_waiting_grace_period_seconds ?? 0;
-              chargeInterval = globalDs.stop_waiting_charge_interval_seconds ?? 10;
-              ratePence = globalDs.stop_waiting_rate_pence_per_minute ?? 30;
-            }
-          }
+        if (tripErr || !trip?.service_area_id) {
+          return errorResponse("Trip not found or has no service_area_id", 404);
         }
+
+        const { data: ds, error: dsErr } = await supabase
+          .from("dispatch_settings")
+          .select("stop_waiting_grace_period_seconds, stop_waiting_charge_interval_seconds, stop_waiting_rate_pence_per_minute")
+          .eq("service_area_id", trip.service_area_id)
+          .maybeSingle();
+
+        if (dsErr || !ds) {
+          console.error(
+            `[stop-waiting] No dispatch_settings found for service_area=${trip.service_area_id}. Admin must configure stop waiting rules first.`
+          );
+          return errorResponse(
+            "No stop waiting settings configured for this service area. Please configure in Admin Panel.",
+            422
+          );
+        }
+
+        const gracePeriod = ds.stop_waiting_grace_period_seconds;
+        const chargeInterval = ds.stop_waiting_charge_interval_seconds;
+        const ratePence = ds.stop_waiting_rate_pence_per_minute;
 
         const { data: waitingId, error } = await supabase.rpc("start_stop_waiting", {
           p_trip_id: body.trip_id,
