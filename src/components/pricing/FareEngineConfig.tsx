@@ -313,6 +313,38 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
         if (error) throw error;
         if (data) setSettings(data as unknown as FarePricingSettings);
       }
+
+      // Save stop waiting settings to dispatch_settings if changed
+      if (stopWaitingHasChanges) {
+        const stopPayload = {
+          service_area_id: serviceAreaId,
+          stop_radius_enabled: stopWaiting.stopRadiusEnabled,
+          stop_radius_meters: stopWaiting.stopRadiusMeters,
+          stop_waiting_charge_interval_seconds: stopWaiting.stopWaitingChargeIntervalSeconds,
+          stop_waiting_grace_period_seconds: stopWaiting.stopWaitingGracePeriodSeconds,
+          stop_waiting_rate_pence_per_minute: stopWaiting.stopWaitingRatePencePerMinute,
+          stop_waiting_max_minutes: stopWaiting.stopWaitingMaxMinutes,
+        };
+
+        const { data: existing } = await supabase
+          .from('dispatch_settings')
+          .select('id')
+          .eq('service_area_id', serviceAreaId)
+          .maybeSingle();
+
+        if (existing) {
+          await supabase
+            .from('dispatch_settings')
+            .update(stopPayload)
+            .eq('service_area_id', serviceAreaId);
+        } else {
+          await supabase
+            .from('dispatch_settings')
+            .insert(stopPayload);
+        }
+        setStopWaitingHasChanges(false);
+      }
+
       setHasChanges(false);
       // Update configured set
       setConfiguredVtIds(prev => {
