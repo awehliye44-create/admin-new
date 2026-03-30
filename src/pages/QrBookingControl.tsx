@@ -139,31 +139,40 @@ export default function QrBookingControl() {
   };
 
   const handleStatusToggle = async (checked: boolean) => {
+    if (!config || statusSaving || checked === (config.status === 'active')) return;
+
+    const previousStatus = config.status;
     const newStatus = checked ? 'active' : 'disabled';
+
+    setStatusSaving(true);
     setForm(prev => ({ ...prev, status: newStatus }));
-    if (!config) return;
+    setConfig(prev => (prev ? { ...prev, status: newStatus } : prev));
 
     const { error } = await supabase
       .from('qr_booking_config')
       .update({ status: newStatus, updated_by: user?.id })
-      .eq('id', config.id);
+      .eq('id', config.id)
+      .select('*')
+      .single();
 
     if (error) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
-      setForm(prev => ({ ...prev, status: config.status })); // revert
+      setForm(prev => ({ ...prev, status: previousStatus }));
+      setConfig(prev => (prev ? { ...prev, status: previousStatus } : prev));
+      setStatusSaving(false);
       return;
     }
 
     await supabase.from('qr_booking_audit_log').insert({
       changed_by: user?.id,
       changed_by_email: user?.email ?? null,
-      old_values: { status: config.status },
+      old_values: { status: previousStatus },
       new_values: { status: newStatus },
     });
 
     toast({ title: 'Saved', description: `QR Booking ${checked ? 'enabled' : 'disabled'}` });
-    fetchConfig();
-    fetchAudit();
+    await Promise.all([fetchConfig(), fetchAudit()]);
+    setStatusSaving(false);
   };
 
   const copyUrl = async () => {
@@ -255,7 +264,7 @@ export default function QrBookingControl() {
                   {isActive ? 'Guest bookings via QR are live' : 'Guest bookings via QR are blocked'}
                 </p>
               </div>
-              <Switch checked={isActive} onCheckedChange={handleStatusToggle} />
+              <Switch checked={isActive} disabled={statusSaving} onCheckedChange={handleStatusToggle} />
             </div>
 
             {/* Payment Methods */}
