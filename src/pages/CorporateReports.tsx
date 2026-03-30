@@ -113,6 +113,7 @@ export default function CorporateReports() {
         .select(`
           id, gross_fare_pence, commission_pence, created_at, completed_at, status,
           financial_outcome, service_area_id, corporate_account_id,
+          waiting_charge_pence, total_waiting_charge_pence, fare_breakdown,
           corporate_account:corporate_accounts!trips_corporate_account_id_fkey(id, company_name)
         `)
         .not('corporate_account_id', 'is', null)
