@@ -91,12 +91,15 @@ serve(async (req) => {
     let noShowWaitTimeMinutes = 5;
     let noShowApplyAfterArrivalOnly = true;
     let waitingPerMinutePence = 0;
+    let lateCancelEnabled = false;
+    let lateCancelThresholdMinutes = 0;
+    let lateCancelFeePence = 0;
 
     if (trip.service_area_id) {
       const fpsQuery = supabase
         .from("fare_pricing_settings")
         .select(
-          "cancellation_fee_pence, cancellation_grace_period_minutes, cancellation_apply_after_arrival_only, no_show_fee_pence, no_show_wait_time_minutes, no_show_apply_after_arrival_only, waiting_per_minute_pence"
+          "cancellation_fee_pence, cancellation_grace_period_minutes, cancellation_apply_after_arrival_only, no_show_fee_pence, no_show_wait_time_minutes, no_show_apply_after_arrival_only, waiting_per_minute_pence, late_cancel_enabled, late_cancel_threshold_minutes, late_cancel_fee_pence"
         )
         .eq("service_area_id", trip.service_area_id);
 
@@ -113,6 +116,9 @@ serve(async (req) => {
         noShowWaitTimeMinutes = fps.no_show_wait_time_minutes ?? 5;
         noShowApplyAfterArrivalOnly = fps.no_show_apply_after_arrival_only ?? true;
         waitingPerMinutePence = fps.waiting_per_minute_pence ?? 0;
+        lateCancelEnabled = fps.late_cancel_enabled ?? false;
+        lateCancelThresholdMinutes = fps.late_cancel_threshold_minutes ?? 0;
+        lateCancelFeePence = fps.late_cancel_fee_pence ?? 0;
       }
     }
 
