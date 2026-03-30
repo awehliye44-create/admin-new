@@ -114,6 +114,17 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
   const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState<string>('__default__');
   const [configuredVtIds, setConfiguredVtIds] = useState<Set<string>>(new Set());
 
+  // Stop Waiting & Get Paid (from dispatch_settings)
+  const [stopWaiting, setStopWaiting] = useState({
+    stopRadiusEnabled: false,
+    stopRadiusMeters: 100,
+    stopWaitingChargeIntervalSeconds: 10,
+    stopWaitingGracePeriodSeconds: 0,
+    stopWaitingRatePencePerMinute: 30,
+    stopWaitingMaxMinutes: null as number | null,
+  });
+  const [stopWaitingHasChanges, setStopWaitingHasChanges] = useState(false);
+
   // Region is the single source of truth for currency — never use settings.currency_code
   const currencyCode = regionCurrencyCode;
   const symbol = getCurrencySymbol(currencyCode);
@@ -121,6 +132,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
   // Fetch assigned vehicle types for this service area
   useEffect(() => {
     fetchAssignedVehicleTypes();
+    fetchStopWaitingSettings();
   }, [serviceAreaId]);
 
   // Fetch fare settings when vehicle type changes
@@ -191,6 +203,32 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
     }
     setHasChanges(false);
     setIsLoading(false);
+  };
+
+  const fetchStopWaitingSettings = async () => {
+    const { data } = await supabase
+      .from('dispatch_settings')
+      .select('stop_radius_enabled, stop_radius_meters, stop_waiting_charge_interval_seconds, stop_waiting_grace_period_seconds, stop_waiting_rate_pence_per_minute, stop_waiting_max_minutes')
+      .eq('service_area_id', serviceAreaId)
+      .maybeSingle();
+
+    if (data) {
+      setStopWaiting({
+        stopRadiusEnabled: (data as any).stop_radius_enabled ?? false,
+        stopRadiusMeters: (data as any).stop_radius_meters ?? 100,
+        stopWaitingChargeIntervalSeconds: (data as any).stop_waiting_charge_interval_seconds ?? 10,
+        stopWaitingGracePeriodSeconds: (data as any).stop_waiting_grace_period_seconds ?? 0,
+        stopWaitingRatePencePerMinute: (data as any).stop_waiting_rate_pence_per_minute ?? 30,
+        stopWaitingMaxMinutes: (data as any).stop_waiting_max_minutes ?? null,
+      });
+    }
+    setStopWaitingHasChanges(false);
+  };
+
+  const updateStopWaitingField = (key: string, value: number | boolean | null) => {
+    setStopWaiting(prev => ({ ...prev, [key]: value }));
+    setStopWaitingHasChanges(true);
+    setHasChanges(true);
   };
 
   const updateField = <K extends keyof FarePricingSettings>(key: K, value: FarePricingSettings[K]) => {
@@ -275,6 +313,38 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
         if (error) throw error;
         if (data) setSettings(data as unknown as FarePricingSettings);
       }
+
+      // Save stop waiting settings to dispatch_settings if changed
+      if (stopWaitingHasChanges) {
+        const stopPayload = {
+          service_area_id: serviceAreaId,
+          stop_radius_enabled: stopWaiting.stopRadiusEnabled,
+          stop_radius_meters: stopWaiting.stopRadiusMeters,
+          stop_waiting_charge_interval_seconds: stopWaiting.stopWaitingChargeIntervalSeconds,
+          stop_waiting_grace_period_seconds: stopWaiting.stopWaitingGracePeriodSeconds,
+          stop_waiting_rate_pence_per_minute: stopWaiting.stopWaitingRatePencePerMinute,
+          stop_waiting_max_minutes: stopWaiting.stopWaitingMaxMinutes,
+        };
+
+        const { data: existing } = await supabase
+          .from('dispatch_settings')
+          .select('id')
+          .eq('service_area_id', serviceAreaId)
+          .maybeSingle();
+
+        if (existing) {
+          await supabase
+            .from('dispatch_settings')
+            .update(stopPayload)
+            .eq('service_area_id', serviceAreaId);
+        } else {
+          await supabase
+            .from('dispatch_settings')
+            .insert(stopPayload);
+        }
+        setStopWaitingHasChanges(false);
+      }
+
       setHasChanges(false);
       // Update configured set
       setConfiguredVtIds(prev => {
@@ -518,6 +588,13 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
             recalculateOnWaiting={settings.recalculate_on_waiting}
             currencySymbol={symbol}
             onUpdate={(key, value) => updateField(key as keyof FarePricingSettings, value as never)}
+            stopRadiusEnabled={stopWaiting.stopRadiusEnabled}
+            stopRadiusMeters={stopWaiting.stopRadiusMeters}
+            stopWaitingChargeIntervalSeconds={stopWaiting.stopWaitingChargeIntervalSeconds}
+            stopWaitingGracePeriodSeconds={stopWaiting.stopWaitingGracePeriodSeconds}
+            stopWaitingRatePencePerMinute={stopWaiting.stopWaitingRatePencePerMinute}
+            stopWaitingMaxMinutes={stopWaiting.stopWaitingMaxMinutes}
+            onStopWaitingUpdate={updateStopWaitingField}
           />
 
 

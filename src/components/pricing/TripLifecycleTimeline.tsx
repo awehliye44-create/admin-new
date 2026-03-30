@@ -4,8 +4,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { 
-  Car, Clock, Ban, UserX, Timer, 
-  CheckCircle2, ShieldCheck, AlertTriangle, Banknote
+  Car, Clock, Ban, UserX, Timer, MapPin,
+  CheckCircle2, ShieldCheck, AlertTriangle, Banknote, Info
 } from 'lucide-react';
 
 interface TripLifecycleTimelineProps {
@@ -23,6 +23,14 @@ interface TripLifecycleTimelineProps {
   recalculateOnWaiting: boolean;
   currencySymbol: string;
   onUpdate: (key: string, value: number | boolean) => void;
+  // Stop Waiting & Get Paid (from dispatch_settings)
+  stopRadiusEnabled: boolean;
+  stopRadiusMeters: number;
+  stopWaitingChargeIntervalSeconds: number;
+  stopWaitingGracePeriodSeconds: number;
+  stopWaitingRatePencePerMinute: number;
+  stopWaitingMaxMinutes: number | null;
+  onStopWaitingUpdate: (key: string, value: number | boolean | null) => void;
 }
 
 export function TripLifecycleTimeline({
@@ -40,11 +48,18 @@ export function TripLifecycleTimeline({
   recalculateOnWaiting,
   currencySymbol,
   onUpdate,
+  stopRadiusEnabled,
+  stopRadiusMeters,
+  stopWaitingChargeIntervalSeconds,
+  stopWaitingGracePeriodSeconds,
+  stopWaitingRatePencePerMinute,
+  stopWaitingMaxMinutes,
+  onStopWaitingUpdate,
 }: TripLifecycleTimelineProps) {
   const penceToDisplay = (pence: number) => (pence / 100).toFixed(2);
   const displayToPence = (val: string) => Math.round(parseFloat(val || '0') * 100);
 
-  const PenceInput = ({ value, field, label }: { value: number; field: string; label: string }) => (
+  const PenceInput = ({ value, field, label, onFieldUpdate }: { value: number; field: string; label: string; onFieldUpdate?: (key: string, value: number | boolean | null) => void }) => (
     <div className="space-y-1">
       <Label className="text-xs font-medium">{label}</Label>
       <div className="relative">
@@ -54,14 +69,14 @@ export function TripLifecycleTimeline({
           step="0.01"
           min="0"
           value={penceToDisplay(value)}
-          onChange={(e) => onUpdate(field, displayToPence(e.target.value))}
+          onChange={(e) => (onFieldUpdate || onUpdate)(field, displayToPence(e.target.value))}
           className="h-8 text-sm pl-6 w-28"
         />
       </div>
     </div>
   );
 
-  const MinuteInput = ({ value, field, label }: { value: number; field: string; label: string }) => (
+  const MinuteInput = ({ value, field, label, onFieldUpdate }: { value: number; field: string; label: string; onFieldUpdate?: (key: string, value: number | boolean | null) => void }) => (
     <div className="space-y-1">
       <Label className="text-xs font-medium">{label}</Label>
       <div className="relative">
@@ -69,7 +84,7 @@ export function TripLifecycleTimeline({
           type="number"
           min="0"
           value={value}
-          onChange={(e) => onUpdate(field, parseInt(e.target.value) || 0)}
+          onChange={(e) => (onFieldUpdate || onUpdate)(field, parseInt(e.target.value) || 0)}
           className="h-8 text-sm w-20 pr-8"
         />
         <span className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">min</span>
@@ -77,7 +92,7 @@ export function TripLifecycleTimeline({
     </div>
   );
 
-  const ToggleRow = ({ checked, field, label, description }: { checked: boolean; field: string; label: string; description: string }) => (
+  const ToggleRow = ({ checked, field, label, description, onFieldUpdate }: { checked: boolean; field: string; label: string; description: string; onFieldUpdate?: (key: string, value: number | boolean | null) => void }) => (
     <div className="flex items-center justify-between gap-3">
       <div>
         <Label className="text-xs font-medium">{label}</Label>
@@ -85,7 +100,7 @@ export function TripLifecycleTimeline({
       </div>
       <Switch
         checked={checked}
-        onCheckedChange={(v) => onUpdate(field, v)}
+        onCheckedChange={(v) => (onFieldUpdate || onUpdate)(field, v)}
       />
     </div>
   );
@@ -187,6 +202,117 @@ export function TripLifecycleTimeline({
               <Ban className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
               <span className="text-muted-foreground">Stops when trip starts, cancels, or no-show</span>
             </div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'stop-waiting',
+      icon: MapPin,
+      label: 'Stop Waiting & Get Paid',
+      color: 'text-green-600',
+      bgColor: 'bg-green-500/10',
+      borderColor: 'border-green-500/30',
+      subtitle: 'Driver-controlled stop charging',
+      content: (
+        <div className="space-y-3">
+          <div className="flex items-start gap-2 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
+            <Info className="h-3.5 w-3.5 text-blue-600 mt-0.5 shrink-0" />
+            <p className="text-[11px] text-blue-700 dark:text-blue-400">
+              Driver taps <strong>"Get Paid"</strong> at a stop → waiting charge accumulates live → taps <strong>"Next"</strong> to stop charging and navigate onward.
+            </p>
+          </div>
+
+          <ToggleRow
+            checked={stopRadiusEnabled}
+            field="stopRadiusEnabled"
+            label="GPS Radius Restriction"
+            description="Only show button when driver is near the stop"
+            onFieldUpdate={onStopWaitingUpdate}
+          />
+
+          {stopRadiusEnabled && (
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">Stop Radius</Label>
+              <div className="relative">
+                <Input
+                  type="number"
+                  min="10"
+                  max="1000"
+                  step="10"
+                  value={stopRadiusMeters}
+                  onChange={(e) => onStopWaitingUpdate('stopRadiusMeters', Math.max(10, Math.min(1000, parseInt(e.target.value) || 100)))}
+                  className="h-8 text-sm w-24 pr-6"
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">m</span>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-end gap-3">
+            <PenceInput value={stopWaitingRatePencePerMinute} field="stopWaitingRatePencePerMinute" label="Rate (per min)" onFieldUpdate={onStopWaitingUpdate} />
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">Charge Interval</Label>
+              <div className="relative">
+                <Input
+                  type="number"
+                  min="5"
+                  max="60"
+                  value={stopWaitingChargeIntervalSeconds}
+                  onChange={(e) => onStopWaitingUpdate('stopWaitingChargeIntervalSeconds', Math.max(5, Math.min(60, parseInt(e.target.value) || 10)))}
+                  className="h-8 text-sm w-20 pr-4"
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">s</span>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">Grace Period</Label>
+              <div className="relative">
+                <Input
+                  type="number"
+                  min="0"
+                  max="300"
+                  value={stopWaitingGracePeriodSeconds}
+                  onChange={(e) => onStopWaitingUpdate('stopWaitingGracePeriodSeconds', Math.max(0, Math.min(300, parseInt(e.target.value) || 0)))}
+                  className="h-8 text-sm w-20 pr-4"
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">s</span>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">Max Wait</Label>
+              <div className="relative">
+                <Input
+                  type="number"
+                  min="0"
+                  max="120"
+                  value={stopWaitingMaxMinutes ?? 0}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value) || 0;
+                    onStopWaitingUpdate('stopWaitingMaxMinutes', val === 0 ? null : val);
+                  }}
+                  className="h-8 text-sm w-20 pr-8"
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">min</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-1 mt-2">
+            <div className="flex items-center gap-2 text-xs">
+              <Banknote className="h-3.5 w-3.5 text-green-600 shrink-0" />
+              <span className="text-muted-foreground"><strong className="text-foreground">{currencySymbol}{penceToDisplay(stopWaitingRatePencePerMinute)}/min</strong> • updates every {stopWaitingChargeIntervalSeconds}s</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs">
+              <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <span className="text-muted-foreground">{stopWaitingGracePeriodSeconds === 0 ? 'No grace — charges start immediately' : `${stopWaitingGracePeriodSeconds}s free before charging`}</span>
+            </div>
+            {stopWaitingMaxMinutes && (
+              <div className="flex items-center gap-2 text-xs">
+                <Timer className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <span className="text-muted-foreground">Max <strong className="text-foreground">{stopWaitingMaxMinutes} min</strong> per stop</span>
+              </div>
+            )}
           </div>
         </div>
       ),
