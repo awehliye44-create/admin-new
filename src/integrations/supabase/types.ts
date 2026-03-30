@@ -4778,6 +4778,10 @@ export type Database = {
       }
       qr_booking_config: {
         Row: {
+          allow_apple_pay: boolean
+          allow_card: boolean
+          allow_cash: boolean
+          allow_google_pay: boolean
           created_at: string
           id: string
           pickup_address: string
@@ -4790,6 +4794,10 @@ export type Database = {
           updated_by: string | null
         }
         Insert: {
+          allow_apple_pay?: boolean
+          allow_card?: boolean
+          allow_cash?: boolean
+          allow_google_pay?: boolean
           created_at?: string
           id?: string
           pickup_address?: string
@@ -4802,6 +4810,10 @@ export type Database = {
           updated_by?: string | null
         }
         Update: {
+          allow_apple_pay?: boolean
+          allow_card?: boolean
+          allow_cash?: boolean
+          allow_google_pay?: boolean
           created_at?: string
           id?: string
           pickup_address?: string
