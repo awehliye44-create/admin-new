@@ -31,27 +31,13 @@ interface DispatchSettings {
   fairness_idle_minutes: number;
   fairness_boost_score: number;
   accept_timeout_seconds: number;
+  // Stacked rides — Admin-configured
+  stacked_rides_enabled: boolean;
+  max_stacked_rides: number;
+  stacked_min_trip_distance_km: number;
+  stacked_max_detour_minutes: number;
+  stacked_priority_mode: string;
 }
-
-const DEFAULT_SETTINGS: DispatchSettings = {
-  search_radius_start_km: 3,
-  search_radius_expand_km: 5,
-  search_radius_max_km: 8,
-  shortlist_limit: 100,
-  wave1_size: 3,
-  wave2_size: 5,
-  wave3_size: 10,
-  offer_expiry_seconds: 40,
-  wave1_offer_expiry_seconds: 40,
-  wave2_offer_expiry_seconds: 45,
-  wave3_offer_expiry_seconds: 50,
-  distance_penalty_per_km: 2.0,
-  waiting_bonus_per_minute: 0.5,
-  max_waiting_bonus_minutes: 20,
-  fairness_idle_minutes: 20,
-  fairness_boost_score: 10,
-  accept_timeout_seconds: 25,
-};
 
 interface ScoredCandidate {
   driver_id: string;
