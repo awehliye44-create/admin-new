@@ -305,7 +305,9 @@ serve(async (req) => {
 
     // Record financial outcome if fee > 0
     if (appliedFee > 0 && trip.driver_id) {
-      const outcomeType = feeType === "no_show" ? "NO_SHOW" : "LATE_PASSENGER_CANCELLATION";
+      const outcomeType = feeType === "no_show" ? "NO_SHOW" 
+        : feeType === "late_cancellation" ? "LATE_PASSENGER_CANCELLATION" 
+        : "LATE_PASSENGER_CANCELLATION";
 
       try {
         const fnUrl = `${supabaseUrl}/functions/v1/record-financial-outcome`;
