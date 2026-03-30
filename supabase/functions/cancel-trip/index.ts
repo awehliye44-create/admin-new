@@ -170,60 +170,98 @@ serve(async (req) => {
       const driverAssigned = !!trip.driver_id;
       const driverArrived = !!trip.arrived_at;
 
-      // PHASE A: Post-booking, pre-arrival cancellation
-      if (driverAssigned && !driverArrived) {
-        if (cancellationApplyAfterArrivalOnly) {
-          // Setting says only charge after arrival → free cancellation pre-arrival
-          appliedFee = 0;
-          feeType = "none";
-          cancellationReasonFinal = reason || "cancelled_pre_arrival";
+      // ── LATE PASSENGER CANCELLATION CHECK (scheduled trips) ──
+      // Evaluated first: if the trip has a scheduled_at time and late_cancel is enabled,
+      // check if we're within the threshold window before pickup.
+      // For immediate trips (no scheduled_at), this block is skipped entirely.
+      let lateCancelApplied = false;
+
+      if (lateCancelEnabled && trip.scheduled_at) {
+        const scheduledPickup = new Date(trip.scheduled_at);
+        const timeToPickupMinutes = (scheduledPickup.getTime() - now.getTime()) / 60000;
+
+        console.log(
+          `[cancel-trip] LATE_CANCEL check: trip=${trip_id}, scheduled_at=${trip.scheduled_at}, ` +
+          `time_to_pickup=${timeToPickupMinutes.toFixed(1)}min, threshold=${lateCancelThresholdMinutes}min, ` +
+          `late_cancel_fee=${lateCancelFeePence}p, late_cancel_enabled=${lateCancelEnabled}`
+        );
+
+        if (timeToPickupMinutes <= lateCancelThresholdMinutes) {
+          // Within threshold → apply late cancellation fee
+          appliedFee = lateCancelFeePence;
+          feeType = "late_cancellation";
+          cancellationReasonFinal = reason || "late_passenger_cancellation";
+          financialOutcome = "CANCELLED_WITH_FEE";
+          lateCancelApplied = true;
+
+          console.log(
+            `[cancel-trip] LATE_CANCEL APPLIED: trip=${trip_id}, fee=${lateCancelFeePence}p, ` +
+            `time_to_pickup=${timeToPickupMinutes.toFixed(1)}min <= threshold=${lateCancelThresholdMinutes}min`
+          );
         } else {
-          // Check grace period (reuse cancellation_grace_expires_at set at accept-trip)
-          const graceExpires = trip.cancellation_grace_expires_at
+          console.log(
+            `[cancel-trip] LATE_CANCEL SKIPPED: trip=${trip_id}, ` +
+            `time_to_pickup=${timeToPickupMinutes.toFixed(1)}min > threshold=${lateCancelThresholdMinutes}min — no fee`
+          );
+        }
+      } else if (lateCancelEnabled && !trip.scheduled_at) {
+        // Immediate trip with late_cancel enabled — not applicable
+        console.log(
+          `[cancel-trip] LATE_CANCEL N/A: trip=${trip_id} is immediate (no scheduled_at), skipping late cancel check`
+        );
+      }
+
+      // If late cancel was applied, skip the standard grace/cancellation logic
+      if (!lateCancelApplied) {
+        // PHASE A: Post-booking, pre-arrival cancellation
+        if (driverAssigned && !driverArrived) {
+          if (cancellationApplyAfterArrivalOnly) {
+            appliedFee = 0;
+            feeType = "none";
+            cancellationReasonFinal = reason || "cancelled_pre_arrival";
+          } else {
+            const graceExpires = trip.cancellation_grace_expires_at
+              ? new Date(trip.cancellation_grace_expires_at)
+              : null;
+
+            if (graceExpires && now <= graceExpires) {
+              appliedFee = 0;
+              feeType = "none";
+              cancellationReasonFinal = "post_booking_grace";
+              financialOutcome = "CANCELLED_NO_FEE";
+            } else {
+              appliedFee = cancellationFeePence;
+              feeType = "cancellation";
+              cancellationReasonFinal = reason || "cancelled_after_grace";
+              financialOutcome = "CANCELLED_WITH_FEE";
+            }
+          }
+        }
+        // PHASE B: Post-arrival cancellation
+        else if (driverArrived) {
+          const arrivalGraceExpires = trip.cancellation_grace_expires_at
             ? new Date(trip.cancellation_grace_expires_at)
             : null;
 
-          if (graceExpires && now <= graceExpires) {
-            // Within post-booking grace → FREE
+          if (arrivalGraceExpires && now <= arrivalGraceExpires) {
             appliedFee = 0;
             feeType = "none";
-            cancellationReasonFinal = "post_booking_grace";
+            cancellationReasonFinal = "arrival_grace_period";
             financialOutcome = "CANCELLED_NO_FEE";
           } else {
-            // Grace expired → charge cancellation fee
             appliedFee = cancellationFeePence;
             feeType = "cancellation";
-            cancellationReasonFinal = reason || "cancelled_after_grace";
+            cancellationReasonFinal = reason || "cancelled_after_arrival_grace";
             financialOutcome = "CANCELLED_WITH_FEE";
           }
         }
-      }
-      // PHASE B: Post-arrival cancellation
-      else if (driverArrived) {
-        const arrivalGraceExpires = trip.cancellation_grace_expires_at
-          ? new Date(trip.cancellation_grace_expires_at)
-          : null;
-
-        if (arrivalGraceExpires && now <= arrivalGraceExpires) {
-          // Within post-arrival grace → FREE
+        // No driver assigned → always free
+        else {
           appliedFee = 0;
           feeType = "none";
-          cancellationReasonFinal = "arrival_grace_period";
+          cancellationReasonFinal = reason || "cancelled_no_driver";
           financialOutcome = "CANCELLED_NO_FEE";
-        } else {
-          // Grace expired → charge cancellation fee
-          appliedFee = cancellationFeePence;
-          feeType = "cancellation";
-          cancellationReasonFinal = reason || "cancelled_after_arrival_grace";
-          financialOutcome = "CANCELLED_WITH_FEE";
         }
-      }
-      // No driver assigned → always free
-      else {
-        appliedFee = 0;
-        feeType = "none";
-        cancellationReasonFinal = reason || "cancelled_no_driver";
-        financialOutcome = "CANCELLED_NO_FEE";
       }
     }
     // Driver cancellation (not no-show)
