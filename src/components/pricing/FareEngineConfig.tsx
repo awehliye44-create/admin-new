@@ -114,6 +114,17 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
   const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState<string>('__default__');
   const [configuredVtIds, setConfiguredVtIds] = useState<Set<string>>(new Set());
 
+  // Stop Waiting & Get Paid (from dispatch_settings)
+  const [stopWaiting, setStopWaiting] = useState({
+    stopRadiusEnabled: false,
+    stopRadiusMeters: 100,
+    stopWaitingChargeIntervalSeconds: 10,
+    stopWaitingGracePeriodSeconds: 0,
+    stopWaitingRatePencePerMinute: 30,
+    stopWaitingMaxMinutes: null as number | null,
+  });
+  const [stopWaitingHasChanges, setStopWaitingHasChanges] = useState(false);
+
   // Region is the single source of truth for currency — never use settings.currency_code
   const currencyCode = regionCurrencyCode;
   const symbol = getCurrencySymbol(currencyCode);
