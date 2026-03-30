@@ -1527,6 +1527,9 @@ export type Database = {
           global_timeout_minutes: number
           id: string
           instant_retry_enabled: boolean
+          late_cancel_enabled: boolean
+          late_cancel_fee_pence: number
+          late_cancel_threshold_minutes: number
           locked_driver_response_minutes: number
           max_advance_days: number
           max_cancel_rate: number
@@ -1540,6 +1543,8 @@ export type Database = {
           minimum_rating: number
           no_show_charge_pence: number
           offer_expiry_seconds: number
+          pickup_paid_waiting_enabled: boolean
+          pickup_paid_waiting_rate_pence_per_minute: number
           pickup_waiting_grace_period_seconds: number
           priority_order: string
           scheduled_response_window_minutes: number
@@ -1609,6 +1614,9 @@ export type Database = {
           global_timeout_minutes?: number
           id?: string
           instant_retry_enabled?: boolean
+          late_cancel_enabled?: boolean
+          late_cancel_fee_pence?: number
+          late_cancel_threshold_minutes?: number
           locked_driver_response_minutes?: number
           max_advance_days?: number
           max_cancel_rate?: number
@@ -1622,6 +1630,8 @@ export type Database = {
           minimum_rating?: number
           no_show_charge_pence?: number
           offer_expiry_seconds?: number
+          pickup_paid_waiting_enabled?: boolean
+          pickup_paid_waiting_rate_pence_per_minute?: number
           pickup_waiting_grace_period_seconds?: number
           priority_order?: string
           scheduled_response_window_minutes?: number
@@ -1691,6 +1701,9 @@ export type Database = {
           global_timeout_minutes?: number
           id?: string
           instant_retry_enabled?: boolean
+          late_cancel_enabled?: boolean
+          late_cancel_fee_pence?: number
+          late_cancel_threshold_minutes?: number
           locked_driver_response_minutes?: number
           max_advance_days?: number
           max_cancel_rate?: number
@@ -1704,6 +1717,8 @@ export type Database = {
           minimum_rating?: number
           no_show_charge_pence?: number
           offer_expiry_seconds?: number
+          pickup_paid_waiting_enabled?: boolean
+          pickup_paid_waiting_rate_pence_per_minute?: number
           pickup_waiting_grace_period_seconds?: number
           priority_order?: string
           scheduled_response_window_minutes?: number
@@ -6689,6 +6704,7 @@ export type Database = {
           is_scheduled: boolean | null
           job_type: string | null
           last_broadcast_at: string | null
+          late_cancel_fee_pence: number | null
           max_broadcast_rounds: number | null
           negotiation_locked_until: string | null
           no_show_charge_pence: number | null
@@ -6704,6 +6720,7 @@ export type Database = {
           pickup_address: string
           pickup_latitude: number | null
           pickup_longitude: number | null
+          pickup_paid_waiting_started_at: string | null
           pickup_waiting_charge_pence: number
           pickup_zone_id: string | null
           platform_commission_amount: number | null
@@ -6829,6 +6846,7 @@ export type Database = {
           is_scheduled?: boolean | null
           job_type?: string | null
           last_broadcast_at?: string | null
+          late_cancel_fee_pence?: number | null
           max_broadcast_rounds?: number | null
           negotiation_locked_until?: string | null
           no_show_charge_pence?: number | null
@@ -6844,6 +6862,7 @@ export type Database = {
           pickup_address: string
           pickup_latitude?: number | null
           pickup_longitude?: number | null
+          pickup_paid_waiting_started_at?: string | null
           pickup_waiting_charge_pence?: number
           pickup_zone_id?: string | null
           platform_commission_amount?: number | null
@@ -6969,6 +6988,7 @@ export type Database = {
           is_scheduled?: boolean | null
           job_type?: string | null
           last_broadcast_at?: string | null
+          late_cancel_fee_pence?: number | null
           max_broadcast_rounds?: number | null
           negotiation_locked_until?: string | null
           no_show_charge_pence?: number | null
@@ -6984,6 +7004,7 @@ export type Database = {
           pickup_address?: string
           pickup_latitude?: number | null
           pickup_longitude?: number | null
+          pickup_paid_waiting_started_at?: string | null
           pickup_waiting_charge_pence?: number
           pickup_zone_id?: string | null
           platform_commission_amount?: number | null
