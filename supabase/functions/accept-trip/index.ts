@@ -246,17 +246,28 @@ serve(async (req) => {
     const now = new Date();
     const graceExpiresAt = new Date(now.getTime() + gracePeriodMinutes * 60 * 1000);
 
+    // Determine if this is a stacked ride
+    const isStackedRide = !!driverData?.current_trip_id;
+
     // ATOMIC OPERATION: Try to claim the trip
+    const tripUpdatePayload: Record<string, any> = {
+      status: 'accepted',
+      driver_id: driver_id,
+      confirmed_driver_id: driver_id,
+      assigned_at: now.toISOString(),
+      cancellation_grace_expires_at: graceExpiresAt.toISOString(),
+      updated_at: now.toISOString(),
+    };
+
+    // If stacked, link to the driver's current active trip
+    if (isStackedRide) {
+      tripUpdatePayload.stacked_trip_id = driverData.current_trip_id;
+      console.log(`[accept-trip] Stacked ride: linking trip ${trip_id} to parent ${driverData.current_trip_id}`);
+    }
+
     const { data: updatedTrip, error: tripUpdateError } = await supabase
       .from('trips')
-      .update({
-        status: 'accepted',
-        driver_id: driver_id,
-        confirmed_driver_id: driver_id,
-        assigned_at: now.toISOString(),
-        cancellation_grace_expires_at: graceExpiresAt.toISOString(),
-        updated_at: now.toISOString()
-      })
+      .update(tripUpdatePayload)
       .eq('id', trip_id)
       .is('confirmed_driver_id', null)
       .eq('status', 'offered')
@@ -282,7 +293,7 @@ serve(async (req) => {
       return errorResponse('Already accepted', 409, { message: 'Another driver accepted this ride first' });
     }
 
-    console.log(`[accept-trip] Trip ${trip_id} successfully assigned to driver ${driver_id}`);
+    console.log(`[accept-trip] Trip ${trip_id} successfully assigned to driver ${driver_id}${isStackedRide ? ' (STACKED)' : ''}`);
 
     // Mark this driver's offer as accepted
     await supabase
@@ -305,11 +316,13 @@ serve(async (req) => {
       console.log(`[accept-trip] Withdrew ${withdrawnOffers?.length || 0} other offers`);
     }
 
-    // Update driver's current trip
-    await supabase
-      .from('drivers')
-      .update({ current_trip_id: trip_id })
-      .eq('id', driver_id);
+    // Update driver's current trip (only if not stacked — keep the original active trip as current)
+    if (!isStackedRide) {
+      await supabase
+        .from('drivers')
+        .update({ current_trip_id: trip_id })
+        .eq('id', driver_id);
+    }
 
     // Log successful acceptance
     await logAuditEvent(supabase, 'trip_accepted', {
