@@ -216,6 +216,7 @@ export default function TripHistory() {
           total_stops, created_at, started_at, completed_at, surge_multiplier, driver_id,
           driver_location_lat, driver_location_lng, stripe_payment_intent_id, stacked_trip_id,
           pricing_mode, fare_locked, vehicle_type_id, vehicle_type, service_area_id, fare_engine_config_id,
+          waiting_charge_pence, pickup_waiting_charge_pence, total_waiting_charge_pence, waiting_minutes, fare_breakdown,
           driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, driver_code, region_id),
           service_area_join:service_areas!trips_service_area_id_fkey(region:regions(currency_code, distance_unit))
         `)
@@ -1260,62 +1261,119 @@ export default function TripHistory() {
                       <DollarSign className="h-4 w-4" />
                       Fare Breakdown
                     </h4>
-                    <div className="bg-muted/50 rounded-lg p-4 space-y-2">
-                      {selectedTrip.gross_fare_pence != null && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Gross Fare</span>
-                          <span>{getCurrencySymbol(resolveTripCurrency(selectedTrip))}{(selectedTrip.gross_fare_pence / 100).toFixed(2)}</span>
+                    {(() => {
+                      const cs = getCurrencySymbol(resolveTripCurrency(selectedTrip));
+                      const fmt = (pence: number) => `${cs}${(pence / 100).toFixed(2)}`;
+                      const fb = selectedTrip.fare_breakdown as Record<string, number> | null;
+                      const waitingTotal = selectedTrip.total_waiting_charge_pence 
+                        || selectedTrip.waiting_charge_pence 
+                        || selectedTrip.pickup_waiting_charge_pence
+                        || (fb?.waiting_charge_pence ?? 0);
+                      const baseFare = fb?.base_fare_pence ?? fb?.quoted_fare_pence ?? null;
+                      const distanceCharge = fb?.distance_charge_pence ?? null;
+                      const timeCharge = fb?.time_charge_pence ?? null;
+                      const bookingFee = fb?.booking_fee_pence ?? null;
+
+                      return (
+                        <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+                          {/* Detailed fare breakdown from fare_breakdown JSON */}
+                          {baseFare != null && baseFare > 0 && (
+                            <div className="flex justify-between text-sm">
+                              <span className="text-muted-foreground">Base Fare</span>
+                              <span>{fmt(baseFare)}</span>
+                            </div>
+                          )}
+                          {distanceCharge != null && distanceCharge > 0 && (
+                            <div className="flex justify-between text-sm">
+                              <span className="text-muted-foreground">Distance Charge</span>
+                              <span>{fmt(distanceCharge)}</span>
+                            </div>
+                          )}
+                          {timeCharge != null && timeCharge > 0 && (
+                            <div className="flex justify-between text-sm">
+                              <span className="text-muted-foreground">Time Charge</span>
+                              <span>{fmt(timeCharge)}</span>
+                            </div>
+                          )}
+                          {bookingFee != null && bookingFee > 0 && (
+                            <div className="flex justify-between text-sm">
+                              <span className="text-muted-foreground">Booking Fee</span>
+                              <span>{fmt(bookingFee)}</span>
+                            </div>
+                          )}
+
+                          {/* Waiting Charge — show if > 0 */}
+                          {waitingTotal > 0 && (
+                            <div className="flex justify-between text-sm">
+                              <span className="text-muted-foreground">
+                                Waiting Charge
+                                {selectedTrip.waiting_minutes != null && selectedTrip.waiting_minutes > 0 && (
+                                  <span className="text-xs ml-1">({Math.round(selectedTrip.waiting_minutes)} min)</span>
+                                )}
+                              </span>
+                              <span className="text-amber-600">{fmt(waitingTotal)}</span>
+                            </div>
+                          )}
+
+                          <Separator />
+
+                          {selectedTrip.gross_fare_pence != null && (
+                            <div className="flex justify-between text-sm">
+                              <span className="text-muted-foreground">Gross Fare</span>
+                              <span>{fmt(selectedTrip.gross_fare_pence)}</span>
+                            </div>
+                          )}
+                          {selectedTrip.commission_pence != null && (
+                            <div className="flex justify-between text-sm">
+                              <span className="text-muted-foreground">Commission</span>
+                              <span className="text-orange-600">-{fmt(selectedTrip.commission_pence)}</span>
+                            </div>
+                          )}
+                          {selectedTrip.driver_net_pence != null && (
+                            <div className="flex justify-between text-sm">
+                              <span className="text-muted-foreground">Driver Net</span>
+                              <span>{fmt(selectedTrip.driver_net_pence)}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Payment Status</span>
+                            <Badge variant="outline" className="text-xs">
+                              {selectedTrip.payment_status || 'unknown'}
+                            </Badge>
+                          </div>
+                          <Separator />
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Estimated Distance</span>
+                            <span>{formatDialogDistance(selectedTrip.estimated_distance_km)}</span>
+                          </div>
+                          {tripStops.length >= 2 && calculateRouteDistance(tripStops) > 0 && (
+                            <div className="flex justify-between text-sm">
+                              <span className="text-muted-foreground">Actual Distance</span>
+                              <span className="font-medium text-primary">
+                                {formatDialogDistance(calculateRouteDistance(tripStops))}
+                              </span>
+                            </div>
+                          )}
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Duration</span>
+                            <span>{formatDuration(selectedTrip.estimated_duration_minutes)}</span>
+                          </div>
+                          {selectedTrip.surge_multiplier && selectedTrip.surge_multiplier > 1 && (
+                            <div className="flex justify-between text-sm">
+                              <span className="text-muted-foreground">Surge Multiplier</span>
+                              <span className="text-orange-600">{selectedTrip.surge_multiplier}x</span>
+                            </div>
+                          )}
+                          <Separator />
+                          <div className="flex justify-between font-semibold">
+                            <span>Final Fare</span>
+                            <span className="text-green-600">
+                              {cs}{getTripFarePounds(selectedTrip).toFixed(2)}
+                            </span>
+                          </div>
                         </div>
-                      )}
-                      {selectedTrip.commission_pence != null && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Commission</span>
-                          <span className="text-orange-600">-{getCurrencySymbol(resolveTripCurrency(selectedTrip))}{(selectedTrip.commission_pence / 100).toFixed(2)}</span>
-                        </div>
-                      )}
-                      {selectedTrip.driver_net_pence != null && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Driver Net</span>
-                          <span>{getCurrencySymbol(resolveTripCurrency(selectedTrip))}{(selectedTrip.driver_net_pence / 100).toFixed(2)}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Payment Status</span>
-                        <Badge variant="outline" className="text-xs">
-                          {selectedTrip.payment_status || 'unknown'}
-                        </Badge>
-                      </div>
-                      <Separator />
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Estimated Distance</span>
-                        <span>{formatDialogDistance(selectedTrip.estimated_distance_km)}</span>
-                      </div>
-                      {tripStops.length >= 2 && calculateRouteDistance(tripStops) > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Actual Distance</span>
-                          <span className="font-medium text-primary">
-                            {formatDialogDistance(calculateRouteDistance(tripStops))}
-                          </span>
-                        </div>
-                      )}
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Duration</span>
-                        <span>{formatDuration(selectedTrip.estimated_duration_minutes)}</span>
-                      </div>
-                      {selectedTrip.surge_multiplier && selectedTrip.surge_multiplier > 1 && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Surge Multiplier</span>
-                          <span className="text-orange-600">{selectedTrip.surge_multiplier}x</span>
-                        </div>
-                      )}
-                      <Separator />
-                      <div className="flex justify-between font-semibold">
-                        <span>Final Fare</span>
-                        <span className="text-green-600">
-                          {getCurrencySymbol(resolveTripCurrency(selectedTrip))}{getTripFarePounds(selectedTrip).toFixed(2)}
-                        </span>
-                      </div>
-                    </div>
+                      );
+                    })()}
                   </div>
 
                   {/* Timestamps */}
