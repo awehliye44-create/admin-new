@@ -83,44 +83,45 @@ serve(async (req) => {
       return errorResponse(`Trip already in terminal status: ${trip.status}`, 400);
     }
 
-    // Fetch fare pricing settings
-    let cancellationFeePence = 0;
-    let cancellationGracePeriodMinutes = 3;
-    let cancellationApplyAfterArrivalOnly = false;
-    let noShowFeePence = 0;
-    let noShowWaitTimeMinutes = 5;
-    let noShowApplyAfterArrivalOnly = true;
-    let waitingPerMinutePence = 0;
-    let lateCancelEnabled = false;
-    let lateCancelThresholdMinutes = 0;
-    let lateCancelFeePence = 0;
-
-    if (trip.service_area_id) {
-      const fpsQuery = supabase
-        .from("fare_pricing_settings")
-        .select(
-          "cancellation_fee_pence, cancellation_grace_period_minutes, cancellation_apply_after_arrival_only, no_show_fee_pence, no_show_wait_time_minutes, no_show_apply_after_arrival_only, waiting_per_minute_pence, late_cancel_enabled, late_cancel_threshold_minutes, late_cancel_fee_pence"
-        )
-        .eq("service_area_id", trip.service_area_id);
-
-      if (trip.vehicle_type_id) {
-        fpsQuery.eq("vehicle_type_id", trip.vehicle_type_id);
-      }
-
-      const { data: fps } = await fpsQuery.maybeSingle();
-      if (fps) {
-        cancellationFeePence = fps.cancellation_fee_pence ?? 0;
-        cancellationGracePeriodMinutes = fps.cancellation_grace_period_minutes ?? 3;
-        cancellationApplyAfterArrivalOnly = fps.cancellation_apply_after_arrival_only ?? false;
-        noShowFeePence = fps.no_show_fee_pence ?? 0;
-        noShowWaitTimeMinutes = fps.no_show_wait_time_minutes ?? 5;
-        noShowApplyAfterArrivalOnly = fps.no_show_apply_after_arrival_only ?? true;
-        waitingPerMinutePence = fps.waiting_per_minute_pence ?? 0;
-        lateCancelEnabled = fps.late_cancel_enabled ?? false;
-        lateCancelThresholdMinutes = fps.late_cancel_threshold_minutes ?? 0;
-        lateCancelFeePence = fps.late_cancel_fee_pence ?? 0;
-      }
+    // Fetch fare pricing settings — Admin Panel is the single source of truth.
+    // No fallback defaults: if config is missing, reject the request.
+    if (!trip.service_area_id) {
+      return errorResponse("Trip has no service_area_id — cannot resolve lifecycle rules", 400);
     }
+
+    const fpsQuery = supabase
+      .from("fare_pricing_settings")
+      .select(
+        "cancellation_fee_pence, cancellation_grace_period_minutes, cancellation_apply_after_arrival_only, no_show_fee_pence, no_show_wait_time_minutes, no_show_apply_after_arrival_only, waiting_per_minute_pence, late_cancel_enabled, late_cancel_threshold_minutes, late_cancel_fee_pence"
+      )
+      .eq("service_area_id", trip.service_area_id);
+
+    if (trip.vehicle_type_id) {
+      fpsQuery.eq("vehicle_type_id", trip.vehicle_type_id);
+    }
+
+    const { data: fps, error: fpsErr } = await fpsQuery.maybeSingle();
+
+    if (fpsErr || !fps) {
+      console.error(
+        `[cancel-trip] No fare_pricing_settings found for service_area=${trip.service_area_id}, vehicle_type=${trip.vehicle_type_id}. Admin must configure lifecycle rules first.`
+      );
+      return errorResponse(
+        "No fare pricing settings configured for this service area. Please configure lifecycle rules in Admin Panel.",
+        422
+      );
+    }
+
+    const cancellationFeePence = fps.cancellation_fee_pence;
+    const cancellationGracePeriodMinutes = fps.cancellation_grace_period_minutes;
+    const cancellationApplyAfterArrivalOnly = fps.cancellation_apply_after_arrival_only;
+    const noShowFeePence = fps.no_show_fee_pence;
+    const noShowWaitTimeMinutes = fps.no_show_wait_time_minutes;
+    const noShowApplyAfterArrivalOnly = fps.no_show_apply_after_arrival_only;
+    const waitingPerMinutePence = fps.waiting_per_minute_pence;
+    const lateCancelEnabled = fps.late_cancel_enabled;
+    const lateCancelThresholdMinutes = fps.late_cancel_threshold_minutes;
+    const lateCancelFeePence = fps.late_cancel_fee_pence;
 
     const now = new Date();
     let appliedFee = 0;

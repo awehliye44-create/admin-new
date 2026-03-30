@@ -76,34 +76,40 @@ serve(async (req) => {
       return errorResponse(`Cannot mark arrived from status: ${trip.status}`, 400);
     }
 
-    // Fetch fare pricing settings for free waiting + cancellation grace
-    let freeWaitingMinutes = 3;
-    let gracePeriodMinutes = 3;
-    let waitingPerMinutePence = 0;
-    let enableWaitingCharge = false;
-    let noShowWaitTimeMinutes = 5;
-
-    if (trip.service_area_id) {
-      const fpsQuery = supabase
-        .from("fare_pricing_settings")
-        .select(
-          "free_waiting_minutes, cancellation_grace_period_minutes, waiting_per_minute_pence, recalculate_on_waiting, no_show_wait_time_minutes"
-        )
-        .eq("service_area_id", trip.service_area_id);
-
-      if (trip.vehicle_type_id) {
-        fpsQuery.eq("vehicle_type_id", trip.vehicle_type_id);
-      }
-
-      const { data: fps } = await fpsQuery.maybeSingle();
-      if (fps) {
-        freeWaitingMinutes = fps.free_waiting_minutes ?? 3;
-        gracePeriodMinutes = fps.cancellation_grace_period_minutes ?? 3;
-        waitingPerMinutePence = fps.waiting_per_minute_pence ?? 0;
-        enableWaitingCharge = fps.recalculate_on_waiting ?? false;
-        noShowWaitTimeMinutes = fps.no_show_wait_time_minutes ?? 5;
-      }
+    // Fetch fare pricing settings — Admin Panel is the single source of truth.
+    // No fallback defaults: if config is missing, reject the request.
+    if (!trip.service_area_id) {
+      return errorResponse("Trip has no service_area_id — cannot resolve lifecycle rules", 400);
     }
+
+    const fpsQuery = supabase
+      .from("fare_pricing_settings")
+      .select(
+        "free_waiting_minutes, cancellation_grace_period_minutes, waiting_per_minute_pence, recalculate_on_waiting, no_show_wait_time_minutes"
+      )
+      .eq("service_area_id", trip.service_area_id);
+
+    if (trip.vehicle_type_id) {
+      fpsQuery.eq("vehicle_type_id", trip.vehicle_type_id);
+    }
+
+    const { data: fps, error: fpsErr } = await fpsQuery.maybeSingle();
+
+    if (fpsErr || !fps) {
+      console.error(
+        `[driver-arrived] No fare_pricing_settings found for service_area=${trip.service_area_id}, vehicle_type=${trip.vehicle_type_id}. Admin must configure lifecycle rules first.`
+      );
+      return errorResponse(
+        "No fare pricing settings configured for this service area. Please configure lifecycle rules in Admin Panel.",
+        422
+      );
+    }
+
+    const freeWaitingMinutes = fps.free_waiting_minutes;
+    const gracePeriodMinutes = fps.cancellation_grace_period_minutes;
+    const waitingPerMinutePence = fps.waiting_per_minute_pence;
+    const enableWaitingCharge = fps.recalculate_on_waiting;
+    const noShowWaitTimeMinutes = fps.no_show_wait_time_minutes;
 
     const now = new Date();
     const freeWaitExpiresAt = new Date(now.getTime() + freeWaitingMinutes * 60 * 1000);
