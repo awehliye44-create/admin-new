@@ -368,6 +368,9 @@ serve(async (req) => {
     } else if (feeType === "no_show") {
       riderMessage = `No-show fee of ${appliedFee}p applied`;
       driverMessage = "Passenger no-show — fee applied";
+    } else if (feeType === "late_cancellation") {
+      riderMessage = `Trip cancelled — late cancellation fee of ${appliedFee}p applied`;
+      driverMessage = "Rider cancelled late — late cancellation fee applied";
     }
 
     return successResponse({
