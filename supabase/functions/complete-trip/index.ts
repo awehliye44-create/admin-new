@@ -154,6 +154,27 @@ serve(async (req) => {
       commission_pence: platform_commission,
       driver_net_pence: driver_net_before_tip,
       payment_method,
+      // Persist waiting charges on trips table for Admin Panel visibility
+      waiting_charge_pence: pickup_waiting_charge_pence + stop_waiting_charge_pence,
+      pickup_waiting_charge_pence,
+      total_waiting_charge_pence: pickup_waiting_charge_pence + stop_waiting_charge_pence,
+      fare_breakdown: {
+        base_fare_pence: effectiveBaseFare,
+        distance_charge_pence: 0,
+        time_charge_pence: 0,
+        booking_fee_pence: 0,
+        waiting_charge_pence: pickup_waiting_charge_pence + stop_waiting_charge_pence,
+        pickup_waiting_charge_pence,
+        stop_waiting_charge_pence,
+        stop_modification_charge_pence,
+        destination_change_charge_pence,
+        extras_charge_pence,
+        tip_amount_pence,
+        commissionable_subtotal_pence: commissionable_subtotal,
+        platform_commission_pence: platform_commission,
+        driver_net_pence: driver_net_before_tip,
+        final_trip_total_pence: final_trip_total,
+      },
       updated_at: new Date().toISOString(),
     };
 
