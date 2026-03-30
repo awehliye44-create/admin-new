@@ -132,6 +132,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
   // Fetch assigned vehicle types for this service area
   useEffect(() => {
     fetchAssignedVehicleTypes();
+    fetchStopWaitingSettings();
   }, [serviceAreaId]);
 
   // Fetch fare settings when vehicle type changes
