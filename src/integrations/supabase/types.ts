@@ -8739,12 +8739,9 @@ export type Database = {
       }
       ops_detect_5xx_spikes: { Args: never; Returns: number }
       ops_detect_api_latency_spikes: { Args: never; Returns: Json }
-      ops_detect_duplicate_bookings: { Args: never; Returns: number }
       ops_detect_duplicate_commissions: { Args: never; Returns: number }
       ops_detect_duplicate_dispatches: { Args: never; Returns: number }
       ops_detect_duplicate_earnings: { Args: never; Returns: number }
-      ops_detect_duplicate_payments: { Args: never; Returns: number }
-      ops_detect_duplicate_payouts: { Args: never; Returns: number }
       ops_detect_edge_function_failures: { Args: never; Returns: number }
       ops_detect_error_spikes: { Args: never; Returns: number }
       ops_detect_failed_payments: { Args: never; Returns: number }
@@ -8762,7 +8759,6 @@ export type Database = {
       ops_detect_repeated_guest_submissions: { Args: never; Returns: number }
       ops_detect_repeated_webhooks: { Args: never; Returns: number }
       ops_detect_slow_screens: { Args: never; Returns: Json }
-      ops_detect_stuck_dispatch: { Args: never; Returns: number }
       ops_detect_version_issues: { Args: never; Returns: Json }
       ops_detect_webhook_failures: { Args: never; Returns: number }
       ops_record_event: {
