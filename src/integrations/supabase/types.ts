@@ -8411,6 +8411,18 @@ export type Database = {
           },
         ]
       }
+      ops_health_summary: {
+        Row: {
+          acknowledged_count: number | null
+          category: string | null
+          critical_count: number | null
+          fatal_count: number | null
+          latest_alert_at: string | null
+          open_count: number | null
+          resolved_count: number | null
+        }
+        Relationships: []
+      }
       user_directory: {
         Row: {
           created_at: string | null
@@ -8615,6 +8627,65 @@ export type Database = {
           p_target_id?: string
           p_target_name?: string
           p_target_type?: string
+        }
+        Returns: string
+      }
+      ops_acknowledge_alert: {
+        Args: { p_alert_id: string; p_user_id: string }
+        Returns: undefined
+      }
+      ops_detect_duplicate_commissions: { Args: never; Returns: number }
+      ops_detect_duplicate_payments: { Args: never; Returns: number }
+      ops_detect_failed_payments: { Args: never; Returns: number }
+      ops_detect_failed_payouts: { Args: never; Returns: number }
+      ops_detect_missing_commissions: { Args: never; Returns: number }
+      ops_detect_missing_earnings: { Args: never; Returns: number }
+      ops_detect_stuck_dispatch: { Args: never; Returns: number }
+      ops_record_event: {
+        Args: {
+          p_amount_pence?: number
+          p_app?: string
+          p_category: string
+          p_create_alert?: boolean
+          p_currency_code?: string
+          p_customer_id?: string
+          p_description?: string
+          p_driver_id?: string
+          p_event_type: string
+          p_metadata?: Json
+          p_payment_id?: string
+          p_payout_batch_id?: string
+          p_service_area_id?: string
+          p_severity?: string
+          p_trip_id?: string
+        }
+        Returns: string
+      }
+      ops_resolve_alert: {
+        Args: { p_alert_id: string; p_user_id: string }
+        Returns: undefined
+      }
+      ops_run_all_detections: { Args: never; Returns: Json }
+      ops_suppress_alert: {
+        Args: { p_alert_id: string; p_until: string }
+        Returns: undefined
+      }
+      ops_upsert_alert: {
+        Args: {
+          p_app: string
+          p_category: string
+          p_description?: string
+          p_fingerprint: string
+          p_metadata?: Json
+          p_related_driver_id?: string
+          p_related_entity_id?: string
+          p_related_entity_type?: string
+          p_related_payment_id?: string
+          p_related_payout_batch_id?: string
+          p_related_trip_id?: string
+          p_severity: string
+          p_source: string
+          p_title: string
         }
         Returns: string
       }
