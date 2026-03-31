@@ -196,12 +196,15 @@ export default function OpsIntelligence() {
             <span className="text-sm font-medium">{totalAcknowledged} ack'd</span>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button onClick={handleRefreshAll} variant="ghost" size="sm" title="Manual refresh">
             <RefreshCw className="h-4 w-4" />
           </Button>
-          <Button onClick={handleSeedDemo} variant="secondary" size="sm">
-            Seed Demo Data
+          <Button onClick={() => callOpsSeed('seed')} variant="secondary" size="sm">
+            Seed Demo
+          </Button>
+          <Button onClick={() => callOpsSeed('clear')} variant="ghost" size="sm" className="text-muted-foreground">
+            Clear Demo
           </Button>
           <Button onClick={handleRunDetections} variant="outline" size="sm">
             <RefreshCw className="h-4 w-4 mr-2" />
