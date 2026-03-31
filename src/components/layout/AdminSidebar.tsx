@@ -56,6 +56,8 @@ import {
   Contact,
   QrCode,
   BrainCircuit,
+  Smartphone,
+  Globe,
 } from 'lucide-react';
 import {
   Collapsible,
