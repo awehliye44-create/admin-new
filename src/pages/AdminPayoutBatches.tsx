@@ -165,9 +165,8 @@ export default function AdminPayoutBatches() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-blue-500">{formatPence(availableForPayout, resolvedCurrency)}</div>
-                <div className="text-2xl font-bold text-blue-500">{formatPence(availableForPayout, resolvedCurrency)}</div>
-              )}
               <p className="text-xs text-muted-foreground">{driversReadyForPayout} drivers ready</p>
+            </CardContent>
             </CardContent>
           </Card>
           <Card>
