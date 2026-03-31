@@ -115,7 +115,7 @@ export default function OpsIntelligence() {
       if (error) throw error;
       return (data || []) as OpsAlert[];
     },
-    staleTime: 5000,
+    staleTime: 15000,
   });
 
   // Top-level stats
