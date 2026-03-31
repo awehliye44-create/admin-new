@@ -98,3 +98,6 @@ verify_jwt = false
 
 [functions.ops-seed]
 verify_jwt = false
+
+[functions.ingest-telemetry]
+verify_jwt = false

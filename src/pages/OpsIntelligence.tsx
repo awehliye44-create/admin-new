@@ -8,7 +8,8 @@ import { OpsRealtimeIndicator } from '@/components/ops/OpsRealtimeIndicator';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { RefreshCw, Activity, AlertTriangle, ScrollText, Shield, CreditCard, Truck, Copy, Globe, Gauge } from 'lucide-react';
+import { RefreshCw, Activity, AlertTriangle, ScrollText, Shield, CreditCard, Truck, Copy, Globe, Gauge, Smartphone } from 'lucide-react';
+import { AppPerformanceDashboard } from '@/components/ops/AppPerformanceDashboard';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -254,6 +255,9 @@ export default function OpsIntelligence() {
               <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded-full">{dupAlerts.filter(a => a.status === 'open').length}</span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="app-performance" className="gap-2">
+            <Smartphone className="h-4 w-4" /> App Performance
+          </TabsTrigger>
           <TabsTrigger value="logs" className="gap-2">
             <ScrollText className="h-4 w-4" /> Logs Explorer
           </TabsTrigger>
@@ -326,6 +330,10 @@ export default function OpsIntelligence() {
             onSelectAlert={setSelectedAlert}
             title="Duplication Issues — Payments, Bookings, Payouts, Earnings & Dispatch"
           />
+        </TabsContent>
+
+        <TabsContent value="app-performance">
+          <AppPerformanceDashboard />
         </TabsContent>
 
         <TabsContent value="logs">
