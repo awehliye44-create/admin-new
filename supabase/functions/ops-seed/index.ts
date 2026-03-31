@@ -81,6 +81,10 @@ serve(async (req) => {
       { fingerprint: 'demo:dup_payment:trip-005', category: 'duplication', severity: 'critical', source: 'system', app: 'backend', title: 'Duplicate Payment Detected', description: 'Trip MK0055 has 2 successful payments totaling £37.00.', metadata: { payment_count: 2, total_pence: 3700, trip_ref: 'MK0055' } },
       // 17. Duplicate payout
       { fingerprint: 'demo:dup_payout:batch-002', category: 'duplication', severity: 'critical', source: 'system', app: 'backend', title: 'Duplicate Payout Detected', description: 'Driver DRV-044 received 2 payouts for the same period totaling £320.', metadata: { payout_count: 2, total_pence: 32000, driver_ref: 'DRV-044' } },
+      // Admin panel alerts
+      { fingerprint: 'demo:admin_panel_slow:logs', category: 'system', severity: 'warning', source: 'system', app: 'admin_panel', title: 'Admin Panel Slow: LogsExplorer', description: 'LogsExplorer screen_load_time avg 4200ms (threshold: 2000ms).', metadata: { screen: 'LogsExplorer', avg_ms: 4200 } },
+      { fingerprint: 'demo:admin_panel_slow:perf', category: 'system', severity: 'warning', source: 'system', app: 'admin_panel', title: 'Admin Panel Slow: PerformanceTab', description: 'PerformanceTab screen_load_time avg 3800ms (threshold: 2000ms).', metadata: { screen: 'PerformanceTab', avg_ms: 3800 } },
+      { fingerprint: 'demo:admin_panel_slow:dashboard', category: 'system', severity: 'warning', source: 'system', app: 'admin_panel', title: 'Admin Panel Slow: Dashboard', description: 'Dashboard screen_load_time avg 3500ms (threshold: 2000ms).', metadata: { screen: 'Dashboard', avg_ms: 3500 } },
       // 18. Duplicate dispatch request
       { fingerprint: 'demo:dup_dispatch:trip-010', category: 'duplication', severity: 'warning', source: 'system', app: 'backend', title: 'Duplicate Dispatch Request', description: 'Same trip dispatched twice to driver pool within 2 seconds.', metadata: { time_diff_seconds: 2 } },
     ];
@@ -148,7 +152,7 @@ serve(async (req) => {
 
     // ── Seed app_performance_events with realistic telemetry ──
     const telemetry: any[] = [];
-    const versions = { customer_app: ['2.3.1', '2.3.0', '2.2.9'], driver_app: ['3.1.0', '3.0.8'], guest_web: ['1.0.0'] };
+    const versions: Record<string, string[]> = { customer_app: ['2.3.1', '2.3.0', '2.2.9'], driver_app: ['3.1.0', '3.0.8'], guest_web: ['1.0.0'], admin_panel: ['1.0.0'] };
     const platforms = ['ios', 'android'];
 
     const screens: Record<string, { name: string; baseMs: number; metric: string }[]> = {
@@ -196,6 +200,28 @@ serve(async (req) => {
         { name: 'CheckoutPage', metric: 'screen_load_time', baseMs: 4100 },
         { name: 'CheckoutPage', metric: 'api_latency', baseMs: 3200 },
       ],
+      admin_panel: [
+        { name: 'OpsIntelligence', metric: 'screen_load_time', baseMs: 3200 },
+        { name: 'OpsIntelligence', metric: 'api_latency', baseMs: 2800 },
+        { name: 'AlertsTable', metric: 'screen_load_time', baseMs: 2400 },
+        { name: 'AlertsTable', metric: 'api_latency', baseMs: 1800 },
+        { name: 'AlertDetail', metric: 'screen_load_time', baseMs: 1600 },
+        { name: 'AlertDetail', metric: 'interaction_delay', baseMs: 1200 },
+        { name: 'LogsExplorer', metric: 'screen_load_time', baseMs: 4200 },
+        { name: 'LogsExplorer', metric: 'api_latency', baseMs: 3500 },
+        { name: 'GuestBookingTab', metric: 'screen_load_time', baseMs: 1900 },
+        { name: 'MoneyIntegrityTab', metric: 'screen_load_time', baseMs: 2100 },
+        { name: 'DispatchTab', metric: 'screen_load_time', baseMs: 1800 },
+        { name: 'PerformanceTab', metric: 'screen_load_time', baseMs: 3800 },
+        { name: 'DuplicationsTab', metric: 'screen_load_time', baseMs: 1700 },
+        { name: 'Dashboard', metric: 'screen_load_time', baseMs: 3500 },
+        { name: 'Dashboard', metric: 'api_latency', baseMs: 2600 },
+        { name: 'DriversPage', metric: 'screen_load_time', baseMs: 2800 },
+        { name: 'RidersPage', metric: 'screen_load_time', baseMs: 2600 },
+        { name: 'TripHistory', metric: 'screen_load_time', baseMs: 3100 },
+        { name: 'DispatchPage', metric: 'screen_load_time', baseMs: 2900 },
+        { name: 'PaymentsPage', metric: 'screen_load_time', baseMs: 2700 },
+      ],
     };
 
     for (const [appName, screenList] of Object.entries(screens)) {
@@ -207,7 +233,7 @@ serve(async (req) => {
           const jitter = (Math.random() - 0.3) * screen.baseMs * 0.6;
           const value = Math.max(100, Math.round(screen.baseMs + jitter));
           const ver = appVersions[Math.floor(Math.random() * appVersions.length)];
-          const plat = appName === 'guest_web' ? 'web' : platforms[Math.floor(Math.random() * platforms.length)];
+          const plat = (appName === 'guest_web' || appName === 'admin_panel') ? 'web' : platforms[Math.floor(Math.random() * platforms.length)];
           telemetry.push({
             app_name: appName,
             screen_name: screen.name,

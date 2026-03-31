@@ -39,6 +39,7 @@ const APP_CONFIG = [
   { key: 'customer_app', label: 'Customer App', icon: Smartphone, color: 'text-blue-500' },
   { key: 'driver_app', label: 'Driver App', icon: Car, color: 'text-emerald-500' },
   { key: 'guest_web', label: 'Guest Web', icon: Globe, color: 'text-purple-500' },
+  { key: 'admin_panel', label: 'Admin Panel', icon: Activity, color: 'text-amber-500' },
 ] as const;
 
 function getHealthStatus(avgMs: number, thresholds: Threshold[], appName: string, screenName: string, metricName: string) {
@@ -316,7 +317,7 @@ export function AppPerformanceDashboard() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {APP_CONFIG.map(({ key, label, icon: Icon, color }) => (
           <AppHealthCard
             key={key}

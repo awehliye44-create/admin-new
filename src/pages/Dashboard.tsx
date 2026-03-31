@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
+import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -203,6 +204,7 @@ function QuickActionsPanel({ navigate }: { navigate: (path: string) => void }) {
 }
 
 export default function Dashboard() {
+  usePageLoadTelemetry('Dashboard');
   const navigate = useNavigate();
   const [stats, setStats] = useState<Stats>({
     totalDrivers: 0,

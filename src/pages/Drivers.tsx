@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
 import { useRegions } from '@/hooks/useRegions';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { AdminLayout } from '@/components/layout/AdminLayout';
@@ -119,6 +120,7 @@ interface DriverServiceArea {
 }
 
 export default function Drivers() {
+  usePageLoadTelemetry('DriversPage');
   // Shared cached reference data — no duplicate fetches
   const { data: regionsList = [], isLoading: regionsLoading } = useRegions();
   const { data: serviceAreasList = [], isLoading: serviceAreasLoading } = useServiceAreas({ activeOnly: true });

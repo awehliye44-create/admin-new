@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -111,6 +112,7 @@ const formatPence = (pence: number, currencyCode?: string): string => {
 };
 
 export default function AdminPayments() {
+  usePageLoadTelemetry('PaymentsPage');
   const [activeTab, setActiveTab] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');

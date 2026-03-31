@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -58,6 +59,7 @@ interface Rider {
 }
 
 export default function Riders() {
+  usePageLoadTelemetry('RidersPage');
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRider, setSelectedRider] = useState<Rider | null>(null);
