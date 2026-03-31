@@ -153,9 +153,7 @@ export default function AdminPayoutBatches() {
               <DollarSign className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
-              {isMixedCurrency ? (
-                <CurrencyGroupedStats items={regionDrivers.map(d => ({ currency_code: d.currency_code, amount: d.total_payouts_sent }))} className="text-lg font-bold text-green-500" />
-              ) : (
+              <div className="text-2xl font-bold text-green-500">{formatPence(totalPaidOut, resolvedCurrency)}</div>
                 <div className="text-2xl font-bold text-green-500">{formatPence(totalPaidOut, resolvedCurrency)}</div>
               )}
               <p className="text-xs text-muted-foreground">From unified ledger</p>
