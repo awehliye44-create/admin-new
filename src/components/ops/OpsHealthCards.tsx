@@ -28,6 +28,7 @@ const CATEGORY_CONFIG: { key: string; label: string; icon: React.ReactNode }[] =
   { key: 'logs', label: 'Logs & Errors', icon: <ScrollText className="h-5 w-5" /> },
   { key: 'duplication', label: 'Duplications', icon: <Copy className="h-5 w-5" /> },
   { key: 'system', label: 'System', icon: <Activity className="h-5 w-5" /> },
+  { key: 'admin_panel', label: 'Admin Panel', icon: <Activity className="h-5 w-5" /> },
 ];
 
 function getHealthColor(open: number, critical: number): string {
