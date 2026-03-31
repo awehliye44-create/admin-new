@@ -1,0 +1,2 @@
+ALTER TABLE public.app_performance_events DROP CONSTRAINT IF EXISTS app_performance_events_app_name_check;
+ALTER TABLE public.app_performance_events ADD CONSTRAINT app_performance_events_app_name_check CHECK (app_name IN ('customer_app', 'driver_app', 'guest_web', 'admin_web', 'admin_panel', 'corporate_web'));
