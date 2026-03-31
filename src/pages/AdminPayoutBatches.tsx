@@ -76,17 +76,9 @@ export default function AdminPayoutBatches() {
     },
   });
 
-  // Also fetch driver summaries for region-based filtering of stats
-  const { data: allDrivers = [] } = useDriverFinancialSummaries();
-
-  // Filter drivers by region for local stat calculation
-  const regionDrivers = useMemo(() => {
-    if (!serviceFilter.regionId) return allDrivers;
-    return allDrivers.filter(d => d.region_id === serviceFilter.regionId);
-  }, [allDrivers, serviceFilter.regionId]);
-
-  const resolvedCurrency = serviceFilter.currencyCode || getSingleCurrency(regionDrivers) || responseData?.summary?.currencyCode || '';
-  const isMixedCurrency = !serviceFilter.currencyCode && !getSingleCurrency(regionDrivers) && regionDrivers.length > 0;
+  // Use summary data from the edge function directly — no redundant driver fetch
+  const resolvedCurrency = serviceFilter.currencyCode || responseData?.summary?.currencyCode || '';
+  const isMixedCurrency = false; // Edge function returns a single dominant currency
 
   // When a service is selected, recalculate stats from filtered drivers
   const isFiltered = !!serviceFilter.regionId;
