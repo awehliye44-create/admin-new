@@ -351,6 +351,14 @@ export function AdminSidebar() {
             </div>
           </div>
 
+          {/* OPS INTELLIGENCE */}
+          <div>
+            <NavSection label="Ops Intelligence" collapsed={isCollapsed} />
+            <div className="space-y-1">
+              <P pageSlug="ops-intelligence" to="/ops-intelligence" icon={<BrainCircuit className="h-4 w-4" />} label="Ops Intelligence" active={currentPath === '/ops-intelligence'} collapsed={isCollapsed} />
+            </div>
+          </div>
+
           {/* SETTINGS */}
           <div>
             <NavSection label="Settings" collapsed={isCollapsed} />
