@@ -8738,6 +8738,7 @@ export type Database = {
         Returns: undefined
       }
       ops_detect_5xx_spikes: { Args: never; Returns: number }
+      ops_detect_admin_panel_issues: { Args: never; Returns: Json }
       ops_detect_api_latency_spikes: { Args: never; Returns: Json }
       ops_detect_commission_gaps: { Args: never; Returns: Json }
       ops_detect_corporate_booking_issues: { Args: never; Returns: Json }
