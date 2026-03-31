@@ -233,7 +233,7 @@ serve(async (req) => {
           const jitter = (Math.random() - 0.3) * screen.baseMs * 0.6;
           const value = Math.max(100, Math.round(screen.baseMs + jitter));
           const ver = appVersions[Math.floor(Math.random() * appVersions.length)];
-          const plat = appName === 'guest_web' ? 'web' : platforms[Math.floor(Math.random() * platforms.length)];
+          const plat = (appName === 'guest_web' || appName === 'admin_panel') ? 'web' : platforms[Math.floor(Math.random() * platforms.length)];
           telemetry.push({
             app_name: appName,
             screen_name: screen.name,

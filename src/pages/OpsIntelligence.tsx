@@ -73,7 +73,7 @@ export default function OpsIntelligence() {
       if (error) throw error;
       
       const summary: Record<string, { open: number; critical: number; latest: string | null }> = {};
-      const categories = ['payment', 'commission', 'earning', 'payout', 'dispatch', 'guest_booking', 'corporate_booking', 'customer_app', 'driver_app', 'backend', 'logs', 'duplication', 'system'];
+      const categories = ['payment', 'commission', 'earning', 'payout', 'dispatch', 'guest_booking', 'corporate_booking', 'customer_app', 'driver_app', 'backend', 'logs', 'duplication', 'system', 'admin_panel'];
       categories.forEach(c => { summary[c] = { open: 0, critical: 0, latest: null }; });
       
       (data || []).forEach((a: any) => {
