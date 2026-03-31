@@ -389,11 +389,6 @@ export default function Dashboard() {
   const bookingChartData = dashData?.bookingChartData || [];
   const serviceAreaRevenues = dashData?.serviceAreaRevenues || [];
 
-  // Real-time driver location updates
-  useEffect(() => {
-    // Realtime driver updates not needed — dashData.drivers refreshes via React Query
-    // The 30s staleTime + 60s refetchInterval provides near-real-time without memory leak risk
-
   const driverChartData = [
     { name: 'Total Drivers', value: stats.totalDrivers, color: '#3B82F6' },
     { name: 'Active Drivers', value: stats.onlineDrivers, color: '#10B981' },
