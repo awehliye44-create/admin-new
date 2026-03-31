@@ -4235,6 +4235,50 @@ export type Database = {
         }
         Relationships: []
       }
+      ops_alert_summaries: {
+        Row: {
+          alert_id: string
+          confidence_score: number | null
+          created_at: string
+          id: string
+          model_used: string
+          recommended_action: string
+          root_cause: string
+          summary: string
+          updated_at: string
+        }
+        Insert: {
+          alert_id: string
+          confidence_score?: number | null
+          created_at?: string
+          id?: string
+          model_used?: string
+          recommended_action: string
+          root_cause: string
+          summary: string
+          updated_at?: string
+        }
+        Update: {
+          alert_id?: string
+          confidence_score?: number | null
+          created_at?: string
+          id?: string
+          model_used?: string
+          recommended_action?: string
+          root_cause?: string
+          summary?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ops_alert_summaries_alert_id_fkey"
+            columns: ["alert_id"]
+            isOneToOne: false
+            referencedRelation: "ops_alerts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ops_alerts: {
         Row: {
           acknowledged_at: string | null
