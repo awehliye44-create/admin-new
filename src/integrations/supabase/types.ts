@@ -191,6 +191,7 @@ export type Database = {
           created_at: string
           device_model: string | null
           id: string
+          is_synthetic: boolean
           metadata: Json | null
           metric_name: string
           metric_value: number
@@ -207,6 +208,7 @@ export type Database = {
           created_at?: string
           device_model?: string | null
           id?: string
+          is_synthetic?: boolean
           metadata?: Json | null
           metric_name: string
           metric_value: number
@@ -223,6 +225,7 @@ export type Database = {
           created_at?: string
           device_model?: string | null
           id?: string
+          is_synthetic?: boolean
           metadata?: Json | null
           metric_name?: string
           metric_value?: number
