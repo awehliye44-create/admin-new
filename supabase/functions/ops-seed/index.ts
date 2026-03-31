@@ -81,6 +81,10 @@ serve(async (req) => {
       { fingerprint: 'demo:dup_payment:trip-005', category: 'duplication', severity: 'critical', source: 'system', app: 'backend', title: 'Duplicate Payment Detected', description: 'Trip MK0055 has 2 successful payments totaling £37.00.', metadata: { payment_count: 2, total_pence: 3700, trip_ref: 'MK0055' } },
       // 17. Duplicate payout
       { fingerprint: 'demo:dup_payout:batch-002', category: 'duplication', severity: 'critical', source: 'system', app: 'backend', title: 'Duplicate Payout Detected', description: 'Driver DRV-044 received 2 payouts for the same period totaling £320.', metadata: { payout_count: 2, total_pence: 32000, driver_ref: 'DRV-044' } },
+      // Admin panel alerts
+      { fingerprint: 'demo:admin_panel_slow:logs', category: 'system', severity: 'warning', source: 'system', app: 'admin_panel', title: 'Admin Panel Slow: LogsExplorer', description: 'LogsExplorer screen_load_time avg 4200ms (threshold: 2000ms).', metadata: { screen: 'LogsExplorer', avg_ms: 4200 } },
+      { fingerprint: 'demo:admin_panel_slow:perf', category: 'system', severity: 'warning', source: 'system', app: 'admin_panel', title: 'Admin Panel Slow: PerformanceTab', description: 'PerformanceTab screen_load_time avg 3800ms (threshold: 2000ms).', metadata: { screen: 'PerformanceTab', avg_ms: 3800 } },
+      { fingerprint: 'demo:admin_panel_slow:dashboard', category: 'system', severity: 'warning', source: 'system', app: 'admin_panel', title: 'Admin Panel Slow: Dashboard', description: 'Dashboard screen_load_time avg 3500ms (threshold: 2000ms).', metadata: { screen: 'Dashboard', avg_ms: 3500 } },
       // 18. Duplicate dispatch request
       { fingerprint: 'demo:dup_dispatch:trip-010', category: 'duplication', severity: 'warning', source: 'system', app: 'backend', title: 'Duplicate Dispatch Request', description: 'Same trip dispatched twice to driver pool within 2 seconds.', metadata: { time_diff_seconds: 2 } },
     ];
