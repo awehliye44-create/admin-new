@@ -8634,13 +8634,30 @@ export type Database = {
         Args: { p_alert_id: string; p_user_id: string }
         Returns: undefined
       }
+      ops_detect_5xx_spikes: { Args: never; Returns: number }
+      ops_detect_duplicate_bookings: { Args: never; Returns: number }
       ops_detect_duplicate_commissions: { Args: never; Returns: number }
+      ops_detect_duplicate_dispatches: { Args: never; Returns: number }
+      ops_detect_duplicate_earnings: { Args: never; Returns: number }
       ops_detect_duplicate_payments: { Args: never; Returns: number }
+      ops_detect_duplicate_payouts: { Args: never; Returns: number }
+      ops_detect_edge_function_failures: { Args: never; Returns: number }
+      ops_detect_error_spikes: { Args: never; Returns: number }
       ops_detect_failed_payments: { Args: never; Returns: number }
       ops_detect_failed_payouts: { Args: never; Returns: number }
+      ops_detect_fatal_logs: { Args: never; Returns: number }
+      ops_detect_guest_booking_not_confirmed: { Args: never; Returns: number }
+      ops_detect_guest_checkout_failures: { Args: never; Returns: number }
+      ops_detect_guest_dropoffs: { Args: never; Returns: number }
+      ops_detect_guest_latency: { Args: never; Returns: number }
+      ops_detect_guest_quote_failures: { Args: never; Returns: number }
+      ops_detect_latency_spikes: { Args: never; Returns: number }
       ops_detect_missing_commissions: { Args: never; Returns: number }
       ops_detect_missing_earnings: { Args: never; Returns: number }
+      ops_detect_repeated_guest_submissions: { Args: never; Returns: number }
+      ops_detect_repeated_webhooks: { Args: never; Returns: number }
       ops_detect_stuck_dispatch: { Args: never; Returns: number }
+      ops_detect_webhook_failures: { Args: never; Returns: number }
       ops_record_event: {
         Args: {
           p_amount_pence?: number
