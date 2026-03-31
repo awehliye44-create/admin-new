@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import { Smartphone, Car, Globe, Activity, Clock, AlertTriangle, TrendingUp, Zap, RefreshCw } from 'lucide-react';
+import { Smartphone, Car, Globe, Activity, Clock, AlertTriangle, TrendingUp, Zap, RefreshCw, Building2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 type HealthSummaryRow = {
