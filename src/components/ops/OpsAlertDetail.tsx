@@ -1,14 +1,18 @@
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, CheckCircle, Eye, BellOff, Sparkles, ExternalLink } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
+import { ArrowLeft, CheckCircle, Eye, BellOff, Sparkles, ExternalLink, RefreshCw, Loader2, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { format, formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { generateAISummary, regenerateAISummary, fetchAISummary } from '@/lib/opsAiSummaryService';
+import type { AISummaryInput } from '@/lib/opsAiSummaryService';
 
 type OpsAlert = {
   id: string;
@@ -60,20 +64,12 @@ const LEVEL_COLORS: Record<string, string> = {
 export function OpsAlertDetail({ alert, onBack, onRefresh }: OpsAlertDetailProps) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const [aiGenerating, setAiGenerating] = useState(false);
 
   // Fetch AI summary
-  const { data: aiSummary, refetch: refetchAI } = useQuery({
+  const { data: aiSummary, isLoading: aiLoading, error: aiError, refetch: refetchAI } = useQuery({
     queryKey: ['ops-ai-summary', alert.id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('ops_ai_summaries')
-        .select('*')
-        .eq('alert_id', alert.id)
-        .order('created_at', { ascending: false })
-        .limit(1);
-      if (error) throw error;
-      return data?.[0] || null;
-    },
+    queryFn: () => fetchAISummary(alert.id),
   });
 
   // Fetch related events
@@ -91,13 +87,11 @@ export function OpsAlertDetail({ alert, onBack, onRefresh }: OpsAlertDetailProps
     },
   });
 
-  // Fetch related logs — by trip_id OR by time window around alert
+  // Fetch related logs
   const { data: relatedLogs } = useQuery({
     queryKey: ['ops-logs-related', alert.id, alert.related_trip_id],
     queryFn: async () => {
       const results: any[] = [];
-
-      // By trip_id
       if (alert.related_trip_id) {
         const { data } = await supabase
           .from('ops_logs')
@@ -107,8 +101,6 @@ export function OpsAlertDetail({ alert, onBack, onRefresh }: OpsAlertDetailProps
           .limit(10);
         if (data) results.push(...data);
       }
-
-      // By related_entity_id if it's an ops_log
       if (alert.related_entity_type === 'ops_log' && alert.related_entity_id) {
         const { data } = await supabase
           .from('ops_logs')
@@ -121,8 +113,6 @@ export function OpsAlertDetail({ alert, onBack, onRefresh }: OpsAlertDetailProps
           });
         }
       }
-
-      // By time window around alert detection (±5 min) if no trip-based logs found
       if (results.length === 0) {
         const alertTime = new Date(alert.last_detected_at);
         const from = new Date(alertTime.getTime() - 5 * 60 * 1000).toISOString();
@@ -137,7 +127,6 @@ export function OpsAlertDetail({ alert, onBack, onRefresh }: OpsAlertDetailProps
           .limit(10);
         if (data) results.push(...data);
       }
-
       return results;
     },
   });
@@ -159,80 +148,49 @@ export function OpsAlertDetail({ alert, onBack, onRefresh }: OpsAlertDetailProps
     }
   };
 
-  // Generate mock AI summary
+  // Build AI input from alert context
+  const buildAIInput = (): AISummaryInput => ({
+    alertId: alert.id,
+    category: alert.category,
+    severity: alert.severity,
+    title: alert.title,
+    description: alert.description,
+    fingerprint: alert.fingerprint,
+    fingerprintCount: alert.fingerprint_count,
+    source: alert.source,
+    app: alert.app,
+    metadata: alert.metadata,
+    relatedTripId: alert.related_trip_id,
+    relatedDriverId: alert.related_driver_id,
+    relatedPaymentId: alert.related_payment_id,
+    relatedPayoutBatchId: alert.related_payout_batch_id,
+    relatedLogs: relatedLogs?.map((l: any) => ({ level: l.level, source: l.source, message: l.message })),
+  });
+
   const handleGenerateAI = async () => {
-    const mockSummaries: Record<string, { summary: string; root_cause: string; action: string }> = {
-      payment: {
-        summary: `Payment failure detected for ${alert.related_trip_id ? 'trip ' + alert.related_trip_id.slice(0, 8) : 'unknown trip'}. Stripe returned an error during capture.`,
-        root_cause: 'Card declined or expired. The customer\'s payment method may have insufficient funds or may have been blocked by the issuing bank.',
-        action: 'Contact the customer to update their payment method. If this is a recurring issue, consider enabling retry logic in the payment capture flow.',
-      },
-      commission: {
-        summary: 'Commission was not recorded for a completed trip. The trip_finance record is missing or incomplete.',
-        root_cause: 'The complete-trip edge function may have failed after updating the trip status but before inserting the trip_finance record.',
-        action: 'Run the repair-commissions edge function to reconcile missing entries. Check edge function logs for errors around the trip completion time.',
-      },
-      earning: {
-        summary: 'Driver earning was not recorded in the ledger for a completed trip.',
-        root_cause: 'The driver ledger entry was not created during trip completion, possibly due to a race condition or edge function timeout.',
-        action: 'Manually insert the missing driver ledger entry or run the reconciliation process.',
-      },
-      payout: {
-        summary: 'A payout batch failed during processing. Drivers have not been paid.',
-        root_cause: 'Stripe Connect payout API returned an error. May be due to insufficient platform balance or driver account issues.',
-        action: 'Check Stripe dashboard for the failed transfer details. Retry the payout batch after resolving the underlying issue.',
-      },
-      dispatch: {
-        summary: 'Trip has been stuck in dispatch for an extended period with no driver accepting.',
-        root_cause: 'No eligible drivers online in the service area, or dispatch search radius too small. All available drivers may have declined.',
-        action: 'Check driver availability in the service area. Consider expanding search radius or manually assigning a driver.',
-      },
-      guest_booking: {
-        summary: 'Guest booking flow on guest.onecab.net experienced a failure. Customer may have abandoned the booking.',
-        root_cause: 'Could be a payment processing failure, fare estimation timeout, or booking confirmation delay on the guest web platform.',
-        action: 'Check the guest booking logs for the specific error. Review Stripe payment intents for the session. Consider adding retry mechanisms.',
-      },
-      duplication: {
-        summary: 'Duplicate entries detected that may indicate retry issues or double-click submissions.',
-        root_cause: 'Idempotency check may be missing in the relevant flow. Client-side retries or double-clicks can cause duplicate records.',
-        action: 'Review the duplicate records and remove extras. Add idempotency keys to prevent recurrence.',
-      },
-      backend: {
-        summary: 'Backend/API error spike detected. Multiple server errors from the same edge function.',
-        root_cause: 'The edge function is experiencing failures. Could be due to database connection issues, Stripe API timeouts, or code bugs.',
-        action: 'Check edge function logs for detailed error messages. Review recent deployments for regressions.',
-      },
-      logs: {
-        summary: 'Abnormal log patterns detected. Error or fatal entries have spiked above normal levels.',
-        root_cause: 'A system component is generating excessive errors. This may indicate a cascading failure or external dependency issue.',
-        action: 'Investigate the logs explorer for the specific source generating errors. Check dependent services (Stripe, Supabase, etc.).',
-      },
-    };
-
-    const fallback = mockSummaries[alert.category] || {
-      summary: `Alert: ${alert.title}. ${alert.description || ''}`,
-      root_cause: 'Requires manual investigation to determine root cause.',
-      action: 'Review the alert details and related logs. Investigate the affected system component.',
-    };
-
-    try {
-      const { error } = await supabase.from('ops_ai_summaries').insert({
-        alert_id: alert.id,
-        summary: fallback.summary,
-        root_cause: fallback.root_cause,
-        recommended_action: fallback.action,
-        confidence_score: 0.75,
-        model_used: 'mock',
-      });
-      if (error) throw error;
+    setAiGenerating(true);
+    const result = await generateAISummary(buildAIInput());
+    setAiGenerating(false);
+    if (result.success) {
       toast.success('AI summary generated');
       refetchAI();
-    } catch (e: any) {
-      toast.error('Failed to generate summary', { description: e.message });
+    } else {
+      toast.error('Failed to generate summary', { description: result.error });
     }
   };
 
-  // Helper to build related reference items
+  const handleRegenerateAI = async () => {
+    setAiGenerating(true);
+    const result = await regenerateAISummary(buildAIInput());
+    setAiGenerating(false);
+    if (result.success) {
+      toast.success('AI summary regenerated');
+      refetchAI();
+    } else {
+      toast.error('Failed to regenerate summary', { description: result.error });
+    }
+  };
+
   const relatedRefs = [
     { label: 'Trip', value: alert.related_trip_id },
     { label: 'Driver', value: alert.related_driver_id },
@@ -280,7 +238,6 @@ export function OpsAlertDetail({ alert, onBack, onRefresh }: OpsAlertDetailProps
           {alert.description && <p className="text-sm text-muted-foreground">{alert.description}</p>}
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Key Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <div>
               <span className="text-muted-foreground block text-xs">Occurrences</span>
@@ -303,13 +260,11 @@ export function OpsAlertDetail({ alert, onBack, onRefresh }: OpsAlertDetailProps
             </div>
           </div>
 
-          {/* Fingerprint */}
           <div>
             <span className="text-muted-foreground text-xs">Fingerprint</span>
             <code className="block text-xs bg-muted px-2 py-1 rounded mt-0.5 break-all">{alert.fingerprint}</code>
           </div>
 
-          {/* Status timestamps */}
           {(alert.acknowledged_at || alert.resolved_at || alert.suppressed_until) && (
             <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
               {alert.acknowledged_at && <span>Acknowledged: {format(new Date(alert.acknowledged_at), 'PPp')}</span>}
@@ -318,7 +273,6 @@ export function OpsAlertDetail({ alert, onBack, onRefresh }: OpsAlertDetailProps
             </div>
           )}
 
-          {/* Related References */}
           {relatedRefs.length > 0 && (
             <>
               <Separator />
@@ -337,7 +291,6 @@ export function OpsAlertDetail({ alert, onBack, onRefresh }: OpsAlertDetailProps
             </>
           )}
 
-          {/* Metadata */}
           {alert.metadata && Object.keys(alert.metadata).length > 0 && (
             <>
               <Separator />
@@ -357,46 +310,106 @@ export function OpsAlertDetail({ alert, onBack, onRefresh }: OpsAlertDetailProps
         </CardContent>
       </Card>
 
-      {/* AI Summary */}
+      {/* AI Incident Summary */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-primary" /> AI Incident Summary
             </CardTitle>
-            {!aiSummary && (
-              <Button variant="outline" size="sm" onClick={handleGenerateAI}>
-                Generate Summary
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {aiSummary ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRegenerateAI}
+                  disabled={aiGenerating}
+                >
+                  {aiGenerating ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 mr-1" />
+                  )}
+                  Regenerate
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleGenerateAI}
+                  disabled={aiGenerating || aiLoading}
+                >
+                  {aiGenerating ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4 mr-1" />
+                  )}
+                  {aiGenerating ? 'Generating…' : 'Generate Summary'}
+                </Button>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
-          {aiSummary ? (
+          {aiLoading ? (
             <div className="space-y-3">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-4 w-5/6" />
+            </div>
+          ) : aiError ? (
+            <div className="flex items-center gap-2 text-sm text-destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <span>Failed to load summary. <button onClick={() => refetchAI()} className="underline">Retry</button></span>
+            </div>
+          ) : aiSummary ? (
+            <div className="space-y-4">
+              {/* Summary */}
               <div>
                 <p className="text-xs font-medium text-muted-foreground mb-1">Summary</p>
-                <p className="text-sm">{aiSummary.summary}</p>
+                <p className="text-sm leading-relaxed">{aiSummary.summary}</p>
               </div>
+
+              {/* Root Cause */}
               {aiSummary.root_cause && (
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1">Root Cause</p>
-                  <p className="text-sm">{aiSummary.root_cause}</p>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Likely Root Cause</p>
+                  <p className="text-sm leading-relaxed">{aiSummary.root_cause}</p>
                 </div>
               )}
+
+              {/* Recommended Action */}
               {aiSummary.recommended_action && (
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1">Recommended Action</p>
-                  <p className="text-sm">{aiSummary.recommended_action}</p>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Recommended Next Action</p>
+                  <p className="text-sm leading-relaxed">{aiSummary.recommended_action}</p>
                 </div>
               )}
-              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+
+              {/* Status bar */}
+              <Separator />
+              <div className="flex items-center gap-4 flex-wrap text-xs text-muted-foreground">
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                  <span>Generated</span>
+                </div>
                 <span>Model: {aiSummary.model_used}</span>
-                {aiSummary.confidence_score && <span>Confidence: {Math.round(aiSummary.confidence_score * 100)}%</span>}
+                {aiSummary.confidence_score != null && (
+                  <span>Confidence: {Math.round(aiSummary.confidence_score * 100)}%</span>
+                )}
+                {aiSummary.created_at && (
+                  <span>Created: {formatDistanceToNow(new Date(aiSummary.created_at), { addSuffix: true })}</span>
+                )}
               </div>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No AI summary generated yet. Click "Generate Summary" to create one.</p>
+            <div className="flex flex-col items-center justify-center py-6 text-center">
+              <Sparkles className="h-8 w-8 text-muted-foreground/40 mb-2" />
+              <p className="text-sm text-muted-foreground">No AI summary yet</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Click "Generate Summary" to create an AI-powered incident analysis
+              </p>
+            </div>
           )}
         </CardContent>
       </Card>
