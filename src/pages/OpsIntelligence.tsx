@@ -6,7 +6,7 @@ import { OpsLogsExplorer } from '@/components/ops/OpsLogsExplorer';
 import { OpsAlertDetail } from '@/components/ops/OpsAlertDetail';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { RefreshCw, Activity, AlertTriangle, ScrollText, Shield, CreditCard, Truck, Copy } from 'lucide-react';
+import { RefreshCw, Activity, AlertTriangle, ScrollText, Shield, CreditCard, Truck, Copy, Globe, Gauge } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -49,7 +49,6 @@ export default function OpsIntelligence() {
         .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
       if (error) throw error;
       
-      // Group by category
       const summary: Record<string, { open: number; critical: number; latest: string | null }> = {};
       const categories = ['payment', 'commission', 'earning', 'payout', 'dispatch', 'guest_booking', 'corporate_booking', 'customer_app', 'driver_app', 'backend', 'logs', 'duplication', 'system'];
       categories.forEach(c => { summary[c] = { open: 0, critical: 0, latest: null }; });
@@ -92,7 +91,7 @@ export default function OpsIntelligence() {
 
   // Top-level stats
   const totalOpen = alerts?.filter(a => a.status === 'open').length || 0;
-  const totalCritical = alerts?.filter(a => a.severity === 'critical' && a.status === 'open').length || 0;
+  const totalCritical = alerts?.filter(a => (a.severity === 'critical' || a.severity === 'fatal') && a.status === 'open').length || 0;
   const totalAcknowledged = alerts?.filter(a => a.status === 'acknowledged').length || 0;
 
   // Seed demo data
@@ -105,7 +104,7 @@ export default function OpsIntelligence() {
       });
       const data = await res.json();
       if (data.success) {
-        toast.success('Demo data seeded');
+        toast.success('Demo data seeded', { description: `${data.alerts_seeded} alerts, ${data.logs_seeded} logs` });
         queryClient.invalidateQueries({ queryKey: ['ops-alerts'] });
         queryClient.invalidateQueries({ queryKey: ['ops-health-summary'] });
       } else toast.error('Seed failed', { description: JSON.stringify(data) });
@@ -153,11 +152,24 @@ export default function OpsIntelligence() {
     );
   }
 
+  // Filter helpers for tabs
+  const allAlerts = alerts || [];
+  const moneyAlerts = allAlerts.filter(a => ['payment', 'commission', 'earning', 'payout'].includes(a.category));
+  const dispatchAlerts = allAlerts.filter(a => a.category === 'dispatch');
+  const guestAlerts = allAlerts.filter(a => a.category === 'guest_booking' || a.app === 'guest');
+  const perfAlerts = allAlerts.filter(a =>
+    a.category === 'backend' || a.category === 'logs' ||
+    a.fingerprint.includes('latency') || a.fingerprint.includes('5xx') ||
+    a.fingerprint.includes('error_spike') || a.fingerprint.includes('edge_fn') ||
+    a.fingerprint.includes('fatal_log')
+  );
+  const dupAlerts = allAlerts.filter(a => a.category === 'duplication');
+
   return (
     <AdminLayout title="Ops Intelligence" description="Platform-wide operations monitoring, alerts & health">
       {/* Top action bar */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted">
             <Activity className="h-4 w-4 text-primary" />
             <span className="text-sm font-medium">{totalOpen} open</span>
@@ -172,7 +184,7 @@ export default function OpsIntelligence() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button onClick={handleSeedDemo} variant="secondary" size="sm" disabled={alerts && alerts.length > 0}>
+          <Button onClick={handleSeedDemo} variant="secondary" size="sm">
             Seed Demo Data
           </Button>
           <Button onClick={handleRunDetections} variant="outline" size="sm">
@@ -187,27 +199,46 @@ export default function OpsIntelligence() {
 
       {/* Main Tabs */}
       <Tabs defaultValue="alerts" className="mt-8">
-        <TabsList>
+        <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="alerts" className="gap-2">
             <AlertTriangle className="h-4 w-4" /> Alerts
-          </TabsTrigger>
-          <TabsTrigger value="logs" className="gap-2">
-            <ScrollText className="h-4 w-4" /> Logs Explorer
+            {totalOpen > 0 && <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded-full">{totalOpen}</span>}
           </TabsTrigger>
           <TabsTrigger value="money" className="gap-2">
             <CreditCard className="h-4 w-4" /> Money Integrity
+            {moneyAlerts.filter(a => a.status === 'open').length > 0 && (
+              <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded-full">{moneyAlerts.filter(a => a.status === 'open').length}</span>
+            )}
           </TabsTrigger>
           <TabsTrigger value="dispatch" className="gap-2">
             <Truck className="h-4 w-4" /> Dispatch Issues
           </TabsTrigger>
+          <TabsTrigger value="guest" className="gap-2">
+            <Globe className="h-4 w-4" /> Guest Booking
+            {guestAlerts.filter(a => a.status === 'open').length > 0 && (
+              <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded-full">{guestAlerts.filter(a => a.status === 'open').length}</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="performance" className="gap-2">
+            <Gauge className="h-4 w-4" /> Performance
+            {perfAlerts.filter(a => a.status === 'open').length > 0 && (
+              <span className="text-[10px] bg-amber-500/20 text-amber-600 px-1.5 py-0.5 rounded-full">{perfAlerts.filter(a => a.status === 'open').length}</span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="duplications" className="gap-2">
             <Copy className="h-4 w-4" /> Duplications
+            {dupAlerts.filter(a => a.status === 'open').length > 0 && (
+              <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded-full">{dupAlerts.filter(a => a.status === 'open').length}</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="logs" className="gap-2">
+            <ScrollText className="h-4 w-4" /> Logs Explorer
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="alerts">
           <OpsAlertsTable
-            alerts={alerts || []}
+            alerts={allAlerts}
             loading={alertsLoading}
             categoryFilter={categoryFilter}
             onCategoryChange={setCategoryFilter}
@@ -215,41 +246,63 @@ export default function OpsIntelligence() {
           />
         </TabsContent>
 
-        <TabsContent value="logs">
-          <OpsLogsExplorer />
-        </TabsContent>
-
         <TabsContent value="money">
           <OpsAlertsTable
-            alerts={(alerts || []).filter(a => ['payment', 'commission', 'earning', 'payout'].includes(a.category))}
+            alerts={moneyAlerts}
             loading={alertsLoading}
             categoryFilter="money"
             onCategoryChange={() => {}}
             onSelectAlert={setSelectedAlert}
-            title="Money Integrity Issues"
+            title="Money Integrity Issues — Payments, Commissions, Earnings & Payouts"
           />
         </TabsContent>
 
         <TabsContent value="dispatch">
           <OpsAlertsTable
-            alerts={(alerts || []).filter(a => a.category === 'dispatch')}
+            alerts={dispatchAlerts}
             loading={alertsLoading}
             categoryFilter="dispatch"
             onCategoryChange={() => {}}
             onSelectAlert={setSelectedAlert}
-            title="Dispatch Issues"
+            title="Dispatch Issues — Stuck Trips, Driver Availability & Offer Failures"
+          />
+        </TabsContent>
+
+        <TabsContent value="guest">
+          <OpsAlertsTable
+            alerts={guestAlerts}
+            loading={alertsLoading}
+            categoryFilter="guest"
+            onCategoryChange={() => {}}
+            onSelectAlert={setSelectedAlert}
+            title="Guest Booking (guest.onecab.net) — Quotes, Checkout, Confirmation & Drop-offs"
+          />
+        </TabsContent>
+
+        <TabsContent value="performance">
+          <OpsAlertsTable
+            alerts={perfAlerts}
+            loading={alertsLoading}
+            categoryFilter="performance"
+            onCategoryChange={() => {}}
+            onSelectAlert={setSelectedAlert}
+            title="Performance & Backend — 5xx Spikes, Latency, Edge Functions, Error Rates"
           />
         </TabsContent>
 
         <TabsContent value="duplications">
           <OpsAlertsTable
-            alerts={(alerts || []).filter(a => a.category === 'duplication')}
+            alerts={dupAlerts}
             loading={alertsLoading}
             categoryFilter="duplication"
             onCategoryChange={() => {}}
             onSelectAlert={setSelectedAlert}
-            title="Duplication Issues"
+            title="Duplication Issues — Payments, Bookings, Payouts, Earnings & Dispatch"
           />
+        </TabsContent>
+
+        <TabsContent value="logs">
+          <OpsLogsExplorer />
         </TabsContent>
       </Tabs>
     </AdminLayout>

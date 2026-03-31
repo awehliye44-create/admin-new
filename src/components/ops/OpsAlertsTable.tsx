@@ -3,7 +3,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Search, ChevronUp, ChevronDown } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
@@ -61,8 +60,16 @@ export function OpsAlertsTable({ alerts, loading, categoryFilter, onCategoryChan
   const [search, setSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [appFilter, setAppFilter] = useState('all');
   const [sortField, setSortField] = useState<SortField>('last_detected_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  // Derive unique app values for the app filter
+  const appValues = useMemo(() => {
+    const apps = new Set<string>();
+    alerts.forEach(a => { if (a.app) apps.add(a.app); });
+    return [...apps].sort();
+  }, [alerts]);
 
   const filtered = useMemo(() => {
     let result = alerts;
@@ -72,11 +79,15 @@ export function OpsAlertsTable({ alerts, loading, categoryFilter, onCategoryChan
         a.title.toLowerCase().includes(q) ||
         a.description?.toLowerCase().includes(q) ||
         a.fingerprint.toLowerCase().includes(q) ||
-        a.related_trip_id?.toLowerCase().includes(q)
+        a.related_trip_id?.toLowerCase().includes(q) ||
+        a.related_driver_id?.toLowerCase().includes(q) ||
+        a.related_payment_id?.toLowerCase().includes(q) ||
+        a.app?.toLowerCase().includes(q)
       );
     }
     if (severityFilter !== 'all') result = result.filter(a => a.severity === severityFilter);
     if (statusFilter !== 'all') result = result.filter(a => a.status === statusFilter);
+    if (appFilter !== 'all') result = result.filter(a => a.app === appFilter);
 
     result.sort((a, b) => {
       let cmp = 0;
@@ -89,7 +100,7 @@ export function OpsAlertsTable({ alerts, loading, categoryFilter, onCategoryChan
       return sortDir === 'desc' ? -cmp : cmp;
     });
     return result;
-  }, [alerts, search, severityFilter, statusFilter, sortField, sortDir]);
+  }, [alerts, search, severityFilter, statusFilter, appFilter, sortField, sortDir]);
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -104,12 +115,15 @@ export function OpsAlertsTable({ alerts, loading, categoryFilter, onCategoryChan
   return (
     <Card className="mt-4">
       <CardHeader className="pb-3">
-        <CardTitle className="text-lg">{title || 'Live Alerts'}</CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg">{title || 'Live Alerts'}</CardTitle>
+          <span className="text-xs text-muted-foreground">{filtered.length} alert{filtered.length !== 1 ? 's' : ''}</span>
+        </div>
         <div className="flex flex-wrap gap-3 mt-3">
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search alerts..."
+              placeholder="Search alerts, trip IDs, drivers..."
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="pl-9"
@@ -126,9 +140,13 @@ export function OpsAlertsTable({ alerts, loading, categoryFilter, onCategoryChan
                 <SelectItem value="payout">Payout</SelectItem>
                 <SelectItem value="dispatch">Dispatch</SelectItem>
                 <SelectItem value="guest_booking">Guest Booking</SelectItem>
-                <SelectItem value="duplication">Duplication</SelectItem>
+                <SelectItem value="corporate_booking">Corporate Booking</SelectItem>
+                <SelectItem value="customer_app">Customer App</SelectItem>
+                <SelectItem value="driver_app">Driver App</SelectItem>
                 <SelectItem value="backend">Backend</SelectItem>
                 <SelectItem value="logs">Logs</SelectItem>
+                <SelectItem value="duplication">Duplication</SelectItem>
+                <SelectItem value="system">System</SelectItem>
               </SelectContent>
             </Select>
           )}
@@ -152,6 +170,15 @@ export function OpsAlertsTable({ alerts, loading, categoryFilter, onCategoryChan
               <SelectItem value="suppressed">Suppressed</SelectItem>
             </SelectContent>
           </Select>
+          <Select value={appFilter} onValueChange={setAppFilter}>
+            <SelectTrigger className="w-[130px]"><SelectValue placeholder="App" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Apps</SelectItem>
+              {appValues.map(app => (
+                <SelectItem key={app} value={app}>{app}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -162,6 +189,7 @@ export function OpsAlertsTable({ alerts, loading, categoryFilter, onCategoryChan
               <TableHead>Status</TableHead>
               <TableHead>Category</TableHead>
               <TableHead>Title</TableHead>
+              <TableHead>App</TableHead>
               <TableHead className="cursor-pointer select-none" onClick={() => toggleSort('fingerprint_count')}>
                 <div className="flex items-center gap-1">Count <SortIcon field="fingerprint_count" /></div>
               </TableHead>
@@ -173,9 +201,9 @@ export function OpsAlertsTable({ alerts, loading, categoryFilter, onCategoryChan
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Loading alerts...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Loading alerts...</TableCell></TableRow>
             ) : filtered.length === 0 ? (
-              <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No alerts found — system healthy ✓</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No alerts found — system healthy ✓</TableCell></TableRow>
             ) : (
               filtered.map(alert => (
                 <TableRow
@@ -198,6 +226,11 @@ export function OpsAlertsTable({ alerts, loading, categoryFilter, onCategoryChan
                     <p className="text-sm font-medium truncate">{alert.title}</p>
                     {alert.description && (
                       <p className="text-xs text-muted-foreground truncate">{alert.description}</p>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {alert.app && (
+                      <Badge variant="secondary" className="text-[10px]">{alert.app}</Badge>
                     )}
                   </TableCell>
                   <TableCell>
