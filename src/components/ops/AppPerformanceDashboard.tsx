@@ -213,7 +213,7 @@ function MoneyScreensPanel({ data, thresholds }: { data: HealthSummaryRow[]; thr
   const moneyScreens = [
     'PaymentScreen', 'PayoutScreen', 'EarningsScreen', 'CommissionScreen',
     'WalletScreen', 'CheckoutPage', 'BookingPayment', 'DriverSettlement',
-    'InvoiceScreen', 'BookingConfirmation',
+    'InvoiceScreen', 'BookingConfirmation', 'PaymentFlow', 'PaymentPage', 'InvoicePage',
   ];
   const moneyData = data.filter(d => moneyScreens.includes(d.screen_name));
 
