@@ -184,6 +184,93 @@ export type Database = {
         }
         Relationships: []
       }
+      app_performance_events: {
+        Row: {
+          app_name: string
+          app_version: string | null
+          created_at: string
+          device_model: string | null
+          id: string
+          metadata: Json | null
+          metric_name: string
+          metric_value: number
+          os_version: string | null
+          platform: string | null
+          screen_name: string
+          session_id: string | null
+          unit: string
+          user_id: string | null
+        }
+        Insert: {
+          app_name: string
+          app_version?: string | null
+          created_at?: string
+          device_model?: string | null
+          id?: string
+          metadata?: Json | null
+          metric_name: string
+          metric_value: number
+          os_version?: string | null
+          platform?: string | null
+          screen_name: string
+          session_id?: string | null
+          unit?: string
+          user_id?: string | null
+        }
+        Update: {
+          app_name?: string
+          app_version?: string | null
+          created_at?: string
+          device_model?: string | null
+          id?: string
+          metadata?: Json | null
+          metric_name?: string
+          metric_value?: number
+          os_version?: string | null
+          platform?: string | null
+          screen_name?: string
+          session_id?: string | null
+          unit?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      app_performance_thresholds: {
+        Row: {
+          app_name: string
+          created_at: string
+          critical_threshold: number
+          id: string
+          is_active: boolean
+          metric_name: string
+          screen_name: string | null
+          updated_at: string
+          warning_threshold: number
+        }
+        Insert: {
+          app_name: string
+          created_at?: string
+          critical_threshold: number
+          id?: string
+          is_active?: boolean
+          metric_name: string
+          screen_name?: string | null
+          updated_at?: string
+          warning_threshold: number
+        }
+        Update: {
+          app_name?: string
+          created_at?: string
+          critical_threshold?: number
+          id?: string
+          is_active?: boolean
+          metric_name?: string
+          screen_name?: string | null
+          updated_at?: string
+          warning_threshold?: number
+        }
+        Relationships: []
+      }
       audit_logs: {
         Row: {
           created_at: string | null
@@ -7939,6 +8026,22 @@ export type Database = {
       }
     }
     Views: {
+      app_health_summary: {
+        Row: {
+          app_name: string | null
+          avg_ms: number | null
+          event_count: number | null
+          last_event_at: string | null
+          max_ms: number | null
+          median_ms: number | null
+          metric_name: string | null
+          min_ms: number | null
+          p95_ms: number | null
+          p99_ms: number | null
+          screen_name: string | null
+        }
+        Relationships: []
+      }
       available_scheduled_jobs: {
         Row: {
           arrived_at: string | null
@@ -8635,6 +8738,7 @@ export type Database = {
         Returns: undefined
       }
       ops_detect_5xx_spikes: { Args: never; Returns: number }
+      ops_detect_api_latency_spikes: { Args: never; Returns: Json }
       ops_detect_duplicate_bookings: { Args: never; Returns: number }
       ops_detect_duplicate_commissions: { Args: never; Returns: number }
       ops_detect_duplicate_dispatches: { Args: never; Returns: number }
@@ -8654,9 +8758,12 @@ export type Database = {
       ops_detect_latency_spikes: { Args: never; Returns: number }
       ops_detect_missing_commissions: { Args: never; Returns: number }
       ops_detect_missing_earnings: { Args: never; Returns: number }
+      ops_detect_money_screen_delays: { Args: never; Returns: Json }
       ops_detect_repeated_guest_submissions: { Args: never; Returns: number }
       ops_detect_repeated_webhooks: { Args: never; Returns: number }
+      ops_detect_slow_screens: { Args: never; Returns: Json }
       ops_detect_stuck_dispatch: { Args: never; Returns: number }
+      ops_detect_version_issues: { Args: never; Returns: Json }
       ops_detect_webhook_failures: { Args: never; Returns: number }
       ops_record_event: {
         Args: {
