@@ -144,6 +144,7 @@ interface CompletedTrip {
 }
 
 export default function TripHistory() {
+  usePageLoadTelemetry('TripHistory');
   
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('7days');

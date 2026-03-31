@@ -59,6 +59,7 @@ interface Rider {
 }
 
 export default function Riders() {
+  usePageLoadTelemetry('RidersPage');
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRider, setSelectedRider] = useState<Rider | null>(null);

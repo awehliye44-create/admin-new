@@ -112,6 +112,7 @@ const formatPence = (pence: number, currencyCode?: string): string => {
 };
 
 export default function AdminPayments() {
+  usePageLoadTelemetry('PaymentsPage');
   const [activeTab, setActiveTab] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');

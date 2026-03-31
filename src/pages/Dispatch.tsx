@@ -41,6 +41,7 @@ interface Trip {
 }
 
 export default function Dispatch() {
+  usePageLoadTelemetry('DispatchPage');
   const [trips, setTrips] = useState<Trip[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

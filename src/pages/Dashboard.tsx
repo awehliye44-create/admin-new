@@ -204,6 +204,7 @@ function QuickActionsPanel({ navigate }: { navigate: (path: string) => void }) {
 }
 
 export default function Dashboard() {
+  usePageLoadTelemetry('Dashboard');
   const navigate = useNavigate();
   const [stats, setStats] = useState<Stats>({
     totalDrivers: 0,
