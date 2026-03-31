@@ -207,36 +207,13 @@ function QuickActionsPanel({ navigate }: { navigate: (path: string) => void }) {
 export default function Dashboard() {
   usePageLoadTelemetry('Dashboard');
   const navigate = useNavigate();
-  const [stats, setStats] = useState<Stats>({
-    totalDrivers: 0,
-    onlineDrivers: 0,
-    offlineDrivers: 0,
-    pendingDrivers: 0,
-    inactiveDrivers: 0,
-    totalRiders: 0,
-    totalTrips: 0,
-    activeTrips: 0,
-    inProgressTrips: 0,
-    completedTrips: 0,
-    cancelledTrips: 0,
-    totalRevenue: 0,
-    commissionRevenue: 0,
-    previousRevenue: 0,
-    previousCommission: 0,
-  });
-  const [recentTrips, setRecentTrips] = useState<RecentTrip[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('daily');
-  const [serviceAreas, setServiceAreas] = useState<DashboardServiceArea[]>([]);
   const [selectedServiceArea, setSelectedServiceArea] = useState<string>('all');
   const [userStatsPeriod, setUserStatsPeriod] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
-  const [bookingChartData, setBookingChartData] = useState<BookingDataPoint[]>([]);
   const [bookingStatType, setBookingStatType] = useState<'completed' | 'ongoing' | 'cancelled'>('completed');
   const [customDateFrom, setCustomDateFrom] = useState<Date | undefined>(undefined);
   const [customDateTo, setCustomDateTo] = useState<Date | undefined>(undefined);
-  const [serviceAreaRevenues, setServiceAreaRevenues] = useState<ServiceAreaRevenue[]>([]);
   // Map state
-  const [drivers, setDrivers] = useState<Driver[]>([]);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
   const googleMapRef = useRef<any>(null);
@@ -253,7 +230,6 @@ export default function Dashboard() {
       setIsMapLoaded(true);
       return;
     }
-
     const script = document.createElement('script');
     script.src = `https://maps.googleapis.com/maps/api/js?key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY}&libraries=geometry`;
     script.async = true;
@@ -265,296 +241,153 @@ export default function Dashboard() {
   // Initialize map
   useEffect(() => {
     if (!isMapLoaded || !mapRef.current || googleMapRef.current) return;
-
     googleMapRef.current = new window.google.maps.Map(mapRef.current, {
       center: { lat: 52.0406, lng: -0.7594 },
       zoom: 13,
       mapTypeId: 'roadmap',
-      styles: [
-        { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
-      ],
+      styles: [{ featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] }],
     });
   }, [isMapLoaded]);
 
-  // Update driver markers
-  useEffect(() => {
-    if (!googleMapRef.current || !isMapLoaded) return;
-
-    // Clear existing markers
-    markersRef.current.forEach(marker => marker.setMap(null));
-    markersRef.current.clear();
-
-    // Create markers for each driver with location
-    drivers.forEach((driver) => {
-      if (!driver.current_lat || !driver.current_lng) return;
-
-      const position = { lat: driver.current_lat, lng: driver.current_lng };
-      const isOnTrip = !!driver.current_trip_id;
-      const zIndex = isOnTrip ? 100 : 1;
-
-      const marker = new window.google.maps.Marker({
-        position,
-        map: googleMapRef.current,
-        icon: getEnhancedCarIcon(32, driver.heading || 0),
-        title: `${driver.first_name} ${driver.last_name}`,
-        optimized: false,
-        zIndex,
-      });
-
-      markersRef.current.set(driver.id, marker);
-    });
-
-    // Fit bounds if drivers have locations
-    const driversWithLocation = drivers.filter(d => d.current_lat && d.current_lng);
-    if (driversWithLocation.length > 0 && googleMapRef.current) {
-      const bounds = new window.google.maps.LatLngBounds();
-      driversWithLocation.forEach(d => {
-        bounds.extend({ lat: d.current_lat!, lng: d.current_lng! });
-      });
-      googleMapRef.current.fitBounds(bounds);
-    }
-  }, [drivers, isMapLoaded]);
-
   // Fetch service areas — use shared cached hook
   const { data: sharedServiceAreas } = useServiceAreas({ activeOnly: true });
-  
-  // Sync shared data into local state (keeps existing downstream code working)
-  useEffect(() => {
-    if (sharedServiceAreas) {
-      setServiceAreas(sharedServiceAreas as any[]);
+  const serviceAreas = useMemo(() => (sharedServiceAreas || []) as DashboardServiceArea[], [sharedServiceAreas]);
+
+  // Calculate date ranges (memoized)
+  const dateRange = useMemo(() => {
+    const now = new Date();
+    let startDate: Date, endDate: Date = endOfDay(now), previousStartDate: Date, previousEndDate: Date;
+    if (period === 'custom' && customDateFrom) {
+      startDate = startOfDay(customDateFrom);
+      endDate = customDateTo ? endOfDay(customDateTo) : endOfDay(now);
+      const durationMs = endDate.getTime() - startDate.getTime();
+      previousEndDate = startDate;
+      previousStartDate = new Date(startDate.getTime() - durationMs);
+    } else if (period === 'daily') {
+      startDate = startOfDay(now); previousStartDate = startOfDay(subDays(now, 1)); previousEndDate = startDate;
+    } else if (period === 'weekly') {
+      startDate = startOfWeek(now, { weekStartsOn: 1 }); previousStartDate = startOfWeek(subWeeks(now, 1), { weekStartsOn: 1 }); previousEndDate = startDate;
+    } else {
+      startDate = startOfMonth(now); previousStartDate = startOfMonth(subMonths(now, 1)); previousEndDate = startDate;
     }
-  }, [sharedServiceAreas]);
+    return { startDate, endDate, previousStartDate, previousEndDate };
+  }, [period, customDateFrom, customDateTo]);
 
-  // Fetch stats based on period and service area
-  const fetchStats = useCallback(async () => {
-    // Only show spinner on first load
-    if (stats.totalTrips === 0) setIsLoading(true);
-    try {
-      // Calculate date ranges based on period
+  // ─── MAIN DASHBOARD QUERY — React Query, all 6 queries in parallel, 30s cache ───
+  const { data: dashData, isLoading, refetch: fetchStats } = useQuery({
+    queryKey: ['dashboard-stats', period, selectedServiceArea, customDateFrom?.toISOString(), customDateTo?.toISOString()],
+    queryFn: async () => {
+      const { startDate, endDate, previousStartDate, previousEndDate } = dateRange;
+
+      let tripsQ = supabase.from('trips')
+        .select('id, status, financial_outcome, gross_fare_pence, commission_pence, service_area_id')
+        .gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString()).limit(10000);
+      let prevQ = supabase.from('trips')
+        .select('id, gross_fare_pence, commission_pence')
+        .in('financial_outcome', ['COMPLETED', 'NO_SHOW', 'LATE_PASSENGER_CANCELLATION'])
+        .gte('created_at', previousStartDate.toISOString()).lt('created_at', previousEndDate.toISOString()).limit(10000);
+
+      // Chart query range
+      const timePeriod = period === 'custom' ? 'daily' : period;
       const now = new Date();
-      let startDate: Date;
-      let endDate: Date = endOfDay(now);
-      let previousStartDate: Date;
-      let previousEndDate: Date;
-      
-      if (period === 'custom' && customDateFrom) {
-        startDate = startOfDay(customDateFrom);
-        endDate = customDateTo ? endOfDay(customDateTo) : endOfDay(now);
-        const durationMs = endDate.getTime() - startDate.getTime();
-        previousEndDate = startDate;
-        previousStartDate = new Date(startDate.getTime() - durationMs);
-      } else if (period === 'daily') {
-        startDate = startOfDay(now);
-        previousStartDate = startOfDay(subDays(now, 1));
-        previousEndDate = startDate;
-      } else if (period === 'weekly') {
-        startDate = startOfWeek(now, { weekStartsOn: 1 });
-        previousStartDate = startOfWeek(subWeeks(now, 1), { weekStartsOn: 1 });
-        previousEndDate = startDate;
-      } else {
-        startDate = startOfMonth(now);
-        previousStartDate = startOfMonth(subMonths(now, 1));
-        previousEndDate = startDate;
-      }
+      let chartStart: Date;
+      if (timePeriod === 'daily') chartStart = period === 'custom' && customDateFrom ? startOfDay(customDateFrom) : subDays(now, 1);
+      else if (timePeriod === 'weekly') chartStart = startOfDay(subDays(now, 6));
+      else chartStart = startOfWeek(subWeeks(now, 3));
+      const chartEnd = period === 'custom' && customDateTo ? endOfDay(customDateTo) : now;
 
-      // Build queries — use gross_fare_pence (actual settled fare) not fare (estimate)
-      // Select only needed fields and use .limit(10000) to avoid silent 1000-row cap
-      let driversQuery = supabase.from('drivers').select('id, is_online, approval_status, current_lat, current_lng, heading, current_trip_id, first_name, last_name');
-      let tripsQuery = supabase.from('trips').select('id, status, financial_outcome, gross_fare_pence, commission_pence, service_area_id, created_at').limit(10000);
-      let previousTripsQuery = supabase.from('trips').select('id, financial_outcome, gross_fare_pence, commission_pence').in('financial_outcome', ['COMPLETED', 'NO_SHOW', 'LATE_PASSENGER_CANCELLATION']).limit(10000);
+      let chartQ = supabase.from('trips').select('status, created_at')
+        .gte('created_at', chartStart.toISOString()).lte('created_at', chartEnd.toISOString())
+        .in('status', ['completed', 'cancelled']);
 
-      // Apply date filter for trips
-      tripsQuery = tripsQuery.gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString());
-      previousTripsQuery = previousTripsQuery
-        .gte('created_at', previousStartDate.toISOString())
-        .lt('created_at', previousEndDate.toISOString());
-
-      // Apply service area filter
       if (selectedServiceArea !== 'all') {
-        tripsQuery = tripsQuery.eq('service_area_id', selectedServiceArea);
-        previousTripsQuery = previousTripsQuery.eq('service_area_id', selectedServiceArea);
+        tripsQ = tripsQ.eq('service_area_id', selectedServiceArea);
+        prevQ = prevQ.eq('service_area_id', selectedServiceArea);
+        chartQ = chartQ.eq('service_area_id', selectedServiceArea);
       }
 
-      const [
-        driversResult,
-        ridersResult,
-        tripsResult,
-        previousTripsResult,
-        recentTripsResult,
-      ] = await Promise.all([
-        driversQuery,
+      // ALL 6 queries in parallel — ZERO waterfall
+      const [driversR, ridersR, tripsR, prevR, recentR, chartR] = await Promise.all([
+        supabase.from('drivers').select('id, is_online, approval_status, current_lat, current_lng, heading, current_trip_id, first_name, last_name'),
         supabase.from('customers').select('id', { count: 'exact', head: true }),
-        tripsQuery,
-        previousTripsQuery,
+        tripsQ, prevQ,
         supabase.from('trips')
           .select('id, passenger_name, pickup_address, dropoff_address, driver:drivers!trips_driver_id_fkey(first_name, last_name)')
-          .order('created_at', { ascending: false })
-          .limit(5),
+          .order('created_at', { ascending: false }).limit(5),
+        chartQ,
       ]);
 
-      const allDrivers = driversResult.data || [];
-      const trips = tripsResult.data || [];
-      const previousTrips = previousTripsResult.data || [];
+      const allDrivers = driversR.data || [];
+      const trips = tripsR.data || [];
+      const previousTrips = prevR.data || [];
+      const COUNTABLE = ['COMPLETED', 'NO_SHOW', 'LATE_PASSENGER_CANCELLATION'];
+      const financialTrips = trips.filter(t => COUNTABLE.includes(t.financial_outcome || '') || (t.status === 'completed' && !t.financial_outcome));
 
-      // Calculate stats
-      const totalDrivers = allDrivers.length;
-      const onlineDrivers = allDrivers.filter(d => d.is_online).length;
-      const pendingDrivers = allDrivers.filter(d => d.approval_status === 'pending').length;
-      
-      const completedTrips = trips.filter(t => t.status === 'completed').length;
-      const cancelledTrips = trips.filter(t => t.status === 'cancelled').length;
-      const activeTrips = trips.filter(t => ['pending', 'accepted', 'arriving', 'in_progress'].includes(t.status || '')).length;
-      const inProgressTrips = trips.filter(t => t.status === 'in_progress').length;
-      
-      // FINANCIALLY COUNTABLE outcomes only: COMPLETED, NO_SHOW, LATE_PASSENGER_CANCELLATION
-      // Also include completed trips with null financial_outcome (legacy data)
-      const COUNTABLE_OUTCOMES = ['COMPLETED', 'NO_SHOW', 'LATE_PASSENGER_CANCELLATION'];
-      const financiallyCountableTrips = trips.filter(t => 
-        COUNTABLE_OUTCOMES.includes(t.financial_outcome || '') ||
-        (t.status === 'completed' && !t.financial_outcome)
-      );
-      
-      // Total Revenue = sum of gross_fare_pence from financially countable trips only
-      const totalRevenue = financiallyCountableTrips
-        .reduce((sum, t) => sum + (Number(t.gross_fare_pence) || 0), 0) / 100;
-      // Commission = sum of commission_pence from financially countable trips only
-      const commissionRevenue = financiallyCountableTrips
-        .reduce((sum, t) => sum + (Number(t.commission_pence) || 0), 0) / 100;
-
-      const previousRevenue = previousTrips.reduce((sum, t) => sum + (Number(t.gross_fare_pence) || 0), 0) / 100;
-      const previousCommission = previousTrips.reduce((sum, t) => sum + (Number(t.commission_pence) || 0), 0) / 100;
-
-      setStats({
-        totalDrivers,
-        onlineDrivers,
-        offlineDrivers: totalDrivers - onlineDrivers,
-        pendingDrivers,
+      const s: Stats = {
+        totalDrivers: allDrivers.length,
+        onlineDrivers: allDrivers.filter(d => d.is_online).length,
+        offlineDrivers: allDrivers.filter(d => !d.is_online).length,
+        pendingDrivers: allDrivers.filter(d => d.approval_status === 'pending').length,
         inactiveDrivers: allDrivers.filter(d => d.approval_status === 'rejected').length,
-        totalRiders: ridersResult.count || 0,
+        totalRiders: ridersR.count || 0,
         totalTrips: trips.length,
-        activeTrips,
-        inProgressTrips,
-        completedTrips,
-        cancelledTrips,
-        totalRevenue,
-        commissionRevenue,
-        previousRevenue,
-        previousCommission,
-      });
+        activeTrips: trips.filter(t => ['pending', 'accepted', 'arriving', 'in_progress'].includes(t.status || '')).length,
+        inProgressTrips: trips.filter(t => t.status === 'in_progress').length,
+        completedTrips: trips.filter(t => t.status === 'completed').length,
+        cancelledTrips: trips.filter(t => t.status === 'cancelled').length,
+        totalRevenue: financialTrips.reduce((sum, t) => sum + (Number(t.gross_fare_pence) || 0), 0) / 100,
+        commissionRevenue: financialTrips.reduce((sum, t) => sum + (Number(t.commission_pence) || 0), 0) / 100,
+        previousRevenue: previousTrips.reduce((sum, t) => sum + (Number(t.gross_fare_pence) || 0), 0) / 100,
+        previousCommission: previousTrips.reduce((sum, t) => sum + (Number(t.commission_pence) || 0), 0) / 100,
+      };
 
-      setDrivers(allDrivers as Driver[]);
-      setRecentTrips(recentTripsResult.data || []);
-
-      // Calculate revenue per service area using only financially countable trips
-      if (selectedServiceArea === 'all' && serviceAreas.length > 0) {
-        const revenueByArea: ServiceAreaRevenue[] = serviceAreas.map(area => {
-          const areaTrips = financiallyCountableTrips.filter(t => t.service_area_id === area.id);
-          const revenue = areaTrips.reduce((sum, t) => sum + (Number(t.gross_fare_pence) || 0), 0) / 100;
-          const commission = areaTrips.reduce((sum, t) => sum + (Number(t.commission_pence) || 0), 0) / 100;
-          return { name: area.name, revenue, trips: areaTrips.length, commission, currency_code: area.region?.currency_code || '' };
-        }).filter(a => a.trips > 0).sort((a, b) => b.revenue - a.revenue);
-        setServiceAreaRevenues(revenueByArea);
+      // Chart bucketing
+      const cTrips = chartR.data || [];
+      let chartData: BookingDataPoint[] = [];
+      if (timePeriod === 'daily') {
+        const totalMs = chartEnd.getTime() - chartStart.getTime();
+        const intMs = totalMs / 12;
+        for (let i = 0; i < 12; i++) {
+          const bS = chartStart.getTime() + i * intMs;
+          const bucket = cTrips.filter(t => { const ts = new Date(t.created_at).getTime(); return ts >= bS && ts < bS + intMs; });
+          chartData.push({ label: format(new Date(bS), 'HH:mm'), completed: bucket.filter(t => t.status === 'completed').length, cancelled: bucket.filter(t => t.status === 'cancelled').length });
+        }
+      } else if (timePeriod === 'weekly') {
+        for (let i = 6; i >= 0; i--) {
+          const date = subDays(now, i);
+          const dS = startOfDay(date).getTime();
+          const bucket = cTrips.filter(t => { const ts = new Date(t.created_at).getTime(); return ts >= dS && ts < dS + 86400000; });
+          chartData.push({ label: format(date, 'EEE'), completed: bucket.filter(t => t.status === 'completed').length, cancelled: bucket.filter(t => t.status === 'cancelled').length });
+        }
       } else {
-        setServiceAreaRevenues([]);
+        for (let i = 3; i >= 0; i--) {
+          const ws = startOfWeek(subWeeks(now, i));
+          const we = new Date(ws); we.setDate(we.getDate() + 7);
+          const bucket = cTrips.filter(t => { const ts = new Date(t.created_at).getTime(); return ts >= ws.getTime() && ts < we.getTime(); });
+          chartData.push({ label: format(ws, 'MMM d'), completed: bucket.filter(t => t.status === 'completed').length, cancelled: bucket.filter(t => t.status === 'cancelled').length });
+        }
       }
 
-      // Fetch booking chart data
-      await fetchBookingChartData();
-    } catch (error) {
-      console.error('Error fetching stats:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [period, selectedServiceArea, customDateFrom, customDateTo]);
-
-  // Fetch booking chart data — single query, bucketed client-side
-  const fetchBookingChartData = async () => {
-    const now = new Date();
-    const timePeriod = period === 'custom' ? 'daily' : period;
-
-    // Calculate range for chart
-    let rangeStart: Date;
-    let rangeEnd: Date = now;
-    if (timePeriod === 'daily') {
-      rangeStart = period === 'custom' && customDateFrom ? startOfDay(customDateFrom) : subDays(now, 1);
-      rangeEnd = period === 'custom' && customDateTo ? endOfDay(customDateTo) : now;
-    } else if (timePeriod === 'weekly') {
-      rangeStart = startOfDay(subDays(now, 6));
-    } else {
-      rangeStart = startOfWeek(subWeeks(now, 3));
-    }
-
-    // Single query for all chart data
-    let query = supabase
-      .from('trips')
-      .select('status, created_at')
-      .gte('created_at', rangeStart.toISOString())
-      .lte('created_at', rangeEnd.toISOString())
-      .in('status', ['completed', 'cancelled']);
-    if (selectedServiceArea !== 'all') {
-      query = query.eq('service_area_id', selectedServiceArea);
-    }
-    const { data: allTrips } = await query;
-    const trips = allTrips || [];
-
-    // Bucket client-side
-    let dataPoints: BookingDataPoint[] = [];
-
-    if (timePeriod === 'daily') {
-      const intervals = 12;
-      const totalMs = rangeEnd.getTime() - rangeStart.getTime();
-      const intervalMs = totalMs / intervals;
-      for (let i = 0; i < intervals; i++) {
-        const bucketStart = rangeStart.getTime() + i * intervalMs;
-        const bucketEnd = rangeStart.getTime() + (i + 1) * intervalMs;
-        const bucket = trips.filter(t => {
-          const ts = new Date(t.created_at).getTime();
-          return ts >= bucketStart && ts < bucketEnd;
-        });
-        dataPoints.push({
-          label: format(new Date(bucketStart), 'HH:mm'),
-          completed: bucket.filter(t => t.status === 'completed').length,
-          cancelled: bucket.filter(t => t.status === 'cancelled').length,
-        });
+      // Service area revenue breakdown
+      let saRevenues: ServiceAreaRevenue[] = [];
+      if (selectedServiceArea === 'all' && serviceAreas.length > 0) {
+        saRevenues = serviceAreas.map(area => {
+          const at = financialTrips.filter(t => t.service_area_id === area.id);
+          return { name: area.name, revenue: at.reduce((sum, t) => sum + (Number(t.gross_fare_pence) || 0), 0) / 100, trips: at.length, commission: at.reduce((sum, t) => sum + (Number(t.commission_pence) || 0), 0) / 100, currency_code: area.region?.currency_code || '' };
+        }).filter(a => a.trips > 0).sort((a, b) => b.revenue - a.revenue);
       }
-    } else if (timePeriod === 'weekly') {
-      for (let i = 6; i >= 0; i--) {
-        const date = subDays(now, i);
-        const dayStart = startOfDay(date).getTime();
-        const dayEnd = dayStart + 86400000;
-        const bucket = trips.filter(t => {
-          const ts = new Date(t.created_at).getTime();
-          return ts >= dayStart && ts < dayEnd;
-        });
-        dataPoints.push({
-          label: format(date, 'EEE'),
-          completed: bucket.filter(t => t.status === 'completed').length,
-          cancelled: bucket.filter(t => t.status === 'cancelled').length,
-        });
-      }
-    } else {
-      for (let i = 3; i >= 0; i--) {
-        const weekStart = startOfWeek(subWeeks(now, i));
-        const weekEnd = new Date(weekStart);
-        weekEnd.setDate(weekEnd.getDate() + 7);
-        const bucket = trips.filter(t => {
-          const ts = new Date(t.created_at).getTime();
-          return ts >= weekStart.getTime() && ts < weekEnd.getTime();
-        });
-        dataPoints.push({
-          label: format(weekStart, 'MMM d'),
-          completed: bucket.filter(t => t.status === 'completed').length,
-          cancelled: bucket.filter(t => t.status === 'cancelled').length,
-        });
-      }
-    }
 
-    setBookingChartData(dataPoints);
-  };
+      return { stats: s, drivers: allDrivers as Driver[], recentTrips: (recentR.data || []) as RecentTrip[], bookingChartData: chartData, serviceAreaRevenues: saRevenues };
+    },
+    staleTime: 30000, // 30s cache — instant on tab switch
+    refetchInterval: 60000, // auto-refresh every 60s
+  });
 
-  useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
+  const stats = dashData?.stats || { totalDrivers: 0, onlineDrivers: 0, offlineDrivers: 0, pendingDrivers: 0, inactiveDrivers: 0, totalRiders: 0, totalTrips: 0, activeTrips: 0, inProgressTrips: 0, completedTrips: 0, cancelledTrips: 0, totalRevenue: 0, commissionRevenue: 0, previousRevenue: 0, previousCommission: 0 };
+  const drivers = dashData?.drivers || [];
+  const recentTrips = dashData?.recentTrips || [];
+  const bookingChartData = dashData?.bookingChartData || [];
+  const serviceAreaRevenues = dashData?.serviceAreaRevenues || [];
 
   // Real-time driver location updates
   useEffect(() => {
