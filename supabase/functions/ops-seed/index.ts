@@ -271,6 +271,7 @@ serve(async (req) => {
             app_version: ver,
             platform: plat,
             session_id: `demo-${appName}-${i}`,
+            is_synthetic: true,
             metadata: {},
             created_at: new Date(now.getTime() - Math.random() * 55 * 60 * 1000).toISOString(),
           });

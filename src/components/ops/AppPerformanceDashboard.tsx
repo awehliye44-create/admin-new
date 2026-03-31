@@ -419,6 +419,7 @@ function VersionBreakdownPanel({ activeApp }: { activeApp: string }) {
         .select('app_name, app_version, platform, metric_name, metric_value')
         .gte('created_at', new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString())
         .not('app_version', 'is', null)
+        .eq('is_synthetic', false)
         .limit(1000);
 
       if (activeApp !== 'all') {
