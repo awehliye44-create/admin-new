@@ -56,6 +56,8 @@ import {
   Contact,
   QrCode,
   BrainCircuit,
+  Smartphone,
+  Globe,
 } from 'lucide-react';
 import {
   Collapsible,
@@ -355,7 +357,10 @@ export function AdminSidebar() {
           <div>
             <NavSection label="Ops Intelligence" collapsed={isCollapsed} />
             <div className="space-y-1">
-              <P pageSlug="ops-intelligence" to="/ops-intelligence" icon={<BrainCircuit className="h-4 w-4" />} label="Ops Intelligence" active={currentPath === '/ops-intelligence'} collapsed={isCollapsed} />
+              <P pageSlug="ops-intelligence" to="/ops-intelligence" icon={<BrainCircuit className="h-4 w-4" />} label="Ops Dashboard" active={currentPath === '/ops-intelligence'} collapsed={isCollapsed} />
+              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=app-performance" icon={<Smartphone className="h-4 w-4" />} label="App Performance" active={currentPath === '/ops-intelligence' && location.search.includes('tab=app-performance')} collapsed={isCollapsed} />
+              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=money" icon={<CreditCard className="h-4 w-4" />} label="Money Integrity" active={currentPath === '/ops-intelligence' && location.search.includes('tab=money')} collapsed={isCollapsed} />
+              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=guest" icon={<Globe className="h-4 w-4" />} label="Guest Booking" active={currentPath === '/ops-intelligence' && location.search.includes('tab=guest')} collapsed={isCollapsed} />
             </div>
           </div>
 

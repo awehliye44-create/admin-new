@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { OpsHealthCards } from '@/components/ops/OpsHealthCards';
 import { OpsAlertsTable } from '@/components/ops/OpsAlertsTable';
@@ -39,6 +40,8 @@ type OpsAlert = {
 };
 
 export default function OpsIntelligence() {
+  const [searchParams] = useSearchParams();
+  const defaultTab = searchParams.get('tab') || 'alerts';
   const [selectedAlert, setSelectedAlert] = useState<OpsAlert | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const queryClient = useQueryClient();
@@ -222,7 +225,7 @@ export default function OpsIntelligence() {
       )}
 
       {/* Main Tabs */}
-      <Tabs defaultValue="alerts" className="mt-8">
+      <Tabs defaultValue={defaultTab} className="mt-8">
         <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="alerts" className="gap-2">
             <AlertTriangle className="h-4 w-4" /> Alerts
