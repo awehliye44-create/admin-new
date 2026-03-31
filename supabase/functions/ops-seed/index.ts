@@ -148,7 +148,7 @@ serve(async (req) => {
 
     // ── Seed app_performance_events with realistic telemetry ──
     const telemetry: any[] = [];
-    const versions = { customer_app: ['2.3.1', '2.3.0', '2.2.9'], driver_app: ['3.1.0', '3.0.8'], guest_web: ['1.0.0'] };
+    const versions: Record<string, string[]> = { customer_app: ['2.3.1', '2.3.0', '2.2.9'], driver_app: ['3.1.0', '3.0.8'], guest_web: ['1.0.0'], admin_panel: ['1.0.0'] };
     const platforms = ['ios', 'android'];
 
     const screens: Record<string, { name: string; baseMs: number; metric: string }[]> = {
@@ -195,6 +195,28 @@ serve(async (req) => {
         { name: 'QuotePage', metric: 'screen_load_time', baseMs: 2800 },
         { name: 'CheckoutPage', metric: 'screen_load_time', baseMs: 4100 },
         { name: 'CheckoutPage', metric: 'api_latency', baseMs: 3200 },
+      ],
+      admin_panel: [
+        { name: 'OpsIntelligence', metric: 'screen_load_time', baseMs: 3200 },
+        { name: 'OpsIntelligence', metric: 'api_latency', baseMs: 2800 },
+        { name: 'AlertsTable', metric: 'screen_load_time', baseMs: 2400 },
+        { name: 'AlertsTable', metric: 'api_latency', baseMs: 1800 },
+        { name: 'AlertDetail', metric: 'screen_load_time', baseMs: 1600 },
+        { name: 'AlertDetail', metric: 'interaction_delay', baseMs: 1200 },
+        { name: 'LogsExplorer', metric: 'screen_load_time', baseMs: 4200 },
+        { name: 'LogsExplorer', metric: 'api_latency', baseMs: 3500 },
+        { name: 'GuestBookingTab', metric: 'screen_load_time', baseMs: 1900 },
+        { name: 'MoneyIntegrityTab', metric: 'screen_load_time', baseMs: 2100 },
+        { name: 'DispatchTab', metric: 'screen_load_time', baseMs: 1800 },
+        { name: 'PerformanceTab', metric: 'screen_load_time', baseMs: 3800 },
+        { name: 'DuplicationsTab', metric: 'screen_load_time', baseMs: 1700 },
+        { name: 'Dashboard', metric: 'screen_load_time', baseMs: 3500 },
+        { name: 'Dashboard', metric: 'api_latency', baseMs: 2600 },
+        { name: 'DriversPage', metric: 'screen_load_time', baseMs: 2800 },
+        { name: 'RidersPage', metric: 'screen_load_time', baseMs: 2600 },
+        { name: 'TripHistory', metric: 'screen_load_time', baseMs: 3100 },
+        { name: 'DispatchPage', metric: 'screen_load_time', baseMs: 2900 },
+        { name: 'PaymentsPage', metric: 'screen_load_time', baseMs: 2700 },
       ],
     };
 
