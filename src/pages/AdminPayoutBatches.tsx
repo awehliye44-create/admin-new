@@ -165,9 +165,7 @@ export default function AdminPayoutBatches() {
               <Wallet className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              {isMixedCurrency ? (
-                <CurrencyGroupedStats items={regionDrivers.map(d => ({ currency_code: d.currency_code, amount: d.available_for_payout }))} className="text-lg font-bold text-blue-500" />
-              ) : (
+              <div className="text-2xl font-bold text-blue-500">{formatPence(availableForPayout, resolvedCurrency)}</div>
                 <div className="text-2xl font-bold text-blue-500">{formatPence(availableForPayout, resolvedCurrency)}</div>
               )}
               <p className="text-xs text-muted-foreground">{driversReadyForPayout} drivers ready</p>
