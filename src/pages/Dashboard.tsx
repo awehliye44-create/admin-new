@@ -391,26 +391,8 @@ export default function Dashboard() {
 
   // Real-time driver location updates
   useEffect(() => {
-    const channel = supabase
-      .channel('dashboard-driver-updates')
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'drivers' },
-        (payload) => {
-          const updated = payload.new as any;
-          setDrivers(prev => prev.map(d => 
-            d.id === updated.id 
-              ? { ...d, ...updated }
-              : d
-          ));
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
+    // Realtime driver updates not needed — dashData.drivers refreshes via React Query
+    // The 30s staleTime + 60s refetchInterval provides near-real-time without memory leak risk
 
   const driverChartData = [
     { name: 'Total Drivers', value: stats.totalDrivers, color: '#3B82F6' },
