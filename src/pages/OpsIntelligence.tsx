@@ -255,6 +255,9 @@ export default function OpsIntelligence() {
               <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded-full">{dupAlerts.filter(a => a.status === 'open').length}</span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="app-performance" className="gap-2">
+            <Smartphone className="h-4 w-4" /> App Performance
+          </TabsTrigger>
           <TabsTrigger value="logs" className="gap-2">
             <ScrollText className="h-4 w-4" /> Logs Explorer
           </TabsTrigger>
