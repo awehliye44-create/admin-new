@@ -95,6 +95,23 @@ export default function OpsIntelligence() {
   const totalCritical = alerts?.filter(a => a.severity === 'critical' && a.status === 'open').length || 0;
   const totalAcknowledged = alerts?.filter(a => a.status === 'acknowledged').length || 0;
 
+  // Seed demo data
+  const handleSeedDemo = async () => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ops-seed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
+        body: JSON.stringify({ action: 'seed' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success('Demo data seeded');
+        queryClient.invalidateQueries({ queryKey: ['ops-alerts'] });
+        queryClient.invalidateQueries({ queryKey: ['ops-health-summary'] });
+      } else toast.error('Seed failed', { description: JSON.stringify(data) });
+    } catch (e: any) { toast.error('Seed failed', { description: e.message }); }
+  };
+
   // Run all detections
   const handleRunDetections = async () => {
     try {
