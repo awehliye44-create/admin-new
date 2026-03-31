@@ -225,7 +225,7 @@ export default function OpsIntelligence() {
       )}
 
       {/* Main Tabs */}
-      <Tabs defaultValue="alerts" className="mt-8">
+      <Tabs defaultValue={defaultTab} className="mt-8">
         <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="alerts" className="gap-2">
             <AlertTriangle className="h-4 w-4" /> Alerts
