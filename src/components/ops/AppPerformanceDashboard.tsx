@@ -210,7 +210,8 @@ function ScreenMetricsTable({ data, thresholds }: { data: HealthSummaryRow[]; th
 function MoneyScreensPanel({ data, thresholds }: { data: HealthSummaryRow[]; thresholds: Threshold[] }) {
   const moneyScreens = [
     'PaymentScreen', 'PayoutScreen', 'EarningsScreen', 'CommissionScreen',
-    'WalletScreen', 'CheckoutPage', 'BookingPayment', 'DriverSettlement', 'InvoiceScreen',
+    'WalletScreen', 'CheckoutPage', 'BookingPayment', 'DriverSettlement',
+    'InvoiceScreen', 'BookingConfirmation',
   ];
   const moneyData = data.filter(d => moneyScreens.includes(d.screen_name));
 
