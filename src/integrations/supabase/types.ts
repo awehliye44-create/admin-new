@@ -8740,6 +8740,9 @@ export type Database = {
       ops_detect_5xx_spikes: { Args: never; Returns: number }
       ops_detect_api_latency_spikes: { Args: never; Returns: Json }
       ops_detect_commission_gaps: { Args: never; Returns: Json }
+      ops_detect_corporate_booking_issues: { Args: never; Returns: Json }
+      ops_detect_customer_app_issues: { Args: never; Returns: Json }
+      ops_detect_driver_app_issues: { Args: never; Returns: Json }
       ops_detect_duplicate_bookings: { Args: never; Returns: Json }
       ops_detect_duplicate_commissions: { Args: never; Returns: number }
       ops_detect_duplicate_dispatch: { Args: never; Returns: Json }
