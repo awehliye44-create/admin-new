@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
-import { useDriverFinancialSummaries, formatPence } from '@/hooks/useDriverWallet';
+import { formatPence } from '@/hooks/useDriverWallet';
 import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 import { format } from 'date-fns';
@@ -76,29 +76,13 @@ export default function AdminPayoutBatches() {
     },
   });
 
-  // Also fetch driver summaries for region-based filtering of stats
-  const { data: allDrivers = [] } = useDriverFinancialSummaries();
+  // Use summary data from the edge function directly — no redundant driver fetch
+  const resolvedCurrency = serviceFilter.currencyCode || responseData?.summary?.currencyCode || '';
+  const isMixedCurrency = false; // Edge function returns a single dominant currency
 
-  // Filter drivers by region for local stat calculation
-  const regionDrivers = useMemo(() => {
-    if (!serviceFilter.regionId) return allDrivers;
-    return allDrivers.filter(d => d.region_id === serviceFilter.regionId);
-  }, [allDrivers, serviceFilter.regionId]);
-
-  const resolvedCurrency = serviceFilter.currencyCode || getSingleCurrency(regionDrivers) || responseData?.summary?.currencyCode || '';
-  const isMixedCurrency = !serviceFilter.currencyCode && !getSingleCurrency(regionDrivers) && regionDrivers.length > 0;
-
-  // When a service is selected, recalculate stats from filtered drivers
-  const isFiltered = !!serviceFilter.regionId;
-  const totalPaidOut = isFiltered 
-    ? regionDrivers.reduce((s, d) => s + d.total_payouts_sent, 0) 
-    : (responseData?.summary?.totalPaidOut || 0);
-  const availableForPayout = isFiltered
-    ? regionDrivers.reduce((s, d) => s + d.available_for_payout, 0)
-    : (responseData?.summary?.availableForPayout || 0);
-  const driversReadyForPayout = isFiltered
-    ? regionDrivers.filter(d => d.available_for_payout > 0).length
-    : (responseData?.summary?.driversReadyForPayout || 0);
+  const totalPaidOut = responseData?.summary?.totalPaidOut || 0;
+  const availableForPayout = responseData?.summary?.availableForPayout || 0;
+  const driversReadyForPayout = responseData?.summary?.driversReadyForPayout || 0;
 
   const batches = responseData?.batches || [];
   const summary = responseData?.summary;
@@ -169,11 +153,7 @@ export default function AdminPayoutBatches() {
               <DollarSign className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
-              {isMixedCurrency ? (
-                <CurrencyGroupedStats items={regionDrivers.map(d => ({ currency_code: d.currency_code, amount: d.total_payouts_sent }))} className="text-lg font-bold text-green-500" />
-              ) : (
-                <div className="text-2xl font-bold text-green-500">{formatPence(totalPaidOut, resolvedCurrency)}</div>
-              )}
+              <div className="text-2xl font-bold text-green-500">{formatPence(totalPaidOut, resolvedCurrency)}</div>
               <p className="text-xs text-muted-foreground">From unified ledger</p>
             </CardContent>
           </Card>
@@ -183,11 +163,7 @@ export default function AdminPayoutBatches() {
               <Wallet className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              {isMixedCurrency ? (
-                <CurrencyGroupedStats items={regionDrivers.map(d => ({ currency_code: d.currency_code, amount: d.available_for_payout }))} className="text-lg font-bold text-blue-500" />
-              ) : (
-                <div className="text-2xl font-bold text-blue-500">{formatPence(availableForPayout, resolvedCurrency)}</div>
-              )}
+              <div className="text-2xl font-bold text-blue-500">{formatPence(availableForPayout, resolvedCurrency)}</div>
               <p className="text-xs text-muted-foreground">{driversReadyForPayout} drivers ready</p>
             </CardContent>
           </Card>

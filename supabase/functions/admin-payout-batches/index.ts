@@ -49,31 +49,38 @@ serve(async (req) => {
     const limit = parseInt(url.searchParams.get('limit') || '20');
     const kind = url.searchParams.get('kind');
     const status = url.searchParams.get('status');
-
     const offset = (page - 1) * limit;
 
-    let query = supabase
+    // ── PARALLEL: Run all 3 queries simultaneously ──
+    let batchQuery = supabase
       .from('payout_batches')
-      .select('*', { count: 'exact' })
+      .select('id,kind,run_date,status,total_drivers,total_amount_pence,successful_payouts,failed_payouts,notes,created_at,completed_at', { count: 'exact' })
       .order('created_at', { ascending: false });
 
-    if (kind) query = query.eq('kind', kind);
-    if (status) query = query.eq('status', status);
-    query = query.range(offset, offset + limit - 1);
+    if (kind) batchQuery = batchQuery.eq('kind', kind);
+    if (status) batchQuery = batchQuery.eq('status', status);
+    batchQuery = batchQuery.range(offset, offset + limit - 1);
 
-    const { data: batches, count, error } = await query;
-    if (error) throw error;
+    const [batchResult, financialResult, summaryResult] = await Promise.all([
+      batchQuery,
+      supabase
+        .from('driver_financial_summary')
+        .select('total_payouts_sent, available_for_payout, currency_code'),
+      supabase
+        .from('payout_batches')
+        .select('status, total_amount_pence'),
+    ]);
 
-    // Get items for each batch
-    const batchIds = batches?.map(b => b.id) || [];
+    if (batchResult.error) throw batchResult.error;
+
+    const batches = batchResult.data || [];
+    const count = batchResult.count;
+
+    // Get items for visible batches only (single query)
+    const batchIds = batches.map(b => b.id);
     const { data: allItems } = batchIds.length > 0 ? await supabase
       .from('payout_items')
-      .select(`
-        *,
-        drivers:driver_id (
-          id, first_name, last_name, email
-        )
-      `)
+      .select('id,batch_id,driver_id,amount_pence,status,stripe_transfer_id,stripe_payout_id,error_message,created_at,completed_at,drivers:driver_id(first_name,last_name)')
       .in('batch_id', batchIds) : { data: [] };
 
     const itemsByBatch: Record<string, any[]> = {};
@@ -82,7 +89,7 @@ serve(async (req) => {
       itemsByBatch[item.batch_id].push(item);
     });
 
-    const transformedBatches = batches?.map(batch => ({
+    const transformedBatches = batches.map(batch => ({
       id: batch.id,
       kind: batch.kind,
       runDate: batch.run_date,
@@ -106,31 +113,24 @@ serve(async (req) => {
         createdAt: item.created_at,
         completedAt: item.completed_at,
       })) || [],
-    })) || [];
+    }));
 
-    // ── Unified stats from driver_financial_summary ──
-    const { data: financialRows } = await supabase
-      .from('driver_financial_summary')
-      .select('total_payouts_sent, wallet_balance, available_for_payout, currency_code');
+    // ── Stats from parallel results ──
+    const financialRows = financialResult.data || [];
+    const summaryData = summaryResult.data || [];
 
-    const unifiedTotalPayouts = financialRows?.reduce((s, d) => s + Number(d.total_payouts_sent || 0), 0) || 0;
-    const unifiedAvailablePayout = financialRows?.reduce((s, d) => s + Number(d.available_for_payout || 0), 0) || 0;
-    const driversReadyForPayout = financialRows?.filter(d => Number(d.available_for_payout || 0) > 0).length || 0;
-    // Resolve dominant currency from Region via drivers
-    const dominantCurrency = financialRows?.find(d => d.currency_code)?.currency_code || '';
-
-    // Batch-level summary
-    const { data: summaryData } = await supabase
-      .from('payout_batches')
-      .select('status, total_amount_pence');
+    const unifiedTotalPayouts = financialRows.reduce((s, d) => s + Number(d.total_payouts_sent || 0), 0);
+    const unifiedAvailablePayout = financialRows.reduce((s, d) => s + Number(d.available_for_payout || 0), 0);
+    const driversReadyForPayout = financialRows.filter(d => Number(d.available_for_payout || 0) > 0).length;
+    const dominantCurrency = financialRows.find(d => d.currency_code)?.currency_code || '';
 
     const summary = {
-      totalBatches: summaryData?.length || 0,
-      totalPaidOut: unifiedTotalPayouts, // From unified view
-      totalPaidOutBatches: summaryData?.filter(b => b.status === 'completed')
-        .reduce((sum, b) => sum + (b.total_amount_pence || 0), 0) || 0,
-      pendingBatches: summaryData?.filter(b => b.status === 'pending' || b.status === 'processing').length || 0,
-      failedBatches: summaryData?.filter(b => b.status === 'failed').length || 0,
+      totalBatches: summaryData.length,
+      totalPaidOut: unifiedTotalPayouts,
+      totalPaidOutBatches: summaryData.filter(b => b.status === 'completed')
+        .reduce((sum, b) => sum + (b.total_amount_pence || 0), 0),
+      pendingBatches: summaryData.filter(b => b.status === 'pending' || b.status === 'processing').length,
+      failedBatches: summaryData.filter(b => b.status === 'failed').length,
       availableForPayout: unifiedAvailablePayout,
       driversReadyForPayout,
       currencyCode: dominantCurrency,
