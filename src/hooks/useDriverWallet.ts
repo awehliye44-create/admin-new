@@ -147,7 +147,7 @@ export function useDriverFinancialSummaries() {
     queryFn: async (): Promise<DriverFinancialSummary[]> => {
       const { data, error } = await supabase
         .from('driver_financial_summary')
-        .select('*');
+        .select('driver_id,first_name,last_name,email,phone,is_online,rating,approval_status,stripe_account_id,payouts_enabled,onboarding_complete,currency_code,region_id,gross_trip_total,completed_trips,card_net_credits,card_gross_total,card_commission_total,card_trip_count,cash_gross_total,cash_net_earnings,cash_commission_debits,cash_trip_count,company_commission_total,today_gross_earnings,today_cash_earnings,today_card_earnings,today_trip_count,adjustments_total,total_payouts_sent,total_fees,wallet_balance,available_for_payout,amount_owed_to_onecab');
 
       if (error) {
         console.error('Error fetching driver financial summaries:', error);
@@ -155,7 +155,8 @@ export function useDriverFinancialSummaries() {
       }
 
       return (data || []).map(mapSummary);
-    }
+    },
+    staleTime: 30_000, // Cache for 30s to prevent redundant refetches
   });
 }
 

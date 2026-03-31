@@ -80,17 +80,9 @@ export default function AdminPayoutBatches() {
   const resolvedCurrency = serviceFilter.currencyCode || responseData?.summary?.currencyCode || '';
   const isMixedCurrency = false; // Edge function returns a single dominant currency
 
-  // When a service is selected, recalculate stats from filtered drivers
-  const isFiltered = !!serviceFilter.regionId;
-  const totalPaidOut = isFiltered 
-    ? regionDrivers.reduce((s, d) => s + d.total_payouts_sent, 0) 
-    : (responseData?.summary?.totalPaidOut || 0);
-  const availableForPayout = isFiltered
-    ? regionDrivers.reduce((s, d) => s + d.available_for_payout, 0)
-    : (responseData?.summary?.availableForPayout || 0);
-  const driversReadyForPayout = isFiltered
-    ? regionDrivers.filter(d => d.available_for_payout > 0).length
-    : (responseData?.summary?.driversReadyForPayout || 0);
+  const totalPaidOut = responseData?.summary?.totalPaidOut || 0;
+  const availableForPayout = responseData?.summary?.availableForPayout || 0;
+  const driversReadyForPayout = responseData?.summary?.driversReadyForPayout || 0;
 
   const batches = responseData?.batches || [];
   const summary = responseData?.summary;
