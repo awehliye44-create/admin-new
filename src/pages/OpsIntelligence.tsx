@@ -47,6 +47,9 @@ export default function OpsIntelligence() {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const queryClient = useQueryClient();
 
+  // Admin panel telemetry
+  usePageLoadTelemetry('OpsIntelligence');
+
   // Realtime hook — handles subscriptions, query invalidation, and critical toasts
   const { status: realtimeStatus, lastEvent } = useOpsRealtime();
 
