@@ -4,9 +4,10 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Search, ChevronUp, ChevronDown } from 'lucide-react';
+import { Search, ChevronUp, ChevronDown, ShieldCheck } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/skeleton';
 
 type OpsAlert = {
   id: string;
@@ -64,7 +65,6 @@ export function OpsAlertsTable({ alerts, loading, categoryFilter, onCategoryChan
   const [sortField, setSortField] = useState<SortField>('last_detected_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
-  // Derive unique app values for the app filter
   const appValues = useMemo(() => {
     const apps = new Set<string>();
     alerts.forEach(a => { if (a.app) apps.add(a.app); });
@@ -201,14 +201,46 @@ export function OpsAlertsTable({ alerts, loading, categoryFilter, onCategoryChan
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Loading alerts...</TableCell></TableRow>
+              Array.from({ length: 6 }).map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell><Skeleton className="h-5 w-16" /></TableCell>
+                  <TableCell><Skeleton className="h-5 w-14" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-48" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-12" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-8" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                </TableRow>
+              ))
             ) : filtered.length === 0 ? (
-              <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No alerts found — system healthy ✓</TableCell></TableRow>
+              <TableRow>
+                <TableCell colSpan={8}>
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center mb-3">
+                      <ShieldCheck className="h-6 w-6 text-emerald-500" />
+                    </div>
+                    <p className="text-sm font-medium text-foreground">
+                      {search || severityFilter !== 'all' || statusFilter !== 'all' || appFilter !== 'all'
+                        ? 'No alerts match your filters'
+                        : 'All systems operational'}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {search || severityFilter !== 'all' || statusFilter !== 'all' || appFilter !== 'all'
+                        ? 'Try adjusting your search or filter criteria'
+                        : 'No open alerts detected — monitoring continues in real time'}
+                    </p>
+                  </div>
+                </TableCell>
+              </TableRow>
             ) : (
               filtered.map(alert => (
                 <TableRow
                   key={alert.id}
-                  className="cursor-pointer hover:bg-accent/50"
+                  className={cn(
+                    'cursor-pointer hover:bg-accent/50 transition-colors',
+                    alert.status === 'open' && (alert.severity === 'critical' || alert.severity === 'fatal') && 'bg-destructive/5'
+                  )}
                   onClick={() => onSelectAlert(alert)}
                 >
                   <TableCell>

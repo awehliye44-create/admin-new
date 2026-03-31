@@ -4,9 +4,11 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Search, RefreshCw } from 'lucide-react';
+import { Search, RefreshCw, FileText } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { QueryErrorState } from '@/components/QueryErrorState';
+import { Skeleton } from '@/components/ui/skeleton';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 
@@ -24,7 +26,7 @@ export function OpsLogsExplorer() {
   const [sourceFilter, setSourceFilter] = useState('all');
   const queryClient = useQueryClient();
 
-  const { data: logs, isLoading } = useQuery({
+  const { data: logs, isLoading, error, refetch } = useQuery({
     queryKey: ['ops-logs', levelFilter, sourceFilter, search],
     queryFn: async () => {
       let query = supabase
@@ -41,10 +43,9 @@ export function OpsLogsExplorer() {
       if (error) throw error;
       return data || [];
     },
-    refetchInterval: 15000,
+    staleTime: 10000,
   });
 
-  // Get unique sources for filter
   const { data: sources } = useQuery({
     queryKey: ['ops-log-sources'],
     queryFn: async () => {
@@ -57,14 +58,27 @@ export function OpsLogsExplorer() {
     },
   });
 
+  if (error) {
+    return (
+      <Card className="mt-4">
+        <CardContent className="pt-6">
+          <QueryErrorState error={error} onRetry={() => refetch()} title="Failed to load logs" />
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card className="mt-4">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg">Logs Explorer</CardTitle>
-          <Button variant="ghost" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ['ops-logs'] })}>
-            <RefreshCw className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">{logs?.length || 0} entries</span>
+            <Button variant="ghost" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ['ops-logs'] })}>
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
         <div className="flex flex-wrap gap-3 mt-3">
           <div className="relative flex-1 min-w-[200px]">
@@ -96,12 +110,31 @@ export function OpsLogsExplorer() {
       <CardContent className="p-0">
         <div className="max-h-[600px] overflow-auto">
           {isLoading ? (
-            <p className="text-center py-8 text-muted-foreground">Loading logs...</p>
+            <div className="space-y-0">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-4 py-3 border-b">
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-5 w-14" />
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-4 flex-1" />
+                </div>
+              ))}
+            </div>
           ) : !logs || logs.length === 0 ? (
-            <p className="text-center py-8 text-muted-foreground">No logs found</p>
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
+                <FileText className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <p className="text-sm font-medium text-foreground">No logs found</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {search || levelFilter !== 'all' || sourceFilter !== 'all'
+                  ? 'Try adjusting your search or filter criteria'
+                  : 'Logs will appear here as system events are recorded'}
+              </p>
+            </div>
           ) : (
             logs.map((log: any) => (
-              <div key={log.id} className="flex items-start gap-3 px-4 py-2.5 border-b last:border-0 hover:bg-accent/30 text-sm font-mono">
+              <div key={log.id} className="flex items-start gap-3 px-4 py-2.5 border-b last:border-0 hover:bg-accent/30 transition-colors text-sm font-mono">
                 <span className="text-xs text-muted-foreground whitespace-nowrap pt-0.5">
                   {format(new Date(log.created_at), 'HH:mm:ss.SSS')}
                 </span>
