@@ -154,9 +154,8 @@ export default function AdminPayoutBatches() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-500">{formatPence(totalPaidOut, resolvedCurrency)}</div>
-                <div className="text-2xl font-bold text-green-500">{formatPence(totalPaidOut, resolvedCurrency)}</div>
-              )}
               <p className="text-xs text-muted-foreground">From unified ledger</p>
+            </CardContent>
             </CardContent>
           </Card>
           <Card>
