@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
