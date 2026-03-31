@@ -1,15 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { OpsHealthCards } from '@/components/ops/OpsHealthCards';
 import { OpsAlertsTable } from '@/components/ops/OpsAlertsTable';
 import { OpsLogsExplorer } from '@/components/ops/OpsLogsExplorer';
 import { OpsAlertDetail } from '@/components/ops/OpsAlertDetail';
+import { OpsRealtimeIndicator } from '@/components/ops/OpsRealtimeIndicator';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { RefreshCw, Activity, AlertTriangle, ScrollText, Shield, CreditCard, Truck, Copy, Globe, Gauge } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { useOpsRealtime } from '@/hooks/useOpsRealtime';
 
 type OpsAlert = {
   id: string;
@@ -39,8 +42,24 @@ export default function OpsIntelligence() {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const queryClient = useQueryClient();
 
+  // Realtime hook — handles subscriptions, query invalidation, and critical toasts
+  const { status: realtimeStatus, lastEvent } = useOpsRealtime();
+
+  // Listen for focus-alert events from toast clicks
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const alertId = (e as CustomEvent).detail;
+      if (alertId && alerts) {
+        const found = alerts.find(a => a.id === alertId);
+        if (found) setSelectedAlert(found);
+      }
+    };
+    window.addEventListener('ops-focus-alert', handler);
+    return () => window.removeEventListener('ops-focus-alert', handler);
+  }, []);
+
   // Fetch health summary
-  const { data: healthData, isLoading: healthLoading } = useQuery({
+  const { data: healthData, isLoading: healthLoading, error: healthError, refetch: refetchHealth } = useQuery({
     queryKey: ['ops-health-summary'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -65,11 +84,11 @@ export default function OpsIntelligence() {
       });
       return summary;
     },
-    refetchInterval: 30000,
+    staleTime: 10000,
   });
 
   // Fetch alerts
-  const { data: alerts, isLoading: alertsLoading } = useQuery({
+  const { data: alerts, isLoading: alertsLoading, error: alertsError, refetch: refetchAlerts } = useQuery({
     queryKey: ['ops-alerts', categoryFilter],
     queryFn: async () => {
       let query = supabase
@@ -86,7 +105,7 @@ export default function OpsIntelligence() {
       if (error) throw error;
       return (data || []) as OpsAlert[];
     },
-    refetchInterval: 15000,
+    staleTime: 5000,
   });
 
   // Top-level stats
@@ -105,8 +124,6 @@ export default function OpsIntelligence() {
       const data = await res.json();
       if (data.success) {
         toast.success('Demo data seeded', { description: `${data.alerts_seeded} alerts, ${data.logs_seeded} logs` });
-        queryClient.invalidateQueries({ queryKey: ['ops-alerts'] });
-        queryClient.invalidateQueries({ queryKey: ['ops-health-summary'] });
       } else toast.error('Seed failed', { description: JSON.stringify(data) });
     } catch (e: any) { toast.error('Seed failed', { description: e.message }); }
   };
@@ -117,24 +134,17 @@ export default function OpsIntelligence() {
       const { data, error } = await supabase.rpc('ops_run_all_detections');
       if (error) throw error;
       toast.success('Detection scan complete', { description: JSON.stringify(data) });
-      queryClient.invalidateQueries({ queryKey: ['ops-alerts'] });
-      queryClient.invalidateQueries({ queryKey: ['ops-health-summary'] });
     } catch (e: any) {
       toast.error('Scan failed', { description: e.message });
     }
   };
 
-  // Realtime subscription for alerts
-  useEffect(() => {
-    const channel = supabase
-      .channel('ops-alerts-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ops_alerts' }, () => {
-        queryClient.invalidateQueries({ queryKey: ['ops-alerts'] });
-        queryClient.invalidateQueries({ queryKey: ['ops-health-summary'] });
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
+  // Manual refresh all
+  const handleRefreshAll = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['ops-alerts'] });
+    queryClient.invalidateQueries({ queryKey: ['ops-health-summary'] });
+    queryClient.invalidateQueries({ queryKey: ['ops-logs'] });
+    toast.success('Refreshed');
   }, [queryClient]);
 
   if (selectedAlert) {
@@ -170,6 +180,7 @@ export default function OpsIntelligence() {
       {/* Top action bar */}
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div className="flex items-center gap-3 flex-wrap">
+          <OpsRealtimeIndicator status={realtimeStatus} lastEvent={lastEvent} />
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted">
             <Activity className="h-4 w-4 text-primary" />
             <span className="text-sm font-medium">{totalOpen} open</span>
@@ -184,6 +195,9 @@ export default function OpsIntelligence() {
           </div>
         </div>
         <div className="flex gap-2">
+          <Button onClick={handleRefreshAll} variant="ghost" size="sm" title="Manual refresh">
+            <RefreshCw className="h-4 w-4" />
+          </Button>
           <Button onClick={handleSeedDemo} variant="secondary" size="sm">
             Seed Demo Data
           </Button>
@@ -194,8 +208,12 @@ export default function OpsIntelligence() {
         </div>
       </div>
 
-      {/* Health Cards */}
-      <OpsHealthCards data={healthData} loading={healthLoading} onCategoryClick={setCategoryFilter} />
+      {/* Health Cards — with error state */}
+      {healthError ? (
+        <QueryErrorState error={healthError} onRetry={() => refetchHealth()} title="Failed to load health summary" compact />
+      ) : (
+        <OpsHealthCards data={healthData} loading={healthLoading} onCategoryClick={setCategoryFilter} />
+      )}
 
       {/* Main Tabs */}
       <Tabs defaultValue="alerts" className="mt-8">
@@ -237,13 +255,17 @@ export default function OpsIntelligence() {
         </TabsList>
 
         <TabsContent value="alerts">
-          <OpsAlertsTable
-            alerts={allAlerts}
-            loading={alertsLoading}
-            categoryFilter={categoryFilter}
-            onCategoryChange={setCategoryFilter}
-            onSelectAlert={setSelectedAlert}
-          />
+          {alertsError ? (
+            <QueryErrorState error={alertsError} onRetry={() => refetchAlerts()} title="Failed to load alerts" />
+          ) : (
+            <OpsAlertsTable
+              alerts={allAlerts}
+              loading={alertsLoading}
+              categoryFilter={categoryFilter}
+              onCategoryChange={setCategoryFilter}
+              onSelectAlert={setSelectedAlert}
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="money">
