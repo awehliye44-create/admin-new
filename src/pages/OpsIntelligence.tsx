@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
 import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { OpsHealthCards } from '@/components/ops/OpsHealthCards';
