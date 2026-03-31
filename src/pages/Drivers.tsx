@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
 import { useRegions } from '@/hooks/useRegions';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { AdminLayout } from '@/components/layout/AdminLayout';
