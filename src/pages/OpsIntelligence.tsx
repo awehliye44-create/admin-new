@@ -113,19 +113,21 @@ export default function OpsIntelligence() {
   const totalCritical = alerts?.filter(a => (a.severity === 'critical' || a.severity === 'fatal') && a.status === 'open').length || 0;
   const totalAcknowledged = alerts?.filter(a => a.status === 'acknowledged').length || 0;
 
-  // Seed demo data
-  const handleSeedDemo = async () => {
+  // Seed/clear demo data helper
+  const callOpsSeed = async (seedAction: 'seed' | 'clear') => {
     try {
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ops-seed`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
-        body: JSON.stringify({ action: 'seed' }),
+        body: JSON.stringify({ action: seedAction }),
       });
       const data = await res.json();
       if (data.success) {
-        toast.success('Demo data seeded', { description: `${data.alerts_seeded} alerts, ${data.logs_seeded} logs` });
-      } else toast.error('Seed failed', { description: JSON.stringify(data) });
-    } catch (e: any) { toast.error('Seed failed', { description: e.message }); }
+        toast.success(seedAction === 'seed' ? 'Demo data seeded' : 'Demo data cleared', {
+          description: seedAction === 'seed' ? `${data.alerts_seeded} alerts, ${data.logs_seeded} logs` : 'All demo alerts and logs removed',
+        });
+      } else toast.error('Operation failed', { description: JSON.stringify(data) });
+    } catch (e: any) { toast.error('Operation failed', { description: e.message }); }
   };
 
   // Run all detections
@@ -194,12 +196,15 @@ export default function OpsIntelligence() {
             <span className="text-sm font-medium">{totalAcknowledged} ack'd</span>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button onClick={handleRefreshAll} variant="ghost" size="sm" title="Manual refresh">
             <RefreshCw className="h-4 w-4" />
           </Button>
-          <Button onClick={handleSeedDemo} variant="secondary" size="sm">
-            Seed Demo Data
+          <Button onClick={() => callOpsSeed('seed')} variant="secondary" size="sm">
+            Seed Demo
+          </Button>
+          <Button onClick={() => callOpsSeed('clear')} variant="ghost" size="sm" className="text-muted-foreground">
+            Clear Demo
           </Button>
           <Button onClick={handleRunDetections} variant="outline" size="sm">
             <RefreshCw className="h-4 w-4 mr-2" />
