@@ -27,6 +27,8 @@ serve(async (req) => {
     }
     await supabase.from('ops_alerts').delete().like('fingerprint', 'demo:%');
     await supabase.from('ops_logs').delete().like('message', '%demo%').or('message.like.%attempt %,message.like.%instance %,message.like.%Guest%,message.like.%Webhook%,message.like.%Edge function%,message.like.%Slow screen%');
+    // Clear seeded telemetry
+    await supabase.from('app_performance_events').delete().like('session_id', 'demo-%');
 
     return new Response(JSON.stringify({ success: true, cleared: true }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
