@@ -94,7 +94,7 @@ export default function OpsIntelligence() {
       });
       return summary;
     },
-    staleTime: 10000,
+    staleTime: 30000,
   });
 
   // Fetch alerts
