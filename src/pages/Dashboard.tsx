@@ -511,7 +511,7 @@ export default function Dashboard() {
               ))}
             </SelectContent>
           </Select>
-          <Button variant="ghost" size="icon" onClick={fetchStats} disabled={isLoading}>
+          <Button variant="ghost" size="icon" onClick={() => fetchStats()} disabled={isLoading}>
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
           </Button>
         </div>
