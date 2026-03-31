@@ -152,7 +152,7 @@ serve(async (req) => {
 
     // ── Seed app_performance_events with realistic telemetry ──
     const telemetry: any[] = [];
-    const versions: Record<string, string[]> = { customer_app: ['2.3.1', '2.3.0', '2.2.9'], driver_app: ['3.1.0', '3.0.8'], guest_web: ['1.0.0'], admin_panel: ['1.0.0'] };
+    const versions: Record<string, string[]> = { customer_app: ['2.3.1', '2.3.0', '2.2.9'], driver_app: ['3.1.0', '3.0.8'], guest_web: ['1.0.0'], admin_panel: ['1.0.0'], corporate_web: ['1.2.0', '1.1.5'] };
     const platforms = ['ios', 'android'];
 
     const screens: Record<string, { name: string; baseMs: number; metric: string }[]> = {
