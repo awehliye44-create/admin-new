@@ -137,14 +137,72 @@ serve(async (req) => {
 
     const { error: logError } = await supabase.from('ops_logs').insert(logs);
 
-    // Run all detections to generate real alerts from seeded log patterns
+    // ── Seed app_performance_events with realistic telemetry ──
+    const telemetry: any[] = [];
+    const versions = { customer_app: ['2.3.1', '2.3.0', '2.2.9'], driver_app: ['3.1.0', '3.0.8'], guest_web: ['1.0.0'] };
+    const platforms = ['ios', 'android'];
+
+    const screens: Record<string, { name: string; baseMs: number; metric: string }[]> = {
+      customer_app: [
+        { name: 'HomeScreen', metric: 'screen_load_time', baseMs: 1200 },
+        { name: 'PaymentScreen', metric: 'screen_load_time', baseMs: 4800 },
+        { name: 'BookingFlow', metric: 'screen_load_time', baseMs: 2100 },
+        { name: 'PaymentScreen', metric: 'api_latency', baseMs: 3500 },
+        { name: 'BookingPayment', metric: 'transaction_time', baseMs: 5200 },
+        { name: 'WalletScreen', metric: 'screen_load_time', baseMs: 3200 },
+      ],
+      driver_app: [
+        { name: 'HomeScreen', metric: 'screen_load_time', baseMs: 1100 },
+        { name: 'EarningsScreen', metric: 'screen_load_time', baseMs: 5500 },
+        { name: 'PayoutScreen', metric: 'screen_load_time', baseMs: 6200 },
+        { name: 'PayoutScreen', metric: 'api_latency', baseMs: 4100 },
+        { name: 'EarningsScreen', metric: 'api_latency', baseMs: 3800 },
+      ],
+      guest_web: [
+        { name: 'QuotePage', metric: 'screen_load_time', baseMs: 2800 },
+        { name: 'CheckoutPage', metric: 'screen_load_time', baseMs: 4100 },
+        { name: 'CheckoutPage', metric: 'api_latency', baseMs: 3200 },
+      ],
+    };
+
+    for (const [appName, screenList] of Object.entries(screens)) {
+      const appVersions = versions[appName as keyof typeof versions] || ['1.0.0'];
+      for (const screen of screenList) {
+        // Generate 8-15 events per screen with realistic variance
+        const count = 8 + Math.floor(Math.random() * 8);
+        for (let i = 0; i < count; i++) {
+          const jitter = (Math.random() - 0.3) * screen.baseMs * 0.6;
+          const value = Math.max(100, Math.round(screen.baseMs + jitter));
+          const ver = appVersions[Math.floor(Math.random() * appVersions.length)];
+          const plat = appName === 'guest_web' ? 'web' : platforms[Math.floor(Math.random() * platforms.length)];
+          telemetry.push({
+            app_name: appName,
+            screen_name: screen.name,
+            metric_name: screen.metric,
+            metric_value: value,
+            unit: 'ms',
+            app_version: ver,
+            platform: plat,
+            session_id: `demo-${appName}-${i}`,
+            metadata: {},
+            created_at: new Date(now.getTime() - Math.random() * 55 * 60 * 1000).toISOString(),
+          });
+        }
+      }
+    }
+
+    const { error: telemetryError } = await supabase.from('app_performance_events').insert(telemetry);
+
+    // Run all detections to generate real alerts from seeded data
     const { data: detectionResult, error: detectionError } = await supabase.rpc('ops_run_all_detections');
 
     return new Response(JSON.stringify({
       success: true,
       alerts_seeded: alerts.length,
       logs_seeded: logs.length,
+      telemetry_seeded: telemetry.length,
       log_error: logError?.message || null,
+      telemetry_error: telemetryError?.message || null,
       detection_result: detectionResult,
       detection_error: detectionError?.message || null,
     }), {
