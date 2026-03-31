@@ -74,6 +74,7 @@ import OnecabDocuments from "./pages/OnecabDocuments";
 import AlertSounds from "./pages/AlertSounds";
 import UserDirectory from "./pages/UserDirectory";
 import QrBookingControl from "./pages/QrBookingControl";
+import OpsIntelligence from "./pages/OpsIntelligence";
 
 const queryClient = createAppQueryClient();
 
@@ -176,6 +177,7 @@ const App = () => (
               <Route path="notifications" element={<Notifications />} />
               <Route path="alert-sounds" element={<AlertSounds />} />
               <Route path="user-directory" element={<UserDirectory />} />
+              <Route path="ops-intelligence" element={<OpsIntelligence />} />
               <Route path="profile" element={<AdminProfile />} />
             </Route>
             

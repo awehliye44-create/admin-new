@@ -4050,6 +4050,313 @@ export type Database = {
         }
         Relationships: []
       }
+      ops_ai_summaries: {
+        Row: {
+          alert_id: string
+          confidence_score: number | null
+          created_at: string
+          generated_at: string
+          id: string
+          model_used: string | null
+          recommended_action: string | null
+          root_cause: string | null
+          summary: string
+        }
+        Insert: {
+          alert_id: string
+          confidence_score?: number | null
+          created_at?: string
+          generated_at?: string
+          id?: string
+          model_used?: string | null
+          recommended_action?: string | null
+          root_cause?: string | null
+          summary: string
+        }
+        Update: {
+          alert_id?: string
+          confidence_score?: number | null
+          created_at?: string
+          generated_at?: string
+          id?: string
+          model_used?: string | null
+          recommended_action?: string | null
+          root_cause?: string | null
+          summary?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ops_ai_summaries_alert_id_fkey"
+            columns: ["alert_id"]
+            isOneToOne: false
+            referencedRelation: "ops_alerts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ops_alert_rules: {
+        Row: {
+          auto_resolve_minutes: number | null
+          category: string
+          cooldown_minutes: number | null
+          created_at: string
+          description: string | null
+          event_type: string
+          id: string
+          is_active: boolean
+          metadata: Json | null
+          name: string
+          severity: string
+          threshold_count: number | null
+          threshold_window_minutes: number | null
+          updated_at: string
+        }
+        Insert: {
+          auto_resolve_minutes?: number | null
+          category: string
+          cooldown_minutes?: number | null
+          created_at?: string
+          description?: string | null
+          event_type: string
+          id?: string
+          is_active?: boolean
+          metadata?: Json | null
+          name: string
+          severity?: string
+          threshold_count?: number | null
+          threshold_window_minutes?: number | null
+          updated_at?: string
+        }
+        Update: {
+          auto_resolve_minutes?: number | null
+          category?: string
+          cooldown_minutes?: number | null
+          created_at?: string
+          description?: string | null
+          event_type?: string
+          id?: string
+          is_active?: boolean
+          metadata?: Json | null
+          name?: string
+          severity?: string
+          threshold_count?: number | null
+          threshold_window_minutes?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ops_alerts: {
+        Row: {
+          acknowledged_at: string | null
+          acknowledged_by: string | null
+          app: string | null
+          category: string
+          created_at: string
+          description: string | null
+          fingerprint: string
+          fingerprint_count: number
+          first_detected_at: string
+          id: string
+          last_detected_at: string
+          metadata: Json | null
+          related_driver_id: string | null
+          related_entity_id: string | null
+          related_entity_type: string | null
+          related_payment_id: string | null
+          related_payout_batch_id: string | null
+          related_trip_id: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          severity: string
+          source: string
+          status: string
+          suppressed_until: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          app?: string | null
+          category: string
+          created_at?: string
+          description?: string | null
+          fingerprint: string
+          fingerprint_count?: number
+          first_detected_at?: string
+          id?: string
+          last_detected_at?: string
+          metadata?: Json | null
+          related_driver_id?: string | null
+          related_entity_id?: string | null
+          related_entity_type?: string | null
+          related_payment_id?: string | null
+          related_payout_batch_id?: string | null
+          related_trip_id?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          severity?: string
+          source?: string
+          status?: string
+          suppressed_until?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          app?: string | null
+          category?: string
+          created_at?: string
+          description?: string | null
+          fingerprint?: string
+          fingerprint_count?: number
+          first_detected_at?: string
+          id?: string
+          last_detected_at?: string
+          metadata?: Json | null
+          related_driver_id?: string | null
+          related_entity_id?: string | null
+          related_entity_type?: string | null
+          related_payment_id?: string | null
+          related_payout_batch_id?: string | null
+          related_trip_id?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          severity?: string
+          source?: string
+          status?: string
+          suppressed_until?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ops_events: {
+        Row: {
+          alert_id: string | null
+          amount_pence: number | null
+          app: string | null
+          category: string
+          created_at: string
+          currency_code: string | null
+          customer_id: string | null
+          description: string | null
+          driver_id: string | null
+          event_type: string
+          id: string
+          metadata: Json | null
+          payment_id: string | null
+          payout_batch_id: string | null
+          resolved: boolean
+          resolved_at: string | null
+          service_area_id: string | null
+          severity: string
+          trip_id: string | null
+        }
+        Insert: {
+          alert_id?: string | null
+          amount_pence?: number | null
+          app?: string | null
+          category: string
+          created_at?: string
+          currency_code?: string | null
+          customer_id?: string | null
+          description?: string | null
+          driver_id?: string | null
+          event_type: string
+          id?: string
+          metadata?: Json | null
+          payment_id?: string | null
+          payout_batch_id?: string | null
+          resolved?: boolean
+          resolved_at?: string | null
+          service_area_id?: string | null
+          severity?: string
+          trip_id?: string | null
+        }
+        Update: {
+          alert_id?: string | null
+          amount_pence?: number | null
+          app?: string | null
+          category?: string
+          created_at?: string
+          currency_code?: string | null
+          customer_id?: string | null
+          description?: string | null
+          driver_id?: string | null
+          event_type?: string
+          id?: string
+          metadata?: Json | null
+          payment_id?: string | null
+          payout_batch_id?: string | null
+          resolved?: boolean
+          resolved_at?: string | null
+          service_area_id?: string | null
+          severity?: string
+          trip_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ops_events_alert_id_fkey"
+            columns: ["alert_id"]
+            isOneToOne: false
+            referencedRelation: "ops_alerts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ops_logs: {
+        Row: {
+          app: string | null
+          created_at: string
+          driver_id: string | null
+          duration_ms: number | null
+          error_code: string | null
+          http_status: number | null
+          id: string
+          level: string
+          message: string
+          metadata: Json | null
+          request_id: string | null
+          source: string
+          trip_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          app?: string | null
+          created_at?: string
+          driver_id?: string | null
+          duration_ms?: number | null
+          error_code?: string | null
+          http_status?: number | null
+          id?: string
+          level?: string
+          message: string
+          metadata?: Json | null
+          request_id?: string | null
+          source: string
+          trip_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          app?: string | null
+          created_at?: string
+          driver_id?: string | null
+          duration_ms?: number | null
+          error_code?: string | null
+          http_status?: number | null
+          id?: string
+          level?: string
+          message?: string
+          metadata?: Json | null
+          request_id?: string | null
+          source?: string
+          trip_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       passenger_ratings: {
         Row: {
           comment: string | null
@@ -8104,6 +8411,18 @@ export type Database = {
           },
         ]
       }
+      ops_health_summary: {
+        Row: {
+          acknowledged_count: number | null
+          category: string | null
+          critical_count: number | null
+          fatal_count: number | null
+          latest_alert_at: string | null
+          open_count: number | null
+          resolved_count: number | null
+        }
+        Relationships: []
+      }
       user_directory: {
         Row: {
           created_at: string | null
@@ -8308,6 +8627,65 @@ export type Database = {
           p_target_id?: string
           p_target_name?: string
           p_target_type?: string
+        }
+        Returns: string
+      }
+      ops_acknowledge_alert: {
+        Args: { p_alert_id: string; p_user_id: string }
+        Returns: undefined
+      }
+      ops_detect_duplicate_commissions: { Args: never; Returns: number }
+      ops_detect_duplicate_payments: { Args: never; Returns: number }
+      ops_detect_failed_payments: { Args: never; Returns: number }
+      ops_detect_failed_payouts: { Args: never; Returns: number }
+      ops_detect_missing_commissions: { Args: never; Returns: number }
+      ops_detect_missing_earnings: { Args: never; Returns: number }
+      ops_detect_stuck_dispatch: { Args: never; Returns: number }
+      ops_record_event: {
+        Args: {
+          p_amount_pence?: number
+          p_app?: string
+          p_category: string
+          p_create_alert?: boolean
+          p_currency_code?: string
+          p_customer_id?: string
+          p_description?: string
+          p_driver_id?: string
+          p_event_type: string
+          p_metadata?: Json
+          p_payment_id?: string
+          p_payout_batch_id?: string
+          p_service_area_id?: string
+          p_severity?: string
+          p_trip_id?: string
+        }
+        Returns: string
+      }
+      ops_resolve_alert: {
+        Args: { p_alert_id: string; p_user_id: string }
+        Returns: undefined
+      }
+      ops_run_all_detections: { Args: never; Returns: Json }
+      ops_suppress_alert: {
+        Args: { p_alert_id: string; p_until: string }
+        Returns: undefined
+      }
+      ops_upsert_alert: {
+        Args: {
+          p_app: string
+          p_category: string
+          p_description?: string
+          p_fingerprint: string
+          p_metadata?: Json
+          p_related_driver_id?: string
+          p_related_entity_id?: string
+          p_related_entity_type?: string
+          p_related_payment_id?: string
+          p_related_payout_batch_id?: string
+          p_related_trip_id?: string
+          p_severity: string
+          p_source: string
+          p_title: string
         }
         Returns: string
       }

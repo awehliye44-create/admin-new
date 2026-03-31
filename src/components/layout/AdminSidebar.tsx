@@ -55,6 +55,7 @@ import {
   ShieldCheck,
   Contact,
   QrCode,
+  BrainCircuit,
 } from 'lucide-react';
 import {
   Collapsible,
@@ -347,6 +348,14 @@ export function AdminSidebar() {
             <NavSection label="Content & Legal" collapsed={isCollapsed} />
             <div className="space-y-1">
               <P pageSlug="content" to="/content" icon={<FileEdit className="h-4 w-4" />} label="Manage Content" active={currentPath === '/content'} collapsed={isCollapsed} />
+            </div>
+          </div>
+
+          {/* OPS INTELLIGENCE */}
+          <div>
+            <NavSection label="Ops Intelligence" collapsed={isCollapsed} />
+            <div className="space-y-1">
+              <P pageSlug="ops-intelligence" to="/ops-intelligence" icon={<BrainCircuit className="h-4 w-4" />} label="Ops Intelligence" active={currentPath === '/ops-intelligence'} collapsed={isCollapsed} />
             </div>
           </div>
 
