@@ -152,7 +152,7 @@ serve(async (req) => {
 
     // ── Seed app_performance_events with realistic telemetry ──
     const telemetry: any[] = [];
-    const versions: Record<string, string[]> = { customer_app: ['2.3.1', '2.3.0', '2.2.9'], driver_app: ['3.1.0', '3.0.8'], guest_web: ['1.0.0'], admin_panel: ['1.0.0'] };
+    const versions: Record<string, string[]> = { customer_app: ['2.3.1', '2.3.0', '2.2.9'], driver_app: ['3.1.0', '3.0.8'], guest_web: ['1.0.0'], admin_panel: ['1.0.0'], corporate_web: ['1.2.0', '1.1.5'] };
     const platforms = ['ios', 'android'];
 
     const screens: Record<string, { name: string; baseMs: number; metric: string }[]> = {
@@ -197,8 +197,36 @@ serve(async (req) => {
       ],
       guest_web: [
         { name: 'QuotePage', metric: 'screen_load_time', baseMs: 2800 },
+        { name: 'QuotePage', metric: 'api_latency', baseMs: 2200 },
         { name: 'CheckoutPage', metric: 'screen_load_time', baseMs: 4100 },
         { name: 'CheckoutPage', metric: 'api_latency', baseMs: 3200 },
+        { name: 'CheckoutPage', metric: 'transaction_time', baseMs: 4800 },
+        { name: 'BookingConfirmation', metric: 'screen_load_time', baseMs: 2400 },
+        { name: 'PaymentPage', metric: 'screen_load_time', baseMs: 3600 },
+        { name: 'PaymentPage', metric: 'api_latency', baseMs: 2800 },
+        { name: 'LandingPage', metric: 'screen_load_time', baseMs: 1800 },
+        { name: 'LandingPage', metric: 'ttfb', baseMs: 800 },
+      ],
+      corporate_web: [
+        { name: 'LoginPage', metric: 'screen_load_time', baseMs: 1400 },
+        { name: 'LoginPage', metric: 'api_latency', baseMs: 900 },
+        { name: 'AccountDashboard', metric: 'screen_load_time', baseMs: 3200 },
+        { name: 'AccountDashboard', metric: 'api_latency', baseMs: 2600 },
+        { name: 'QuoteFlow', metric: 'screen_load_time', baseMs: 2800 },
+        { name: 'QuoteFlow', metric: 'api_latency', baseMs: 2100 },
+        { name: 'BookingFlow', metric: 'screen_load_time', baseMs: 3400 },
+        { name: 'BookingFlow', metric: 'api_latency', baseMs: 2400 },
+        { name: 'PaymentFlow', metric: 'screen_load_time', baseMs: 4200 },
+        { name: 'PaymentFlow', metric: 'transaction_time', baseMs: 5100 },
+        { name: 'BookingConfirmation', metric: 'screen_load_time', baseMs: 2200 },
+        { name: 'InvoicePage', metric: 'screen_load_time', baseMs: 3000 },
+        { name: 'InvoicePage', metric: 'api_latency', baseMs: 2300 },
+        { name: 'TripHistory', metric: 'screen_load_time', baseMs: 3600 },
+        { name: 'TripHistory', metric: 'api_latency', baseMs: 2800 },
+        { name: 'EmployeeManagement', metric: 'screen_load_time', baseMs: 2600 },
+        { name: 'PolicySettings', metric: 'screen_load_time', baseMs: 1800 },
+        { name: 'ReportsPage', metric: 'screen_load_time', baseMs: 3800 },
+        { name: 'ReportsPage', metric: 'api_latency', baseMs: 3200 },
       ],
       admin_panel: [
         { name: 'OpsIntelligence', metric: 'screen_load_time', baseMs: 3200 },
@@ -233,7 +261,7 @@ serve(async (req) => {
           const jitter = (Math.random() - 0.3) * screen.baseMs * 0.6;
           const value = Math.max(100, Math.round(screen.baseMs + jitter));
           const ver = appVersions[Math.floor(Math.random() * appVersions.length)];
-          const plat = (appName === 'guest_web' || appName === 'admin_panel') ? 'web' : platforms[Math.floor(Math.random() * platforms.length)];
+          const plat = (appName === 'guest_web' || appName === 'admin_panel' || appName === 'corporate_web') ? 'web' : platforms[Math.floor(Math.random() * platforms.length)];
           telemetry.push({
             app_name: appName,
             screen_name: screen.name,

@@ -21,7 +21,7 @@ interface TelemetryEvent {
   metadata?: Record<string, unknown>;
 }
 
-const VALID_APPS = ["customer_app", "driver_app", "guest_web", "admin_web", "admin_panel"];
+const VALID_APPS = ["customer_app", "driver_app", "guest_web", "admin_web", "admin_panel", "corporate_web"];
 const VALID_METRICS = [
   "screen_load_time",
   "api_latency",
