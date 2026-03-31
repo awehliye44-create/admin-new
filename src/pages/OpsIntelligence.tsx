@@ -103,7 +103,7 @@ export default function OpsIntelligence() {
     queryFn: async () => {
       let query = supabase
         .from('ops_alerts')
-        .select('*')
+        .select('id, fingerprint, category, severity, status, source, app, title, description, fingerprint_count, first_detected_at, last_detected_at, acknowledged_at, resolved_at, related_trip_id, related_driver_id, related_payment_id, related_payout_batch_id, metadata, created_at')
         .order('last_detected_at', { ascending: false })
         .limit(200);
       

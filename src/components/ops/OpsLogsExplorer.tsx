@@ -31,7 +31,7 @@ export function OpsLogsExplorer() {
     queryFn: async () => {
       let query = supabase
         .from('ops_logs')
-        .select('*')
+        .select('id, level, source, message, error_code, created_at')
         .order('created_at', { ascending: false })
         .limit(100);
 
