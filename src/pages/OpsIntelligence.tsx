@@ -81,13 +81,15 @@ export default function OpsIntelligence() {
       categories.forEach(c => { summary[c] = { open: 0, critical: 0, latest: null }; });
       
       (data || []).forEach((a: any) => {
-        if (!summary[a.category]) summary[a.category] = { open: 0, critical: 0, latest: null };
+        // Merge corporate_web into corporate_booking
+        const cat = a.category === 'corporate_web' ? 'corporate_booking' : a.category;
+        if (!summary[cat]) summary[cat] = { open: 0, critical: 0, latest: null };
         if (a.status === 'open' || a.status === 'acknowledged') {
-          summary[a.category].open++;
-          if (a.severity === 'critical' || a.severity === 'fatal') summary[a.category].critical++;
+          summary[cat].open++;
+          if (a.severity === 'critical' || a.severity === 'fatal') summary[cat].critical++;
         }
-        if (!summary[a.category].latest || a.last_detected_at > summary[a.category].latest!) {
-          summary[a.category].latest = a.last_detected_at;
+        if (!summary[cat].latest || a.last_detected_at > summary[cat].latest!) {
+          summary[cat].latest = a.last_detected_at;
         }
       });
       return summary;
