@@ -55,6 +55,7 @@ import {
   ShieldCheck,
   Contact,
   QrCode,
+  BrainCircuit,
 } from 'lucide-react';
 import {
   Collapsible,
