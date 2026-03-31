@@ -154,10 +154,15 @@ export default function OpsIntelligence() {
             <span className="text-sm font-medium">{totalAcknowledged} ack'd</span>
           </div>
         </div>
-        <Button onClick={handleRunDetections} variant="outline" size="sm">
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Run Detection Scan
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={handleSeedDemo} variant="secondary" size="sm" disabled={alerts && alerts.length > 0}>
+            Seed Demo Data
+          </Button>
+          <Button onClick={handleRunDetections} variant="outline" size="sm">
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Run Detection Scan
+          </Button>
+        </div>
       </div>
 
       {/* Health Cards */}
