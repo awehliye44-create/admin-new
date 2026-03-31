@@ -332,6 +332,10 @@ export default function OpsIntelligence() {
           />
         </TabsContent>
 
+        <TabsContent value="app-performance">
+          <AppPerformanceDashboard />
+        </TabsContent>
+
         <TabsContent value="logs">
           <OpsLogsExplorer />
         </TabsContent>
