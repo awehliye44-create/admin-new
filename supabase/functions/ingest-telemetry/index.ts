@@ -32,6 +32,16 @@ const VALID_METRICS = [
   "network_request_time",
 ];
 
+// Cost optimization: minimum thresholds to filter noise (values in ms)
+const MIN_THRESHOLDS: Record<string, number> = {
+  screen_load_time: 500,    // Only store slow loads (>500ms)
+  api_latency: 300,         // Only store slow API calls (>300ms)
+  render_time: 200,         // Only store slow renders (>200ms)
+  ttfb: 400,                // Only store slow TTFB (>400ms)
+  network_request_time: 500, // Only store slow network (>500ms)
+  // transaction_time and interaction_delay: always store (important flows)
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
