@@ -4536,6 +4536,7 @@ export type Database = {
           error_code: string | null
           http_status: number | null
           id: string
+          is_synthetic: boolean
           level: string
           message: string
           metadata: Json | null
@@ -4552,6 +4553,7 @@ export type Database = {
           error_code?: string | null
           http_status?: number | null
           id?: string
+          is_synthetic?: boolean
           level?: string
           message: string
           metadata?: Json | null
@@ -4568,6 +4570,7 @@ export type Database = {
           error_code?: string | null
           http_status?: number | null
           id?: string
+          is_synthetic?: boolean
           level?: string
           message?: string
           metadata?: Json | null
