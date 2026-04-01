@@ -10,7 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   ArrowLeft, Send, Lock, Unlock, XCircle, RefreshCw, Eye, MessageSquare,
   Image as ImageIcon, Clock, CheckCircle, AlertTriangle, Package, Loader2,
-  Sparkles, Bot,
+  Sparkles, Bot, MapPin, Navigation,
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
@@ -19,6 +19,7 @@ import {
   useLostPropertyMessages,
   useLostPropertyActions,
   useLostPropertyRealtime,
+  useTripSummary,
   LP_STATUS_LABELS,
   LP_STATUS_COLORS,
 } from '@/hooks/useLostProperty';
@@ -36,6 +37,7 @@ export default function LostPropertyDetail() {
   const navigate = useNavigate();
   const { data: lpCase, isLoading } = useLostPropertyCase(caseId);
   const { data: messages = [], isLoading: msgsLoading } = useLostPropertyMessages(caseId);
+  const { data: tripData } = useTripSummary(lpCase?.trip_id);
   const actions = useLostPropertyActions();
   const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: false });
   const saMap = new Map(serviceAreas.map(sa => [sa.id, sa.name]));
@@ -86,6 +88,7 @@ export default function LostPropertyDetail() {
   const photosDeleted = lpCase.photos_delete_at && new Date(lpCase.photos_delete_at) < new Date();
   const chatExpired = new Date(lpCase.chat_expires_at) < new Date();
   const isClosed = lpCase.status === 'CLOSED';
+  const isEscalated = lpCase.status === 'ESCALATED';
 
   const handleSendMessage = async () => {
     if (!msgInput.trim() || !caseId) return;
@@ -102,7 +105,7 @@ export default function LostPropertyDetail() {
   };
 
   const handleAction = async (
-    action: 'adminCloseCase' | 'adminOpenCase' | 'adminReopenCase' | 'adminLockChat' | 'adminUnlockChat',
+    action: 'adminCloseCase' | 'adminOpenCase' | 'adminReopenCase' | 'adminEscalateCase' | 'adminLockChat' | 'adminUnlockChat',
     label: string
   ) => {
     if (!caseId) return;
@@ -182,11 +185,16 @@ export default function LostPropertyDetail() {
               <Lock className="h-3 w-3 mr-1" /> Chat Locked
             </Badge>
           )}
+          {lpCase.admin_joined_at && (
+            <Badge variant="secondary" className="text-xs">
+              <MessageSquare className="h-3 w-3 mr-1" /> Support Joined
+            </Badge>
+          )}
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* LEFT: Details + Photos + Timeline */}
+        {/* LEFT: Details + Trip + Photos + Timeline */}
         <div className="lg:col-span-1 space-y-4">
           {/* Ticket Details */}
           <Card>
@@ -200,8 +208,8 @@ export default function LostPropertyDetail() {
               <Row label="Category" value={<Badge variant="outline" className="capitalize">{lpCase.item_category}</Badge>} />
               <Row label="Description" value={lpCase.item_description} />
               <Separator />
-              <Row label="Customer" value={lpCase.customer_id?.slice(0, 8) + '...'} mono />
-              <Row label="Driver" value={lpCase.driver_id?.slice(0, 8) + '...'} mono />
+              <Row label="Customer" value={lpCase.customer_name || lpCase.customer_id?.slice(0, 8) + '…'} />
+              <Row label="Driver" value={lpCase.driver_name || lpCase.driver_id?.slice(0, 8) + '…'} />
               <Separator />
               <Row label="Chat Status" value={lpCase.chat_enabled ? '🟢 Open' : '🔴 Locked'} />
               <Row label="Chat Expiry" value={chatExpired ? 'Expired' : formatDistanceToNow(new Date(lpCase.chat_expires_at), { addSuffix: true })} />
@@ -210,6 +218,48 @@ export default function LostPropertyDetail() {
               <Separator />
               <Row label="Created" value={format(new Date(lpCase.created_at), 'dd MMM yyyy HH:mm')} />
               <Row label="Updated" value={format(new Date(lpCase.updated_at), 'dd MMM yyyy HH:mm')} />
+              {lpCase.admin_joined_at && (
+                <Row label="Support Joined" value={format(new Date(lpCase.admin_joined_at), 'dd MMM yyyy HH:mm')} />
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Trip Summary */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <Navigation className="h-4 w-4" /> Trip Summary
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              {tripData ? (
+                <>
+                  <div className="flex items-start gap-2">
+                    <MapPin className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Pickup</p>
+                      <p className="text-sm">{tripData.pickup_address || '—'}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <MapPin className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Dropoff</p>
+                      <p className="text-sm">{tripData.dropoff_address || '—'}</p>
+                    </div>
+                  </div>
+                  <Separator />
+                  <Row label="Trip Date" value={format(new Date(tripData.started_at || tripData.created_at), 'dd MMM yyyy')} />
+                  <Row label="Trip Time" value={format(new Date(tripData.started_at || tripData.created_at), 'HH:mm')} />
+                  {tripData.completed_at && (
+                    <Row label="Completed" value={format(new Date(tripData.completed_at), 'HH:mm')} />
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-3">
+                  {lpCase.trip_id ? 'Loading trip data...' : 'No trip linked'}
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -263,7 +313,7 @@ export default function LostPropertyDetail() {
             <CardContent>
               <div className="space-y-1">
                 {STATUS_ORDER.map((s, i) => {
-                  const reached = i <= currentIdx || lpCase.status === 'ESCALATED' || lpCase.status === 'DRIVER_NOT_FOUND';
+                  const reached = i <= currentIdx || isEscalated || lpCase.status === 'DRIVER_NOT_FOUND';
                   const isCurrent = lpCase.status === s;
                   return (
                     <div key={s} className="flex items-center gap-2 py-1">
@@ -274,8 +324,7 @@ export default function LostPropertyDetail() {
                     </div>
                   );
                 })}
-                {/* Show special statuses if active */}
-                {(lpCase.status === 'ESCALATED' || lpCase.status === 'DRIVER_NOT_FOUND') && (
+                {(isEscalated || lpCase.status === 'DRIVER_NOT_FOUND') && (
                   <div className="flex items-center gap-2 py-1">
                     <div className="h-2.5 w-2.5 rounded-full shrink-0 bg-red-500 ring-2 ring-red-500/30" />
                     <span className="text-xs font-semibold text-foreground">{LP_STATUS_LABELS[lpCase.status]}</span>
@@ -301,9 +350,14 @@ export default function LostPropertyDetail() {
                   <RefreshCw className="h-4 w-4 mr-2" /> Reopen Case
                 </Button>
               )}
-              {!isClosed && lpCase.status !== 'ESCALATED' && (
-                <Button variant="outline" size="sm" className="w-full" onClick={() => handleAction('adminOpenCase', 'Case escalated')} disabled={actions.adminOpenCase.isPending}>
+              {!isClosed && !isEscalated && (
+                <Button variant="outline" size="sm" className="w-full" onClick={() => handleAction('adminEscalateCase', 'Case escalated')} disabled={actions.adminEscalateCase.isPending}>
                   <AlertTriangle className="h-4 w-4 mr-2" /> Escalate
+                </Button>
+              )}
+              {isEscalated && (
+                <Button variant="outline" size="sm" className="w-full" onClick={() => handleAction('adminOpenCase', 'Case opened')} disabled={actions.adminOpenCase.isPending}>
+                  <Eye className="h-4 w-4 mr-2" /> Open Case
                 </Button>
               )}
               <Separator />
@@ -318,6 +372,13 @@ export default function LostPropertyDetail() {
                   </Button>
                 )
               )}
+
+              {/* Admin join indicator */}
+              {!lpCase.admin_joined_at && !isClosed && lpCase.chat_enabled && (
+                <p className="text-xs text-muted-foreground text-center pt-2 italic">
+                  Send a message to join this conversation as Support
+                </p>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -330,7 +391,9 @@ export default function LostPropertyDetail() {
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
                 <MessageSquare className="h-4 w-4" /> Chat History
                 {lpCase.admin_joined_at && (
-                  <Badge variant="secondary" className="text-xs">Support Joined</Badge>
+                  <Badge variant="secondary" className="text-xs">
+                    Joined {formatDistanceToNow(new Date(lpCase.admin_joined_at), { addSuffix: true })}
+                  </Badge>
                 )}
               </CardTitle>
             </CardHeader>
@@ -376,7 +439,7 @@ export default function LostPropertyDetail() {
                 ) : (
                   <div className="flex gap-2">
                     <Textarea
-                      placeholder="Type support message..."
+                      placeholder={lpCase.admin_joined_at ? 'Type support message...' : 'Type a message to join as Support...'}
                       value={msgInput}
                       onChange={e => setMsgInput(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); }}}
