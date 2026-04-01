@@ -8925,6 +8925,7 @@ export type Database = {
       ops_detect_stuck_dispatch: { Args: never; Returns: Json }
       ops_detect_version_issues: { Args: never; Returns: Json }
       ops_detect_webhook_failures: { Args: never; Returns: number }
+      ops_reconciliation_diagnostics: { Args: never; Returns: Json }
       ops_record_event: {
         Args: {
           p_amount_pence?: number
