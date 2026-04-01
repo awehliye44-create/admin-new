@@ -334,8 +334,14 @@ serve(async (req) => {
         const detail = driverMap.get(nd.driver_id);
         if (!detail) continue;
 
-        // ====== STACKED RIDES GATE ======
+        // ====== BLOCK MULTIPLE ACTIVE RIDES ======
         const hasActiveTrip = !!detail.current_trip_id;
+
+        if (hasActiveTrip && settings.block_multiple_active_rides) {
+          continue; // Admin has blocked drivers from having multiple active rides
+        }
+
+        // ====== STACKED RIDES GATE ======
         let isStackedCandidate = false;
 
         if (hasActiveTrip) {
