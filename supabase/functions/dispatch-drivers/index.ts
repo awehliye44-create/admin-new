@@ -87,14 +87,14 @@ function parseSettings(row: Record<string, any>): DispatchSettings {
     fairness_idle_minutes: row.fairness_idle_minutes,
     fairness_boost_score: row.fairness_boost_score,
     accept_timeout_seconds: row.accept_timeout_seconds,
-    max_driver_find_time_minutes: row.max_driver_find_time_minutes ?? 3,
+    max_driver_find_time_minutes: row.max_driver_find_time_minutes,
     stacked_rides_enabled: row.stacked_rides_enabled,
     max_stacked_rides: row.max_stacked_rides,
     stacked_min_trip_distance_km: row.stacked_min_trip_distance_km,
     stacked_max_detour_minutes: row.stacked_max_detour_minutes,
     stacked_priority_mode: row.stacked_priority_mode,
-    simulate_mode: row.simulate_mode ?? false,
-    block_multiple_active_rides: row.block_multiple_active_rides ?? false,
+    simulate_mode: row.simulate_mode,
+    block_multiple_active_rides: row.block_multiple_active_rides,
   };
 }
 

@@ -79,8 +79,8 @@ serve(async (req) => {
       for (const row of settingsRows || []) {
         if (row.service_area_id) {
           settingsMap.set(row.service_area_id, {
-            trigger_minutes: row.urgent_dispatch_trigger_minutes_before_pickup ?? 15,
-            scheduled_rides_enabled: row.scheduled_rides_enabled ?? true,
+            trigger_minutes: row.urgent_dispatch_trigger_minutes_before_pickup,
+            scheduled_rides_enabled: row.scheduled_rides_enabled,
           });
         }
       }
@@ -99,13 +99,25 @@ serve(async (req) => {
         const scheduledAt = new Date(trip.scheduled_at);
         const minutesUntilPickup = (scheduledAt.getTime() - now.getTime()) / 60000;
 
-        // Get service-area config (default 15 min trigger if no config)
-        const saConfig = trip.service_area_id
-          ? settingsMap.get(trip.service_area_id)
-          : null;
+        // Require explicit dispatch_settings for the service area — no fallback defaults
+        if (!trip.service_area_id) {
+          console.log(`[schedule-dispatch] Trip ${trip.id}: no service_area_id — skipping`);
+          skipped++;
+          results.push({ trip_id: trip.id, action: "skipped", detail: "no_service_area_id" });
+          continue;
+        }
 
-        const triggerMinutes = saConfig?.trigger_minutes ?? 15;
-        const scheduledEnabled = saConfig?.scheduled_rides_enabled ?? true;
+        const saConfig = settingsMap.get(trip.service_area_id);
+
+        if (!saConfig) {
+          console.log(`[schedule-dispatch] Trip ${trip.id}: no dispatch_settings for SA ${trip.service_area_id} — skipping`);
+          skipped++;
+          results.push({ trip_id: trip.id, action: "skipped", detail: "no_dispatch_settings" });
+          continue;
+        }
+
+        const triggerMinutes = saConfig.trigger_minutes;
+        const scheduledEnabled = saConfig.scheduled_rides_enabled;
 
         // Skip if scheduled rides are disabled for this service area
         if (!scheduledEnabled) {
