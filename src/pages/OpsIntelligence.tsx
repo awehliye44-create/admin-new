@@ -41,8 +41,8 @@ type OpsAlert = {
 };
 
 export default function OpsIntelligence() {
-  const [searchParams] = useSearchParams();
-  const defaultTab = searchParams.get('tab') || 'alerts';
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') || 'alerts';
   const [selectedAlert, setSelectedAlert] = useState<OpsAlert | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [showResolved, setShowResolved] = useState(false);
@@ -257,7 +257,7 @@ export default function OpsIntelligence() {
       )}
 
       {/* Main Tabs */}
-      <Tabs defaultValue={defaultTab} className="mt-8">
+      <Tabs value={activeTab} onValueChange={(val) => setSearchParams({ tab: val })} className="mt-8">
         <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="alerts" className="gap-2">
             <AlertTriangle className="h-4 w-4" /> {showResolved ? 'Resolved' : 'Active'} Alerts
