@@ -8722,6 +8722,10 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: boolean
       }
+      check_schedule_overlap: {
+        Args: { p_driver_id: string; p_trip_id: string }
+        Returns: Json
+      }
       create_driver_vehicle: {
         Args: {
           p_color: string
