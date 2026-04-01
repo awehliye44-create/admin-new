@@ -101,3 +101,9 @@ verify_jwt = false
 
 [functions.ingest-telemetry]
 verify_jwt = false
+
+[functions.lost-property]
+verify_jwt = false
+
+[functions.driver-invoices]
+verify_jwt = false
