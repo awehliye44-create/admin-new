@@ -156,6 +156,10 @@ describe("useAuth Hook", () => {
     mockSupabase.from.mockReturnValue({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: { role: "admin" },
+        error: null,
+      }),
       limit: vi.fn().mockResolvedValue({
         data: [{ role: "admin" }],
         error: null,
