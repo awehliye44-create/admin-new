@@ -201,6 +201,11 @@ serve(async (req) => {
 
     const settings = parseSettings(saSettings);
 
+    // ====== SIMULATE MODE ======
+    if (settings.simulate_mode) {
+      console.log(`[dispatch-drivers] SIMULATE MODE — no offers will be sent`);
+    }
+
     // Calculate absolute deadline from maxDriverFindTimeMinutes
     // CRITICAL: Supabase Edge Functions have a ~60s execution limit.
     // Cap total execution to 50s regardless of admin config to prevent timeout kills.
@@ -208,7 +213,7 @@ serve(async (req) => {
     const adminMaxMs = settings.max_driver_find_time_minutes * 60 * 1000;
     const maxFindTimeMs = Math.min(adminMaxMs, EDGE_FUNCTION_SAFE_LIMIT_MS);
 
-    console.log(`[dispatch-drivers] Settings loaded: start=${settings.search_radius_start_km}km, waves=${settings.wave1_size}/${settings.wave2_size}/${settings.wave3_size}, stacked=${settings.stacked_rides_enabled}, max_stacked=${settings.max_stacked_rides}, max_find_time=${settings.max_driver_find_time_minutes}min`);
+    console.log(`[dispatch-drivers] Settings loaded: start=${settings.search_radius_start_km}km, waves=${settings.wave1_size}/${settings.wave2_size}/${settings.wave3_size}, stacked=${settings.stacked_rides_enabled}, max_stacked=${settings.max_stacked_rides}, max_find_time=${settings.max_driver_find_time_minutes}min, simulate=${settings.simulate_mode}, block_multi=${settings.block_multiple_active_rides}`);
 
     // ====== EXPANDING RADIUS SEARCH + SCORING ======
     const radiusSteps = [
@@ -219,6 +224,8 @@ serve(async (req) => {
 
     let allCandidates: ScoredCandidate[] = [];
     const offeredDriverIds = new Set<string>();
+    // Track which wave each driver was actually offered in
+    const driverWaveMap = new Map<string, number>();
     let accepted = false;
 
     for (const radiusKm of radiusSteps) {
