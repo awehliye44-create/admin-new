@@ -151,6 +151,8 @@ const App = () => (
               <Route path="tickets" element={<Tickets />} />
               <Route path="live-chat" element={<LiveChat />} />
               <Route path="categories" element={<SupportCategories />} />
+              <Route path="lost-property" element={<LostProperty />} />
+              <Route path="lost-property/:caseId" element={<LostPropertyDetail />} />
               
               {/* Finance & Payouts */}
               <Route path="payments" element={<AdminPayments />} />
