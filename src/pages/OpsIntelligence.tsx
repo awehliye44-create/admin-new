@@ -5,6 +5,7 @@ import { AdminLayout } from '@/components/layout/AdminLayout';
 import { OpsHealthCards } from '@/components/ops/OpsHealthCards';
 import { OpsAlertsTable } from '@/components/ops/OpsAlertsTable';
 import { OpsLogsExplorer } from '@/components/ops/OpsLogsExplorer';
+import { OpsReconciliationPanel } from '@/components/ops/OpsReconciliationPanel';
 import { OpsAlertDetail } from '@/components/ops/OpsAlertDetail';
 import { OpsRealtimeIndicator } from '@/components/ops/OpsRealtimeIndicator';
 import { QueryErrorState } from '@/components/QueryErrorState';
