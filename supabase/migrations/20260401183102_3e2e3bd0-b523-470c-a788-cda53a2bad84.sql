@@ -1,0 +1,1 @@
+ALTER VIEW public.app_health_summary SET (security_invoker = on);
