@@ -153,6 +153,7 @@ export function AdminSidebar() {
   const { signOut, user } = useAuth();
   const { canAccessPage, staffProfile } = useStaffProfile();
   const { counts } = useSidebarCounts();
+  const lpUnread = useLostPropertyUnreadCount();
   const currentPath = location.pathname;
   
   const [isCollapsed, setIsCollapsed] = useState(() => {
