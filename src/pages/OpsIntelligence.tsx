@@ -164,21 +164,6 @@ export default function OpsIntelligence() {
     toast.success('Refreshed');
   }, [queryClient]);
 
-  if (selectedAlert) {
-    return (
-      <AdminLayout title="Ops Intelligence" description="Alert Detail">
-        <OpsAlertDetail
-          alert={selectedAlert}
-          onBack={() => setSelectedAlert(null)}
-          onRefresh={() => {
-            queryClient.invalidateQueries({ queryKey: ['ops-alerts'] });
-            setSelectedAlert(null);
-          }}
-        />
-      </AdminLayout>
-    );
-  }
-
   const allAlerts = alerts || [];
 
   const { moneyAlerts, dispatchAlerts, guestAlerts, perfAlerts, dupAlerts, driverAppAlerts, customerAppAlerts, corporateAlerts } = useMemo(() => {
@@ -211,6 +196,21 @@ export default function OpsIntelligence() {
       customerAppAlerts: customerApp, corporateAlerts: corporate,
     };
   }, [allAlerts]);
+
+  if (selectedAlert) {
+    return (
+      <AdminLayout title="Ops Intelligence" description="Alert Detail">
+        <OpsAlertDetail
+          alert={selectedAlert}
+          onBack={() => setSelectedAlert(null)}
+          onRefresh={() => {
+            queryClient.invalidateQueries({ queryKey: ['ops-alerts'] });
+            setSelectedAlert(null);
+          }}
+        />
+      </AdminLayout>
+    );
+  }
 
   return (
     <AdminLayout title="Ops Intelligence" description="Platform-wide operations monitoring, alerts & health">
