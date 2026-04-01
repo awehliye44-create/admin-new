@@ -294,8 +294,26 @@ export default function OpsIntelligence() {
               <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded-full">{dupAlerts.filter(a => a.status === 'open').length}</span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="driver-app" className="gap-2">
+            <Car className="h-4 w-4" /> Driver App
+            {!showResolved && driverAppAlerts.filter(a => a.status === 'open').length > 0 && (
+              <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded-full">{driverAppAlerts.filter(a => a.status === 'open').length}</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="customer-app" className="gap-2">
+            <Smartphone className="h-4 w-4" /> Customer App
+            {!showResolved && customerAppAlerts.filter(a => a.status === 'open').length > 0 && (
+              <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded-full">{customerAppAlerts.filter(a => a.status === 'open').length}</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="corporate" className="gap-2">
+            <Building2 className="h-4 w-4" /> Corporate
+            {!showResolved && corporateAlerts.filter(a => a.status === 'open').length > 0 && (
+              <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded-full">{corporateAlerts.filter(a => a.status === 'open').length}</span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="app-performance" className="gap-2">
-            <Smartphone className="h-4 w-4" /> App Performance
+            <Gauge className="h-4 w-4" /> App Performance
           </TabsTrigger>
           <TabsTrigger value="logs" className="gap-2">
             <ScrollText className="h-4 w-4" /> Logs Explorer
