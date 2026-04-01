@@ -86,72 +86,72 @@ ${alert.related_payment_id ? `Related Payment: ${alert.related_payment_id}` : ""
 Related error logs (last 10):
 ${logs && logs.length > 0 ? logs.map((l: any) => `[${l.level}] ${l.source}: ${l.message}`).join("\n") : "No related logs found."}`;
 
-    // Call Lovable AI Gateway with tool calling for structured output
-    const aiResponse = await fetch(
-      "https://ai.gateway.lovable.dev/v1/chat/completions",
-      {
+    // Call Lovable AI Gateway with tool calling for structured output (retry on 5xx)
+    const aiPayload = {
+      model: "google/gemini-3-flash-preview",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "ops_alert_analysis",
+            description:
+              "Provide structured analysis of an ops alert with summary, root cause, and recommended action.",
+            parameters: {
+              type: "object",
+              properties: {
+                summary: { type: "string", description: "Clear 2-3 sentence summary of what happened" },
+                root_cause: { type: "string", description: "Most likely root cause based on evidence" },
+                recommended_action: { type: "string", description: "Specific steps to resolve" },
+              },
+              required: ["summary", "root_cause", "recommended_action"],
+              additionalProperties: false,
+            },
+          },
+        },
+      ],
+      tool_choice: { type: "function", function: { name: "ops_alert_analysis" } },
+    };
+
+    let aiResponse: Response | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${LOVABLE_API_KEY}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-          tools: [
-            {
-              type: "function",
-              function: {
-                name: "ops_alert_analysis",
-                description:
-                  "Provide structured analysis of an ops alert with summary, root cause, and recommended action.",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    summary: {
-                      type: "string",
-                      description: "Clear 2-3 sentence summary of what happened",
-                    },
-                    root_cause: {
-                      type: "string",
-                      description: "Most likely root cause based on evidence",
-                    },
-                    recommended_action: {
-                      type: "string",
-                      description: "Specific steps to resolve",
-                    },
-                  },
-                  required: ["summary", "root_cause", "recommended_action"],
-                  additionalProperties: false,
-                },
-              },
-            },
-          ],
-          tool_choice: {
-            type: "function",
-            function: { name: "ops_alert_analysis" },
-          },
-        }),
-      }
-    );
+        body: JSON.stringify(aiPayload),
+      });
+      if (aiResponse.status < 500) break;
+      console.warn(`AI Gateway attempt ${attempt + 1} failed with ${aiResponse.status}, retrying...`);
+      await aiResponse.text();
+      if (attempt < 2) await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+    }
 
-    if (!aiResponse.ok) {
-      const errText = await aiResponse.text();
-      console.error("AI Gateway error:", aiResponse.status, errText);
+    if (!aiResponse!.ok) {
+      const errText = await aiResponse!.text();
+      console.error("AI Gateway error:", aiResponse!.status, errText);
 
-      if (aiResponse.status === 429) {
+      if (aiResponse!.status === 429) {
         return new Response(
           JSON.stringify({ error: "Rate limited. Please try again shortly." }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      if (aiResponse.status === 402) {
+      if (aiResponse!.status === 402) {
         return new Response(
           JSON.stringify({ error: "AI credits exhausted. Add funds in workspace settings." }),
           { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      if (aiResponse!.status >= 500) {
+        return new Response(
+          JSON.stringify({ error: "AI Gateway temporarily unavailable. Please retry in a moment." }),
+          { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
