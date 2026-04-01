@@ -93,49 +93,59 @@ Related Payout: ${alert.related_payout_batch_id || "none"}
 Context:
 ${contextParts.join("\n")}`;
 
-      const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-          tools: [{
-            type: "function",
-            function: {
-              name: "propose_fix",
-              description: "Propose a fix for the ops alert",
-              parameters: {
-                type: "object",
-                properties: {
-                  explanation: { type: "string", description: "Clear explanation of the issue and what the fix does" },
-                  root_cause: { type: "string", description: "Why this happened" },
-                  function_name: { type: "string", enum: [...Object.keys(ALLOWED_FUNCTIONS), "none"] },
-                  param_value: { type: "string", description: "The UUID parameter to pass to the function" },
-                  risk_level: { type: "string", enum: ["LOW", "MEDIUM", "HIGH"] },
-                  affected_entities: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: { type: { type: "string" }, id: { type: "string" }, description: { type: "string" } },
-                      required: ["type", "id"],
-                    },
+      const aiPayload = {
+        model: "google/gemini-3-flash-preview",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        tools: [{
+          type: "function",
+          function: {
+            name: "propose_fix",
+            description: "Propose a fix for the ops alert",
+            parameters: {
+              type: "object",
+              properties: {
+                explanation: { type: "string", description: "Clear explanation of the issue and what the fix does" },
+                root_cause: { type: "string", description: "Why this happened" },
+                function_name: { type: "string", enum: [...Object.keys(ALLOWED_FUNCTIONS), "none"] },
+                param_value: { type: "string", description: "The UUID parameter to pass to the function" },
+                risk_level: { type: "string", enum: ["LOW", "MEDIUM", "HIGH"] },
+                affected_entities: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: { type: { type: "string" }, id: { type: "string" }, description: { type: "string" } },
+                    required: ["type", "id"],
                   },
-                  estimated_impact: { type: "string", description: "What will change when the fix runs" },
                 },
-                required: ["explanation", "root_cause", "function_name", "risk_level", "affected_entities", "estimated_impact"],
-                additionalProperties: false,
+                estimated_impact: { type: "string", description: "What will change when the fix runs" },
               },
+              required: ["explanation", "root_cause", "function_name", "risk_level", "affected_entities", "estimated_impact"],
+              additionalProperties: false,
             },
-          }],
-          tool_choice: { type: "function", function: { name: "propose_fix" } },
-        }),
-      });
+          },
+        }],
+        tool_choice: { type: "function", function: { name: "propose_fix" } },
+      };
+
+      // Retry up to 3 times for transient gateway errors
+      let aiResponse: Response | null = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(aiPayload),
+        });
+        if (aiResponse.status < 500) break;
+        console.warn(`AI Gateway attempt ${attempt + 1} failed with ${aiResponse.status}, retrying...`);
+        await aiResponse.text(); // consume body
+        if (attempt < 2) await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+      }
 
       if (!aiResponse.ok) {
         if (aiResponse.status === 429) return json({ error: "Rate limited. Try again shortly." }, 429);
