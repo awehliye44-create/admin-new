@@ -45,6 +45,9 @@ interface DispatchSettings {
   stacked_min_trip_distance_km: number;
   stacked_max_detour_minutes: number;
   stacked_priority_mode: string;
+  // System settings — operational flags
+  simulate_mode: boolean;
+  block_multiple_active_rides: boolean;
 }
 
 interface ScoredCandidate {
