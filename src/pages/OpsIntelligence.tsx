@@ -187,6 +187,9 @@ export default function OpsIntelligence() {
     a.fingerprint.includes('fatal_log')
   );
   const dupAlerts = allAlerts.filter(a => a.category === 'duplication');
+  const driverAppAlerts = allAlerts.filter(a => a.category === 'driver_app' || a.app === 'driver' || a.app === 'driver_app');
+  const customerAppAlerts = allAlerts.filter(a => a.category === 'customer_app' || a.app === 'customer' || a.app === 'customer_app');
+  const corporateAlerts = allAlerts.filter(a => a.category === 'corporate_booking' || a.category === 'corporate_web' || a.app === 'corporate_web');
 
   return (
     <AdminLayout title="Ops Intelligence" description="Platform-wide operations monitoring, alerts & health">
