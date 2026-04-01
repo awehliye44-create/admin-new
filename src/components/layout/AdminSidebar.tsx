@@ -326,7 +326,7 @@ export function AdminSidebar() {
             <div className="space-y-1">
               <P pageSlug="suspensions" to="/suspensions" icon={<UserX className="h-4 w-4" />} label="Account Suspension" active={currentPath === '/suspensions'} collapsed={isCollapsed} />
               <P pageSlug="complaints" to="/complaints" icon={<AlertTriangle className="h-4 w-4" />} label="Complaints Dashboard" active={currentPath === '/complaints'} collapsed={isCollapsed} />
-              <P pageSlug="live-chat" to="/live-chat" icon={<MessageSquare className="h-4 w-4" />} label="Live Chat" active={currentPath === '/live-chat'} collapsed={isCollapsed} />
+              <P pageSlug="live-chat" to="/live-chat" icon={<MessageSquare className="h-4 w-4" />} label="Live Chat" active={currentPath === '/live-chat'} badge={chatUnread > 0 ? chatUnread : undefined} badgeColor="destructive" collapsed={isCollapsed} />
               <P pageSlug="tickets" to="/tickets" icon={<Ticket className="h-4 w-4" />} label="Tickets" active={currentPath === '/tickets'} collapsed={isCollapsed} />
               <P pageSlug="lost-property" to="/lost-property" icon={<PackageSearch className="h-4 w-4" />} label="Lost Property" active={currentPath === '/lost-property' || currentPath.startsWith('/lost-property/')} badge={lpUnread > 0 ? lpUnread : undefined} badgeColor="destructive" collapsed={isCollapsed} />
               <P pageSlug="categories" to="/categories" icon={<Grid3X3 className="h-4 w-4" />} label="Support Categories" active={currentPath === '/categories'} collapsed={isCollapsed} />
