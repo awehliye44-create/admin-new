@@ -369,6 +369,7 @@ export function AdminSidebar() {
               <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=app-performance" icon={<Smartphone className="h-4 w-4" />} label="App Performance" active={currentPath === '/ops-intelligence' && location.search.includes('tab=app-performance')} collapsed={isCollapsed} />
               <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=money" icon={<CreditCard className="h-4 w-4" />} label="Money Integrity" active={currentPath === '/ops-intelligence' && location.search.includes('tab=money')} collapsed={isCollapsed} />
               <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=guest" icon={<Globe className="h-4 w-4" />} label="Guest Booking" active={currentPath === '/ops-intelligence' && location.search.includes('tab=guest')} collapsed={isCollapsed} />
+              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=integration" icon={<Smartphone className="h-4 w-4" />} label="Integration Guide" active={currentPath === '/ops-intelligence' && location.search.includes('tab=integration')} collapsed={isCollapsed} />
             </div>
           </div>
 
