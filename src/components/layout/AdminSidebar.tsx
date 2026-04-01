@@ -60,6 +60,7 @@ import {
   Smartphone,
   Globe,
   PackageSearch,
+  Gauge,
 } from 'lucide-react';
 import {
   Collapsible,
