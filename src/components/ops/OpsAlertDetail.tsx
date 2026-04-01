@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { format, formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { generateAISummary, regenerateAISummary, fetchAISummary } from '@/lib/opsAiSummaryService';
+import { OpsAiFixPanel } from './OpsAiFixPanel';
 import type { AISummaryInput } from '@/lib/opsAiSummaryService';
 
 type OpsAlert = {
@@ -413,6 +414,9 @@ export function OpsAlertDetail({ alert, onBack, onRefresh }: OpsAlertDetailProps
           )}
         </CardContent>
       </Card>
+
+      {/* AI Fix Panel */}
+      <OpsAiFixPanel alertId={alert.id} alertStatus={alert.status} />
 
       {/* Related Events */}
       {relatedEvents && relatedEvents.length > 0 && (
