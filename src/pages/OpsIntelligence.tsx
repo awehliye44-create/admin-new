@@ -41,8 +41,8 @@ type OpsAlert = {
 };
 
 export default function OpsIntelligence() {
-  const [searchParams] = useSearchParams();
-  const defaultTab = searchParams.get('tab') || 'alerts';
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') || 'alerts';
   const [selectedAlert, setSelectedAlert] = useState<OpsAlert | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [showResolved, setShowResolved] = useState(false);
