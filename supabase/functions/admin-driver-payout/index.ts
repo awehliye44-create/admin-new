@@ -277,44 +277,6 @@ serve(async (req) => {
       });
     }
 
-    // === Update payout item ===
-    const finalStatus = stripeError ? 'failed' : 'completed';
-    await supabase.from('payout_items').update({
-      status: finalStatus,
-      stripe_transfer_id: stripeTransferId,
-      stripe_payout_id: stripePayoutId,
-      error_message: stripeError,
-      ledger_entry_id: ledgerEntry?.id,
-      completed_at: stripeError ? null : new Date().toISOString(),
-    }).eq('id', payoutItem.id);
-
-    // === Update batch ===
-    await supabase.from('payout_batches').update({
-      status: stripeError ? 'failed' : 'completed',
-      successful_payouts: stripeError ? 0 : 1,
-      failed_payouts: stripeError ? 1 : 0,
-      completed_at: new Date().toISOString(),
-    }).eq('id', batch.id);
-
-    // Calculate new balance
-    const newBalance = available - payoutAmount;
-
-    return new Response(JSON.stringify({
-      success: !stripeError,
-      batchId: batch.id,
-      payoutItemId: payoutItem.id,
-      amount: payoutAmount,
-      wallet_balance_before: available,
-      wallet_balance_after: newBalance,
-      stripeTransferId,
-      stripePayoutId,
-      ledgerEntryId: ledgerEntry?.id,
-      currency_code,
-      error: stripeError,
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-
   } catch (error) {
     console.error('[payout] Error:', error);
     return new Response(JSON.stringify({ error: (error as Error).message }), {
