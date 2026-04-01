@@ -73,6 +73,11 @@ Deno.serve(async (req) => {
         errors.push(`Event ${i}: invalid metric_value`);
         continue;
       }
+      // Cost optimization: drop fast/healthy events to reduce storage
+      const threshold = MIN_THRESHOLDS[e.metric_name];
+      if (threshold !== undefined && e.metric_value < threshold) {
+        continue; // Below threshold — healthy, no need to store
+      }
       valid.push(e);
     }
 
