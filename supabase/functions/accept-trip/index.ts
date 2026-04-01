@@ -38,6 +38,10 @@ serve(async (req) => {
   }
 
   try {
+    // Authenticate the driver via JWT
+    const authResult = await authenticateDriver(req);
+    if (authResult instanceof Response) return authResult;
+
     // Parse and validate request body
     let body: unknown;
     try {
@@ -52,7 +56,9 @@ serve(async (req) => {
       return errorResponse('Validation failed', 400, { validation_errors: validation.errors });
     }
 
-    const { trip_id, driver_id, selected_offer_key } = validation.data! as AcceptTripRequest & { selected_offer_key?: string };
+    const { trip_id, selected_offer_key } = validation.data! as AcceptTripRequest & { selected_offer_key?: string };
+    // Use authenticated driver_id instead of body-supplied value
+    const driver_id = authResult.driverId;
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;

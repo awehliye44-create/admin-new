@@ -35,6 +35,10 @@ serve(async (req) => {
   }
 
   try {
+    // Authenticate the driver via JWT
+    const authResult = await authenticateDriver(req);
+    if (authResult instanceof Response) return authResult;
+
     let body: unknown;
     try {
       body = await req.json();
@@ -49,7 +53,6 @@ serve(async (req) => {
 
     const {
       trip_id,
-      driver_id,
       payment_method,
       base_fare_pence,
       pickup_waiting_charge_pence = 0,
@@ -61,6 +64,8 @@ serve(async (req) => {
       stripe_payment_intent_id,
       final_fare_pence: legacy_fare_pence,
     } = validation.data!;
+    // Use authenticated driver_id instead of body-supplied value
+    const driver_id = authResult.driverId;
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
