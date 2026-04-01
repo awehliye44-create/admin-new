@@ -48,8 +48,24 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const body = await req.json();
-    const events: TelemetryEvent[] = Array.isArray(body) ? body : [body];
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid JSON body" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (body === null || body === undefined || (typeof body === "object" && !Array.isArray(body) && Object.keys(body as Record<string, unknown>).length === 0)) {
+      return new Response(
+        JSON.stringify({ success: false, error: "events array is required" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const events: TelemetryEvent[] = Array.isArray(body) ? body : [body as TelemetryEvent];
 
     // Validate
     const valid: TelemetryEvent[] = [];
