@@ -8788,6 +8788,7 @@ export type Database = {
         Args: { max_age_hours?: number }
         Returns: Json
       }
+      ops_cleanup_old_data: { Args: never; Returns: Json }
       ops_detect_5xx_spikes: { Args: never; Returns: number }
       ops_detect_admin_panel_issues: { Args: never; Returns: Json }
       ops_detect_api_latency_spikes: { Args: never; Returns: Json }
