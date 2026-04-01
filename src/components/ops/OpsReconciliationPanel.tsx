@@ -105,7 +105,7 @@ export function OpsReconciliationPanel() {
         </div>
         {data && (
           <p className="text-xs text-muted-foreground">
-            Generated {format(new Date(data.generated_at), 'HH:mm:ss')} · Window: {data.time_window} · Synthetic excluded: {data.synthetic_excluded ? 'Yes' : 'No'}
+            Generated {data.generated_at && !isNaN(new Date(data.generated_at).getTime()) ? format(new Date(data.generated_at), 'HH:mm:ss') : '—'} · Window: {data.time_window} · Synthetic excluded: {data.synthetic_excluded ? 'Yes' : 'No'}
           </p>
         )}
       </CardHeader>
