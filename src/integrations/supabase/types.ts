@@ -310,6 +310,101 @@ export type Database = {
         }
         Relationships: []
       }
+      call_masking_sessions: {
+        Row: {
+          caller_id: string | null
+          created_at: string
+          customer_id: string | null
+          customer_phone: string
+          driver_id: string
+          driver_phone: string
+          expires_at: string | null
+          id: string
+          msg91_request_id: string | null
+          status: string
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          caller_id?: string | null
+          created_at?: string
+          customer_id?: string | null
+          customer_phone: string
+          driver_id: string
+          driver_phone: string
+          expires_at?: string | null
+          id?: string
+          msg91_request_id?: string | null
+          status?: string
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          caller_id?: string | null
+          created_at?: string
+          customer_id?: string | null
+          customer_phone?: string
+          driver_id?: string
+          driver_phone?: string
+          expires_at?: string | null
+          id?: string
+          msg91_request_id?: string | null
+          status?: string
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_masking_sessions_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_masking_sessions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "call_masking_sessions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "call_masking_sessions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "call_masking_sessions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_masking_sessions_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_masking_sessions_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       canned_responses: {
         Row: {
           category: string | null

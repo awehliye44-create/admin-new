@@ -50,13 +50,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (adminCache.current?.userId === userId) {
       // Still re-check in background but return cached value immediately
       supabase
-        .from('profiles')
+        .from('user_roles')
         .select('role')
         .eq('user_id', userId)
-        .single()
+        .eq('role', 'admin')
+        .maybeSingle()
         .then(({ data, error }) => {
-          if (!error && data) {
-            const result = (data as any).role === 'admin';
+          if (!error) {
+            const result = !!data;
             adminCache.current = { userId, isAdmin: result };
             setIsAdmin(result);
           }
@@ -68,17 +69,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // First-time check — must await
     try {
       const { data, error } = await supabase
-        .from('profiles')
+        .from('user_roles')
         .select('role')
         .eq('user_id', userId)
-        .single();
+        .eq('role', 'admin')
+        .maybeSingle();
 
       if (error) {
         console.error('Error checking admin role:', error);
         return adminCache.current?.userId === userId ? adminCache.current.isAdmin : false;
       }
 
-      const result = (data as any)?.role === 'admin';
+      const result = !!data;
       adminCache.current = { userId, isAdmin: result };
       return result;
     } catch (err) {
