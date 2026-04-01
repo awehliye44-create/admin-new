@@ -75,7 +75,8 @@ import AlertSounds from "./pages/AlertSounds";
 import UserDirectory from "./pages/UserDirectory";
 import QrBookingControl from "./pages/QrBookingControl";
 import OpsIntelligence from "./pages/OpsIntelligence";
-
+import LostProperty from "./pages/LostProperty";
+import LostPropertyDetail from "./pages/LostPropertyDetail";
 const queryClient = createAppQueryClient();
 
 const App = () => (
