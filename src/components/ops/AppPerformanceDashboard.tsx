@@ -311,7 +311,7 @@ export function AppPerformanceDashboard() {
       {/* App health overview cards */}
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-          <Zap className="h-4 w-4" /> App Health Overview (Last 1 Hour)
+          <Zap className="h-4 w-4" /> App Health Overview (Last 24 Hours)
         </h3>
         <Button variant="ghost" size="sm" onClick={() => refetch()}>
           <RefreshCw className="h-4 w-4" />
