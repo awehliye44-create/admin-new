@@ -434,6 +434,7 @@ export default function OpsIntelligence() {
 
         <TabsContent value="logs">
           <OpsLogsExplorer />
+          <OpsReconciliationPanel />
         </TabsContent>
         <TabsContent value="integration">
           <MobileIntegrationGuide />
