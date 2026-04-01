@@ -8717,6 +8717,48 @@ export type Database = {
         }
         Relationships: []
       }
+      driver_call_masking_view: {
+        Row: {
+          caller_id: string | null
+          created_at: string | null
+          expires_at: string | null
+          id: string | null
+          status: string | null
+          trip_id: string | null
+        }
+        Insert: {
+          caller_id?: string | null
+          created_at?: string | null
+          expires_at?: string | null
+          id?: string | null
+          status?: string | null
+          trip_id?: string | null
+        }
+        Update: {
+          caller_id?: string | null
+          created_at?: string | null
+          expires_at?: string | null
+          id?: string | null
+          status?: string | null
+          trip_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_masking_sessions_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_masking_sessions_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_document_status: {
         Row: {
           approval_status: string | null
