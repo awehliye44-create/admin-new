@@ -59,6 +59,7 @@ import {
   BrainCircuit,
   Smartphone,
   Globe,
+  PackageSearch,
 } from 'lucide-react';
 import {
   Collapsible,
