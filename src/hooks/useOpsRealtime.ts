@@ -17,9 +17,9 @@ export function useOpsRealtime() {
   const toastShownRef = useRef<Set<string>>(new Set());
 
   const invalidateAll = useCallback(() => {
+    // Only invalidate alerts and health — logs are user-initiated
     queryClient.invalidateQueries({ queryKey: ['ops-alerts'] });
     queryClient.invalidateQueries({ queryKey: ['ops-health-summary'] });
-    queryClient.invalidateQueries({ queryKey: ['ops-logs'] });
     setLastEvent(new Date());
   }, [queryClient]);
 

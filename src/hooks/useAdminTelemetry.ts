@@ -19,12 +19,23 @@ const sessionId = `admin-${Date.now()}-${Math.random().toString(36).slice(2, 8)}
 const buffer: TelemetryEvent[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
+// Cost optimization: only send events above noise thresholds
+const CLIENT_MIN_THRESHOLDS: Record<string, number> = {
+  screen_load_time: 500,
+  api_latency: 300,
+  render_time: 200,
+};
+
 function enqueue(event: TelemetryEvent) {
+  // Drop fast/healthy events client-side to save bandwidth
+  const threshold = CLIENT_MIN_THRESHOLDS[event.metric_name];
+  if (threshold !== undefined && event.metric_value < threshold) return;
+
   buffer.push(event);
   if (buffer.length >= 10) {
     flush();
   } else if (!flushTimer) {
-    flushTimer = setTimeout(flush, 5000);
+    flushTimer = setTimeout(flush, 10000); // 10s flush interval (was 5s)
   }
 }
 
