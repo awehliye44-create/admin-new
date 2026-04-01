@@ -8590,14 +8590,13 @@ export type Database = {
         Row: {
           approval_status: string | null
           approved_docs: number | null
-          document_status: string | null
           documents_approved: boolean | null
           driver_id: string | null
           first_name: string | null
           last_name: string | null
           pending_docs: number | null
           rejected_docs: number | null
-          required_docs_count: number | null
+          total_docs: number | null
         }
         Relationships: []
       }
