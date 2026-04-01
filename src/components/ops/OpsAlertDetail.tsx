@@ -415,6 +415,9 @@ export function OpsAlertDetail({ alert, onBack, onRefresh }: OpsAlertDetailProps
         </CardContent>
       </Card>
 
+      {/* AI Fix Panel */}
+      <OpsAiFixPanel alertId={alert.id} alertStatus={alert.status} />
+
       {/* Related Events */}
       {relatedEvents && relatedEvents.length > 0 && (
         <Card>
