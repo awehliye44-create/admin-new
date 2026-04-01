@@ -197,7 +197,11 @@ serve(async (req) => {
     const settings = parseSettings(saSettings);
 
     // Calculate absolute deadline from maxDriverFindTimeMinutes
-    const maxFindTimeMs = settings.max_driver_find_time_minutes * 60 * 1000;
+    // CRITICAL: Supabase Edge Functions have a ~60s execution limit.
+    // Cap total execution to 50s regardless of admin config to prevent timeout kills.
+    const EDGE_FUNCTION_SAFE_LIMIT_MS = 50_000;
+    const adminMaxMs = settings.max_driver_find_time_minutes * 60 * 1000;
+    const maxFindTimeMs = Math.min(adminMaxMs, EDGE_FUNCTION_SAFE_LIMIT_MS);
 
     console.log(`[dispatch-drivers] Settings loaded: start=${settings.search_radius_start_km}km, waves=${settings.wave1_size}/${settings.wave2_size}/${settings.wave3_size}, stacked=${settings.stacked_rides_enabled}, max_stacked=${settings.max_stacked_rides}, max_find_time=${settings.max_driver_find_time_minutes}min`);
 
