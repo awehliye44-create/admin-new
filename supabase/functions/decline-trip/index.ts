@@ -127,39 +127,41 @@ serve(async (req) => {
         // Determine current wave from dispatch_status
         const currentWave = parseInt(trip.dispatch_status?.replace('wave_', '') || '0');
         
-        // If we haven't exhausted all 3 waves, the polling loop in dispatch-drivers
-        // will handle the next wave. Only mark as no_drivers if dispatch-drivers has
-        // already finished (dispatch_status is 'no_drivers_found' or wave_3 completed).
-        // Since dispatch-drivers is a long-running poller, it will detect the decline
-        // via the expired offers check. But if dispatch-drivers has already exited
-        // (e.g., late decline after wave timeout), we mark as no_drivers.
+        // Check dispatch_status to determine if dispatch-drivers has finished.
+        // dispatch-drivers sets 'no_drivers_found' when it exits without acceptance.
+        // If dispatch_status is still 'wave_N', the poller may still be active.
+        const dispatchFinished = trip.dispatch_status === 'no_drivers_found' || trip.dispatch_status === 'all_declined';
         
-        // Check if dispatch-drivers is likely still running by checking recent offer creation
-        const oneMinuteAgo = new Date(Date.now() - 60 * 1000).toISOString();
-        const { count: recentOfferCount } = await supabase
+        // Also check if there are any non-expired offers still pending
+        // (the dispatcher creates offers with expires_at — if all are past expiry, dispatcher is done)
+        const { count: activeOfferCount } = await supabase
           .from('trip_offers')
           .select('id', { count: 'exact', head: true })
           .eq('trip_id', trip_id)
-          .gte('created_at', oneMinuteAgo);
+          .eq('status', 'offered')
+          .gt('expires_at', new Date().toISOString());
         
-        const dispatcherLikelyActive = (recentOfferCount || 0) > 0 && currentWave < 3;
+        const hasActiveOffers = (activeOfferCount || 0) > 0;
         
-        if (!dispatcherLikelyActive) {
+        // Only mark as no_drivers if:
+        // 1. dispatch-drivers has already exited (dispatch_status = 'no_drivers_found'), OR
+        // 2. No active offers remain AND all waves are done (wave_3 or higher)
+        if (dispatchFinished || (!hasActiveOffers && currentWave >= 3)) {
           await supabase
             .from('trips')
             .update({ status: 'no_drivers', dispatch_status: 'all_declined' })
             .eq('id', trip_id);
           
-          console.log(`[decline-trip] Trip ${trip_id} marked as no_drivers (all waves exhausted)`);
+          console.log(`[decline-trip] Trip ${trip_id} marked as no_drivers (dispatch finished or all waves exhausted)`);
 
           await logAuditEvent(supabase, 'trip_no_drivers', {
             tripId: trip_id,
-            details: { last_declined_by: driver_id, wave: currentWave },
+            details: { last_declined_by: driver_id, wave: currentWave, dispatch_finished: dispatchFinished },
             ipAddress: clientIP,
             userAgent,
           });
         } else {
-          console.log(`[decline-trip] Trip ${trip_id}: dispatcher still active (wave ${currentWave}), not marking as no_drivers`);
+          console.log(`[decline-trip] Trip ${trip_id}: dispatcher likely still active (wave ${currentWave}, active_offers=${activeOfferCount}), not marking as no_drivers`);
         }
       }
     }

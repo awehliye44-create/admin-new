@@ -9,6 +9,7 @@ import {
   errorResponse,
   logAuditEvent,
 } from "../_shared/security.ts";
+import { authenticateDriver } from "../_shared/driverAuth.ts";
 
 /**
  * driver-arrived
@@ -32,16 +33,22 @@ serve(async (req) => {
   if (!rl.allowed) return rateLimitResponse(rl.retryAfter!);
 
   try {
-    let body: { trip_id: string; driver_id: string };
+    // Authenticate the driver via JWT
+    const authResult = await authenticateDriver(req);
+    if (authResult instanceof Response) return authResult;
+
+    let body: { trip_id: string };
     try {
       body = await req.json();
     } catch {
       return errorResponse("Invalid JSON", 400);
     }
 
-    const { trip_id, driver_id } = body;
-    if (!trip_id || !driver_id) {
-      return errorResponse("Missing trip_id or driver_id", 400);
+    const { trip_id } = body;
+    // Use authenticated driver_id instead of body-supplied value
+    const driver_id = authResult.driverId;
+    if (!trip_id) {
+      return errorResponse("Missing trip_id", 400);
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;

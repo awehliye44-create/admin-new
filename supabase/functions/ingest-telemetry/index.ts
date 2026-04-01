@@ -34,12 +34,11 @@ const VALID_METRICS = [
 
 // Cost optimization: minimum thresholds to filter noise (values in ms)
 const MIN_THRESHOLDS: Record<string, number> = {
-  screen_load_time: 500,    // Only store slow loads (>500ms)
-  api_latency: 300,         // Only store slow API calls (>300ms)
-  render_time: 200,         // Only store slow renders (>200ms)
-  ttfb: 400,                // Only store slow TTFB (>400ms)
-  network_request_time: 500, // Only store slow network (>500ms)
-  // transaction_time and interaction_delay: always store (important flows)
+  screen_load_time: 500,
+  api_latency: 300,
+  render_time: 200,
+  ttfb: 400,
+  network_request_time: 500,
 };
 
 Deno.serve(async (req) => {
@@ -52,20 +51,38 @@ Deno.serve(async (req) => {
     try {
       body = await req.json();
     } catch {
+      // Empty body or invalid JSON — treat as no-op success
       return new Response(
-        JSON.stringify({ success: false, error: "Invalid JSON body" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ success: true, ingested: 0, note: "empty_or_invalid_body" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    if (body === null || body === undefined || (typeof body === "object" && !Array.isArray(body) && Object.keys(body as Record<string, unknown>).length === 0)) {
+    // Handle null, undefined, empty object — graceful no-op
+    if (body === null || body === undefined) {
       return new Response(
-        JSON.stringify({ success: false, error: "events array is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ success: true, ingested: 0, note: "null_body" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Handle empty object {} — graceful no-op
+    if (typeof body === "object" && !Array.isArray(body) && Object.keys(body as Record<string, unknown>).length === 0) {
+      return new Response(
+        JSON.stringify({ success: true, ingested: 0, note: "empty_object" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     const events: TelemetryEvent[] = Array.isArray(body) ? body : [body as TelemetryEvent];
+
+    // Empty array — graceful no-op (not an error)
+    if (events.length === 0) {
+      return new Response(
+        JSON.stringify({ success: true, ingested: 0, note: "empty_array" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Validate
     const valid: TelemetryEvent[] = [];
@@ -97,10 +114,11 @@ Deno.serve(async (req) => {
       valid.push(e);
     }
 
+    // All events filtered out (below threshold or invalid) — graceful success
     if (valid.length === 0) {
       return new Response(
-        JSON.stringify({ success: false, errors }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ success: true, ingested: 0, filtered: events.length, errors: errors.length > 0 ? errors : undefined }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 

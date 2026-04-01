@@ -7,6 +7,7 @@ import {
   checkRateLimit,
   rateLimitResponse,
 } from "../_shared/security.ts";
+import { authenticateDriver } from "../_shared/driverAuth.ts";
 
 const RATE_LIMIT = { limit: 60, windowMs: 60_000 };
 
@@ -16,9 +17,12 @@ serve(async (req) => {
   }
 
   try {
+    // Authenticate the driver via JWT
+    const authResult = await authenticateDriver(req);
+    if (authResult instanceof Response) return authResult;
+
     let body: {
       action: "start" | "tick" | "stop" | "restore";
-      driver_id: string;
       trip_id?: string;
       stop_id?: string;
       waiting_id?: string;
@@ -30,10 +34,12 @@ serve(async (req) => {
       return errorResponse("Invalid JSON", 400);
     }
 
-    const { action, driver_id } = body;
+    const { action } = body;
+    // Use authenticated driver_id instead of body-supplied value
+    const driver_id = authResult.driverId;
 
-    if (!action || !driver_id) {
-      return errorResponse("Missing action or driver_id", 400);
+    if (!action) {
+      return errorResponse("Missing action", 400);
     }
 
     const rl = checkRateLimit(`sw:${driver_id}`, RATE_LIMIT);
