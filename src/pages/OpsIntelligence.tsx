@@ -393,6 +393,39 @@ export default function OpsIntelligence() {
           />
         </TabsContent>
 
+        <TabsContent value="driver-app">
+          <OpsAlertsTable
+            alerts={driverAppAlerts}
+            loading={alertsLoading}
+            categoryFilter="driver_app"
+            onCategoryChange={() => {}}
+            onSelectAlert={setSelectedAlert}
+            title={showResolved ? 'Resolved Driver App Alerts' : 'Driver App — Screen Performance, Crashes, Slow Loads & Version Issues'}
+          />
+        </TabsContent>
+
+        <TabsContent value="customer-app">
+          <OpsAlertsTable
+            alerts={customerAppAlerts}
+            loading={alertsLoading}
+            categoryFilter="customer_app"
+            onCategoryChange={() => {}}
+            onSelectAlert={setSelectedAlert}
+            title={showResolved ? 'Resolved Customer App Alerts' : 'Customer App — Screen Performance, Crashes, Slow Loads & Version Issues'}
+          />
+        </TabsContent>
+
+        <TabsContent value="corporate">
+          <OpsAlertsTable
+            alerts={corporateAlerts}
+            loading={alertsLoading}
+            categoryFilter="corporate_booking"
+            onCategoryChange={() => {}}
+            onSelectAlert={setSelectedAlert}
+            title={showResolved ? 'Resolved Corporate Alerts' : 'Corporate — Booking Issues, Web App Performance & Account Problems'}
+          />
+        </TabsContent>
+
         <TabsContent value="app-performance">
           <AppPerformanceDashboard />
         </TabsContent>
