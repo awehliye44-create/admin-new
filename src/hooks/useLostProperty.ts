@@ -186,11 +186,6 @@ export function useLostPropertyActions() {
   const queryClient = useQueryClient();
 
   const invokeAction = async (action: string, body: Record<string, unknown>) => {
-    const { data, error } = await supabase.functions.invoke('lost-property', {
-      body,
-      headers: { 'Content-Type': 'application/json' },
-    });
-    // The function uses query params, so we need to construct URL manually
     const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/lost-property?action=${action}`;
     const session = await supabase.auth.getSession();
     const token = session.data.session?.access_token;
