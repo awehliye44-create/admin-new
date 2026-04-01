@@ -8,6 +8,7 @@ import { OpsLogsExplorer } from '@/components/ops/OpsLogsExplorer';
 import { OpsAlertDetail } from '@/components/ops/OpsAlertDetail';
 import { OpsRealtimeIndicator } from '@/components/ops/OpsRealtimeIndicator';
 import { QueryErrorState } from '@/components/QueryErrorState';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { RefreshCw, Activity, AlertTriangle, ScrollText, Shield, CreditCard, Truck, Copy, Globe, Gauge, Smartphone, CheckCircle } from 'lucide-react';
