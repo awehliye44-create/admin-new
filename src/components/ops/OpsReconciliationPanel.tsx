@@ -105,7 +105,7 @@ export function OpsReconciliationPanel() {
         </div>
         {data && (
           <p className="text-xs text-muted-foreground">
-            Generated {format(new Date(data.generated_at), 'HH:mm:ss')} · Window: {data.time_window} · Synthetic excluded: {data.synthetic_excluded ? 'Yes' : 'No'}
+            Generated {data.generated_at && !isNaN(new Date(data.generated_at).getTime()) ? format(new Date(data.generated_at), 'HH:mm:ss') : '—'} · Window: {data.time_window} · Synthetic excluded: {data.synthetic_excluded ? 'Yes' : 'No'}
           </p>
         )}
       </CardHeader>
@@ -187,7 +187,7 @@ export function OpsReconciliationPanel() {
                         )}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {cat.latest_detection ? format(new Date(cat.latest_detection), 'HH:mm:ss') : '—'}
+                        {cat.latest_detection && !isNaN(new Date(cat.latest_detection).getTime()) ? format(new Date(cat.latest_detection), 'HH:mm:ss') : '—'}
                       </TableCell>
                     </TableRow>
                   );
