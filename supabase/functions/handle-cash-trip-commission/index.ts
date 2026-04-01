@@ -105,7 +105,7 @@ serve(async (req) => {
     if (existingDebt) {
       console.log(`[cash-commission] Already processed for trip ${trip_id}`);
       const { data: walletEntries } = await supabase
-        .from('driver_ledger').select('amount_pence').eq('driver_id', trip.driver_id);
+        .from('driver_ledger').select('amount_pence').eq('driver_id', trip.driver_id).neq('entry_type', 'COMPANY_COMMISSION');
       const balance = walletEntries?.reduce((sum, e) => sum + (e.amount_pence || 0), 0) || 0;
 
       return new Response(JSON.stringify({
@@ -158,8 +158,9 @@ serve(async (req) => {
     console.log(`[cash-commission] Gross: ${grossFarePence}p, Tip: ${tipPence}p, Commission: ${commissionPence}p, Net: ${driverNetPence}p, DriverTotal: ${driverTotalEarningsPence}p, Currency: ${currency_code}`);
 
     // === Get wallet balance before ===
+    // IMPORTANT: Exclude COMPANY_COMMISSION from wallet balance — it is platform revenue, not driver funds
     const { data: walletBefore } = await supabase
-      .from('driver_ledger').select('amount_pence').eq('driver_id', trip.driver_id);
+      .from('driver_ledger').select('amount_pence').eq('driver_id', trip.driver_id).neq('entry_type', 'COMPANY_COMMISSION');
     const balanceBefore = walletBefore?.reduce((sum, e) => sum + (e.amount_pence || 0), 0) || 0;
 
     // === Update trip with financial fields ===

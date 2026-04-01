@@ -100,10 +100,12 @@ serve(async (req) => {
     console.log(`[record-financial-outcome] ${outcome} for trip ${trip_id}: fee=${fee_pence}p, commission=${commission_pence}p, driverNet=${driver_net_pence}p`);
 
     // Get wallet balance before
+    // IMPORTANT: Exclude COMPANY_COMMISSION from wallet balance — it is platform revenue, not driver funds
     const { data: walletEntries } = await supabase
       .from('driver_ledger')
       .select('amount_pence')
-      .eq('driver_id', driver_id);
+      .eq('driver_id', driver_id)
+      .neq('entry_type', 'COMPANY_COMMISSION');
     const walletBefore = walletEntries?.reduce((sum: number, e: any) => sum + (e.amount_pence || 0), 0) || 0;
 
     // Update trip with financial outcome
