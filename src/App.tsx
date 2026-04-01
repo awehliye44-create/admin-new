@@ -90,6 +90,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <AdminTelemetryProvider />
           <Routes>
             {/* Public Auth Routes */}
             <Route path="/auth" element={<Auth />} />
