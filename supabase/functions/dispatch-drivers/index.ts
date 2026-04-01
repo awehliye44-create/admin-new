@@ -552,6 +552,28 @@ serve(async (req) => {
       await supabase.from("dispatch_candidates_log").insert(logEntries);
     }
 
+    // ====== SIMULATE MODE: return results without modifying trip ======
+    if (settings.simulate_mode) {
+      console.log(`[dispatch-drivers] SIMULATE complete: ${allCandidates.length} candidates scored, ${offeredDriverIds.size} would-be offers`);
+      return successResponse({
+        dispatched: false,
+        simulate: true,
+        candidates_scored: allCandidates.length,
+        offers_would_send: offeredDriverIds.size,
+        top_candidates: allCandidates.slice(0, 10).map((c) => ({
+          driver_id: c.driver_id,
+          category: c.category_name,
+          category_priority: c.category_priority,
+          distance_km: c.distance_km,
+          waiting_minutes: c.waiting_minutes,
+          score: c.dispatch_score,
+          is_stacked: c.is_stacked,
+          wave: driverWaveMap.get(c.driver_id) ?? null,
+        })),
+        message: "Simulation complete — no offers sent",
+      });
+    }
+
     if (!accepted) {
       await supabase.from("trips").update({
         status: "no_drivers",
