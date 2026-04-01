@@ -3643,67 +3643,103 @@ export type Database = {
       }
       lost_property_cases: {
         Row: {
+          admin_joined_at: string | null
+          admin_last_read_message_at: string | null
+          admin_viewed_at: string | null
           case_number: string
+          chat_enabled: boolean
+          chat_expires_at: string
+          chat_lock_reason: string | null
+          chat_locked_at: string | null
+          chat_opened_at: string | null
           closed_at: string | null
           collected_at: string | null
           created_at: string
+          customer_confirmed: boolean | null
           customer_id: string
-          driver_id: string | null
+          driver_id: string
           driver_responded_at: string | null
+          found_item_photos: string[] | null
           id: string
           item_category: string
           item_description: string
           item_found_at: string | null
           photos: string[] | null
+          photos_delete_at: string | null
+          photos_hidden_at: string | null
           region_id: string
           return_method: string | null
           return_trip_id: string | null
           same_driver_requested: boolean | null
-          service_area_id: string | null
+          service_area_id: string
           status: string
           trip_id: string
           updated_at: string
         }
         Insert: {
+          admin_joined_at?: string | null
+          admin_last_read_message_at?: string | null
+          admin_viewed_at?: string | null
           case_number: string
+          chat_enabled?: boolean
+          chat_expires_at?: string
+          chat_lock_reason?: string | null
+          chat_locked_at?: string | null
+          chat_opened_at?: string | null
           closed_at?: string | null
           collected_at?: string | null
           created_at?: string
+          customer_confirmed?: boolean | null
           customer_id: string
-          driver_id?: string | null
+          driver_id: string
           driver_responded_at?: string | null
+          found_item_photos?: string[] | null
           id?: string
           item_category: string
           item_description: string
           item_found_at?: string | null
           photos?: string[] | null
+          photos_delete_at?: string | null
+          photos_hidden_at?: string | null
           region_id: string
           return_method?: string | null
           return_trip_id?: string | null
           same_driver_requested?: boolean | null
-          service_area_id?: string | null
+          service_area_id: string
           status?: string
           trip_id: string
           updated_at?: string
         }
         Update: {
+          admin_joined_at?: string | null
+          admin_last_read_message_at?: string | null
+          admin_viewed_at?: string | null
           case_number?: string
+          chat_enabled?: boolean
+          chat_expires_at?: string
+          chat_lock_reason?: string | null
+          chat_locked_at?: string | null
+          chat_opened_at?: string | null
           closed_at?: string | null
           collected_at?: string | null
           created_at?: string
+          customer_confirmed?: boolean | null
           customer_id?: string
-          driver_id?: string | null
+          driver_id?: string
           driver_responded_at?: string | null
+          found_item_photos?: string[] | null
           id?: string
           item_category?: string
           item_description?: string
           item_found_at?: string | null
           photos?: string[] | null
+          photos_delete_at?: string | null
+          photos_hidden_at?: string | null
           region_id?: string
           return_method?: string | null
           return_trip_id?: string | null
           same_driver_requested?: boolean | null
-          service_area_id?: string | null
+          service_area_id?: string
           status?: string
           trip_id?: string
           updated_at?: string
@@ -3783,6 +3819,7 @@ export type Database = {
       }
       lost_property_messages: {
         Row: {
+          attachments: string[] | null
           case_id: string
           created_at: string
           id: string
@@ -3791,6 +3828,7 @@ export type Database = {
           sender_type: string
         }
         Insert: {
+          attachments?: string[] | null
           case_id: string
           created_at?: string
           id?: string
@@ -3799,6 +3837,7 @@ export type Database = {
           sender_type: string
         }
         Update: {
+          attachments?: string[] | null
           case_id?: string
           created_at?: string
           id?: string
@@ -8779,6 +8818,15 @@ export type Database = {
           p_target_type?: string
         }
         Returns: string
+      }
+      lost_property_admin_unread_count: { Args: never; Returns: number }
+      lost_property_get_cases_for_photo_cleanup: {
+        Args: never
+        Returns: {
+          case_id: string
+          customer_photos: string[]
+          found_item_photos: string[]
+        }[]
       }
       ops_acknowledge_alert: {
         Args: { p_alert_id: string; p_user_id: string }
