@@ -26,7 +26,7 @@ serve(async (req) => {
       await supabase.from('ops_events').delete().in('alert_id', ids);
     }
     await supabase.from('ops_alerts').delete().like('fingerprint', 'demo:%');
-    await supabase.from('ops_logs').delete().like('message', '%demo%').or('message.like.%attempt %,message.like.%instance %,message.like.%Guest%,message.like.%Webhook%,message.like.%Edge function%,message.like.%Slow screen%');
+    await supabase.from('ops_logs').delete().eq('is_synthetic', true);
     // Clear seeded telemetry
     await supabase.from('app_performance_events').delete().like('session_id', 'demo-%');
 
