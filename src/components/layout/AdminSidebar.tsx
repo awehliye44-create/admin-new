@@ -60,6 +60,7 @@ import {
   Smartphone,
   Globe,
   PackageSearch,
+  Gauge,
 } from 'lucide-react';
 import {
   Collapsible,
@@ -366,10 +367,13 @@ export function AdminSidebar() {
             <NavSection label="Ops Intelligence" collapsed={isCollapsed} />
             <div className="space-y-1">
               <P pageSlug="ops-intelligence" to="/ops-intelligence" icon={<BrainCircuit className="h-4 w-4" />} label="Ops Dashboard" active={currentPath === '/ops-intelligence' && !location.search.includes('tab=')} collapsed={isCollapsed} />
-              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=app-performance" icon={<Smartphone className="h-4 w-4" />} label="App Performance" active={currentPath === '/ops-intelligence' && location.search.includes('tab=app-performance')} collapsed={isCollapsed} />
-              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=money" icon={<CreditCard className="h-4 w-4" />} label="Money Integrity" active={currentPath === '/ops-intelligence' && location.search.includes('tab=money')} collapsed={isCollapsed} />
+              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=driver-app" icon={<Car className="h-4 w-4" />} label="Driver App" active={currentPath === '/ops-intelligence' && location.search.includes('tab=driver-app')} collapsed={isCollapsed} />
+              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=customer-app" icon={<Smartphone className="h-4 w-4" />} label="Customer App" active={currentPath === '/ops-intelligence' && location.search.includes('tab=customer-app')} collapsed={isCollapsed} />
               <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=guest" icon={<Globe className="h-4 w-4" />} label="Guest Booking" active={currentPath === '/ops-intelligence' && location.search.includes('tab=guest')} collapsed={isCollapsed} />
-              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=integration" icon={<Smartphone className="h-4 w-4" />} label="Integration Guide" active={currentPath === '/ops-intelligence' && location.search.includes('tab=integration')} collapsed={isCollapsed} />
+              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=corporate" icon={<Building2 className="h-4 w-4" />} label="Corporate" active={currentPath === '/ops-intelligence' && location.search.includes('tab=corporate')} collapsed={isCollapsed} />
+              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=money" icon={<CreditCard className="h-4 w-4" />} label="Money Integrity" active={currentPath === '/ops-intelligence' && location.search.includes('tab=money')} collapsed={isCollapsed} />
+              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=app-performance" icon={<Gauge className="h-4 w-4" />} label="App Performance" active={currentPath === '/ops-intelligence' && location.search.includes('tab=app-performance')} collapsed={isCollapsed} />
+              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=integration" icon={<FileText className="h-4 w-4" />} label="Integration Guide" active={currentPath === '/ops-intelligence' && location.search.includes('tab=integration')} collapsed={isCollapsed} />
             </div>
           </div>
 

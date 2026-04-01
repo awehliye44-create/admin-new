@@ -11,7 +11,7 @@ import { QueryErrorState } from '@/components/QueryErrorState';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { RefreshCw, Activity, AlertTriangle, ScrollText, Shield, CreditCard, Truck, Copy, Globe, Gauge, Smartphone, CheckCircle } from 'lucide-react';
+import { RefreshCw, Activity, AlertTriangle, ScrollText, Shield, CreditCard, Truck, Copy, Globe, Gauge, Smartphone, CheckCircle, Car, Building2 } from 'lucide-react';
 import { AppPerformanceDashboard } from '@/components/ops/AppPerformanceDashboard';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -187,6 +187,9 @@ export default function OpsIntelligence() {
     a.fingerprint.includes('fatal_log')
   );
   const dupAlerts = allAlerts.filter(a => a.category === 'duplication');
+  const driverAppAlerts = allAlerts.filter(a => a.category === 'driver_app' || a.app === 'driver' || a.app === 'driver_app');
+  const customerAppAlerts = allAlerts.filter(a => a.category === 'customer_app' || a.app === 'customer' || a.app === 'customer_app');
+  const corporateAlerts = allAlerts.filter(a => a.category === 'corporate_booking' || a.category === 'corporate_web' || a.app === 'corporate_web');
 
   return (
     <AdminLayout title="Ops Intelligence" description="Platform-wide operations monitoring, alerts & health">
@@ -291,8 +294,26 @@ export default function OpsIntelligence() {
               <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded-full">{dupAlerts.filter(a => a.status === 'open').length}</span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="driver-app" className="gap-2">
+            <Car className="h-4 w-4" /> Driver App
+            {!showResolved && driverAppAlerts.filter(a => a.status === 'open').length > 0 && (
+              <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded-full">{driverAppAlerts.filter(a => a.status === 'open').length}</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="customer-app" className="gap-2">
+            <Smartphone className="h-4 w-4" /> Customer App
+            {!showResolved && customerAppAlerts.filter(a => a.status === 'open').length > 0 && (
+              <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded-full">{customerAppAlerts.filter(a => a.status === 'open').length}</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="corporate" className="gap-2">
+            <Building2 className="h-4 w-4" /> Corporate
+            {!showResolved && corporateAlerts.filter(a => a.status === 'open').length > 0 && (
+              <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded-full">{corporateAlerts.filter(a => a.status === 'open').length}</span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="app-performance" className="gap-2">
-            <Smartphone className="h-4 w-4" /> App Performance
+            <Gauge className="h-4 w-4" /> App Performance
           </TabsTrigger>
           <TabsTrigger value="logs" className="gap-2">
             <ScrollText className="h-4 w-4" /> Logs Explorer
@@ -369,6 +390,39 @@ export default function OpsIntelligence() {
             onCategoryChange={() => {}}
             onSelectAlert={setSelectedAlert}
             title={showResolved ? 'Resolved Duplication Alerts' : 'Duplication Issues — Payments, Bookings, Payouts, Earnings & Dispatch'}
+          />
+        </TabsContent>
+
+        <TabsContent value="driver-app">
+          <OpsAlertsTable
+            alerts={driverAppAlerts}
+            loading={alertsLoading}
+            categoryFilter="driver_app"
+            onCategoryChange={() => {}}
+            onSelectAlert={setSelectedAlert}
+            title={showResolved ? 'Resolved Driver App Alerts' : 'Driver App — Screen Performance, Crashes, Slow Loads & Version Issues'}
+          />
+        </TabsContent>
+
+        <TabsContent value="customer-app">
+          <OpsAlertsTable
+            alerts={customerAppAlerts}
+            loading={alertsLoading}
+            categoryFilter="customer_app"
+            onCategoryChange={() => {}}
+            onSelectAlert={setSelectedAlert}
+            title={showResolved ? 'Resolved Customer App Alerts' : 'Customer App — Screen Performance, Crashes, Slow Loads & Version Issues'}
+          />
+        </TabsContent>
+
+        <TabsContent value="corporate">
+          <OpsAlertsTable
+            alerts={corporateAlerts}
+            loading={alertsLoading}
+            categoryFilter="corporate_booking"
+            onCategoryChange={() => {}}
+            onSelectAlert={setSelectedAlert}
+            title={showResolved ? 'Resolved Corporate Alerts' : 'Corporate — Booking Issues, Web App Performance & Account Problems'}
           />
         </TabsContent>
 
