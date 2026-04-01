@@ -58,20 +58,15 @@ serve(async (req) => {
         });
       }
 
+      // Check admin role via user_roles table (NOT profiles — prevents privilege escalation)
       const { data: roleData } = await supabase
         .from('user_roles').select('role')
         .eq('user_id', user.id).eq('role', 'admin').maybeSingle();
 
       if (!roleData) {
-        const { data: profileRole } = await supabase
-          .from('profiles').select('role')
-          .eq('user_id', user.id).eq('role', 'admin').maybeSingle();
-
-        if (!profileRole) {
-          return new Response(JSON.stringify({ error: 'Admin access required' }), {
-            status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
+        return new Response(JSON.stringify({ error: 'Admin access required' }), {
+          status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
     }
 

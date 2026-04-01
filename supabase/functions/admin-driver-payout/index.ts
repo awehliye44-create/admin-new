@@ -85,10 +85,12 @@ serve(async (req) => {
     }
 
     // === Calculate wallet balance from ledger (source of truth) ===
+    // IMPORTANT: Exclude COMPANY_COMMISSION from wallet balance — it is platform revenue, not driver funds
     const { data: ledgerEntries } = await supabase
       .from('driver_ledger')
       .select('amount_pence')
-      .eq('driver_id', driver_id);
+      .eq('driver_id', driver_id)
+      .neq('entry_type', 'COMPANY_COMMISSION');
 
     const available = ledgerEntries?.reduce((sum, e) => sum + (e.amount_pence || 0), 0) || 0;
     const payoutAmount = amount_pence || available;

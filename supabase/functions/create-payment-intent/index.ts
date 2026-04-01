@@ -33,6 +33,22 @@ serve(async (req) => {
   }
 
   try {
+    // === Authenticate caller via JWT ===
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return errorResponse("Missing authorization header", 401, undefined, "AUTH_MISSING");
+    }
+
+    const supabaseUrlForAuth = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKeyForAuth = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const authClient = createClient(supabaseUrlForAuth, supabaseServiceKeyForAuth);
+    const token = authHeader.replace("Bearer ", "");
+    const { data: { user: authUser }, error: authError } = await authClient.auth.getUser(token);
+
+    if (authError || !authUser) {
+      return errorResponse("Unauthorized", 401, undefined, "AUTH_INVALID");
+    }
+
     const body = await req.json();
     const {
       trip_id,
