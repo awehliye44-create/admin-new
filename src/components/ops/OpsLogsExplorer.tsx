@@ -53,6 +53,7 @@ export function OpsLogsExplorer() {
       const { data, error } = await supabase
         .from('ops_logs')
         .select('source')
+        .eq('is_synthetic', false)
         .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
         .limit(200);
       if (error) throw error;
