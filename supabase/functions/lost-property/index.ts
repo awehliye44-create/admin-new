@@ -746,3 +746,11 @@ async function cleanupPhotos(_req: Request) {
 
   return jsonResponse({ success: true, cleaned });
 }
+
+// ==================== EXPIRE CHATS ====================
+async function expireChats(_req: Request) {
+  const sb = getServiceClient();
+  const { data, error } = await sb.rpc("lost_property_expire_chats");
+  if (error) throw error;
+  return jsonResponse({ success: true, expired: data });
+}
