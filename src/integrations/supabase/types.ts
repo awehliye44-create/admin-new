@@ -8784,6 +8784,10 @@ export type Database = {
         Args: { p_alert_id: string; p_user_id: string }
         Returns: undefined
       }
+      ops_auto_resolve_stale_alerts: {
+        Args: { max_age_hours?: number }
+        Returns: Json
+      }
       ops_detect_5xx_spikes: { Args: never; Returns: number }
       ops_detect_admin_panel_issues: { Args: never; Returns: Json }
       ops_detect_api_latency_spikes: { Args: never; Returns: Json }
