@@ -160,6 +160,7 @@ export function AdminSidebar() {
   const { canAccessPage, staffProfile } = useStaffProfile();
   const { counts } = useSidebarCounts();
   const lpUnread = useLostPropertyUnreadCount();
+  const chatUnread = useChatUnreadCount();
   const currentPath = location.pathname;
   
   const [isCollapsed, setIsCollapsed] = useState(() => {
