@@ -1,18 +1,22 @@
 /**
- * Admin Panel Telemetry — uses the shared ONECAB Telemetry Client.
- * This is the admin-specific wrapper; other apps use their own singleton.
+ * Admin Panel Telemetry Instance
+ * ===============================
+ * Singleton wrapper over the shared ONECAB Telemetry SDK.
+ * All existing call-sites (usePageLoadTelemetry, useApiLatencyTracker, trackInteraction)
+ * continue to work unchanged.
  */
 
-import { useEffect, useRef, useCallback } from 'react';
-import { TelemetryClient } from '@/lib/telemetry';
-import { useScreenLoadTelemetry, useApiTimer } from '@/lib/telemetry';
+import { OnecabTelemetry, useScreenLoad, useApiTimer } from '@/lib/telemetry';
+import { useCallback } from 'react';
 
-// Singleton client for the admin panel
-const adminTelemetry = new TelemetryClient({
+// ── Singleton ───────────────────────────────────────────────────────
+
+export const adminTelemetry = new OnecabTelemetry({
   supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
   supabaseAnonKey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
   appName: 'admin_panel',
   platform: 'web',
+  appVersion: '1.0.0',
 });
 
 // Auto-flush on page hide
@@ -22,28 +26,19 @@ if (typeof document !== 'undefined') {
   });
 }
 
-/**
- * Track page/screen load time for the admin panel.
- * Call at the top of a page component.
- */
+// ── Backward-compatible hooks ───────────────────────────────────────
+
+/** Track page/screen load time. Call at the top of a page component. */
 export function usePageLoadTelemetry(screenName: string) {
-  useScreenLoadTelemetry(adminTelemetry, screenName);
+  useScreenLoad(adminTelemetry, screenName);
 }
 
-/**
- * Track API latency for a specific operation.
- * Returns a function: call start() before the API call, it returns a stop() to call after.
- */
+/** Track API latency. Returns a timer factory. */
 export function useApiLatencyTracker(screenName: string) {
   return useApiTimer(adminTelemetry, screenName);
 }
 
-/**
- * Track a user interaction delay (e.g., acknowledge/resolve button click to completion).
- */
+/** Track a user interaction delay (fire-and-forget). */
 export function trackInteraction(screenName: string, action: string, durationMs: number) {
-  adminTelemetry.track(screenName, 'interaction_delay', durationMs, { action });
+  adminTelemetry.trackInteraction(screenName, durationMs, action);
 }
-
-/** Expose the client for advanced use */
-export { adminTelemetry };

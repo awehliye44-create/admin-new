@@ -77,6 +77,7 @@ import QrBookingControl from "./pages/QrBookingControl";
 import OpsIntelligence from "./pages/OpsIntelligence";
 import LostProperty from "./pages/LostProperty";
 import LostPropertyDetail from "./pages/LostPropertyDetail";
+import { AdminTelemetryProvider } from "@/lib/telemetry/adminBootstrap";
 const queryClient = createAppQueryClient();
 
 const App = () => (
@@ -89,6 +90,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <AdminTelemetryProvider />
           <Routes>
             {/* Public Auth Routes */}
             <Route path="/auth" element={<Auth />} />
