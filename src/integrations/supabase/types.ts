@@ -8803,6 +8803,20 @@ export type Database = {
           can_payout: boolean
         }[]
       }
+      get_performance_p95: {
+        Args: { p_app_name?: string; p_hours?: number }
+        Returns: {
+          avg_ms: number
+          critical_threshold: number
+          health_status: string
+          max_ms: number
+          min_ms: number
+          p95_ms: number
+          screen_name: string
+          total_events: number
+          warning_threshold: number
+        }[]
+      }
       get_region_code: { Args: { p_region_id: string }; Returns: string }
       get_staff_role_prefix: {
         Args: { p_role: Database["public"]["Enums"]["staff_role"] }
