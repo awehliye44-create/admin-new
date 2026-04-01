@@ -36,6 +36,7 @@ Deno.serve(async (req) => {
       case "admin_close_case": return await adminCloseCase(req);
       case "admin_lock_chat": return await adminLockChat(req);
       case "admin_unlock_chat": return await adminUnlockChat(req);
+      case "admin_escalate_case": return await adminEscalateCase(req);
       case "admin_mark_viewed": return await adminMarkViewed(req);
       case "cleanup_photos": return await cleanupPhotos(req);
       case "expire_chats": return await expireChats(req);
