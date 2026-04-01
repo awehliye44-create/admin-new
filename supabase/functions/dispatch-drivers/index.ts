@@ -441,6 +441,16 @@ serve(async (req) => {
 
         const expiresAt = new Date(Date.now() + waveExpirySeconds * 1000).toISOString();
 
+        // ====== SIMULATE MODE: log but don't create offers ======
+        if (settings.simulate_mode) {
+          console.log(`[dispatch-drivers] SIMULATE: Wave ${wave.num} would send ${waveDrivers.length} offers: ${waveDrivers.map(c => c.driver_id).join(', ')}`);
+          for (const c of waveDrivers) {
+            offeredDriverIds.add(c.driver_id);
+            driverWaveMap.set(c.driver_id, wave.num);
+          }
+          continue; // Skip actual offer creation in simulate mode
+        }
+
         // Create offers in trip_offers (matching accept-trip/decline-trip)
         const offers = waveDrivers.map((c) => ({
           trip_id,
@@ -460,6 +470,7 @@ serve(async (req) => {
         // Update last_offer_at for offered drivers
         for (const c of waveDrivers) {
           offeredDriverIds.add(c.driver_id);
+          driverWaveMap.set(c.driver_id, wave.num);
           await supabase
             .from("drivers")
             .update({ last_offer_at: new Date().toISOString() })
