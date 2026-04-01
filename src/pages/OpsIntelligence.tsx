@@ -5,6 +5,7 @@ import { AdminLayout } from '@/components/layout/AdminLayout';
 import { OpsHealthCards } from '@/components/ops/OpsHealthCards';
 import { OpsAlertsTable } from '@/components/ops/OpsAlertsTable';
 import { OpsLogsExplorer } from '@/components/ops/OpsLogsExplorer';
+import { OpsReconciliationPanel } from '@/components/ops/OpsReconciliationPanel';
 import { OpsAlertDetail } from '@/components/ops/OpsAlertDetail';
 import { OpsRealtimeIndicator } from '@/components/ops/OpsRealtimeIndicator';
 import { QueryErrorState } from '@/components/QueryErrorState';
@@ -72,8 +73,9 @@ export default function OpsIntelligence() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('ops_alerts')
-        .select('category, severity, status, last_detected_at')
+        .select('category, severity, status, last_detected_at, fingerprint')
         .in('status', ['open', 'acknowledged'])
+        .not('fingerprint', 'like', 'demo:%')
         .gte('last_detected_at', new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString());
       if (error) throw error;
 
@@ -102,6 +104,7 @@ export default function OpsIntelligence() {
       let query = supabase
         .from('ops_alerts')
         .select('id, fingerprint, category, severity, status, source, app, title, description, fingerprint_count, first_detected_at, last_detected_at, acknowledged_at, resolved_at, related_trip_id, related_driver_id, related_payment_id, related_payout_batch_id, metadata, created_at')
+        .not('fingerprint', 'like', 'demo:%')
         .order('last_detected_at', { ascending: false })
         .limit(200);
 
@@ -432,6 +435,7 @@ export default function OpsIntelligence() {
 
         <TabsContent value="logs">
           <OpsLogsExplorer />
+          <OpsReconciliationPanel />
         </TabsContent>
         <TabsContent value="integration">
           <MobileIntegrationGuide />
