@@ -7,10 +7,13 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
 import {
-  Search, RefreshCw, Eye, Package, Clock, CheckCircle, AlertTriangle, XCircle, Loader2, Box,
+  Search, RefreshCw, Eye, Package, Clock, CheckCircle, AlertTriangle, XCircle, Loader2, Box, CalendarIcon,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { cn } from '@/lib/utils';
 import { useLostPropertyCases, LP_STATUS_LABELS, LP_STATUS_COLORS } from '@/hooks/useLostProperty';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
 
@@ -21,11 +24,15 @@ export default function LostProperty() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [serviceAreaFilter, setServiceAreaFilter] = useState('all');
+  const [dateFrom, setDateFrom] = useState<Date | undefined>();
+  const [dateTo, setDateTo] = useState<Date | undefined>();
 
   const { data: cases = [], isLoading, refetch } = useLostPropertyCases({
     status: statusFilter,
     serviceAreaId: serviceAreaFilter,
     search: search.trim() || undefined,
+    dateFrom: dateFrom ? dateFrom.toISOString() : undefined,
+    dateTo: dateTo ? dateTo.toISOString() : undefined,
   });
   const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: false });
 
@@ -137,6 +144,39 @@ export default function LostProperty() {
                 ))}
               </SelectContent>
             </Select>
+
+            {/* Date From */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className={cn("w-[140px] justify-start text-left font-normal", !dateFrom && "text-muted-foreground")}>
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {dateFrom ? format(dateFrom, 'dd MMM yy') : 'From'}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar mode="single" selected={dateFrom} onSelect={setDateFrom} initialFocus className={cn("p-3 pointer-events-auto")} />
+              </PopoverContent>
+            </Popover>
+
+            {/* Date To */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className={cn("w-[140px] justify-start text-left font-normal", !dateTo && "text-muted-foreground")}>
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {dateTo ? format(dateTo, 'dd MMM yy') : 'To'}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar mode="single" selected={dateTo} onSelect={setDateTo} initialFocus className={cn("p-3 pointer-events-auto")} />
+              </PopoverContent>
+            </Popover>
+
+            {(dateFrom || dateTo) && (
+              <Button variant="ghost" size="sm" onClick={() => { setDateFrom(undefined); setDateTo(undefined); }}>
+                Clear dates
+              </Button>
+            )}
+
             <Button variant="outline" size="icon" onClick={() => refetch()}>
               <RefreshCw className="h-4 w-4" />
             </Button>
@@ -163,6 +203,8 @@ export default function LostProperty() {
                   <TableHead className="w-8"></TableHead>
                   <TableHead>Case ID</TableHead>
                   <TableHead>Trip ID</TableHead>
+                  <TableHead>Customer</TableHead>
+                  <TableHead>Driver</TableHead>
                   <TableHead>Service Area</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead>Status</TableHead>
@@ -183,7 +225,9 @@ export default function LostProperty() {
                       )}
                     </TableCell>
                     <TableCell className="font-mono text-xs">{c.case_number}</TableCell>
-                    <TableCell className="font-mono text-xs max-w-[120px] truncate">{c.trip_id?.slice(0, 8)}...</TableCell>
+                    <TableCell className="font-mono text-xs max-w-[100px] truncate">{c.trip_id?.slice(0, 8)}…</TableCell>
+                    <TableCell className="text-sm">{c.customer_name || c.customer_id?.slice(0, 8) + '…'}</TableCell>
+                    <TableCell className="text-sm">{c.driver_name || c.driver_id?.slice(0, 8) + '…'}</TableCell>
                     <TableCell className="text-sm">{saMap.get(c.service_area_id) || '—'}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className="capitalize text-xs">{c.item_category}</Badge>
