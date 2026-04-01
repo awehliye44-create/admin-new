@@ -43,9 +43,9 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Check admin role
+    // Check admin role via user_roles table (NOT profiles — prevents privilege escalation)
     const { data: roleData } = await supabase
-      .from("profiles")
+      .from("user_roles")
       .select("role")
       .eq("user_id", user.id)
       .eq("role", "admin")
