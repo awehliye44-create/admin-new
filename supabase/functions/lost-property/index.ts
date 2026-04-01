@@ -38,6 +38,7 @@ Deno.serve(async (req) => {
       case "admin_unlock_chat": return await adminUnlockChat(req);
       case "admin_mark_viewed": return await adminMarkViewed(req);
       case "cleanup_photos": return await cleanupPhotos(req);
+      case "expire_chats": return await expireChats(req);
       case "admin_unread_count": return await adminUnreadCount(req);
       default: return errorResp(`Unknown action: ${action}`, 400);
     }
@@ -737,11 +738,19 @@ async function cleanupPhotos(_req: Request) {
     // Clear photo arrays in DB
     await sb
       .from("lost_property_cases")
-      .update({ photos: [], found_item_photos: [] })
+      .update({ photos: null, found_item_photos: null, driver_photos: null })
       .eq("id", c.case_id);
 
     cleaned++;
   }
 
   return jsonResponse({ success: true, cleaned });
+}
+
+// ==================== EXPIRE CHATS ====================
+async function expireChats(_req: Request) {
+  const sb = getServiceClient();
+  const { data, error } = await sb.rpc("lost_property_expire_chats");
+  if (error) throw error;
+  return jsonResponse({ success: true, expired: data });
 }

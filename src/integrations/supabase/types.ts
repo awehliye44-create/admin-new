@@ -8823,6 +8823,7 @@ export type Database = {
         Returns: string
       }
       lost_property_admin_unread_count: { Args: never; Returns: number }
+      lost_property_expire_chats: { Args: never; Returns: number }
       lost_property_get_cases_for_photo_cleanup: {
         Args: never
         Returns: {
