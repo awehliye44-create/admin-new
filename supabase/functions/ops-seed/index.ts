@@ -106,6 +106,7 @@ serve(async (req) => {
 
     // ── Seed ops_logs that trigger log-based detections ──
     const now = new Date();
+    const logBase = { is_synthetic: true };
     const logs: any[] = [];
 
     // Error spike from complete-trip (6 errors in 1h)
