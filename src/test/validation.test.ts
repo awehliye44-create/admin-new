@@ -176,7 +176,7 @@ describe("Validation Utilities", () => {
         const result = validateSchema({
           trip_id: "550e8400-e29b-41d4-a716-446655440000",
           driver_id: "660e8400-e29b-41d4-a716-446655440000",
-          final_fare_pence: 1500,
+          base_fare_pence: 1500,
           payment_method: "CARD",
         }, completeTripSchema);
         
