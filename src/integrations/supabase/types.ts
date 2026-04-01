@@ -4482,6 +4482,51 @@ export type Database = {
           },
         ]
       }
+      ops_fix_actions: {
+        Row: {
+          action_type: string
+          ai_explanation: string | null
+          alert_id: string
+          created_at: string
+          executed_by: string | null
+          function_name: string
+          id: string
+          input_payload: Json
+          preview_data: Json | null
+          result: Json | null
+          risk_level: string
+          status: string
+        }
+        Insert: {
+          action_type: string
+          ai_explanation?: string | null
+          alert_id: string
+          created_at?: string
+          executed_by?: string | null
+          function_name: string
+          id?: string
+          input_payload?: Json
+          preview_data?: Json | null
+          result?: Json | null
+          risk_level?: string
+          status?: string
+        }
+        Update: {
+          action_type?: string
+          ai_explanation?: string | null
+          alert_id?: string
+          created_at?: string
+          executed_by?: string | null
+          function_name?: string
+          id?: string
+          input_payload?: Json
+          preview_data?: Json | null
+          result?: Json | null
+          risk_level?: string
+          status?: string
+        }
+        Relationships: []
+      }
       ops_logs: {
         Row: {
           app: string | null
@@ -8901,10 +8946,29 @@ export type Database = {
         }
         Returns: string
       }
+      ops_repair_missing_commission: {
+        Args: { p_trip_id: string }
+        Returns: Json
+      }
+      ops_repair_missing_driver_earning: {
+        Args: { p_trip_id: string }
+        Returns: Json
+      }
+      ops_repair_missing_financials: {
+        Args: { p_trip_id: string }
+        Returns: Json
+      }
+      ops_replay_webhook: { Args: { p_event_id: string }; Returns: Json }
       ops_resolve_alert: {
         Args: { p_alert_id: string; p_user_id: string }
         Returns: undefined
       }
+      ops_resolve_alert_if_cleared: {
+        Args: { p_alert_id: string }
+        Returns: Json
+      }
+      ops_retry_failed_dispatch: { Args: { p_trip_id: string }; Returns: Json }
+      ops_retry_failed_payout: { Args: { p_payout_id: string }; Returns: Json }
       ops_run_all_detections: { Args: never; Returns: Json }
       ops_suppress_alert: {
         Args: { p_alert_id: string; p_until: string }
