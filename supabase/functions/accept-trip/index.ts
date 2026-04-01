@@ -16,6 +16,7 @@ import {
   AcceptTripRequest 
 } from "../_shared/validation.ts";
 import { checkOfferSchedule } from "../_shared/offerSchedule.ts";
+import { authenticateDriver } from "../_shared/driverAuth.ts";
 
 // Rate limit: 30 requests per minute per IP for trip acceptance
 const RATE_LIMIT_CONFIG = { limit: 30, windowMs: 60 * 1000 };
