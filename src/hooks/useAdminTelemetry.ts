@@ -69,10 +69,13 @@ export function usePageLoadTelemetry(screenName: string) {
   const mountTime = useRef(performance.now());
 
   useEffect(() => {
+    mountTime.current = performance.now();
     // Measure after the browser has painted
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const loadTime = Math.round(performance.now() - mountTime.current);
+        // Discard measurements from backgrounded tabs (>30s is not a real page load)
+        if (loadTime > 30000) return;
         enqueue({
           app_name: 'admin_panel',
           screen_name: screenName,
