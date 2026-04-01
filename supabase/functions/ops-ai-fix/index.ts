@@ -155,7 +155,7 @@ ${contextParts.join("\n")}`;
         return json({ error: "AI analysis failed", detail: errText }, 500);
       }
 
-      const aiResult = await aiResponse.json();
+      const aiResult = await aiResponse!.json();
       const toolCall = aiResult.choices?.[0]?.message?.tool_calls?.[0];
       let proposal: any;
 
@@ -177,6 +177,15 @@ ${contextParts.join("\n")}`;
         proposal.risk_level = ALLOWED_FUNCTIONS[proposal.function_name].riskLevel;
       }
 
+      // Validate param_value is a real UUID — reject hallucinated placeholders
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (proposal.function_name !== "none" && proposal.param_value && !UUID_RE.test(proposal.param_value)) {
+        console.warn("AI proposed invalid param_value:", proposal.param_value);
+        proposal.function_name = "none";
+        proposal.estimated_impact = "No automated fix available — the alert lacks a specific entity ID for repair.";
+        proposal.explanation += " (Note: No valid target entity could be identified from this alert's metadata.)";
+      }
+
       return json({ success: true, proposal });
     }
 
@@ -186,6 +195,12 @@ ${contextParts.join("\n")}`;
 
       if (!function_name || !param_value || !user_id) {
         return json({ error: "function_name, param_value, and user_id required" }, 400);
+      }
+
+      // Validate param_value is a real UUID
+      const EXEC_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!EXEC_UUID_RE.test(param_value)) {
+        return json({ error: "Invalid parameter: not a valid UUID. This fix cannot be applied to this alert." }, 400);
       }
 
       const fnDef = ALLOWED_FUNCTIONS[function_name];
