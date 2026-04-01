@@ -195,61 +195,87 @@ serve(async (req) => {
     }
 
     // === Create ledger entry for payout (debit from wallet) ===
-    const ledgerType = kind === 'EARLY_CASHOUT' ? 'EARLY_CASHOUT' : 'PAYOUT';
+    // CRITICAL: Only create debit if Stripe transfer succeeded — prevents phantom deductions
+    if (!stripeError) {
+      const ledgerType = kind === 'EARLY_CASHOUT' ? 'EARLY_CASHOUT' : 'PAYOUT';
 
-    const { data: ledgerEntry, error: ledgerError } = await supabase
-      .from('driver_ledger')
-      .insert({
-        driver_id,
-        entry_type: ledgerType,
-        amount_pence: -payoutAmount,
+      const { data: ledgerEntry, error: ledgerError } = await supabase
+        .from('driver_ledger')
+        .insert({
+          driver_id,
+          entry_type: ledgerType,
+          amount_pence: -payoutAmount,
+          currency_code,
+          description: `${kind} payout`,
+          reference_id: stripeTransferId,
+        })
+        .select().single();
+
+      if (ledgerError) {
+        console.error('[payout] Ledger error:', ledgerError);
+      }
+
+      // Calculate new balance
+      const newBalance = available - payoutAmount;
+
+      // === Update payout item ===
+      await supabase.from('payout_items').update({
+        status: 'completed',
+        stripe_transfer_id: stripeTransferId,
+        stripe_payout_id: stripePayoutId,
+        ledger_entry_id: ledgerEntry?.id,
+        completed_at: new Date().toISOString(),
+      }).eq('id', payoutItem.id);
+
+      // === Update batch ===
+      await supabase.from('payout_batches').update({
+        status: 'completed',
+        successful_payouts: 1,
+        failed_payouts: 0,
+        completed_at: new Date().toISOString(),
+      }).eq('id', batch.id);
+
+      return new Response(JSON.stringify({
+        success: true,
+        batchId: batch.id,
+        payoutItemId: payoutItem.id,
+        amount: payoutAmount,
+        wallet_balance_before: available,
+        wallet_balance_after: newBalance,
+        stripeTransferId,
+        stripePayoutId,
+        ledgerEntryId: ledgerEntry?.id,
         currency_code,
-        description: `${kind} payout`,
-        reference_id: stripeTransferId,
-      })
-      .select().single();
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    } else {
+      // Stripe failed — do NOT create ledger entry, mark payout as failed
+      await supabase.from('payout_items').update({
+        status: 'failed',
+        error_message: stripeError,
+      }).eq('id', payoutItem.id);
 
-    if (ledgerError) {
-      console.error('[payout] Ledger error:', ledgerError);
+      await supabase.from('payout_batches').update({
+        status: 'failed',
+        successful_payouts: 0,
+        failed_payouts: 1,
+        completed_at: new Date().toISOString(),
+      }).eq('id', batch.id);
+
+      return new Response(JSON.stringify({
+        success: false,
+        batchId: batch.id,
+        payoutItemId: payoutItem.id,
+        amount: payoutAmount,
+        wallet_balance_before: available,
+        wallet_balance_after: available, // Unchanged — no debit on failure
+        currency_code,
+        error: stripeError,
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
-
-    // === Update payout item ===
-    const finalStatus = stripeError ? 'failed' : 'completed';
-    await supabase.from('payout_items').update({
-      status: finalStatus,
-      stripe_transfer_id: stripeTransferId,
-      stripe_payout_id: stripePayoutId,
-      error_message: stripeError,
-      ledger_entry_id: ledgerEntry?.id,
-      completed_at: stripeError ? null : new Date().toISOString(),
-    }).eq('id', payoutItem.id);
-
-    // === Update batch ===
-    await supabase.from('payout_batches').update({
-      status: stripeError ? 'failed' : 'completed',
-      successful_payouts: stripeError ? 0 : 1,
-      failed_payouts: stripeError ? 1 : 0,
-      completed_at: new Date().toISOString(),
-    }).eq('id', batch.id);
-
-    // Calculate new balance
-    const newBalance = available - payoutAmount;
-
-    return new Response(JSON.stringify({
-      success: !stripeError,
-      batchId: batch.id,
-      payoutItemId: payoutItem.id,
-      amount: payoutAmount,
-      wallet_balance_before: available,
-      wallet_balance_after: newBalance,
-      stripeTransferId,
-      stripePayoutId,
-      ledgerEntryId: ledgerEntry?.id,
-      currency_code,
-      error: stripeError,
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
 
   } catch (error) {
     console.error('[payout] Error:', error);

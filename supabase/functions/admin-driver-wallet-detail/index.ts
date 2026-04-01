@@ -63,7 +63,7 @@ serve(async (req) => {
     // Get driver info
     const { data: driver, error: driverError } = await supabase
       .from('drivers')
-      .select('*')
+      .select('id, first_name, last_name, email, phone, is_online, rating, total_trips, stripe_account_id, payouts_enabled, charges_enabled, onboarding_complete, approval_status, region_id')
       .eq('id', driverId)
       .single();
 
