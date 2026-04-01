@@ -79,8 +79,8 @@ serve(async (req) => {
       for (const row of settingsRows || []) {
         if (row.service_area_id) {
           settingsMap.set(row.service_area_id, {
-            trigger_minutes: row.urgent_dispatch_trigger_minutes_before_pickup ?? 15,
-            scheduled_rides_enabled: row.scheduled_rides_enabled ?? true,
+            trigger_minutes: row.urgent_dispatch_trigger_minutes_before_pickup,
+            scheduled_rides_enabled: row.scheduled_rides_enabled,
           });
         }
       }
