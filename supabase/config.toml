@@ -107,3 +107,6 @@ verify_jwt = false
 
 [functions.driver-invoices]
 verify_jwt = false
+
+[functions.ops-ai-fix]
+verify_jwt = false
