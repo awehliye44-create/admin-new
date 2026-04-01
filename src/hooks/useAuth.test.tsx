@@ -64,6 +64,7 @@ describe("useAuth Hook", () => {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+      single: vi.fn().mockResolvedValue({ data: null, error: null }),
     });
   });
 
