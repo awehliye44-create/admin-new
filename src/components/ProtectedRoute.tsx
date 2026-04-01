@@ -61,8 +61,9 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     );
   }
 
-  // Check page-level permission based on current route
-  const pageSlug = location.pathname.replace(/^\//, '') || 'dashboard';
+  // Check page-level permission based on current route (use base segment for sub-routes like /lost-property/:id)
+  const rawSlug = location.pathname.replace(/^\//, '') || 'dashboard';
+  const pageSlug = rawSlug.split('/')[0] || 'dashboard';
   if (!canAccessPage(pageSlug)) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-sidebar p-4">
