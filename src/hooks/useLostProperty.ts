@@ -31,6 +31,10 @@ export interface LostPropertyCase {
   created_at: string;
   updated_at: string;
   closed_at: string | null;
+  // Enriched fields (resolved client-side)
+  customer_name?: string;
+  driver_name?: string;
+  has_unread_messages?: boolean;
 }
 
 export interface LostPropertyMessage {
@@ -40,6 +44,15 @@ export interface LostPropertyMessage {
   sender_id: string | null;
   message: string;
   attachments: string[] | null;
+  created_at: string;
+}
+
+export interface TripSummary {
+  id: string;
+  pickup_address: string | null;
+  dropoff_address: string | null;
+  started_at: string | null;
+  completed_at: string | null;
   created_at: string;
 }
 
@@ -72,6 +85,32 @@ const LP_STATUS_COLORS: Record<string, string> = {
 };
 
 export { LP_STATUS_LABELS, LP_STATUS_COLORS };
+
+// Resolve customer & driver names for a set of cases
+async function enrichCasesWithNames(cases: LostPropertyCase[]): Promise<LostPropertyCase[]> {
+  if (cases.length === 0) return cases;
+
+  const customerIds = [...new Set(cases.map(c => c.customer_id).filter(Boolean))];
+  const driverIds = [...new Set(cases.map(c => c.driver_id).filter(Boolean))];
+
+  const [customersRes, driversRes] = await Promise.all([
+    customerIds.length > 0
+      ? supabase.from('customers').select('id, first_name, last_name').in('id', customerIds)
+      : Promise.resolve({ data: [] }),
+    driverIds.length > 0
+      ? supabase.from('drivers').select('id, first_name, last_name').in('id', driverIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  const customerMap = new Map((customersRes.data ?? []).map((c: any) => [c.id, `${c.first_name || ''} ${c.last_name || ''}`.trim()]));
+  const driverMap = new Map((driversRes.data ?? []).map((d: any) => [d.id, `${d.first_name || ''} ${d.last_name || ''}`.trim()]));
+
+  return cases.map(c => ({
+    ...c,
+    customer_name: customerMap.get(c.customer_id) || undefined,
+    driver_name: driverMap.get(c.driver_id) || undefined,
+  }));
+}
 
 export function useLostPropertyCases(filters?: {
   status?: string;
@@ -108,7 +147,7 @@ export function useLostPropertyCases(filters?: {
 
       const { data, error } = await query;
       if (error) throw error;
-      return (data ?? []) as LostPropertyCase[];
+      return enrichCasesWithNames((data ?? []) as LostPropertyCase[]);
     },
     staleTime: 15_000,
   });
@@ -125,10 +164,29 @@ export function useLostPropertyCase(caseId: string | undefined) {
         .eq('id', caseId)
         .single();
       if (error) throw error;
-      return data as LostPropertyCase;
+      const enriched = await enrichCasesWithNames([data as LostPropertyCase]);
+      return enriched[0];
     },
     enabled: !!caseId,
     staleTime: 10_000,
+  });
+}
+
+export function useTripSummary(tripId: string | undefined) {
+  return useQuery({
+    queryKey: ['trip-summary', tripId],
+    queryFn: async () => {
+      if (!tripId) return null;
+      const { data, error } = await supabase
+        .from('trips')
+        .select('id, pickup_address, dropoff_address, started_at, completed_at, created_at')
+        .eq('id', tripId)
+        .single();
+      if (error) throw error;
+      return data as TripSummary;
+    },
+    enabled: !!tripId,
+    staleTime: 60_000,
   });
 }
 
@@ -168,7 +226,6 @@ export function useLostPropertyUnreadCount() {
     fetchCount();
   }, [fetchCount]);
 
-  // Realtime subscription for cases and messages
   useEffect(() => {
     const channel = supabase
       .channel('lp-unread')
@@ -230,6 +287,11 @@ export function useLostPropertyActions() {
     onSuccess: (_, case_id) => invalidateAll(case_id),
   });
 
+  const adminEscalateCase = useMutation({
+    mutationFn: (case_id: string) => invokeAction('admin_escalate_case', { case_id }),
+    onSuccess: (_, case_id) => invalidateAll(case_id),
+  });
+
   const adminLockChat = useMutation({
     mutationFn: (case_id: string) => invokeAction('admin_lock_chat', { case_id }),
     onSuccess: (_, case_id) => invalidateAll(case_id),
@@ -255,6 +317,7 @@ export function useLostPropertyActions() {
     adminCloseCase,
     adminOpenCase,
     adminReopenCase,
+    adminEscalateCase,
     adminLockChat,
     adminUnlockChat,
     adminSendMessage,
