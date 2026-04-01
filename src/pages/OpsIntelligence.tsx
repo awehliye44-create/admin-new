@@ -73,8 +73,9 @@ export default function OpsIntelligence() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('ops_alerts')
-        .select('category, severity, status, last_detected_at')
+        .select('category, severity, status, last_detected_at, fingerprint')
         .in('status', ['open', 'acknowledged'])
+        .not('fingerprint', 'like', 'demo:%')
         .gte('last_detected_at', new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString());
       if (error) throw error;
 
