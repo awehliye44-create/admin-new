@@ -111,43 +111,43 @@ serve(async (req) => {
 
     // Error spike from complete-trip (6 errors in 1h)
     for (let i = 0; i < 6; i++) {
-      logs.push({ level: 'error', source: 'complete-trip', app: 'backend', message: `Payment capture failed: card_declined (attempt ${i + 1})`, error_code: 'STRIPE_CARD_DECLINED', duration_ms: 1200 + i * 100, http_status: 402, created_at: new Date(now.getTime() - i * 3 * 60 * 1000).toISOString() });
+      logs.push({ ...logBase, level: 'error', source: 'complete-trip', app: 'backend', message: `Payment capture failed: card_declined (attempt ${i + 1})`, error_code: 'STRIPE_CARD_DECLINED', duration_ms: 1200 + i * 100, http_status: 402, created_at: new Date(now.getTime() - i * 3 * 60 * 1000).toISOString() });
     }
 
     // 5xx spike from create-payment-intent
     for (let i = 0; i < 4; i++) {
-      logs.push({ level: 'error', source: 'create-payment-intent', app: 'backend', message: `Stripe API gateway timeout (instance ${i + 1})`, error_code: 'STRIPE_TIMEOUT', duration_ms: 30000, http_status: 500 + (i % 3), created_at: new Date(now.getTime() - i * 2 * 60 * 1000).toISOString() });
+      logs.push({ ...logBase, level: 'error', source: 'create-payment-intent', app: 'backend', message: `Stripe API gateway timeout (instance ${i + 1})`, error_code: 'STRIPE_TIMEOUT', duration_ms: 30000, http_status: 500 + (i % 3), created_at: new Date(now.getTime() - i * 2 * 60 * 1000).toISOString() });
     }
 
     // Fatal log
-    logs.push({ level: 'fatal', source: 'admin-payout-batches', app: 'backend', message: 'Unhandled error in payout processing: connection reset', error_code: 'PAYOUT_CRASH', http_status: 500, created_at: now.toISOString() });
+    logs.push({ ...logBase, level: 'fatal', source: 'admin-payout-batches', app: 'backend', message: 'Unhandled error in payout processing: connection reset', error_code: 'PAYOUT_CRASH', http_status: 500, created_at: now.toISOString() });
 
     // Latency spikes (3+ with duration_ms > 5000)
     for (let i = 0; i < 3; i++) {
-      logs.push({ level: 'warn', source: 'estimate-fare', app: 'guest', message: `Fare estimation took ${6000 + i * 1000}ms (threshold: 2000ms)`, error_code: 'LATENCY_HIGH', duration_ms: 6000 + i * 1000, http_status: 200, created_at: new Date(now.getTime() - i * 5 * 60 * 1000).toISOString() });
+      logs.push({ ...logBase, level: 'warn', source: 'estimate-fare', app: 'guest', message: `Fare estimation took ${6000 + i * 1000}ms (threshold: 2000ms)`, error_code: 'LATENCY_HIGH', duration_ms: 6000 + i * 1000, http_status: 200, created_at: new Date(now.getTime() - i * 5 * 60 * 1000).toISOString() });
     }
 
     // Edge function crashes
     for (let i = 0; i < 3; i++) {
-      logs.push({ level: 'error', source: 'dispatch-drivers', app: 'backend', message: `Edge function crashed: out of memory (instance ${i + 1})`, error_code: 'EDGE_OOM', duration_ms: 0, http_status: 546, created_at: new Date(now.getTime() - i * 4 * 60 * 1000).toISOString() });
+      logs.push({ ...logBase, level: 'error', source: 'dispatch-drivers', app: 'backend', message: `Edge function crashed: out of memory (instance ${i + 1})`, error_code: 'EDGE_OOM', duration_ms: 0, http_status: 546, created_at: new Date(now.getTime() - i * 4 * 60 * 1000).toISOString() });
     }
 
     // Webhook failures
     for (let i = 0; i < 4; i++) {
-      logs.push({ level: 'error', source: 'stripe-webhook', app: 'backend', message: `Webhook handler failed: payment_intent.succeeded (instance ${i + 1})`, error_code: 'WEBHOOK_FAIL', duration_ms: 800, http_status: 500, created_at: new Date(now.getTime() - i * 2 * 60 * 1000).toISOString() });
+      logs.push({ ...logBase, level: 'error', source: 'stripe-webhook', app: 'backend', message: `Webhook handler failed: payment_intent.succeeded (instance ${i + 1})`, error_code: 'WEBHOOK_FAIL', duration_ms: 800, http_status: 500, created_at: new Date(now.getTime() - i * 2 * 60 * 1000).toISOString() });
     }
 
     // Guest booking errors
-    logs.push({ level: 'error', source: 'estimate-fare', app: 'guest', message: 'Guest quote failed: fare engine returned null', error_code: 'QUOTE_FAIL', duration_ms: 3200, http_status: 500, created_at: now.toISOString() });
-    logs.push({ level: 'error', source: 'create-payment-intent', app: 'guest', message: 'Guest checkout payment failed: card_declined', error_code: 'CHECKOUT_FAIL', duration_ms: 1100, http_status: 402, created_at: now.toISOString() });
+    logs.push({ ...logBase, level: 'error', source: 'estimate-fare', app: 'guest', message: 'Guest quote failed: fare engine returned null', error_code: 'QUOTE_FAIL', duration_ms: 3200, http_status: 500, created_at: now.toISOString() });
+    logs.push({ ...logBase, level: 'error', source: 'create-payment-intent', app: 'guest', message: 'Guest checkout payment failed: card_declined', error_code: 'CHECKOUT_FAIL', duration_ms: 1100, http_status: 402, created_at: now.toISOString() });
 
     // Slow app screens
-    logs.push({ level: 'warn', source: 'customer-app', app: 'customer', message: 'Slow screen render: home took 8200ms', error_code: 'SLOW_RENDER', duration_ms: 8200, http_status: 200, created_at: now.toISOString() });
-    logs.push({ level: 'warn', source: 'driver-app', app: 'driver', message: 'Slow screen render: earnings took 6500ms', error_code: 'SLOW_RENDER', duration_ms: 6500, http_status: 200, created_at: now.toISOString() });
+    logs.push({ ...logBase, level: 'warn', source: 'customer-app', app: 'customer', message: 'Slow screen render: home took 8200ms', error_code: 'SLOW_RENDER', duration_ms: 8200, http_status: 200, created_at: now.toISOString() });
+    logs.push({ ...logBase, level: 'warn', source: 'driver-app', app: 'driver', message: 'Slow screen render: earnings took 6500ms', error_code: 'SLOW_RENDER', duration_ms: 6500, http_status: 200, created_at: now.toISOString() });
 
     // Normal info logs for contrast
-    logs.push({ level: 'info', source: 'accept-trip', app: 'driver', message: 'Driver UK-0042 accepted trip MK0058', duration_ms: 45, http_status: 200, created_at: now.toISOString() });
-    logs.push({ level: 'info', source: 'schedule-dispatch', app: 'backend', message: 'Scheduled dispatch cron: 2 trips converted to urgent', duration_ms: 120, http_status: 200, created_at: now.toISOString() });
+    logs.push({ ...logBase, level: 'info', source: 'accept-trip', app: 'driver', message: 'Driver UK-0042 accepted trip MK0058', duration_ms: 45, http_status: 200, created_at: now.toISOString() });
+    logs.push({ ...logBase, level: 'info', source: 'schedule-dispatch', app: 'backend', message: 'Scheduled dispatch cron: 2 trips converted to urgent', duration_ms: 120, http_status: 200, created_at: now.toISOString() });
 
     const { error: logError } = await supabase.from('ops_logs').insert(logs);
 
