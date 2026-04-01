@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
 import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '@/components/layout/AdminLayout';
@@ -10,7 +10,7 @@ import { OpsRealtimeIndicator } from '@/components/ops/OpsRealtimeIndicator';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { RefreshCw, Activity, AlertTriangle, ScrollText, Shield, CreditCard, Truck, Copy, Globe, Gauge, Smartphone } from 'lucide-react';
+import { RefreshCw, Activity, AlertTriangle, ScrollText, Shield, CreditCard, Truck, Copy, Globe, Gauge, Smartphone, CheckCircle } from 'lucide-react';
 import { AppPerformanceDashboard } from '@/components/ops/AppPerformanceDashboard';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -45,12 +45,11 @@ export default function OpsIntelligence() {
   const defaultTab = searchParams.get('tab') || 'alerts';
   const [selectedAlert, setSelectedAlert] = useState<OpsAlert | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [showResolved, setShowResolved] = useState(false);
   const queryClient = useQueryClient();
 
-  // Admin panel telemetry
   usePageLoadTelemetry('OpsIntelligence');
 
-  // Realtime hook — handles subscriptions, query invalidation, and critical toasts
   const { status: realtimeStatus, lastEvent } = useOpsRealtime();
 
   // Listen for focus-alert events from toast clicks
@@ -66,28 +65,26 @@ export default function OpsIntelligence() {
     return () => window.removeEventListener('ops-focus-alert', handler);
   }, []);
 
-  // Fetch health summary
+  // Fetch health summary — ONLY active (open/acknowledged) alerts from last 24h
   const { data: healthData, isLoading: healthLoading, error: healthError, refetch: refetchHealth } = useQuery({
     queryKey: ['ops-health-summary'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('ops_alerts')
         .select('category, severity, status, last_detected_at')
-        .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+        .in('status', ['open', 'acknowledged'])
+        .gte('last_detected_at', new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString());
       if (error) throw error;
-      
+
       const summary: Record<string, { open: number; critical: number; latest: string | null }> = {};
       const categories = ['payment', 'commission', 'earning', 'payout', 'dispatch', 'guest_booking', 'corporate_booking', 'customer_app', 'driver_app', 'backend', 'logs', 'duplication', 'system', 'admin_panel'];
       categories.forEach(c => { summary[c] = { open: 0, critical: 0, latest: null }; });
-      
+
       (data || []).forEach((a: any) => {
-        // Merge corporate_web into corporate_booking
         const cat = a.category === 'corporate_web' ? 'corporate_booking' : a.category;
         if (!summary[cat]) summary[cat] = { open: 0, critical: 0, latest: null };
-        if (a.status === 'open' || a.status === 'acknowledged') {
-          summary[cat].open++;
-          if (a.severity === 'critical' || a.severity === 'fatal') summary[cat].critical++;
-        }
+        summary[cat].open++;
+        if (a.severity === 'critical' || a.severity === 'fatal') summary[cat].critical++;
         if (!summary[cat].latest || a.last_detected_at > summary[cat].latest!) {
           summary[cat].latest = a.last_detected_at;
         }
@@ -97,20 +94,26 @@ export default function OpsIntelligence() {
     staleTime: 30000,
   });
 
-  // Fetch alerts
+  // Fetch alerts — separate active vs resolved
   const { data: alerts, isLoading: alertsLoading, error: alertsError, refetch: refetchAlerts } = useQuery({
-    queryKey: ['ops-alerts', categoryFilter],
+    queryKey: ['ops-alerts', categoryFilter, showResolved],
     queryFn: async () => {
       let query = supabase
         .from('ops_alerts')
         .select('id, fingerprint, category, severity, status, source, app, title, description, fingerprint_count, first_detected_at, last_detected_at, acknowledged_at, resolved_at, related_trip_id, related_driver_id, related_payment_id, related_payout_batch_id, metadata, created_at')
         .order('last_detected_at', { ascending: false })
         .limit(200);
-      
+
+      if (showResolved) {
+        query = query.eq('status', 'resolved');
+      } else {
+        query = query.in('status', ['open', 'acknowledged']);
+      }
+
       if (categoryFilter !== 'all') {
         query = query.eq('category', categoryFilter);
       }
-      
+
       const { data, error } = await query;
       if (error) throw error;
       return (data || []) as OpsAlert[];
@@ -118,12 +121,12 @@ export default function OpsIntelligence() {
     staleTime: 15000,
   });
 
-  // Top-level stats
-  const totalOpen = alerts?.filter(a => a.status === 'open').length || 0;
-  const totalCritical = alerts?.filter(a => (a.severity === 'critical' || a.severity === 'fatal') && a.status === 'open').length || 0;
+  // Top-level stats — only from active alerts
+  const activeAlerts = alerts?.filter(a => a.status === 'open') || [];
+  const totalOpen = activeAlerts.length;
+  const totalCritical = activeAlerts.filter(a => a.severity === 'critical' || a.severity === 'fatal').length;
   const totalAcknowledged = alerts?.filter(a => a.status === 'acknowledged').length || 0;
 
-  // Seed/clear demo data helper
   const callOpsSeed = async (seedAction: 'seed' | 'clear') => {
     try {
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ops-seed`, {
@@ -140,7 +143,6 @@ export default function OpsIntelligence() {
     } catch (e: any) { toast.error('Operation failed', { description: e.message }); }
   };
 
-  // Run all detections
   const handleRunDetections = async () => {
     try {
       const { data, error } = await supabase.rpc('ops_run_all_detections');
@@ -151,7 +153,6 @@ export default function OpsIntelligence() {
     }
   };
 
-  // Manual refresh all
   const handleRefreshAll = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['ops-alerts'] });
     queryClient.invalidateQueries({ queryKey: ['ops-health-summary'] });
@@ -174,7 +175,6 @@ export default function OpsIntelligence() {
     );
   }
 
-  // Filter helpers for tabs
   const allAlerts = alerts || [];
   const moneyAlerts = allAlerts.filter(a => ['payment', 'commission', 'earning', 'payout'].includes(a.category));
   const dispatchAlerts = allAlerts.filter(a => a.category === 'dispatch');
@@ -195,18 +195,36 @@ export default function OpsIntelligence() {
           <OpsRealtimeIndicator status={realtimeStatus} lastEvent={lastEvent} />
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted">
             <Activity className="h-4 w-4 text-primary" />
-            <span className="text-sm font-medium">{totalOpen} open</span>
+            <span className="text-sm font-medium">{totalOpen} active</span>
           </div>
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-destructive/10">
-            <AlertTriangle className="h-4 w-4 text-destructive" />
-            <span className="text-sm font-medium text-destructive">{totalCritical} critical</span>
-          </div>
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted">
-            <Shield className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">{totalAcknowledged} ack'd</span>
-          </div>
+          {totalCritical > 0 && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-destructive/10">
+              <AlertTriangle className="h-4 w-4 text-destructive" />
+              <span className="text-sm font-medium text-destructive">{totalCritical} critical</span>
+            </div>
+          )}
+          {totalAcknowledged > 0 && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted">
+              <Shield className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">{totalAcknowledged} ack'd</span>
+            </div>
+          )}
+          {totalOpen === 0 && totalCritical === 0 && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10">
+              <CheckCircle className="h-4 w-4 text-emerald-600" />
+              <span className="text-sm font-medium text-emerald-600">All clear</span>
+            </div>
+          )}
         </div>
         <div className="flex gap-2 flex-wrap">
+          {/* Active / Resolved toggle */}
+          <Button
+            onClick={() => setShowResolved(!showResolved)}
+            variant={showResolved ? 'default' : 'outline'}
+            size="sm"
+          >
+            {showResolved ? 'Showing Resolved' : 'Show Resolved'}
+          </Button>
           <Button onClick={handleRefreshAll} variant="ghost" size="sm" title="Manual refresh">
             <RefreshCw className="h-4 w-4" />
           </Button>
@@ -223,23 +241,31 @@ export default function OpsIntelligence() {
         </div>
       </div>
 
-      {/* Health Cards — with error state */}
+      {/* Health Cards — only active alerts */}
       {healthError ? (
         <QueryErrorState error={healthError} onRetry={() => refetchHealth()} title="Failed to load health summary" compact />
       ) : (
         <OpsHealthCards data={healthData} loading={healthLoading} onCategoryClick={setCategoryFilter} />
       )}
 
+      {/* Resolved banner */}
+      {showResolved && (
+        <div className="mt-4 p-3 rounded-lg border border-muted bg-muted/50 flex items-center gap-2">
+          <CheckCircle className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">Showing resolved/historical alerts. These no longer affect system health status.</span>
+        </div>
+      )}
+
       {/* Main Tabs */}
       <Tabs defaultValue={defaultTab} className="mt-8">
         <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="alerts" className="gap-2">
-            <AlertTriangle className="h-4 w-4" /> Alerts
-            {totalOpen > 0 && <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded-full">{totalOpen}</span>}
+            <AlertTriangle className="h-4 w-4" /> {showResolved ? 'Resolved' : 'Active'} Alerts
+            {!showResolved && totalOpen > 0 && <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded-full">{totalOpen}</span>}
           </TabsTrigger>
           <TabsTrigger value="money" className="gap-2">
             <CreditCard className="h-4 w-4" /> Money Integrity
-            {moneyAlerts.filter(a => a.status === 'open').length > 0 && (
+            {!showResolved && moneyAlerts.filter(a => a.status === 'open').length > 0 && (
               <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded-full">{moneyAlerts.filter(a => a.status === 'open').length}</span>
             )}
           </TabsTrigger>
@@ -248,19 +274,19 @@ export default function OpsIntelligence() {
           </TabsTrigger>
           <TabsTrigger value="guest" className="gap-2">
             <Globe className="h-4 w-4" /> Guest Booking
-            {guestAlerts.filter(a => a.status === 'open').length > 0 && (
+            {!showResolved && guestAlerts.filter(a => a.status === 'open').length > 0 && (
               <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded-full">{guestAlerts.filter(a => a.status === 'open').length}</span>
             )}
           </TabsTrigger>
           <TabsTrigger value="performance" className="gap-2">
             <Gauge className="h-4 w-4" /> Performance
-            {perfAlerts.filter(a => a.status === 'open').length > 0 && (
+            {!showResolved && perfAlerts.filter(a => a.status === 'open').length > 0 && (
               <span className="text-[10px] bg-amber-500/20 text-amber-600 px-1.5 py-0.5 rounded-full">{perfAlerts.filter(a => a.status === 'open').length}</span>
             )}
           </TabsTrigger>
           <TabsTrigger value="duplications" className="gap-2">
             <Copy className="h-4 w-4" /> Duplications
-            {dupAlerts.filter(a => a.status === 'open').length > 0 && (
+            {!showResolved && dupAlerts.filter(a => a.status === 'open').length > 0 && (
               <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded-full">{dupAlerts.filter(a => a.status === 'open').length}</span>
             )}
           </TabsTrigger>
@@ -282,6 +308,7 @@ export default function OpsIntelligence() {
               categoryFilter={categoryFilter}
               onCategoryChange={setCategoryFilter}
               onSelectAlert={setSelectedAlert}
+              title={showResolved ? 'Resolved Alerts — Historical' : undefined}
             />
           )}
         </TabsContent>
@@ -293,7 +320,7 @@ export default function OpsIntelligence() {
             categoryFilter="money"
             onCategoryChange={() => {}}
             onSelectAlert={setSelectedAlert}
-            title="Money Integrity Issues — Payments, Commissions, Earnings & Payouts"
+            title={showResolved ? 'Resolved Money Alerts' : 'Money Integrity Issues — Payments, Commissions, Earnings & Payouts'}
           />
         </TabsContent>
 
@@ -304,7 +331,7 @@ export default function OpsIntelligence() {
             categoryFilter="dispatch"
             onCategoryChange={() => {}}
             onSelectAlert={setSelectedAlert}
-            title="Dispatch Issues — Stuck Trips, Driver Availability & Offer Failures"
+            title={showResolved ? 'Resolved Dispatch Alerts' : 'Dispatch Issues — Stuck Trips, Driver Availability & Offer Failures'}
           />
         </TabsContent>
 
@@ -315,7 +342,7 @@ export default function OpsIntelligence() {
             categoryFilter="guest"
             onCategoryChange={() => {}}
             onSelectAlert={setSelectedAlert}
-            title="Guest Booking (guest.onecab.net) — Quotes, Checkout, Confirmation & Drop-offs"
+            title={showResolved ? 'Resolved Guest Booking Alerts' : 'Guest Booking (guest.onecab.net) — Quotes, Checkout, Confirmation & Drop-offs'}
           />
         </TabsContent>
 
@@ -326,7 +353,7 @@ export default function OpsIntelligence() {
             categoryFilter="performance"
             onCategoryChange={() => {}}
             onSelectAlert={setSelectedAlert}
-            title="Performance & Backend — 5xx Spikes, Latency, Edge Functions, Error Rates"
+            title={showResolved ? 'Resolved Performance Alerts' : 'Performance & Backend — 5xx Spikes, Latency, Edge Functions, Error Rates'}
           />
         </TabsContent>
 
@@ -337,7 +364,7 @@ export default function OpsIntelligence() {
             categoryFilter="duplication"
             onCategoryChange={() => {}}
             onSelectAlert={setSelectedAlert}
-            title="Duplication Issues — Payments, Bookings, Payouts, Earnings & Dispatch"
+            title={showResolved ? 'Resolved Duplication Alerts' : 'Duplication Issues — Payments, Bookings, Payouts, Earnings & Dispatch'}
           />
         </TabsContent>
 
