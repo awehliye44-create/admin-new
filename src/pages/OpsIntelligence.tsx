@@ -50,7 +50,7 @@ export default function OpsIntelligence() {
   const [showResolved, setShowResolved] = useState(false);
   const queryClient = useQueryClient();
 
-  usePageLoadTelemetry('OpsIntelligence');
+  // Screen load tracked by AdminTelemetryProvider's useRouteChangeTracker
 
   const { status: realtimeStatus, lastEvent } = useOpsRealtime();
 
