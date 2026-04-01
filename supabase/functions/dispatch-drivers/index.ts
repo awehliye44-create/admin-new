@@ -543,7 +543,7 @@ serve(async (req) => {
         distance_km: c.distance_km,
         waiting_minutes: c.waiting_minutes,
         dispatch_score: c.dispatch_score,
-        wave: offeredDriverIds.has(c.driver_id) ? (idx < settings.wave1_size ? 1 : idx < settings.wave1_size + settings.wave2_size ? 2 : 3) : null,
+        wave: driverWaveMap.get(c.driver_id) ?? null,
         offer_result: offeredDriverIds.has(c.driver_id)
           ? (accepted ? "SENT" : "TIMEOUT")
           : "SKIPPED",
