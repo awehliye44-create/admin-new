@@ -3,6 +3,8 @@
  * ======================================
  * Wraps the global fetch to automatically track API latency
  * for requests to the Supabase backend. Zero manual wiring needed.
+ *
+ * IMPORTANT: Excludes ingest-telemetry calls to prevent recursive tracking.
  */
 
 import type { OnecabTelemetry } from './core';
@@ -28,8 +30,8 @@ export function installFetchInterceptor(
   ): Promise<Response> {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
 
-    // Only track Supabase calls
-    if (!url.startsWith(supabaseUrl)) {
+    // Only track Supabase calls (exclude telemetry endpoint to prevent recursion)
+    if (!url.startsWith(supabaseUrl) || url.includes('/ingest-telemetry')) {
       return originalFetch(input, init);
     }
 
