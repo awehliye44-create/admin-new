@@ -296,6 +296,9 @@ export default function OpsIntelligence() {
           <TabsTrigger value="logs" className="gap-2">
             <ScrollText className="h-4 w-4" /> Logs Explorer
           </TabsTrigger>
+          <TabsTrigger value="integration" className="gap-2">
+            <Smartphone className="h-4 w-4" /> Integration Guide
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="alerts">
