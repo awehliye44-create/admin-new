@@ -15,6 +15,7 @@ import {
   declineTripSchema, 
   DeclineTripRequest 
 } from "../_shared/validation.ts";
+import { authenticateDriver } from "../_shared/driverAuth.ts";
 
 // Rate limit: 50 requests per minute per IP
 const RATE_LIMIT_CONFIG = { limit: 50, windowMs: 60 * 1000 };
@@ -36,6 +37,10 @@ serve(async (req) => {
   }
 
   try {
+    // Authenticate the driver via JWT
+    const authResult = await authenticateDriver(req);
+    if (authResult instanceof Response) return authResult;
+
     // Parse and validate request body
     let body: unknown;
     try {
@@ -50,7 +55,9 @@ serve(async (req) => {
       return errorResponse('Validation failed', 400, { validation_errors: validation.errors }, 'VALIDATION_FAILED');
     }
 
-    const { trip_id, driver_id, reason } = validation.data!;
+    const { trip_id, reason } = validation.data!;
+    // Use authenticated driver_id instead of body-supplied value
+    const driver_id = authResult.driverId;
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
