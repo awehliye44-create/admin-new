@@ -197,6 +197,12 @@ ${contextParts.join("\n")}`;
         return json({ error: "function_name, param_value, and user_id required" }, 400);
       }
 
+      // Validate param_value is a real UUID
+      const EXEC_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!EXEC_UUID_RE.test(param_value)) {
+        return json({ error: "Invalid parameter: not a valid UUID. This fix cannot be applied to this alert." }, 400);
+      }
+
       const fnDef = ALLOWED_FUNCTIONS[function_name];
       if (!fnDef) return json({ error: `Function '${function_name}' is not allowed` }, 403);
 
