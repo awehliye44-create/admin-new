@@ -32,6 +32,7 @@ export function OpsLogsExplorer() {
       let query = supabase
         .from('ops_logs')
         .select('id, level, source, message, error_code, http_status, duration_ms, created_at')
+        .eq('is_synthetic', false)
         .order('created_at', { ascending: false })
         .limit(100);
 
