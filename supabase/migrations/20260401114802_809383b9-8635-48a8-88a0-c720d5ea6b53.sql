@@ -1,0 +1,1 @@
+DELETE FROM ops_logs WHERE is_synthetic = true;
