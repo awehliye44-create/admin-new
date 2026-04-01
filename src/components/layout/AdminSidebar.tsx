@@ -127,10 +127,7 @@ const NavItem = memo(function NavItem({ to, icon, label, active, badge, badgeCol
               {badge > 99 ? '99+' : badge}
             </Badge>
           )}
-            </Badge>
-          )}
         </TooltipContent>
-      </Tooltip>
     );
   }
 
