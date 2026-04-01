@@ -15,6 +15,7 @@ import {
   declineTripSchema, 
   DeclineTripRequest 
 } from "../_shared/validation.ts";
+import { authenticateDriver } from "../_shared/driverAuth.ts";
 
 // Rate limit: 50 requests per minute per IP
 const RATE_LIMIT_CONFIG = { limit: 50, windowMs: 60 * 1000 };
