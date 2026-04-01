@@ -205,7 +205,7 @@ function QuickActionsPanel({ navigate }: { navigate: (path: string) => void }) {
 }
 
 export default function Dashboard() {
-  usePageLoadTelemetry('Dashboard');
+  // Screen load tracked by AdminTelemetryProvider's useRouteChangeTracker
   const navigate = useNavigate();
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('daily');
   const [selectedServiceArea, setSelectedServiceArea] = useState<string>('all');

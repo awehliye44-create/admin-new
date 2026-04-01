@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
 import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '@/components/layout/AdminLayout';
@@ -50,7 +50,7 @@ export default function OpsIntelligence() {
   const [showResolved, setShowResolved] = useState(false);
   const queryClient = useQueryClient();
 
-  usePageLoadTelemetry('OpsIntelligence');
+  // Screen load tracked by AdminTelemetryProvider's useRouteChangeTracker
 
   const { status: realtimeStatus, lastEvent } = useOpsRealtime();
 
@@ -180,19 +180,37 @@ export default function OpsIntelligence() {
   }
 
   const allAlerts = alerts || [];
-  const moneyAlerts = allAlerts.filter(a => ['payment', 'commission', 'earning', 'payout'].includes(a.category));
-  const dispatchAlerts = allAlerts.filter(a => a.category === 'dispatch');
-  const guestAlerts = allAlerts.filter(a => a.category === 'guest_booking' || a.app === 'guest');
-  const perfAlerts = allAlerts.filter(a =>
-    a.category === 'backend' || a.category === 'logs' ||
-    a.fingerprint.includes('latency') || a.fingerprint.includes('5xx') ||
-    a.fingerprint.includes('error_spike') || a.fingerprint.includes('edge_fn') ||
-    a.fingerprint.includes('fatal_log')
-  );
-  const dupAlerts = allAlerts.filter(a => a.category === 'duplication');
-  const driverAppAlerts = allAlerts.filter(a => a.category === 'driver_app' || a.app === 'driver' || a.app === 'driver_app');
-  const customerAppAlerts = allAlerts.filter(a => a.category === 'customer_app' || a.app === 'customer' || a.app === 'customer_app');
-  const corporateAlerts = allAlerts.filter(a => a.category === 'corporate_booking' || a.category === 'corporate_web' || a.app === 'corporate_web');
+
+  const { moneyAlerts, dispatchAlerts, guestAlerts, perfAlerts, dupAlerts, driverAppAlerts, customerAppAlerts, corporateAlerts } = useMemo(() => {
+    const money: OpsAlert[] = [];
+    const dispatch: OpsAlert[] = [];
+    const guest: OpsAlert[] = [];
+    const perf: OpsAlert[] = [];
+    const dup: OpsAlert[] = [];
+    const driverApp: OpsAlert[] = [];
+    const customerApp: OpsAlert[] = [];
+    const corporate: OpsAlert[] = [];
+
+    for (const a of allAlerts) {
+      if (['payment', 'commission', 'earning', 'payout'].includes(a.category)) money.push(a);
+      if (a.category === 'dispatch') dispatch.push(a);
+      if (a.category === 'guest_booking' || a.app === 'guest') guest.push(a);
+      if (a.category === 'backend' || a.category === 'logs' ||
+          a.fingerprint.includes('latency') || a.fingerprint.includes('5xx') ||
+          a.fingerprint.includes('error_spike') || a.fingerprint.includes('edge_fn') ||
+          a.fingerprint.includes('fatal_log')) perf.push(a);
+      if (a.category === 'duplication') dup.push(a);
+      if (a.category === 'driver_app' || a.app === 'driver' || a.app === 'driver_app') driverApp.push(a);
+      if (a.category === 'customer_app' || a.app === 'customer' || a.app === 'customer_app') customerApp.push(a);
+      if (a.category === 'corporate_booking' || a.category === 'corporate_web' || a.app === 'corporate_web') corporate.push(a);
+    }
+
+    return {
+      moneyAlerts: money, dispatchAlerts: dispatch, guestAlerts: guest,
+      perfAlerts: perf, dupAlerts: dup, driverAppAlerts: driverApp,
+      customerAppAlerts: customerApp, corporateAlerts: corporate,
+    };
+  }, [allAlerts]);
 
   return (
     <AdminLayout title="Ops Intelligence" description="Platform-wide operations monitoring, alerts & health">
