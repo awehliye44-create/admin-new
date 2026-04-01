@@ -132,20 +132,26 @@ ${logs && logs.length > 0 ? logs.map((l: any) => `[${l.level}] ${l.source}: ${l.
       if (attempt < 2) await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
     }
 
-    if (!aiResponse.ok) {
-      const errText = await aiResponse.text();
-      console.error("AI Gateway error:", aiResponse.status, errText);
+    if (!aiResponse!.ok) {
+      const errText = await aiResponse!.text();
+      console.error("AI Gateway error:", aiResponse!.status, errText);
 
-      if (aiResponse.status === 429) {
+      if (aiResponse!.status === 429) {
         return new Response(
           JSON.stringify({ error: "Rate limited. Please try again shortly." }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      if (aiResponse.status === 402) {
+      if (aiResponse!.status === 402) {
         return new Response(
           JSON.stringify({ error: "AI credits exhausted. Add funds in workspace settings." }),
           { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      if (aiResponse!.status >= 500) {
+        return new Response(
+          JSON.stringify({ error: "AI Gateway temporarily unavailable. Please retry in a moment." }),
+          { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
