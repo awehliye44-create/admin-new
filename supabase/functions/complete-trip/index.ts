@@ -18,6 +18,7 @@ import {
   completeTripSchema, 
   CompleteTripRequest 
 } from "../_shared/validation.ts";
+import { authenticateDriver } from "../_shared/driverAuth.ts";
 
 const RATE_LIMIT_CONFIG = { limit: 30, windowMs: 60 * 1000 };
 
