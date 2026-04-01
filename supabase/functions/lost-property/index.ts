@@ -38,6 +38,7 @@ Deno.serve(async (req) => {
       case "admin_unlock_chat": return await adminUnlockChat(req);
       case "admin_mark_viewed": return await adminMarkViewed(req);
       case "cleanup_photos": return await cleanupPhotos(req);
+      case "expire_chats": return await expireChats(req);
       case "admin_unread_count": return await adminUnreadCount(req);
       default: return errorResp(`Unknown action: ${action}`, 400);
     }
