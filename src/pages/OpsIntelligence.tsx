@@ -8,6 +8,7 @@ import { OpsLogsExplorer } from '@/components/ops/OpsLogsExplorer';
 import { OpsAlertDetail } from '@/components/ops/OpsAlertDetail';
 import { OpsRealtimeIndicator } from '@/components/ops/OpsRealtimeIndicator';
 import { QueryErrorState } from '@/components/QueryErrorState';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { RefreshCw, Activity, AlertTriangle, ScrollText, Shield, CreditCard, Truck, Copy, Globe, Gauge, Smartphone, CheckCircle } from 'lucide-react';
@@ -296,6 +297,9 @@ export default function OpsIntelligence() {
           <TabsTrigger value="logs" className="gap-2">
             <ScrollText className="h-4 w-4" /> Logs Explorer
           </TabsTrigger>
+          <TabsTrigger value="integration" className="gap-2">
+            <Smartphone className="h-4 w-4" /> Integration Guide
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="alerts">
@@ -375,7 +379,231 @@ export default function OpsIntelligence() {
         <TabsContent value="logs">
           <OpsLogsExplorer />
         </TabsContent>
+        <TabsContent value="integration">
+          <MobileIntegrationGuide />
+        </TabsContent>
       </Tabs>
     </AdminLayout>
+  );
+}
+
+function MobileIntegrationGuide() {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+
+  const curlExample = `curl -X POST "${supabaseUrl}/functions/v1/ingest-telemetry" \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer YOUR_ANON_KEY" \\
+  -d '{
+    "app_name": "customer_app",
+    "screen_name": "PaymentScreen",
+    "metric_name": "screen_load_time",
+    "metric_value": 4500,
+    "app_version": "2.3.1",
+    "platform": "ios"
+  }'`;
+
+  const swiftExample = `func sendTelemetry(screen: String, metric: String, value: Double) {
+    let url = URL(string: "\\(supabaseURL)/functions/v1/ingest-telemetry")!
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue("Bearer \\(anonKey)", forHTTPHeaderField: "Authorization")
+
+    let body: [String: Any] = [
+        "app_name": "customer_app",
+        "screen_name": screen,
+        "metric_name": metric,
+        "metric_value": value,
+        "app_version": Bundle.main.appVersion,
+        "platform": "ios"
+    ]
+    request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+    URLSession.shared.dataTask(with: request).resume()
+}`;
+
+  const kotlinExample = `fun sendTelemetry(screen: String, metric: String, value: Double) {
+    val client = OkHttpClient()
+    val json = JSONObject().apply {
+        put("app_name", "driver_app")
+        put("screen_name", screen)
+        put("metric_name", metric)
+        put("metric_value", value)
+        put("app_version", BuildConfig.VERSION_NAME)
+        put("platform", "android")
+    }
+    val body = json.toString()
+        .toRequestBody("application/json".toMediaType())
+    val request = Request.Builder()
+        .url("\${supabaseUrl}/functions/v1/ingest-telemetry")
+        .post(body)
+        .addHeader("Authorization", "Bearer \$anonKey")
+        .build()
+    client.newCall(request).enqueue(object : Callback {
+        override fun onFailure(call: Call, e: IOException) {}
+        override fun onResponse(call: Call, response: Response) {}
+    })
+}`;
+
+  const reactNativeExample = `const sendTelemetry = async (screen, metric, value) => {
+  await fetch(\`\${SUPABASE_URL}/functions/v1/ingest-telemetry\`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': \`Bearer \${ANON_KEY}\`,
+    },
+    body: JSON.stringify({
+      app_name: 'customer_app',
+      screen_name: screen,
+      metric_name: metric,
+      metric_value: value,
+      app_version: DeviceInfo.getVersion(),
+      platform: Platform.OS,
+    }),
+  });
+};`;
+
+  const metrics = [
+    { name: 'screen_load_time', unit: 'ms', desc: 'Time for a screen to become interactive' },
+    { name: 'api_response_time', unit: 'ms', desc: 'Round-trip time for an API call' },
+    { name: 'app_crash', unit: 'count', desc: 'Crash event (value = 1)' },
+    { name: 'memory_usage', unit: 'MB', desc: 'App memory consumption' },
+    { name: 'battery_drain', unit: '%/hr', desc: 'Battery consumption rate' },
+    { name: 'frame_drop', unit: 'count', desc: 'Dropped frames during animation' },
+  ];
+
+  const [copiedBlock, setCopiedBlock] = useState<string | null>(null);
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedBlock(label);
+    setTimeout(() => setCopiedBlock(null), 2000);
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Smartphone className="h-5 w-5 text-primary" />
+            📱 Mobile Integration Guide
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Send telemetry from your Driver and Customer mobile apps to power the Ops Intelligence dashboards.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Endpoint */}
+          <div>
+            <h3 className="text-sm font-semibold mb-2">Endpoint</h3>
+            <div className="bg-muted rounded-lg px-4 py-3 font-mono text-sm flex items-center justify-between">
+              <span>POST {supabaseUrl}/functions/v1/ingest-telemetry</span>
+              <Button variant="ghost" size="sm" onClick={() => copyToClipboard(`${supabaseUrl}/functions/v1/ingest-telemetry`, 'endpoint')}>
+                {copiedBlock === 'endpoint' ? <CheckCircle className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+              </Button>
+            </div>
+          </div>
+
+          {/* Payload Schema */}
+          <div>
+            <h3 className="text-sm font-semibold mb-2">Request Payload</h3>
+            <div className="bg-muted rounded-lg p-4 overflow-auto">
+              <pre className="text-xs font-mono">{JSON.stringify({
+                app_name: "customer_app | driver_app",
+                screen_name: "PaymentScreen",
+                metric_name: "screen_load_time",
+                metric_value: 4500,
+                unit: "ms (optional, default: ms)",
+                app_version: "2.3.1 (optional)",
+                platform: "ios | android (optional)",
+                device_model: "iPhone 15 Pro (optional)",
+                os_version: "17.4 (optional)",
+                session_id: "uuid (optional)",
+                user_id: "uuid (optional)",
+                metadata: "{ any extra data } (optional)"
+              }, null, 2)}</pre>
+            </div>
+          </div>
+
+          {/* Supported Metrics */}
+          <div>
+            <h3 className="text-sm font-semibold mb-2">Supported Metrics</h3>
+            <div className="rounded-lg border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left px-4 py-2 font-medium">Metric Name</th>
+                    <th className="text-left px-4 py-2 font-medium">Unit</th>
+                    <th className="text-left px-4 py-2 font-medium">Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {metrics.map((m) => (
+                    <tr key={m.name} className="border-t">
+                      <td className="px-4 py-2 font-mono text-xs">{m.name}</td>
+                      <td className="px-4 py-2 text-muted-foreground">{m.unit}</td>
+                      <td className="px-4 py-2 text-muted-foreground">{m.desc}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Code Examples */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Code Examples</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Tabs defaultValue="curl" className="w-full">
+            <TabsList>
+              <TabsTrigger value="curl">cURL</TabsTrigger>
+              <TabsTrigger value="swift">Swift (iOS)</TabsTrigger>
+              <TabsTrigger value="kotlin">Kotlin (Android)</TabsTrigger>
+              <TabsTrigger value="rn">React Native</TabsTrigger>
+            </TabsList>
+            {[
+              { key: 'curl', code: curlExample },
+              { key: 'swift', code: swiftExample },
+              { key: 'kotlin', code: kotlinExample },
+              { key: 'rn', code: reactNativeExample },
+            ].map(({ key, code }) => (
+              <TabsContent key={key} value={key}>
+                <div className="relative">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute top-2 right-2 z-10"
+                    onClick={() => copyToClipboard(code, key)}
+                  >
+                    {copiedBlock === key ? <CheckCircle className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                  <pre className="bg-muted rounded-lg p-4 overflow-auto text-xs font-mono max-h-80">{code}</pre>
+                </div>
+              </TabsContent>
+            ))}
+          </Tabs>
+        </CardContent>
+      </Card>
+
+      {/* Best Practices */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Best Practices</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="space-y-2 text-sm text-muted-foreground list-disc list-inside">
+            <li>Send <code className="text-xs bg-muted px-1 py-0.5 rounded">screen_load_time</code> after each screen becomes interactive</li>
+            <li>Use consistent <code className="text-xs bg-muted px-1 py-0.5 rounded">screen_name</code> values across platforms (e.g., <code className="text-xs bg-muted px-1 py-0.5 rounded">PaymentScreen</code> not <code className="text-xs bg-muted px-1 py-0.5 rounded">payment_screen</code>)</li>
+            <li>Set <code className="text-xs bg-muted px-1 py-0.5 rounded">app_name</code> to <code className="text-xs bg-muted px-1 py-0.5 rounded">customer_app</code> or <code className="text-xs bg-muted px-1 py-0.5 rounded">driver_app</code> — these map to dashboard filters</li>
+            <li>Include <code className="text-xs bg-muted px-1 py-0.5 rounded">app_version</code> to track regressions across releases</li>
+            <li>Batch telemetry calls or use a queue to avoid blocking the UI thread</li>
+            <li>Do NOT set <code className="text-xs bg-muted px-1 py-0.5 rounded">is_synthetic: true</code> — that flag is for test data only and is filtered from dashboards</li>
+          </ul>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
