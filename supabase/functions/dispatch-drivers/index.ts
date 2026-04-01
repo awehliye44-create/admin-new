@@ -93,6 +93,8 @@ function parseSettings(row: Record<string, any>): DispatchSettings {
     stacked_min_trip_distance_km: row.stacked_min_trip_distance_km,
     stacked_max_detour_minutes: row.stacked_max_detour_minutes,
     stacked_priority_mode: row.stacked_priority_mode,
+    simulate_mode: row.simulate_mode ?? false,
+    block_multiple_active_rides: row.block_multiple_active_rides ?? false,
   };
 }
 
