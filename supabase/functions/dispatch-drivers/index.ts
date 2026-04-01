@@ -45,6 +45,9 @@ interface DispatchSettings {
   stacked_min_trip_distance_km: number;
   stacked_max_detour_minutes: number;
   stacked_priority_mode: string;
+  // System settings — operational flags
+  simulate_mode: boolean;
+  block_multiple_active_rides: boolean;
 }
 
 interface ScoredCandidate {
@@ -90,6 +93,8 @@ function parseSettings(row: Record<string, any>): DispatchSettings {
     stacked_min_trip_distance_km: row.stacked_min_trip_distance_km,
     stacked_max_detour_minutes: row.stacked_max_detour_minutes,
     stacked_priority_mode: row.stacked_priority_mode,
+    simulate_mode: row.simulate_mode ?? false,
+    block_multiple_active_rides: row.block_multiple_active_rides ?? false,
   };
 }
 
@@ -196,6 +201,11 @@ serve(async (req) => {
 
     const settings = parseSettings(saSettings);
 
+    // ====== SIMULATE MODE ======
+    if (settings.simulate_mode) {
+      console.log(`[dispatch-drivers] SIMULATE MODE — no offers will be sent`);
+    }
+
     // Calculate absolute deadline from maxDriverFindTimeMinutes
     // CRITICAL: Supabase Edge Functions have a ~60s execution limit.
     // Cap total execution to 50s regardless of admin config to prevent timeout kills.
@@ -203,7 +213,7 @@ serve(async (req) => {
     const adminMaxMs = settings.max_driver_find_time_minutes * 60 * 1000;
     const maxFindTimeMs = Math.min(adminMaxMs, EDGE_FUNCTION_SAFE_LIMIT_MS);
 
-    console.log(`[dispatch-drivers] Settings loaded: start=${settings.search_radius_start_km}km, waves=${settings.wave1_size}/${settings.wave2_size}/${settings.wave3_size}, stacked=${settings.stacked_rides_enabled}, max_stacked=${settings.max_stacked_rides}, max_find_time=${settings.max_driver_find_time_minutes}min`);
+    console.log(`[dispatch-drivers] Settings loaded: start=${settings.search_radius_start_km}km, waves=${settings.wave1_size}/${settings.wave2_size}/${settings.wave3_size}, stacked=${settings.stacked_rides_enabled}, max_stacked=${settings.max_stacked_rides}, max_find_time=${settings.max_driver_find_time_minutes}min, simulate=${settings.simulate_mode}, block_multi=${settings.block_multiple_active_rides}`);
 
     // ====== EXPANDING RADIUS SEARCH + SCORING ======
     const radiusSteps = [
@@ -214,6 +224,8 @@ serve(async (req) => {
 
     let allCandidates: ScoredCandidate[] = [];
     const offeredDriverIds = new Set<string>();
+    // Track which wave each driver was actually offered in
+    const driverWaveMap = new Map<string, number>();
     let accepted = false;
 
     for (const radiusKm of radiusSteps) {
@@ -322,8 +334,14 @@ serve(async (req) => {
         const detail = driverMap.get(nd.driver_id);
         if (!detail) continue;
 
-        // ====== STACKED RIDES GATE ======
+        // ====== BLOCK MULTIPLE ACTIVE RIDES ======
         const hasActiveTrip = !!detail.current_trip_id;
+
+        if (hasActiveTrip && settings.block_multiple_active_rides) {
+          continue; // Admin has blocked drivers from having multiple active rides
+        }
+
+        // ====== STACKED RIDES GATE ======
         let isStackedCandidate = false;
 
         if (hasActiveTrip) {
@@ -423,6 +441,16 @@ serve(async (req) => {
 
         const expiresAt = new Date(Date.now() + waveExpirySeconds * 1000).toISOString();
 
+        // ====== SIMULATE MODE: log but don't create offers ======
+        if (settings.simulate_mode) {
+          console.log(`[dispatch-drivers] SIMULATE: Wave ${wave.num} would send ${waveDrivers.length} offers: ${waveDrivers.map(c => c.driver_id).join(', ')}`);
+          for (const c of waveDrivers) {
+            offeredDriverIds.add(c.driver_id);
+            driverWaveMap.set(c.driver_id, wave.num);
+          }
+          continue; // Skip actual offer creation in simulate mode
+        }
+
         // Create offers in trip_offers (matching accept-trip/decline-trip)
         const offers = waveDrivers.map((c) => ({
           trip_id,
@@ -442,6 +470,7 @@ serve(async (req) => {
         // Update last_offer_at for offered drivers
         for (const c of waveDrivers) {
           offeredDriverIds.add(c.driver_id);
+          driverWaveMap.set(c.driver_id, wave.num);
           await supabase
             .from("drivers")
             .update({ last_offer_at: new Date().toISOString() })
@@ -514,13 +543,35 @@ serve(async (req) => {
         distance_km: c.distance_km,
         waiting_minutes: c.waiting_minutes,
         dispatch_score: c.dispatch_score,
-        wave: offeredDriverIds.has(c.driver_id) ? (idx < settings.wave1_size ? 1 : idx < settings.wave1_size + settings.wave2_size ? 2 : 3) : null,
+        wave: driverWaveMap.get(c.driver_id) ?? null,
         offer_result: offeredDriverIds.has(c.driver_id)
           ? (accepted ? "SENT" : "TIMEOUT")
           : "SKIPPED",
       }));
 
       await supabase.from("dispatch_candidates_log").insert(logEntries);
+    }
+
+    // ====== SIMULATE MODE: return results without modifying trip ======
+    if (settings.simulate_mode) {
+      console.log(`[dispatch-drivers] SIMULATE complete: ${allCandidates.length} candidates scored, ${offeredDriverIds.size} would-be offers`);
+      return successResponse({
+        dispatched: false,
+        simulate: true,
+        candidates_scored: allCandidates.length,
+        offers_would_send: offeredDriverIds.size,
+        top_candidates: allCandidates.slice(0, 10).map((c) => ({
+          driver_id: c.driver_id,
+          category: c.category_name,
+          category_priority: c.category_priority,
+          distance_km: c.distance_km,
+          waiting_minutes: c.waiting_minutes,
+          score: c.dispatch_score,
+          is_stacked: c.is_stacked,
+          wave: driverWaveMap.get(c.driver_id) ?? null,
+        })),
+        message: "Simulation complete — no offers sent",
+      });
     }
 
     if (!accepted) {

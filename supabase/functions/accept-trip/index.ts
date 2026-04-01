@@ -233,22 +233,29 @@ serve(async (req) => {
       .eq('id', trip_id)
       .single();
 
-    let gracePeriodMinutes = 3; // sensible default
-    if (tripSAData?.service_area_id) {
-      const fpsQuery = supabase
-        .from('fare_pricing_settings')
-        .select('cancellation_grace_period_minutes')
-        .eq('service_area_id', tripSAData.service_area_id);
-
-      if (tripSAData.vehicle_type_id) {
-        fpsQuery.eq('vehicle_type_id', tripSAData.vehicle_type_id);
-      }
-
-      const { data: fps } = await fpsQuery.maybeSingle();
-      if (fps?.cancellation_grace_period_minutes != null) {
-        gracePeriodMinutes = fps.cancellation_grace_period_minutes;
-      }
+    if (!tripSAData?.service_area_id) {
+      return errorResponse('Trip has no service_area_id — cannot resolve lifecycle rules', 422);
     }
+
+    const fpsQuery = supabase
+      .from('fare_pricing_settings')
+      .select('cancellation_grace_period_minutes')
+      .eq('service_area_id', tripSAData.service_area_id);
+
+    if (tripSAData.vehicle_type_id) {
+      fpsQuery.eq('vehicle_type_id', tripSAData.vehicle_type_id);
+    }
+
+    const { data: fps, error: fpsErr } = await fpsQuery.maybeSingle();
+    if (fpsErr || !fps || fps.cancellation_grace_period_minutes == null) {
+      console.error(`[accept-trip] No fare_pricing_settings for SA=${tripSAData.service_area_id}`);
+      return errorResponse(
+        'No fare pricing settings configured for this service area. Configure lifecycle rules in Admin Panel.',
+        422
+      );
+    }
+
+    const gracePeriodMinutes = fps.cancellation_grace_period_minutes;
 
     const now = new Date();
     const graceExpiresAt = new Date(now.getTime() + gracePeriodMinutes * 60 * 1000);
