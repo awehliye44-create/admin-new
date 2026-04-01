@@ -6,15 +6,14 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// Only these functions can be called — no arbitrary SQL
 const ALLOWED_FUNCTIONS: Record<string, { rpcName: string; riskLevel: string; paramKey: string }> = {
-  repair_missing_commission:    { rpcName: "ops_repair_missing_commission",    riskLevel: "MEDIUM", paramKey: "p_trip_id" },
-  repair_missing_driver_earning:{ rpcName: "ops_repair_missing_driver_earning",riskLevel: "MEDIUM", paramKey: "p_trip_id" },
-  repair_missing_financials:    { rpcName: "ops_repair_missing_financials",    riskLevel: "MEDIUM", paramKey: "p_trip_id" },
-  retry_failed_dispatch:        { rpcName: "ops_retry_failed_dispatch",        riskLevel: "MEDIUM", paramKey: "p_trip_id" },
-  resolve_alert_if_cleared:     { rpcName: "ops_resolve_alert_if_cleared",     riskLevel: "LOW",    paramKey: "p_alert_id" },
-  replay_webhook:               { rpcName: "ops_replay_webhook",               riskLevel: "MEDIUM", paramKey: "p_event_id" },
-  retry_failed_payout:          { rpcName: "ops_retry_failed_payout",          riskLevel: "HIGH",   paramKey: "p_payout_id" },
+  repair_missing_commission:     { rpcName: "ops_repair_missing_commission",     riskLevel: "MEDIUM", paramKey: "p_trip_id" },
+  repair_missing_driver_earning: { rpcName: "ops_repair_missing_driver_earning", riskLevel: "MEDIUM", paramKey: "p_trip_id" },
+  repair_missing_financials:     { rpcName: "ops_repair_missing_financials",     riskLevel: "MEDIUM", paramKey: "p_trip_id" },
+  retry_failed_dispatch:         { rpcName: "ops_retry_failed_dispatch",         riskLevel: "MEDIUM", paramKey: "p_trip_id" },
+  resolve_alert_if_cleared:      { rpcName: "ops_resolve_alert_if_cleared",      riskLevel: "LOW",    paramKey: "p_alert_id" },
+  replay_webhook:                { rpcName: "ops_replay_webhook",                riskLevel: "MEDIUM", paramKey: "p_event_id" },
+  retry_failed_payout:           { rpcName: "ops_retry_failed_payout",           riskLevel: "HIGH",   paramKey: "p_payout_id" },
 };
 
 Deno.serve(async (req) => {
@@ -24,7 +23,8 @@ Deno.serve(async (req) => {
     new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   try {
-    const { action, alert_id, user_id } = await req.json();
+    const body = await req.json();
+    const { action, alert_id, user_id } = body;
     if (!alert_id) return json({ error: "alert_id required" }, 400);
 
     const supabase = createClient(
@@ -37,15 +37,10 @@ Deno.serve(async (req) => {
       const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
       if (!LOVABLE_API_KEY) return json({ error: "LOVABLE_API_KEY not configured" }, 500);
 
-      // Fetch alert
       const { data: alert, error: alertErr } = await supabase
-        .from("ops_alerts")
-        .select("*")
-        .eq("id", alert_id)
-        .single();
+        .from("ops_alerts").select("*").eq("id", alert_id).single();
       if (alertErr || !alert) return json({ error: "Alert not found" }, 404);
 
-      // Fetch related data for context
       const contextParts: string[] = [];
 
       if (alert.related_trip_id) {
@@ -120,13 +115,16 @@ ${contextParts.join("\n")}`;
                 properties: {
                   explanation: { type: "string", description: "Clear explanation of the issue and what the fix does" },
                   root_cause: { type: "string", description: "Why this happened" },
-                  function_name: { type: "string", enum: [...Object.keys(ALLOWED_FUNCTIONS), "none"], description: "Which repair function to call" },
+                  function_name: { type: "string", enum: [...Object.keys(ALLOWED_FUNCTIONS), "none"] },
                   param_value: { type: "string", description: "The UUID parameter to pass to the function" },
-                  risk_level: { type: "string", enum: ["LOW", "MEDIUM", "HIGH"], description: "Risk assessment" },
+                  risk_level: { type: "string", enum: ["LOW", "MEDIUM", "HIGH"] },
                   affected_entities: {
                     type: "array",
-                    items: { type: "object", properties: { type: { type: "string" }, id: { type: "string" }, description: { type: "string" } }, required: ["type", "id"] },
-                    description: "List of entities that will be affected"
+                    items: {
+                      type: "object",
+                      properties: { type: { type: "string" }, id: { type: "string" }, description: { type: "string" } },
+                      required: ["type", "id"],
+                    },
                   },
                   estimated_impact: { type: "string", description: "What will change when the fix runs" },
                 },
@@ -140,9 +138,9 @@ ${contextParts.join("\n")}`;
       });
 
       if (!aiResponse.ok) {
-        const errText = await aiResponse.text();
         if (aiResponse.status === 429) return json({ error: "Rate limited. Try again shortly." }, 429);
         if (aiResponse.status === 402) return json({ error: "AI credits exhausted." }, 402);
+        const errText = await aiResponse.text();
         return json({ error: "AI analysis failed", detail: errText }, 500);
       }
 
@@ -163,7 +161,7 @@ ${contextParts.join("\n")}`;
         };
       }
 
-      // Override risk level from our own rules if we know the function
+      // Override risk level from our own rules
       if (proposal.function_name && ALLOWED_FUNCTIONS[proposal.function_name]) {
         proposal.risk_level = ALLOWED_FUNCTIONS[proposal.function_name].riskLevel;
       }
@@ -173,30 +171,27 @@ ${contextParts.join("\n")}`;
 
     // ─── ACTION: execute ──────────────────────────────────────────
     if (action === "execute") {
-      const { function_name, param_value, explanation, risk_level, preview_data } = await req.json().catch(() => ({}));
-      
-      // Re-read from the original body
-      const body = { action, alert_id, user_id, function_name, param_value, explanation, risk_level, preview_data };
+      const { function_name, param_value, explanation, risk_level, preview_data } = body;
 
-      if (!body.function_name || !body.param_value || !body.user_id) {
+      if (!function_name || !param_value || !user_id) {
         return json({ error: "function_name, param_value, and user_id required" }, 400);
       }
 
-      const fnDef = ALLOWED_FUNCTIONS[body.function_name];
-      if (!fnDef) return json({ error: `Function '${body.function_name}' is not allowed` }, 403);
+      const fnDef = ALLOWED_FUNCTIONS[function_name];
+      if (!fnDef) return json({ error: `Function '${function_name}' is not allowed` }, 403);
 
-      // Create audit record first (status=pending)
+      // Create audit record (pending)
       const { data: auditRow, error: auditErr } = await supabase
         .from("ops_fix_actions")
         .insert({
-          alert_id: body.alert_id,
-          action_type: body.function_name,
+          alert_id,
+          action_type: function_name,
           function_name: fnDef.rpcName,
-          input_payload: { [fnDef.paramKey]: body.param_value },
+          input_payload: { [fnDef.paramKey]: param_value },
           risk_level: fnDef.riskLevel,
-          ai_explanation: body.explanation,
-          preview_data: body.preview_data,
-          executed_by: body.user_id,
+          ai_explanation: explanation,
+          preview_data: preview_data || null,
+          executed_by: user_id,
           status: "pending",
         })
         .select("id")
@@ -207,17 +202,15 @@ ${contextParts.join("\n")}`;
         return json({ error: "Failed to create audit record" }, 500);
       }
 
-      // Execute the safe RPC function
+      // Execute the safe RPC
       const { data: result, error: rpcErr } = await supabase.rpc(fnDef.rpcName, {
-        [fnDef.paramKey]: body.param_value,
+        [fnDef.paramKey]: param_value,
       });
 
       const finalStatus = rpcErr ? "failed" : "success";
       const finalResult = rpcErr ? { error: rpcErr.message } : result;
 
-      // Update audit record
-      await supabase
-        .from("ops_fix_actions")
+      await supabase.from("ops_fix_actions")
         .update({ status: finalStatus, result: finalResult })
         .eq("id", auditRow.id);
 
