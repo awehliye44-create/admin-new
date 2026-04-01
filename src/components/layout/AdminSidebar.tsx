@@ -89,7 +89,10 @@ interface NavItemProps {
 }
 
 // Memoized nav item to prevent unnecessary re-renders
-const NavItem = memo(function NavItem({ to, icon, label, active, badge, collapsed }: NavItemProps) {
+const NavItem = memo(function NavItem({ to, icon, label, active, badge, badgeColor = 'primary', collapsed }: NavItemProps) {
+  const badgeClass = badgeColor === 'destructive'
+    ? 'bg-destructive text-destructive-foreground text-xs h-5 min-w-5 flex items-center justify-center'
+    : 'bg-primary text-primary-foreground text-xs h-5 min-w-5 flex items-center justify-center';
   const content = (
     <Link
       to={to}
