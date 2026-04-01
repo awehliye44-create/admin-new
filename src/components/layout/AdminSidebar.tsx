@@ -84,6 +84,7 @@ interface NavItemProps {
   label: string;
   active?: boolean;
   badge?: number;
+  badgeColor?: 'primary' | 'destructive';
   collapsed?: boolean;
 }
 
