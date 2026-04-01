@@ -8806,6 +8806,15 @@ export type Database = {
           can_payout: boolean
         }[]
       }
+      get_p95_screen_metrics: {
+        Args: { p_app_name: string; p_metric_name: string }
+        Returns: {
+          event_count: number
+          latest_at: string
+          p95_ms: number
+          screen_name: string
+        }[]
+      }
       get_performance_p95: {
         Args: { p_app_name?: string; p_hours?: number }
         Returns: {
