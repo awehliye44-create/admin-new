@@ -265,15 +265,51 @@ function MoneyScreensPanel({ data, thresholds }: { data: HealthSummaryRow[]; thr
 
 export function AppPerformanceDashboard() {
   const [activeApp, setActiveApp] = useState<string>('all');
+  const [includeSeed, setIncludeSeed] = useState(false);
 
   const { data: healthData, isLoading: healthLoading, refetch } = useQuery({
-    queryKey: ['app-health-summary'],
+    queryKey: ['app-health-summary', includeSeed],
     queryFn: async () => {
+      if (!includeSeed) {
+        const { data, error } = await supabase
+          .from('app_health_summary')
+          .select('*');
+        if (error) throw error;
+        return (data || []) as HealthSummaryRow[];
+      }
+      // Include synthetic data — query raw events and aggregate client-side
       const { data, error } = await supabase
-        .from('app_health_summary')
-        .select('*');
+        .from('app_performance_events')
+        .select('app_name, screen_name, metric_name, metric_value, created_at')
+        .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
+        .limit(5000);
       if (error) throw error;
-      return (data || []) as HealthSummaryRow[];
+      if (!data || data.length === 0) return [];
+      // Group and aggregate
+      const groups: Record<string, { values: number[]; lastAt: string }> = {};
+      for (const e of data) {
+        const key = `${e.app_name}|${e.screen_name}|${e.metric_name}`;
+        if (!groups[key]) groups[key] = { values: [], lastAt: e.created_at };
+        groups[key].values.push(e.metric_value);
+        if (e.created_at > groups[key].lastAt) groups[key].lastAt = e.created_at;
+      }
+      return Object.entries(groups).map(([key, g]) => {
+        const [app_name, screen_name, metric_name] = key.split('|');
+        const sorted = g.values.sort((a, b) => a - b);
+        const len = sorted.length;
+        const p = (pct: number) => sorted[Math.min(Math.floor(pct * len), len - 1)];
+        return {
+          app_name, screen_name, metric_name,
+          event_count: len,
+          avg_ms: Math.round(sorted.reduce((s, v) => s + v, 0) / len),
+          median_ms: Math.round(p(0.5)),
+          p95_ms: Math.round(p(0.95)),
+          p99_ms: Math.round(p(0.99)),
+          min_ms: Math.round(sorted[0]),
+          max_ms: Math.round(sorted[len - 1]),
+          last_event_at: g.lastAt,
+        } as HealthSummaryRow;
+      });
     },
     staleTime: 15000,
   });
