@@ -109,8 +109,10 @@ const NavItem = memo(function NavItem({ to, icon, label, active, badge, badgeCol
         {!collapsed && <span>{label}</span>}
       </div>
       {!collapsed && badge !== undefined && badge > 0 && (
-        <Badge variant="secondary" className="bg-primary text-primary-foreground text-xs h-5 min-w-5 flex items-center justify-center">
+        <Badge variant="secondary" className={badgeClass}>
           {badge > 99 ? '99+' : badge}
+        </Badge>
+      )}
         </Badge>
       )}
     </Link>
