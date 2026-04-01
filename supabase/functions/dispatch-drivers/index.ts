@@ -13,6 +13,13 @@ import {
 
 const RATE_LIMIT_CONFIG = { limit: 20, windowMs: 60 * 1000 };
 
+// Canonical offer table used by accept-trip and decline-trip
+const OFFER_TABLE = "trip_offers";
+// Canonical status values matching accept-trip/decline-trip
+const STATUS_OFFERED = "offered";
+const STATUS_ACCEPTED = "accepted";
+const STATUS_EXPIRED = "expired";
+
 interface DispatchSettings {
   search_radius_start_km: number;
   search_radius_expand_km: number;
@@ -31,6 +38,7 @@ interface DispatchSettings {
   fairness_idle_minutes: number;
   fairness_boost_score: number;
   accept_timeout_seconds: number;
+  max_driver_find_time_minutes: number;
   // Stacked rides — Admin-configured
   stacked_rides_enabled: boolean;
   max_stacked_rides: number;
@@ -76,6 +84,7 @@ function parseSettings(row: Record<string, any>): DispatchSettings {
     fairness_idle_minutes: row.fairness_idle_minutes,
     fairness_boost_score: row.fairness_boost_score,
     accept_timeout_seconds: row.accept_timeout_seconds,
+    max_driver_find_time_minutes: row.max_driver_find_time_minutes ?? 3,
     stacked_rides_enabled: row.stacked_rides_enabled,
     max_stacked_rides: row.max_stacked_rides,
     stacked_min_trip_distance_km: row.stacked_min_trip_distance_km,
@@ -124,6 +133,9 @@ serve(async (req) => {
 
     console.log(`[dispatch-drivers] Trip ${trip_id} | Pickup: ${pickup_lat},${pickup_lng} | Type: ${booking_type || "normal"}`);
 
+    // ====== GLOBAL TIMEOUT TRACKING ======
+    const dispatchStartTime = Date.now();
+
     // Validate trip
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
@@ -143,10 +155,10 @@ serve(async (req) => {
       console.log(`[dispatch-drivers] SCAN_GO: direct offer to ${assigned_driver_id}`);
       const expiresAt = new Date(Date.now() + 30 * 1000).toISOString();
 
-      const { error: offerErr } = await supabase.from("ride_offers").insert({
+      const { error: offerErr } = await supabase.from(OFFER_TABLE).insert({
         trip_id,
         driver_id: assigned_driver_id,
-        status: "pending",
+        status: STATUS_OFFERED,
         distance_km: 0,
         expires_at: expiresAt,
       });
@@ -184,7 +196,10 @@ serve(async (req) => {
 
     const settings = parseSettings(saSettings);
 
-    console.log(`[dispatch-drivers] Settings loaded: start=${settings.search_radius_start_km}km, waves=${settings.wave1_size}/${settings.wave2_size}/${settings.wave3_size}, stacked=${settings.stacked_rides_enabled}, max_stacked=${settings.max_stacked_rides}`);
+    // Calculate absolute deadline from maxDriverFindTimeMinutes
+    const maxFindTimeMs = settings.max_driver_find_time_minutes * 60 * 1000;
+
+    console.log(`[dispatch-drivers] Settings loaded: start=${settings.search_radius_start_km}km, waves=${settings.wave1_size}/${settings.wave2_size}/${settings.wave3_size}, stacked=${settings.stacked_rides_enabled}, max_stacked=${settings.max_stacked_rides}, max_find_time=${settings.max_driver_find_time_minutes}min`);
 
     // ====== EXPANDING RADIUS SEARCH + SCORING ======
     const radiusSteps = [
@@ -199,6 +214,13 @@ serve(async (req) => {
 
     for (const radiusKm of radiusSteps) {
       if (accepted) break;
+
+      // ====== ENFORCE MAX FIND TIME ======
+      const elapsedMs = Date.now() - dispatchStartTime;
+      if (elapsedMs >= maxFindTimeMs) {
+        console.log(`[dispatch-drivers] Max find time reached (${settings.max_driver_find_time_minutes}min) — stopping search`);
+        break;
+      }
 
       const radiusMeters = radiusKm * 1000;
       console.log(`[dispatch-drivers] Searching radius ${radiusKm}km (${radiusMeters}m)`);
@@ -258,25 +280,22 @@ serve(async (req) => {
         eligibleIds = new Set((vehicleCats || []).map((v: any) => v.driver_id));
       }
 
-      // Exclude drivers with pending offers
+      // Exclude drivers with pending/offered offers (check BOTH tables for safety)
       const { data: pendingOffers } = await supabase
-        .from("ride_offers")
+        .from(OFFER_TABLE)
         .select("driver_id")
-        .eq("status", "pending")
+        .eq("status", STATUS_OFFERED)
         .in("driver_id", driverIds)
         .gt("expires_at", new Date().toISOString());
 
       const busyIds = new Set((pendingOffers || []).map((o: any) => o.driver_id));
 
       // ====== STACKED RIDES: count active trips per driver ======
-      // Build a map of driver_id → count of active trips for stacking eligibility
       const activeTripsCountMap = new Map<string, number>();
       if (settings.stacked_rides_enabled) {
-        // Get drivers who have current_trip_id set (on active trip)
         const driversOnTrip = (driverDetails || []).filter((d: any) => d.current_trip_id);
         if (driversOnTrip.length > 0) {
           const onTripIds = driversOnTrip.map((d: any) => d.id);
-          // Count active (non-completed, non-cancelled) trips per driver
           const { data: activeTripCounts } = await supabase
             .from("trips")
             .select("driver_id")
@@ -304,18 +323,14 @@ serve(async (req) => {
         let isStackedCandidate = false;
 
         if (hasActiveTrip) {
-          // If stacked rides disabled → skip driver entirely
           if (!settings.stacked_rides_enabled) continue;
 
-          // Check max stacked rides limit from Admin config
           const currentActiveCount = activeTripsCountMap.get(nd.driver_id) || 1;
           if (currentActiveCount >= settings.max_stacked_rides + 1) {
-            // Already at max capacity (current trip + max stacked)
             console.log(`[dispatch-drivers] Driver ${nd.driver_id} at stacked limit (${currentActiveCount}/${settings.max_stacked_rides + 1})`);
             continue;
           }
 
-          // Check minimum trip distance for stacking eligibility
           const distanceKm = nd.distance_meters / 1000;
           if (distanceKm > settings.stacked_min_trip_distance_km) {
             continue;
@@ -366,7 +381,6 @@ serve(async (req) => {
 
       // Sort by score DESC — idle drivers first, stacked drivers after
       candidates.sort((a, b) => {
-        // Non-stacked (idle) always rank above stacked
         if (a.is_stacked !== b.is_stacked) return a.is_stacked ? 1 : -1;
         return b.dispatch_score - a.dispatch_score;
       });
@@ -386,24 +400,36 @@ serve(async (req) => {
       for (const wave of waves) {
         if (accepted || candidateIdx >= candidates.length) break;
 
+        // ====== CHECK MAX FIND TIME BEFORE EACH WAVE ======
+        const waveElapsedMs = Date.now() - dispatchStartTime;
+        if (waveElapsedMs >= maxFindTimeMs) {
+          console.log(`[dispatch-drivers] Max find time reached before wave ${wave.num} — stopping`);
+          break;
+        }
+
         const waveDrivers = candidates.slice(candidateIdx, candidateIdx + wave.size);
         candidateIdx += wave.size;
 
         if (waveDrivers.length === 0) break;
 
-        const waveExpirySeconds = wave.expiry;
+        // Cap wave expiry to remaining time
+        const remainingMs = maxFindTimeMs - (Date.now() - dispatchStartTime);
+        const waveExpirySeconds = Math.min(wave.expiry, Math.floor(remainingMs / 1000));
+        if (waveExpirySeconds <= 0) break;
+
         const expiresAt = new Date(Date.now() + waveExpirySeconds * 1000).toISOString();
 
-        // Create ride_offers
+        // Create offers in trip_offers (matching accept-trip/decline-trip)
         const offers = waveDrivers.map((c) => ({
           trip_id,
           driver_id: c.driver_id,
-          status: "pending",
+          status: STATUS_OFFERED,
           distance_km: c.distance_km,
+          priority_score: c.dispatch_score,
           expires_at: expiresAt,
         }));
 
-        const { error: offerErr } = await supabase.from("ride_offers").insert(offers);
+        const { error: offerErr } = await supabase.from(OFFER_TABLE).insert(offers);
         if (offerErr) {
           console.error(`[dispatch-drivers] Wave ${wave.num} offer error:`, offerErr);
           continue;
@@ -418,7 +444,7 @@ serve(async (req) => {
             .eq("id", c.driver_id);
         }
 
-        console.log(`[dispatch-drivers] Wave ${wave.num}: sent ${waveDrivers.length} offers (expiry ${waveExpirySeconds}s, accept_timeout ${settings.accept_timeout_seconds}s)`);
+        console.log(`[dispatch-drivers] Wave ${wave.num}: sent ${waveDrivers.length} offers (expiry ${waveExpirySeconds}s)`);
 
         // Update trip status
         await supabase.from("trips").update({
@@ -429,14 +455,16 @@ serve(async (req) => {
 
         // Wait for acceptance (poll)
         const waitStart = Date.now();
-        while (Date.now() - waitStart < waveExpirySeconds * 1000) {
+        const pollDeadline = Math.min(waitStart + waveExpirySeconds * 1000, dispatchStartTime + maxFindTimeMs);
+
+        while (Date.now() < pollDeadline) {
           await new Promise((r) => setTimeout(r, 1500)); // Poll every 1.5s
 
           const { data: acceptedOffer } = await supabase
-            .from("ride_offers")
+            .from(OFFER_TABLE)
             .select("driver_id")
             .eq("trip_id", trip_id)
-            .eq("status", "accepted")
+            .eq("status", STATUS_ACCEPTED)
             .maybeSingle();
 
           if (acceptedOffer) {
@@ -445,7 +473,7 @@ serve(async (req) => {
             break;
           }
 
-          // Check if trip was cancelled
+          // Check if trip was cancelled or already accepted
           const { data: tripCheck } = await supabase
             .from("trips")
             .select("status")
@@ -461,10 +489,10 @@ serve(async (req) => {
         // Expire remaining pending offers from this wave
         if (!accepted) {
           await supabase
-            .from("ride_offers")
-            .update({ status: "expired", updated_at: new Date().toISOString() })
+            .from(OFFER_TABLE)
+            .update({ status: STATUS_EXPIRED, updated_at: new Date().toISOString() })
             .eq("trip_id", trip_id)
-            .eq("status", "pending");
+            .eq("status", STATUS_OFFERED);
         }
       }
 
@@ -499,7 +527,12 @@ serve(async (req) => {
 
       await logAuditEvent(supabase, "dispatch_no_drivers", {
         tripId: trip_id,
-        details: { candidates_scored: allCandidates.length, offers_sent: offeredDriverIds.size },
+        details: {
+          candidates_scored: allCandidates.length,
+          offers_sent: offeredDriverIds.size,
+          elapsed_ms: Date.now() - dispatchStartTime,
+          max_find_time_minutes: settings.max_driver_find_time_minutes,
+        },
         ipAddress: clientIP,
         userAgent,
       });
@@ -515,7 +548,11 @@ serve(async (req) => {
 
     await logAuditEvent(supabase, "dispatch_success", {
       tripId: trip_id,
-      details: { candidates_scored: allCandidates.length, offers_sent: offeredDriverIds.size },
+      details: {
+        candidates_scored: allCandidates.length,
+        offers_sent: offeredDriverIds.size,
+        elapsed_ms: Date.now() - dispatchStartTime,
+      },
       ipAddress: clientIP,
       userAgent,
     });
