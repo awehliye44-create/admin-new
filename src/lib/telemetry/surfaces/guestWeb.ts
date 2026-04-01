@@ -49,8 +49,8 @@
  *   - BookingConfirmation→ useScreenLoad
  */
 
-import { OnecabTelemetry } from './core';
-import { useRouteChangeTracker, useFlushOnHide } from './react';
+import { OnecabTelemetry } from '../core';
+import { useRouteChangeTracker, useFlushOnHide } from '../react';
 
 export const guestTelemetry = new OnecabTelemetry({
   supabaseUrl: import.meta.env.VITE_SUPABASE_URL ?? '__SUPABASE_URL__',
