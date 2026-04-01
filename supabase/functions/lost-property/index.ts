@@ -738,7 +738,7 @@ async function cleanupPhotos(_req: Request) {
     // Clear photo arrays in DB
     await sb
       .from("lost_property_cases")
-      .update({ photos: [], found_item_photos: [] })
+      .update({ photos: null, found_item_photos: null, driver_photos: null })
       .eq("id", c.case_id);
 
     cleaned++;
