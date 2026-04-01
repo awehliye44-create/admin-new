@@ -684,6 +684,41 @@ async function adminUnlockChat(req: Request) {
   return jsonResponse({ success: true });
 }
 
+// ==================== ADMIN: ESCALATE CASE ====================
+async function adminEscalateCase(req: Request) {
+  const admin = await requireAdmin(req);
+  if (admin instanceof Response) return admin;
+
+  const { case_id } = await req.json();
+  if (!case_id) return errorResp("case_id is required");
+
+  const sb = getServiceClient();
+  const { data: lpc } = await sb.from("lost_property_cases").select("chat_expires_at, status").eq("id", case_id).single();
+  if (!lpc) return errorResp("Case not found", 404);
+  if (lpc.status === "CLOSED") return errorResp("Cannot escalate a closed case");
+  if (lpc.status === "ESCALATED") return errorResp("Case is already escalated");
+
+  const extendedExpiry = new Date(Math.max(
+    new Date(lpc.chat_expires_at).getTime(),
+    Date.now() + 3 * 24 * 60 * 60 * 1000
+  ));
+
+  const { error } = await sb
+    .from("lost_property_cases")
+    .update({
+      status: "ESCALATED",
+      chat_enabled: true,
+      chat_locked_at: null,
+      chat_lock_reason: null,
+      chat_expires_at: extendedExpiry.toISOString(),
+    })
+    .eq("id", case_id);
+
+  if (error) throw error;
+  await insertSystemMessage(case_id, "Case escalated by support.");
+  return jsonResponse({ success: true });
+}
+
 // ==================== ADMIN: MARK CASE VIEWED ====================
 async function adminMarkViewed(req: Request) {
   const admin = await requireAdmin(req);
