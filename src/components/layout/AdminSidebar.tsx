@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useStaffProfile } from '@/hooks/useStaffProfile';
 import { useSidebarCounts } from '@/hooks/useSidebarCounts';
 import { useLostPropertyUnreadCount } from '@/hooks/useLostProperty';
+import { useChatUnreadCount } from '@/hooks/useChatUnreadCount';
 import {
   LayoutDashboard,
   Users,
