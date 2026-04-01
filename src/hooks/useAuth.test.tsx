@@ -206,6 +206,10 @@ describe("useAuth Hook", () => {
     mockSupabase.from.mockReturnValue({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: null,
+        error: new Error("Network error"),
+      }),
       limit: vi.fn().mockResolvedValue({
         data: null,
         error: new Error("Network error"),
