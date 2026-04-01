@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useStaffProfile } from '@/hooks/useStaffProfile';
 import { useSidebarCounts } from '@/hooks/useSidebarCounts';
+import { useLostPropertyUnreadCount } from '@/hooks/useLostProperty';
 import {
   LayoutDashboard,
   Users,
@@ -58,6 +59,7 @@ import {
   BrainCircuit,
   Smartphone,
   Globe,
+  PackageSearch,
 } from 'lucide-react';
 import {
   Collapsible,
@@ -82,11 +84,15 @@ interface NavItemProps {
   label: string;
   active?: boolean;
   badge?: number;
+  badgeColor?: 'primary' | 'destructive';
   collapsed?: boolean;
 }
 
 // Memoized nav item to prevent unnecessary re-renders
-const NavItem = memo(function NavItem({ to, icon, label, active, badge, collapsed }: NavItemProps) {
+const NavItem = memo(function NavItem({ to, icon, label, active, badge, badgeColor = 'primary', collapsed }: NavItemProps) {
+  const badgeClass = badgeColor === 'destructive'
+    ? 'bg-destructive text-destructive-foreground text-xs h-5 min-w-5 flex items-center justify-center'
+    : 'bg-primary text-primary-foreground text-xs h-5 min-w-5 flex items-center justify-center';
   const content = (
     <Link
       to={to}
@@ -103,7 +109,7 @@ const NavItem = memo(function NavItem({ to, icon, label, active, badge, collapse
         {!collapsed && <span>{label}</span>}
       </div>
       {!collapsed && badge !== undefined && badge > 0 && (
-        <Badge variant="secondary" className="bg-primary text-primary-foreground text-xs h-5 min-w-5 flex items-center justify-center">
+        <Badge variant="secondary" className={badgeClass}>
           {badge > 99 ? '99+' : badge}
         </Badge>
       )}
@@ -117,7 +123,7 @@ const NavItem = memo(function NavItem({ to, icon, label, active, badge, collapse
         <TooltipContent side="right" className="flex items-center gap-2">
           {label}
           {badge !== undefined && badge > 0 && (
-            <Badge variant="secondary" className="bg-primary text-primary-foreground text-xs h-5 min-w-5 flex items-center justify-center">
+            <Badge variant="secondary" className={badgeClass}>
               {badge > 99 ? '99+' : badge}
             </Badge>
           )}
@@ -151,6 +157,7 @@ export function AdminSidebar() {
   const { signOut, user } = useAuth();
   const { canAccessPage, staffProfile } = useStaffProfile();
   const { counts } = useSidebarCounts();
+  const lpUnread = useLostPropertyUnreadCount();
   const currentPath = location.pathname;
   
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -318,6 +325,7 @@ export function AdminSidebar() {
               <P pageSlug="complaints" to="/complaints" icon={<AlertTriangle className="h-4 w-4" />} label="Complaints Dashboard" active={currentPath === '/complaints'} collapsed={isCollapsed} />
               <P pageSlug="live-chat" to="/live-chat" icon={<MessageSquare className="h-4 w-4" />} label="Live Chat" active={currentPath === '/live-chat'} collapsed={isCollapsed} />
               <P pageSlug="tickets" to="/tickets" icon={<Ticket className="h-4 w-4" />} label="Tickets" active={currentPath === '/tickets'} collapsed={isCollapsed} />
+              <P pageSlug="lost-property" to="/lost-property" icon={<PackageSearch className="h-4 w-4" />} label="Lost Property" active={currentPath === '/lost-property' || currentPath.startsWith('/lost-property/')} badge={lpUnread > 0 ? lpUnread : undefined} badgeColor="destructive" collapsed={isCollapsed} />
               <P pageSlug="categories" to="/categories" icon={<Grid3X3 className="h-4 w-4" />} label="Support Categories" active={currentPath === '/categories'} collapsed={isCollapsed} />
             </div>
           </div>
