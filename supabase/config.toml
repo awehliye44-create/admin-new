@@ -117,9 +117,6 @@ verify_jwt = false
 [functions.ops-run-detections]
 verify_jwt = false
 
-[functions.ingest-telemetry]
-verify_jwt = false
-
 [functions.auto-generate-statements]
 verify_jwt = false
 
