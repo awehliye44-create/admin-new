@@ -128,6 +128,7 @@ const NavItem = memo(function NavItem({ to, icon, label, active, badge, badgeCol
             </Badge>
           )}
         </TooltipContent>
+      </Tooltip>
     );
   }
 
