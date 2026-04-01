@@ -110,3 +110,24 @@ verify_jwt = false
 
 [functions.ops-ai-fix]
 verify_jwt = false
+
+[functions.ops-ai-summary]
+verify_jwt = false
+
+[functions.ops-run-detections]
+verify_jwt = false
+
+[functions.ingest-telemetry]
+verify_jwt = false
+
+[functions.auto-generate-statements]
+verify_jwt = false
+
+[functions.validate-scheduled-booking]
+verify_jwt = false
+
+[functions.lost-property-ai]
+verify_jwt = false
+
+[functions.driver-arrived]
+verify_jwt = false
