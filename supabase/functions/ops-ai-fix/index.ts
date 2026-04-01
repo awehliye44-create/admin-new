@@ -147,10 +147,11 @@ ${contextParts.join("\n")}`;
         if (attempt < 2) await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
       }
 
-      if (!aiResponse.ok) {
-        if (aiResponse.status === 429) return json({ error: "Rate limited. Try again shortly." }, 429);
-        if (aiResponse.status === 402) return json({ error: "AI credits exhausted." }, 402);
-        const errText = await aiResponse.text();
+      if (!aiResponse!.ok) {
+        if (aiResponse!.status === 429) return json({ error: "Rate limited. Try again shortly." }, 429);
+        if (aiResponse!.status === 402) return json({ error: "AI credits exhausted." }, 402);
+        if (aiResponse!.status >= 500) return json({ error: "AI Gateway temporarily unavailable. Please retry in a moment." }, 503);
+        const errText = await aiResponse!.text();
         return json({ error: "AI analysis failed", detail: errText }, 500);
       }
 
