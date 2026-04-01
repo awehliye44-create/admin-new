@@ -64,6 +64,7 @@ describe("useAuth Hook", () => {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+      single: vi.fn().mockResolvedValue({ data: null, error: null }),
     });
   });
 
@@ -83,6 +84,10 @@ describe("useAuth Hook", () => {
     mockSupabase.from.mockReturnValue({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: { role: "admin" },
+        error: null,
+      }),
       limit: vi.fn().mockResolvedValue({
         data: [{ role: "admin" }],
         error: null,
@@ -151,6 +156,10 @@ describe("useAuth Hook", () => {
     mockSupabase.from.mockReturnValue({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: { role: "admin" },
+        error: null,
+      }),
       limit: vi.fn().mockResolvedValue({
         data: [{ role: "admin" }],
         error: null,
@@ -179,6 +188,10 @@ describe("useAuth Hook", () => {
     mockSupabase.from.mockReturnValue({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: { role: "admin" },
+        error: null,
+      }),
       limit: vi.fn().mockResolvedValue({
         data: [{ role: "admin" }],
         error: null,
@@ -193,6 +206,10 @@ describe("useAuth Hook", () => {
     mockSupabase.from.mockReturnValue({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: null,
+        error: new Error("Network error"),
+      }),
       limit: vi.fn().mockResolvedValue({
         data: null,
         error: new Error("Network error"),
