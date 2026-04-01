@@ -36,6 +36,7 @@ Deno.serve(async (req) => {
       case "admin_close_case": return await adminCloseCase(req);
       case "admin_lock_chat": return await adminLockChat(req);
       case "admin_unlock_chat": return await adminUnlockChat(req);
+      case "admin_escalate_case": return await adminEscalateCase(req);
       case "admin_mark_viewed": return await adminMarkViewed(req);
       case "cleanup_photos": return await cleanupPhotos(req);
       case "expire_chats": return await expireChats(req);
@@ -680,6 +681,41 @@ async function adminUnlockChat(req: Request) {
 
   if (error) throw error;
   await insertSystemMessage(case_id, "Chat unlocked by support.");
+  return jsonResponse({ success: true });
+}
+
+// ==================== ADMIN: ESCALATE CASE ====================
+async function adminEscalateCase(req: Request) {
+  const admin = await requireAdmin(req);
+  if (admin instanceof Response) return admin;
+
+  const { case_id } = await req.json();
+  if (!case_id) return errorResp("case_id is required");
+
+  const sb = getServiceClient();
+  const { data: lpc } = await sb.from("lost_property_cases").select("chat_expires_at, status").eq("id", case_id).single();
+  if (!lpc) return errorResp("Case not found", 404);
+  if (lpc.status === "CLOSED") return errorResp("Cannot escalate a closed case");
+  if (lpc.status === "ESCALATED") return errorResp("Case is already escalated");
+
+  const extendedExpiry = new Date(Math.max(
+    new Date(lpc.chat_expires_at).getTime(),
+    Date.now() + 3 * 24 * 60 * 60 * 1000
+  ));
+
+  const { error } = await sb
+    .from("lost_property_cases")
+    .update({
+      status: "ESCALATED",
+      chat_enabled: true,
+      chat_locked_at: null,
+      chat_lock_reason: null,
+      chat_expires_at: extendedExpiry.toISOString(),
+    })
+    .eq("id", case_id);
+
+  if (error) throw error;
+  await insertSystemMessage(case_id, "Case escalated by support.");
   return jsonResponse({ success: true });
 }
 
