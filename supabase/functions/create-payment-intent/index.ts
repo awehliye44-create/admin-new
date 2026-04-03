@@ -115,15 +115,26 @@ serve(async (req) => {
       }
     }
 
-    // === Get customer's Stripe customer ID ===
+    // === Get customer and verify rider_status ===
     const { data: customer } = await supabase
       .from("customers")
-      .select("id, stripe_customer_id, first_name, last_name, phone")
+      .select("id, stripe_customer_id, first_name, last_name, phone, rider_status")
       .eq("id", customer_id)
       .single();
 
     if (!customer) {
       return errorResponse("Customer not found", 404, undefined, "VALIDATION_FAILED");
+    }
+
+    const riderStatus = (customer as any).rider_status || "active";
+    if (riderStatus !== "active") {
+      console.warn(`[create-payment-intent] Blocked: rider_status=${riderStatus} for customer ${customer_id}`);
+      return errorResponse(
+        `Booking blocked: rider account is ${riderStatus}`,
+        403,
+        undefined,
+        "RIDER_STATUS_BLOCKED"
+      );
     }
 
     // Create Stripe Customer if doesn't exist
