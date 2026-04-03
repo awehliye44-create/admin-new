@@ -53,9 +53,9 @@ Deno.serve(async (req) => {
           .select("*").eq("trip_id", alert.related_trip_id).maybeSingle();
         contextParts.push(`Trip finance: ${finance ? JSON.stringify(finance) : "MISSING"}`);
 
-        const { data: ledger } = await supabase.from("driver_ledger")
-          .select("entry_type, amount_pence").eq("trip_id", alert.related_trip_id);
-        contextParts.push(`Driver ledger entries: ${ledger?.length ? JSON.stringify(ledger) : "NONE"}`);
+        const { data: ledger } = await supabase.from("driver_wallet_ledger")
+          .select("type, amount_pence").eq("related_trip_id", alert.related_trip_id);
+        contextParts.push(`Driver wallet ledger entries: ${ledger?.length ? JSON.stringify(ledger) : "NONE"}`);
       }
 
       if (alert.related_driver_id) {

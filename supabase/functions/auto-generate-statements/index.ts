@@ -123,11 +123,11 @@ Deno.serve(async (req) => {
 
           if (runError) throw runError;
 
-          // Find drivers with ledger activity
+          // Find drivers with ledger activity from driver_wallet_ledger
           const { data: ledgerDrivers } = await supabase
-            .from("driver_ledger")
+            .from("driver_wallet_ledger")
             .select("driver_id")
-            .eq("currency_code", region.currency_code)
+            .eq("currency", region.currency_code)
             .gte("created_at", periodStart)
             .lte("created_at", periodEnd + "T23:59:59Z");
 
@@ -163,10 +163,10 @@ Deno.serve(async (req) => {
 
           for (const driverId of uniqueDriverIds) {
             const { data: entries } = await supabase
-              .from("driver_ledger")
-              .select("entry_type, amount_pence, trip_id")
+              .from("driver_wallet_ledger")
+              .select("type, amount_pence, related_trip_id")
               .eq("driver_id", driverId)
-              .eq("currency_code", region.currency_code)
+              .eq("currency", region.currency_code)
               .gte("created_at", periodStart)
               .lte("created_at", periodEnd + "T23:59:59Z");
 
@@ -176,16 +176,16 @@ Deno.serve(async (req) => {
 
             for (const e of entries || []) {
               const amt = e.amount_pence || 0;
-              switch (e.entry_type) {
-                case "TRIP_EARNING_NET": grossEarnings += amt; if (e.trip_id) completedTrips.add(e.trip_id); break;
-                case "COMPANY_COMMISSION": commission += Math.abs(amt); break;
+              switch (e.type) {
+                case "TRIP_EARNING_NET": grossEarnings += amt; if (e.related_trip_id) completedTrips.add(e.related_trip_id); break;
+                case "PLATFORM_COMMISSION": case "COMPANY_COMMISSION": commission += Math.abs(amt); break;
                 case "BONUS": case "INCENTIVE": bonuses += amt; break;
                 case "PENALTY": case "DEDUCTION": penalties += Math.abs(amt); break;
-                case "ADJUSTMENT": case "REFUND": adjustments += amt; break;
-                case "CASH_COLLECTION": case "CASH_COMMISSION_DEBT": cashCollected += Math.abs(amt); break;
+                case "ADJUSTMENT": case "REFUND_DEBIT": adjustments += amt; break;
+                case "CASH_TRIP_EARNING": case "CASH_COMMISSION_DEBT": cashCollected += Math.abs(amt); break;
                 case "NO_SHOW_EARNING": noShowTrips++; grossEarnings += amt; break;
                 case "LATE_CANCEL_EARNING": lateCancelTrips++; grossEarnings += amt; break;
-                case "TIP": grossEarnings += amt; break;
+                case "TIP_CREDIT": case "DRIVER_TIP_CREDIT": grossEarnings += amt; break;
               }
             }
 

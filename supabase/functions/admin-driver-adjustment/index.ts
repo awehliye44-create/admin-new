@@ -101,17 +101,17 @@ serve(async (req) => {
       });
     }
 
-    // Create ledger entry
+    // Create ledger entry in driver_wallet_ledger (single source of truth)
     const { data: ledgerEntry, error: ledgerError } = await supabase
-      .from('driver_ledger')
+      .from('driver_wallet_ledger')
       .insert({
         driver_id,
-        entry_type,
+        type: entry_type,
         amount_pence,
-        currency_code,
+        currency: currency_code,
         description: reason || `${entry_type} by admin`,
-        trip_id: trip_id || null,
-        reference_id: `admin_${user.id}_${Date.now()}`,
+        related_trip_id: trip_id || null,
+        stripe_transfer_id: `admin_${user.id}_${Date.now()}`,
       })
       .select()
       .single();
@@ -120,17 +120,17 @@ serve(async (req) => {
       throw ledgerError;
     }
 
-    // Get updated live wallet totals from ledger
+    // Get updated live wallet totals from driver_wallet_ledger
     const { data: walletLedgerEntries } = await supabase
-      .from('driver_ledger')
-      .select('entry_type, amount_pence')
+      .from('driver_wallet_ledger')
+      .select('type, amount_pence')
       .eq('driver_id', driver_id);
 
     return new Response(JSON.stringify({
       success: true,
       ledgerEntry: {
         id: ledgerEntry.id,
-        type: ledgerEntry.entry_type,
+        type: ledgerEntry.type,
         amount: ledgerEntry.amount_pence,
         description: ledgerEntry.description,
         createdAt: ledgerEntry.created_at,
@@ -138,15 +138,15 @@ serve(async (req) => {
       },
       wallet: {
         available: walletLedgerEntries?.reduce((sum, entry) => {
-          if (entry.entry_type === 'COMPANY_COMMISSION') return sum;
+          if (entry.type === 'PLATFORM_COMMISSION' || entry.type === 'CASH_TRIP_EARNING') return sum;
           return sum + (entry.amount_pence || 0);
         }, 0) || 0,
         debt: walletLedgerEntries?.reduce((sum, entry) => {
-          if (entry.entry_type !== 'CASH_COMMISSION_DEBT') return sum;
+          if (entry.type !== 'CASH_COMMISSION_DEBT') return sum;
           return sum + Math.abs(entry.amount_pence || 0);
         }, 0) || 0,
         earnings: walletLedgerEntries?.reduce((sum, entry) => {
-          if (entry.entry_type === 'COMPANY_COMMISSION') return sum;
+          if (entry.type === 'PLATFORM_COMMISSION' || entry.type === 'CASH_TRIP_EARNING') return sum;
           const amount = entry.amount_pence || 0;
           return amount > 0 ? sum + amount : sum;
         }, 0) || 0,

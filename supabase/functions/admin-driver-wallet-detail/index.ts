@@ -74,15 +74,15 @@ serve(async (req) => {
       });
     }
 
-    // Build live wallet totals from ledger (source of truth)
+    // Build live wallet totals from driver_wallet_ledger (source of truth)
     const { data: allLedgerEntriesForWallet } = await supabase
-      .from('driver_ledger')
-      .select('entry_type, amount_pence')
+      .from('driver_wallet_ledger')
+      .select('type, amount_pence')
       .eq('driver_id', driverId);
 
-    // Get ledger entries
+    // Get ledger entries (with period filter)
     let ledgerQuery = supabase
-      .from('driver_ledger')
+      .from('driver_wallet_ledger')
       .select('*')
       .eq('driver_id', driverId)
       .order('created_at', { ascending: false });
@@ -124,7 +124,7 @@ serve(async (req) => {
 
     ledgerEntries?.forEach(entry => {
       const amount = entry.amount_pence || 0;
-      switch (entry.entry_type) {
+      switch (entry.type) {
         case 'TRIP_EARNING_NET':
           periodSummary.earnings += amount;
           break;
@@ -134,6 +134,7 @@ serve(async (req) => {
         case 'WEEKLY_PAYOUT':
         case 'EARLY_CASHOUT':
         case 'MANUAL_PAYOUT':
+        case 'PAYOUT':
           periodSummary.payouts += Math.abs(amount);
           break;
         case 'ADJUSTMENT':
@@ -177,18 +178,18 @@ serve(async (req) => {
     const earlyCashoutFee = parseInt(settingsMap.early_cashout_fee_pence || '50');
     const globalPayoutsEnabled = settingsMap.payouts_enabled !== 'false';
 
-    // Exclude COMPANY_COMMISSION from wallet balance — it's platform revenue tracking, not driver funds
+    // Exclude PLATFORM_COMMISSION and CASH_TRIP_EARNING from wallet balance
     const available = allLedgerEntriesForWallet?.reduce((sum, entry) => {
-      if (entry.entry_type === 'COMPANY_COMMISSION') return sum;
+      if (entry.type === 'PLATFORM_COMMISSION' || entry.type === 'CASH_TRIP_EARNING') return sum;
       return sum + (entry.amount_pence || 0);
     }, 0) || 0;
     const earnings = allLedgerEntriesForWallet?.reduce((sum, entry) => {
-      if (entry.entry_type === 'COMPANY_COMMISSION') return sum;
+      if (entry.type === 'PLATFORM_COMMISSION' || entry.type === 'CASH_TRIP_EARNING') return sum;
       const amount = entry.amount_pence || 0;
       return amount > 0 ? sum + amount : sum;
     }, 0) || 0;
     const debt = allLedgerEntriesForWallet?.reduce((sum, entry) => {
-      if (entry.entry_type !== 'CASH_COMMISSION_DEBT') return sum;
+      if (entry.type !== 'CASH_COMMISSION_DEBT') return sum;
       return sum + Math.abs(entry.amount_pence || 0);
     }, 0) || 0;
 
@@ -217,12 +218,12 @@ serve(async (req) => {
       periodSummary,
       ledgerEntries: ledgerEntries?.map(e => ({
         id: e.id,
-        type: e.entry_type,
+        type: e.type,
         amount: e.amount_pence,
-        currency: e.currency_code,
+        currency: e.currency,
         description: e.description,
-        tripId: e.trip_id,
-        referenceId: e.reference_id,
+        tripId: e.related_trip_id,
+        referenceId: e.stripe_transfer_id,
         createdAt: e.created_at,
       })) || [],
       payoutHistory: payoutItems?.map(p => ({
