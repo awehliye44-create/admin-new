@@ -287,23 +287,13 @@ serve(async (req) => {
             tripUpdate.final_payout_pence = captureResult.final_driver_payout_pence;
             tripUpdate.wallet_balance_before = captureResult.wallet_balance_before;
             tripUpdate.wallet_balance_after = captureResult.wallet_balance_after;
-
-            financeRecord.stripe_processing_fee_pence = captureResult.stripe_fee_pence || 0;
-            financeRecord.stripe_application_fee_id = captureResult.stripe_application_fee_id;
-            financeRecord.debt_recovery_pence = captureResult.debt_recovery_pence || 0;
-            financeRecord.final_driver_payout_pence = captureResult.final_driver_payout_pence;
-            financeRecord.wallet_balance_after_pence = captureResult.wallet_balance_after;
-            financeRecord.settlement_status = 'settled';
-            financeRecord.settled_at = new Date().toISOString();
           } else {
             console.error(`[complete-trip] Capture failed:`, captureResult.error);
             tripUpdate.payment_status = 'capture_failed';
-            financeRecord.settlement_status = 'failed';
           }
         } catch (captureErr) {
           console.error(`[complete-trip] Capture invocation error:`, captureErr);
           tripUpdate.payment_status = 'capture_failed';
-          financeRecord.settlement_status = 'failed';
         }
       }
 
