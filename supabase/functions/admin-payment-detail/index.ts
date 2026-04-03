@@ -218,11 +218,11 @@ serve(async (req) => {
       commissionPercent = await getDriverCommissionPct(supabase, trip.drivers.id);
     }
 
-    // Get related ledger entries
+    // Get related ledger entries from driver_wallet_ledger
     const { data: ledgerEntries } = await supabase
-      .from('driver_ledger')
+      .from('driver_wallet_ledger')
       .select('*')
-      .eq('trip_id', tripId)
+      .eq('related_trip_id', tripId)
       .order('created_at', { ascending: false });
 
     // Calculate fare breakdown
