@@ -333,7 +333,7 @@ export function DriverDetailsDialog({
     }
   };
 
-  const updateDriverStatus = async (newStatus: string) => {
+  const updateDriverApprovalStatus = async (newStatus: string) => {
     if (!driver) return;
     
     setIsUpdating(true);
@@ -353,6 +353,43 @@ export function DriverDetailsDialog({
     } finally {
       setIsUpdating(false);
     }
+  };
+
+  const updateDriverOperationalStatus = async (newStatus: string) => {
+    if (!driver) return;
+    
+    setIsUpdating(true);
+    try {
+      const { error } = await supabase
+        .from('drivers')
+        .update({ driver_status: newStatus as any })
+        .eq('id', driver.id);
+
+      if (error) {
+        if (error.message?.includes('active trip')) {
+          toast.error('Cannot change status: driver has an active trip');
+        } else {
+          throw error;
+        }
+        return;
+      }
+
+      const updates: Partial<Driver> = { driver_status: newStatus };
+      if (newStatus !== 'active') (updates as any).is_online = false;
+      if (newStatus === 'deleted') updates.deleted_at = new Date().toISOString();
+      if (newStatus !== 'deleted') updates.deleted_at = null;
+
+      onDriverUpdate({ ...driver, ...updates } as Driver);
+
+      const labels: Record<string, string> = { active: 'enabled', disabled: 'disabled', deleted: 'deleted' };
+      toast.success(`Driver ${labels[newStatus] || newStatus} successfully`);
+    } catch (err) {
+      console.error('Error updating driver:', err);
+      toast.error('Failed to update driver status');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
   };
 
   const updatePetFriendly = async (value: boolean) => {
