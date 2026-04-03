@@ -248,12 +248,6 @@ serve(async (req) => {
       tripUpdate.debt_recovery_pence = 0;
       tripUpdate.final_payout_pence = 0;
 
-      financeRecord.debt_recovery_pence = 0;
-      financeRecord.final_driver_payout_pence = 0;
-      financeRecord.wallet_balance_after_pence = walletBefore - platform_commission;
-      financeRecord.settlement_status = 'settled';
-      financeRecord.settled_at = new Date().toISOString();
-
     } else {
       // === DIGITAL TRIP: Use Stripe Connect Destination Charges ===
       tripUpdate.payment_status = stripe_payment_intent_id ? 'pending_capture' : 'pending';
