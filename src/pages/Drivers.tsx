@@ -692,6 +692,12 @@ export default function Drivers() {
               <TabsTrigger value="rejected" className="gap-2">
                 Rejected <Badge variant="secondary" className="ml-1 bg-red-500/10 text-red-600">{statusCounts.rejected}</Badge>
               </TabsTrigger>
+              <TabsTrigger value="disabled" className="gap-2">
+                Disabled <Badge variant="secondary" className="ml-1 bg-orange-500/10 text-orange-600">{statusCounts.disabled}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="deleted" className="gap-2">
+                Deleted <Badge variant="secondary" className="ml-1 bg-red-500/10 text-red-600">{statusCounts.deleted}</Badge>
+              </TabsTrigger>
             </TabsList>
           </Tabs>
 
