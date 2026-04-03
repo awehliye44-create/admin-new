@@ -59,6 +59,21 @@ export interface LedgerEntry {
   created_at: string;
 }
 
+// Map driver_wallet_ledger columns to the LedgerEntry interface
+function mapWalletLedgerEntry(row: any): LedgerEntry {
+  return {
+    id: row.id,
+    driver_id: row.driver_id,
+    trip_id: row.related_trip_id || null,
+    entry_type: row.type,
+    amount_pence: row.amount_pence,
+    currency_code: row.currency || '',
+    description: row.description || null,
+    reference_id: null,
+    created_at: row.created_at,
+  };
+}
+
 // Format pence to currency string — Region currency is REQUIRED
 export function formatPence(pence: number, currencyCode: string = ''): string {
   const amount = pence / 100;
