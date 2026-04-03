@@ -586,6 +586,15 @@ export function DriverDetailsDialog({
                   <Badge className={getStatusColor(driver.approval_status)}>
                     {driver.approval_status}
                   </Badge>
+                  {driver.driver_status !== 'active' && (
+                    <Badge className={
+                      driver.driver_status === 'disabled'
+                        ? 'bg-orange-500/10 text-orange-600 border-orange-500/30'
+                        : 'bg-red-500/10 text-red-600 border-red-500/30'
+                    }>
+                      {driver.driver_status}
+                    </Badge>
+                  )}
                   <Badge
                     className={
                       driver.is_online
