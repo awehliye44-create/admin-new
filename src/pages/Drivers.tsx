@@ -280,7 +280,7 @@ export default function Drivers() {
     try {
       const { error } = await supabase
         .from('drivers')
-        .update({ driver_status: newStatus })
+        .update({ driver_status: newStatus as any })
         .eq('id', driverId);
 
       if (error) {
