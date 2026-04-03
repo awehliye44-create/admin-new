@@ -352,6 +352,9 @@ export default function Drivers() {
   }, [selectedRegionFilter]);
 
   const filteredDrivers = drivers.filter(driver => {
+    // Hide deleted drivers unless specifically filtered
+    if (statusFilter !== 'deleted' && driver.driver_status === 'deleted') return false;
+
     const matchesSearch = 
       driver.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       driver.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -359,7 +362,10 @@ export default function Drivers() {
       driver.phone.includes(searchQuery) ||
       driver.driver_code?.toLowerCase().includes(searchQuery.toLowerCase());
     
-    const matchesStatus = statusFilter === 'all' || driver.approval_status === statusFilter;
+    const matchesStatus = statusFilter === 'all' 
+      || statusFilter === 'disabled' ? driver.driver_status === 'disabled'
+      : statusFilter === 'deleted' ? driver.driver_status === 'deleted'
+      : driver.approval_status === statusFilter;
     
     // Region filter
     const matchesRegion = selectedRegionFilter === 'all' || driver.region_id === selectedRegionFilter;
@@ -371,11 +377,14 @@ export default function Drivers() {
     return matchesSearch && matchesStatus && matchesRegion && matchesServiceArea;
   });
 
+  const nonDeletedDrivers = drivers.filter(d => d.driver_status !== 'deleted');
   const statusCounts = {
-    all: drivers.length,
-    pending: drivers.filter(d => d.approval_status === 'pending').length,
-    approved: drivers.filter(d => d.approval_status === 'approved').length,
-    rejected: drivers.filter(d => d.approval_status === 'rejected').length,
+    all: nonDeletedDrivers.length,
+    pending: nonDeletedDrivers.filter(d => d.approval_status === 'pending').length,
+    approved: nonDeletedDrivers.filter(d => d.approval_status === 'approved' && d.driver_status === 'active').length,
+    rejected: nonDeletedDrivers.filter(d => d.approval_status === 'rejected').length,
+    disabled: drivers.filter(d => d.driver_status === 'disabled').length,
+    deleted: drivers.filter(d => d.driver_status === 'deleted').length,
   };
 
   const openDriverDetails = (driver: Driver) => {
