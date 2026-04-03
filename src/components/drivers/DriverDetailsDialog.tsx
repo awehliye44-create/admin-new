@@ -390,7 +390,6 @@ export function DriverDetailsDialog({
       setIsUpdating(false);
     }
   };
-  };
 
   const updatePetFriendly = async (value: boolean) => {
     if (!driver) return;
