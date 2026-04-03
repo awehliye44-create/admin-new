@@ -112,29 +112,29 @@ serve(async (req) => {
         // If trip has fare data and a driver, create ledger entry if not already exists
         if (trip.driver_id && trip.commission_pence && trip.commission_pence > 0) {
           const { data: existingEntry } = await supabase
-            .from('driver_ledger')
+            .from('driver_wallet_ledger')
             .select('id')
-            .eq('trip_id', trip_id)
+            .eq('related_trip_id', trip_id)
             .limit(1);
 
           if (!existingEntry || existingEntry.length === 0) {
             if (trip.payment_method === 'cash') {
-              await supabase.from('driver_ledger').insert({
+              await supabase.from('driver_wallet_ledger').insert({
                 driver_id: trip.driver_id,
-                trip_id: trip_id,
-                entry_type: 'CASH_COMMISSION_DEBT',
+                related_trip_id: trip_id,
+                type: 'CASH_COMMISSION_DEBT',
                 amount_pence: -trip.commission_pence,
-                currency_code,
+                currency: currency_code,
                 description: 'Commission owed from cash trip (admin confirmed)',
               });
             } else {
               const netPence = trip.driver_net_pence || (trip.gross_fare_pence || 0) - trip.commission_pence;
-              await supabase.from('driver_ledger').insert({
+              await supabase.from('driver_wallet_ledger').insert({
                 driver_id: trip.driver_id,
-                trip_id: trip_id,
-                entry_type: 'TRIP_EARNING_NET',
+                related_trip_id: trip_id,
+                type: 'TRIP_EARNING_NET',
                 amount_pence: netPence,
-                currency_code,
+                currency: currency_code,
                 description: 'Net earnings from trip (admin confirmed)',
               });
             }
