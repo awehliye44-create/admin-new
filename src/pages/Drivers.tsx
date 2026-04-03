@@ -328,6 +328,19 @@ export default function Drivers() {
     }
   };
 
+  const getDriverStatusColor = (status: string) => {
+    switch (status) {
+      case 'active':
+        return 'bg-green-500/10 text-green-600 hover:bg-green-500/20';
+      case 'disabled':
+        return 'bg-orange-500/10 text-orange-600 hover:bg-orange-500/20';
+      case 'deleted':
+        return 'bg-red-500/10 text-red-600 hover:bg-red-500/20';
+      default:
+        return '';
+    }
+  };
+
   // Get service areas for selected region filter
   const filteredServiceAreasForFilter = selectedRegionFilter === 'all'
     ? serviceAreas
