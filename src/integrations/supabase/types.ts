@@ -2995,9 +2995,11 @@ export type Database = {
           current_lat: number | null
           current_lng: number | null
           current_trip_id: string | null
+          deleted_at: string | null
           display_rating: number
           documents_approved: boolean
           driver_code: string | null
+          driver_status: Database["public"]["Enums"]["driver_status"]
           email: string
           first_name: string
           heading: number | null
@@ -3034,9 +3036,11 @@ export type Database = {
           current_lat?: number | null
           current_lng?: number | null
           current_trip_id?: string | null
+          deleted_at?: string | null
           display_rating?: number
           documents_approved?: boolean
           driver_code?: string | null
+          driver_status?: Database["public"]["Enums"]["driver_status"]
           email: string
           first_name: string
           heading?: number | null
@@ -3073,9 +3077,11 @@ export type Database = {
           current_lat?: number | null
           current_lng?: number | null
           current_trip_id?: string | null
+          deleted_at?: string | null
           display_rating?: number
           documents_approved?: boolean
           driver_code?: string | null
+          driver_status?: Database["public"]["Enums"]["driver_status"]
           email?: string
           first_name?: string
           heading?: number | null
@@ -9346,6 +9352,7 @@ export type Database = {
       app_scope: "customer" | "driver" | "corporate" | "shared" | "legal"
       app_user_role: "admin" | "driver" | "customer" | "corporate"
       content_status: "draft" | "published"
+      driver_status: "active" | "disabled" | "deleted"
       staff_role:
         | "super_admin"
         | "admin"
@@ -9495,6 +9502,7 @@ export const Constants = {
       app_scope: ["customer", "driver", "corporate", "shared", "legal"],
       app_user_role: ["admin", "driver", "customer", "corporate"],
       content_status: ["draft", "published"],
+      driver_status: ["active", "disabled", "deleted"],
       staff_role: [
         "super_admin",
         "admin",
