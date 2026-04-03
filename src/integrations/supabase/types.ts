@@ -3640,7 +3640,7 @@ export type Database = {
           completed_trips: number
           created_at: string
           currency_code: string
-          driver_id: string
+          driver_id: string | null
           finalized_at: string | null
           gross_earnings_pence: number
           id: string
@@ -3670,7 +3670,7 @@ export type Database = {
           completed_trips?: number
           created_at?: string
           currency_code: string
-          driver_id: string
+          driver_id?: string | null
           finalized_at?: string | null
           gross_earnings_pence?: number
           id?: string
@@ -3700,7 +3700,7 @@ export type Database = {
           completed_trips?: number
           created_at?: string
           currency_code?: string
-          driver_id?: string
+          driver_id?: string | null
           finalized_at?: string | null
           gross_earnings_pence?: number
           id?: string
@@ -3797,7 +3797,7 @@ export type Database = {
           created_at: string
           customer_confirmed: boolean | null
           customer_id: string
-          driver_id: string
+          driver_id: string | null
           driver_photos: string[] | null
           driver_responded_at: string | null
           found_item_photos: string[] | null
@@ -3832,7 +3832,7 @@ export type Database = {
           created_at?: string
           customer_confirmed?: boolean | null
           customer_id: string
-          driver_id: string
+          driver_id?: string | null
           driver_photos?: string[] | null
           driver_responded_at?: string | null
           found_item_photos?: string[] | null
@@ -3867,7 +3867,7 @@ export type Database = {
           created_at?: string
           customer_confirmed?: boolean | null
           customer_id?: string
-          driver_id?: string
+          driver_id?: string | null
           driver_photos?: string[] | null
           driver_responded_at?: string | null
           found_item_photos?: string[] | null
