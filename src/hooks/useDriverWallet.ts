@@ -199,7 +199,7 @@ export function useDriverFinancialSummary(driverId: string | null) {
   });
 }
 
-// Hook to fetch a driver's ledger entries
+// Hook to fetch a driver's ledger entries from driver_wallet_ledger (SSOT)
 export function useDriverLedger(driverId: string | null, limit: number = 50) {
   return useQuery({
     queryKey: ['driver-ledger', driverId, limit],
@@ -207,18 +207,18 @@ export function useDriverLedger(driverId: string | null, limit: number = 50) {
       if (!driverId) return [];
 
       const { data, error } = await supabase
-        .from('driver_ledger')
-        .select('*')
+        .from('driver_wallet_ledger')
+        .select('id, driver_id, related_trip_id, type, amount_pence, currency, description, created_at')
         .eq('driver_id', driverId)
         .order('created_at', { ascending: false })
         .limit(limit);
 
       if (error) {
-        console.error('Error fetching driver ledger:', error);
+        console.error('Error fetching driver wallet ledger:', error);
         throw error;
       }
 
-      return (data || []) as LedgerEntry[];
+      return (data || []).map(mapWalletLedgerEntry);
     },
     enabled: !!driverId
   });

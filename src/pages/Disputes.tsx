@@ -53,9 +53,9 @@ export default function Disputes() {
     queryKey: ['adjustments-ledger'],
     queryFn: async () => {
       const { data: ledger, error } = await supabase
-        .from('driver_ledger')
-        .select('id, driver_id, entry_type, amount_pence, currency_code, description, trip_id, reference_id, created_at')
-        .in('entry_type', ADJUSTMENT_TYPES)
+        .from('driver_wallet_ledger')
+        .select('id, driver_id, type, amount_pence, currency, description, related_trip_id, created_at')
+        .in('type', ADJUSTMENT_TYPES)
         .order('created_at', { ascending: false })
         .limit(200);
 

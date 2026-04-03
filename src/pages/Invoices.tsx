@@ -129,12 +129,12 @@ export default function Invoices() {
       const region = regions.find(r => r.id === params.regionId);
       if (!region?.currency_code) throw new Error("Region has no currency configured");
 
-      // Fetch driver financial data from driver_ledger filtered by region currency
+      // Fetch driver financial data from driver_wallet_ledger (SSOT)
       const { data: ledgerData, error: ledgerError } = await supabase
-        .from("driver_ledger")
-        .select("entry_type, amount_pence, currency_code, description, trip_id")
+        .from("driver_wallet_ledger")
+        .select("type, amount_pence, currency, description, related_trip_id")
         .eq("driver_id", params.driverId)
-        .eq("currency_code", region.currency_code)
+        .eq("currency", region.currency_code)
         .gte("created_at", params.periodStart)
         .lte("created_at", params.periodEnd + "T23:59:59Z");
 
@@ -146,35 +146,28 @@ export default function Invoices() {
 
       for (const entry of ledgerData || []) {
         const amt = entry.amount_pence || 0;
-        switch (entry.entry_type) {
+        switch (entry.type) {
           case "TRIP_EARNING_NET":
             grossEarnings += amt;
-            if (entry.trip_id) completedTrips.add(entry.trip_id);
+            if (entry.related_trip_id) completedTrips.add(entry.related_trip_id);
             break;
-          case "COMPANY_COMMISSION":
+          case "PLATFORM_COMMISSION":
             commission += Math.abs(amt);
             break;
-          case "BONUS": case "INCENTIVE":
+          case "BONUS":
             bonuses += amt;
             break;
-          case "PENALTY": case "DEDUCTION":
-            penalties += Math.abs(amt);
-            break;
-          case "ADJUSTMENT": case "REFUND":
+          case "ADJUSTMENT": case "REFUND_DEBIT":
             adjustments += amt;
             break;
-          case "CASH_COLLECTION": case "CASH_COMMISSION_DEBT":
+          case "CASH_COMMISSION_DEBT":
             cashCollected += Math.abs(amt);
             break;
-          case "NO_SHOW_EARNING":
-            noShowTrips++;
-            grossEarnings += amt;
+          case "CASH_TRIP_EARNING":
+            // Cash gross — count as a completed trip
+            if (entry.related_trip_id) completedTrips.add(entry.related_trip_id);
             break;
-          case "LATE_CANCEL_EARNING":
-            lateCancelTrips++;
-            grossEarnings += amt;
-            break;
-          case "TIP":
+          case "TIP_CREDIT": case "DRIVER_TIP_CREDIT":
             grossEarnings += amt;
             break;
         }
