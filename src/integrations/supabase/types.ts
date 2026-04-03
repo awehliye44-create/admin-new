@@ -1549,10 +1549,12 @@ export type Database = {
           active_trip_id: string | null
           created_at: string
           customer_code: string
+          deleted_at: string | null
           first_name: string
           id: string
           last_name: string
           phone: string | null
+          rider_status: string
           stripe_customer_id: string | null
           updated_at: string
           user_id: string
@@ -1561,10 +1563,12 @@ export type Database = {
           active_trip_id?: string | null
           created_at?: string
           customer_code: string
+          deleted_at?: string | null
           first_name: string
           id?: string
           last_name: string
           phone?: string | null
+          rider_status?: string
           stripe_customer_id?: string | null
           updated_at?: string
           user_id: string
@@ -1573,10 +1577,12 @@ export type Database = {
           active_trip_id?: string | null
           created_at?: string
           customer_code?: string
+          deleted_at?: string | null
           first_name?: string
           id?: string
           last_name?: string
           phone?: string | null
+          rider_status?: string
           stripe_customer_id?: string | null
           updated_at?: string
           user_id?: string
