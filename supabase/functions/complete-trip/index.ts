@@ -185,12 +185,12 @@ serve(async (req) => {
     };
 
     // === Calculate wallet balance ===
-    // IMPORTANT: Exclude COMPANY_COMMISSION from wallet balance — it is platform revenue, not driver funds
+    // IMPORTANT: Exclude PLATFORM_COMMISSION and CASH_TRIP_EARNING from wallet balance
     const { data: walletEntries } = await supabase
-      .from('driver_ledger')
+      .from('driver_wallet_ledger')
       .select('amount_pence')
       .eq('driver_id', driver_id)
-      .neq('entry_type', 'COMPANY_COMMISSION');
+      .not('type', 'in', '("PLATFORM_COMMISSION","CASH_TRIP_EARNING")');
     const walletBefore = walletEntries?.reduce((sum, e) => sum + (e.amount_pence || 0), 0) || 0;
 
     // === Build trip_finance record ===
