@@ -218,7 +218,6 @@ serve(async (req) => {
         console.error('[complete-trip] Ledger error:', ledgerError);
       } else {
         console.log(`[complete-trip] CASH_COMMISSION_DEBT: -${platform_commission}p`);
-        financeRecord.cash_commission_ledger_id = ledgerEntry?.id;
       }
 
       // Also record CASH_TRIP_EARNING (driver collected cash — reporting only)
