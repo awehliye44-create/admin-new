@@ -163,10 +163,10 @@ Deno.serve(async (req) => {
 
           for (const driverId of uniqueDriverIds) {
             const { data: entries } = await supabase
-              .from("driver_ledger")
-              .select("entry_type, amount_pence, trip_id")
+              .from("driver_wallet_ledger")
+              .select("type, amount_pence, related_trip_id")
               .eq("driver_id", driverId)
-              .eq("currency_code", region.currency_code)
+              .eq("currency", region.currency_code)
               .gte("created_at", periodStart)
               .lte("created_at", periodEnd + "T23:59:59Z");
 
