@@ -78,6 +78,10 @@ export default function Disputes() {
 
       return (ledger || []).map((l) => ({
         ...l,
+        // Remap wallet_ledger columns to legacy names used in the UI
+        entry_type: l.type,
+        currency_code: l.currency,
+        trip_id: l.related_trip_id,
         driver_name: driversMap[l.driver_id]?.name || 'Unknown',
         driver_code: driversMap[l.driver_id]?.code || null,
         driver_region_id: driversMap[l.driver_id]?.region_id || null,
