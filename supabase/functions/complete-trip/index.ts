@@ -297,18 +297,9 @@ serve(async (req) => {
         }
       }
 
-      financeRecord.stripe_payment_intent_id = stripe_payment_intent_id;
-      financeRecord.stripe_destination_account_id = driver?.stripe_account_id;
     }
 
-    // === Write trip_finance record ===
-    const { error: financeError } = await supabase
-      .from('trip_finance')
-      .insert(financeRecord);
-
-    if (financeError) {
-      console.error('[complete-trip] trip_finance insert error:', financeError);
-    }
+    // === trip_finance DEPRECATED — not written ===
 
     // === Update the trip ===
     const { error: updateError } = await supabase
