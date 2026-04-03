@@ -280,12 +280,8 @@ export default function Dashboard() {
       const { startDate, endDate, previousStartDate, previousEndDate } = dateRange;
 
       let tripsQ = supabase.from('trips')
-        .select('id, status, financial_outcome, gross_fare_pence, commission_pence, service_area_id')
+        .select('id, status, financial_outcome, service_area_id')
         .gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString()).limit(10000);
-      let prevQ = supabase.from('trips')
-        .select('id, gross_fare_pence, commission_pence')
-        .in('financial_outcome', ['COMPLETED', 'NO_SHOW', 'LATE_PASSENGER_CANCELLATION'])
-        .gte('created_at', previousStartDate.toISOString()).lt('created_at', previousEndDate.toISOString()).limit(10000);
 
       // Chart query range
       const timePeriod = period === 'custom' ? 'daily' : period;
@@ -302,26 +298,39 @@ export default function Dashboard() {
 
       if (selectedServiceArea !== 'all') {
         tripsQ = tripsQ.eq('service_area_id', selectedServiceArea);
-        prevQ = prevQ.eq('service_area_id', selectedServiceArea);
         chartQ = chartQ.eq('service_area_id', selectedServiceArea);
       }
 
-      // ALL 6 queries in parallel — ZERO waterfall
-      const [driversR, ridersR, tripsR, prevR, recentR, chartR] = await Promise.all([
+      // ALL queries in parallel — financial data from driver_financial_summary (ledger-derived, tier-based commission)
+      const [driversR, ridersR, tripsR, recentR, chartR, financialR] = await Promise.all([
         supabase.from('drivers').select('id, is_online, approval_status, current_lat, current_lng, heading, current_trip_id, first_name, last_name'),
         supabase.from('customers').select('id', { count: 'exact', head: true }),
-        tripsQ, prevQ,
+        tripsQ,
         supabase.from('trips')
           .select('id, passenger_name, pickup_address, dropoff_address, driver:drivers!trips_driver_id_fkey(first_name, last_name)')
           .order('created_at', { ascending: false }).limit(5),
         chartQ,
+        // Financial source of truth: driver_financial_summary (uses driver_ledger with tier-based commission)
+        supabase.from('driver_financial_summary')
+          .select('driver_id, gross_trip_total, company_commission_total, completed_trips, today_gross_earnings, today_trip_count, region_id'),
       ]);
 
       const allDrivers = driversR.data || [];
       const trips = tripsR.data || [];
-      const previousTrips = prevR.data || [];
-      const COUNTABLE = ['COMPLETED', 'NO_SHOW', 'LATE_PASSENGER_CANCELLATION'];
-      const financialTrips = trips.filter(t => COUNTABLE.includes(t.financial_outcome || '') || (t.status === 'completed' && !t.financial_outcome));
+      const financialSummaries = financialR.data || [];
+
+      // Financial stats from driver_financial_summary — the SINGLE source of truth
+      // Filter by region if a service area is selected
+      let filteredFinancial = financialSummaries;
+      if (selectedServiceArea !== 'all') {
+        const area = serviceAreas.find(sa => sa.id === selectedServiceArea);
+        if (area?.region_id) {
+          filteredFinancial = financialSummaries.filter(f => f.region_id === area.region_id);
+        }
+      }
+
+      const totalRevenue = filteredFinancial.reduce((sum, f) => sum + (Number(f.gross_trip_total) || 0), 0) / 100;
+      const commissionRevenue = filteredFinancial.reduce((sum, f) => sum + (Number(f.company_commission_total) || 0), 0) / 100;
 
       const s: Stats = {
         totalDrivers: allDrivers.length,
@@ -335,10 +344,12 @@ export default function Dashboard() {
         inProgressTrips: trips.filter(t => t.status === 'in_progress').length,
         completedTrips: trips.filter(t => t.status === 'completed').length,
         cancelledTrips: trips.filter(t => t.status === 'cancelled').length,
-        totalRevenue: financialTrips.reduce((sum, t) => sum + (Number(t.gross_fare_pence) || 0), 0) / 100,
-        commissionRevenue: financialTrips.reduce((sum, t) => sum + (Number(t.commission_pence) || 0), 0) / 100,
-        previousRevenue: previousTrips.reduce((sum, t) => sum + (Number(t.gross_fare_pence) || 0), 0) / 100,
-        previousCommission: previousTrips.reduce((sum, t) => sum + (Number(t.commission_pence) || 0), 0) / 100,
+        // Financial data from driver_financial_summary (tier-based commission, ledger-derived)
+        totalRevenue,
+        commissionRevenue,
+        // No period comparison available from summary view — show 0 change
+        previousRevenue: 0,
+        previousCommission: 0,
       };
 
       // Chart bucketing
@@ -368,19 +379,22 @@ export default function Dashboard() {
         }
       }
 
-      // Service area revenue breakdown
+      // Service area revenue breakdown — from driver_financial_summary (NOT trips table)
       let saRevenues: ServiceAreaRevenue[] = [];
       if (selectedServiceArea === 'all' && serviceAreas.length > 0) {
         saRevenues = serviceAreas.map(area => {
-          const at = financialTrips.filter(t => t.service_area_id === area.id);
-          return { name: area.name, revenue: at.reduce((sum, t) => sum + (Number(t.gross_fare_pence) || 0), 0) / 100, trips: at.length, commission: at.reduce((sum, t) => sum + (Number(t.commission_pence) || 0), 0) / 100, currency_code: area.region?.currency_code || '' };
+          const regionDrivers = financialSummaries.filter(f => f.region_id === area.region_id);
+          const revenue = regionDrivers.reduce((sum, f) => sum + (Number(f.gross_trip_total) || 0), 0) / 100;
+          const commission = regionDrivers.reduce((sum, f) => sum + (Number(f.company_commission_total) || 0), 0) / 100;
+          const tripCount = regionDrivers.reduce((sum, f) => sum + (Number(f.completed_trips) || 0), 0);
+          return { name: area.name, revenue, trips: tripCount, commission, currency_code: area.region?.currency_code || '' };
         }).filter(a => a.trips > 0).sort((a, b) => b.revenue - a.revenue);
       }
 
       return { stats: s, drivers: allDrivers as Driver[], recentTrips: (recentR.data || []) as RecentTrip[], bookingChartData: chartData, serviceAreaRevenues: saRevenues };
     },
-    staleTime: 30000, // 30s cache — instant on tab switch
-    refetchInterval: 60000, // auto-refresh every 60s
+    staleTime: 30000,
+    refetchInterval: 60000,
   });
 
   const stats = dashData?.stats || { totalDrivers: 0, onlineDrivers: 0, offlineDrivers: 0, pendingDrivers: 0, inactiveDrivers: 0, totalRiders: 0, totalTrips: 0, activeTrips: 0, inProgressTrips: 0, completedTrips: 0, cancelledTrips: 0, totalRevenue: 0, commissionRevenue: 0, previousRevenue: 0, previousCommission: 0 };
@@ -402,14 +416,6 @@ export default function Dashboard() {
     { name: 'Completed', value: stats.completedTrips, color: '#8B5CF6' },
     { name: 'Cancelled', value: stats.cancelledTrips, color: '#EF4444' },
   ];
-
-  const calculateChange = (current: number, previous: number) => {
-    if (previous === 0) return current > 0 ? 100 : 0;
-    return Math.round(((current - previous) / previous) * 100);
-  };
-
-  const revenueChange = calculateChange(stats.totalRevenue, stats.previousRevenue);
-  const commissionChange = calculateChange(stats.commissionRevenue, stats.previousCommission);
 
   // Resolve currency symbol — Region is the single source of truth for currency
   const selectedArea = serviceAreas.find(sa => sa.id === selectedServiceArea);
@@ -544,11 +550,8 @@ export default function Dashboard() {
             <div className="text-2xl font-bold">
               {currencySymbol}{isLoading ? '...' : stats.totalRevenue.toFixed(2)}
             </div>
-            <p className="text-xs">
-              <span className={revenueChange >= 0 ? 'text-green-500' : 'text-red-500'}>
-                {revenueChange >= 0 ? '+' : ''}{revenueChange}%
-              </span>
-              <span className="text-muted-foreground"> vs previous {period === 'daily' ? 'day' : period === 'weekly' ? 'week' : period === 'custom' ? 'period' : 'month'}</span>
+            <p className="text-xs text-muted-foreground">
+              From driver_financial_summary (ledger)
             </p>
           </CardContent>
         </Card>
@@ -581,11 +584,8 @@ export default function Dashboard() {
             <div className="text-2xl font-bold">
               {currencySymbol}{isLoading ? '...' : stats.commissionRevenue.toFixed(2)}
             </div>
-            <p className="text-xs">
-              <span className={commissionChange >= 0 ? 'text-green-500' : 'text-red-500'}>
-                {commissionChange >= 0 ? '+' : ''}{commissionChange}%
-              </span>
-              <span className="text-muted-foreground"> tier-based commission</span>
+            <p className="text-xs text-muted-foreground">
+              Tier-based (Bronze/Silver/Gold/Platinum/Diamond)
             </p>
           </CardContent>
         </Card>
