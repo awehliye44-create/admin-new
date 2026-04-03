@@ -12,11 +12,11 @@ const corsHeaders = {
 /**
  * repair-commissions
  *
- * Admin-only tool to repair completed trips that are missing:
- *   1. financial_outcome (should be 'COMPLETED')
- *   2. driver_ledger entries (CASH_COMMISSION_DEBT for cash trips)
- *   3. trip_finance records
- *   4. Incorrect currency_code (should match Region)
+ * DEPRECATED — This repair tool is no longer needed. All financial writes
+ * now go directly to driver_wallet_ledger in real-time via complete-trip,
+ * capture-trip-payment, handle-cash-trip-commission, and record-financial-outcome.
+ *
+ * Legacy admin-only tool that previously repaired completed trips missing:
  *   5. Incorrect commission amounts
  *
  * Modes:
