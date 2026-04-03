@@ -12,8 +12,8 @@ import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
  * ║  2. Bronze tier is the fallback for unassigned drivers          ║
  * ║  3. Formula: round(gross * pct / 100)                          ║
  * ║  4. commission + driver_net = gross (conservation law)          ║
- * ║  5. driver_ledger is the financial source of truth              ║
- * ║     (NOT the trips table or driver_wallet_ledger)               ║
+ * ║  5. driver_wallet_ledger is the financial source of truth      ║
+ * ║     (NOT the trips table or the deprecated driver_ledger)      ║
  * ║                                                                ║
  * ║  DO NOT hardcode rates. DO NOT bypass this module.             ║
  * ╚══════════════════════════════════════════════════════════════════╝

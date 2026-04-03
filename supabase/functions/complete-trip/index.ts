@@ -224,15 +224,15 @@ serve(async (req) => {
       tripUpdate.payment_status = 'collected_cash';
       tripUpdate.stripe_processing_fee_pence = 0;
 
-      // Create CASH_COMMISSION_DEBT ledger entry
+      // Create CASH_COMMISSION_DEBT ledger entry in driver_wallet_ledger (SSOT)
       const { data: ledgerEntry, error: ledgerError } = await supabase
-        .from('driver_ledger')
+        .from('driver_wallet_ledger')
         .insert({
           driver_id,
-          trip_id,
-          entry_type: 'CASH_COMMISSION_DEBT',
+          related_trip_id: trip_id,
+          type: 'CASH_COMMISSION_DEBT',
           amount_pence: -platform_commission,
-          currency_code,
+          currency: currency_code,
           description: `Commission owed from cash trip`,
         })
         .select('id')
@@ -245,17 +245,27 @@ serve(async (req) => {
         financeRecord.cash_commission_ledger_id = ledgerEntry?.id;
       }
 
-      // Record COMPANY_COMMISSION in ledger (platform revenue SSOT)
+      // Also record CASH_TRIP_EARNING (driver collected cash — reporting only)
+      await supabase.from('driver_wallet_ledger').insert({
+        driver_id,
+        related_trip_id: trip_id,
+        type: 'CASH_TRIP_EARNING',
+        amount_pence: commissionable_subtotal,
+        currency: currency_code,
+        description: `Cash trip gross fare collected`,
+      });
+
+      // Record PLATFORM_COMMISSION in ledger (platform revenue SSOT)
       if (platform_commission > 0) {
-        await supabase.from('driver_ledger').insert({
+        await supabase.from('driver_wallet_ledger').insert({
           driver_id,
-          trip_id,
-          entry_type: 'COMPANY_COMMISSION',
+          related_trip_id: trip_id,
+          type: 'PLATFORM_COMMISSION',
           amount_pence: platform_commission,
-          currency_code,
+          currency: currency_code,
           description: `Platform commission from cash trip`,
         });
-        console.log(`[complete-trip] COMPANY_COMMISSION: +${platform_commission}p`);
+        console.log(`[complete-trip] PLATFORM_COMMISSION: +${platform_commission}p`);
       }
 
       tripUpdate.wallet_balance_before = walletBefore;
