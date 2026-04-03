@@ -193,31 +193,7 @@ serve(async (req) => {
       .not('type', 'in', '("PLATFORM_COMMISSION","CASH_TRIP_EARNING")');
     const walletBefore = walletEntries?.reduce((sum, e) => sum + (e.amount_pence || 0), 0) || 0;
 
-    // === Build trip_finance record ===
-    const financeRecord: Record<string, unknown> = {
-      trip_id,
-      driver_id,
-      service_area_id: trip.service_area_id,
-      financial_status: 'recognized',
-      revenue_type: 'completed_trip_revenue',
-      is_financially_countable: true,
-      base_fare_pence: effectiveBaseFare,
-      pickup_waiting_charge_pence,
-      stop_waiting_charge_pence,
-      stop_modification_charge_pence,
-      destination_change_charge_pence,
-      extras_charge_pence,
-      tip_amount_pence,
-      commissionable_subtotal_pence: commissionable_subtotal,
-      commission_rate_pct: commissionPercentage,
-      platform_commission_pence: platform_commission,
-      driver_net_before_tip_pence: driver_net_before_tip,
-      driver_total_earnings_pence: driver_total_earnings,
-      final_trip_total_pence: final_trip_total,
-      payment_method,
-      currency_code,
-      wallet_balance_before_pence: walletBefore,
-    };
+    // === NOTE: trip_finance is DEPRECATED — all financial data lives in driver_wallet_ledger ===
 
     if (isCashPayment) {
       // === CASH TRIP ===
