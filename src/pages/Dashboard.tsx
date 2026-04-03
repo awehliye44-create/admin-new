@@ -592,11 +592,8 @@ export default function Dashboard() {
             <div className="text-2xl font-bold">
               {currencySymbol}{isLoading ? '...' : stats.commissionRevenue.toFixed(2)}
             </div>
-            <p className="text-xs">
-              <span className={commissionChange >= 0 ? 'text-green-500' : 'text-red-500'}>
-                {commissionChange >= 0 ? '+' : ''}{commissionChange}%
-              </span>
-              <span className="text-muted-foreground"> tier-based commission</span>
+            <p className="text-xs text-muted-foreground">
+              Tier-based (Bronze/Silver/Gold/Platinum/Diamond)
             </p>
           </CardContent>
         </Card>
