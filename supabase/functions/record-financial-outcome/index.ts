@@ -165,18 +165,17 @@ serve(async (req) => {
       settled_at: new Date().toISOString(),
     };
 
-    // Handle cash vs card ledger entries
+    // Handle cash vs card ledger entries — write to driver_wallet_ledger
     if (isCash) {
-      // Driver collected cash, owes commission to platform
       if (commission_pence > 0) {
         const { data: ledgerEntry } = await supabase
-          .from('driver_ledger')
+          .from('driver_wallet_ledger')
           .insert({
             driver_id,
-            trip_id,
-            entry_type: 'CASH_COMMISSION_DEBT',
+            related_trip_id: trip_id,
+            type: 'CASH_COMMISSION_DEBT',
             amount_pence: -commission_pence,
-            currency_code,
+            currency: currency_code,
             description: `Commission from ${outcome === 'NO_SHOW' ? 'no-show' : 'late cancellation'} fee (cash)`,
           })
           .select('id')
@@ -184,35 +183,45 @@ serve(async (req) => {
 
         financeRecord.cash_commission_ledger_id = ledgerEntry?.id;
       }
+
+      // Record CASH_TRIP_EARNING (reporting)
+      await supabase.from('driver_wallet_ledger').insert({
+        driver_id,
+        related_trip_id: trip_id,
+        type: 'CASH_TRIP_EARNING',
+        amount_pence: fee_pence,
+        currency: currency_code,
+        description: `Cash ${outcome === 'NO_SHOW' ? 'no-show' : 'late cancellation'} fee collected`,
+      });
+
       financeRecord.wallet_balance_after_pence = walletBefore - commission_pence;
     } else {
-      // Digital: credit driver earnings to ledger
       if (driver_net_pence > 0) {
         await supabase
-          .from('driver_ledger')
+          .from('driver_wallet_ledger')
           .insert({
             driver_id,
-            trip_id,
-            entry_type: 'TRIP_EARNING_NET',
+            related_trip_id: trip_id,
+            type: 'TRIP_EARNING_NET',
             amount_pence: driver_net_pence,
-            currency_code,
+            currency: currency_code,
             description: `Driver earnings from ${outcome === 'NO_SHOW' ? 'no-show' : 'late cancellation'} fee`,
           });
       }
       financeRecord.wallet_balance_after_pence = walletBefore + driver_net_pence;
     }
 
-    // Record COMPANY_COMMISSION in ledger (platform revenue SSOT)
+    // Record PLATFORM_COMMISSION in driver_wallet_ledger
     if (commission_pence > 0) {
-      await supabase.from('driver_ledger').insert({
+      await supabase.from('driver_wallet_ledger').insert({
         driver_id,
-        trip_id,
-        entry_type: 'COMPANY_COMMISSION',
+        related_trip_id: trip_id,
+        type: 'PLATFORM_COMMISSION',
         amount_pence: commission_pence,
-        currency_code,
+        currency: currency_code,
         description: `Platform commission from ${outcome === 'NO_SHOW' ? 'no-show' : 'late cancellation'} fee`,
       });
-      console.log(`[record-financial-outcome] COMPANY_COMMISSION: +${commission_pence}p`);
+      console.log(`[record-financial-outcome] PLATFORM_COMMISSION: +${commission_pence}p`);
     }
 
     // Insert trip_finance
