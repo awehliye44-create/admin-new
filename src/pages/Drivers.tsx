@@ -828,32 +828,63 @@ export default function Drivers() {
                             Assign Service Areas
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          {driver.approval_status !== 'approved' && (
+                          {/* Approval actions (onboarding) */}
+                          {driver.approval_status !== 'approved' && driver.driver_status !== 'deleted' && (
                             <DropdownMenuItem 
-                              onClick={() => updateDriverStatus(driver.id, 'approved')}
+                              onClick={() => updateDriverApprovalStatus(driver.id, 'approved')}
                               className="text-green-600"
                             >
                               <CheckCircle className="mr-2 h-4 w-4" />
                               Approve Driver
                             </DropdownMenuItem>
                           )}
-                          {driver.approval_status !== 'rejected' && (
+                          {driver.approval_status === 'pending' && (
                             <DropdownMenuItem 
-                              onClick={() => updateDriverStatus(driver.id, 'rejected')}
+                              onClick={() => updateDriverApprovalStatus(driver.id, 'rejected')}
                               className="text-red-600"
                             >
                               <XCircle className="mr-2 h-4 w-4" />
-                              Reject Driver
+                              Reject Application
                             </DropdownMenuItem>
                           )}
-                          {driver.approval_status !== 'pending' && (
-                            <DropdownMenuItem 
-                              onClick={() => updateDriverStatus(driver.id, 'pending')}
-                              className="text-yellow-600"
-                            >
-                              <Clock className="mr-2 h-4 w-4" />
-                              Set as Pending
-                            </DropdownMenuItem>
+                          {/* Operational actions (runtime control) */}
+                          {driver.approval_status === 'approved' && driver.driver_status === 'active' && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem 
+                                onClick={() => updateDriverOperationalStatus(driver.id, 'disabled')}
+                                className="text-orange-600"
+                              >
+                                <Ban className="mr-2 h-4 w-4" />
+                                Disable Driver
+                              </DropdownMenuItem>
+                              <DropdownMenuItem 
+                                onClick={() => updateDriverOperationalStatus(driver.id, 'deleted')}
+                                className="text-red-600"
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete Driver
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                          {driver.driver_status === 'disabled' && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem 
+                                onClick={() => updateDriverOperationalStatus(driver.id, 'active')}
+                                className="text-green-600"
+                              >
+                                <Power className="mr-2 h-4 w-4" />
+                                Enable Driver
+                              </DropdownMenuItem>
+                              <DropdownMenuItem 
+                                onClick={() => updateDriverOperationalStatus(driver.id, 'deleted')}
+                                className="text-red-600"
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete Driver
+                              </DropdownMenuItem>
+                            </>
                           )}
                         </DropdownMenuContent>
                       </DropdownMenu>
