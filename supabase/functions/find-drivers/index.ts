@@ -205,6 +205,7 @@ serve(async (req) => {
       .select('id, first_name, last_name, driver_code, is_online, current_lat, current_lng, rating, region_id, documents_approved')
       .eq('is_online', true)
       .eq('approval_status', 'approved')
+      .eq('driver_status', 'active')
       .eq('documents_approved', true)
       .in('id', eligibleDriverIds)
       .not('current_lat', 'is', null)
