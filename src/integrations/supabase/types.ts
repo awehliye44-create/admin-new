@@ -1549,9 +1549,9 @@ export type Database = {
           active_trip_id: string | null
           created_at: string
           customer_code: string
-          first_name: string | null
+          first_name: string
           id: string
-          last_name: string | null
+          last_name: string
           phone: string | null
           stripe_customer_id: string | null
           updated_at: string
@@ -1561,9 +1561,9 @@ export type Database = {
           active_trip_id?: string | null
           created_at?: string
           customer_code: string
-          first_name?: string | null
+          first_name: string
           id?: string
-          last_name?: string | null
+          last_name: string
           phone?: string | null
           stripe_customer_id?: string | null
           updated_at?: string
@@ -1573,9 +1573,9 @@ export type Database = {
           active_trip_id?: string | null
           created_at?: string
           customer_code?: string
-          first_name?: string | null
+          first_name?: string
           id?: string
-          last_name?: string | null
+          last_name?: string
           phone?: string | null
           stripe_customer_id?: string | null
           updated_at?: string
@@ -8947,6 +8947,7 @@ export type Database = {
       }
       find_or_create_customer: {
         Args: {
+          p_email?: string
           p_first_name?: string
           p_last_name?: string
           p_phone?: string
