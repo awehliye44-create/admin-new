@@ -771,12 +771,22 @@ export default function Drivers() {
                       </span>
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant="secondary"
-                        className={getStatusColor(driver.approval_status)}
-                      >
-                        {driver.approval_status}
-                      </Badge>
+                      <div className="flex items-center gap-1.5">
+                        <Badge
+                          variant="secondary"
+                          className={getStatusColor(driver.approval_status)}
+                        >
+                          {driver.approval_status}
+                        </Badge>
+                        {driver.driver_status !== 'active' && (
+                          <Badge
+                            variant="secondary"
+                            className={getDriverStatusColor(driver.driver_status)}
+                          >
+                            {driver.driver_status}
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Badge
