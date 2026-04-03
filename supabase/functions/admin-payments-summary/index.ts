@@ -66,7 +66,7 @@ serve(async (req) => {
     const totalCashGross = all.reduce((s, d) => s + Number(d.cash_gross_total || 0), 0);
 
     const response = {
-      // Unified financial summary (single source of truth)
+      // Unified financial summary (100% from driver_wallet_ledger)
       totalGrossFares,
       totalCommission,       // Platform commission (ONECAB revenue)
       totalDriverNet,        // Card net credits to drivers
@@ -75,16 +75,6 @@ serve(async (req) => {
       totalWalletBalance,
       totalCardGross,
       totalCashGross,
-
-      // Revenue breakdown by financial outcome type
-      revenueBreakdown: {
-        completed_trip_revenue: completedTripRevenue,
-        completed_trip_commission: completedTripCommission,
-        no_show_revenue: noShowRevenue,
-        no_show_commission: noShowCommission,
-        late_cancellation_revenue: lateCancelRevenue,
-        late_cancellation_commission: lateCancelCommission,
-      },
 
       // Legacy field (maps to totalCommission for backwards compat)
       totalRevenue: totalCommission,
