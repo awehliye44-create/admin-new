@@ -44,7 +44,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
-import { 
+import {
   Car, 
   Loader2, 
   Star, 
@@ -65,7 +65,11 @@ import {
   Map,
   Save,
   PawPrint,
-  Globe
+  Globe,
+  Ban,
+  Power,
+  Trash2,
+  ShieldAlert
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DriverDetailsDialog } from '@/components/drivers/DriverDetailsDialog';
