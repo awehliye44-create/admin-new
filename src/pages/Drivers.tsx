@@ -44,7 +44,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
-import { 
+import {
   Car, 
   Loader2, 
   Star, 
@@ -65,7 +65,11 @@ import {
   Map,
   Save,
   PawPrint,
-  Globe
+  Globe,
+  Ban,
+  Power,
+  Trash2,
+  ShieldAlert
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DriverDetailsDialog } from '@/components/drivers/DriverDetailsDialog';
@@ -79,6 +83,8 @@ interface Driver {
   phone: string;
   is_online: boolean;
   approval_status: string;
+  driver_status: string;
+  deleted_at: string | null;
   rating: number | null;
   total_trips: number | null;
   profile_photo_url: string | null;
@@ -87,6 +93,7 @@ interface Driver {
   is_pet_friendly?: boolean;
   documents_approved?: boolean;
   category_id?: string | null;
+  current_trip_id?: string | null;
 }
 
 interface DriverCategory {
@@ -241,7 +248,7 @@ export default function Drivers() {
     fetchDrivers();
   }, []);
 
-  const updateDriverStatus = async (driverId: string, newStatus: string) => {
+  const updateDriverApprovalStatus = async (driverId: string, newStatus: string) => {
     setIsUpdating(driverId);
     try {
       const { error } = await supabase
@@ -268,6 +275,46 @@ export default function Drivers() {
     }
   };
 
+  const updateDriverOperationalStatus = async (driverId: string, newStatus: string) => {
+    setIsUpdating(driverId);
+    try {
+      const { error } = await supabase
+        .from('drivers')
+        .update({ driver_status: newStatus as any })
+        .eq('id', driverId);
+
+      if (error) {
+        if (error.message?.includes('active trip')) {
+          toast.error('Cannot change status: driver has an active trip');
+        } else {
+          throw error;
+        }
+        return;
+      }
+
+      const updates: Partial<Driver> = { driver_status: newStatus };
+      if (newStatus !== 'active') updates.is_online = false;
+      if (newStatus === 'deleted') updates.deleted_at = new Date().toISOString();
+      if (newStatus !== 'deleted') updates.deleted_at = null;
+
+      setDrivers(prev => 
+        prev.map(d => d.id === driverId ? { ...d, ...updates } : d)
+      );
+
+      const labels: Record<string, string> = { active: 'enabled', disabled: 'disabled', deleted: 'deleted' };
+      toast.success(`Driver ${labels[newStatus] || newStatus} successfully`);
+      
+      if (selectedDriver?.id === driverId) {
+        setSelectedDriver(prev => prev ? { ...prev, ...updates } : null);
+      }
+    } catch (err) {
+      console.error('Error updating driver operational status:', err);
+      toast.error('Failed to update driver status');
+    } finally {
+      setIsUpdating(null);
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'approved':
@@ -275,6 +322,19 @@ export default function Drivers() {
       case 'pending':
         return 'bg-yellow-500/10 text-yellow-600 hover:bg-yellow-500/20';
       case 'rejected':
+        return 'bg-red-500/10 text-red-600 hover:bg-red-500/20';
+      default:
+        return '';
+    }
+  };
+
+  const getDriverStatusColor = (status: string) => {
+    switch (status) {
+      case 'active':
+        return 'bg-green-500/10 text-green-600 hover:bg-green-500/20';
+      case 'disabled':
+        return 'bg-orange-500/10 text-orange-600 hover:bg-orange-500/20';
+      case 'deleted':
         return 'bg-red-500/10 text-red-600 hover:bg-red-500/20';
       default:
         return '';
@@ -292,6 +352,9 @@ export default function Drivers() {
   }, [selectedRegionFilter]);
 
   const filteredDrivers = drivers.filter(driver => {
+    // Hide deleted drivers unless specifically filtered
+    if (statusFilter !== 'deleted' && driver.driver_status === 'deleted') return false;
+
     const matchesSearch = 
       driver.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       driver.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -299,7 +362,11 @@ export default function Drivers() {
       driver.phone.includes(searchQuery) ||
       driver.driver_code?.toLowerCase().includes(searchQuery.toLowerCase());
     
-    const matchesStatus = statusFilter === 'all' || driver.approval_status === statusFilter;
+    const matchesStatus = statusFilter === 'all' 
+      ? true
+      : statusFilter === 'disabled' ? driver.driver_status === 'disabled'
+      : statusFilter === 'deleted' ? driver.driver_status === 'deleted'
+      : driver.approval_status === statusFilter;
     
     // Region filter
     const matchesRegion = selectedRegionFilter === 'all' || driver.region_id === selectedRegionFilter;
@@ -311,11 +378,14 @@ export default function Drivers() {
     return matchesSearch && matchesStatus && matchesRegion && matchesServiceArea;
   });
 
+  const nonDeletedDrivers = drivers.filter(d => d.driver_status !== 'deleted');
   const statusCounts = {
-    all: drivers.length,
-    pending: drivers.filter(d => d.approval_status === 'pending').length,
-    approved: drivers.filter(d => d.approval_status === 'approved').length,
-    rejected: drivers.filter(d => d.approval_status === 'rejected').length,
+    all: nonDeletedDrivers.length,
+    pending: nonDeletedDrivers.filter(d => d.approval_status === 'pending').length,
+    approved: nonDeletedDrivers.filter(d => d.approval_status === 'approved' && d.driver_status === 'active').length,
+    rejected: nonDeletedDrivers.filter(d => d.approval_status === 'rejected').length,
+    disabled: drivers.filter(d => d.driver_status === 'disabled').length,
+    deleted: drivers.filter(d => d.driver_status === 'deleted').length,
   };
 
   const openDriverDetails = (driver: Driver) => {
@@ -623,6 +693,12 @@ export default function Drivers() {
               <TabsTrigger value="rejected" className="gap-2">
                 Rejected <Badge variant="secondary" className="ml-1 bg-red-500/10 text-red-600">{statusCounts.rejected}</Badge>
               </TabsTrigger>
+              <TabsTrigger value="disabled" className="gap-2">
+                Disabled <Badge variant="secondary" className="ml-1 bg-orange-500/10 text-orange-600">{statusCounts.disabled}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="deleted" className="gap-2">
+                Deleted <Badge variant="secondary" className="ml-1 bg-red-500/10 text-red-600">{statusCounts.deleted}</Badge>
+              </TabsTrigger>
             </TabsList>
           </Tabs>
 
@@ -696,12 +772,22 @@ export default function Drivers() {
                       </span>
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant="secondary"
-                        className={getStatusColor(driver.approval_status)}
-                      >
-                        {driver.approval_status}
-                      </Badge>
+                      <div className="flex items-center gap-1.5">
+                        <Badge
+                          variant="secondary"
+                          className={getStatusColor(driver.approval_status)}
+                        >
+                          {driver.approval_status}
+                        </Badge>
+                        {driver.driver_status !== 'active' && (
+                          <Badge
+                            variant="secondary"
+                            className={getDriverStatusColor(driver.driver_status)}
+                          >
+                            {driver.driver_status}
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Badge
@@ -781,32 +867,63 @@ export default function Drivers() {
                             Assign Service Areas
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          {driver.approval_status !== 'approved' && (
+                          {/* Approval actions (onboarding) */}
+                          {driver.approval_status !== 'approved' && driver.driver_status !== 'deleted' && (
                             <DropdownMenuItem 
-                              onClick={() => updateDriverStatus(driver.id, 'approved')}
+                              onClick={() => updateDriverApprovalStatus(driver.id, 'approved')}
                               className="text-green-600"
                             >
                               <CheckCircle className="mr-2 h-4 w-4" />
                               Approve Driver
                             </DropdownMenuItem>
                           )}
-                          {driver.approval_status !== 'rejected' && (
+                          {driver.approval_status === 'pending' && (
                             <DropdownMenuItem 
-                              onClick={() => updateDriverStatus(driver.id, 'rejected')}
+                              onClick={() => updateDriverApprovalStatus(driver.id, 'rejected')}
                               className="text-red-600"
                             >
                               <XCircle className="mr-2 h-4 w-4" />
-                              Reject Driver
+                              Reject Application
                             </DropdownMenuItem>
                           )}
-                          {driver.approval_status !== 'pending' && (
-                            <DropdownMenuItem 
-                              onClick={() => updateDriverStatus(driver.id, 'pending')}
-                              className="text-yellow-600"
-                            >
-                              <Clock className="mr-2 h-4 w-4" />
-                              Set as Pending
-                            </DropdownMenuItem>
+                          {/* Operational actions (runtime control) */}
+                          {driver.approval_status === 'approved' && driver.driver_status === 'active' && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem 
+                                onClick={() => updateDriverOperationalStatus(driver.id, 'disabled')}
+                                className="text-orange-600"
+                              >
+                                <Ban className="mr-2 h-4 w-4" />
+                                Disable Driver
+                              </DropdownMenuItem>
+                              <DropdownMenuItem 
+                                onClick={() => updateDriverOperationalStatus(driver.id, 'deleted')}
+                                className="text-red-600"
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete Driver
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                          {driver.driver_status === 'disabled' && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem 
+                                onClick={() => updateDriverOperationalStatus(driver.id, 'active')}
+                                className="text-green-600"
+                              >
+                                <Power className="mr-2 h-4 w-4" />
+                                Enable Driver
+                              </DropdownMenuItem>
+                              <DropdownMenuItem 
+                                onClick={() => updateDriverOperationalStatus(driver.id, 'deleted')}
+                                className="text-red-600"
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete Driver
+                              </DropdownMenuItem>
+                            </>
                           )}
                         </DropdownMenuContent>
                       </DropdownMenu>

@@ -39,7 +39,7 @@ import {
   Car, Star, Phone, Mail, MapPin, CheckCircle, XCircle, 
   Loader2, Pencil, Map, AlertTriangle, PawPrint, Users,
   Truck, Shield, CreditCard, ExternalLink, Send, Crown, Target,
-  FileText, Clock, AlertOctagon, FileWarning, Eye
+  FileText, Clock, AlertOctagon, FileWarning, Eye, Ban, Power, Trash2
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -52,6 +52,8 @@ interface Driver {
   phone: string;
   is_online: boolean;
   approval_status: string;
+  driver_status: string;
+  deleted_at: string | null;
   rating: number | null;
   total_trips: number | null;
   profile_photo_url: string | null;
@@ -62,6 +64,7 @@ interface Driver {
   payouts_enabled?: boolean;
   charges_enabled?: boolean;
   onboarding_complete?: boolean;
+  current_trip_id?: string | null;
 }
 
 interface Vehicle {
@@ -330,7 +333,7 @@ export function DriverDetailsDialog({
     }
   };
 
-  const updateDriverStatus = async (newStatus: string) => {
+  const updateDriverApprovalStatus = async (newStatus: string) => {
     if (!driver) return;
     
     setIsUpdating(true);
@@ -350,6 +353,43 @@ export function DriverDetailsDialog({
     } finally {
       setIsUpdating(false);
     }
+  };
+
+  const updateDriverOperationalStatus = async (newStatus: string) => {
+    if (!driver) return;
+    
+    setIsUpdating(true);
+    try {
+      const { error } = await supabase
+        .from('drivers')
+        .update({ driver_status: newStatus as any })
+        .eq('id', driver.id);
+
+      if (error) {
+        if (error.message?.includes('active trip')) {
+          toast.error('Cannot change status: driver has an active trip');
+        } else {
+          throw error;
+        }
+        return;
+      }
+
+      const updates: Partial<Driver> = { driver_status: newStatus };
+      if (newStatus !== 'active') (updates as any).is_online = false;
+      if (newStatus === 'deleted') updates.deleted_at = new Date().toISOString();
+      if (newStatus !== 'deleted') updates.deleted_at = null;
+
+      onDriverUpdate({ ...driver, ...updates } as Driver);
+
+      const labels: Record<string, string> = { active: 'enabled', disabled: 'disabled', deleted: 'deleted' };
+      toast.success(`Driver ${labels[newStatus] || newStatus} successfully`);
+    } catch (err) {
+      console.error('Error updating driver:', err);
+      toast.error('Failed to update driver status');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
   };
 
   const updatePetFriendly = async (value: boolean) => {
@@ -546,6 +586,15 @@ export function DriverDetailsDialog({
                   <Badge className={getStatusColor(driver.approval_status)}>
                     {driver.approval_status}
                   </Badge>
+                  {driver.driver_status !== 'active' && (
+                    <Badge className={
+                      driver.driver_status === 'disabled'
+                        ? 'bg-orange-500/10 text-orange-600 border-orange-500/30'
+                        : 'bg-red-500/10 text-red-600 border-red-500/30'
+                    }>
+                      {driver.driver_status}
+                    </Badge>
+                  )}
                   <Badge
                     className={
                       driver.is_online
@@ -694,9 +743,10 @@ export function DriverDetailsDialog({
                     <Map className="mr-2 h-4 w-4" />
                     Service Areas
                   </Button>
-                  {driver.approval_status !== 'approved' && (
+                  {/* Approval actions */}
+                  {driver.approval_status !== 'approved' && driver.driver_status !== 'deleted' && (
                     <Button 
-                      onClick={() => updateDriverStatus('approved')}
+                      onClick={() => updateDriverApprovalStatus('approved')}
                       disabled={isUpdating}
                       className="bg-green-600 hover:bg-green-700"
                     >
@@ -708,10 +758,10 @@ export function DriverDetailsDialog({
                       Approve
                     </Button>
                   )}
-                  {driver.approval_status !== 'rejected' && (
+                  {driver.approval_status === 'pending' && (
                     <Button 
                       variant="destructive"
-                      onClick={() => updateDriverStatus('rejected')}
+                      onClick={() => updateDriverApprovalStatus('rejected')}
                       disabled={isUpdating}
                     >
                       {isUpdating ? (
@@ -720,6 +770,38 @@ export function DriverDetailsDialog({
                         <XCircle className="mr-2 h-4 w-4" />
                       )}
                       Reject
+                    </Button>
+                  )}
+                  {/* Operational actions */}
+                  {driver.approval_status === 'approved' && driver.driver_status === 'active' && (
+                    <Button 
+                      variant="outline"
+                      onClick={() => updateDriverOperationalStatus('disabled')}
+                      disabled={isUpdating}
+                      className="text-orange-600 border-orange-300 hover:bg-orange-50"
+                    >
+                      <Ban className="mr-2 h-4 w-4" />
+                      Disable
+                    </Button>
+                  )}
+                  {driver.driver_status === 'disabled' && (
+                    <Button 
+                      onClick={() => updateDriverOperationalStatus('active')}
+                      disabled={isUpdating}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      <Power className="mr-2 h-4 w-4" />
+                      Enable
+                    </Button>
+                  )}
+                  {driver.driver_status !== 'deleted' && driver.approval_status === 'approved' && (
+                    <Button 
+                      variant="destructive"
+                      onClick={() => updateDriverOperationalStatus('deleted')}
+                      disabled={isUpdating}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete
                     </Button>
                   )}
                 </div>
