@@ -743,9 +743,10 @@ export function DriverDetailsDialog({
                     <Map className="mr-2 h-4 w-4" />
                     Service Areas
                   </Button>
-                  {driver.approval_status !== 'approved' && (
+                  {/* Approval actions */}
+                  {driver.approval_status !== 'approved' && driver.driver_status !== 'deleted' && (
                     <Button 
-                      onClick={() => updateDriverStatus('approved')}
+                      onClick={() => updateDriverApprovalStatus('approved')}
                       disabled={isUpdating}
                       className="bg-green-600 hover:bg-green-700"
                     >
@@ -757,10 +758,10 @@ export function DriverDetailsDialog({
                       Approve
                     </Button>
                   )}
-                  {driver.approval_status !== 'rejected' && (
+                  {driver.approval_status === 'pending' && (
                     <Button 
                       variant="destructive"
-                      onClick={() => updateDriverStatus('rejected')}
+                      onClick={() => updateDriverApprovalStatus('rejected')}
                       disabled={isUpdating}
                     >
                       {isUpdating ? (
@@ -769,6 +770,38 @@ export function DriverDetailsDialog({
                         <XCircle className="mr-2 h-4 w-4" />
                       )}
                       Reject
+                    </Button>
+                  )}
+                  {/* Operational actions */}
+                  {driver.approval_status === 'approved' && driver.driver_status === 'active' && (
+                    <Button 
+                      variant="outline"
+                      onClick={() => updateDriverOperationalStatus('disabled')}
+                      disabled={isUpdating}
+                      className="text-orange-600 border-orange-300 hover:bg-orange-50"
+                    >
+                      <Ban className="mr-2 h-4 w-4" />
+                      Disable
+                    </Button>
+                  )}
+                  {driver.driver_status === 'disabled' && (
+                    <Button 
+                      onClick={() => updateDriverOperationalStatus('active')}
+                      disabled={isUpdating}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      <Power className="mr-2 h-4 w-4" />
+                      Enable
+                    </Button>
+                  )}
+                  {driver.driver_status !== 'deleted' && driver.approval_status === 'approved' && (
+                    <Button 
+                      variant="destructive"
+                      onClick={() => updateDriverOperationalStatus('deleted')}
+                      disabled={isUpdating}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete
                     </Button>
                   )}
                 </div>
