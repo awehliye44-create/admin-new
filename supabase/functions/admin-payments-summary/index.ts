@@ -47,9 +47,10 @@ serve(async (req) => {
 
     // ── Unified aggregates from driver_financial_summary ──
     // Now includes revenue breakdown by type (completed, no_show, late_cancel)
+    // All financial data from driver_financial_summary (100% driver_wallet_ledger)
     const { data: summaryRows } = await supabase
       .from('driver_financial_summary')
-      .select('gross_trip_total, company_commission_total, card_net_credits, cash_commission_debits, total_payouts_sent, wallet_balance, completed_trips, today_gross_earnings, today_trip_count, card_gross_total, cash_gross_total, completed_trip_revenue, completed_trip_commission, no_show_revenue, no_show_commission, late_cancel_revenue, late_cancel_commission');
+      .select('gross_trip_total, company_commission_total, card_net_credits, cash_commission_debits, total_payouts_sent, wallet_balance, completed_trips, today_gross_earnings, today_trip_count, card_gross_total, cash_gross_total');
 
     const all = summaryRows || [];
     const totalGrossFares = all.reduce((s, d) => s + Number(d.gross_trip_total || 0), 0);
@@ -63,48 +64,6 @@ serve(async (req) => {
     const todayTrips = all.reduce((s, d) => s + Number(d.today_trip_count || 0), 0);
     const totalCardGross = all.reduce((s, d) => s + Number(d.card_gross_total || 0), 0);
     const totalCashGross = all.reduce((s, d) => s + Number(d.cash_gross_total || 0), 0);
-
-    // ── Trip-level stats that need direct queries ──
-    const { data: pendingData } = await supabase
-      .from('trips')
-      .select('authorised_amount_pence, gross_fare_pence')
-      .in('payment_status', ['authorized', 'pending', 'processing']);
-
-    const pendingAmount = pendingData?.reduce((sum, trip) => {
-      return sum + (trip.authorised_amount_pence || trip.gross_fare_pence || 0);
-    }, 0) || 0;
-
-    const { count: refundedTrips } = await supabase
-      .from('trips')
-      .select('id', { count: 'exact', head: true })
-      .gt('refund_amount_pence', 0);
-
-    const { data: refundData } = await supabase
-      .from('trips')
-      .select('refund_amount_pence')
-      .gt('refund_amount_pence', 0);
-
-    const totalRefunds = refundData?.reduce((sum, trip) => sum + (trip.refund_amount_pence || 0), 0) || 0;
-
-    // Payment method breakdown
-    const { data: methodBreakdown } = await supabase
-      .from('trips')
-      .select('payment_method')
-      .eq('status', 'completed');
-
-    const paymentMethods = methodBreakdown?.reduce((acc: Record<string, number>, trip) => {
-      const method = trip.payment_method || 'unknown';
-      acc[method] = (acc[method] || 0) + 1;
-      return acc;
-    }, {}) || {};
-
-    // Revenue breakdown by type
-    const completedTripRevenue = all.reduce((s, d) => s + Number(d.completed_trip_revenue || 0), 0);
-    const completedTripCommission = all.reduce((s, d) => s + Number(d.completed_trip_commission || 0), 0);
-    const noShowRevenue = all.reduce((s, d) => s + Number(d.no_show_revenue || 0), 0);
-    const noShowCommission = all.reduce((s, d) => s + Number(d.no_show_commission || 0), 0);
-    const lateCancelRevenue = all.reduce((s, d) => s + Number(d.late_cancel_revenue || 0), 0);
-    const lateCancelCommission = all.reduce((s, d) => s + Number(d.late_cancel_commission || 0), 0);
 
     const response = {
       // Unified financial summary (single source of truth)
