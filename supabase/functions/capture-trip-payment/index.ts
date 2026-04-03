@@ -14,6 +14,8 @@ const corsHeaders = {
  * Uses Stripe Connect DESTINATION CHARGES.
  * Currency is passed from complete-trip (already resolved from Region).
  * No hardcoded currency — currency_code is REQUIRED.
+ * 
+ * All financial entries go to driver_wallet_ledger (single source of truth).
  */
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -76,10 +78,10 @@ serve(async (req) => {
 
     // === IDEMPOTENCY: Check if already processed ===
     const { data: existingLedger } = await supabase
-      .from('driver_ledger')
+      .from('driver_wallet_ledger')
       .select('id')
-      .eq('trip_id', trip_id)
-      .eq('entry_type', 'TRIP_EARNING_NET')
+      .eq('related_trip_id', trip_id)
+      .eq('type', 'TRIP_EARNING_NET')
       .maybeSingle();
 
     if (existingLedger) {
@@ -93,12 +95,11 @@ serve(async (req) => {
     }
 
     // === Calculate wallet debt for debt recovery ===
-    // IMPORTANT: Exclude COMPANY_COMMISSION from wallet balance — it is platform revenue, not driver funds
     const { data: walletEntries } = await supabase
-      .from('driver_ledger')
+      .from('driver_wallet_ledger')
       .select('amount_pence')
       .eq('driver_id', driver_id)
-      .neq('entry_type', 'COMPANY_COMMISSION');
+      .not('type', 'in', '("PLATFORM_COMMISSION","CASH_TRIP_EARNING")');
 
     const walletBalanceBefore = walletEntries?.reduce((sum, e) => sum + (e.amount_pence || 0), 0) || 0;
     let debtRecoveryPence = 0;
@@ -183,17 +184,17 @@ serve(async (req) => {
       console.log(`[capture] No STRIPE_SECRET_KEY, operating in ledger-only mode`);
     }
 
-    // === LEDGER: Record driver earning ===
+    // === LEDGER: Record driver earning in driver_wallet_ledger ===
     const { error: ledgerError } = await supabase
-      .from('driver_ledger')
+      .from('driver_wallet_ledger')
       .insert({
         driver_id,
-        trip_id,
-        entry_type: 'TRIP_EARNING_NET',
+        related_trip_id: trip_id,
+        type: 'TRIP_EARNING_NET',
         amount_pence: driver_total_earnings_pence,
-        currency_code,
+        currency: currency_code,
         description: `Trip earnings (net + tip)`,
-        reference_id: payment_intent_id,
+        stripe_transfer_id: payment_intent_id,
       });
 
     if (ledgerError) {
@@ -202,32 +203,32 @@ serve(async (req) => {
       console.log(`[capture] Ledger TRIP_EARNING_NET: +${driver_total_earnings_pence}p`);
     }
 
-    // === LEDGER: Record company commission (platform revenue SSOT) ===
+    // === LEDGER: Record platform commission ===
     if (platform_commission_pence > 0) {
-      await supabase.from('driver_ledger').insert({
+      await supabase.from('driver_wallet_ledger').insert({
         driver_id,
-        trip_id,
-        entry_type: 'COMPANY_COMMISSION',
+        related_trip_id: trip_id,
+        type: 'PLATFORM_COMMISSION',
         amount_pence: platform_commission_pence,
-        currency_code,
+        currency: currency_code,
         description: `Platform commission from card trip`,
-        reference_id: payment_intent_id,
+        stripe_transfer_id: payment_intent_id,
       });
-      console.log(`[capture] COMPANY_COMMISSION: +${platform_commission_pence}p`);
+      console.log(`[capture] PLATFORM_COMMISSION: +${platform_commission_pence}p`);
     }
 
     // === LEDGER: Record debt recovery if applicable ===
     if (debtRecoveryPence > 0) {
       const { error: recoveryError } = await supabase
-        .from('driver_ledger')
+        .from('driver_wallet_ledger')
         .insert({
           driver_id,
-          trip_id,
-          entry_type: 'DEBT_RECOVERY',
+          related_trip_id: trip_id,
+          type: 'DEBT_RECOVERY',
           amount_pence: -debtRecoveryPence,
-          currency_code,
+          currency: currency_code,
           description: `Debt recovery from cash trip commission`,
-          reference_id: `recovery_${trip_id}`,
+          stripe_transfer_id: `recovery_${trip_id}`,
         });
 
       if (recoveryError) {

@@ -16,7 +16,7 @@ const corsHeaders = {
  * Creates a CASH_COMMISSION_DEBT ledger entry (debt owed to ONECAB).
  * 
  * Currency is resolved from Region (single source of truth).
- * Uses driver_ledger as single source of truth (NOT driver_wallet_ledger).
+ * Uses driver_wallet_ledger as single source of truth.
  */
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -94,18 +94,19 @@ serve(async (req) => {
       );
     }
 
-    // === IDEMPOTENCY: Check if already processed in driver_ledger ===
+    // === IDEMPOTENCY: Check if already processed in driver_wallet_ledger ===
     const { data: existingDebt } = await supabase
-      .from('driver_ledger')
+      .from('driver_wallet_ledger')
       .select('id, amount_pence')
-      .eq('trip_id', trip_id)
-      .eq('entry_type', 'CASH_COMMISSION_DEBT')
+      .eq('related_trip_id', trip_id)
+      .eq('type', 'CASH_COMMISSION_DEBT')
       .maybeSingle();
 
     if (existingDebt) {
       console.log(`[cash-commission] Already processed for trip ${trip_id}`);
       const { data: walletEntries } = await supabase
-        .from('driver_ledger').select('amount_pence').eq('driver_id', trip.driver_id).neq('entry_type', 'COMPANY_COMMISSION');
+        .from('driver_wallet_ledger').select('amount_pence').eq('driver_id', trip.driver_id)
+        .not('type', 'in', '("PLATFORM_COMMISSION","CASH_TRIP_EARNING")');
       const balance = walletEntries?.reduce((sum, e) => sum + (e.amount_pence || 0), 0) || 0;
 
       return new Response(JSON.stringify({
@@ -158,9 +159,9 @@ serve(async (req) => {
     console.log(`[cash-commission] Gross: ${grossFarePence}p, Tip: ${tipPence}p, Commission: ${commissionPence}p, Net: ${driverNetPence}p, DriverTotal: ${driverTotalEarningsPence}p, Currency: ${currency_code}`);
 
     // === Get wallet balance before ===
-    // IMPORTANT: Exclude COMPANY_COMMISSION from wallet balance — it is platform revenue, not driver funds
     const { data: walletBefore } = await supabase
-      .from('driver_ledger').select('amount_pence').eq('driver_id', trip.driver_id).neq('entry_type', 'COMPANY_COMMISSION');
+      .from('driver_wallet_ledger').select('amount_pence').eq('driver_id', trip.driver_id)
+      .not('type', 'in', '("PLATFORM_COMMISSION","CASH_TRIP_EARNING")');
     const balanceBefore = walletBefore?.reduce((sum, e) => sum + (e.amount_pence || 0), 0) || 0;
 
     // === Update trip with financial fields ===
@@ -177,16 +178,16 @@ serve(async (req) => {
       updated_at: new Date().toISOString(),
     }).eq('id', trip_id);
 
-    // === Create ledger entry in driver_ledger (single source of truth) ===
+    // === Create ledger entries in driver_wallet_ledger (single source of truth) ===
     if (commissionPence > 0) {
       const { error: ledgerError } = await supabase
-        .from('driver_ledger')
+        .from('driver_wallet_ledger')
         .insert({
           driver_id: trip.driver_id,
-          trip_id,
-          entry_type: 'CASH_COMMISSION_DEBT',
+          related_trip_id: trip_id,
+          type: 'CASH_COMMISSION_DEBT',
           amount_pence: -commissionPence,
-          currency_code,
+          currency: currency_code,
           description: 'Cash trip commission owed to platform',
         });
 
@@ -204,16 +205,26 @@ serve(async (req) => {
         console.log(`[cash-commission] CASH_COMMISSION_DEBT: -${commissionPence}p`);
       }
 
-      // Record COMPANY_COMMISSION (platform revenue SSOT)
-      await supabase.from('driver_ledger').insert({
+      // Record CASH_TRIP_EARNING (reporting — driver collected cash)
+      await supabase.from('driver_wallet_ledger').insert({
         driver_id: trip.driver_id,
-        trip_id,
-        entry_type: 'COMPANY_COMMISSION',
+        related_trip_id: trip_id,
+        type: 'CASH_TRIP_EARNING',
+        amount_pence: grossFarePence,
+        currency: currency_code,
+        description: `Cash trip gross fare collected`,
+      });
+
+      // Record PLATFORM_COMMISSION (platform revenue SSOT)
+      await supabase.from('driver_wallet_ledger').insert({
+        driver_id: trip.driver_id,
+        related_trip_id: trip_id,
+        type: 'PLATFORM_COMMISSION',
         amount_pence: commissionPence,
-        currency_code,
+        currency: currency_code,
         description: 'Platform commission from cash trip',
       });
-      console.log(`[cash-commission] COMPANY_COMMISSION: +${commissionPence}p`);
+      console.log(`[cash-commission] PLATFORM_COMMISSION: +${commissionPence}p`);
     }
 
     const balanceAfter = balanceBefore - commissionPence;

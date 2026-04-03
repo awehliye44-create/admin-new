@@ -13,6 +13,7 @@ const corsHeaders = {
  * 
  * Pays out from the driver's wallet balance to their Stripe connected account.
  * Currency is resolved from the driver's Region (single source of truth).
+ * All financial entries use driver_wallet_ledger exclusively.
  */
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -84,13 +85,12 @@ serve(async (req) => {
       });
     }
 
-    // === Calculate wallet balance from ledger (source of truth) ===
-    // IMPORTANT: Exclude COMPANY_COMMISSION from wallet balance — it is platform revenue, not driver funds
+    // === Calculate wallet balance from driver_wallet_ledger (source of truth) ===
     const { data: ledgerEntries } = await supabase
-      .from('driver_ledger')
+      .from('driver_wallet_ledger')
       .select('amount_pence')
       .eq('driver_id', driver_id)
-      .neq('entry_type', 'COMPANY_COMMISSION');
+      .not('type', 'in', '("PLATFORM_COMMISSION","CASH_TRIP_EARNING")');
 
     const available = ledgerEntries?.reduce((sum, e) => sum + (e.amount_pence || 0), 0) || 0;
     const payoutAmount = amount_pence || available;
@@ -200,14 +200,15 @@ serve(async (req) => {
       const ledgerType = kind === 'EARLY_CASHOUT' ? 'EARLY_CASHOUT' : 'PAYOUT';
 
       const { data: ledgerEntry, error: ledgerError } = await supabase
-        .from('driver_ledger')
+        .from('driver_wallet_ledger')
         .insert({
           driver_id,
-          entry_type: ledgerType,
+          type: ledgerType,
           amount_pence: -payoutAmount,
-          currency_code,
+          currency: currency_code,
           description: `${kind} payout`,
-          reference_id: stripeTransferId,
+          stripe_transfer_id: stripeTransferId,
+          stripe_payout_id: stripePayoutId,
         })
         .select().single();
 
