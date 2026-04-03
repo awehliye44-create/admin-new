@@ -417,14 +417,6 @@ export default function Dashboard() {
     { name: 'Cancelled', value: stats.cancelledTrips, color: '#EF4444' },
   ];
 
-  const calculateChange = (current: number, previous: number) => {
-    if (previous === 0) return current > 0 ? 100 : 0;
-    return Math.round(((current - previous) / previous) * 100);
-  };
-
-  const revenueChange = calculateChange(stats.totalRevenue, stats.previousRevenue);
-  const commissionChange = calculateChange(stats.commissionRevenue, stats.previousCommission);
-
   // Resolve currency symbol — Region is the single source of truth for currency
   const selectedArea = serviceAreas.find(sa => sa.id === selectedServiceArea);
   const activeCurrencyCode = selectedArea?.region?.currency_code || (serviceAreas[0]?.region?.currency_code) || '';
