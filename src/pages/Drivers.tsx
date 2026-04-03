@@ -83,6 +83,8 @@ interface Driver {
   phone: string;
   is_online: boolean;
   approval_status: string;
+  driver_status: string;
+  deleted_at: string | null;
   rating: number | null;
   total_trips: number | null;
   profile_photo_url: string | null;
@@ -91,6 +93,7 @@ interface Driver {
   is_pet_friendly?: boolean;
   documents_approved?: boolean;
   category_id?: string | null;
+  current_trip_id?: string | null;
 }
 
 interface DriverCategory {
