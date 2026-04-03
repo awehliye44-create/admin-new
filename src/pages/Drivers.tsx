@@ -248,7 +248,7 @@ export default function Drivers() {
     fetchDrivers();
   }, []);
 
-  const updateDriverStatus = async (driverId: string, newStatus: string) => {
+  const updateDriverApprovalStatus = async (driverId: string, newStatus: string) => {
     setIsUpdating(driverId);
     try {
       const { error } = await supabase
@@ -269,6 +269,46 @@ export default function Drivers() {
       }
     } catch (err) {
       console.error('Error updating driver status:', err);
+      toast.error('Failed to update driver status');
+    } finally {
+      setIsUpdating(null);
+    }
+  };
+
+  const updateDriverOperationalStatus = async (driverId: string, newStatus: string) => {
+    setIsUpdating(driverId);
+    try {
+      const { error } = await supabase
+        .from('drivers')
+        .update({ driver_status: newStatus })
+        .eq('id', driverId);
+
+      if (error) {
+        if (error.message?.includes('active trip')) {
+          toast.error('Cannot change status: driver has an active trip');
+        } else {
+          throw error;
+        }
+        return;
+      }
+
+      const updates: Partial<Driver> = { driver_status: newStatus };
+      if (newStatus !== 'active') updates.is_online = false;
+      if (newStatus === 'deleted') updates.deleted_at = new Date().toISOString();
+      if (newStatus !== 'deleted') updates.deleted_at = null;
+
+      setDrivers(prev => 
+        prev.map(d => d.id === driverId ? { ...d, ...updates } : d)
+      );
+
+      const labels: Record<string, string> = { active: 'enabled', disabled: 'disabled', deleted: 'deleted' };
+      toast.success(`Driver ${labels[newStatus] || newStatus} successfully`);
+      
+      if (selectedDriver?.id === driverId) {
+        setSelectedDriver(prev => prev ? { ...prev, ...updates } : null);
+      }
+    } catch (err) {
+      console.error('Error updating driver operational status:', err);
       toast.error('Failed to update driver status');
     } finally {
       setIsUpdating(null);
