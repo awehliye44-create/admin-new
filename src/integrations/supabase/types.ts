@@ -1155,7 +1155,7 @@ export type Database = {
           category: string | null
           corporate_account_id: string
           created_at: string | null
-          created_by: string
+          created_by: string | null
           id: string
           message: string
           priority: string | null
@@ -1170,7 +1170,7 @@ export type Database = {
           category?: string | null
           corporate_account_id: string
           created_at?: string | null
-          created_by: string
+          created_by?: string | null
           id?: string
           message: string
           priority?: string | null
@@ -1185,7 +1185,7 @@ export type Database = {
           category?: string | null
           corporate_account_id?: string
           created_at?: string | null
-          created_by?: string
+          created_by?: string | null
           id?: string
           message?: string
           priority?: string | null
@@ -1211,7 +1211,7 @@ export type Database = {
           created_at: string | null
           id: string
           message: string
-          sender_id: string
+          sender_id: string | null
           sender_type: string
           ticket_id: string
         }
@@ -1220,7 +1220,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           message: string
-          sender_id: string
+          sender_id?: string | null
           sender_type: string
           ticket_id: string
         }
@@ -1229,7 +1229,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           message?: string
-          sender_id?: string
+          sender_id?: string | null
           sender_type?: string
           ticket_id?: string
         }
