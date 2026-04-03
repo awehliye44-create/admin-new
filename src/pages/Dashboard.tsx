@@ -558,11 +558,8 @@ export default function Dashboard() {
             <div className="text-2xl font-bold">
               {currencySymbol}{isLoading ? '...' : stats.totalRevenue.toFixed(2)}
             </div>
-            <p className="text-xs">
-              <span className={revenueChange >= 0 ? 'text-green-500' : 'text-red-500'}>
-                {revenueChange >= 0 ? '+' : ''}{revenueChange}%
-              </span>
-              <span className="text-muted-foreground"> vs previous {period === 'daily' ? 'day' : period === 'weekly' ? 'week' : period === 'custom' ? 'period' : 'month'}</span>
+            <p className="text-xs text-muted-foreground">
+              From driver_financial_summary (ledger)
             </p>
           </CardContent>
         </Card>
