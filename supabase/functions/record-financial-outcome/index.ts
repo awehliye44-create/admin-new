@@ -201,8 +201,6 @@ serve(async (req) => {
         driver_net_pence,
         revenue_type,
         currency_code,
-        wallet_balance_before: walletBefore,
-        wallet_balance_after: isCash ? walletBefore - commission_pence : walletBefore + driver_net_pence,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
