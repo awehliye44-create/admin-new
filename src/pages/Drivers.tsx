@@ -363,7 +363,8 @@ export default function Drivers() {
       driver.driver_code?.toLowerCase().includes(searchQuery.toLowerCase());
     
     const matchesStatus = statusFilter === 'all' 
-      || statusFilter === 'disabled' ? driver.driver_status === 'disabled'
+      ? true
+      : statusFilter === 'disabled' ? driver.driver_status === 'disabled'
       : statusFilter === 'deleted' ? driver.driver_status === 'deleted'
       : driver.approval_status === statusFilter;
     
