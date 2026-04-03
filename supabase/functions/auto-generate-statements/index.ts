@@ -123,11 +123,11 @@ Deno.serve(async (req) => {
 
           if (runError) throw runError;
 
-          // Find drivers with ledger activity
+          // Find drivers with ledger activity from driver_wallet_ledger
           const { data: ledgerDrivers } = await supabase
-            .from("driver_ledger")
+            .from("driver_wallet_ledger")
             .select("driver_id")
-            .eq("currency_code", region.currency_code)
+            .eq("currency", region.currency_code)
             .gte("created_at", periodStart)
             .lte("created_at", periodEnd + "T23:59:59Z");
 
