@@ -84,14 +84,12 @@ serve(async (req) => {
     }
 
     // Idempotency: check BOTH trip status AND ledger entries
-    // This prevents data gaps where trip was updated but ledger entries failed
     if (trip.financial_outcome === outcome) {
-      // Trip already marked — verify ledger entries exist too
       const { data: existingLedger } = await supabase
-        .from('driver_ledger')
+        .from('driver_wallet_ledger')
         .select('id')
-        .eq('trip_id', trip_id)
-        .in('entry_type', ['CASH_COMMISSION_DEBT', 'TRIP_EARNING_NET', 'COMPANY_COMMISSION'])
+        .eq('related_trip_id', trip_id)
+        .in('type', ['CASH_COMMISSION_DEBT', 'TRIP_EARNING_NET', 'PLATFORM_COMMISSION'])
         .limit(1);
 
       if (existingLedger && existingLedger.length > 0) {
@@ -100,7 +98,6 @@ serve(async (req) => {
           { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      // Trip marked but ledger missing — fall through to create ledger entries
       console.warn(`[record-financial-outcome] Trip ${trip_id} has outcome=${outcome} but missing ledger entries — repairing`);
     }
 
