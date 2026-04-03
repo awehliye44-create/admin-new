@@ -49,9 +49,7 @@ Deno.serve(async (req) => {
           .eq("id", alert.related_trip_id).single();
         if (trip) contextParts.push(`Trip: ${JSON.stringify(trip)}`);
 
-        const { data: finance } = await supabase.from("trip_finance")
-          .select("*").eq("trip_id", alert.related_trip_id).maybeSingle();
-        contextParts.push(`Trip finance: ${finance ? JSON.stringify(finance) : "MISSING"}`);
+        // trip_finance is DEPRECATED — wallet ledger is checked below
 
         const { data: ledger } = await supabase.from("driver_wallet_ledger")
           .select("type, amount_pence").eq("related_trip_id", alert.related_trip_id);

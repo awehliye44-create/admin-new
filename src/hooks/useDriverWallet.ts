@@ -59,6 +59,21 @@ export interface LedgerEntry {
   created_at: string;
 }
 
+// Map driver_wallet_ledger columns to the LedgerEntry interface
+function mapWalletLedgerEntry(row: any): LedgerEntry {
+  return {
+    id: row.id,
+    driver_id: row.driver_id,
+    trip_id: row.related_trip_id || null,
+    entry_type: row.type,
+    amount_pence: row.amount_pence,
+    currency_code: row.currency || '',
+    description: row.description || null,
+    reference_id: null,
+    created_at: row.created_at,
+  };
+}
+
 // Format pence to currency string — Region currency is REQUIRED
 export function formatPence(pence: number, currencyCode: string = ''): string {
   const amount = pence / 100;
@@ -184,7 +199,7 @@ export function useDriverFinancialSummary(driverId: string | null) {
   });
 }
 
-// Hook to fetch a driver's ledger entries
+// Hook to fetch a driver's ledger entries from driver_wallet_ledger (SSOT)
 export function useDriverLedger(driverId: string | null, limit: number = 50) {
   return useQuery({
     queryKey: ['driver-ledger', driverId, limit],
@@ -192,18 +207,18 @@ export function useDriverLedger(driverId: string | null, limit: number = 50) {
       if (!driverId) return [];
 
       const { data, error } = await supabase
-        .from('driver_ledger')
-        .select('*')
+        .from('driver_wallet_ledger')
+        .select('id, driver_id, related_trip_id, type, amount_pence, currency, description, created_at')
         .eq('driver_id', driverId)
         .order('created_at', { ascending: false })
         .limit(limit);
 
       if (error) {
-        console.error('Error fetching driver ledger:', error);
+        console.error('Error fetching driver wallet ledger:', error);
         throw error;
       }
 
-      return (data || []) as LedgerEntry[];
+      return (data || []).map(mapWalletLedgerEntry);
     },
     enabled: !!driverId
   });

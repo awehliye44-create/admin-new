@@ -12,21 +12,13 @@ const corsHeaders = {
 /**
  * repair-commissions
  *
- * DEPRECATED — This repair tool is no longer needed. All financial writes
- * now go directly to driver_wallet_ledger in real-time via complete-trip,
- * capture-trip-payment, handle-cash-trip-commission, and record-financial-outcome.
- *
- * Legacy admin-only tool that previously repaired completed trips missing:
- *   5. Incorrect commission amounts
+ * Admin-only tool that audits and repairs completed trips.
+ * Writes ONLY to driver_wallet_ledger (SSOT).
+ * Does NOT touch driver_ledger or trip_finance (both deprecated).
  *
  * Modes:
  *   dry_run: true  → preview corrections without writing
- *   dry_run: false → apply corrections and create missing records
- *
- * Optional filters:
- *   driver_id   — limit to a single driver
- *   since       — ISO date, only trips completed on or after
- *   until       — ISO date, only trips completed before
+ *   dry_run: false → apply corrections
  */
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -47,7 +39,6 @@ serve(async (req) => {
     }
 
     const token = authHeader.replace('Bearer ', '');
-    // Check if using service role key (for server-to-server calls)
     const isServiceRole = token === supabaseServiceKey;
 
     if (!isServiceRole) {
@@ -58,7 +49,6 @@ serve(async (req) => {
         });
       }
 
-      // Check admin role via user_roles table (NOT profiles — prevents privilege escalation)
       const { data: roleData } = await supabase
         .from('user_roles').select('role')
         .eq('user_id', user.id).eq('role', 'admin').maybeSingle();
@@ -99,15 +89,12 @@ serve(async (req) => {
       });
     }
 
-    // Cache commission rates per driver
     const commissionCache: Record<string, { commission_pct: number }> = {};
-    // Cache resolved currencies per trip's service_area
     const currencyCache: Record<string, string> = {};
 
     const corrections: Array<Record<string, unknown>> = [];
     let totalDelta = 0;
-    let ledgerCreated = 0;
-    let financeCreated = 0;
+    let walletLedgerCreated = 0;
     let currencyFixed = 0;
     let outcomeFixed = 0;
 
@@ -160,8 +147,6 @@ serve(async (req) => {
         tipAmountPence: tipPence,
       });
       const correctNet = accounting.driverNetBeforeTipPence;
-      const correctDriverTotal = accounting.driverTotalEarningsPence;
-      const correctFinalTripTotal = accounting.finalTripTotalPence;
       const oldCommission = trip.commission_pence || 0;
       const oldDriverNet = trip.driver_net_pence || 0;
       const commissionDelta = correctCommission - oldCommission;
@@ -169,26 +154,26 @@ serve(async (req) => {
       if (commissionDelta !== 0) issues.push(`commission: ${oldCommission} → ${correctCommission}`);
       if (oldDriverNet !== correctNet) issues.push(`driver_net: ${oldDriverNet} → ${correctNet}`);
 
-      // === Check for missing driver_ledger entry ===
-      const { data: existingLedger } = await supabase
-        .from('driver_ledger')
-        .select('id')
-        .eq('trip_id', trip.id)
-        .in('entry_type', ['CASH_COMMISSION_DEBT', 'TRIP_EARNING_NET'])
-        .maybeSingle();
+      // === Check for missing driver_wallet_ledger entries (SSOT) ===
+      const { data: existingWalletEntries } = await supabase
+        .from('driver_wallet_ledger')
+        .select('id, type')
+        .eq('related_trip_id', trip.id)
+        .in('type', ['CASH_COMMISSION_DEBT', 'TRIP_EARNING_NET', 'CASH_TRIP_EARNING', 'PLATFORM_COMMISSION']);
 
-      const missingLedger = !existingLedger;
-      if (missingLedger) issues.push('missing driver_ledger entry');
+      const walletTypes = new Set((existingWalletEntries || []).map(e => e.type));
+      const missingWalletEntries: string[] = [];
 
-      // === Check for missing trip_finance record ===
-      const { data: existingFinance } = await supabase
-        .from('trip_finance')
-        .select('id')
-        .eq('trip_id', trip.id)
-        .maybeSingle();
+      if (isCash) {
+        if (!walletTypes.has('CASH_COMMISSION_DEBT') && correctCommission > 0) missingWalletEntries.push('CASH_COMMISSION_DEBT');
+        if (!walletTypes.has('CASH_TRIP_EARNING')) missingWalletEntries.push('CASH_TRIP_EARNING');
+        if (!walletTypes.has('PLATFORM_COMMISSION') && correctCommission > 0) missingWalletEntries.push('PLATFORM_COMMISSION');
+      } else {
+        if (!walletTypes.has('TRIP_EARNING_NET') && correctNet > 0) missingWalletEntries.push('TRIP_EARNING_NET');
+        if (!walletTypes.has('PLATFORM_COMMISSION') && correctCommission > 0) missingWalletEntries.push('PLATFORM_COMMISSION');
+      }
 
-      const missingFinance = !existingFinance;
-      if (missingFinance) issues.push('missing trip_finance record');
+      if (missingWalletEntries.length > 0) issues.push(`missing wallet_ledger: ${missingWalletEntries.join(', ')}`);
 
       // Skip if nothing to fix
       if (issues.length === 0) continue;
@@ -198,16 +183,12 @@ serve(async (req) => {
         driver_id: dId,
         gross_fare_pence: grossFare,
         old_commission_pence: oldCommission,
-        old_driver_net_pence: oldDriverNet,
         correct_commission_pence: correctCommission,
         correct_driver_net_pence: correctNet,
-        correct_driver_total_earnings_pence: correctDriverTotal,
         commission_pct: correctPct,
         delta_pence: commissionDelta,
         payment_method: trip.payment_method,
         completed_at: trip.completed_at,
-        old_currency: trip.currency_code,
-        correct_currency: correctCurrency,
         issues,
       });
 
@@ -219,7 +200,6 @@ serve(async (req) => {
         const tripUpdate: Record<string, unknown> = {
           commission_pence: correctCommission,
           driver_net_pence: correctNet,
-          fare: correctFinalTripTotal / 100,
           updated_at: new Date().toISOString(),
         };
 
@@ -227,7 +207,6 @@ serve(async (req) => {
           tripUpdate.financial_outcome = 'COMPLETED';
           outcomeFixed++;
         }
-
         if (currencyMismatch) {
           tripUpdate.currency_code = correctCurrency;
           currencyFixed++;
@@ -235,111 +214,56 @@ serve(async (req) => {
 
         await supabase.from('trips').update(tripUpdate).eq('id', trip.id);
 
-        // 2. Create or update driver_ledger entry
-        if (missingLedger && isCash && correctCommission > 0) {
-          const { error: ledgerErr } = await supabase
-            .from('driver_ledger')
-            .insert({
-              driver_id: dId,
-              trip_id: trip.id,
-              entry_type: 'CASH_COMMISSION_DEBT',
-              amount_pence: -correctCommission,
-              currency_code: correctCurrency,
-              description: 'Cash trip commission owed to platform (repaired)',
-            });
+        // 2. Backfill missing driver_wallet_ledger entries
+        for (const missingType of missingWalletEntries) {
+          let amount = 0;
+          let desc = '';
 
-          if (ledgerErr) {
-            if (ledgerErr.code === '23505') {
-              console.log(`[repair-commissions] Ledger already exists for trip ${trip.id}`);
-            } else {
-              console.error(`[repair-commissions] Ledger insert error for trip ${trip.id}:`, ledgerErr);
-            }
-          } else {
-            ledgerCreated++;
-            console.log(`[repair-commissions] Created CASH_COMMISSION_DEBT: -${correctCommission}p for trip ${trip.id}`);
+          switch (missingType) {
+            case 'CASH_COMMISSION_DEBT':
+              amount = -correctCommission;
+              desc = 'Cash trip commission owed to platform (repaired)';
+              break;
+            case 'CASH_TRIP_EARNING':
+              amount = grossFare;
+              desc = 'Cash trip gross fare collected (repaired)';
+              break;
+            case 'TRIP_EARNING_NET':
+              amount = correctNet;
+              desc = 'Trip earnings net (repaired)';
+              break;
+            case 'PLATFORM_COMMISSION':
+              amount = correctCommission;
+              desc = 'Platform commission (repaired)';
+              break;
           }
-        } else if (!missingLedger && commissionDelta !== 0) {
-          // Update existing ledger entry
-          if (isCash) {
-            await supabase.from('driver_ledger').update({
-              amount_pence: -correctCommission,
-              description: 'Commission owed from cash trip (repaired)',
-            }).eq('trip_id', trip.id).eq('entry_type', 'CASH_COMMISSION_DEBT');
-          } else {
-            await supabase.from('driver_ledger').update({
-              amount_pence: correctNet,
-              description: 'Trip earnings net (repaired)',
-            }).eq('trip_id', trip.id).eq('entry_type', 'TRIP_EARNING_NET');
-          }
-        }
 
-        // 3. Create missing trip_finance record
-        if (missingFinance) {
-          const financeRecord: Record<string, unknown> = {
-            trip_id: trip.id,
+          const { error: insertErr } = await supabase.from('driver_wallet_ledger').insert({
             driver_id: dId,
-            service_area_id: trip.service_area_id,
-            financial_status: 'recognized',
-            revenue_type: 'completed_trip_revenue',
-            is_financially_countable: true,
-            base_fare_pence: grossFare,
-            tip_amount_pence: tipPence,
-            commissionable_subtotal_pence: grossFare,
-            commission_rate_pct: correctPct,
-            platform_commission_pence: correctCommission,
-            driver_net_before_tip_pence: correctNet,
-            driver_total_earnings_pence: correctDriverTotal,
-            final_trip_total_pence: correctFinalTripTotal,
-            payment_method: trip.payment_method,
-            currency_code: correctCurrency,
-            settlement_status: 'settled',
-            settled_at: trip.completed_at,
-          };
+            related_trip_id: trip.id,
+            type: missingType,
+            amount_pence: amount,
+            currency: correctCurrency,
+            description: desc,
+          });
 
-          if (isCash) {
-            financeRecord.stripe_processing_fee_pence = 0;
-            financeRecord.debt_recovery_pence = 0;
-            financeRecord.final_driver_payout_pence = 0;
-          }
-
-          const { error: financeErr } = await supabase
-            .from('trip_finance')
-            .insert(financeRecord);
-
-          if (financeErr) {
-            if (financeErr.code === '23505') {
-              console.log(`[repair-commissions] trip_finance already exists for ${trip.id}`);
-            } else {
-              console.error(`[repair-commissions] trip_finance insert error for ${trip.id}:`, financeErr);
-            }
+          if (insertErr) {
+            console.error(`[repair-commissions] wallet_ledger insert error for ${trip.id}/${missingType}:`, insertErr);
           } else {
-            financeCreated++;
+            walletLedgerCreated++;
           }
-        } else if (existingFinance) {
-          // Update existing trip_finance
-          await supabase.from('trip_finance').update({
-            tip_amount_pence: tipPence,
-            commission_rate_pct: correctPct,
-            platform_commission_pence: correctCommission,
-            driver_net_before_tip_pence: correctNet,
-            driver_total_earnings_pence: correctDriverTotal,
-            final_trip_total_pence: correctFinalTripTotal,
-            currency_code: correctCurrency,
-          }).eq('trip_id', trip.id);
         }
       }
     }
 
     console.log(`[repair-commissions] Found ${corrections.length} issues in ${trips.length} trips`);
-    console.log(`[repair-commissions] Commission delta: ${totalDelta}p, Ledger created: ${ledgerCreated}, Finance created: ${financeCreated}, Currency fixed: ${currencyFixed}, Outcome fixed: ${outcomeFixed}`);
 
     return new Response(JSON.stringify({
       mode: dry_run ? 'dry_run' : 'applied',
       total_trips_checked: trips.length,
       corrections_count: corrections.length,
       total_commission_delta_pence: totalDelta,
-      ledger_entries_created: dry_run ? 'N/A (dry run)' : ledgerCreated,
-      finance_records_created: dry_run ? 'N/A (dry run)' : financeCreated,
+      wallet_ledger_entries_created: dry_run ? 'N/A (dry run)' : walletLedgerCreated,
       currency_codes_fixed: dry_run ? 'N/A (dry run)' : currencyFixed,
       financial_outcomes_fixed: dry_run ? 'N/A (dry run)' : outcomeFixed,
       corrections,

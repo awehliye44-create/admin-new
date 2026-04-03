@@ -193,31 +193,7 @@ serve(async (req) => {
       .not('type', 'in', '("PLATFORM_COMMISSION","CASH_TRIP_EARNING")');
     const walletBefore = walletEntries?.reduce((sum, e) => sum + (e.amount_pence || 0), 0) || 0;
 
-    // === Build trip_finance record ===
-    const financeRecord: Record<string, unknown> = {
-      trip_id,
-      driver_id,
-      service_area_id: trip.service_area_id,
-      financial_status: 'recognized',
-      revenue_type: 'completed_trip_revenue',
-      is_financially_countable: true,
-      base_fare_pence: effectiveBaseFare,
-      pickup_waiting_charge_pence,
-      stop_waiting_charge_pence,
-      stop_modification_charge_pence,
-      destination_change_charge_pence,
-      extras_charge_pence,
-      tip_amount_pence,
-      commissionable_subtotal_pence: commissionable_subtotal,
-      commission_rate_pct: commissionPercentage,
-      platform_commission_pence: platform_commission,
-      driver_net_before_tip_pence: driver_net_before_tip,
-      driver_total_earnings_pence: driver_total_earnings,
-      final_trip_total_pence: final_trip_total,
-      payment_method,
-      currency_code,
-      wallet_balance_before_pence: walletBefore,
-    };
+    // === NOTE: trip_finance is DEPRECATED — all financial data lives in driver_wallet_ledger ===
 
     if (isCashPayment) {
       // === CASH TRIP ===
@@ -242,7 +218,6 @@ serve(async (req) => {
         console.error('[complete-trip] Ledger error:', ledgerError);
       } else {
         console.log(`[complete-trip] CASH_COMMISSION_DEBT: -${platform_commission}p`);
-        financeRecord.cash_commission_ledger_id = ledgerEntry?.id;
       }
 
       // Also record CASH_TRIP_EARNING (driver collected cash — reporting only)
@@ -272,12 +247,6 @@ serve(async (req) => {
       tripUpdate.wallet_balance_after = walletBefore - platform_commission;
       tripUpdate.debt_recovery_pence = 0;
       tripUpdate.final_payout_pence = 0;
-
-      financeRecord.debt_recovery_pence = 0;
-      financeRecord.final_driver_payout_pence = 0;
-      financeRecord.wallet_balance_after_pence = walletBefore - platform_commission;
-      financeRecord.settlement_status = 'settled';
-      financeRecord.settled_at = new Date().toISOString();
 
     } else {
       // === DIGITAL TRIP: Use Stripe Connect Destination Charges ===
@@ -318,38 +287,19 @@ serve(async (req) => {
             tripUpdate.final_payout_pence = captureResult.final_driver_payout_pence;
             tripUpdate.wallet_balance_before = captureResult.wallet_balance_before;
             tripUpdate.wallet_balance_after = captureResult.wallet_balance_after;
-
-            financeRecord.stripe_processing_fee_pence = captureResult.stripe_fee_pence || 0;
-            financeRecord.stripe_application_fee_id = captureResult.stripe_application_fee_id;
-            financeRecord.debt_recovery_pence = captureResult.debt_recovery_pence || 0;
-            financeRecord.final_driver_payout_pence = captureResult.final_driver_payout_pence;
-            financeRecord.wallet_balance_after_pence = captureResult.wallet_balance_after;
-            financeRecord.settlement_status = 'settled';
-            financeRecord.settled_at = new Date().toISOString();
           } else {
             console.error(`[complete-trip] Capture failed:`, captureResult.error);
             tripUpdate.payment_status = 'capture_failed';
-            financeRecord.settlement_status = 'failed';
           }
         } catch (captureErr) {
           console.error(`[complete-trip] Capture invocation error:`, captureErr);
           tripUpdate.payment_status = 'capture_failed';
-          financeRecord.settlement_status = 'failed';
         }
       }
 
-      financeRecord.stripe_payment_intent_id = stripe_payment_intent_id;
-      financeRecord.stripe_destination_account_id = driver?.stripe_account_id;
     }
 
-    // === Write trip_finance record ===
-    const { error: financeError } = await supabase
-      .from('trip_finance')
-      .insert(financeRecord);
-
-    if (financeError) {
-      console.error('[complete-trip] trip_finance insert error:', financeError);
-    }
+    // === trip_finance DEPRECATED — not written ===
 
     // === Update the trip ===
     const { error: updateError } = await supabase
