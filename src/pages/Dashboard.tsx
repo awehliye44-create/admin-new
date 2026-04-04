@@ -481,108 +481,167 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Stats Grid */}
+      {/* Stats Grid — Operational */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Active Drivers
-            </CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Active Drivers</CardTitle>
             <Car className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {isLoading ? '...' : stats.onlineDrivers}
-            </div>
+            <div className="text-2xl font-bold">{isLoading ? '...' : stats.onlineDrivers}</div>
             <p className="text-xs text-muted-foreground">
-              <span className="text-red-500">{stats.offlineDrivers} offline</span>
-              {' '}
-              <span className="text-green-500">{stats.totalDrivers} total drivers</span>
+              <span className="text-destructive">{stats.offlineDrivers} offline</span>{' '}
+              <span className="text-primary">{stats.totalDrivers} total</span>
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Revenue
-            </CardTitle>
-            <CircleDollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {currencySymbol}{isLoading ? '...' : stats.totalRevenue.toFixed(2)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              From driver_financial_summary (ledger)
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Active Trips
-            </CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Active Trips</CardTitle>
             <MapPin className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
+            <div className="text-2xl font-bold">{isLoading ? '...' : stats.activeTrips}</div>
+            <p className="text-xs text-primary">{stats.inProgressTrips} in progress</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total Riders</CardTitle>
+            <UserPlus className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{isLoading ? '...' : stats.totalRiders}</div>
+            <p className="text-xs text-muted-foreground">Registered customers</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Completed Trips</CardTitle>
+            <Route className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{isLoading ? '...' : stats.completedTrips}</div>
+            <p className="text-xs text-destructive">{stats.cancelledTrips} cancelled</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Revenue Cards — from driver_wallet_ledger COMPANY_COMMISSION */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Today Revenue</CardTitle>
+            <CircleDollarSign className="h-4 w-4 text-primary" />
+          </CardHeader>
+          <CardContent>
             <div className="text-2xl font-bold">
-              {isLoading ? '...' : stats.activeTrips}
+              {revenueLoading ? '...' : formatPence(revenueData?.todayRevenue || 0, activeCurrencyCode)}
             </div>
-            <p className="text-xs text-green-500">
-              {stats.inProgressTrips} in progress
-            </p>
+            <p className="text-xs text-muted-foreground">Platform commission today</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Weekly Revenue</CardTitle>
+            <TrendingUp className="h-4 w-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {revenueLoading ? '...' : formatPence(revenueData?.weeklyRevenue || 0, activeCurrencyCode)}
+            </div>
+            <p className="text-xs text-muted-foreground">This week (Mon–Sun)</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Monthly Revenue</CardTitle>
+            <BarChart3 className="h-4 w-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {revenueLoading ? '...' : formatPence(revenueData?.monthlyRevenue || 0, activeCurrencyCode)}
+            </div>
+            <p className="text-xs text-muted-foreground">This month to date</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Commission Revenue
+              {period === 'custom' ? 'Custom Range' : 'All-Time'}
             </CardTitle>
-            <CircleDollarSign className="h-4 w-4 text-muted-foreground" />
+            <CalendarIcon className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {currencySymbol}{isLoading ? '...' : stats.commissionRevenue.toFixed(2)}
+              {revenueLoading ? '...' : period === 'custom'
+                ? formatPence(revenueData?.customRevenue || 0, activeCurrencyCode)
+                : formatPence((revenueData?.monthlyRevenue || 0), activeCurrencyCode)}
             </div>
             <p className="text-xs text-muted-foreground">
-              Tier-based (Bronze/Silver/Gold/Platinum/Diamond)
+              {period === 'custom' && customDateFrom
+                ? `${format(customDateFrom, 'MMM d')}${customDateTo ? ` – ${format(customDateTo, 'MMM d')}` : ' – now'}`
+                : 'Select custom range'}
             </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Revenue by Service Area */}
-      {serviceAreaRevenues.length > 0 && (
+      {/* Revenue Over Time Chart */}
+      {(revenueData?.chartData?.length || 0) > 0 && (
+        <Card className="mb-6">
+          <CardHeader className="flex flex-row items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-primary" />
+            <CardTitle>Platform Revenue Over Time</CardTitle>
+            <span className="text-xs text-muted-foreground ml-auto">Source: driver_wallet_ledger (COMPANY_COMMISSION)</span>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[250px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={revenueData!.chartData.map(d => ({ ...d, revenue: d.revenue / 100 }))}>
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} fontSize={12} />
+                  <YAxis axisLine={false} tickLine={false} fontSize={12} tickFormatter={(v) => `${currencySymbol}${v}`} />
+                  <Tooltip formatter={(value: number) => [`${currencySymbol}${value.toFixed(2)}`, 'Revenue']} />
+                  <Line type="monotone" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Revenue by Service Area — from ledger */}
+      {(revenueData?.serviceAreaBreakdown?.length || 0) > 0 && (
         <Card className="mb-6">
           <CardHeader className="flex flex-row items-center gap-2">
             <MapPin className="h-5 w-5 text-primary" />
-            <CardTitle>Revenue by Service Area</CardTitle>
+            <CardTitle>Commission by Service Area</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {serviceAreaRevenues.map((area) => {
-                const maxRevenue = serviceAreaRevenues[0]?.revenue || 1;
+              {revenueData!.serviceAreaBreakdown.map((area) => {
+                const maxRevenue = revenueData!.serviceAreaBreakdown[0]?.revenue || 1;
                 const percentage = Math.round((area.revenue / maxRevenue) * 100);
                 return (
-                  <div key={area.name} className="space-y-1">
+                  <div key={area.service_area_id} className="space-y-1">
                     <div className="flex items-center justify-between text-sm">
                       <span className="font-medium">{area.name}</span>
-                      <div className="flex items-center gap-4 text-muted-foreground">
-                        <span>{area.trips} trips</span>
-                        <span className="font-semibold text-foreground">{getCurrencySymbol(area.currency_code)}{area.revenue.toFixed(2)}</span>
-                      </div>
+                      <span className="font-semibold text-foreground">
+                        {formatPence(area.revenue, area.currency_code)}
+                      </span>
                     </div>
                     <div className="h-2 rounded-full bg-muted overflow-hidden">
                       <div
                         className="h-full rounded-full bg-primary transition-all duration-500"
                         style={{ width: `${percentage}%` }}
                       />
-                    </div>
-                    <div className="flex justify-end">
-                      <span className="text-xs text-muted-foreground">Commission: {getCurrencySymbol(area.currency_code)}{area.commission.toFixed(2)}</span>
                     </div>
                   </div>
                 );
@@ -591,7 +650,6 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       )}
-
       <div className="grid gap-6 lg:grid-cols-2 mb-6">
         {/* User Statistics */}
         <Card>
