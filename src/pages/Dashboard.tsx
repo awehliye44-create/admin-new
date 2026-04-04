@@ -9,6 +9,8 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { supabase } from '@/integrations/supabase/client';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
+import { useLedgerRevenue } from '@/hooks/useLedgerRevenue';
+import { formatPence } from '@/hooks/useDriverWallet';
 import { 
   Car, 
   MapPin, 
@@ -27,7 +29,8 @@ import {
   CreditCard,
   BarChart3,
   MessageSquare,
-  Shield
+  Shield,
+  TrendingUp
 } from 'lucide-react';
 import { useSidebarCounts } from '@/hooks/useSidebarCounts';
 import { cn } from '@/lib/utils';
