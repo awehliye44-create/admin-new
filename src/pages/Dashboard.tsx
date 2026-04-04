@@ -59,18 +59,6 @@ interface Stats {
   inProgressTrips: number;
   completedTrips: number;
   cancelledTrips: number;
-  totalRevenue: number;
-  commissionRevenue: number;
-  previousRevenue: number;
-  previousCommission: number;
-}
-
-interface ServiceAreaRevenue {
-  name: string;
-  revenue: number;
-  trips: number;
-  commission: number;
-  currency_code: string;
 }
 
 interface RecentTrip {
