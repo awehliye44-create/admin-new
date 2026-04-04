@@ -2863,6 +2863,7 @@ export type Database = {
           driver_id: string
           id: string
           related_trip_id: string | null
+          service_area_id: string | null
           stripe_payout_id: string | null
           stripe_transfer_id: string | null
           type: string
@@ -2875,6 +2876,7 @@ export type Database = {
           driver_id: string
           id?: string
           related_trip_id?: string | null
+          service_area_id?: string | null
           stripe_payout_id?: string | null
           stripe_transfer_id?: string | null
           type: string
@@ -2887,6 +2889,7 @@ export type Database = {
           driver_id?: string
           id?: string
           related_trip_id?: string | null
+          service_area_id?: string | null
           stripe_payout_id?: string | null
           stripe_transfer_id?: string | null
           type?: string
@@ -2932,6 +2935,13 @@ export type Database = {
             columns: ["related_trip_id"]
             isOneToOne: false
             referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
             referencedColumns: ["id"]
           },
         ]

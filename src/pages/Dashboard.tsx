@@ -9,6 +9,8 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { supabase } from '@/integrations/supabase/client';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
+import { useLedgerRevenue } from '@/hooks/useLedgerRevenue';
+import { formatPence } from '@/hooks/useDriverWallet';
 import { 
   Car, 
   MapPin, 
@@ -27,7 +29,8 @@ import {
   CreditCard,
   BarChart3,
   MessageSquare,
-  Shield
+  Shield,
+  TrendingUp
 } from 'lucide-react';
 import { useSidebarCounts } from '@/hooks/useSidebarCounts';
 import { cn } from '@/lib/utils';
@@ -56,18 +59,6 @@ interface Stats {
   inProgressTrips: number;
   completedTrips: number;
   cancelledTrips: number;
-  totalRevenue: number;
-  commissionRevenue: number;
-  previousRevenue: number;
-  previousCommission: number;
-}
-
-interface ServiceAreaRevenue {
-  name: string;
-  revenue: number;
-  trips: number;
-  commission: number;
-  currency_code: string;
 }
 
 interface RecentTrip {
@@ -273,11 +264,20 @@ export default function Dashboard() {
     return { startDate, endDate, previousStartDate, previousEndDate };
   }, [period, customDateFrom, customDateTo]);
 
-  // ─── MAIN DASHBOARD QUERY — React Query, all 6 queries in parallel, 30s cache ───
+  // ─── Ledger-based revenue (SSOT: driver_wallet_ledger COMPANY_COMMISSION) ───
+  const { data: revenueData, isLoading: revenueLoading } = useLedgerRevenue({
+    period,
+    serviceAreaId: selectedServiceArea === 'all' ? null : selectedServiceArea,
+    customFrom: customDateFrom,
+    customTo: customDateTo,
+    serviceAreas,
+  });
+
+  // ─── MAIN DASHBOARD QUERY — operational stats only (no revenue) ───
   const { data: dashData, isLoading, refetch: fetchStats } = useQuery({
     queryKey: ['dashboard-stats', period, selectedServiceArea, customDateFrom?.toISOString(), customDateTo?.toISOString()],
     queryFn: async () => {
-      const { startDate, endDate, previousStartDate, previousEndDate } = dateRange;
+      const { startDate, endDate } = dateRange;
 
       let tripsQ = supabase.from('trips')
         .select('id, status, financial_outcome, service_area_id')
@@ -301,8 +301,7 @@ export default function Dashboard() {
         chartQ = chartQ.eq('service_area_id', selectedServiceArea);
       }
 
-      // ALL queries in parallel — financial data from driver_financial_summary (ledger-derived, tier-based commission)
-      const [driversR, ridersR, tripsR, recentR, chartR, financialR] = await Promise.all([
+      const [driversR, ridersR, tripsR, recentR, chartR] = await Promise.all([
         supabase.from('drivers').select('id, is_online, approval_status, current_lat, current_lng, heading, current_trip_id, first_name, last_name'),
         supabase.from('customers').select('id', { count: 'exact', head: true }),
         tripsQ,
@@ -310,27 +309,10 @@ export default function Dashboard() {
           .select('id, passenger_name, pickup_address, dropoff_address, driver:drivers!trips_driver_id_fkey(first_name, last_name)')
           .order('created_at', { ascending: false }).limit(5),
         chartQ,
-        // Financial source of truth: driver_financial_summary (uses driver_ledger with tier-based commission)
-        supabase.from('driver_financial_summary')
-          .select('driver_id, gross_trip_total, company_commission_total, completed_trips, today_gross_earnings, today_trip_count, region_id'),
       ]);
 
       const allDrivers = driversR.data || [];
       const trips = tripsR.data || [];
-      const financialSummaries = financialR.data || [];
-
-      // Financial stats from driver_financial_summary — the SINGLE source of truth
-      // Filter by region if a service area is selected
-      let filteredFinancial = financialSummaries;
-      if (selectedServiceArea !== 'all') {
-        const area = serviceAreas.find(sa => sa.id === selectedServiceArea);
-        if (area?.region_id) {
-          filteredFinancial = financialSummaries.filter(f => f.region_id === area.region_id);
-        }
-      }
-
-      const totalRevenue = filteredFinancial.reduce((sum, f) => sum + (Number(f.gross_trip_total) || 0), 0) / 100;
-      const commissionRevenue = filteredFinancial.reduce((sum, f) => sum + (Number(f.company_commission_total) || 0), 0) / 100;
 
       const s: Stats = {
         totalDrivers: allDrivers.length,
@@ -344,12 +326,6 @@ export default function Dashboard() {
         inProgressTrips: trips.filter(t => t.status === 'in_progress').length,
         completedTrips: trips.filter(t => t.status === 'completed').length,
         cancelledTrips: trips.filter(t => t.status === 'cancelled').length,
-        // Financial data from driver_financial_summary (tier-based commission, ledger-derived)
-        totalRevenue,
-        commissionRevenue,
-        // No period comparison available from summary view — show 0 change
-        previousRevenue: 0,
-        previousCommission: 0,
       };
 
       // Chart bucketing
@@ -379,29 +355,16 @@ export default function Dashboard() {
         }
       }
 
-      // Service area revenue breakdown — from driver_financial_summary (NOT trips table)
-      let saRevenues: ServiceAreaRevenue[] = [];
-      if (selectedServiceArea === 'all' && serviceAreas.length > 0) {
-        saRevenues = serviceAreas.map(area => {
-          const regionDrivers = financialSummaries.filter(f => f.region_id === area.region_id);
-          const revenue = regionDrivers.reduce((sum, f) => sum + (Number(f.gross_trip_total) || 0), 0) / 100;
-          const commission = regionDrivers.reduce((sum, f) => sum + (Number(f.company_commission_total) || 0), 0) / 100;
-          const tripCount = regionDrivers.reduce((sum, f) => sum + (Number(f.completed_trips) || 0), 0);
-          return { name: area.name, revenue, trips: tripCount, commission, currency_code: area.region?.currency_code || '' };
-        }).filter(a => a.trips > 0).sort((a, b) => b.revenue - a.revenue);
-      }
-
-      return { stats: s, drivers: allDrivers as Driver[], recentTrips: (recentR.data || []) as RecentTrip[], bookingChartData: chartData, serviceAreaRevenues: saRevenues };
+      return { stats: s, drivers: allDrivers as Driver[], recentTrips: (recentR.data || []) as RecentTrip[], bookingChartData: chartData };
     },
     staleTime: 30000,
     refetchInterval: 60000,
   });
 
-  const stats = dashData?.stats || { totalDrivers: 0, onlineDrivers: 0, offlineDrivers: 0, pendingDrivers: 0, inactiveDrivers: 0, totalRiders: 0, totalTrips: 0, activeTrips: 0, inProgressTrips: 0, completedTrips: 0, cancelledTrips: 0, totalRevenue: 0, commissionRevenue: 0, previousRevenue: 0, previousCommission: 0 };
+  const stats = dashData?.stats || { totalDrivers: 0, onlineDrivers: 0, offlineDrivers: 0, pendingDrivers: 0, inactiveDrivers: 0, totalRiders: 0, totalTrips: 0, activeTrips: 0, inProgressTrips: 0, completedTrips: 0, cancelledTrips: 0 };
   const drivers = dashData?.drivers || [];
   const recentTrips = dashData?.recentTrips || [];
   const bookingChartData = dashData?.bookingChartData || [];
-  const serviceAreaRevenues = dashData?.serviceAreaRevenues || [];
 
   const driverChartData = [
     { name: 'Total Drivers', value: stats.totalDrivers, color: '#3B82F6' },
@@ -518,108 +481,167 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Stats Grid */}
+      {/* Stats Grid — Operational */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Active Drivers
-            </CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Active Drivers</CardTitle>
             <Car className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {isLoading ? '...' : stats.onlineDrivers}
-            </div>
+            <div className="text-2xl font-bold">{isLoading ? '...' : stats.onlineDrivers}</div>
             <p className="text-xs text-muted-foreground">
-              <span className="text-red-500">{stats.offlineDrivers} offline</span>
-              {' '}
-              <span className="text-green-500">{stats.totalDrivers} total drivers</span>
+              <span className="text-destructive">{stats.offlineDrivers} offline</span>{' '}
+              <span className="text-primary">{stats.totalDrivers} total</span>
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Revenue
-            </CardTitle>
-            <CircleDollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {currencySymbol}{isLoading ? '...' : stats.totalRevenue.toFixed(2)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              From driver_financial_summary (ledger)
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Active Trips
-            </CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Active Trips</CardTitle>
             <MapPin className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
+            <div className="text-2xl font-bold">{isLoading ? '...' : stats.activeTrips}</div>
+            <p className="text-xs text-primary">{stats.inProgressTrips} in progress</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total Riders</CardTitle>
+            <UserPlus className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{isLoading ? '...' : stats.totalRiders}</div>
+            <p className="text-xs text-muted-foreground">Registered customers</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Completed Trips</CardTitle>
+            <Route className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{isLoading ? '...' : stats.completedTrips}</div>
+            <p className="text-xs text-destructive">{stats.cancelledTrips} cancelled</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Revenue Cards — from driver_wallet_ledger COMPANY_COMMISSION */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Today Revenue</CardTitle>
+            <CircleDollarSign className="h-4 w-4 text-primary" />
+          </CardHeader>
+          <CardContent>
             <div className="text-2xl font-bold">
-              {isLoading ? '...' : stats.activeTrips}
+              {revenueLoading ? '...' : formatPence(revenueData?.todayRevenue || 0, activeCurrencyCode)}
             </div>
-            <p className="text-xs text-green-500">
-              {stats.inProgressTrips} in progress
-            </p>
+            <p className="text-xs text-muted-foreground">Platform commission today</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Weekly Revenue</CardTitle>
+            <TrendingUp className="h-4 w-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {revenueLoading ? '...' : formatPence(revenueData?.weeklyRevenue || 0, activeCurrencyCode)}
+            </div>
+            <p className="text-xs text-muted-foreground">This week (Mon–Sun)</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Monthly Revenue</CardTitle>
+            <BarChart3 className="h-4 w-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {revenueLoading ? '...' : formatPence(revenueData?.monthlyRevenue || 0, activeCurrencyCode)}
+            </div>
+            <p className="text-xs text-muted-foreground">This month to date</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Commission Revenue
+              {period === 'custom' ? 'Custom Range' : 'All-Time'}
             </CardTitle>
-            <CircleDollarSign className="h-4 w-4 text-muted-foreground" />
+            <CalendarIcon className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {currencySymbol}{isLoading ? '...' : stats.commissionRevenue.toFixed(2)}
+              {revenueLoading ? '...' : period === 'custom'
+                ? formatPence(revenueData?.customRevenue || 0, activeCurrencyCode)
+                : formatPence((revenueData?.monthlyRevenue || 0), activeCurrencyCode)}
             </div>
             <p className="text-xs text-muted-foreground">
-              Tier-based (Bronze/Silver/Gold/Platinum/Diamond)
+              {period === 'custom' && customDateFrom
+                ? `${format(customDateFrom, 'MMM d')}${customDateTo ? ` – ${format(customDateTo, 'MMM d')}` : ' – now'}`
+                : 'Select custom range'}
             </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Revenue by Service Area */}
-      {serviceAreaRevenues.length > 0 && (
+      {/* Revenue Over Time Chart */}
+      {(revenueData?.chartData?.length || 0) > 0 && (
+        <Card className="mb-6">
+          <CardHeader className="flex flex-row items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-primary" />
+            <CardTitle>Platform Revenue Over Time</CardTitle>
+            <span className="text-xs text-muted-foreground ml-auto">Source: driver_wallet_ledger (COMPANY_COMMISSION)</span>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[250px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={revenueData!.chartData.map(d => ({ ...d, revenue: d.revenue / 100 }))}>
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} fontSize={12} />
+                  <YAxis axisLine={false} tickLine={false} fontSize={12} tickFormatter={(v) => `${currencySymbol}${v}`} />
+                  <Tooltip formatter={(value: number) => [`${currencySymbol}${value.toFixed(2)}`, 'Revenue']} />
+                  <Line type="monotone" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Revenue by Service Area — from ledger */}
+      {(revenueData?.serviceAreaBreakdown?.length || 0) > 0 && (
         <Card className="mb-6">
           <CardHeader className="flex flex-row items-center gap-2">
             <MapPin className="h-5 w-5 text-primary" />
-            <CardTitle>Revenue by Service Area</CardTitle>
+            <CardTitle>Commission by Service Area</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {serviceAreaRevenues.map((area) => {
-                const maxRevenue = serviceAreaRevenues[0]?.revenue || 1;
+              {revenueData!.serviceAreaBreakdown.map((area) => {
+                const maxRevenue = revenueData!.serviceAreaBreakdown[0]?.revenue || 1;
                 const percentage = Math.round((area.revenue / maxRevenue) * 100);
                 return (
-                  <div key={area.name} className="space-y-1">
+                  <div key={area.service_area_id} className="space-y-1">
                     <div className="flex items-center justify-between text-sm">
                       <span className="font-medium">{area.name}</span>
-                      <div className="flex items-center gap-4 text-muted-foreground">
-                        <span>{area.trips} trips</span>
-                        <span className="font-semibold text-foreground">{getCurrencySymbol(area.currency_code)}{area.revenue.toFixed(2)}</span>
-                      </div>
+                      <span className="font-semibold text-foreground">
+                        {formatPence(area.revenue, area.currency_code)}
+                      </span>
                     </div>
                     <div className="h-2 rounded-full bg-muted overflow-hidden">
                       <div
                         className="h-full rounded-full bg-primary transition-all duration-500"
                         style={{ width: `${percentage}%` }}
                       />
-                    </div>
-                    <div className="flex justify-end">
-                      <span className="text-xs text-muted-foreground">Commission: {getCurrencySymbol(area.currency_code)}{area.commission.toFixed(2)}</span>
                     </div>
                   </div>
                 );
@@ -628,7 +650,6 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       )}
-
       <div className="grid gap-6 lg:grid-cols-2 mb-6">
         {/* User Statistics */}
         <Card>
