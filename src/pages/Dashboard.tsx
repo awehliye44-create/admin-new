@@ -264,11 +264,20 @@ export default function Dashboard() {
     return { startDate, endDate, previousStartDate, previousEndDate };
   }, [period, customDateFrom, customDateTo]);
 
-  // ─── MAIN DASHBOARD QUERY — React Query, all 6 queries in parallel, 30s cache ───
+  // ─── Ledger-based revenue (SSOT: driver_wallet_ledger COMPANY_COMMISSION) ───
+  const { data: revenueData, isLoading: revenueLoading } = useLedgerRevenue({
+    period,
+    serviceAreaId: selectedServiceArea === 'all' ? null : selectedServiceArea,
+    customFrom: customDateFrom,
+    customTo: customDateTo,
+    serviceAreas,
+  });
+
+  // ─── MAIN DASHBOARD QUERY — operational stats only (no revenue) ───
   const { data: dashData, isLoading, refetch: fetchStats } = useQuery({
     queryKey: ['dashboard-stats', period, selectedServiceArea, customDateFrom?.toISOString(), customDateTo?.toISOString()],
     queryFn: async () => {
-      const { startDate, endDate, previousStartDate, previousEndDate } = dateRange;
+      const { startDate, endDate } = dateRange;
 
       let tripsQ = supabase.from('trips')
         .select('id, status, financial_outcome, service_area_id')
@@ -292,8 +301,7 @@ export default function Dashboard() {
         chartQ = chartQ.eq('service_area_id', selectedServiceArea);
       }
 
-      // ALL queries in parallel — financial data from driver_financial_summary (ledger-derived, tier-based commission)
-      const [driversR, ridersR, tripsR, recentR, chartR, financialR] = await Promise.all([
+      const [driversR, ridersR, tripsR, recentR, chartR] = await Promise.all([
         supabase.from('drivers').select('id, is_online, approval_status, current_lat, current_lng, heading, current_trip_id, first_name, last_name'),
         supabase.from('customers').select('id', { count: 'exact', head: true }),
         tripsQ,
@@ -301,27 +309,10 @@ export default function Dashboard() {
           .select('id, passenger_name, pickup_address, dropoff_address, driver:drivers!trips_driver_id_fkey(first_name, last_name)')
           .order('created_at', { ascending: false }).limit(5),
         chartQ,
-        // Financial source of truth: driver_financial_summary (uses driver_ledger with tier-based commission)
-        supabase.from('driver_financial_summary')
-          .select('driver_id, gross_trip_total, company_commission_total, completed_trips, today_gross_earnings, today_trip_count, region_id'),
       ]);
 
       const allDrivers = driversR.data || [];
       const trips = tripsR.data || [];
-      const financialSummaries = financialR.data || [];
-
-      // Financial stats from driver_financial_summary — the SINGLE source of truth
-      // Filter by region if a service area is selected
-      let filteredFinancial = financialSummaries;
-      if (selectedServiceArea !== 'all') {
-        const area = serviceAreas.find(sa => sa.id === selectedServiceArea);
-        if (area?.region_id) {
-          filteredFinancial = financialSummaries.filter(f => f.region_id === area.region_id);
-        }
-      }
-
-      const totalRevenue = filteredFinancial.reduce((sum, f) => sum + (Number(f.gross_trip_total) || 0), 0) / 100;
-      const commissionRevenue = filteredFinancial.reduce((sum, f) => sum + (Number(f.company_commission_total) || 0), 0) / 100;
 
       const s: Stats = {
         totalDrivers: allDrivers.length,
@@ -335,12 +326,6 @@ export default function Dashboard() {
         inProgressTrips: trips.filter(t => t.status === 'in_progress').length,
         completedTrips: trips.filter(t => t.status === 'completed').length,
         cancelledTrips: trips.filter(t => t.status === 'cancelled').length,
-        // Financial data from driver_financial_summary (tier-based commission, ledger-derived)
-        totalRevenue,
-        commissionRevenue,
-        // No period comparison available from summary view — show 0 change
-        previousRevenue: 0,
-        previousCommission: 0,
       };
 
       // Chart bucketing
@@ -370,29 +355,16 @@ export default function Dashboard() {
         }
       }
 
-      // Service area revenue breakdown — from driver_financial_summary (NOT trips table)
-      let saRevenues: ServiceAreaRevenue[] = [];
-      if (selectedServiceArea === 'all' && serviceAreas.length > 0) {
-        saRevenues = serviceAreas.map(area => {
-          const regionDrivers = financialSummaries.filter(f => f.region_id === area.region_id);
-          const revenue = regionDrivers.reduce((sum, f) => sum + (Number(f.gross_trip_total) || 0), 0) / 100;
-          const commission = regionDrivers.reduce((sum, f) => sum + (Number(f.company_commission_total) || 0), 0) / 100;
-          const tripCount = regionDrivers.reduce((sum, f) => sum + (Number(f.completed_trips) || 0), 0);
-          return { name: area.name, revenue, trips: tripCount, commission, currency_code: area.region?.currency_code || '' };
-        }).filter(a => a.trips > 0).sort((a, b) => b.revenue - a.revenue);
-      }
-
-      return { stats: s, drivers: allDrivers as Driver[], recentTrips: (recentR.data || []) as RecentTrip[], bookingChartData: chartData, serviceAreaRevenues: saRevenues };
+      return { stats: s, drivers: allDrivers as Driver[], recentTrips: (recentR.data || []) as RecentTrip[], bookingChartData: chartData };
     },
     staleTime: 30000,
     refetchInterval: 60000,
   });
 
-  const stats = dashData?.stats || { totalDrivers: 0, onlineDrivers: 0, offlineDrivers: 0, pendingDrivers: 0, inactiveDrivers: 0, totalRiders: 0, totalTrips: 0, activeTrips: 0, inProgressTrips: 0, completedTrips: 0, cancelledTrips: 0, totalRevenue: 0, commissionRevenue: 0, previousRevenue: 0, previousCommission: 0 };
+  const stats = dashData?.stats || { totalDrivers: 0, onlineDrivers: 0, offlineDrivers: 0, pendingDrivers: 0, inactiveDrivers: 0, totalRiders: 0, totalTrips: 0, activeTrips: 0, inProgressTrips: 0, completedTrips: 0, cancelledTrips: 0 };
   const drivers = dashData?.drivers || [];
   const recentTrips = dashData?.recentTrips || [];
   const bookingChartData = dashData?.bookingChartData || [];
-  const serviceAreaRevenues = dashData?.serviceAreaRevenues || [];
 
   const driverChartData = [
     { name: 'Total Drivers', value: stats.totalDrivers, color: '#3B82F6' },
