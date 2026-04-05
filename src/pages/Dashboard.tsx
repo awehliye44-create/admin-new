@@ -575,7 +575,7 @@ export default function Dashboard() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              {period === 'custom' ? 'Custom Range' : 'All-Time'}
+              {period === 'custom' ? 'Custom Range' : 'All-Time Revenue'}
             </CardTitle>
             <CalendarIcon className="h-4 w-4 text-primary" />
           </CardHeader>
@@ -583,12 +583,12 @@ export default function Dashboard() {
             <div className="text-2xl font-bold">
               {revenueLoading ? '...' : period === 'custom'
                 ? formatPence(revenueData?.customRevenue || 0, activeCurrencyCode)
-                : formatPence((revenueData?.monthlyRevenue || 0), activeCurrencyCode)}
+                : formatPence(revenueData?.allTimeRevenue || 0, activeCurrencyCode)}
             </div>
             <p className="text-xs text-muted-foreground">
               {period === 'custom' && customDateFrom
                 ? `${format(customDateFrom, 'MMM d')}${customDateTo ? ` – ${format(customDateTo, 'MMM d')}` : ' – now'}`
-                : 'Select custom range'}
+                : 'Total platform commission'}
             </p>
           </CardContent>
         </Card>
