@@ -1,3 +1,22 @@
+/**
+ * ╔══════════════════════════════════════════════════════════════════╗
+ * ║  LOCKED MODULE — Trip Accounting Invariants                     ║
+ * ║                                                                ║
+ * ║  NON-NEGOTIABLE RULES:                                         ║
+ * ║  1. Commission is based on driver tier (snapshotted per trip)   ║
+ * ║  2. Commission = fare × tier_commission_pct (full fare)         ║
+ * ║  3. Stripe fee is INCLUDED inside commission — never separate   ║
+ * ║  4. Tips are NOT part of fare — NEVER commissioned              ║
+ * ║  5. driver_net = fare - commission (tips added separately)      ║
+ * ║  6. Card trip → wallet += driver_net + tips                     ║
+ * ║  7. Cash trip → wallet -= commission only                       ║
+ * ║  8. NEVER recalculate after settlement                          ║
+ * ║  9. NEVER change past settled trips                             ║
+ * ║  10. UI NEVER performs financial calculations                   ║
+ * ║                                                                ║
+ * ║  Protected by: src/test/tripAccounting.test.ts                  ║
+ * ╚══════════════════════════════════════════════════════════════════╝
+ */
 export interface TripAccountingInput {
   commissionableSubtotalPence: number;
   commissionPence: number;
