@@ -123,6 +123,7 @@ serve(async (req) => {
       .single();
 
     // === Commission from shared utility (single source of truth) ===
+    // Tier commission % is snapshotted here and LOCKED on the trip — never recalculated after settlement
     const { commission_pct: commissionPercentage, commission_pence: platform_commission, driver_net_pence: driverNetFromCommission } = await calculateCommission(supabase, driver_id, commissionable_subtotal);
     const accounting = buildTripAccounting({
       commissionableSubtotalPence: commissionable_subtotal,
@@ -158,6 +159,7 @@ serve(async (req) => {
       fare: final_trip_total / 100,
       gross_fare_pence: commissionable_subtotal,
       commission_pence: platform_commission,
+      commission_pct: commissionPercentage, // Tier snapshot — LOCKED at settlement
       driver_net_pence: driver_net_before_tip,
       payment_method,
       // Persist waiting charges on trips table for Admin Panel visibility
@@ -178,6 +180,7 @@ serve(async (req) => {
         tip_amount_pence,
         commissionable_subtotal_pence: commissionable_subtotal,
         platform_commission_pence: platform_commission,
+        commission_pct: commissionPercentage, // Tier snapshot
         driver_net_pence: driver_net_before_tip,
         final_trip_total_pence: final_trip_total,
       },

@@ -101,7 +101,7 @@ serve(async (req) => {
       console.warn(`[record-financial-outcome] Trip ${trip_id} has outcome=${outcome} but missing ledger entries — repairing`);
     }
 
-    // Calculate commission on the fee
+    // Calculate commission on the fee — tier snapshot is locked on this trip
     const { commission_pct, commission_pence, driver_net_pence } = await calculateCommission(supabase, driver_id, fee_pence);
 
     const revenue_type = outcome === 'NO_SHOW' ? 'no_show_revenue' : 'late_cancellation_revenue';
@@ -122,6 +122,7 @@ serve(async (req) => {
         financial_outcome: outcome,
         gross_fare_pence: fee_pence,
         commission_pence: commission_pence,
+        commission_pct: commission_pct, // Tier snapshot — LOCKED
         driver_net_pence: driver_net_pence,
         payment_method: payment_method || trip.status,
         completed_at: new Date().toISOString(),

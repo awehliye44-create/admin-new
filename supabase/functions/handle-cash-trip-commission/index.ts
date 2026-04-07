@@ -131,7 +131,7 @@ serve(async (req) => {
       );
     }
 
-    const { commission_pence: commissionPence } = await calculateCommission(supabase, trip.driver_id, grossFarePence);
+    const { commission_pct: commissionPct, commission_pence: commissionPence } = await calculateCommission(supabase, trip.driver_id, grossFarePence);
     const accounting = buildTripAccounting({
       commissionableSubtotalPence: grossFarePence,
       commissionPence,
@@ -168,6 +168,7 @@ serve(async (req) => {
     await supabase.from('trips').update({
       gross_fare_pence: grossFarePence,
       commission_pence: commissionPence,
+      commission_pct: commissionPct, // Tier snapshot — LOCKED
       driver_net_pence: driverNetPence,
       payment_status: 'collected_cash',
       stripe_processing_fee_pence: 0,
