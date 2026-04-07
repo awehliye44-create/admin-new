@@ -106,7 +106,8 @@ export function getEntryTypeDisplay(entryType: string): { label: string; color: 
     case 'REFUND_DEBIT':
       return { label: 'Refund Debit', color: 'text-red-600' };
     case 'COMPANY_COMMISSION':
-      return { label: 'Company Commission', color: 'text-emerald-600' };
+    case 'PLATFORM_COMMISSION':
+      return { label: 'Platform Commission', color: 'text-emerald-600' };
     case 'TIP_CREDIT':
       return { label: 'Tip Credit', color: 'text-green-500' };
     case 'WEEKLY_PAYOUT':

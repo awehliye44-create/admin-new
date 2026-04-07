@@ -525,8 +525,8 @@ export default function AdminPayments() {
                       </div>
                       {paymentDetail.commission_breakdown.stripe_processing_fee_pence > 0 && (
                         <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Stripe Fee</span>
-                          <span className="text-red-500">-{formatPence(paymentDetail.commission_breakdown.stripe_processing_fee_pence)}</span>
+                          <span className="text-muted-foreground">Stripe Fee (absorbed by platform)</span>
+                          <span className="text-muted-foreground text-xs">{formatPence(paymentDetail.commission_breakdown.stripe_processing_fee_pence)}</span>
                         </div>
                       )}
                       <Separator />
