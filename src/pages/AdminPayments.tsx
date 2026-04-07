@@ -91,6 +91,7 @@ interface PaymentDetail {
     commission_fixed_pence: number;
     platform_commission_pence: number;
     driver_net_pence: number;
+    /** Stripe fee is absorbed inside commission — shown for transparency only, NOT deducted from driver */
     stripe_processing_fee_pence: number;
   };
   payment_info: {
