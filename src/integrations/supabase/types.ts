@@ -7334,6 +7334,7 @@ export type Database = {
           base_fare_pence: number | null
           booking_source: string | null
           broadcast_started_at: string | null
+          cancel_reason: string | null
           cancellation_fee_pence: number | null
           cancellation_grace_expires_at: string | null
           cancellation_note: string | null
@@ -7477,6 +7478,7 @@ export type Database = {
           base_fare_pence?: number | null
           booking_source?: string | null
           broadcast_started_at?: string | null
+          cancel_reason?: string | null
           cancellation_fee_pence?: number | null
           cancellation_grace_expires_at?: string | null
           cancellation_note?: string | null
@@ -7620,6 +7622,7 @@ export type Database = {
           base_fare_pence?: number | null
           booking_source?: string | null
           broadcast_started_at?: string | null
+          cancel_reason?: string | null
           cancellation_fee_pence?: number | null
           cancellation_grace_expires_at?: string | null
           cancellation_note?: string | null
