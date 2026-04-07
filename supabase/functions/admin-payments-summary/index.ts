@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
 serve(async (req) => {
@@ -45,9 +45,7 @@ serve(async (req) => {
       });
     }
 
-    // ── Unified aggregates from driver_financial_summary ──
-    // Now includes revenue breakdown by type (completed, no_show, late_cancel)
-    // All financial data from driver_financial_summary (100% driver_wallet_ledger)
+    // ── SSOT: driver_financial_summary (100% derived from driver_wallet_ledger) ──
     const { data: summaryRows } = await supabase
       .from('driver_financial_summary')
       .select('gross_trip_total, company_commission_total, card_net_credits, cash_commission_debits, total_payouts_sent, wallet_balance, completed_trips, today_gross_earnings, today_trip_count, card_gross_total, cash_gross_total');
@@ -65,8 +63,43 @@ serve(async (req) => {
     const totalCardGross = all.reduce((s, d) => s + Number(d.card_gross_total || 0), 0);
     const totalCashGross = all.reduce((s, d) => s + Number(d.cash_gross_total || 0), 0);
 
+    // ── Pending payments: trips with payment_status = 'pending' (not yet captured/confirmed) ──
+    const { count: pendingCount } = await supabase
+      .from('trips')
+      .select('id', { count: 'exact', head: true })
+      .eq('payment_status', 'pending');
+
+    const { data: pendingRows } = await supabase
+      .from('trips')
+      .select('gross_fare_pence')
+      .eq('payment_status', 'pending');
+
+    const pendingAmount = (pendingRows || []).reduce((s, t) => s + Number(t.gross_fare_pence || 0), 0);
+
+    // ── Refunds: from driver_wallet_ledger REFUND type (SSOT) ──
+    const { data: refundRows } = await supabase
+      .from('driver_wallet_ledger')
+      .select('amount_pence')
+      .eq('type', 'REFUND');
+
+    const totalRefunds = (refundRows || []).reduce((s, r) => s + Math.abs(Number(r.amount_pence || 0)), 0);
+    const refundedTrips = (refundRows || []).length;
+
+    // ── Payment method breakdown from trips table (operational data) ──
+    const { data: methodRows } = await supabase
+      .from('trips')
+      .select('payment_method')
+      .in('status', ['completed', 'no_show', 'cancelled'])
+      .not('payment_method', 'is', null);
+
+    const paymentMethods: Record<string, number> = {};
+    for (const row of methodRows || []) {
+      const method = (row.payment_method || 'unknown').toLowerCase();
+      paymentMethods[method] = (paymentMethods[method] || 0) + 1;
+    }
+
     const response = {
-      // Unified financial summary (100% from driver_wallet_ledger)
+      // Unified financial summary (100% from driver_wallet_ledger via driver_financial_summary)
       totalGrossFares,
       totalCommission,       // Platform commission (ONECAB revenue)
       totalDriverNet,        // Card net credits to drivers
@@ -85,7 +118,7 @@ serve(async (req) => {
       todayTransactions: todayTrips,
       todayGrossEarnings: todayGross,
       completedTrips: totalTrips,
-      refundedTrips: refundedTrips || 0,
+      refundedTrips,
       totalRefunds,
       paymentMethods,
     };
