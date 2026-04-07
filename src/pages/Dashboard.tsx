@@ -264,7 +264,7 @@ export default function Dashboard() {
     return { startDate, endDate, previousStartDate, previousEndDate };
   }, [period, customDateFrom, customDateTo]);
 
-  // ─── Ledger-based revenue (SSOT: driver_wallet_ledger COMPANY_COMMISSION) ───
+  // ─── Ledger-based revenue (SSOT: driver_wallet_ledger PLATFORM_COMMISSION) ───
   const { data: revenueData, isLoading: revenueLoading } = useLedgerRevenue({
     period,
     serviceAreaId: selectedServiceArea === 'all' ? null : selectedServiceArea,
