@@ -7344,6 +7344,7 @@ export type Database = {
           capture_amount_pence: number | null
           check_in_reminder_sent_at: string | null
           client_action_id: string | null
+          commission_pct: number | null
           commission_pence: number | null
           completed_at: string | null
           confirm_deadline_at: string | null
@@ -7486,6 +7487,7 @@ export type Database = {
           capture_amount_pence?: number | null
           check_in_reminder_sent_at?: string | null
           client_action_id?: string | null
+          commission_pct?: number | null
           commission_pence?: number | null
           completed_at?: string | null
           confirm_deadline_at?: string | null
@@ -7628,6 +7630,7 @@ export type Database = {
           capture_amount_pence?: number | null
           check_in_reminder_sent_at?: string | null
           client_action_id?: string | null
+          commission_pct?: number | null
           commission_pence?: number | null
           completed_at?: string | null
           confirm_deadline_at?: string | null

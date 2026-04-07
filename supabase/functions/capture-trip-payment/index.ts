@@ -253,8 +253,8 @@ serve(async (req) => {
     }).eq('id', trip_id);
 
     console.log(`[capture] Trip ${trip_id} settlement complete`);
-    console.log(`[capture] Summary: total=${final_trip_total_pence}p, commission=${platform_commission_pence}p, stripeFee=${stripeFee}p, driverEarnings=${driver_total_earnings_pence}p, debtRecovery=${debtRecoveryPence}p, finalPayout=${finalDriverPayoutPence}p`);
-    console.log(`[capture] Platform revenue: commission(${platform_commission_pence}p) - stripeFee(${stripeFee}p) = ${platform_commission_pence - stripeFee}p`);
+    console.log(`[capture] Summary: total=${final_trip_total_pence}p, commission=${platform_commission_pence}p (Stripe fee absorbed inside), driverEarnings=${driver_total_earnings_pence}p, debtRecovery=${debtRecoveryPence}p, finalPayout=${finalDriverPayoutPence}p`);
+    // NOTE: Stripe fee is a platform cost absorbed INSIDE commission. Never deducted from driver.
 
     return new Response(JSON.stringify({
       success: true,

@@ -1327,7 +1327,19 @@ export default function TripHistory() {
                           )}
                           {selectedTrip.commission_pence != null && (
                             <div className="flex justify-between text-sm">
-                              <span className="text-muted-foreground">Commission</span>
+                              <span className="text-muted-foreground">
+                                Commission
+                                {(selectedTrip as any).commission_pct != null && (
+                                  <span className="text-xs ml-1">({(selectedTrip as any).commission_pct}%)</span>
+                                )}
+                                {(() => {
+                                  const fbPct = (selectedTrip.fare_breakdown as any)?.commission_pct;
+                                  if (fbPct != null && (selectedTrip as any).commission_pct == null) {
+                                    return <span className="text-xs ml-1">({fbPct}%)</span>;
+                                  }
+                                  return null;
+                                })()}
+                              </span>
                               <span className="text-orange-600">-{fmt(selectedTrip.commission_pence)}</span>
                             </div>
                           )}
