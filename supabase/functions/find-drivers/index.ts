@@ -308,7 +308,27 @@ serve(async (req) => {
         .sort((a, b) => a.distance_km - b.distance_km);
     }
 
-  } catch (error) {
+    console.log('Eligible drivers after distance filter:', eligibleDrivers.length);
+
+    if (eligibleDrivers.length === 0) {
+      return successResponse({
+        drivers: [],
+        message: 'No drivers available right now.',
+        subtext: 'Please try again in a few minutes or adjust your pickup location.'
+      });
+    }
+
+    return successResponse({
+      drivers: eligibleDrivers,
+      service_area_ids: serviceAreaIds,
+      region: matchingRegion,
+      settings: {
+        currency_code: matchingRegion.currency_code,
+        distance_unit: matchingRegion.distance_unit,
+        timezone: matchingRegion.timezone,
+      }
+    });
+
     console.error('Error in find-drivers:', error);
     return errorResponse(
       error instanceof Error ? error.message : 'Internal server error',
