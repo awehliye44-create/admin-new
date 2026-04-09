@@ -329,6 +329,7 @@ serve(async (req) => {
       }
     });
 
+  } catch (error) {
     console.error('Error in find-drivers:', error);
     return errorResponse(
       error instanceof Error ? error.message : 'Internal server error',
