@@ -14,6 +14,7 @@ import {
   findDriversSchema, 
   FindDriversRequest 
 } from "../_shared/validation.ts";
+import { getDistanceMatrix } from "../_shared/googleMaps.ts";
 
 // Rate limit: 60 requests per minute per IP
 const RATE_LIMIT_CONFIG = { limit: 60, windowMs: 60 * 1000 };
