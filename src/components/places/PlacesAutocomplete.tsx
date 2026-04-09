@@ -52,18 +52,27 @@ export function PlacesAutocomplete({
   const sessionToken = useRef<google.maps.places.AutocompleteSessionToken | null>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // Initialize Google Places services
+  // Initialize Google Places services (handles async script loading)
   useEffect(() => {
-    if (typeof google !== 'undefined' && google.maps?.places) {
-      autocompleteService.current = new google.maps.places.AutocompleteService();
-      
-      // Create a temporary div for PlacesService (required but not displayed)
-      const tempDiv = document.createElement('div');
-      placesService.current = new google.maps.places.PlacesService(tempDiv);
-      
-      // Generate new session token
-      sessionToken.current = new google.maps.places.AutocompleteSessionToken();
-    }
+    const init = () => {
+      if (typeof google !== 'undefined' && google.maps?.places) {
+        autocompleteService.current = new google.maps.places.AutocompleteService();
+        const tempDiv = document.createElement('div');
+        placesService.current = new google.maps.places.PlacesService(tempDiv);
+        sessionToken.current = new google.maps.places.AutocompleteSessionToken();
+        return true;
+      }
+      return false;
+    };
+
+    if (init()) return;
+
+    // Poll for Google Maps API availability (loaded async)
+    const interval = setInterval(() => {
+      if (init()) clearInterval(interval);
+    }, 300);
+
+    return () => clearInterval(interval);
   }, []);
 
   // Click outside to close suggestions
