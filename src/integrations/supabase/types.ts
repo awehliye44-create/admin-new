@@ -9001,6 +9001,13 @@ export type Database = {
         }[]
       }
       get_active_stop_waiting: { Args: { p_driver_id: string }; Returns: Json }
+      get_driver_ledger_aggregates: {
+        Args: { p_driver_id: string }
+        Returns: {
+          entry_type: string
+          total_pence: number
+        }[]
+      }
       get_driver_wallet_balance: {
         Args: { p_driver_id: string }
         Returns: {
