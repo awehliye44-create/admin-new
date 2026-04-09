@@ -7141,6 +7141,78 @@ export type Database = {
           },
         ]
       }
+      trip_route_cache: {
+        Row: {
+          cached_at: string
+          created_at: string
+          dest_lat: number
+          dest_lng: number
+          distance_km: number
+          duration_min: number
+          eta_at: string | null
+          expires_at: string
+          id: string
+          leg: string
+          origin_lat: number
+          origin_lng: number
+          polyline: string | null
+          reroute_reason: string | null
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          cached_at?: string
+          created_at?: string
+          dest_lat: number
+          dest_lng: number
+          distance_km: number
+          duration_min: number
+          eta_at?: string | null
+          expires_at: string
+          id?: string
+          leg: string
+          origin_lat: number
+          origin_lng: number
+          polyline?: string | null
+          reroute_reason?: string | null
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          cached_at?: string
+          created_at?: string
+          dest_lat?: number
+          dest_lng?: number
+          distance_km?: number
+          duration_min?: number
+          eta_at?: string | null
+          expires_at?: string
+          id?: string
+          leg?: string
+          origin_lat?: number
+          origin_lng?: number
+          polyline?: string | null
+          reroute_reason?: string | null
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trip_route_cache_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_route_cache_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trip_stop_waiting: {
         Row: {
           charge_interval_seconds: number
