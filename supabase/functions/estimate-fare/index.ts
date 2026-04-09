@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { FareEngine, type FarePricingSettings } from "../_shared/fareEngine.ts";
+import { getDirections } from "../_shared/googleMaps.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -20,11 +21,45 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const {
       service_area_id,
-      estimated_distance_km,
-      estimated_duration_min,
       vehicle_type_id,
       stops_count = 0,
+      // Accept coordinates for server-side distance calculation
+      pickup_lat,
+      pickup_lng,
+      dropoff_lat,
+      dropoff_lng,
+      waypoints,
+      // Legacy: client-provided estimates (used as fallback)
+      estimated_distance_km: client_distance_km,
+      estimated_duration_min: client_duration_min,
     } = body;
+
+    // Server-side distance/duration via Google Directions API
+    let estimated_distance_km = client_distance_km;
+    let estimated_duration_min = client_duration_min;
+    let directions_polyline: string | null = null;
+
+    if (pickup_lat != null && pickup_lng != null && dropoff_lat != null && dropoff_lng != null) {
+      try {
+        const directions = await getDirections(
+          pickup_lat, pickup_lng,
+          dropoff_lat, dropoff_lng,
+          waypoints
+        );
+        estimated_distance_km = directions.distance_km;
+        estimated_duration_min = directions.duration_min;
+        directions_polyline = directions.polyline;
+        console.log(`[estimate-fare] Google Directions: ${estimated_distance_km}km, ${estimated_duration_min}min`);
+      } catch (dirErr) {
+        console.warn("[estimate-fare] Directions API failed, falling back to client estimates:", dirErr);
+        if (estimated_distance_km == null || estimated_duration_min == null) {
+          return new Response(
+            JSON.stringify({ error: "Could not calculate route. Please provide pickup and dropoff coordinates." }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      }
+    }
 
     if (!service_area_id || estimated_distance_km == null || estimated_duration_min == null) {
       return new Response(
@@ -206,6 +241,7 @@ Deno.serve(async (req) => {
           currencyCode: regionCurrency,
           vehicles,
           riderMessage,
+          ...(directions_polyline ? { routePolyline: directions_polyline } : {}),
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
@@ -315,6 +351,7 @@ Deno.serve(async (req) => {
         freeWaitingMinutes: settings.free_waiting_minutes,
         waitingPerMinutePence: settings.waiting_per_minute_pence,
         extraStopFlatFeePence: settings.extra_stop_flat_fee_pence,
+        ...(directions_polyline ? { routePolyline: directions_polyline } : {}),
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
