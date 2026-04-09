@@ -246,47 +246,67 @@ serve(async (req) => {
       }
     }
 
-    // Step 6: Calculate distance and filter by max distance
-    const eligibleDrivers = drivers
-      .filter(d => filteredDriverIds.includes(d.id))
-      .map(driver => {
-        const distance = calculateDistanceKm(
-          pickup_lat,
-          pickup_lng,
-          driver.current_lat!,
-          driver.current_lng!
-        );
-        return {
-          id: driver.id,
-          rating: driver.rating,
-          current_lat: driver.current_lat,
-          current_lng: driver.current_lng,
-          distance_km: Math.round(distance * 10) / 10
-        };
-      })
-      .filter(driver => driver.distance_km <= max_distance_km)
-      .sort((a, b) => a.distance_km - b.distance_km);
+    // Step 6: Calculate distance/ETA using Google Distance Matrix API (with Haversine fallback)
+    const candidateDrivers = drivers.filter(d => filteredDriverIds.includes(d.id));
+    
+    let eligibleDrivers: Array<{
+      id: string;
+      rating: number | null;
+      current_lat: number | null;
+      current_lng: number | null;
+      distance_km: number;
+      eta_min: number | null;
+    }> = [];
 
-    console.log('Eligible drivers after distance filter:', eligibleDrivers.length);
+    try {
+      const origins = candidateDrivers.map(d => ({ lat: d.current_lat!, lng: d.current_lng! }));
+      const destination = [{ lat: pickup_lat, lng: pickup_lng }];
+      const matrixResults = await getDistanceMatrix(origins, destination);
 
-    if (eligibleDrivers.length === 0) {
-      return successResponse({
-        drivers: [],
-        message: 'No drivers available right now.',
-        subtext: 'Please try again in a few minutes or adjust your pickup location.'
-      });
-    }
-
-    return successResponse({
-      drivers: eligibleDrivers,
-      service_area_ids: serviceAreaIds,
-      region: matchingRegion,
-      settings: {
-        currency_code: matchingRegion.currency_code,
-        distance_unit: matchingRegion.distance_unit,
-        timezone: matchingRegion.timezone,
+      // Build a map from origin_index to result
+      const etaMap = new Map<number, { distance_km: number; duration_min: number }>();
+      for (const entry of matrixResults) {
+        etaMap.set(entry.origin_index, { distance_km: entry.distance_km, duration_min: entry.duration_min });
       }
-    });
+
+      eligibleDrivers = candidateDrivers
+        .map((driver, idx) => {
+          const gmResult = etaMap.get(idx);
+          const distance = gmResult
+            ? gmResult.distance_km
+            : calculateDistanceKm(pickup_lat, pickup_lng, driver.current_lat!, driver.current_lng!);
+          return {
+            id: driver.id,
+            rating: driver.rating,
+            current_lat: driver.current_lat,
+            current_lng: driver.current_lng,
+            distance_km: Math.round(distance * 10) / 10,
+            eta_min: gmResult ? gmResult.duration_min : null,
+          };
+        })
+        .filter(driver => driver.distance_km <= max_distance_km)
+        .sort((a, b) => a.distance_km - b.distance_km);
+
+      console.log('[find-drivers] Distance Matrix used for ETA calculation');
+    } catch (gmErr) {
+      console.warn('[find-drivers] Distance Matrix failed, falling back to Haversine:', gmErr);
+      eligibleDrivers = candidateDrivers
+        .map(driver => {
+          const distance = calculateDistanceKm(
+            pickup_lat, pickup_lng, driver.current_lat!, driver.current_lng!
+          );
+          return {
+            id: driver.id,
+            rating: driver.rating,
+            current_lat: driver.current_lat,
+            current_lng: driver.current_lng,
+            distance_km: Math.round(distance * 10) / 10,
+            eta_min: null,
+          };
+        })
+        .filter(driver => driver.distance_km <= max_distance_km)
+        .sort((a, b) => a.distance_km - b.distance_km);
+    }
 
   } catch (error) {
     console.error('Error in find-drivers:', error);
