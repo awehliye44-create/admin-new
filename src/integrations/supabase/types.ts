@@ -9045,16 +9045,26 @@ export type Database = {
           updated_at: string
         }[]
       }
-      find_or_create_customer: {
-        Args: {
-          p_email?: string
-          p_first_name?: string
-          p_last_name?: string
-          p_phone?: string
-          p_user_id?: string
-        }
-        Returns: string
-      }
+      find_or_create_customer:
+        | {
+            Args: {
+              p_email?: string
+              p_first_name?: string
+              p_last_name?: string
+              p_phone?: string
+              p_user_id?: string
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              p_first_name: string
+              p_last_name: string
+              p_phone: string
+              p_user_id: string
+            }
+            Returns: string
+          }
       find_service_area_by_location: {
         Args: { p_lat: number; p_lng: number }
         Returns: string
