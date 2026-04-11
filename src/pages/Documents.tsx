@@ -131,18 +131,31 @@ export default function Documents() {
 
     setIsSaving(true);
     try {
+      const isReReject = selectedDocument.status === 'approved' && reviewStatus === 'rejected';
+
+      const updatePayload: Record<string, any> = {
+        status: reviewStatus,
+        rejection_reason: reviewStatus === 'rejected' ? rejectionReason.trim() : null,
+        reviewed_at: new Date().toISOString(),
+      };
+
+      // On re-rejection, clear the file so the driver must re-upload
+      if (isReReject) {
+        updatePayload.file_url = null;
+      }
+
       const { error } = await supabase
         .from('documents')
-        .update({
-          status: reviewStatus,
-          rejection_reason: reviewStatus === 'rejected' ? rejectionReason.trim() : null,
-          reviewed_at: new Date().toISOString(),
-        })
+        .update(updatePayload)
         .eq('id', selectedDocument.id);
 
       if (error) throw error;
 
-      toast.success(`Document ${reviewStatus === 'approved' ? 'approved' : 'rejected'} successfully`);
+      toast.success(
+        isReReject
+          ? 'Document re-rejected — driver will be prompted to re-upload'
+          : `Document ${reviewStatus === 'approved' ? 'approved' : 'rejected'} successfully`
+      );
       setIsReviewOpen(false);
       setSelectedDocument(null);
       setReviewStatus('');
@@ -397,6 +410,20 @@ export default function Documents() {
                                   </DropdownMenuItem>
                                 </>
                               )}
+                              {doc.status === 'approved' && (
+                                <DropdownMenuItem 
+                                  onClick={() => { 
+                                    setSelectedDocument(doc); 
+                                    setReviewStatus('rejected'); 
+                                    setRejectionReason('');
+                                    setIsReviewOpen(true); 
+                                  }}
+                                  className="text-red-600"
+                                >
+                                  <XCircle className="h-4 w-4 mr-2" />
+                                  Re-reject &amp; Request Re-upload
+                                </DropdownMenuItem>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -423,7 +450,11 @@ export default function Documents() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>
-                {reviewStatus === 'approved' ? 'Approve Document' : 'Reject Document'}
+                {reviewStatus === 'approved' 
+                  ? 'Approve Document' 
+                  : selectedDocument?.status === 'approved' 
+                    ? 'Re-reject Document' 
+                    : 'Reject Document'}
               </DialogTitle>
               <DialogDescription>
                 {selectedDocument?.document_name} - {selectedDocument?.driver?.first_name} {selectedDocument?.driver?.last_name}
@@ -431,15 +462,22 @@ export default function Documents() {
             </DialogHeader>
             <div className="space-y-4">
               {reviewStatus === 'rejected' && (
-                <div>
-                  <Label htmlFor="rejectionReason">Rejection Reason *</Label>
-                  <Textarea
-                    id="rejectionReason"
-                    value={rejectionReason}
-                    onChange={(e) => setRejectionReason(e.target.value)}
-                    placeholder="Please provide a reason for rejection..."
-                    rows={3}
-                  />
+                <div className="space-y-3">
+                  {selectedDocument?.status === 'approved' && (
+                    <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                      <strong>Re-rejection:</strong> The uploaded file will be cleared and the driver will be prompted to re-upload this document in their app.
+                    </div>
+                  )}
+                  <div>
+                    <Label htmlFor="rejectionReason">Rejection Reason *</Label>
+                    <Textarea
+                      id="rejectionReason"
+                      value={rejectionReason}
+                      onChange={(e) => setRejectionReason(e.target.value)}
+                      placeholder="Please provide a reason for rejection..."
+                      rows={3}
+                    />
+                  </div>
                 </div>
               )}
               {reviewStatus === 'approved' && (
