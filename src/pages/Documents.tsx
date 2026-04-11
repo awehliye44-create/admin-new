@@ -462,15 +462,22 @@ export default function Documents() {
             </DialogHeader>
             <div className="space-y-4">
               {reviewStatus === 'rejected' && (
-                <div>
-                  <Label htmlFor="rejectionReason">Rejection Reason *</Label>
-                  <Textarea
-                    id="rejectionReason"
-                    value={rejectionReason}
-                    onChange={(e) => setRejectionReason(e.target.value)}
-                    placeholder="Please provide a reason for rejection..."
-                    rows={3}
-                  />
+                <div className="space-y-3">
+                  {selectedDocument?.status === 'approved' && (
+                    <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                      <strong>Re-rejection:</strong> The uploaded file will be cleared and the driver will be prompted to re-upload this document in their app.
+                    </div>
+                  )}
+                  <div>
+                    <Label htmlFor="rejectionReason">Rejection Reason *</Label>
+                    <Textarea
+                      id="rejectionReason"
+                      value={rejectionReason}
+                      onChange={(e) => setRejectionReason(e.target.value)}
+                      placeholder="Please provide a reason for rejection..."
+                      rows={3}
+                    />
+                  </div>
                 </div>
               )}
               {reviewStatus === 'approved' && (
