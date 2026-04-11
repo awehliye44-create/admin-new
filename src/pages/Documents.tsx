@@ -131,18 +131,31 @@ export default function Documents() {
 
     setIsSaving(true);
     try {
+      const isReReject = selectedDocument.status === 'approved' && reviewStatus === 'rejected';
+
+      const updatePayload: Record<string, any> = {
+        status: reviewStatus,
+        rejection_reason: reviewStatus === 'rejected' ? rejectionReason.trim() : null,
+        reviewed_at: new Date().toISOString(),
+      };
+
+      // On re-rejection, clear the file so the driver must re-upload
+      if (isReReject) {
+        updatePayload.file_url = null;
+      }
+
       const { error } = await supabase
         .from('documents')
-        .update({
-          status: reviewStatus,
-          rejection_reason: reviewStatus === 'rejected' ? rejectionReason.trim() : null,
-          reviewed_at: new Date().toISOString(),
-        })
+        .update(updatePayload)
         .eq('id', selectedDocument.id);
 
       if (error) throw error;
 
-      toast.success(`Document ${reviewStatus === 'approved' ? 'approved' : 'rejected'} successfully`);
+      toast.success(
+        isReReject
+          ? 'Document re-rejected — driver will be prompted to re-upload'
+          : `Document ${reviewStatus === 'approved' ? 'approved' : 'rejected'} successfully`
+      );
       setIsReviewOpen(false);
       setSelectedDocument(null);
       setReviewStatus('');
@@ -397,6 +410,20 @@ export default function Documents() {
                                   </DropdownMenuItem>
                                 </>
                               )}
+                              {doc.status === 'approved' && (
+                                <DropdownMenuItem 
+                                  onClick={() => { 
+                                    setSelectedDocument(doc); 
+                                    setReviewStatus('rejected'); 
+                                    setRejectionReason('');
+                                    setIsReviewOpen(true); 
+                                  }}
+                                  className="text-red-600"
+                                >
+                                  <XCircle className="h-4 w-4 mr-2" />
+                                  Re-reject &amp; Request Re-upload
+                                </DropdownMenuItem>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -423,7 +450,11 @@ export default function Documents() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>
-                {reviewStatus === 'approved' ? 'Approve Document' : 'Reject Document'}
+                {reviewStatus === 'approved' 
+                  ? 'Approve Document' 
+                  : selectedDocument?.status === 'approved' 
+                    ? 'Re-reject Document' 
+                    : 'Reject Document'}
               </DialogTitle>
               <DialogDescription>
                 {selectedDocument?.document_name} - {selectedDocument?.driver?.first_name} {selectedDocument?.driver?.last_name}
