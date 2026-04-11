@@ -22,6 +22,10 @@ interface TelemetryEvent {
   metadata?: Record<string, unknown>;
 }
 
+interface TelemetryPayload {
+  events?: TelemetryEvent[];
+}
+
 const VALID_APPS = ["customer_app", "driver_app", "guest_web", "admin_web", "admin_panel", "corporate_web"];
 const VALID_METRICS = [
   "screen_load_time",
@@ -75,7 +79,17 @@ Deno.serve(async (req) => {
       );
     }
 
-    const events: TelemetryEvent[] = Array.isArray(body) ? body : [body as TelemetryEvent];
+    const wrappedEvents =
+      typeof body === "object" &&
+      body !== null &&
+      !Array.isArray(body) &&
+      Array.isArray((body as TelemetryPayload).events)
+        ? (body as TelemetryPayload).events ?? []
+        : null;
+
+    const events: TelemetryEvent[] = Array.isArray(body)
+      ? body
+      : wrappedEvents ?? [body as TelemetryEvent];
 
     // Empty array — graceful no-op (not an error)
     if (events.length === 0) {
