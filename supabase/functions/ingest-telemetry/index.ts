@@ -1,4 +1,4 @@
-// ONECAB Telemetry Ingestion — v7 (force redeploy 2026-04-12T05:45Z)
+// ONECAB Telemetry Ingestion — v8 (force redeploy 2026-04-12T06:00Z)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
