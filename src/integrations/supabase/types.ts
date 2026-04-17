@@ -4237,6 +4237,191 @@ export type Database = {
           },
         ]
       }
+      offer_redemptions: {
+        Row: {
+          created_at: string
+          currency: string
+          customer_id: string | null
+          discount_pence: number
+          final_fare_pence: number
+          id: string
+          metadata: Json | null
+          offer_id: string
+          original_fare_pence: number
+          service_area_id: string | null
+          status: Database["public"]["Enums"]["offer_redemption_status"]
+          trip_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          currency: string
+          customer_id?: string | null
+          discount_pence: number
+          final_fare_pence: number
+          id?: string
+          metadata?: Json | null
+          offer_id: string
+          original_fare_pence: number
+          service_area_id?: string | null
+          status?: Database["public"]["Enums"]["offer_redemption_status"]
+          trip_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          customer_id?: string | null
+          discount_pence?: number
+          final_fare_pence?: number
+          id?: string
+          metadata?: Json | null
+          offer_id?: string
+          original_fare_pence?: number
+          service_area_id?: string | null
+          status?: Database["public"]["Enums"]["offer_redemption_status"]
+          trip_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "offer_redemptions_offer_id_fkey"
+            columns: ["offer_id"]
+            isOneToOne: false
+            referencedRelation: "offers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      offer_service_areas: {
+        Row: {
+          created_at: string
+          id: string
+          offer_id: string
+          service_area_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          offer_id: string
+          service_area_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          offer_id?: string
+          service_area_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "offer_service_areas_offer_id_fkey"
+            columns: ["offer_id"]
+            isOneToOne: false
+            referencedRelation: "offers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "offer_service_areas_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      offers: {
+        Row: {
+          badge_text: string | null
+          banner_subtitle: string | null
+          banner_title: string
+          code: string
+          created_at: string
+          created_by: string | null
+          cta_text: string
+          currency: string
+          description: string | null
+          discount_value: number
+          ends_at: string | null
+          first_ride_only: boolean
+          id: string
+          is_enabled: boolean
+          max_discount_pence: number | null
+          min_fare_pence: number
+          name: string
+          new_customer_only: boolean
+          offer_type: Database["public"]["Enums"]["offer_type"]
+          per_user_limit: number | null
+          priority: number
+          starts_at: string
+          status: Database["public"]["Enums"]["offer_status"]
+          style_variant: string
+          terms: string | null
+          total_usage_limit: number | null
+          updated_at: string
+          usage_count: number
+        }
+        Insert: {
+          badge_text?: string | null
+          banner_subtitle?: string | null
+          banner_title: string
+          code: string
+          created_at?: string
+          created_by?: string | null
+          cta_text?: string
+          currency?: string
+          description?: string | null
+          discount_value: number
+          ends_at?: string | null
+          first_ride_only?: boolean
+          id?: string
+          is_enabled?: boolean
+          max_discount_pence?: number | null
+          min_fare_pence?: number
+          name: string
+          new_customer_only?: boolean
+          offer_type: Database["public"]["Enums"]["offer_type"]
+          per_user_limit?: number | null
+          priority?: number
+          starts_at?: string
+          status?: Database["public"]["Enums"]["offer_status"]
+          style_variant?: string
+          terms?: string | null
+          total_usage_limit?: number | null
+          updated_at?: string
+          usage_count?: number
+        }
+        Update: {
+          badge_text?: string | null
+          banner_subtitle?: string | null
+          banner_title?: string
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          cta_text?: string
+          currency?: string
+          description?: string | null
+          discount_value?: number
+          ends_at?: string | null
+          first_ride_only?: boolean
+          id?: string
+          is_enabled?: boolean
+          max_discount_pence?: number | null
+          min_fare_pence?: number
+          name?: string
+          new_customer_only?: boolean
+          offer_type?: Database["public"]["Enums"]["offer_type"]
+          per_user_limit?: number | null
+          priority?: number
+          starts_at?: string
+          status?: Database["public"]["Enums"]["offer_status"]
+          style_variant?: string
+          terms?: string | null
+          total_usage_limit?: number | null
+          updated_at?: string
+          usage_count?: number
+        }
+        Relationships: []
+      }
       onecab_document_activity_log: {
         Row: {
           action: string
@@ -7409,6 +7594,8 @@ export type Database = {
       }
       trips: {
         Row: {
+          applied_offer_code: string | null
+          applied_offer_id: string | null
           arrived_at: string | null
           assigned_at: string | null
           authorised_amount_pence: number | null
@@ -7490,6 +7677,8 @@ export type Database = {
           max_broadcast_rounds: number | null
           negotiation_locked_until: string | null
           no_show_charge_pence: number | null
+          offer_currency: string | null
+          offer_discount_pence: number
           offer_snapshot: Json | null
           paid_waiting_started_at: string | null
           passenger_id: string
@@ -7553,6 +7742,8 @@ export type Database = {
           wallet_balance_before: number | null
         }
         Insert: {
+          applied_offer_code?: string | null
+          applied_offer_id?: string | null
           arrived_at?: string | null
           assigned_at?: string | null
           authorised_amount_pence?: number | null
@@ -7634,6 +7825,8 @@ export type Database = {
           max_broadcast_rounds?: number | null
           negotiation_locked_until?: string | null
           no_show_charge_pence?: number | null
+          offer_currency?: string | null
+          offer_discount_pence?: number
           offer_snapshot?: Json | null
           paid_waiting_started_at?: string | null
           passenger_id: string
@@ -7697,6 +7890,8 @@ export type Database = {
           wallet_balance_before?: number | null
         }
         Update: {
+          applied_offer_code?: string | null
+          applied_offer_id?: string | null
           arrived_at?: string | null
           assigned_at?: string | null
           authorised_amount_pence?: number | null
@@ -7778,6 +7973,8 @@ export type Database = {
           max_broadcast_rounds?: number | null
           negotiation_locked_until?: string | null
           no_show_charge_pence?: number | null
+          offer_currency?: string | null
+          offer_discount_pence?: number
           offer_snapshot?: Json | null
           paid_waiting_started_at?: string | null
           passenger_id?: string
@@ -7841,6 +8038,13 @@ export type Database = {
           wallet_balance_before?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "trips_applied_offer_id_fkey"
+            columns: ["applied_offer_id"]
+            isOneToOne: false
+            referencedRelation: "offers"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "trips_confirmed_driver_id_fkey"
             columns: ["confirmed_driver_id"]
@@ -9462,6 +9666,9 @@ export type Database = {
       app_user_role: "admin" | "driver" | "customer" | "corporate"
       content_status: "draft" | "published"
       driver_status: "active" | "disabled" | "deleted"
+      offer_redemption_status: "reserved" | "applied" | "reversed"
+      offer_status: "draft" | "active" | "archived"
+      offer_type: "percent_discount" | "fixed_amount_discount"
       staff_role:
         | "super_admin"
         | "admin"
@@ -9612,6 +9819,9 @@ export const Constants = {
       app_user_role: ["admin", "driver", "customer", "corporate"],
       content_status: ["draft", "published"],
       driver_status: ["active", "disabled", "deleted"],
+      offer_redemption_status: ["reserved", "applied", "reversed"],
+      offer_status: ["draft", "active", "archived"],
+      offer_type: ["percent_discount", "fixed_amount_discount"],
       staff_role: [
         "super_admin",
         "admin",
