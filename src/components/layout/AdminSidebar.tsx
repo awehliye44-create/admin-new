@@ -61,6 +61,7 @@ import {
   Smartphone,
   Globe,
   PackageSearch,
+  Sparkles,
   Gauge,
 } from 'lucide-react';
 import {
@@ -283,6 +284,7 @@ export function AdminSidebar() {
             <div className="space-y-1">
               
               <P pageSlug="promo-codes" to="/promo-codes" icon={<Tag className="h-4 w-4" />} label="Promo Codes" active={currentPath === '/promo-codes'} badge={counts.activePromoCodes > 0 ? counts.activePromoCodes : undefined} collapsed={isCollapsed} />
+              <P pageSlug="offers" to="/offers" icon={<Sparkles className="h-4 w-4" />} label="Customer Offers" active={currentPath === '/offers'} collapsed={isCollapsed} />
               <P pageSlug="custom-zones" to="/custom-zones" icon={<CircleDollarSign className="h-4 w-4" />} label="Custom Zones" active={currentPath === '/custom-zones'} collapsed={isCollapsed} />
               <P pageSlug="zone-pricing" to="/zone-pricing" icon={<Target className="h-4 w-4" />} label="Geofence & Zone Pricing" active={currentPath === '/zone-pricing'} collapsed={isCollapsed} />
               

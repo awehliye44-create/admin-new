@@ -35,6 +35,7 @@ import CorporateFares from "./pages/CorporateFares";
 import FareSimulator from "./pages/FareSimulator";
 
 import PromoCodes from "./pages/PromoCodes";
+import Offers from "./pages/Offers";
 import CorporateAccounts from "./pages/CorporateAccounts";
 import CorporateBilling from "./pages/CorporateBilling";
 import CorporateReports from "./pages/CorporateReports";
@@ -128,6 +129,7 @@ const App = () => (
               
               {/* Pricing & Fares */}
               <Route path="promo-codes" element={<PromoCodes />} />
+              <Route path="offers" element={<Offers />} />
               <Route path="custom-zones" element={<CustomZones />} />
               <Route path="zone-pricing" element={<ZonePricing />} />
               
