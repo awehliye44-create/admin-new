@@ -475,20 +475,7 @@ export function DriverDetailsDialog({
   const toggleDriverCategory = async (vehicleTypeId: string, currentlyEnabled: boolean) => {
     if (!driver) return;
 
-    // Check if driver has an approved vehicle compatible with this category
-    const vehicleType = vehicleTypes.find(vt => vt.id === vehicleTypeId);
-    const approvedVehicles = vehicles.filter(v => v.approval_status === 'approved');
-    
-    if (!currentlyEnabled && vehicleType) {
-      const hasCompatibleVehicle = approvedVehicles.some(v => 
-        v.capacity >= vehicleType.capacity
-      );
-      
-      if (!hasCompatibleVehicle) {
-        toast.warning(`Warning: Driver has no approved vehicle with capacity ≥ ${vehicleType.capacity} for ${vehicleType.name}`);
-      }
-    }
-
+    // Admin has full control — no compatibility checks
     const existingCategory = driverCategories.find(dc => dc.vehicle_type_id === vehicleTypeId);
 
     try {
@@ -1117,41 +1104,30 @@ export function DriverDetailsDialog({
                         </div>
                       ) : (
                         <div className="space-y-2">
-                          {enabledTypes.map((vt) => {
-                            const approvedVehicles = driverVehicles.filter(v => v.approval_status === 'approved');
-                            const hasCompatibleVehicle = approvedVehicles.some(v => v.capacity >= vt.capacity);
-
-                            return (
-                              <div 
-                                key={vt.id}
-                                className="flex items-center justify-between p-3 border rounded-lg border-primary/50 bg-primary/5"
-                              >
-                                <div className="flex items-center gap-3">
-                                  <div className="h-10 w-10 rounded-lg flex items-center justify-center bg-primary/10 text-primary">
-                                    <Truck className="h-5 w-5" />
-                                  </div>
-                                  <div>
-                                    <p className="font-medium">{vt.name}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {vt.capacity} passengers • {vt.categories?.join(', ') || 'Standard'}
-                                    </p>
-                                  </div>
+                          {enabledTypes.map((vt) => (
+                            <div 
+                              key={vt.id}
+                              className="flex items-center justify-between p-3 border rounded-lg border-primary/50 bg-primary/5"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="h-10 w-10 rounded-lg flex items-center justify-center bg-primary/10 text-primary">
+                                  <Truck className="h-5 w-5" />
                                 </div>
-                                <div className="flex items-center gap-3">
-                                  {!hasCompatibleVehicle && (
-                                    <Badge variant="outline" className="text-yellow-600 border-yellow-500/30 bg-yellow-500/10">
-                                      <AlertTriangle className="h-3 w-3 mr-1" />
-                                      No compatible vehicle
-                                    </Badge>
-                                  )}
-                                  <Switch
-                                    checked={true}
-                                    onCheckedChange={() => toggleDriverCategory(vt.id, true)}
-                                  />
+                                <div>
+                                  <p className="font-medium">{vt.name}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {vt.capacity} passengers • {vt.categories?.join(', ') || 'Standard'}
+                                  </p>
                                 </div>
                               </div>
-                            );
-                          })}
+                              <div className="flex items-center gap-3">
+                                <Switch
+                                  checked={true}
+                                  onCheckedChange={() => toggleDriverCategory(vt.id, true)}
+                                />
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       )}
 
