@@ -215,9 +215,11 @@ ${contextParts.join("\n")}`;
     if (action === "execute") {
       const { function_name, param_value, explanation, risk_level, preview_data } = body;
 
-      if (!function_name || !param_value || !user_id) {
-        return json({ error: "function_name, param_value, and user_id required" }, 400);
+      if (!function_name || !param_value) {
+        return json({ error: "function_name and param_value required" }, 400);
       }
+      // Use authenticated admin's id — never trust client-supplied user_id
+      const user_id = authedUserId;
 
       // Validate param_value is a real UUID
       const EXEC_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
