@@ -69,17 +69,12 @@ export default function Offers() {
   const openEdit = (o: OfferWithAreas) => { setEditing(o); setDialogOpen(true); };
 
   return (
-    <AdminLayout>
+    <AdminLayout
+      title="Customer Offers"
+      description="Admin-controlled promotions shown on the customer home screen and applied to bookings."
+    >
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold flex items-center gap-2">
-              <Sparkles className="h-6 w-6 text-primary" /> Customer Offers
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Admin-controlled promotions shown on the customer home screen and applied to bookings.
-            </p>
-          </div>
+        <div className="flex items-center justify-end">
           <Button onClick={openCreate}><Plus className="h-4 w-4" /> New offer</Button>
         </div>
 
