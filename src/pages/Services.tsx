@@ -201,21 +201,30 @@ export default function Services() {
       if (areasRes.data && areasRes.data.length > 0) {
         const areaIds = areasRes.data.map(a => a.id);
         
-        const [driverServiceAreasRes, pricingRes, cancellationRes, vehicleAssignRes] = await Promise.all([
-          supabase.from('drivers').select('service_area_id').not('service_area_id', 'is', null),
+        const [driverServiceAreasRes, driversPrimaryRes, pricingRes, cancellationRes, vehicleAssignRes] = await Promise.all([
+          supabase.from('driver_service_areas').select('driver_id, service_area_id').in('service_area_id', areaIds),
+          supabase.from('drivers').select('id, service_area_id').not('service_area_id', 'is', null).in('service_area_id', areaIds),
           supabase.from('fare_pricing_settings').select('service_area_id, base_fare_pence').in('service_area_id', areaIds),
           supabase.from('service_area_cancellation_fees').select('service_area_id').in('service_area_id', areaIds),
           supabase.from('service_area_vehicle_pricing').select('service_area_id').eq('is_enabled', true).in('service_area_id', areaIds),
         ]);
 
-        // Count drivers per area
-        if (driverServiceAreasRes.data) {
-          const counts: Record<string, number> = {};
-          driverServiceAreasRes.data.forEach(dsa => {
-            counts[dsa.service_area_id] = (counts[dsa.service_area_id] || 0) + 1;
-          });
-          setDriverCounts(counts);
-        }
+        // Count unique drivers per area — union of primary assignment (drivers.service_area_id)
+        // and multi-area assignments (driver_service_areas table).
+        const driversPerArea: Record<string, Set<string>> = {};
+        (driverServiceAreasRes.data || []).forEach((dsa: any) => {
+          if (!driversPerArea[dsa.service_area_id]) driversPerArea[dsa.service_area_id] = new Set();
+          driversPerArea[dsa.service_area_id].add(dsa.driver_id);
+        });
+        (driversPrimaryRes.data || []).forEach((d: any) => {
+          if (!driversPerArea[d.service_area_id]) driversPerArea[d.service_area_id] = new Set();
+          driversPerArea[d.service_area_id].add(d.id);
+        });
+        const counts: Record<string, number> = {};
+        Object.entries(driversPerArea).forEach(([areaId, set]) => {
+          counts[areaId] = set.size;
+        });
+        setDriverCounts(counts);
 
         // Count assigned vehicle types per area
         const vtCounts: Record<string, number> = {};
