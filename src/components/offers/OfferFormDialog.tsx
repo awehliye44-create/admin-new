@@ -253,7 +253,12 @@ export function OfferFormDialog({ open, onOpenChange, offer }: Props) {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Type</Label>
-                <Select value={form.offer_type} onValueChange={(v: any) => setForm({ ...form, offer_type: v })}>
+                <Select
+                  value={form.offer_type}
+                  onValueChange={(v: any) =>
+                    setForm({ ...form, offer_type: v, discount_value: v === "percent_discount" ? 10 : 2 })
+                  }
+                >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="percent_discount">Percentage discount (e.g. 40%)</SelectItem>
@@ -261,26 +266,105 @@ export function OfferFormDialog({ open, onOpenChange, offer }: Props) {
                   </SelectContent>
                 </Select>
               </div>
-              <div>
-                <Label>{form.offer_type === "percent_discount" ? "Percent (1–100)" : "Amount (major units, e.g. 2 = £2)"}</Label>
-                <Input type="number" step="0.01" value={form.discount_value} onChange={(e) => setForm({ ...form, discount_value: parseFloat(e.target.value) || 0 })} />
-              </div>
+
+              {form.offer_type === "percent_discount" ? (
+                <div>
+                  <Label htmlFor="discount-percent">Percent (1–100)</Label>
+                  <div className="relative">
+                    <Input
+                      id="discount-percent"
+                      type="number"
+                      inputMode="decimal"
+                      min={1}
+                      max={100}
+                      step="1"
+                      placeholder="Enter %"
+                      value={form.discount_value === 0 ? "" : String(form.discount_value)}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (raw === "") {
+                          setForm({ ...form, discount_value: 0 });
+                          return;
+                        }
+                        const n = parseFloat(raw);
+                        if (Number.isNaN(n)) return;
+                        setForm({ ...form, discount_value: Math.min(100, Math.max(0, n)) });
+                      }}
+                      className="pr-8"
+                    />
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                      %
+                    </span>
+                  </div>
+                  {form.discount_value > 0 && (form.discount_value < 1 || form.discount_value > 100) && (
+                    <p className="mt-1 text-xs text-destructive">Percent must be between 1 and 100.</p>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <Label htmlFor="discount-amount">Amount ({form.currency || "GBP"})</Label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                      {form.currency === "GBP" ? "£" : form.currency === "USD" ? "$" : form.currency === "EUR" ? "€" : form.currency}
+                    </span>
+                    <Input
+                      id="discount-amount"
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      step="0.01"
+                      placeholder="Enter amount"
+                      value={form.discount_value === 0 ? "" : String(form.discount_value)}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (raw === "") {
+                          setForm({ ...form, discount_value: 0 });
+                          return;
+                        }
+                        const n = parseFloat(raw);
+                        if (Number.isNaN(n)) return;
+                        setForm({ ...form, discount_value: Math.max(0, n) });
+                      }}
+                      className="pl-8"
+                    />
+                  </div>
+                  {form.discount_value !== 0 && form.discount_value <= 0 && (
+                    <p className="mt-1 text-xs text-destructive">Amount must be greater than 0.</p>
+                  )}
+                </div>
+              )}
             </div>
+
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <Label>Currency</Label>
-                <Input value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })} maxLength={3} />
+                <Input
+                  value={form.currency}
+                  onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })}
+                  maxLength={3}
+                />
               </div>
               <div>
                 <Label>Min fare (pence)</Label>
-                <Input type="number" value={form.min_fare_pence} onChange={(e) => setForm({ ...form, min_fare_pence: parseInt(e.target.value) || 0 })} />
+                <Input
+                  type="number"
+                  min={0}
+                  value={form.min_fare_pence}
+                  onChange={(e) =>
+                    setForm({ ...form, min_fare_pence: e.target.value === "" ? 0 : parseInt(e.target.value) || 0 })
+                  }
+                />
               </div>
               <div>
                 <Label>Max discount cap (pence, optional)</Label>
                 <Input
                   type="number"
+                  min={0}
+                  placeholder="No cap"
                   value={form.max_discount_pence ?? ""}
-                  onChange={(e) => setForm({ ...form, max_discount_pence: e.target.value ? parseInt(e.target.value) : null })}
+                  onChange={(e) =>
+                    setForm({ ...form, max_discount_pence: e.target.value ? parseInt(e.target.value) : null })
+                  }
                 />
               </div>
             </div>
