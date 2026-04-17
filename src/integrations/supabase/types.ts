@@ -1736,7 +1736,10 @@ export type Database = {
           offer_expiry_seconds: number
           pickup_paid_waiting_enabled: boolean
           pickup_paid_waiting_rate_pence_per_minute: number
+          pickup_radius_enabled: boolean
+          pickup_radius_meters: number
           pickup_waiting_grace_period_seconds: number
+          pickup_waiting_max_minutes: number | null
           priority_order: string
           scheduled_response_window_minutes: number
           scheduled_ride_incentives_enabled: boolean
@@ -1823,7 +1826,10 @@ export type Database = {
           offer_expiry_seconds?: number
           pickup_paid_waiting_enabled?: boolean
           pickup_paid_waiting_rate_pence_per_minute?: number
+          pickup_radius_enabled?: boolean
+          pickup_radius_meters?: number
           pickup_waiting_grace_period_seconds?: number
+          pickup_waiting_max_minutes?: number | null
           priority_order?: string
           scheduled_response_window_minutes?: number
           scheduled_ride_incentives_enabled?: boolean
@@ -1910,7 +1916,10 @@ export type Database = {
           offer_expiry_seconds?: number
           pickup_paid_waiting_enabled?: boolean
           pickup_paid_waiting_rate_pence_per_minute?: number
+          pickup_radius_enabled?: boolean
+          pickup_radius_meters?: number
           pickup_waiting_grace_period_seconds?: number
+          pickup_waiting_max_minutes?: number | null
           priority_order?: string
           scheduled_response_window_minutes?: number
           scheduled_ride_incentives_enabled?: boolean
