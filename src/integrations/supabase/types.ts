@@ -8530,6 +8530,8 @@ export type Database = {
       }
       zone_route_pricing: {
         Row: {
+          airport_dropoff_fee: number
+          airport_pickup_fee: number
           created_at: string
           dropoff_fee: number
           fixed_fare: number
@@ -8539,11 +8541,14 @@ export type Database = {
           pickup_fee: number
           priority: number
           service_area_id: string | null
+          surcharge_pct: number
           to_zone_id: string
           updated_at: string
           vehicle_type_id: string | null
         }
         Insert: {
+          airport_dropoff_fee?: number
+          airport_pickup_fee?: number
           created_at?: string
           dropoff_fee?: number
           fixed_fare: number
@@ -8553,11 +8558,14 @@ export type Database = {
           pickup_fee?: number
           priority?: number
           service_area_id?: string | null
+          surcharge_pct?: number
           to_zone_id: string
           updated_at?: string
           vehicle_type_id?: string | null
         }
         Update: {
+          airport_dropoff_fee?: number
+          airport_pickup_fee?: number
           created_at?: string
           dropoff_fee?: number
           fixed_fare?: number
@@ -8567,6 +8575,7 @@ export type Database = {
           pickup_fee?: number
           priority?: number
           service_area_id?: string | null
+          surcharge_pct?: number
           to_zone_id?: string
           updated_at?: string
           vehicle_type_id?: string | null
