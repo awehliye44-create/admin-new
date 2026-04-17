@@ -1,6 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { FareEngine, type FarePricingSettings } from "../_shared/fareEngine.ts";
 import { getDirections } from "../_shared/googleMaps.ts";
+import {
+  resolvePricingZone,
+  resolveZoneRoutePricing,
+  applyZoneRoutePricing,
+} from "../_shared/zoneRoutePricing.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -23,18 +28,15 @@ Deno.serve(async (req) => {
       service_area_id,
       vehicle_type_id,
       stops_count = 0,
-      // Accept coordinates for server-side distance calculation
       pickup_lat,
       pickup_lng,
       dropoff_lat,
       dropoff_lng,
       waypoints,
-      // Legacy: client-provided estimates (used as fallback)
       estimated_distance_km: client_distance_km,
       estimated_duration_min: client_duration_min,
     } = body;
 
-    // Server-side distance/duration via Google Directions API
     let estimated_distance_km = client_distance_km;
     let estimated_duration_min = client_duration_min;
     let directions_polyline: string | null = null;
@@ -68,18 +70,17 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Resolve currency from Region (single source of truth) via service_area → region
+    // Resolve currency + region from service area
     const { data: saData, error: saErr } = await supabase
       .from("service_areas")
       .select("region_id, region:regions(currency_code, distance_unit)")
       .eq("id", service_area_id)
       .single();
 
-    if (saErr) {
-      console.error("Error fetching service area region:", saErr);
-    }
+    if (saErr) console.error("Error fetching service area region:", saErr);
 
     const regionCurrency = (saData?.region as any)?.currency_code;
+    const regionId = saData?.region_id ?? null;
 
     if (!regionCurrency) {
       return new Response(
@@ -88,11 +89,73 @@ Deno.serve(async (req) => {
       );
     }
 
-    // ─── BATCH MODE (no vehicle_type_id) ───
-    // Returns fares for ALL active vehicles in the service area.
-    // This is the preferred mode for the mobile app.
+    // ─── Resolve pickup/dropoff PRICING zones once (shared across all vehicles) ───
+    let pickupZone: { zone_id: string; zone_name: string } | null = null;
+    let dropoffZone: { zone_id: string; zone_name: string } | null = null;
+
+    if (regionId && pickup_lat != null && pickup_lng != null && dropoff_lat != null && dropoff_lng != null) {
+      [pickupZone, dropoffZone] = await Promise.all([
+        resolvePricingZone({ supabase, lat: pickup_lat, lng: pickup_lng, region_id: regionId }),
+        resolvePricingZone({ supabase, lat: dropoff_lat, lng: dropoff_lng, region_id: regionId }),
+      ]);
+      console.log(`[estimate-fare] Zones resolved — pickup=${pickupZone?.zone_name ?? "none"} dropoff=${dropoffZone?.zone_name ?? "none"}`);
+    }
+
+    // Helper: compute fare for a single vehicle, applying zone-route pricing if any.
+    async function quoteForVehicle(vtId: string, settings: any) {
+      // 1. Try zone-route pricing for THIS vehicle category
+      const zoneResolution = await resolveZoneRoutePricing({
+        supabase,
+        from_zone_id: pickupZone?.zone_id ?? null,
+        to_zone_id: dropoffZone?.zone_id ?? null,
+        vehicle_type_id: vtId,
+        service_area_id,
+      });
+
+      let breakdown;
+      let pricingSource: "zone_route" | "meter";
+      let zoneRouteQuote: ReturnType<typeof applyZoneRoutePricing> | null = null;
+
+      if (zoneResolution.row) {
+        zoneRouteQuote = applyZoneRoutePricing(zoneResolution.row);
+        pricingSource = "zone_route";
+        breakdown = {
+          base_fare_pence: zoneRouteQuote.fixed_fare_pence,
+          distance_charge_pence: 0,
+          time_charge_pence: 0,
+          booking_fee_pence: 0,
+          subtotal_pence: zoneRouteQuote.quoted_fare_pence,
+          minimum_applied: false,
+          quoted_fare_pence: zoneRouteQuote.quoted_fare_pence,
+        };
+      } else {
+        // 2. Standard meter pricing
+        const engine = new FareEngine(settings as FarePricingSettings);
+        breakdown = engine.estimateFare({
+          estimated_distance_km,
+          estimated_duration_min,
+          stops_count,
+        });
+        pricingSource = "meter";
+      }
+
+      return {
+        breakdown,
+        pricingSource,
+        zoneRouteQuote,
+        zoneDebug: {
+          pickup_zone: pickupZone,
+          dropoff_zone: dropoffZone,
+          route_pricing_row_id: zoneResolution.pricing_row_id,
+          route_pricing_source: zoneResolution.source,
+          route_pricing_fallback_reason: zoneResolution.fallback_reason,
+          vehicle_type_id_used: vtId,
+        },
+      };
+    }
+
+    // ─── BATCH MODE ───
     if (!vehicle_type_id) {
-      // Step 1: Get ALL enabled vehicles from service_area_vehicle_pricing (SSOT)
       const { data: pricingRows, error: pricingErr } = await supabase
         .from("service_area_vehicle_pricing")
         .select("vehicle_type_id")
@@ -108,7 +171,6 @@ Deno.serve(async (req) => {
       }
 
       const assignedVtIds = (pricingRows || []).map((a: any) => a.vehicle_type_id);
-      console.log(`[estimate-fare] BATCH: service_area=${service_area_id}, vehicles from service_area_vehicle_pricing: ${assignedVtIds.length}`, assignedVtIds);
 
       if (assignedVtIds.length === 0) {
         return new Response(
@@ -117,62 +179,31 @@ Deno.serve(async (req) => {
         );
       }
 
-      // Step 2: Fetch ALL fare_pricing_settings for this service area
-      const { data: allFareSettings, error: fareErr } = await supabase
+      const { data: allFareSettings } = await supabase
         .from("fare_pricing_settings")
         .select("*")
         .eq("service_area_id", service_area_id);
 
-      if (fareErr) {
-        console.error("[estimate-fare] Error fetching fare settings:", fareErr);
-      }
-
-      // Build map: vehicle_type_id -> settings, null -> default
       const fareMap = new Map<string | null, any>();
-      for (const fs of allFareSettings || []) {
-        fareMap.set(fs.vehicle_type_id, fs);
-      }
-
+      for (const fs of allFareSettings || []) fareMap.set(fs.vehicle_type_id, fs);
       const defaultSettings = fareMap.get(null) || null;
-      console.log(`[estimate-fare] BATCH: fare configs found: ${fareMap.size} (default: ${defaultSettings ? 'yes' : 'no'})`);
 
-      // Step 3: Fetch vehicle type metadata
-      const { data: vtMeta, error: vtErr } = await supabase
+      const { data: vtMeta } = await supabase
         .from("vehicle_types")
-        .select("id, name, slug, description, icon, capacity, features")
+        .select("id, name, slug, description, icon, capacity, features, display_order")
         .in("id", assignedVtIds)
         .eq("is_active", true);
 
-      if (vtErr) {
-        console.error("[estimate-fare] Error fetching vehicle metadata:", vtErr);
-      }
-
       const vtMetaMap = new Map((vtMeta || []).map((v: any) => [v.id, v]));
 
-      // Step 4: Calculate fare for EVERY assigned vehicle — NO FILTERING
       const vehicles: any[] = [];
       for (const vtId of assignedVtIds) {
         const settings = fareMap.get(vtId) || defaultSettings;
         const meta = vtMetaMap.get(vtId);
+        if (!settings || !meta) continue;
 
-        if (!settings) {
-          console.warn(`[estimate-fare] BATCH: No fare settings for vehicle ${vtId} and no default — SKIPPING (this should be configured)`);
-          continue;
-        }
-
-        if (!meta) {
-          console.warn(`[estimate-fare] BATCH: Vehicle type ${vtId} not found in vehicle_types or inactive — SKIPPING`);
-          continue;
-        }
-
-        const engine = new FareEngine(settings as FarePricingSettings);
-        const breakdown = engine.estimateFare({
-          estimated_distance_km,
-          estimated_duration_min,
-          stops_count,
-        });
-
-        const fareLocked = settings.pricing_mode === "fixed";
+        const { breakdown, pricingSource, zoneRouteQuote, zoneDebug } = await quoteForVehicle(vtId, settings);
+        const fareLocked = settings.pricing_mode === "fixed" || pricingSource === "zone_route";
 
         vehicles.push({
           vehicleTypeId: vtId,
@@ -183,7 +214,8 @@ Deno.serve(async (req) => {
           vehicleDescription: meta.description,
           vehicleFeatures: meta.features,
           displayOrder: meta.display_order ?? 0,
-          pricingMode: settings.pricing_mode,
+          pricingMode: pricingSource === "zone_route" ? "fixed" : settings.pricing_mode,
+          pricingSource,
           currencyCode: regionCurrency,
           quotedFarePence: breakdown.quoted_fare_pence,
           fareEngineConfigId: settings.id,
@@ -195,24 +227,16 @@ Deno.serve(async (req) => {
             bookingFeePence: breakdown.booking_fee_pence,
             subtotalPence: breakdown.subtotal_pence,
             minimumApplied: breakdown.minimum_applied,
-            surgeMultiplier: breakdown.surge_multiplier ?? null,
-            zoneMultiplier: breakdown.zone_multiplier ?? null,
-            trafficMultiplier: breakdown.traffic_multiplier ?? null,
+            zoneRoute: zoneRouteQuote,
           },
+          zoneDebug,
           fareSnapshotJson: {
             config_id: settings.id,
-            pricing_mode: settings.pricing_mode,
-            base_fare_pence: settings.base_fare_pence,
-            per_km_rate_pence: settings.per_km_rate_pence,
-            per_min_rate_pence: settings.per_min_rate_pence,
-            booking_fee_pence: settings.booking_fee_pence,
-            minimum_fare_pence: settings.minimum_fare_pence,
-            free_waiting_minutes: settings.free_waiting_minutes,
-            waiting_per_minute_pence: settings.waiting_per_minute_pence,
-            extra_stop_flat_fee_pence: settings.extra_stop_flat_fee_pence,
+            pricing_mode: pricingSource === "zone_route" ? "fixed" : settings.pricing_mode,
+            pricing_source: pricingSource,
+            zone_route_pricing_row_id: zoneDebug.route_pricing_row_id,
+            zone_route_source: zoneDebug.route_pricing_source,
             currency_code: regionCurrency,
-            enable_surge: settings.enable_surge,
-            surge_multiplier_default: settings.surge_multiplier_default,
             snapshot_at: new Date().toISOString(),
           },
           freeWaitingMinutes: settings.free_waiting_minutes,
@@ -221,18 +245,9 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Sort by display order
       vehicles.sort((a: any, b: any) => a.displayOrder - b.displayOrder);
 
-      console.log(`[estimate-fare] BATCH RESULT: ${vehicles.length} vehicles with fares (from ${assignedVtIds.length} assigned)`);
-
-      // Build rider message
-      const hasFixed = vehicles.some((v: any) => v.pricingMode === "fixed");
-      const hasDynamic = vehicles.some((v: any) => v.pricingMode === "dynamic");
-      let riderMessage = "Your fare is estimated and may change based on actual distance, time, and demand conditions.";
-      if (hasFixed && !hasDynamic) {
-        riderMessage = "Fixed fare confirmed. Your fare will not change due to route differences. Extra charges apply only for waiting time, added stops, or destination changes.";
-      }
+      console.log(`[estimate-fare] BATCH: ${vehicles.length} vehicles quoted (zone_route=${vehicles.filter(v=>v.pricingSource==='zone_route').length})`);
 
       return new Response(
         JSON.stringify({
@@ -240,15 +255,17 @@ Deno.serve(async (req) => {
           estimatedDurationMin: estimated_duration_min,
           currencyCode: regionCurrency,
           vehicles,
-          riderMessage,
+          zoneContext: {
+            pickup_zone: pickupZone,
+            dropoff_zone: dropoffZone,
+          },
           ...(directions_polyline ? { routePolyline: directions_polyline } : {}),
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // ─── SINGLE VEHICLE MODE (legacy, vehicle_type_id provided) ───
-    // Validate vehicle_type_id is enabled in service_area_vehicle_pricing (SSOT)
+    // ─── SINGLE VEHICLE MODE ───
     const { data: pricingRow } = await supabase
       .from("service_area_vehicle_pricing")
       .select("id")
@@ -259,35 +276,22 @@ Deno.serve(async (req) => {
 
     if (!pricingRow) {
       return new Response(
-        JSON.stringify({
-          error: "Vehicle type is not available in this service area",
-          code: "VEHICLE_TYPE_NOT_AVAILABLE",
-        }),
+        JSON.stringify({ error: "Vehicle type is not available in this service area", code: "VEHICLE_TYPE_NOT_AVAILABLE" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Fetch fare pricing settings: try vehicle-type-specific first, fall back to area default
     let settings: any = null;
-
     const { data: vtSettings } = await supabase
-      .from("fare_pricing_settings")
-      .select("*")
-      .eq("service_area_id", service_area_id)
-      .eq("vehicle_type_id", vehicle_type_id)
-      .maybeSingle();
+      .from("fare_pricing_settings").select("*")
+      .eq("service_area_id", service_area_id).eq("vehicle_type_id", vehicle_type_id).maybeSingle();
     settings = vtSettings;
-
     if (!settings) {
       const { data: defaultSettings } = await supabase
-        .from("fare_pricing_settings")
-        .select("*")
-        .eq("service_area_id", service_area_id)
-        .is("vehicle_type_id", null)
-        .maybeSingle();
+        .from("fare_pricing_settings").select("*")
+        .eq("service_area_id", service_area_id).is("vehicle_type_id", null).maybeSingle();
       settings = defaultSettings;
     }
-
     if (!settings) {
       return new Response(
         JSON.stringify({ error: "Fare pricing settings not found for this service area" }),
@@ -295,39 +299,13 @@ Deno.serve(async (req) => {
       );
     }
 
-    const fareLocked = settings.pricing_mode === "fixed";
-    const fareSnapshotJson = {
-      config_id: settings.id,
-      pricing_mode: settings.pricing_mode,
-      base_fare_pence: settings.base_fare_pence,
-      per_km_rate_pence: settings.per_km_rate_pence,
-      per_min_rate_pence: settings.per_min_rate_pence,
-      booking_fee_pence: settings.booking_fee_pence,
-      minimum_fare_pence: settings.minimum_fare_pence,
-      free_waiting_minutes: settings.free_waiting_minutes,
-      waiting_per_minute_pence: settings.waiting_per_minute_pence,
-      extra_stop_flat_fee_pence: settings.extra_stop_flat_fee_pence,
-      currency_code: regionCurrency,
-      enable_surge: settings.enable_surge,
-      surge_multiplier_default: settings.surge_multiplier_default,
-      snapshot_at: new Date().toISOString(),
-    };
-
-    const engine = new FareEngine(settings as FarePricingSettings);
-    const breakdown = engine.estimateFare({
-      estimated_distance_km,
-      estimated_duration_min,
-      stops_count,
-    });
-
-    const riderMessage =
-      settings.pricing_mode === "fixed"
-        ? "Fixed fare confirmed. Your fare will not change due to route differences. Extra charges apply only for waiting time, added stops, or destination changes."
-        : "Your fare is estimated and may change based on actual distance, time, and demand conditions.";
+    const { breakdown, pricingSource, zoneRouteQuote, zoneDebug } = await quoteForVehicle(vehicle_type_id, settings);
+    const fareLocked = settings.pricing_mode === "fixed" || pricingSource === "zone_route";
 
     return new Response(
       JSON.stringify({
-        pricingMode: settings.pricing_mode,
+        pricingMode: pricingSource === "zone_route" ? "fixed" : settings.pricing_mode,
+        pricingSource,
         currencyCode: regionCurrency,
         quotedFarePence: breakdown.quoted_fare_pence,
         estimatedDistanceKm: estimated_distance_km,
@@ -335,7 +313,16 @@ Deno.serve(async (req) => {
         vehicleTypeId: vehicle_type_id,
         fareEngineConfigId: settings.id,
         fareLocked,
-        fareSnapshotJson,
+        zoneDebug,
+        fareSnapshotJson: {
+          config_id: settings.id,
+          pricing_mode: pricingSource === "zone_route" ? "fixed" : settings.pricing_mode,
+          pricing_source: pricingSource,
+          zone_route_pricing_row_id: zoneDebug.route_pricing_row_id,
+          zone_route_source: zoneDebug.route_pricing_source,
+          currency_code: regionCurrency,
+          snapshot_at: new Date().toISOString(),
+        },
         fareBreakdown: {
           baseFarePence: breakdown.base_fare_pence,
           distanceChargePence: breakdown.distance_charge_pence,
@@ -343,11 +330,8 @@ Deno.serve(async (req) => {
           bookingFeePence: breakdown.booking_fee_pence,
           subtotalPence: breakdown.subtotal_pence,
           minimumApplied: breakdown.minimum_applied,
-          surgeMultiplier: breakdown.surge_multiplier ?? null,
-          zoneMultiplier: breakdown.zone_multiplier ?? null,
-          trafficMultiplier: breakdown.traffic_multiplier ?? null,
+          zoneRoute: zoneRouteQuote,
         },
-        riderMessage,
         freeWaitingMinutes: settings.free_waiting_minutes,
         waitingPerMinutePence: settings.waiting_per_minute_pence,
         extraStopFlatFeePence: settings.extra_stop_flat_fee_pence,

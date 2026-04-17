@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, Loader2, Route } from 'lucide-react';
+import { Plus, Pencil, Trash2, Loader2, Route, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface ZoneRouteRule {
   id: string;
@@ -21,39 +21,41 @@ interface ZoneRouteRule {
   fixed_fare: number;
   pickup_fee: number;
   dropoff_fee: number;
+  surcharge_pct: number;
+  airport_pickup_fee: number;
+  airport_dropoff_fee: number;
   is_active: boolean;
   priority: number;
-  created_at: string;
 }
 
-interface Zone {
-  id: string;
-  name: string;
-  region_id: string | null;
-  service_area_id: string | null;
+interface Zone { id: string; name: string; }
+interface VehicleType { id: string; name: string; }
+interface ServiceArea { id: string; name: string; }
+
+// One row per vehicle category in the matrix editor
+interface MatrixRow {
+  vehicle_type_id: string | null; // null = explicit fallback
+  fixed_fare: string;
+  pickup_fee: string;
+  dropoff_fee: string;
+  surcharge_pct: string;
+  airport_pickup_fee: string;
+  airport_dropoff_fee: string;
+  is_active: boolean;
+  existing_id: string | null;
 }
 
-interface VehicleType {
-  id: string;
-  name: string;
-}
-
-interface ServiceArea {
-  id: string;
-  name: string;
-}
-
-const emptyForm = {
-  from_zone_id: '',
-  to_zone_id: '',
-  service_area_id: '',
-  vehicle_type_id: '',
+const blankRow = (vehicle_type_id: string | null): MatrixRow => ({
+  vehicle_type_id,
   fixed_fare: '',
   pickup_fee: '0',
   dropoff_fee: '0',
+  surcharge_pct: '0',
+  airport_pickup_fee: '0',
+  airport_dropoff_fee: '0',
   is_active: true,
-  priority: '0',
-};
+  existing_id: null,
+});
 
 export function ZoneRoutePricingTab() {
   const [rules, setRules] = useState<ZoneRouteRule[]>([]);
@@ -63,15 +65,23 @@ export function ZoneRoutePricingTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState(emptyForm);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  // Route header
+  const [routeHeader, setRouteHeader] = useState({
+    from_zone_id: '',
+    to_zone_id: '',
+    service_area_id: '',
+    priority: '0',
+  });
+  const [matrix, setMatrix] = useState<MatrixRow[]>([]);
 
   const fetchAll = async () => {
     setLoading(true);
     const [rulesRes, zonesRes, vtRes, saRes] = await Promise.all([
       supabase.from('zone_route_pricing').select('*').order('priority', { ascending: false }),
-      supabase.from('custom_zones').select('id, name, region_id, service_area_id').eq('zone_type', 'PRICING').eq('is_active', true),
-      supabase.from('vehicle_types').select('id, name').eq('is_active', true),
+      supabase.from('custom_zones').select('id, name').eq('zone_type', 'PRICING').eq('is_active', true),
+      supabase.from('vehicle_types').select('id, name').eq('is_active', true).order('display_order'),
       supabase.from('service_areas').select('id, name').eq('is_active', true),
     ]);
     if (rulesRes.data) setRules(rulesRes.data as ZoneRouteRule[]);
@@ -83,81 +93,174 @@ export function ZoneRoutePricingTab() {
 
   useEffect(() => { fetchAll(); }, []);
 
+  // Group rules by route key (from→to×service_area)
+  const grouped = useMemo(() => {
+    const map = new Map<string, { from_zone_id: string; to_zone_id: string; service_area_id: string | null; rows: ZoneRouteRule[] }>();
+    for (const r of rules) {
+      const key = `${r.from_zone_id}::${r.to_zone_id}::${r.service_area_id ?? ''}`;
+      if (!map.has(key)) {
+        map.set(key, { from_zone_id: r.from_zone_id, to_zone_id: r.to_zone_id, service_area_id: r.service_area_id, rows: [] });
+      }
+      map.get(key)!.rows.push(r);
+    }
+    return Array.from(map.entries()).map(([key, val]) => ({ key, ...val }));
+  }, [rules]);
+
   const openCreate = () => {
-    setEditingId(null);
-    setForm(emptyForm);
+    setRouteHeader({ from_zone_id: '', to_zone_id: '', service_area_id: '', priority: '0' });
+    // Initialize matrix with one row per active vehicle type + fallback
+    setMatrix([
+      ...vehicleTypes.map(vt => blankRow(vt.id)),
+      blankRow(null),
+    ]);
     setDialogOpen(true);
   };
 
-  const openEdit = (r: ZoneRouteRule) => {
-    setEditingId(r.id);
-    setForm({
-      from_zone_id: r.from_zone_id,
-      to_zone_id: r.to_zone_id,
-      service_area_id: r.service_area_id || '',
-      vehicle_type_id: r.vehicle_type_id || '',
-      fixed_fare: String(r.fixed_fare),
-      pickup_fee: String(r.pickup_fee ?? 0),
-      dropoff_fee: String(r.dropoff_fee ?? 0),
-      is_active: r.is_active,
-      priority: String(r.priority),
+  const openEditRoute = (group: typeof grouped[number]) => {
+    setRouteHeader({
+      from_zone_id: group.from_zone_id,
+      to_zone_id: group.to_zone_id,
+      service_area_id: group.service_area_id ?? '',
+      priority: String(group.rows[0]?.priority ?? 0),
     });
+    // Build matrix: one row per vehicle type + fallback, prefilled if existing
+    const byVt = new Map(group.rows.map(r => [r.vehicle_type_id, r]));
+    const next: MatrixRow[] = vehicleTypes.map(vt => {
+      const existing = byVt.get(vt.id);
+      if (existing) {
+        return {
+          vehicle_type_id: vt.id,
+          fixed_fare: String(existing.fixed_fare),
+          pickup_fee: String(existing.pickup_fee ?? 0),
+          dropoff_fee: String(existing.dropoff_fee ?? 0),
+          surcharge_pct: String(existing.surcharge_pct ?? 0),
+          airport_pickup_fee: String(existing.airport_pickup_fee ?? 0),
+          airport_dropoff_fee: String(existing.airport_dropoff_fee ?? 0),
+          is_active: existing.is_active,
+          existing_id: existing.id,
+        };
+      }
+      return blankRow(vt.id);
+    });
+    const fallback = byVt.get(null);
+    next.push(fallback ? {
+      vehicle_type_id: null,
+      fixed_fare: String(fallback.fixed_fare),
+      pickup_fee: String(fallback.pickup_fee ?? 0),
+      dropoff_fee: String(fallback.dropoff_fee ?? 0),
+      surcharge_pct: String(fallback.surcharge_pct ?? 0),
+      airport_pickup_fee: String(fallback.airport_pickup_fee ?? 0),
+      airport_dropoff_fee: String(fallback.airport_dropoff_fee ?? 0),
+      is_active: fallback.is_active,
+      existing_id: fallback.id,
+    } : blankRow(null));
     setDialogOpen(true);
+  };
+
+  const updateMatrixRow = (idx: number, patch: Partial<MatrixRow>) => {
+    setMatrix(m => m.map((r, i) => i === idx ? { ...r, ...patch } : r));
   };
 
   const handleSave = async () => {
-    if (!form.from_zone_id || !form.to_zone_id || !form.fixed_fare) {
-      toast.error('From Zone, To Zone, and Fixed Fare are required');
+    if (!routeHeader.from_zone_id || !routeHeader.to_zone_id) {
+      toast.error('From Zone and To Zone are required');
       return;
     }
-    if (form.from_zone_id === form.to_zone_id) {
+    if (routeHeader.from_zone_id === routeHeader.to_zone_id) {
       toast.error('From Zone and To Zone must be different');
       return;
     }
-    setSaving(true);
-    const payload = {
-      from_zone_id: form.from_zone_id,
-      to_zone_id: form.to_zone_id,
-      service_area_id: form.service_area_id || null,
-      vehicle_type_id: form.vehicle_type_id || null,
-      fixed_fare: parseFloat(form.fixed_fare),
-      pickup_fee: parseFloat(form.pickup_fee) || 0,
-      dropoff_fee: parseFloat(form.dropoff_fee) || 0,
-      is_active: form.is_active,
-      priority: parseInt(form.priority) || 0,
-    };
-
-    let error;
-    if (editingId) {
-      ({ error } = await supabase.from('zone_route_pricing').update(payload).eq('id', editingId));
-    } else {
-      ({ error } = await supabase.from('zone_route_pricing').insert(payload));
+    // Only persist rows where the admin entered a fixed_fare
+    const filled = matrix.filter(r => r.fixed_fare !== '' && !isNaN(parseFloat(r.fixed_fare)));
+    if (filled.length === 0) {
+      toast.error('Enter at least one fixed fare for a vehicle category');
+      return;
     }
 
-    if (error) {
-      toast.error(error.message);
-    } else {
-      toast.success(editingId ? 'Route updated' : 'Route created');
+    setSaving(true);
+    try {
+      // Delete rows that were cleared (had existing_id but now no fare)
+      const toDelete = matrix.filter(r => r.existing_id && (r.fixed_fare === '' || isNaN(parseFloat(r.fixed_fare))));
+      if (toDelete.length > 0) {
+        const { error } = await supabase
+          .from('zone_route_pricing')
+          .delete()
+          .in('id', toDelete.map(r => r.existing_id!));
+        if (error) throw error;
+      }
+
+      // Upsert filled rows
+      const payloads = filled.map(r => ({
+        ...(r.existing_id ? { id: r.existing_id } : {}),
+        from_zone_id: routeHeader.from_zone_id,
+        to_zone_id: routeHeader.to_zone_id,
+        service_area_id: routeHeader.service_area_id || null,
+        vehicle_type_id: r.vehicle_type_id,
+        fixed_fare: parseFloat(r.fixed_fare),
+        pickup_fee: parseFloat(r.pickup_fee) || 0,
+        dropoff_fee: parseFloat(r.dropoff_fee) || 0,
+        surcharge_pct: parseFloat(r.surcharge_pct) || 0,
+        airport_pickup_fee: parseFloat(r.airport_pickup_fee) || 0,
+        airport_dropoff_fee: parseFloat(r.airport_dropoff_fee) || 0,
+        is_active: r.is_active,
+        priority: parseInt(routeHeader.priority) || 0,
+      }));
+
+      // Update + insert separately to keep simple semantics
+      for (const p of payloads) {
+        if ((p as any).id) {
+          const { id, ...patch } = p as any;
+          const { error } = await supabase.from('zone_route_pricing').update(patch).eq('id', id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.from('zone_route_pricing').insert(p as any);
+          if (error) throw error;
+        }
+      }
+
+      toast.success(`Saved ${payloads.length} pricing row${payloads.length === 1 ? '' : 's'}`);
       setDialogOpen(false);
       fetchAll();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save');
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDeleteRow = async (id: string) => {
     const { error } = await supabase.from('zone_route_pricing').delete().eq('id', id);
+    if (error) toast.error(error.message);
+    else { toast.success('Pricing row deleted'); fetchAll(); }
+  };
+
+  const handleDeleteRoute = async (group: typeof grouped[number]) => {
+    if (!confirm(`Delete all ${group.rows.length} pricing rows for this route?`)) return;
+    const { error } = await supabase
+      .from('zone_route_pricing')
+      .delete()
+      .in('id', group.rows.map(r => r.id));
     if (error) toast.error(error.message);
     else { toast.success('Route deleted'); fetchAll(); }
   };
 
-  const handleToggle = async (id: string, active: boolean) => {
+  const handleToggleRow = async (id: string, active: boolean) => {
     const { error } = await supabase.from('zone_route_pricing').update({ is_active: active }).eq('id', id);
     if (error) toast.error(error.message);
     else fetchAll();
   };
 
+  const toggleExpand = (key: string) => {
+    setExpanded(s => {
+      const n = new Set(s);
+      if (n.has(key)) n.delete(key); else n.add(key);
+      return n;
+    });
+  };
+
   const zoneName = (id: string) => zones.find(z => z.id === id)?.name || 'Unknown';
-  const vehicleName = (id: string | null) => id ? vehicleTypes.find(v => v.id === id)?.name || 'Unknown' : 'All';
+  const vehicleName = (id: string | null) => id ? vehicleTypes.find(v => v.id === id)?.name || 'Unknown' : 'Default (fallback)';
+  const serviceAreaName = (id: string | null) => id ? serviceAreas.find(s => s.id === id)?.name || 'Unknown' : 'Any';
 
   return (
     <div className="space-y-6">
@@ -169,74 +272,112 @@ export function ZoneRoutePricingTab() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Route className="h-5 w-5" /> Route Pricing Rules</CardTitle>
+          <CardTitle className="flex items-center gap-2"><Route className="h-5 w-5" /> Route Pricing — Per Vehicle Category</CardTitle>
           <CardDescription>
-            Directional: Heathrow → MK is separate from MK → Heathrow. Higher priority wins when multiple routes match.
+            Each route stores one independent fixed-fare row per vehicle category (ONECAB, Comfort, Premium, XL, etc.).
+            A row labelled "Default (fallback)" applies only when no category-specific row exists.
+            Direction matters: A→B is separate from B→A.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
-          ) : rules.length === 0 ? (
+          ) : grouped.length === 0 ? (
             <p className="text-center py-12 text-muted-foreground">No zone route pricing rules yet.</p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>From Zone</TableHead>
-                  <TableHead>To Zone</TableHead>
-                  <TableHead>Vehicle</TableHead>
-                  <TableHead>Fixed Fare</TableHead>
-                  <TableHead>Pickup Fee</TableHead>
-                  <TableHead>Dropoff Fee</TableHead>
-                  <TableHead>Priority</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rules.map(r => (
-                  <TableRow key={r.id}>
-                    <TableCell className="font-medium">{zoneName(r.from_zone_id)}</TableCell>
-                    <TableCell>{zoneName(r.to_zone_id)}</TableCell>
-                    <TableCell>{vehicleName(r.vehicle_type_id)}</TableCell>
-                    <TableCell>£{Number(r.fixed_fare).toFixed(2)}</TableCell>
-                    <TableCell>£{Number(r.pickup_fee ?? 0).toFixed(2)}</TableCell>
-                    <TableCell>£{Number(r.dropoff_fee ?? 0).toFixed(2)}</TableCell>
-                    <TableCell>{r.priority}</TableCell>
-                    <TableCell>
-                      <Switch checked={r.is_active} onCheckedChange={(v) => handleToggle(r.id, v)} />
-                    </TableCell>
-                    <TableCell className="text-right space-x-1">
-                      <Button variant="ghost" size="icon" onClick={() => openEdit(r)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDelete(r.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <div className="space-y-2">
+              {grouped.map(group => {
+                const open = expanded.has(group.key);
+                const activeCount = group.rows.filter(r => r.is_active).length;
+                return (
+                  <Card key={group.key} className="border-border">
+                    <div className="flex items-center justify-between p-3">
+                      <button onClick={() => toggleExpand(group.key)} className="flex items-center gap-2 flex-1 text-left">
+                        {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                        <span className="font-medium">{zoneName(group.from_zone_id)} → {zoneName(group.to_zone_id)}</span>
+                        <Badge variant="outline">{serviceAreaName(group.service_area_id)}</Badge>
+                        <Badge variant="secondary">{activeCount}/{group.rows.length} active</Badge>
+                      </button>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => openEditRoute(group)}>
+                          <Pencil className="h-4 w-4 mr-1" /> Edit Matrix
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleDeleteRoute(group)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                    {open && (
+                      <div className="border-t border-border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Vehicle Category</TableHead>
+                              <TableHead>Fixed Fare</TableHead>
+                              <TableHead>Pickup Fee</TableHead>
+                              <TableHead>Dropoff Fee</TableHead>
+                              <TableHead>Airport P/D</TableHead>
+                              <TableHead>Surcharge %</TableHead>
+                              <TableHead>Active</TableHead>
+                              <TableHead className="text-right">Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {group.rows.map(r => (
+                              <TableRow key={r.id}>
+                                <TableCell className="font-medium">
+                                  {vehicleName(r.vehicle_type_id)}
+                                  {r.vehicle_type_id === null && <Badge variant="outline" className="ml-2">fallback</Badge>}
+                                </TableCell>
+                                <TableCell>£{Number(r.fixed_fare).toFixed(2)}</TableCell>
+                                <TableCell>£{Number(r.pickup_fee ?? 0).toFixed(2)}</TableCell>
+                                <TableCell>£{Number(r.dropoff_fee ?? 0).toFixed(2)}</TableCell>
+                                <TableCell>£{Number(r.airport_pickup_fee ?? 0).toFixed(2)} / £{Number(r.airport_dropoff_fee ?? 0).toFixed(2)}</TableCell>
+                                <TableCell>{Number(r.surcharge_pct ?? 0).toFixed(1)}%</TableCell>
+                                <TableCell>
+                                  <Switch checked={r.is_active} onCheckedChange={(v) => handleToggleRow(r.id, v)} />
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <Button variant="ghost" size="icon" onClick={() => handleDeleteRow(r.id)}>
+                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </Card>
+                );
+              })}
+            </div>
           )}
         </CardContent>
       </Card>
 
+      {/* Matrix editor dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingId ? 'Edit Route Pricing' : 'New Route Pricing'}</DialogTitle>
-            <DialogDescription>Set a fixed fare between two pricing zones. Direction matters.</DialogDescription>
+            <DialogTitle>Route Pricing Matrix</DialogTitle>
+            <DialogDescription>
+              Set an independent fixed fare for each vehicle category. Leave a row blank to skip it — that category will fall through to the "Default (fallback)" row, or to standard meter pricing if no fallback is set.
+            </DialogDescription>
           </DialogHeader>
+
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>From Zone *</Label>
-                <Select value={form.from_zone_id} onValueChange={v => setForm(f => ({ ...f, from_zone_id: v }))}>
+                <Select value={routeHeader.from_zone_id} onValueChange={v => setRouteHeader(h => ({ ...h, from_zone_id: v }))}>
                   <SelectTrigger><SelectValue placeholder="Select zone" /></SelectTrigger>
                   <SelectContent>{zones.map(z => <SelectItem key={z.id} value={z.id}>{z.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
                 <Label>To Zone *</Label>
-                <Select value={form.to_zone_id} onValueChange={v => setForm(f => ({ ...f, to_zone_id: v }))}>
+                <Select value={routeHeader.to_zone_id} onValueChange={v => setRouteHeader(h => ({ ...h, to_zone_id: v }))}>
                   <SelectTrigger><SelectValue placeholder="Select zone" /></SelectTrigger>
                   <SelectContent>{zones.map(z => <SelectItem key={z.id} value={z.id}>{z.name}</SelectItem>)}</SelectContent>
                 </Select>
@@ -245,9 +386,9 @@ export function ZoneRoutePricingTab() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Service Area</Label>
-                <Select value={form.service_area_id || "__any__"} onValueChange={v => setForm(f => ({ ...f, service_area_id: v === "__any__" ? "" : v }))}>
-                  <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                <Label>Service Area (optional)</Label>
+                <Select value={routeHeader.service_area_id || "__any__"} onValueChange={v => setRouteHeader(h => ({ ...h, service_area_id: v === "__any__" ? "" : v }))}>
+                  <SelectTrigger><SelectValue placeholder="Any" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__any__">Any</SelectItem>
                     {serviceAreas.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
@@ -255,49 +396,82 @@ export function ZoneRoutePricingTab() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Vehicle Type</Label>
-                <Select value={form.vehicle_type_id || "__all__"} onValueChange={v => setForm(f => ({ ...f, vehicle_type_id: v === "__all__" ? "" : v }))}>
-                  <SelectTrigger><SelectValue placeholder="All vehicles" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__all__">All</SelectItem>
-                    {vehicleTypes.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Fixed Fare (£) *</Label>
-                <Input type="number" step="0.01" min="0" placeholder="65.00" value={form.fixed_fare} onChange={e => setForm(f => ({ ...f, fixed_fare: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
                 <Label>Priority</Label>
-                <Input type="number" min="0" placeholder="0" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))} />
+                <Input type="number" min="0" placeholder="0" value={routeHeader.priority} onChange={e => setRouteHeader(h => ({ ...h, priority: e.target.value }))} />
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Pickup Fee (£)</Label>
-                <Input type="number" step="0.01" min="0" placeholder="0.00" value={form.pickup_fee} onChange={e => setForm(f => ({ ...f, pickup_fee: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>Dropoff Fee (£)</Label>
-                <Input type="number" step="0.01" min="0" placeholder="0.00" value={form.dropoff_fee} onChange={e => setForm(f => ({ ...f, dropoff_fee: e.target.value }))} />
-              </div>
+            <div className="border border-border rounded-md overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="min-w-[140px]">Vehicle</TableHead>
+                    <TableHead>Fixed Fare £</TableHead>
+                    <TableHead>Pickup £</TableHead>
+                    <TableHead>Dropoff £</TableHead>
+                    <TableHead>Airport Pickup £</TableHead>
+                    <TableHead>Airport Dropoff £</TableHead>
+                    <TableHead>Surcharge %</TableHead>
+                    <TableHead>Active</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {matrix.map((row, idx) => (
+                    <TableRow key={`${row.vehicle_type_id ?? 'fallback'}-${idx}`}>
+                      <TableCell className="font-medium whitespace-nowrap">
+                        {vehicleName(row.vehicle_type_id)}
+                        {row.vehicle_type_id === null && <Badge variant="outline" className="ml-2">fallback</Badge>}
+                      </TableCell>
+                      <TableCell>
+                        <Input type="number" step="0.01" min="0" placeholder="—" className="w-24"
+                          value={row.fixed_fare}
+                          onChange={e => updateMatrixRow(idx, { fixed_fare: e.target.value })} />
+                      </TableCell>
+                      <TableCell>
+                        <Input type="number" step="0.01" min="0" className="w-20"
+                          value={row.pickup_fee}
+                          onChange={e => updateMatrixRow(idx, { pickup_fee: e.target.value })} />
+                      </TableCell>
+                      <TableCell>
+                        <Input type="number" step="0.01" min="0" className="w-20"
+                          value={row.dropoff_fee}
+                          onChange={e => updateMatrixRow(idx, { dropoff_fee: e.target.value })} />
+                      </TableCell>
+                      <TableCell>
+                        <Input type="number" step="0.01" min="0" className="w-20"
+                          value={row.airport_pickup_fee}
+                          onChange={e => updateMatrixRow(idx, { airport_pickup_fee: e.target.value })} />
+                      </TableCell>
+                      <TableCell>
+                        <Input type="number" step="0.01" min="0" className="w-20"
+                          value={row.airport_dropoff_fee}
+                          onChange={e => updateMatrixRow(idx, { airport_dropoff_fee: e.target.value })} />
+                      </TableCell>
+                      <TableCell>
+                        <Input type="number" step="0.1" min="0" max="100" className="w-20"
+                          value={row.surcharge_pct}
+                          onChange={e => updateMatrixRow(idx, { surcharge_pct: e.target.value })} />
+                      </TableCell>
+                      <TableCell>
+                        <Switch checked={row.is_active}
+                          onCheckedChange={v => updateMatrixRow(idx, { is_active: v })} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
 
-            <div className="flex items-center gap-2">
-              <Switch checked={form.is_active} onCheckedChange={v => setForm(f => ({ ...f, is_active: v }))} />
-              <Label>Active</Label>
-            </div>
+            <p className="text-xs text-muted-foreground">
+              💡 Only rows with a fixed fare value are saved. Leave the fare blank to skip a category — the engine will use the fallback row, or standard meter pricing if no fallback is set.
+            </p>
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={saving}>
               {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              {editingId ? 'Update' : 'Create'}
+              Save Matrix
             </Button>
           </DialogFooter>
         </DialogContent>
