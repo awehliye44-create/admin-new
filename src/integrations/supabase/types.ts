@@ -9168,6 +9168,25 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
       }
+      admin_user_directory: {
+        Args: never
+        Returns: {
+          created_at: string | null
+          email: string | null
+          full_name: string | null
+          has_linked_record: boolean | null
+          phone: string | null
+          status: string | null
+          user_id: string | null
+          user_type: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "user_directory"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       approve_corporate_request: {
         Args: { p_request_id: string; p_reviewed_by?: string }
         Returns: string

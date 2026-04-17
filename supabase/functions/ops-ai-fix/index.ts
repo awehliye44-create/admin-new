@@ -23,14 +23,38 @@ Deno.serve(async (req) => {
     new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   try {
-    const body = await req.json();
-    const { action, alert_id, user_id } = body;
-    if (!alert_id) return json({ error: "alert_id required" }, 400);
+    // ─── AUTH: require admin JWT ──────────────────────────────────
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return json({ error: "Unauthorized" }, 401);
+    }
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
+
+    const token = authHeader.replace("Bearer ", "");
+    const { data: userData, error: userErr } = await supabase.auth.getUser(token);
+    if (userErr || !userData?.user) {
+      return json({ error: "Unauthorized" }, 401);
+    }
+    const authedUserId = userData.user.id;
+
+    // Verify admin role via user_roles table (NOT profiles — prevents privilege escalation)
+    const { data: roleRow } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", authedUserId)
+      .eq("role", "admin")
+      .maybeSingle();
+    if (!roleRow) {
+      return json({ error: "Admin access required" }, 403);
+    }
+
+    const body = await req.json();
+    const { action, alert_id } = body;
+    if (!alert_id) return json({ error: "alert_id required" }, 400);
 
     // ─── ACTION: analyze ───────────────────────────────────────────
     if (action === "analyze") {
@@ -191,9 +215,11 @@ ${contextParts.join("\n")}`;
     if (action === "execute") {
       const { function_name, param_value, explanation, risk_level, preview_data } = body;
 
-      if (!function_name || !param_value || !user_id) {
-        return json({ error: "function_name, param_value, and user_id required" }, 400);
+      if (!function_name || !param_value) {
+        return json({ error: "function_name and param_value required" }, 400);
       }
+      // Use authenticated admin's id — never trust client-supplied user_id
+      const user_id = authedUserId;
 
       // Validate param_value is a real UUID
       const EXEC_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
