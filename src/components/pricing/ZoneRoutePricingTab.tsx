@@ -154,6 +154,7 @@ export function ZoneRoutePricingTab() {
       is_active: fallback.is_active,
       existing_id: fallback.id,
     } : blankRow(null));
+    setMatrix(next);
     setDialogOpen(true);
   };
 
