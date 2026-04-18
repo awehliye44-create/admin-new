@@ -9386,6 +9386,8 @@ export type Database = {
         Returns: number
       }
       is_admin: { Args: never; Returns: boolean }
+      is_customer: { Args: { _user_id: string }; Returns: boolean }
+      is_driver: { Args: { _user_id: string }; Returns: boolean }
       is_driver_dispatchable: {
         Args: {
           p_driver_id: string
@@ -9699,7 +9701,7 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "admin" | "moderator" | "user"
+      app_role: "admin" | "moderator" | "user" | "driver" | "customer"
       app_scope: "customer" | "driver" | "corporate" | "shared" | "legal"
       app_user_role: "admin" | "driver" | "customer" | "corporate"
       content_status: "draft" | "published"
@@ -9859,7 +9861,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "moderator", "user"],
+      app_role: ["admin", "moderator", "user", "driver", "customer"],
       app_scope: ["customer", "driver", "corporate", "shared", "legal"],
       app_user_role: ["admin", "driver", "customer", "corporate"],
       content_status: ["draft", "published"],
