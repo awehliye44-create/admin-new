@@ -2402,6 +2402,7 @@ export type Database = {
           heading: number | null
           last_heartbeat_at: string
           last_location_at: string | null
+          last_realtime_seen_at: string | null
           lat: number | null
           lng: number | null
           platform: string | null
@@ -2417,6 +2418,7 @@ export type Database = {
           heading?: number | null
           last_heartbeat_at?: string
           last_location_at?: string | null
+          last_realtime_seen_at?: string | null
           lat?: number | null
           lng?: number | null
           platform?: string | null
@@ -2432,6 +2434,7 @@ export type Database = {
           heading?: number | null
           last_heartbeat_at?: string
           last_location_at?: string | null
+          last_realtime_seen_at?: string | null
           lat?: number | null
           lng?: number | null
           platform?: string | null
@@ -5787,12 +5790,15 @@ export type Database = {
       }
       ride_offers: {
         Row: {
+          ack_at: string | null
           broadcast_round: number
           counter_fare: number | null
           created_at: string
           customer_counter_fare: number | null
           customer_respond_by: string | null
           decline_reason: string | null
+          delivered_at: string | null
+          delivery_method: string | null
           distance_meters: number | null
           driver_id: string
           driver_offer_fare: number | null
@@ -5814,12 +5820,15 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          ack_at?: string | null
           broadcast_round?: number
           counter_fare?: number | null
           created_at?: string
           customer_counter_fare?: number | null
           customer_respond_by?: string | null
           decline_reason?: string | null
+          delivered_at?: string | null
+          delivery_method?: string | null
           distance_meters?: number | null
           driver_id: string
           driver_offer_fare?: number | null
@@ -5841,12 +5850,15 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          ack_at?: string | null
           broadcast_round?: number
           counter_fare?: number | null
           created_at?: string
           customer_counter_fare?: number | null
           customer_respond_by?: string | null
           decline_reason?: string | null
+          delivered_at?: string | null
+          delivery_method?: string | null
           distance_meters?: number | null
           driver_id?: string
           driver_offer_fare?: number | null
@@ -9183,6 +9195,10 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
       }
+      ack_offer_delivery: {
+        Args: { p_method: string; p_offer_id: string }
+        Returns: Json
+      }
       admin_user_directory: {
         Args: never
         Returns: {
@@ -9684,6 +9700,7 @@ export type Database = {
           heading: number | null
           last_heartbeat_at: string
           last_location_at: string | null
+          last_realtime_seen_at: string | null
           lat: number | null
           lng: number | null
           platform: string | null
