@@ -211,7 +211,7 @@ export class OnecabTelemetry {
           'Content-Type': 'application/json',
           apikey: this.config.supabaseAnonKey,
         },
-        body: JSON.stringify(batch),
+        body: JSON.stringify({ events: batch }),
       });
     } catch {
       // Best-effort — never block the app
