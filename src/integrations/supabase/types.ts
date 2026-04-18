@@ -7680,12 +7680,14 @@ export type Database = {
           offer_currency: string | null
           offer_discount_pence: number
           offer_snapshot: Json | null
+          original_payment_method: string | null
           paid_waiting_started_at: string | null
           passenger_id: string
           passenger_name: string | null
           passenger_phone: string | null
           payment_intent_version: number | null
           payment_method: string | null
+          payment_state: Database["public"]["Enums"]["trip_payment_state"]
           payment_status: string | null
           payment_type: string | null
           pickup_address: string
@@ -7828,12 +7830,14 @@ export type Database = {
           offer_currency?: string | null
           offer_discount_pence?: number
           offer_snapshot?: Json | null
+          original_payment_method?: string | null
           paid_waiting_started_at?: string | null
           passenger_id: string
           passenger_name?: string | null
           passenger_phone?: string | null
           payment_intent_version?: number | null
           payment_method?: string | null
+          payment_state?: Database["public"]["Enums"]["trip_payment_state"]
           payment_status?: string | null
           payment_type?: string | null
           pickup_address: string
@@ -7976,12 +7980,14 @@ export type Database = {
           offer_currency?: string | null
           offer_discount_pence?: number
           offer_snapshot?: Json | null
+          original_payment_method?: string | null
           paid_waiting_started_at?: string | null
           passenger_id?: string
           passenger_name?: string | null
           passenger_phone?: string | null
           payment_intent_version?: number | null
           payment_method?: string | null
+          payment_state?: Database["public"]["Enums"]["trip_payment_state"]
           payment_status?: string | null
           payment_type?: string | null
           pickup_address?: string
@@ -9200,6 +9206,10 @@ export type Database = {
         Args: { p_request_id: string; p_reviewed_by?: string }
         Returns: string
       }
+      assert_payment_authorized: {
+        Args: { _trip_id: string }
+        Returns: boolean
+      }
       assign_trip_number: {
         Args: { p_service_area_id: string; p_trip_id: string }
         Returns: Json
@@ -9715,6 +9725,13 @@ export type Database = {
         | "remove_stop"
         | "reorder_stops"
         | "change_dropoff"
+      trip_payment_state:
+        | "draft"
+        | "pending_payment_method"
+        | "payment_authorizing"
+        | "payment_failed"
+        | "payment_authorized"
+        | "booking_created"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -9870,6 +9887,14 @@ export const Constants = {
         "remove_stop",
         "reorder_stops",
         "change_dropoff",
+      ],
+      trip_payment_state: [
+        "draft",
+        "pending_payment_method",
+        "payment_authorizing",
+        "payment_failed",
+        "payment_authorized",
+        "booking_created",
       ],
     },
   },
