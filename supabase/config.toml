@@ -128,3 +128,6 @@ verify_jwt = false
 
 [functions.driver-arrived]
 verify_jwt = false
+
+[functions.get-preset-offers]
+verify_jwt = false
