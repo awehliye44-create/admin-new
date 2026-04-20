@@ -127,7 +127,7 @@ export function FareSimulatorCard({ settings, currencySymbol, distanceUnit }: Fa
                 <span className="font-mono">{fmt(base)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Distance ({distKm} km)</span>
+                <span className="text-muted-foreground">Distance ({distKm} {unitShort})</span>
                 <span className="font-mono">{fmt(distCharge)}</span>
               </div>
               <div className="flex justify-between">
