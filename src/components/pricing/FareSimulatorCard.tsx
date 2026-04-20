@@ -28,9 +28,12 @@ interface FareSettings {
 interface FareSimulatorCardProps {
   settings: FareSettings;
   currencySymbol: string;
+  distanceUnit?: string;
 }
 
-export function FareSimulatorCard({ settings, currencySymbol }: FareSimulatorCardProps) {
+export function FareSimulatorCard({ settings, currencySymbol, distanceUnit }: FareSimulatorCardProps) {
+  const isMiles = (distanceUnit || 'mile').toLowerCase().startsWith('mi');
+  const unitShort = isMiles ? 'mi' : 'km';
   const [distKm, setDistKm] = useState(8);
   const [durMin, setDurMin] = useState(15);
   const [waitMin, setWaitMin] = useState(0);
