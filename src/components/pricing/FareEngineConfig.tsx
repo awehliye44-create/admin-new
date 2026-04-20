@@ -101,9 +101,11 @@ interface FareEngineConfigProps {
   serviceAreaId: string;
   /** Currency code from Region — the SINGLE SOURCE OF TRUTH for currency. Required. */
   regionCurrencyCode: string;
+  /** Distance unit from Region — 'mile' or 'km'. SSOT for unit labels. */
+  regionDistanceUnit?: string;
 }
 
-export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngineConfigProps) {
+export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDistanceUnit }: FareEngineConfigProps) {
   const [settings, setSettings] = useState<FarePricingSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
