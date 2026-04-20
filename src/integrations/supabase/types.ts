@@ -7688,6 +7688,7 @@ export type Database = {
           late_cancel_fee_pence: number | null
           max_broadcast_rounds: number | null
           negotiation_locked_until: string | null
+          negotiation_owner_driver_id: string | null
           no_show_charge_pence: number | null
           offer_currency: string | null
           offer_discount_pence: number
@@ -7838,6 +7839,7 @@ export type Database = {
           late_cancel_fee_pence?: number | null
           max_broadcast_rounds?: number | null
           negotiation_locked_until?: string | null
+          negotiation_owner_driver_id?: string | null
           no_show_charge_pence?: number | null
           offer_currency?: string | null
           offer_discount_pence?: number
@@ -7988,6 +7990,7 @@ export type Database = {
           late_cancel_fee_pence?: number | null
           max_broadcast_rounds?: number | null
           negotiation_locked_until?: string | null
+          negotiation_owner_driver_id?: string | null
           no_show_charge_pence?: number | null
           offer_currency?: string | null
           offer_discount_pence?: number

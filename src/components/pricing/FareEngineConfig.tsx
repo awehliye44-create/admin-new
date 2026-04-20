@@ -101,9 +101,11 @@ interface FareEngineConfigProps {
   serviceAreaId: string;
   /** Currency code from Region — the SINGLE SOURCE OF TRUTH for currency. Required. */
   regionCurrencyCode: string;
+  /** Distance unit from Region — 'mile' or 'km'. SSOT for unit labels. */
+  regionDistanceUnit?: string;
 }
 
-export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngineConfigProps) {
+export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDistanceUnit }: FareEngineConfigProps) {
   const [settings, setSettings] = useState<FarePricingSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -128,6 +130,9 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
   // Region is the single source of truth for currency — never use settings.currency_code
   const currencyCode = regionCurrencyCode;
   const symbol = getCurrencySymbol(currencyCode);
+  const isMiles = (regionDistanceUnit || 'mile').toLowerCase().startsWith('mi');
+  const distanceUnitShort = isMiles ? 'Mile' : 'Km';
+  const distanceUnitLong = isMiles ? 'mile' : 'kilometre';
 
   // Fetch assigned vehicle types for this service area
   useEffect(() => {
@@ -564,7 +569,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 {penceField('base_fare_pence', 'Base Fare', 'Starting fare for every trip')}
-                {penceField('per_km_rate_pence', 'Per Km Rate', 'Charge per kilometre')}
+                {penceField('per_km_rate_pence', `Per ${distanceUnitShort} Rate`, `Charge per ${distanceUnitLong}`)}
                 {penceField('per_min_rate_pence', 'Per Minute Rate', 'Charge per minute')}
                 {penceField('booking_fee_pence', 'Booking Fee', 'Platform booking fee')}
                 {penceField('minimum_fare_pence', 'Minimum Fare', 'Floor fare amount')}
@@ -689,7 +694,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
 
         {/* Right column: Simulator */}
         <div className="space-y-6">
-          <FareSimulatorCard settings={settings} currencySymbol={symbol} />
+          <FareSimulatorCard settings={settings} currencySymbol={symbol} distanceUnit={regionDistanceUnit} />
 
           {/* Settings Summary */}
           <Card>
@@ -717,7 +722,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode }: FareEngi
                 <span className="font-mono">{symbol}{(settings.base_fare_pence / 100).toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Per Km</span>
+                <span className="text-muted-foreground">Per {distanceUnitShort}</span>
                 <span className="font-mono">{symbol}{(settings.per_km_rate_pence / 100).toFixed(2)}</span>
               </div>
               <div className="flex justify-between">

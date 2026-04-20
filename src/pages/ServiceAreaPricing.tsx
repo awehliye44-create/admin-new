@@ -339,6 +339,7 @@ export default function ServiceAreaPricing() {
             <FareEngineConfig 
               serviceAreaId={selectedServiceAreaId}
               regionCurrencyCode={regionCurrency}
+              regionDistanceUnit={selectedServiceArea?.region?.distance_unit}
             />
           )}
         </TabsContent>

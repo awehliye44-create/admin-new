@@ -28,9 +28,12 @@ interface FareSettings {
 interface FareSimulatorCardProps {
   settings: FareSettings;
   currencySymbol: string;
+  distanceUnit?: string;
 }
 
-export function FareSimulatorCard({ settings, currencySymbol }: FareSimulatorCardProps) {
+export function FareSimulatorCard({ settings, currencySymbol, distanceUnit }: FareSimulatorCardProps) {
+  const isMiles = (distanceUnit || 'mile').toLowerCase().startsWith('mi');
+  const unitShort = isMiles ? 'mi' : 'km';
   const [distKm, setDistKm] = useState(8);
   const [durMin, setDurMin] = useState(15);
   const [waitMin, setWaitMin] = useState(0);
@@ -89,7 +92,7 @@ export function FareSimulatorCard({ settings, currencySymbol }: FareSimulatorCar
       <CardContent className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <Label className="text-xs">Distance (km)</Label>
+            <Label className="text-xs">Distance ({unitShort})</Label>
             <Input type="number" min="0" step="0.5" value={distKm} onChange={(e) => setDistKm(parseFloat(e.target.value) || 0)} />
           </div>
           <div className="space-y-1">
@@ -124,7 +127,7 @@ export function FareSimulatorCard({ settings, currencySymbol }: FareSimulatorCar
                 <span className="font-mono">{fmt(base)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Distance ({distKm} km)</span>
+                <span className="text-muted-foreground">Distance ({distKm} {unitShort})</span>
                 <span className="font-mono">{fmt(distCharge)}</span>
               </div>
               <div className="flex justify-between">
