@@ -694,7 +694,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
 
         {/* Right column: Simulator */}
         <div className="space-y-6">
-          <FareSimulatorCard settings={settings} currencySymbol={symbol} />
+          <FareSimulatorCard settings={settings} currencySymbol={symbol} distanceUnit={regionDistanceUnit} />
 
           {/* Settings Summary */}
           <Card>
