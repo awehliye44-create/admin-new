@@ -92,7 +92,7 @@ export function FareSimulatorCard({ settings, currencySymbol, distanceUnit }: Fa
       <CardContent className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <Label className="text-xs">Distance (km)</Label>
+            <Label className="text-xs">Distance ({unitShort})</Label>
             <Input type="number" min="0" step="0.5" value={distKm} onChange={(e) => setDistKm(parseFloat(e.target.value) || 0)} />
           </div>
           <div className="space-y-1">
