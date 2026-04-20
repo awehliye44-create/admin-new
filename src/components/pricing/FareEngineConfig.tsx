@@ -722,7 +722,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
                 <span className="font-mono">{symbol}{(settings.base_fare_pence / 100).toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Per Km</span>
+                <span className="text-muted-foreground">Per {distanceUnitShort}</span>
                 <span className="font-mono">{symbol}{(settings.per_km_rate_pence / 100).toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
