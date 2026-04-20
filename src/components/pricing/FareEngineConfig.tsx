@@ -130,6 +130,9 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
   // Region is the single source of truth for currency — never use settings.currency_code
   const currencyCode = regionCurrencyCode;
   const symbol = getCurrencySymbol(currencyCode);
+  const isMiles = (regionDistanceUnit || 'mile').toLowerCase().startsWith('mi');
+  const distanceUnitShort = isMiles ? 'Mile' : 'Km';
+  const distanceUnitLong = isMiles ? 'mile' : 'kilometre';
 
   // Fetch assigned vehicle types for this service area
   useEffect(() => {
