@@ -74,22 +74,23 @@ export async function evaluateTierPromotion(
     return { promoted: false, from_tier_id: currentTierId, to_tier_id: null, to_tier_name: null };
   }
 
-  // Audit trail
-  await supabase.from("admin_audit_log").insert({
-    action: "driver_tier_auto_promotion",
-    target_type: "driver",
-    target_id: driverId,
-    details: {
-      from_tier_id: currentTierId,
-      from_tier_name: currentTier?.name ?? null,
-      to_tier_id: targetTier.id,
-      to_tier_name: targetTier.name,
-      completed_trip_count: completedTripCount,
-      trigger: "complete-trip",
-    },
-  }).then(({ error }) => {
-    if (error) console.warn("[tier-promotion] audit log insert failed (non-fatal):", error.message);
-  });
+  // Audit trail (non-fatal)
+  try {
+    await supabase.from("audit_logs").insert({
+      event_type: "driver_tier_auto_promotion",
+      driver_id: driverId,
+      details: {
+        from_tier_id: currentTierId,
+        from_tier_name: currentTier?.name ?? null,
+        to_tier_id: targetTier.id,
+        to_tier_name: targetTier.name,
+        completed_trip_count: completedTripCount,
+        trigger: "complete-trip",
+      },
+    });
+  } catch (e) {
+    console.warn("[tier-promotion] audit log insert failed (non-fatal):", (e as Error).message);
+  }
 
   return { promoted: true, from_tier_id: currentTierId, to_tier_id: targetTier.id, to_tier_name: targetTier.name };
 }

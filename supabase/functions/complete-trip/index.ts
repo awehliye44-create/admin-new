@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { calculateCommission } from "../_shared/commission.ts";
+import { evaluateTierPromotion } from "../_shared/tierPromotion.ts";
 import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
 import { buildTripAccounting, validateTripAccounting } from "../_shared/tripAccounting.ts";
 import { 
@@ -320,7 +321,7 @@ serve(async (req) => {
       .update({ current_trip_id: null })
       .eq('id', driver_id);
 
-    // Update total trips count
+    // Update total trips count + evaluate automatic tier promotion
     try {
       const { count } = await supabase
         .from('trips')
@@ -328,9 +329,21 @@ serve(async (req) => {
         .eq('driver_id', driver_id)
         .eq('status', 'completed');
 
+      const completedCount = count || 0;
+
       await supabase.from('drivers')
-        .update({ total_trips: count || 0 })
+        .update({ total_trips: completedCount })
         .eq('id', driver_id);
+
+      // Auto-promotion: only counts COMPLETED trips. Upgrade-only, never demotes.
+      try {
+        const promo = await evaluateTierPromotion(supabase, driver_id, completedCount);
+        if (promo.promoted) {
+          console.log(`[complete-trip] Driver ${driver_id} auto-promoted to ${promo.to_tier_name} at ${completedCount} completed trips`);
+        }
+      } catch (promoErr) {
+        console.warn('[complete-trip] Tier promotion evaluation failed (non-fatal):', promoErr);
+      }
     } catch (e) {
       console.log('[complete-trip] Error updating total trips:', e);
     }
