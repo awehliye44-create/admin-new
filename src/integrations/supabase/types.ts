@@ -3264,6 +3264,11 @@ export type Database = {
         Row: {
           base_fare_pence: number
           booking_fee_pence: number
+          buffer_apply_scope: string
+          buffer_enabled: boolean
+          buffer_show_to_customer: boolean
+          buffer_type: string
+          buffer_value: number
           cancellation_apply_after_arrival_only: boolean
           cancellation_fee_pence: number
           cancellation_grace_period_minutes: number
@@ -3299,6 +3304,11 @@ export type Database = {
         Insert: {
           base_fare_pence?: number
           booking_fee_pence?: number
+          buffer_apply_scope?: string
+          buffer_enabled?: boolean
+          buffer_show_to_customer?: boolean
+          buffer_type?: string
+          buffer_value?: number
           cancellation_apply_after_arrival_only?: boolean
           cancellation_fee_pence?: number
           cancellation_grace_period_minutes?: number
@@ -3334,6 +3344,11 @@ export type Database = {
         Update: {
           base_fare_pence?: number
           booking_fee_pence?: number
+          buffer_apply_scope?: string
+          buffer_enabled?: boolean
+          buffer_show_to_customer?: boolean
+          buffer_type?: string
+          buffer_value?: number
           cancellation_apply_after_arrival_only?: boolean
           cancellation_fee_pence?: number
           cancellation_grace_period_minutes?: number
@@ -7614,6 +7629,7 @@ export type Database = {
           base_fare_pence: number | null
           booking_source: string | null
           broadcast_started_at: string | null
+          buffer_amount_pence: number
           cancel_reason: string | null
           cancellation_fee_pence: number | null
           cancellation_grace_expires_at: string | null
@@ -7765,6 +7781,7 @@ export type Database = {
           base_fare_pence?: number | null
           booking_source?: string | null
           broadcast_started_at?: string | null
+          buffer_amount_pence?: number
           cancel_reason?: string | null
           cancellation_fee_pence?: number | null
           cancellation_grace_expires_at?: string | null
@@ -7916,6 +7933,7 @@ export type Database = {
           base_fare_pence?: number | null
           booking_source?: string | null
           broadcast_started_at?: string | null
+          buffer_amount_pence?: number
           cancel_reason?: string | null
           cancellation_fee_pence?: number | null
           cancellation_grace_expires_at?: string | null

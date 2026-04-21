@@ -25,6 +25,73 @@ export interface FarePricingSettings {
   zone_multiplier: number;
   traffic_multiplier: number;
   demand_supply_multiplier: number;
+  // ── Pricing Buffer (Stripe / margin) ──
+  buffer_enabled?: boolean;
+  buffer_type?: 'fixed' | 'percentage';
+  buffer_value?: number; // fixed: currency units (e.g. 0.50). percentage: percent (e.g. 2.5)
+  buffer_apply_scope?: 'all' | 'non_route';
+  buffer_show_to_customer?: boolean;
+}
+
+export interface PricingBufferConfig {
+  enabled: boolean;
+  type: 'fixed' | 'percentage';
+  value: number;
+  apply_scope: 'all' | 'non_route';
+  show_to_customer: boolean;
+}
+
+export interface PricingBufferResult {
+  buffer_amount_pence: number;
+  applied: boolean;
+  reason?: string;
+}
+
+/**
+ * Compute the pricing buffer to add on top of a base fare.
+ *
+ * Strict rules:
+ *   • Buffer is added AFTER fare calculation, BEFORE any discount.
+ *   • Buffer is NEVER mixed into base_fare_pence.
+ *   • Buffer is platform-only revenue: it does NOT change driver earnings or commission.
+ *   • If the fare source is "zone_route" (a fixed route price) and apply_scope is
+ *     "non_route", the buffer is skipped.
+ */
+export function computePricingBuffer(
+  basePence: number,
+  cfg: PricingBufferConfig | null | undefined,
+  fareSource: 'meter' | 'zone_route',
+): PricingBufferResult {
+  if (!cfg || !cfg.enabled || cfg.value <= 0 || basePence <= 0) {
+    return { buffer_amount_pence: 0, applied: false, reason: 'buffer_disabled_or_zero' };
+  }
+  if (cfg.apply_scope === 'non_route' && fareSource === 'zone_route') {
+    return { buffer_amount_pence: 0, applied: false, reason: 'scope_excludes_zone_route' };
+  }
+
+  let bufferPence: number;
+  if (cfg.type === 'fixed') {
+    // value is in currency units; convert to pence
+    bufferPence = Math.round(cfg.value * 100);
+  } else {
+    // percentage of the base fare
+    bufferPence = Math.round((basePence * cfg.value) / 100);
+  }
+  return { buffer_amount_pence: Math.max(0, bufferPence), applied: bufferPence > 0 };
+}
+
+/** Read a PricingBufferConfig from a fare_pricing_settings row (or null). */
+export function bufferConfigFromSettings(
+  row: Partial<FarePricingSettings> | null | undefined,
+): PricingBufferConfig | null {
+  if (!row) return null;
+  return {
+    enabled: !!row.buffer_enabled,
+    type: (row.buffer_type as 'fixed' | 'percentage') ?? 'fixed',
+    value: Number(row.buffer_value ?? 0),
+    apply_scope: (row.buffer_apply_scope as 'all' | 'non_route') ?? 'all',
+    show_to_customer: !!row.buffer_show_to_customer,
+  };
 }
 
 export interface FareEstimateRequest {

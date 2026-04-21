@@ -1,5 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { FareEngine, type FarePricingSettings } from "../_shared/fareEngine.ts";
+import {
+  FareEngine,
+  type FarePricingSettings,
+  bufferConfigFromSettings,
+  computePricingBuffer,
+  type PricingBufferConfig,
+} from "../_shared/fareEngine.ts";
 import { getDirections } from "../_shared/googleMaps.ts";
 import {
   resolvePricingZone,
@@ -101,6 +107,17 @@ Deno.serve(async (req) => {
       console.log(`[estimate-fare] Zones resolved — pickup=${pickupZone?.zone_name ?? "none"} dropoff=${dropoffZone?.zone_name ?? "none"}`);
     }
 
+    // ─── Resolve area-wide pricing buffer (applies to ALL vehicle types) ───
+    // Buffer is configured on the area-wide row (vehicle_type_id IS NULL).
+    const { data: areaBufferRow } = await supabase
+      .from("fare_pricing_settings")
+      .select("buffer_enabled, buffer_type, buffer_value, buffer_apply_scope, buffer_show_to_customer")
+      .eq("service_area_id", service_area_id)
+      .is("vehicle_type_id", null)
+      .maybeSingle();
+
+    const bufferConfig: PricingBufferConfig | null = bufferConfigFromSettings(areaBufferRow as any);
+
     // Helper: compute fare for a single vehicle, applying zone-route pricing if any.
     async function quoteForVehicle(vtId: string, settings: any) {
       // 1. Try zone-route pricing for THIS vehicle category
@@ -139,10 +156,19 @@ Deno.serve(async (req) => {
         pricingSource = "meter";
       }
 
+      // 3. Apply pricing buffer AFTER fare calc, BEFORE any discount.
+      //    Buffer is platform-only revenue and is NOT mixed into base_fare_pence.
+      const baseQuotedPence = breakdown.quoted_fare_pence;
+      const bufferResult = computePricingBuffer(baseQuotedPence, bufferConfig, pricingSource);
+      const finalQuotedPence = baseQuotedPence + bufferResult.buffer_amount_pence;
+
       return {
         breakdown,
         pricingSource,
         zoneRouteQuote,
+        bufferAmountPence: bufferResult.buffer_amount_pence,
+        baseQuotedPence,
+        finalQuotedPence,
         zoneDebug: {
           pickup_zone: pickupZone,
           dropoff_zone: dropoffZone,
@@ -202,7 +228,7 @@ Deno.serve(async (req) => {
         const meta = vtMetaMap.get(vtId);
         if (!settings || !meta) continue;
 
-        const { breakdown, pricingSource, zoneRouteQuote, zoneDebug } = await quoteForVehicle(vtId, settings);
+        const { breakdown, pricingSource, zoneRouteQuote, zoneDebug, bufferAmountPence, baseQuotedPence, finalQuotedPence } = await quoteForVehicle(vtId, settings);
         const fareLocked = settings.pricing_mode === "fixed" || pricingSource === "zone_route";
 
         vehicles.push({
@@ -217,7 +243,14 @@ Deno.serve(async (req) => {
           pricingMode: pricingSource === "zone_route" ? "fixed" : settings.pricing_mode,
           pricingSource,
           currencyCode: regionCurrency,
-          quotedFarePence: breakdown.quoted_fare_pence,
+          // quotedFarePence = what the customer pays = base + buffer (no discount yet)
+          quotedFarePence: finalQuotedPence,
+          // Spec API contract:
+          baseFarePence: baseQuotedPence,
+          bufferAmountPence,
+          discountAmountPence: 0,
+          finalTotalPence: finalQuotedPence,
+          bufferShowToCustomer: !!bufferConfig?.show_to_customer,
           fareEngineConfigId: settings.id,
           fareLocked,
           fareBreakdown: {
@@ -228,6 +261,10 @@ Deno.serve(async (req) => {
             subtotalPence: breakdown.subtotal_pence,
             minimumApplied: breakdown.minimum_applied,
             zoneRoute: zoneRouteQuote,
+            // buffer added AFTER fare calc, BEFORE discount; never mixed into base
+            preBufferQuotedPence: baseQuotedPence,
+            bufferAmountPence,
+            postBufferQuotedPence: finalQuotedPence,
           },
           zoneDebug,
           fareSnapshotJson: {
@@ -237,6 +274,8 @@ Deno.serve(async (req) => {
             zone_route_pricing_row_id: zoneDebug.route_pricing_row_id,
             zone_route_source: zoneDebug.route_pricing_source,
             currency_code: regionCurrency,
+            buffer_amount_pence: bufferAmountPence,
+            buffer_config: bufferConfig,
             snapshot_at: new Date().toISOString(),
           },
           freeWaitingMinutes: settings.free_waiting_minutes,
@@ -299,7 +338,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { breakdown, pricingSource, zoneRouteQuote, zoneDebug } = await quoteForVehicle(vehicle_type_id, settings);
+    const { breakdown, pricingSource, zoneRouteQuote, zoneDebug, bufferAmountPence, baseQuotedPence, finalQuotedPence } = await quoteForVehicle(vehicle_type_id, settings);
     const fareLocked = settings.pricing_mode === "fixed" || pricingSource === "zone_route";
 
     return new Response(
@@ -307,7 +346,13 @@ Deno.serve(async (req) => {
         pricingMode: pricingSource === "zone_route" ? "fixed" : settings.pricing_mode,
         pricingSource,
         currencyCode: regionCurrency,
-        quotedFarePence: breakdown.quoted_fare_pence,
+        quotedFarePence: finalQuotedPence,
+        // Spec API contract: explicit base / buffer / discount / final_total
+        baseFarePence: baseQuotedPence,
+        bufferAmountPence,
+        discountAmountPence: 0,
+        finalTotalPence: finalQuotedPence,
+        bufferShowToCustomer: !!bufferConfig?.show_to_customer,
         estimatedDistanceKm: estimated_distance_km,
         estimatedDurationMin: estimated_duration_min,
         vehicleTypeId: vehicle_type_id,
@@ -321,6 +366,8 @@ Deno.serve(async (req) => {
           zone_route_pricing_row_id: zoneDebug.route_pricing_row_id,
           zone_route_source: zoneDebug.route_pricing_source,
           currency_code: regionCurrency,
+          buffer_amount_pence: bufferAmountPence,
+          buffer_config: bufferConfig,
           snapshot_at: new Date().toISOString(),
         },
         fareBreakdown: {
@@ -331,6 +378,9 @@ Deno.serve(async (req) => {
           subtotalPence: breakdown.subtotal_pence,
           minimumApplied: breakdown.minimum_applied,
           zoneRoute: zoneRouteQuote,
+          preBufferQuotedPence: baseQuotedPence,
+          bufferAmountPence,
+          postBufferQuotedPence: finalQuotedPence,
         },
         freeWaitingMinutes: settings.free_waiting_minutes,
         waitingPerMinutePence: settings.waiting_per_minute_pence,
