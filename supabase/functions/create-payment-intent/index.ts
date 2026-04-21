@@ -161,6 +161,8 @@ serve(async (req) => {
     }
 
     // === Get driver's connected account ===
+    // IMPORTANT: commission is calculated on the PAYABLE amount (estimated fare − discount).
+    // The pre-auth buffer is NEVER part of commission or driver earnings.
     let driverStripeAccountId: string | null = null;
     let commissionPercentage = 0;
     let applicationFeeAmount = 0;
@@ -173,17 +175,40 @@ serve(async (req) => {
         .single();
 
       driverStripeAccountId = driver?.stripe_account_id || null;
-      const result = await calculateCommission(supabase, trip.driver_id, estimated_fare_pence);
+      const result = await calculateCommission(supabase, trip.driver_id, payable_pence);
       commissionPercentage = result.commission_pct;
       applicationFeeAmount = result.commission_pence;
+    }
+
+    // === Resolve pre-auth buffer for this service area ===
+    // Pure payment-layer setting. NEVER touches fare math or driver earnings.
+    let preauthCfg: PreauthBufferConfig | null = null;
+    if (trip.service_area_id) {
+      const { data: cfgRow } = await supabase
+        .from("service_area_preauth_settings")
+        .select("enable_preauth_buffer, buffer_type, buffer_value, min_hold_pence, max_hold_pence")
+        .eq("service_area_id", trip.service_area_id)
+        .maybeSingle();
+      if (cfgRow) preauthCfg = cfgRow as PreauthBufferConfig;
+    }
+
+    const holdResult = computePreauthHold(payable_pence, preauthCfg);
+    const hold_pence = holdResult.hold_pence;
+    const buffer_pence = holdResult.buffer_pence;
+
+    // Defensive: Stripe minimum charge ~50p
+    if (hold_pence < 50) {
+      return errorResponse("Hold amount below minimum", 400, undefined, "VALIDATION_FAILED");
     }
 
     // === Determine payment method types ===
     const paymentMethodTypes: string[] = ["card"];
 
     // === Create PaymentIntent with Destination Charges ===
+    // amount = HOLD (payable + buffer). application_fee_amount = commission on PAYABLE.
+    // Stripe will release any uncaptured remainder back to the customer.
     const piParams: Stripe.PaymentIntentCreateParams = {
-      amount: estimated_fare_pence,
+      amount: hold_pence,
       currency: currency_code,
       customer: stripeCustomerId,
       capture_method: "manual",
@@ -193,6 +218,11 @@ serve(async (req) => {
         customer_id,
         payment_method_type,
         commission_pct: String(commissionPercentage),
+        estimated_fare_pence: String(estimated_fare_pence),
+        discount_amount_pence: String(safeDiscount),
+        payable_pence: String(payable_pence),
+        preauth_buffer_pence: String(buffer_pence),
+        preauth_hold_pence: String(hold_pence),
       },
     };
 
@@ -221,15 +251,20 @@ serve(async (req) => {
     });
 
     console.log(`[create-payment-intent] Created PI: ${paymentIntent.id} for trip ${trip_id}, currency: ${currency_code}`);
-    console.log(`[create-payment-intent] Amount: ${estimated_fare_pence}p, AppFee: ${applicationFeeAmount}p, Destination: ${driverStripeAccountId || "none"}`);
+    console.log(`[create-payment-intent] Estimated: ${estimated_fare_pence}p, Discount: ${safeDiscount}p, Payable: ${payable_pence}p, Buffer: ${buffer_pence}p, Hold: ${hold_pence}p, AppFee: ${applicationFeeAmount}p, Destination: ${driverStripeAccountId || "none"}`);
 
-    // Store PI on the trip
+    // Store PI + informational hold/buffer columns on the trip.
+    // authorised_amount_pence = the actual Stripe hold (informational).
+    // preauth_buffer_pence    = how much of that hold is buffer (informational).
+    // Neither column feeds into fare/commission/ledger math.
     await supabase
       .from("trips")
       .update({
         stripe_payment_intent_id: paymentIntent.id,
         payment_method: payment_method_type === "apple_pay" ? "APPLE_PAY" : payment_method_type === "google_pay" ? "GOOGLE_PAY" : "CARD",
         payment_status: "authorized",
+        authorised_amount_pence: hold_pence,
+        preauth_buffer_pence: buffer_pence,
         updated_at: new Date().toISOString(),
       })
       .eq("id", trip_id);
@@ -238,7 +273,11 @@ serve(async (req) => {
       tripId: trip_id,
       details: {
         payment_intent_id: paymentIntent.id,
-        amount: estimated_fare_pence,
+        estimated_fare_pence,
+        discount_amount_pence: safeDiscount,
+        payable_pence,
+        preauth_buffer_pence: buffer_pence,
+        preauth_hold_pence: hold_pence,
         application_fee: applicationFeeAmount,
         payment_method_type,
         driver_account: driverStripeAccountId,
@@ -252,7 +291,14 @@ serve(async (req) => {
       payment_intent_id: paymentIntent.id,
       client_secret: paymentIntent.client_secret,
       status: paymentIntent.status,
-      amount: estimated_fare_pence,
+      // Spec API contract — explicit and unambiguous:
+      estimated_fare_pence,
+      discount_amount_pence: safeDiscount,
+      payable_pence,                    // max we will capture
+      preauth_buffer_pence: buffer_pence,
+      preauth_hold_pence: hold_pence,   // what Stripe holds on the card
+      // Legacy alias kept for client compatibility:
+      amount: hold_pence,
       currency: currency_code,
       application_fee_amount: applicationFeeAmount,
       stripe_customer_id: stripeCustomerId,
