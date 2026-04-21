@@ -107,6 +107,17 @@ Deno.serve(async (req) => {
       console.log(`[estimate-fare] Zones resolved — pickup=${pickupZone?.zone_name ?? "none"} dropoff=${dropoffZone?.zone_name ?? "none"}`);
     }
 
+    // ─── Resolve area-wide pricing buffer (applies to ALL vehicle types) ───
+    // Buffer is configured on the area-wide row (vehicle_type_id IS NULL).
+    const { data: areaBufferRow } = await supabase
+      .from("fare_pricing_settings")
+      .select("buffer_enabled, buffer_type, buffer_value, buffer_apply_scope, buffer_show_to_customer")
+      .eq("service_area_id", service_area_id)
+      .is("vehicle_type_id", null)
+      .maybeSingle();
+
+    const bufferConfig: PricingBufferConfig | null = bufferConfigFromSettings(areaBufferRow as any);
+
     // Helper: compute fare for a single vehicle, applying zone-route pricing if any.
     async function quoteForVehicle(vtId: string, settings: any) {
       // 1. Try zone-route pricing for THIS vehicle category
@@ -145,10 +156,19 @@ Deno.serve(async (req) => {
         pricingSource = "meter";
       }
 
+      // 3. Apply pricing buffer AFTER fare calc, BEFORE any discount.
+      //    Buffer is platform-only revenue and is NOT mixed into base_fare_pence.
+      const baseQuotedPence = breakdown.quoted_fare_pence;
+      const bufferResult = computePricingBuffer(baseQuotedPence, bufferConfig, pricingSource);
+      const finalQuotedPence = baseQuotedPence + bufferResult.buffer_amount_pence;
+
       return {
         breakdown,
         pricingSource,
         zoneRouteQuote,
+        bufferAmountPence: bufferResult.buffer_amount_pence,
+        baseQuotedPence,
+        finalQuotedPence,
         zoneDebug: {
           pickup_zone: pickupZone,
           dropoff_zone: dropoffZone,
