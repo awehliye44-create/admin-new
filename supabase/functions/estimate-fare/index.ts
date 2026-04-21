@@ -1,5 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { FareEngine, type FarePricingSettings } from "../_shared/fareEngine.ts";
+import {
+  FareEngine,
+  type FarePricingSettings,
+  bufferConfigFromSettings,
+  computePricingBuffer,
+  type PricingBufferConfig,
+} from "../_shared/fareEngine.ts";
 import { getDirections } from "../_shared/googleMaps.ts";
 import {
   resolvePricingZone,
