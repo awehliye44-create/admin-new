@@ -55,6 +55,7 @@ serve(async (req) => {
       trip_id,
       customer_id,
       estimated_fare_pence,
+      discount_amount_pence = 0,
       payment_method_type = "card",
       stripe_payment_method_id,
     } = body;
@@ -66,6 +67,11 @@ serve(async (req) => {
     if (estimated_fare_pence < 50) {
       return errorResponse("Minimum fare is 50 pence", 400, undefined, "VALIDATION_FAILED");
     }
+
+    // Payable amount = what we will MAX capture (estimated fare minus discount).
+    // This is the upper bound for `application_fee_amount` and the base for the buffer.
+    const safeDiscount = Math.max(0, Math.min(Math.round(discount_amount_pence), estimated_fare_pence));
+    const payable_pence = Math.max(0, estimated_fare_pence - safeDiscount);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
