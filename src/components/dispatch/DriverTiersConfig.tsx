@@ -151,7 +151,8 @@ export function DriverTiersConfig() {
               <code className="text-xs block mt-1">
                 score = category_priority + waiting_bonus + fairness_boost − distance_penalty
               </code>
-              <p className="mt-1"><strong>Commission %</strong> is applied during trip settlement. Tiers are <strong>manually assigned</strong> per driver — no auto-promotion.</p>
+              <p className="mt-1"><strong>Commission %</strong> is applied during trip settlement.</p>
+              <p className="mt-1"><strong>Trip Target</strong> drives <strong>automatic promotion</strong>: when a driver finishes a trip and their completed-trip count reaches a tier's target, they are promoted to the next active tier on the spot. Upgrades only — drivers are never auto-demoted.</p>
             </div>
           </div>
 
@@ -279,16 +280,16 @@ export function DriverTiersConfig() {
               <p className="text-xs text-muted-foreground mt-1">Applied to commissionable subtotal on trip completion</p>
             </div>
             <div>
-              <Label htmlFor="trip_target">Trip Target (guidance only)</Label>
+              <Label htmlFor="trip_target">Trip Target (auto-promotion threshold)</Label>
               <Input
                 id="trip_target"
                 type="number"
                 min="0"
                 value={formData.trip_target}
                 onChange={(e) => setFormData(prev => ({ ...prev, trip_target: e.target.value }))}
-                placeholder="e.g., 500"
+                placeholder="e.g., 20"
               />
-              <p className="text-xs text-muted-foreground mt-1">Visual progress only — no auto-promotion</p>
+              <p className="text-xs text-muted-foreground mt-1">When a driver in this tier reaches this many completed trips, they auto-promote to the next active tier.</p>
             </div>
             <div>
               <Label htmlFor="description">Description</Label>
