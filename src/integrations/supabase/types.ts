@@ -9342,6 +9342,14 @@ export type Database = {
         }[]
       }
       get_active_stop_waiting: { Args: { p_driver_id: string }; Returns: Json }
+      get_customer_trip_stats: {
+        Args: { _passenger_id: string }
+        Returns: {
+          avg_rating: number
+          rating_count: number
+          total_trips: number
+        }[]
+      }
       get_driver_ledger_aggregates: {
         Args: { p_driver_id: string }
         Returns: {
