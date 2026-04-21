@@ -709,6 +709,128 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
               </div>
             </CardContent>
           </Card>
+
+          {/* ── Pricing Buffer (Stripe / margin) ── area-wide only ── */}
+          <Card>
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5 text-primary" />
+                    Pricing Buffer
+                  </CardTitle>
+                  <CardDescription>
+                    Extra margin added on top of every fare (e.g. to cover Stripe fees). Applied <strong>after</strong> the
+                    fare is calculated and <strong>before</strong> any discount. Never affects driver earnings.
+                  </CardDescription>
+                </div>
+                <Switch
+                  checked={settings.buffer_enabled}
+                  onCheckedChange={(v) => updateField('buffer_enabled', v)}
+                  disabled={selectedVehicleTypeId !== '__default__'}
+                />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {selectedVehicleTypeId !== '__default__' && (
+                <div className="flex items-start gap-2 rounded-md border border-amber-300/40 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs">
+                  <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                  <span className="text-amber-700 dark:text-amber-300">
+                    The pricing buffer is configured per service area. Switch to <strong>Default</strong> to edit it — it will
+                    automatically apply to all vehicle types in this area.
+                  </span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label className="text-sm">Buffer Type</Label>
+                  <Select
+                    value={settings.buffer_type}
+                    onValueChange={(v) => updateField('buffer_type', v as 'fixed' | 'percentage')}
+                    disabled={!settings.buffer_enabled || selectedVehicleTypeId !== '__default__'}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="fixed">Fixed amount ({symbol})</SelectItem>
+                      <SelectItem value="percentage">Percentage (%)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-sm">
+                    Buffer Value {settings.buffer_type === 'fixed' ? `(${symbol})` : '(%)'}
+                  </Label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+                      {settings.buffer_type === 'fixed' ? symbol : '%'}
+                    </span>
+                    <Input
+                      type="number"
+                      step={settings.buffer_type === 'fixed' ? '0.01' : '0.1'}
+                      min="0"
+                      value={settings.buffer_value}
+                      onChange={(e) => updateField('buffer_value', parseFloat(e.target.value) || 0)}
+                      disabled={!settings.buffer_enabled || selectedVehicleTypeId !== '__default__'}
+                      className="pl-7"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {settings.buffer_type === 'fixed'
+                      ? `Add ${symbol}${(settings.buffer_value || 0).toFixed(2)} to every applicable fare`
+                      : `Add ${(settings.buffer_value || 0).toFixed(1)}% of the base fare`}
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-sm">Apply Scope</Label>
+                  <Select
+                    value={settings.buffer_apply_scope}
+                    onValueChange={(v) => updateField('buffer_apply_scope', v as 'all' | 'non_route')}
+                    disabled={!settings.buffer_enabled || selectedVehicleTypeId !== '__default__'}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All trips</SelectItem>
+                      <SelectItem value="non_route">Non-route only (exclude fixed zone routes)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {settings.buffer_apply_scope === 'all'
+                      ? 'Buffer applies to fixed, dynamic, zone & route fares.'
+                      : 'Fixed zone-to-zone route prices are kept exact; buffer skipped for them.'}
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-sm">Customer Visibility</Label>
+                  <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 h-10">
+                    <span className="text-sm text-muted-foreground">
+                      {settings.buffer_show_to_customer ? 'Shown as separate line' : 'Hidden — rolled into total'}
+                    </span>
+                    <Switch
+                      checked={settings.buffer_show_to_customer}
+                      onCheckedChange={(v) => updateField('buffer_show_to_customer', v)}
+                      disabled={!settings.buffer_enabled || selectedVehicleTypeId !== '__default__'}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2 rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+                <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
+                <div className="space-y-0.5">
+                  <p><strong className="text-foreground">Order:</strong> base fare → + buffer → − discount → final total.</p>
+                  <p><strong className="text-foreground">Driver earnings:</strong> commission is calculated on the base fare only — buffer is platform revenue.</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Right column: Simulator */}
