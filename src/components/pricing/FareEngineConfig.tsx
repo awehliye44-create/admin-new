@@ -58,12 +58,6 @@ interface FarePricingSettings {
   no_show_wait_time_minutes: number;
   no_show_fee_pence: number;
   no_show_apply_after_arrival_only: boolean;
-  // Pricing Buffer (area-wide — only meaningful on the default row)
-  buffer_enabled: boolean;
-  buffer_type: 'fixed' | 'percentage';
-  buffer_value: number;
-  buffer_apply_scope: 'all' | 'non_route';
-  buffer_show_to_customer: boolean;
 }
 
 const DEFAULT_SETTINGS: Omit<FarePricingSettings, 'service_area_id'> = {
@@ -95,11 +89,6 @@ const DEFAULT_SETTINGS: Omit<FarePricingSettings, 'service_area_id'> = {
   no_show_wait_time_minutes: 5,
   no_show_fee_pence: 500,
   no_show_apply_after_arrival_only: true,
-  buffer_enabled: false,
-  buffer_type: 'fixed',
-  buffer_value: 0,
-  buffer_apply_scope: 'all',
-  buffer_show_to_customer: false,
 };
 
 interface VehicleType {
@@ -308,14 +297,6 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
         no_show_wait_time_minutes: settings.no_show_wait_time_minutes,
         no_show_fee_pence: settings.no_show_fee_pence,
         no_show_apply_after_arrival_only: settings.no_show_apply_after_arrival_only,
-        // Pricing buffer — only persist on the area-wide default row
-        ...(vehicleTypeId === null ? {
-          buffer_enabled: settings.buffer_enabled,
-          buffer_type: settings.buffer_type,
-          buffer_value: settings.buffer_value,
-          buffer_apply_scope: settings.buffer_apply_scope,
-          buffer_show_to_customer: settings.buffer_show_to_customer,
-        } : {}),
       };
 
       if (settings.id) {
