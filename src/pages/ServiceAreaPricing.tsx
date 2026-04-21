@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ServiceAreaPaymentConfig } from '@/components/payment/ServiceAreaPaymentConfig';
+import { PreauthBufferConfig } from '@/components/payment/PreauthBufferConfig';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { PresetOffersConfig } from '@/components/pricing/PresetOffersConfig';
 import { FareEngineConfig } from '@/components/pricing/FareEngineConfig';
@@ -500,6 +501,13 @@ export default function ServiceAreaPricing() {
             <ServiceAreaPaymentConfig 
               serviceAreaId={selectedServiceAreaId} 
               serviceAreaName={selectedServiceArea?.name}
+            />
+          )}
+          {selectedServiceAreaId && regionCurrency && (
+            <PreauthBufferConfig
+              serviceAreaId={selectedServiceAreaId}
+              serviceAreaName={selectedServiceArea?.name}
+              regionCurrencyCode={regionCurrency}
             />
           )}
         </TabsContent>

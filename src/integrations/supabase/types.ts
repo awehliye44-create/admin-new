@@ -3264,11 +3264,6 @@ export type Database = {
         Row: {
           base_fare_pence: number
           booking_fee_pence: number
-          buffer_apply_scope: string
-          buffer_enabled: boolean
-          buffer_show_to_customer: boolean
-          buffer_type: string
-          buffer_value: number
           cancellation_apply_after_arrival_only: boolean
           cancellation_fee_pence: number
           cancellation_grace_period_minutes: number
@@ -3304,11 +3299,6 @@ export type Database = {
         Insert: {
           base_fare_pence?: number
           booking_fee_pence?: number
-          buffer_apply_scope?: string
-          buffer_enabled?: boolean
-          buffer_show_to_customer?: boolean
-          buffer_type?: string
-          buffer_value?: number
           cancellation_apply_after_arrival_only?: boolean
           cancellation_fee_pence?: number
           cancellation_grace_period_minutes?: number
@@ -3344,11 +3334,6 @@ export type Database = {
         Update: {
           base_fare_pence?: number
           booking_fee_pence?: number
-          buffer_apply_scope?: string
-          buffer_enabled?: boolean
-          buffer_show_to_customer?: boolean
-          buffer_type?: string
-          buffer_value?: number
           cancellation_apply_after_arrival_only?: boolean
           cancellation_fee_pence?: number
           cancellation_grace_period_minutes?: number
@@ -6272,6 +6257,50 @@ export type Database = {
           },
         ]
       }
+      service_area_preauth_settings: {
+        Row: {
+          buffer_type: string
+          buffer_value: number
+          created_at: string
+          enable_preauth_buffer: boolean
+          id: string
+          max_hold_pence: number | null
+          min_hold_pence: number | null
+          service_area_id: string
+          updated_at: string
+        }
+        Insert: {
+          buffer_type?: string
+          buffer_value?: number
+          created_at?: string
+          enable_preauth_buffer?: boolean
+          id?: string
+          max_hold_pence?: number | null
+          min_hold_pence?: number | null
+          service_area_id: string
+          updated_at?: string
+        }
+        Update: {
+          buffer_type?: string
+          buffer_value?: number
+          created_at?: string
+          enable_preauth_buffer?: boolean
+          id?: string
+          max_hold_pence?: number | null
+          min_hold_pence?: number | null
+          service_area_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_area_preauth_settings_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: true
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       service_area_sequences: {
         Row: {
           created_at: string
@@ -7629,7 +7658,6 @@ export type Database = {
           base_fare_pence: number | null
           booking_source: string | null
           broadcast_started_at: string | null
-          buffer_amount_pence: number
           cancel_reason: string | null
           cancellation_fee_pence: number | null
           cancellation_grace_expires_at: string | null
@@ -7727,6 +7755,7 @@ export type Database = {
           pickup_zone_id: string | null
           platform_commission_amount: number | null
           pre_assigned_driver_id: string | null
+          preauth_buffer_pence: number
           pricing_mode: string | null
           pricing_version: string | null
           qr_session_id: string | null
@@ -7781,7 +7810,6 @@ export type Database = {
           base_fare_pence?: number | null
           booking_source?: string | null
           broadcast_started_at?: string | null
-          buffer_amount_pence?: number
           cancel_reason?: string | null
           cancellation_fee_pence?: number | null
           cancellation_grace_expires_at?: string | null
@@ -7879,6 +7907,7 @@ export type Database = {
           pickup_zone_id?: string | null
           platform_commission_amount?: number | null
           pre_assigned_driver_id?: string | null
+          preauth_buffer_pence?: number
           pricing_mode?: string | null
           pricing_version?: string | null
           qr_session_id?: string | null
@@ -7933,7 +7962,6 @@ export type Database = {
           base_fare_pence?: number | null
           booking_source?: string | null
           broadcast_started_at?: string | null
-          buffer_amount_pence?: number
           cancel_reason?: string | null
           cancellation_fee_pence?: number | null
           cancellation_grace_expires_at?: string | null
@@ -8031,6 +8059,7 @@ export type Database = {
           pickup_zone_id?: string | null
           platform_commission_amount?: number | null
           pre_assigned_driver_id?: string | null
+          preauth_buffer_pence?: number
           pricing_mode?: string | null
           pricing_version?: string | null
           qr_session_id?: string | null
