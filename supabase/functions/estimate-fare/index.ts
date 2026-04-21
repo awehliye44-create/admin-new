@@ -228,7 +228,7 @@ Deno.serve(async (req) => {
         const meta = vtMetaMap.get(vtId);
         if (!settings || !meta) continue;
 
-        const { breakdown, pricingSource, zoneRouteQuote, zoneDebug } = await quoteForVehicle(vtId, settings);
+        const { breakdown, pricingSource, zoneRouteQuote, zoneDebug, bufferAmountPence, baseQuotedPence, finalQuotedPence } = await quoteForVehicle(vtId, settings);
         const fareLocked = settings.pricing_mode === "fixed" || pricingSource === "zone_route";
 
         vehicles.push({
@@ -243,7 +243,14 @@ Deno.serve(async (req) => {
           pricingMode: pricingSource === "zone_route" ? "fixed" : settings.pricing_mode,
           pricingSource,
           currencyCode: regionCurrency,
-          quotedFarePence: breakdown.quoted_fare_pence,
+          // quotedFarePence = what the customer pays = base + buffer (no discount yet)
+          quotedFarePence: finalQuotedPence,
+          // Spec API contract:
+          baseFarePence: baseQuotedPence,
+          bufferAmountPence,
+          discountAmountPence: 0,
+          finalTotalPence: finalQuotedPence,
+          bufferShowToCustomer: !!bufferConfig?.show_to_customer,
           fareEngineConfigId: settings.id,
           fareLocked,
           fareBreakdown: {
@@ -254,6 +261,10 @@ Deno.serve(async (req) => {
             subtotalPence: breakdown.subtotal_pence,
             minimumApplied: breakdown.minimum_applied,
             zoneRoute: zoneRouteQuote,
+            // buffer added AFTER fare calc, BEFORE discount; never mixed into base
+            preBufferQuotedPence: baseQuotedPence,
+            bufferAmountPence,
+            postBufferQuotedPence: finalQuotedPence,
           },
           zoneDebug,
           fareSnapshotJson: {
@@ -263,6 +274,8 @@ Deno.serve(async (req) => {
             zone_route_pricing_row_id: zoneDebug.route_pricing_row_id,
             zone_route_source: zoneDebug.route_pricing_source,
             currency_code: regionCurrency,
+            buffer_amount_pence: bufferAmountPence,
+            buffer_config: bufferConfig,
             snapshot_at: new Date().toISOString(),
           },
           freeWaitingMinutes: settings.free_waiting_minutes,
@@ -325,7 +338,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { breakdown, pricingSource, zoneRouteQuote, zoneDebug } = await quoteForVehicle(vehicle_type_id, settings);
+    const { breakdown, pricingSource, zoneRouteQuote, zoneDebug, bufferAmountPence, baseQuotedPence, finalQuotedPence } = await quoteForVehicle(vehicle_type_id, settings);
     const fareLocked = settings.pricing_mode === "fixed" || pricingSource === "zone_route";
 
     return new Response(
@@ -333,7 +346,13 @@ Deno.serve(async (req) => {
         pricingMode: pricingSource === "zone_route" ? "fixed" : settings.pricing_mode,
         pricingSource,
         currencyCode: regionCurrency,
-        quotedFarePence: breakdown.quoted_fare_pence,
+        quotedFarePence: finalQuotedPence,
+        // Spec API contract: explicit base / buffer / discount / final_total
+        baseFarePence: baseQuotedPence,
+        bufferAmountPence,
+        discountAmountPence: 0,
+        finalTotalPence: finalQuotedPence,
+        bufferShowToCustomer: !!bufferConfig?.show_to_customer,
         estimatedDistanceKm: estimated_distance_km,
         estimatedDurationMin: estimated_duration_min,
         vehicleTypeId: vehicle_type_id,
@@ -347,6 +366,8 @@ Deno.serve(async (req) => {
           zone_route_pricing_row_id: zoneDebug.route_pricing_row_id,
           zone_route_source: zoneDebug.route_pricing_source,
           currency_code: regionCurrency,
+          buffer_amount_pence: bufferAmountPence,
+          buffer_config: bufferConfig,
           snapshot_at: new Date().toISOString(),
         },
         fareBreakdown: {
@@ -357,6 +378,9 @@ Deno.serve(async (req) => {
           subtotalPence: breakdown.subtotal_pence,
           minimumApplied: breakdown.minimum_applied,
           zoneRoute: zoneRouteQuote,
+          preBufferQuotedPence: baseQuotedPence,
+          bufferAmountPence,
+          postBufferQuotedPence: finalQuotedPence,
         },
         freeWaitingMinutes: settings.free_waiting_minutes,
         waitingPerMinutePence: settings.waiting_per_minute_pence,
