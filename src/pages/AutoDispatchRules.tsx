@@ -664,7 +664,7 @@ export default function AutoDispatchRules() {
                     <Input type="number" min="500" max="10000" step="100" value={settings.stackedSearchRadiusMeters}
                       onChange={(e) => updateSetting('stackedSearchRadiusMeters', parseInt(e.target.value) || 2000)}
                       disabled={isLoading || !settings.stackedRidesEnabled} />
-                    <p className="text-xs text-muted-foreground">Search radius for finding stackable rides ({(settings.stackedSearchRadiusMeters / 1000).toFixed(1)} km)</p>
+                    <p className="text-xs text-muted-foreground">Search radius for finding stackable rides ({fromKm(settings.stackedSearchRadiusMeters / 1000).toFixed(2)} {unitShort})</p>
                   </div>
                   <div className="space-y-2">
                     <Label>Offer Window (minutes)</Label>
