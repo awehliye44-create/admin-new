@@ -540,7 +540,14 @@ export default function Drivers() {
       if (error) throw error;
 
       setDriverServiceAreas(data || []);
-      setSelectedServiceAreas((data || []).map(d => d.service_area_id));
+      setSelectedServiceAreas(
+        Array.from(
+          new Set([
+            ...(driver.service_area_id ? [driver.service_area_id] : []),
+            ...(data || []).map(d => d.service_area_id),
+          ]),
+        ),
+      );
     } catch (err) {
       console.error('Error fetching driver service areas:', err);
       toast.error('Failed to load service areas');
@@ -564,9 +571,24 @@ export default function Drivers() {
     setIsSavingServiceAreas(true);
     try {
       // Get current assignments
-      const currentIds = driverServiceAreas.map(d => d.service_area_id);
+      const currentIds = Array.from(
+        new Set([
+          ...(selectedDriver.service_area_id ? [selectedDriver.service_area_id] : []),
+          ...driverServiceAreas.map(d => d.service_area_id),
+        ]),
+      );
       const toAdd = selectedServiceAreas.filter(id => !currentIds.includes(id));
       const toRemove = currentIds.filter(id => !selectedServiceAreas.includes(id));
+      const nextPrimaryServiceAreaId = selectedDriver.service_area_id && selectedServiceAreas.includes(selectedDriver.service_area_id)
+        ? selectedDriver.service_area_id
+        : selectedServiceAreas[0] ?? null;
+
+      const { error: primaryUpdateError } = await supabase
+        .from('drivers')
+        .update({ service_area_id: nextPrimaryServiceAreaId })
+        .eq('id', selectedDriver.id);
+
+      if (primaryUpdateError) throw primaryUpdateError;
 
       // Remove unselected
       if (toRemove.length > 0) {
@@ -593,6 +615,16 @@ export default function Drivers() {
         if (insertError) throw insertError;
       }
 
+      setDrivers(prev =>
+        prev.map(driver =>
+          driver.id === selectedDriver.id
+            ? { ...driver, service_area_id: nextPrimaryServiceAreaId }
+            : driver,
+        ),
+      );
+      setSelectedDriver(prev => prev ? { ...prev, service_area_id: nextPrimaryServiceAreaId } : prev);
+      setDriverServiceAreasMap(prev => ({ ...prev, [selectedDriver.id]: [...selectedServiceAreas] }));
+
       toast.success('Service areas updated successfully');
       setIsServiceAreasDialogOpen(false);
     } catch (err: any) {
@@ -605,8 +637,19 @@ export default function Drivers() {
 
   // Get service areas for the selected driver's region
   const getFilteredServiceAreas = () => {
-    if (!selectedDriver) return serviceAreas;
-    return serviceAreas.filter(sa => sa.region_id === selectedDriver.region_id);
+    if (!selectedDriver) return activeServiceAreas;
+
+    const assignedIds = new Set([
+      ...(selectedDriver.service_area_id ? [selectedDriver.service_area_id] : []),
+      ...driverServiceAreas.map((assignment) => assignment.service_area_id),
+    ]);
+
+    const regionActiveAreas = activeServiceAreas.filter(sa => sa.region_id === selectedDriver.region_id);
+    const hiddenAssignedAreas = serviceAreas.filter(
+      (area) => assignedIds.has(area.id) && !regionActiveAreas.some((visibleArea) => visibleArea.id === area.id),
+    );
+
+    return [...hiddenAssignedAreas, ...regionActiveAreas];
   };
 
   return (
