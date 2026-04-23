@@ -238,7 +238,8 @@ const mapSettingsToDb = (settings: DispatchSettings, serviceAreaId: string | nul
 export default function AutoDispatchRules() {
   const [settings, setSettings] = useState<DispatchSettings>(defaultSettings);
   const [serviceAreaId, setServiceAreaId] = useState<string | null>(null);
-  const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
+  const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: true });
+  const { data: regions = [] } = useRegions();
   const [scheduledTab, setScheduledTab] = useState('booking');
   const [stackedTab, setStackedTab] = useState('general');
   const [isSaving, setIsSaving] = useState(false);
@@ -246,22 +247,30 @@ export default function AutoDispatchRules() {
   const [hasChanges, setHasChanges] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
 
-  useEffect(() => {
-    const loadServiceAreas = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('service_areas')
-          .select('id, name')
-          .eq('is_active', true)
-          .order('name');
-        if (error) throw error;
-        setServiceAreas(data || []);
-      } catch (err) {
-        console.error('Error loading service areas:', err);
-      }
-    };
-    loadServiceAreas();
-  }, []);
+  // Resolve active distance unit:
+  // - Per-service-area: use that area's region distance_unit
+  // - Global: use the most common unit across regions, falling back to 'mile'
+  const distanceUnit: 'mile' | 'km' = (() => {
+    if (serviceAreaId) {
+      const sa = serviceAreas.find((a) => a.id === serviceAreaId);
+      const u = sa?.region?.distance_unit;
+      if (u === 'mile' || u === 'km') return u;
+    }
+    // Global: pick the most common region distance_unit, default to mile
+    const counts = regions.reduce<Record<string, number>>((acc, r) => {
+      const u = r.distance_unit || 'mile';
+      acc[u] = (acc[u] || 0) + 1;
+      return acc;
+    }, {});
+    const winner = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
+    return (winner === 'km' ? 'km' : 'mile');
+  })();
+
+  const unitShort = getDistanceUnitShort(distanceUnit);
+  // Convert km (storage) → display unit
+  const fromKm = (km: number) => Number(convertDistance(km, distanceUnit).toFixed(2));
+  // Convert display unit → km (storage)
+  const toKm = (val: number) => Number(convertToKm(val, distanceUnit).toFixed(4));
 
   useEffect(() => {
     const loadDispatchSettings = async () => {
