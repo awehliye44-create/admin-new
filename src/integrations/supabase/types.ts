@@ -1689,6 +1689,72 @@ export type Database = {
           },
         ]
       }
+      dispatch_eligibility_log: {
+        Row: {
+          app_state: string | null
+          approval_status: string | null
+          context: Json | null
+          created_at: string
+          current_trip_id: string | null
+          documents_approved: boolean | null
+          driver_id: string
+          driver_status: string | null
+          has_location: boolean | null
+          has_push_token: boolean | null
+          heartbeat_age_seconds: number | null
+          id: string
+          is_eligible: boolean
+          is_online: boolean | null
+          last_heartbeat_at: string | null
+          platform: string | null
+          presence_status: string | null
+          reject_reason: string | null
+          trip_id: string | null
+        }
+        Insert: {
+          app_state?: string | null
+          approval_status?: string | null
+          context?: Json | null
+          created_at?: string
+          current_trip_id?: string | null
+          documents_approved?: boolean | null
+          driver_id: string
+          driver_status?: string | null
+          has_location?: boolean | null
+          has_push_token?: boolean | null
+          heartbeat_age_seconds?: number | null
+          id?: string
+          is_eligible: boolean
+          is_online?: boolean | null
+          last_heartbeat_at?: string | null
+          platform?: string | null
+          presence_status?: string | null
+          reject_reason?: string | null
+          trip_id?: string | null
+        }
+        Update: {
+          app_state?: string | null
+          approval_status?: string | null
+          context?: Json | null
+          created_at?: string
+          current_trip_id?: string | null
+          documents_approved?: boolean | null
+          driver_id?: string
+          driver_status?: string | null
+          has_location?: boolean | null
+          has_push_token?: boolean | null
+          heartbeat_age_seconds?: number | null
+          id?: string
+          is_eligible?: boolean
+          is_online?: boolean | null
+          last_heartbeat_at?: string | null
+          platform?: string | null
+          presence_status?: string | null
+          reject_reason?: string | null
+          trip_id?: string | null
+        }
+        Relationships: []
+      }
       dispatch_settings: {
         Row: {
           accept_timeout_seconds: number
@@ -9338,6 +9404,15 @@ export type Database = {
         Returns: Json
       }
       dispatch_trip_offers: { Args: { p_trip_id: string }; Returns: undefined }
+      dispatchable_reason: {
+        Args: {
+          p_driver_id: string
+          p_max_heartbeat_age_seconds?: number
+          p_max_location_age_seconds?: number
+          p_require_push_token?: boolean
+        }
+        Returns: string
+      }
       expire_stale_drivers: {
         Args: { p_ttl_seconds?: number }
         Returns: number
@@ -9374,6 +9449,10 @@ export type Database = {
       find_service_area_by_location: {
         Args: { p_lat: number; p_lng: number }
         Returns: string
+      }
+      force_driver_offline: {
+        Args: { p_driver_id: string; p_reason?: string }
+        Returns: undefined
       }
       generate_invoice_number: { Args: never; Returns: string }
       generate_lost_property_case_number: {
@@ -9499,6 +9578,16 @@ export type Database = {
           p_target_type?: string
         }
         Returns: string
+      }
+      log_dispatch_eligibility: {
+        Args: {
+          p_context?: Json
+          p_driver_id: string
+          p_is_eligible: boolean
+          p_reject_reason: string
+          p_trip_id: string
+        }
+        Returns: undefined
       }
       lost_property_admin_unread_count: { Args: never; Returns: number }
       lost_property_expire_chats: { Args: never; Returns: number }
@@ -9645,6 +9734,7 @@ export type Database = {
         Args: { p_completed_trip_id?: string; p_driver_id: string }
         Returns: Json
       }
+      purge_dispatch_eligibility_log: { Args: never; Returns: number }
       reactivate_corporate_account: {
         Args: { p_account_id: string }
         Returns: undefined
