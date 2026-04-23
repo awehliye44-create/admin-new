@@ -602,7 +602,7 @@ export default function AutoDispatchRules() {
               <div className="text-sm text-muted-foreground">
                 <p className="font-medium text-foreground">Dispatch Score Formula:</p>
                 <code className="text-xs block mt-1">
-                  score = category_priority + (waiting_min × waiting_bonus) + fairness_boost − (distance_km × distance_penalty)
+                  score = category_priority + (waiting_min × waiting_bonus) + fairness_boost − (distance_{unitShort} × distance_penalty)
                 </code>
                 <p className="mt-1">Category priority values are configured in the Driver Tiers section below.</p>
                 <p className="mt-2 font-medium text-foreground">Dispatch Execution Flow:</p>
