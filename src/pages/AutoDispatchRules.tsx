@@ -29,6 +29,9 @@ import {
 import { DriverTiersConfig } from '@/components/dispatch/DriverTiersConfig';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { useServiceAreas } from '@/hooks/useServiceAreas';
+import { useRegions } from '@/hooks/useRegions';
+import { convertDistance, convertToKm, getDistanceUnitShort } from '@/lib/regionSettings';
 
 interface DispatchSettings {
   // PostGIS Dispatch Scoring (single source of truth for all dispatch execution)
