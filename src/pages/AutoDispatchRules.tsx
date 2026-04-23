@@ -560,10 +560,14 @@ export default function AutoDispatchRules() {
               <h4 className="text-sm font-semibold mb-3">Scoring Formula Weights</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Distance Penalty (per km)</Label>
-                  <Input type="number" step="0.1" min="0" max="10" value={settings.distancePenaltyPerKm}
-                    onChange={(e) => updateSetting('distancePenaltyPerKm', parseFloat(e.target.value) || 2)} disabled={isLoading} />
-                  <p className="text-xs text-muted-foreground">Score deduction per km from pickup</p>
+                  <Label>Distance Penalty (per {unitShort})</Label>
+                  <Input type="number" step="0.1" min="0" value={Number((distanceUnit === 'mile' ? settings.distancePenaltyPerKm * 1.609344 : settings.distancePenaltyPerKm).toFixed(3))}
+                    onChange={(e) => {
+                      const entered = parseFloat(e.target.value) || 0;
+                      const perKm = distanceUnit === 'mile' ? entered / 1.609344 : entered;
+                      updateSetting('distancePenaltyPerKm', Number(perKm.toFixed(4)));
+                    }} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Score deduction per {unitShort} from pickup</p>
                 </div>
                 <div className="space-y-2">
                   <Label>Waiting Bonus (per minute)</Label>
