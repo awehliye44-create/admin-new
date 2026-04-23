@@ -136,10 +136,7 @@ const defaultSettings: DispatchSettings = {
   driverFareDisplay: 'smart_display',
 };
 
-interface ServiceArea {
-  id: string;
-  name: string;
-}
+// ServiceArea type now provided by useServiceAreas hook
 
 const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   searchRadiusStartKm: (data.search_radius_start_km as number) ?? defaultSettings.searchRadiusStartKm,
