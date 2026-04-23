@@ -475,6 +475,7 @@ export default function Services() {
     }
   };
 
+  const handleDelete = async () => {
     if (!selectedArea) return;
 
     setIsSaving(true);
