@@ -262,9 +262,9 @@ export default function Riders() {
       buttonClass: 'bg-green-600 hover:bg-green-700 text-white',
     },
     delete: {
-      title: 'Delete Rider (Soft)',
-      description: `Are you sure you want to soft-delete ${actionTarget ? getFullName(actionTarget) : ''}? They will be permanently blocked. This cannot be undone easily.`,
-      buttonLabel: 'Delete',
+      title: 'Permanently Delete Rider',
+      description: `Permanently delete ${actionTarget ? getFullName(actionTarget) : ''}? This removes their profile and — if they have no other roles (driver/admin) — also deletes their login account so they cannot sign in again. They would need to sign up as a new user. This cannot be undone.`,
+      buttonLabel: 'Delete Permanently',
       buttonClass: 'bg-destructive hover:bg-destructive/90',
     },
   };
