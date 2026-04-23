@@ -164,6 +164,20 @@ export default function Services() {
   const [driverCounts, setDriverCounts] = useState<Record<string, number>>({});
   const [pricingStatus, setPricingStatus] = useState<Record<string, PricingStatus>>({});
 
+  // Assigned-drivers management dialog
+  const [isDriversDialogOpen, setIsDriversDialogOpen] = useState(false);
+  const [driversDialogArea, setDriversDialogArea] = useState<ServiceArea | null>(null);
+  const [assignedDrivers, setAssignedDrivers] = useState<Array<{
+    id: string;
+    name: string;
+    code: string | null;
+    phone: string | null;
+    isPrimary: boolean;
+    isMulti: boolean;
+  }>>([]);
+  const [isLoadingAssigned, setIsLoadingAssigned] = useState(false);
+  const [removingDriverId, setRemovingDriverId] = useState<string | null>(null);
+
   const resetFormData = () => {
     setFormData({
       name: '',
@@ -359,6 +373,105 @@ export default function Services() {
       toast.error(err.message || 'Failed to update service area');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // ===== Assigned drivers management =====
+  const openDriversDialog = async (area: ServiceArea) => {
+    setDriversDialogArea(area);
+    setIsDriversDialogOpen(true);
+    setIsLoadingAssigned(true);
+    setAssignedDrivers([]);
+    try {
+      const [primaryRes, multiRes] = await Promise.all([
+        supabase
+          .from('drivers')
+          .select('id, first_name, last_name, driver_code, phone')
+          .eq('service_area_id', area.id),
+        supabase
+          .from('driver_service_areas')
+          .select('driver_id, drivers:driver_id (id, first_name, last_name, driver_code, phone)')
+          .eq('service_area_id', area.id),
+      ]);
+
+      if (primaryRes.error) throw primaryRes.error;
+      if (multiRes.error) throw multiRes.error;
+
+      const primaryIds = new Set((primaryRes.data || []).map((d: any) => d.id));
+      const multiIds = new Set((multiRes.data || []).map((r: any) => r.driver_id));
+      const map: Record<string, any> = {};
+
+      (primaryRes.data || []).forEach((d: any) => {
+        map[d.id] = {
+          id: d.id,
+          name: `${d.first_name || ''} ${d.last_name || ''}`.trim() || 'Unnamed driver',
+          code: d.driver_code,
+          phone: d.phone,
+          isPrimary: true,
+          isMulti: multiIds.has(d.id),
+        };
+      });
+      (multiRes.data || []).forEach((row: any) => {
+        const d = row.drivers;
+        if (!d) return;
+        if (map[d.id]) {
+          map[d.id].isMulti = true;
+        } else {
+          map[d.id] = {
+            id: d.id,
+            name: `${d.first_name || ''} ${d.last_name || ''}`.trim() || 'Unnamed driver',
+            code: d.driver_code,
+            phone: d.phone,
+            isPrimary: primaryIds.has(d.id),
+            isMulti: true,
+          };
+        }
+      });
+
+      setAssignedDrivers(Object.values(map).sort((a: any, b: any) => a.name.localeCompare(b.name)) as any);
+    } catch (err: any) {
+      console.error('Error loading assigned drivers:', err);
+      toast.error(err.message || 'Failed to load assigned drivers');
+    } finally {
+      setIsLoadingAssigned(false);
+    }
+  };
+
+  const handleRemoveDriverFromArea = async (driverId: string) => {
+    if (!driversDialogArea) return;
+    const area = driversDialogArea;
+    setRemovingDriverId(driverId);
+    try {
+      // 1) Remove the multi-area join row (if any)
+      const { error: deleteErr } = await supabase
+        .from('driver_service_areas')
+        .delete()
+        .eq('driver_id', driverId)
+        .eq('service_area_id', area.id);
+      if (deleteErr) throw deleteErr;
+
+      // 2) Clear primary assignment if it points to this area
+      const driver = assignedDrivers.find(d => d.id === driverId);
+      if (driver?.isPrimary) {
+        const { error: updateErr } = await supabase
+          .from('drivers')
+          .update({ service_area_id: null })
+          .eq('id', driverId)
+          .eq('service_area_id', area.id);
+        if (updateErr) throw updateErr;
+      }
+
+      toast.success('Driver removed from service area');
+      setAssignedDrivers(prev => prev.filter(d => d.id !== driverId));
+      setDriverCounts(prev => ({
+        ...prev,
+        [area.id]: Math.max(0, (prev[area.id] || 1) - 1),
+      }));
+    } catch (err: any) {
+      console.error('Error removing driver from area:', err);
+      toast.error(err.message || 'Failed to remove driver');
+    } finally {
+      setRemovingDriverId(null);
     }
   };
 
@@ -680,10 +793,16 @@ export default function Services() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2 gap-1 hover:bg-muted"
+                          onClick={() => openDriversDialog(area)}
+                          title="Manage assigned drivers"
+                        >
                           <Users className="h-4 w-4 text-muted-foreground" />
                           <span>{driverCounts[area.id] || 0}</span>
-                        </div>
+                        </Button>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
@@ -1156,7 +1275,99 @@ export default function Services() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
+      {/* Manage Assigned Drivers Dialog */}
+      <Dialog open={isDriversDialogOpen} onOpenChange={setIsDriversDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Drivers assigned to {driversDialogArea?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Remove a driver from this service area. Drivers stay in the system — only this assignment is cleared.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-2">
+            {isLoadingAssigned ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : assignedDrivers.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p>No drivers assigned to this service area.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {assignedDrivers.map(driver => (
+                  <div
+                    key={driver.id}
+                    className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/40 transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                        <Users className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-medium truncate">{driver.name}</p>
+                          {driver.code && (
+                            <Badge variant="outline" className="text-[10px]">{driver.code}</Badge>
+                          )}
+                          {driver.isPrimary && (
+                            <Badge variant="secondary" className="text-[10px]">Primary area</Badge>
+                          )}
+                          {driver.isMulti && (
+                            <Badge variant="outline" className="text-[10px]">Multi-area</Badge>
+                          )}
+                        </div>
+                        {driver.phone && (
+                          <p className="text-xs text-muted-foreground truncate">{driver.phone}</p>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-destructive hover:bg-destructive/10 hover:text-destructive shrink-0"
+                      disabled={removingDriverId === driver.id}
+                      onClick={() => handleRemoveDriverFromArea(driver.id)}
+                    >
+                      {removingDriverId === driver.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <>
+                          <XCircle className="h-4 w-4 mr-1" />
+                          Remove
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDriversDialogOpen(false)}>
+              Close
+            </Button>
+            {driversDialogArea && (
+              <Button
+                onClick={() => {
+                  setIsDriversDialogOpen(false);
+                  navigate(`/drivers?service_area=${driversDialogArea.id}`);
+                }}
+              >
+                Open Drivers page
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
