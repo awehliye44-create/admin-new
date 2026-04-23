@@ -793,10 +793,16 @@ export default function Services() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2 gap-1 hover:bg-muted"
+                          onClick={() => openDriversDialog(area)}
+                          title="Manage assigned drivers"
+                        >
                           <Users className="h-4 w-4 text-muted-foreground" />
                           <span>{driverCounts[area.id] || 0}</span>
-                        </div>
+                        </Button>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
