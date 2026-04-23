@@ -1275,7 +1275,99 @@ export default function Services() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
+      {/* Manage Assigned Drivers Dialog */}
+      <Dialog open={isDriversDialogOpen} onOpenChange={setIsDriversDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Drivers assigned to {driversDialogArea?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Remove a driver from this service area. Drivers stay in the system — only this assignment is cleared.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-2">
+            {isLoadingAssigned ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : assignedDrivers.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p>No drivers assigned to this service area.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {assignedDrivers.map(driver => (
+                  <div
+                    key={driver.id}
+                    className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/40 transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                        <Users className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-medium truncate">{driver.name}</p>
+                          {driver.code && (
+                            <Badge variant="outline" className="text-[10px]">{driver.code}</Badge>
+                          )}
+                          {driver.isPrimary && (
+                            <Badge variant="secondary" className="text-[10px]">Primary area</Badge>
+                          )}
+                          {driver.isMulti && (
+                            <Badge variant="outline" className="text-[10px]">Multi-area</Badge>
+                          )}
+                        </div>
+                        {driver.phone && (
+                          <p className="text-xs text-muted-foreground truncate">{driver.phone}</p>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-destructive hover:bg-destructive/10 hover:text-destructive shrink-0"
+                      disabled={removingDriverId === driver.id}
+                      onClick={() => handleRemoveDriverFromArea(driver.id)}
+                    >
+                      {removingDriverId === driver.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <>
+                          <XCircle className="h-4 w-4 mr-1" />
+                          Remove
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDriversDialogOpen(false)}>
+              Close
+            </Button>
+            {driversDialogArea && (
+              <Button
+                onClick={() => {
+                  setIsDriversDialogOpen(false);
+                  navigate(`/drivers?service_area=${driversDialogArea.id}`);
+                }}
+              >
+                Open Drivers page
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
