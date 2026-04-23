@@ -693,9 +693,9 @@ export default function AutoDispatchRules() {
               <TabsContent value="matching" className="space-y-6 pt-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label>Minimum Trip Distance (km)</Label>
-                    <Input type="number" step="0.5" min="0" max="50" value={settings.stackedMinTripDistanceKm}
-                      onChange={(e) => updateSetting('stackedMinTripDistanceKm', parseFloat(e.target.value) || 0)}
+                    <Label>Minimum Trip Distance ({unitShort})</Label>
+                    <Input type="number" step="0.5" min="0" value={fromKm(settings.stackedMinTripDistanceKm)}
+                      onChange={(e) => updateSetting('stackedMinTripDistanceKm', toKm(parseFloat(e.target.value) || 0))}
                       disabled={isLoading || !settings.stackedRidesEnabled} />
                     <p className="text-xs text-muted-foreground">Minimum trip distance to qualify for stacking</p>
                   </div>
