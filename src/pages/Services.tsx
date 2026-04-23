@@ -376,7 +376,105 @@ export default function Services() {
     }
   };
 
-  const handleDelete = async () => {
+  // ===== Assigned drivers management =====
+  const openDriversDialog = async (area: ServiceArea) => {
+    setDriversDialogArea(area);
+    setIsDriversDialogOpen(true);
+    setIsLoadingAssigned(true);
+    setAssignedDrivers([]);
+    try {
+      const [primaryRes, multiRes] = await Promise.all([
+        supabase
+          .from('drivers')
+          .select('id, first_name, last_name, driver_code, phone')
+          .eq('service_area_id', area.id),
+        supabase
+          .from('driver_service_areas')
+          .select('driver_id, drivers:driver_id (id, first_name, last_name, driver_code, phone)')
+          .eq('service_area_id', area.id),
+      ]);
+
+      if (primaryRes.error) throw primaryRes.error;
+      if (multiRes.error) throw multiRes.error;
+
+      const primaryIds = new Set((primaryRes.data || []).map((d: any) => d.id));
+      const multiIds = new Set((multiRes.data || []).map((r: any) => r.driver_id));
+      const map: Record<string, any> = {};
+
+      (primaryRes.data || []).forEach((d: any) => {
+        map[d.id] = {
+          id: d.id,
+          name: `${d.first_name || ''} ${d.last_name || ''}`.trim() || 'Unnamed driver',
+          code: d.driver_code,
+          phone: d.phone,
+          isPrimary: true,
+          isMulti: multiIds.has(d.id),
+        };
+      });
+      (multiRes.data || []).forEach((row: any) => {
+        const d = row.drivers;
+        if (!d) return;
+        if (map[d.id]) {
+          map[d.id].isMulti = true;
+        } else {
+          map[d.id] = {
+            id: d.id,
+            name: `${d.first_name || ''} ${d.last_name || ''}`.trim() || 'Unnamed driver',
+            code: d.driver_code,
+            phone: d.phone,
+            isPrimary: primaryIds.has(d.id),
+            isMulti: true,
+          };
+        }
+      });
+
+      setAssignedDrivers(Object.values(map).sort((a: any, b: any) => a.name.localeCompare(b.name)) as any);
+    } catch (err: any) {
+      console.error('Error loading assigned drivers:', err);
+      toast.error(err.message || 'Failed to load assigned drivers');
+    } finally {
+      setIsLoadingAssigned(false);
+    }
+  };
+
+  const handleRemoveDriverFromArea = async (driverId: string) => {
+    if (!driversDialogArea) return;
+    const area = driversDialogArea;
+    setRemovingDriverId(driverId);
+    try {
+      // 1) Remove the multi-area join row (if any)
+      const { error: deleteErr } = await supabase
+        .from('driver_service_areas')
+        .delete()
+        .eq('driver_id', driverId)
+        .eq('service_area_id', area.id);
+      if (deleteErr) throw deleteErr;
+
+      // 2) Clear primary assignment if it points to this area
+      const driver = assignedDrivers.find(d => d.id === driverId);
+      if (driver?.isPrimary) {
+        const { error: updateErr } = await supabase
+          .from('drivers')
+          .update({ service_area_id: null })
+          .eq('id', driverId)
+          .eq('service_area_id', area.id);
+        if (updateErr) throw updateErr;
+      }
+
+      toast.success('Driver removed from service area');
+      setAssignedDrivers(prev => prev.filter(d => d.id !== driverId));
+      setDriverCounts(prev => ({
+        ...prev,
+        [area.id]: Math.max(0, (prev[area.id] || 1) - 1),
+      }));
+    } catch (err: any) {
+      console.error('Error removing driver from area:', err);
+      toast.error(err.message || 'Failed to remove driver');
+    } finally {
+      setRemovingDriverId(null);
+    }
+  };
+
     if (!selectedArea) return;
 
     setIsSaving(true);
