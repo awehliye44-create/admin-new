@@ -90,6 +90,7 @@ interface Driver {
   profile_photo_url: string | null;
   created_at: string;
   region_id: string;
+  service_area_id?: string | null;
   is_pet_friendly?: boolean;
   documents_approved?: boolean;
   category_id?: string | null;
@@ -130,7 +131,7 @@ export default function Drivers() {
   usePageLoadTelemetry('DriversPage');
   // Shared cached reference data — no duplicate fetches
   const { data: regionsList = [], isLoading: regionsLoading } = useRegions();
-  const { data: serviceAreasList = [], isLoading: serviceAreasLoading } = useServiceAreas({ activeOnly: true });
+  const { data: serviceAreasList = [], isLoading: serviceAreasLoading } = useServiceAreas();
 
   // Build regions lookup map
   const regions: Record<string, { id: string; name: string }> = {};
@@ -170,6 +171,7 @@ export default function Drivers() {
   // Service areas state (use shared data for the list, local state for driver assignments)
   const [isServiceAreasDialogOpen, setIsServiceAreasDialogOpen] = useState(false);
   const serviceAreas = serviceAreasList;
+  const activeServiceAreas = serviceAreasList.filter((area) => area.is_active);
   const [driverServiceAreas, setDriverServiceAreas] = useState<DriverServiceArea[]>([]);
   const [selectedServiceAreas, setSelectedServiceAreas] = useState<string[]>([]);
   const [isSavingServiceAreas, setIsSavingServiceAreas] = useState(false);
@@ -229,10 +231,19 @@ export default function Drivers() {
         // Build driver -> service areas map
         if (driverServiceAreasRes.data) {
           const dsaMap: Record<string, string[]> = {};
-          driverServiceAreasRes.data.forEach(dsa => {
-            if (!dsaMap[dsa.driver_id]) dsaMap[dsa.driver_id] = [];
-            dsaMap[dsa.driver_id].push(dsa.service_area_id);
+
+          data.forEach((driver) => {
+            if (driver.service_area_id) {
+              dsaMap[driver.id] = [driver.service_area_id];
+            }
           });
+
+          driverServiceAreasRes.data.forEach(dsa => {
+            const existing = new Set(dsaMap[dsa.driver_id] || []);
+            existing.add(dsa.service_area_id);
+            dsaMap[dsa.driver_id] = Array.from(existing);
+          });
+
           setDriverServiceAreasMap(dsaMap);
         }
       }
@@ -370,8 +381,8 @@ export default function Drivers() {
 
   // Get service areas for selected region filter
   const filteredServiceAreasForFilter = selectedRegionFilter === 'all'
-    ? serviceAreas
-    : serviceAreas.filter(sa => sa.region_id === selectedRegionFilter);
+    ? activeServiceAreas
+    : activeServiceAreas.filter(sa => sa.region_id === selectedRegionFilter);
 
   // Reset service area filter when region changes
   useEffect(() => {
