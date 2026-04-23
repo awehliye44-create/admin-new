@@ -164,6 +164,20 @@ export default function Services() {
   const [driverCounts, setDriverCounts] = useState<Record<string, number>>({});
   const [pricingStatus, setPricingStatus] = useState<Record<string, PricingStatus>>({});
 
+  // Assigned-drivers management dialog
+  const [isDriversDialogOpen, setIsDriversDialogOpen] = useState(false);
+  const [driversDialogArea, setDriversDialogArea] = useState<ServiceArea | null>(null);
+  const [assignedDrivers, setAssignedDrivers] = useState<Array<{
+    id: string;
+    name: string;
+    code: string | null;
+    phone: string | null;
+    isPrimary: boolean;
+    isMulti: boolean;
+  }>>([]);
+  const [isLoadingAssigned, setIsLoadingAssigned] = useState(false);
+  const [removingDriverId, setRemovingDriverId] = useState<string | null>(null);
+
   const resetFormData = () => {
     setFormData({
       name: '',
