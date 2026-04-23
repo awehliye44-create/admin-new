@@ -2030,7 +2030,7 @@ export type Database = {
           {
             foreignKeyName: "dispatch_settings_service_area_id_fkey"
             columns: ["service_area_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "service_areas"
             referencedColumns: ["id"]
           },
@@ -3350,11 +3350,16 @@ export type Database = {
           peak_hour_multiplier: number
           per_km_rate_pence: number
           per_min_rate_pence: number
+          pickup_paid_waiting_enabled: boolean
+          pickup_waiting_max_minutes: number | null
           pricing_mode: string
           recalculate_on_dropoff_changed: boolean
           recalculate_on_stop_added: boolean
           recalculate_on_waiting: boolean
           service_area_id: string
+          stop_waiting_grace_period_minutes: number
+          stop_waiting_max_minutes: number | null
+          stop_waiting_rate_pence_per_minute: number
           surge_multiplier_default: number
           traffic_multiplier: number
           updated_at: string
@@ -3385,11 +3390,16 @@ export type Database = {
           peak_hour_multiplier?: number
           per_km_rate_pence?: number
           per_min_rate_pence?: number
+          pickup_paid_waiting_enabled?: boolean
+          pickup_waiting_max_minutes?: number | null
           pricing_mode?: string
           recalculate_on_dropoff_changed?: boolean
           recalculate_on_stop_added?: boolean
           recalculate_on_waiting?: boolean
           service_area_id: string
+          stop_waiting_grace_period_minutes?: number
+          stop_waiting_max_minutes?: number | null
+          stop_waiting_rate_pence_per_minute?: number
           surge_multiplier_default?: number
           traffic_multiplier?: number
           updated_at?: string
@@ -3420,11 +3430,16 @@ export type Database = {
           peak_hour_multiplier?: number
           per_km_rate_pence?: number
           per_min_rate_pence?: number
+          pickup_paid_waiting_enabled?: boolean
+          pickup_waiting_max_minutes?: number | null
           pricing_mode?: string
           recalculate_on_dropoff_changed?: boolean
           recalculate_on_stop_added?: boolean
           recalculate_on_waiting?: boolean
           service_area_id?: string
+          stop_waiting_grace_period_minutes?: number
+          stop_waiting_max_minutes?: number | null
+          stop_waiting_rate_pence_per_minute?: number
           surge_multiplier_default?: number
           traffic_multiplier?: number
           updated_at?: string
@@ -9374,6 +9389,10 @@ export type Database = {
       check_driver_documents_approved: {
         Args: { p_driver_id: string }
         Returns: boolean
+      }
+      check_identity_exists: {
+        Args: { p_email?: string; p_phone?: string }
+        Returns: Json
       }
       check_schedule_overlap: {
         Args: { p_driver_id: string; p_trip_id: string }
