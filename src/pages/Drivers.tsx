@@ -278,6 +278,34 @@ export default function Drivers() {
   const updateDriverOperationalStatus = async (driverId: string, newStatus: string) => {
     setIsUpdating(driverId);
     try {
+      // Hard delete: route through admin-delete-account edge function so the
+      // Supabase Auth user is removed when no other profiles remain.
+      if (newStatus === 'deleted') {
+        const { data, error } = await supabase.functions.invoke('admin-delete-account', {
+          body: { target: 'driver', profile_id: driverId },
+        });
+
+        if (error) {
+          console.error('Hard delete failed:', error);
+          toast.error(error.message || 'Failed to delete driver');
+          return;
+        }
+
+        const authDeleted = (data as { auth_user_deleted?: boolean } | null)?.auth_user_deleted;
+        toast.success(
+          authDeleted
+            ? 'Driver permanently deleted (auth account removed)'
+            : 'Driver profile deleted (auth account kept — other roles remain)',
+        );
+
+        // Remove the driver from local list (it no longer exists)
+        setDrivers(prev => prev.filter(d => d.id !== driverId));
+        if (selectedDriver?.id === driverId) {
+          setSelectedDriver(null);
+        }
+        return;
+      }
+
       const { error } = await supabase
         .from('drivers')
         .update({ driver_status: newStatus as any })
@@ -294,16 +322,15 @@ export default function Drivers() {
 
       const updates: Partial<Driver> = { driver_status: newStatus };
       if (newStatus !== 'active') updates.is_online = false;
-      if (newStatus === 'deleted') updates.deleted_at = new Date().toISOString();
       if (newStatus !== 'deleted') updates.deleted_at = null;
 
-      setDrivers(prev => 
+      setDrivers(prev =>
         prev.map(d => d.id === driverId ? { ...d, ...updates } : d)
       );
 
-      const labels: Record<string, string> = { active: 'enabled', disabled: 'disabled', deleted: 'deleted' };
+      const labels: Record<string, string> = { active: 'enabled', disabled: 'disabled' };
       toast.success(`Driver ${labels[newStatus] || newStatus} successfully`);
-      
+
       if (selectedDriver?.id === driverId) {
         setSelectedDriver(prev => prev ? { ...prev, ...updates } : null);
       }

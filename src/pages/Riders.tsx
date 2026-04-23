@@ -113,11 +113,38 @@ export default function Riders() {
     setIsActing(true);
 
     try {
-      const statusMap: Record<ActionType, string> = {
+      // Hard delete: route through admin-delete-account edge function so the
+      // Supabase Auth user is also removed when no other profiles remain.
+      if (actionType === 'delete') {
+        const { data, error } = await supabase.functions.invoke('admin-delete-account', {
+          body: {
+            target: 'customer',
+            profile_id: actionTarget.id,
+            reason: actionReason || null,
+          },
+        });
+
+        if (error) {
+          console.error('Hard delete failed:', error);
+          toast.error(error.message || 'Failed to delete rider');
+          return;
+        }
+
+        const authDeleted = (data as { auth_user_deleted?: boolean } | null)?.auth_user_deleted;
+        toast.success(
+          authDeleted
+            ? 'Rider permanently deleted (auth account removed)'
+            : 'Rider profile deleted (auth account kept — other roles remain)',
+        );
+        refreshData();
+        return;
+      }
+
+      // Status changes (disable / suspend / enable) — soft state changes only
+      const statusMap: Record<Exclude<ActionType, 'delete'>, string> = {
         disable: 'disabled',
         suspend: 'suspended',
         enable: 'active',
-        delete: 'deleted',
       };
       const newStatus = statusMap[actionType];
 
@@ -135,15 +162,14 @@ export default function Riders() {
         return;
       }
 
-      // Audit log
       await supabase.from('audit_logs').insert({
         event_type: `rider_${actionType}`,
         user_id: actionTarget.user_id,
         details: { rider_id: actionTarget.id, reason: actionReason || null, new_status: newStatus },
       } as any);
 
-      const labels: Record<ActionType, string> = {
-        disable: 'disabled', suspend: 'suspended', enable: 'enabled', delete: 'deleted (soft)',
+      const labels: Record<Exclude<ActionType, 'delete'>, string> = {
+        disable: 'disabled', suspend: 'suspended', enable: 'enabled',
       };
       toast.success(`Rider ${labels[actionType]} successfully`);
       refreshData();
@@ -236,9 +262,9 @@ export default function Riders() {
       buttonClass: 'bg-green-600 hover:bg-green-700 text-white',
     },
     delete: {
-      title: 'Delete Rider (Soft)',
-      description: `Are you sure you want to soft-delete ${actionTarget ? getFullName(actionTarget) : ''}? They will be permanently blocked. This cannot be undone easily.`,
-      buttonLabel: 'Delete',
+      title: 'Permanently Delete Rider',
+      description: `Permanently delete ${actionTarget ? getFullName(actionTarget) : ''}? This removes their profile and — if they have no other roles (driver/admin) — also deletes their login account so they cannot sign in again. They would need to sign up as a new user. This cannot be undone.`,
+      buttonLabel: 'Delete Permanently',
       buttonClass: 'bg-destructive hover:bg-destructive/90',
     },
   };

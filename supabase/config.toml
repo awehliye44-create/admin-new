@@ -131,3 +131,6 @@ verify_jwt = false
 
 [functions.get-preset-offers]
 verify_jwt = false
+
+[functions.admin-delete-account]
+verify_jwt = false
