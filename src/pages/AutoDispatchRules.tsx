@@ -29,6 +29,9 @@ import {
 import { DriverTiersConfig } from '@/components/dispatch/DriverTiersConfig';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { useServiceAreas } from '@/hooks/useServiceAreas';
+import { useRegions } from '@/hooks/useRegions';
+import { convertDistance, convertToKm, getDistanceUnitShort } from '@/lib/regionSettings';
 
 interface DispatchSettings {
   // PostGIS Dispatch Scoring (single source of truth for all dispatch execution)
@@ -133,10 +136,7 @@ const defaultSettings: DispatchSettings = {
   driverFareDisplay: 'smart_display',
 };
 
-interface ServiceArea {
-  id: string;
-  name: string;
-}
+// ServiceArea type now provided by useServiceAreas hook
 
 const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   searchRadiusStartKm: (data.search_radius_start_km as number) ?? defaultSettings.searchRadiusStartKm,
@@ -238,7 +238,8 @@ const mapSettingsToDb = (settings: DispatchSettings, serviceAreaId: string | nul
 export default function AutoDispatchRules() {
   const [settings, setSettings] = useState<DispatchSettings>(defaultSettings);
   const [serviceAreaId, setServiceAreaId] = useState<string | null>(null);
-  const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
+  const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: true });
+  const { data: regions = [] } = useRegions();
   const [scheduledTab, setScheduledTab] = useState('booking');
   const [stackedTab, setStackedTab] = useState('general');
   const [isSaving, setIsSaving] = useState(false);
@@ -246,22 +247,30 @@ export default function AutoDispatchRules() {
   const [hasChanges, setHasChanges] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
 
-  useEffect(() => {
-    const loadServiceAreas = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('service_areas')
-          .select('id, name')
-          .eq('is_active', true)
-          .order('name');
-        if (error) throw error;
-        setServiceAreas(data || []);
-      } catch (err) {
-        console.error('Error loading service areas:', err);
-      }
-    };
-    loadServiceAreas();
-  }, []);
+  // Resolve active distance unit:
+  // - Per-service-area: use that area's region distance_unit
+  // - Global: use the most common unit across regions, falling back to 'mile'
+  const distanceUnit: 'mile' | 'km' = (() => {
+    if (serviceAreaId) {
+      const sa = serviceAreas.find((a) => a.id === serviceAreaId);
+      const u = sa?.region?.distance_unit;
+      if (u === 'mile' || u === 'km') return u;
+    }
+    // Global: pick the most common region distance_unit, default to mile
+    const counts = regions.reduce<Record<string, number>>((acc, r) => {
+      const u = r.distance_unit || 'mile';
+      acc[u] = (acc[u] || 0) + 1;
+      return acc;
+    }, {});
+    const winner = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
+    return (winner === 'km' ? 'km' : 'mile');
+  })();
+
+  const unitShort = getDistanceUnitShort(distanceUnit);
+  // Convert km (storage) → display unit
+  const fromKm = (km: number) => Number(convertDistance(km, distanceUnit).toFixed(2));
+  // Convert display unit → km (storage)
+  const toKm = (val: number) => Number(convertToKm(val, distanceUnit).toFixed(4));
 
   useEffect(() => {
     const loadDispatchSettings = async () => {
@@ -459,24 +468,24 @@ export default function AutoDispatchRules() {
           <CardContent className="space-y-6">
             {/* Radius Expansion */}
             <div>
-              <h4 className="text-sm font-semibold mb-3">Radius Expansion (km)</h4>
+              <h4 className="text-sm font-semibold mb-3">Radius Expansion ({unitShort})</h4>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label>Start Radius</Label>
-                  <Input type="number" step="0.5" min="0.5" max="20" value={settings.searchRadiusStartKm}
-                    onChange={(e) => updateSetting('searchRadiusStartKm', parseFloat(e.target.value) || 3)} disabled={isLoading} />
+                  <Label>Start Radius ({unitShort})</Label>
+                  <Input type="number" step="0.5" min="0.5" value={fromKm(settings.searchRadiusStartKm)}
+                    onChange={(e) => updateSetting('searchRadiusStartKm', toKm(parseFloat(e.target.value) || fromKm(3)))} disabled={isLoading} />
                   <p className="text-xs text-muted-foreground">Initial search radius</p>
                 </div>
                 <div className="space-y-2">
-                  <Label>Expand Radius</Label>
-                  <Input type="number" step="0.5" min="1" max="30" value={settings.searchRadiusExpandKm}
-                    onChange={(e) => updateSetting('searchRadiusExpandKm', parseFloat(e.target.value) || 5)} disabled={isLoading} />
+                  <Label>Expand Radius ({unitShort})</Label>
+                  <Input type="number" step="0.5" min="1" value={fromKm(settings.searchRadiusExpandKm)}
+                    onChange={(e) => updateSetting('searchRadiusExpandKm', toKm(parseFloat(e.target.value) || fromKm(5)))} disabled={isLoading} />
                   <p className="text-xs text-muted-foreground">2nd expansion step</p>
                 </div>
                 <div className="space-y-2">
-                  <Label>Max Radius</Label>
-                  <Input type="number" step="0.5" min="1" max="50" value={settings.searchRadiusMaxKm}
-                    onChange={(e) => updateSetting('searchRadiusMaxKm', parseFloat(e.target.value) || 8)} disabled={isLoading} />
+                  <Label>Max Radius ({unitShort})</Label>
+                  <Input type="number" step="0.5" min="1" value={fromKm(settings.searchRadiusMaxKm)}
+                    onChange={(e) => updateSetting('searchRadiusMaxKm', toKm(parseFloat(e.target.value) || fromKm(8)))} disabled={isLoading} />
                   <p className="text-xs text-muted-foreground">Final expansion limit</p>
                 </div>
               </div>
@@ -551,10 +560,14 @@ export default function AutoDispatchRules() {
               <h4 className="text-sm font-semibold mb-3">Scoring Formula Weights</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Distance Penalty (per km)</Label>
-                  <Input type="number" step="0.1" min="0" max="10" value={settings.distancePenaltyPerKm}
-                    onChange={(e) => updateSetting('distancePenaltyPerKm', parseFloat(e.target.value) || 2)} disabled={isLoading} />
-                  <p className="text-xs text-muted-foreground">Score deduction per km from pickup</p>
+                  <Label>Distance Penalty (per {unitShort})</Label>
+                  <Input type="number" step="0.1" min="0" value={Number((distanceUnit === 'mile' ? settings.distancePenaltyPerKm * 1.609344 : settings.distancePenaltyPerKm).toFixed(3))}
+                    onChange={(e) => {
+                      const entered = parseFloat(e.target.value) || 0;
+                      const perKm = distanceUnit === 'mile' ? entered / 1.609344 : entered;
+                      updateSetting('distancePenaltyPerKm', Number(perKm.toFixed(4)));
+                    }} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Score deduction per {unitShort} from pickup</p>
                 </div>
                 <div className="space-y-2">
                   <Label>Waiting Bonus (per minute)</Label>
@@ -589,7 +602,7 @@ export default function AutoDispatchRules() {
               <div className="text-sm text-muted-foreground">
                 <p className="font-medium text-foreground">Dispatch Score Formula:</p>
                 <code className="text-xs block mt-1">
-                  score = category_priority + (waiting_min × waiting_bonus) + fairness_boost − (distance_km × distance_penalty)
+                  score = category_priority + (waiting_min × waiting_bonus) + fairness_boost − (distance_{unitShort} × distance_penalty)
                 </code>
                 <p className="mt-1">Category priority values are configured in the Driver Tiers section below.</p>
                 <p className="mt-2 font-medium text-foreground">Dispatch Execution Flow:</p>
@@ -651,7 +664,7 @@ export default function AutoDispatchRules() {
                     <Input type="number" min="500" max="10000" step="100" value={settings.stackedSearchRadiusMeters}
                       onChange={(e) => updateSetting('stackedSearchRadiusMeters', parseInt(e.target.value) || 2000)}
                       disabled={isLoading || !settings.stackedRidesEnabled} />
-                    <p className="text-xs text-muted-foreground">Search radius for finding stackable rides ({(settings.stackedSearchRadiusMeters / 1000).toFixed(1)} km)</p>
+                    <p className="text-xs text-muted-foreground">Search radius for finding stackable rides ({fromKm(settings.stackedSearchRadiusMeters / 1000).toFixed(2)} {unitShort})</p>
                   </div>
                   <div className="space-y-2">
                     <Label>Offer Window (minutes)</Label>
@@ -680,9 +693,9 @@ export default function AutoDispatchRules() {
               <TabsContent value="matching" className="space-y-6 pt-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label>Minimum Trip Distance (km)</Label>
-                    <Input type="number" step="0.5" min="0" max="50" value={settings.stackedMinTripDistanceKm}
-                      onChange={(e) => updateSetting('stackedMinTripDistanceKm', parseFloat(e.target.value) || 0)}
+                    <Label>Minimum Trip Distance ({unitShort})</Label>
+                    <Input type="number" step="0.5" min="0" value={fromKm(settings.stackedMinTripDistanceKm)}
+                      onChange={(e) => updateSetting('stackedMinTripDistanceKm', toKm(parseFloat(e.target.value) || 0))}
                       disabled={isLoading || !settings.stackedRidesEnabled} />
                     <p className="text-xs text-muted-foreground">Minimum trip distance to qualify for stacking</p>
                   </div>
