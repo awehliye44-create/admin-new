@@ -468,24 +468,24 @@ export default function AutoDispatchRules() {
           <CardContent className="space-y-6">
             {/* Radius Expansion */}
             <div>
-              <h4 className="text-sm font-semibold mb-3">Radius Expansion (km)</h4>
+              <h4 className="text-sm font-semibold mb-3">Radius Expansion ({unitShort})</h4>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label>Start Radius</Label>
-                  <Input type="number" step="0.5" min="0.5" max="20" value={settings.searchRadiusStartKm}
-                    onChange={(e) => updateSetting('searchRadiusStartKm', parseFloat(e.target.value) || 3)} disabled={isLoading} />
+                  <Label>Start Radius ({unitShort})</Label>
+                  <Input type="number" step="0.5" min="0.5" value={fromKm(settings.searchRadiusStartKm)}
+                    onChange={(e) => updateSetting('searchRadiusStartKm', toKm(parseFloat(e.target.value) || fromKm(3)))} disabled={isLoading} />
                   <p className="text-xs text-muted-foreground">Initial search radius</p>
                 </div>
                 <div className="space-y-2">
-                  <Label>Expand Radius</Label>
-                  <Input type="number" step="0.5" min="1" max="30" value={settings.searchRadiusExpandKm}
-                    onChange={(e) => updateSetting('searchRadiusExpandKm', parseFloat(e.target.value) || 5)} disabled={isLoading} />
+                  <Label>Expand Radius ({unitShort})</Label>
+                  <Input type="number" step="0.5" min="1" value={fromKm(settings.searchRadiusExpandKm)}
+                    onChange={(e) => updateSetting('searchRadiusExpandKm', toKm(parseFloat(e.target.value) || fromKm(5)))} disabled={isLoading} />
                   <p className="text-xs text-muted-foreground">2nd expansion step</p>
                 </div>
                 <div className="space-y-2">
-                  <Label>Max Radius</Label>
-                  <Input type="number" step="0.5" min="1" max="50" value={settings.searchRadiusMaxKm}
-                    onChange={(e) => updateSetting('searchRadiusMaxKm', parseFloat(e.target.value) || 8)} disabled={isLoading} />
+                  <Label>Max Radius ({unitShort})</Label>
+                  <Input type="number" step="0.5" min="1" value={fromKm(settings.searchRadiusMaxKm)}
+                    onChange={(e) => updateSetting('searchRadiusMaxKm', toKm(parseFloat(e.target.value) || fromKm(8)))} disabled={isLoading} />
                   <p className="text-xs text-muted-foreground">Final expansion limit</p>
                 </div>
               </div>
