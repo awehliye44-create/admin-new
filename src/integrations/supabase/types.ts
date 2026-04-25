@@ -1418,6 +1418,94 @@ export type Database = {
           },
         ]
       }
+      customer_active_devices: {
+        Row: {
+          claimed_at: string
+          device_id: string
+          last_seen_at: string
+          platform: string | null
+          updated_at: string
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          claimed_at?: string
+          device_id: string
+          last_seen_at?: string
+          platform?: string | null
+          updated_at?: string
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          claimed_at?: string
+          device_id?: string
+          last_seen_at?: string
+          platform?: string | null
+          updated_at?: string
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      customer_live_locations: {
+        Row: {
+          accuracy: number | null
+          created_at: string
+          customer_id: string
+          heading: number | null
+          latitude: number
+          longitude: number
+          speed: number | null
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          accuracy?: number | null
+          created_at?: string
+          customer_id: string
+          heading?: number | null
+          latitude: number
+          longitude: number
+          speed?: number | null
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          accuracy?: number | null
+          created_at?: string
+          customer_id?: string
+          heading?: number | null
+          latitude?: number
+          longitude?: number
+          speed?: number | null
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_live_locations_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_live_locations_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_live_locations_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customer_push_tokens: {
         Row: {
           app_type: string
@@ -1603,6 +1691,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      dispatch_audit_log: {
+        Row: {
+          created_at: string
+          details: Json
+          driver_id: string | null
+          event_type: string
+          id: string
+          round: number | null
+          trip_id: string
+        }
+        Insert: {
+          created_at?: string
+          details?: Json
+          driver_id?: string | null
+          event_type: string
+          id?: string
+          round?: number | null
+          trip_id: string
+        }
+        Update: {
+          created_at?: string
+          details?: Json
+          driver_id?: string | null
+          event_type?: string
+          id?: string
+          round?: number | null
+          trip_id?: string
+        }
+        Relationships: []
       }
       dispatch_candidates_log: {
         Row: {
@@ -2174,6 +2292,65 @@ export type Database = {
           },
         ]
       }
+      driver_active_devices: {
+        Row: {
+          created_at: string
+          device_id: string
+          device_label: string | null
+          driver_id: string
+          last_seen_at: string
+          platform: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          device_id: string
+          device_label?: string | null
+          driver_id: string
+          last_seen_at?: string
+          platform: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          device_id?: string
+          device_label?: string | null
+          driver_id?: string
+          last_seen_at?: string
+          platform?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_active_devices_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_active_devices_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_active_devices_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_active_devices_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_categories: {
         Row: {
           category_priority: number
@@ -2230,6 +2407,63 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      driver_demand_zones: {
+        Row: {
+          active: boolean
+          center_lat: number
+          center_lng: number
+          created_at: string
+          demand_level: string
+          id: string
+          name: string
+          radius_meters: number
+          region_id: string | null
+          service_area_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          center_lat: number
+          center_lng: number
+          created_at?: string
+          demand_level?: string
+          id?: string
+          name: string
+          radius_meters?: number
+          region_id?: string | null
+          service_area_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          center_lat?: number
+          center_lng?: number
+          created_at?: string
+          demand_level?: string
+          id?: string
+          name?: string
+          radius_meters?: number
+          region_id?: string | null
+          service_area_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_demand_zones_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_demand_zones_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       driver_inbox_messages: {
         Row: {
@@ -5686,6 +5920,7 @@ export type Database = {
         Row: {
           app_type: string
           created_at: string
+          device_id: string | null
           driver_id: string
           id: string
           platform: string
@@ -5695,6 +5930,7 @@ export type Database = {
         Insert: {
           app_type?: string
           created_at?: string
+          device_id?: string | null
           driver_id: string
           id?: string
           platform: string
@@ -5704,6 +5940,7 @@ export type Database = {
         Update: {
           app_type?: string
           created_at?: string
+          device_id?: string | null
           driver_id?: string
           id?: string
           platform?: string
@@ -9428,6 +9665,18 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
       }
+      claim_active_device: {
+        Args: {
+          p_device_id: string
+          p_device_label?: string
+          p_platform: string
+        }
+        Returns: {
+          driver_id: string
+          is_new_device: boolean
+          previous_device_id: string
+        }[]
+      }
       create_driver_vehicle: {
         Args: {
           p_color: string
@@ -9634,6 +9883,16 @@ export type Database = {
           p_driver_id: string
           p_is_eligible: boolean
           p_reject_reason: string
+          p_trip_id: string
+        }
+        Returns: undefined
+      }
+      log_dispatch_event: {
+        Args: {
+          p_details?: Json
+          p_driver_id?: string
+          p_event_type: string
+          p_round?: number
           p_trip_id: string
         }
         Returns: undefined
@@ -9878,40 +10137,84 @@ export type Database = {
         }
         Returns: undefined
       }
-      upsert_driver_presence: {
-        Args: {
-          p_app_state?: string
-          p_driver_id: string
-          p_heading?: number
-          p_lat?: number
-          p_lng?: number
-          p_platform?: string
-          p_push_token?: string
-          p_speed?: number
-          p_status?: string
-        }
+      upsert_driver_presence:
+        | {
+            Args: {
+              p_app_state?: string
+              p_driver_id: string
+              p_heading?: number
+              p_lat?: number
+              p_lng?: number
+              p_platform?: string
+              p_push_token?: string
+              p_speed?: number
+              p_status?: string
+            }
+            Returns: {
+              app_state: string
+              created_at: string
+              driver_id: string
+              heading: number | null
+              last_heartbeat_at: string
+              last_location_at: string | null
+              last_realtime_seen_at: string | null
+              lat: number | null
+              lng: number | null
+              platform: string | null
+              push_token: string | null
+              speed: number | null
+              status: string
+              updated_at: string
+            }
+            SetofOptions: {
+              from: "*"
+              to: "driver_presence"
+              isOneToOne: true
+              isSetofReturn: false
+            }
+          }
+        | {
+            Args: {
+              p_app_state?: string
+              p_device_id?: string
+              p_driver_id: string
+              p_heading?: number
+              p_lat?: number
+              p_lng?: number
+              p_platform?: string
+              p_push_token?: string
+              p_speed?: number
+              p_status?: string
+            }
+            Returns: {
+              app_state: string
+              created_at: string
+              driver_id: string
+              heading: number | null
+              last_heartbeat_at: string
+              last_location_at: string | null
+              last_realtime_seen_at: string | null
+              lat: number | null
+              lng: number | null
+              platform: string | null
+              push_token: string | null
+              speed: number | null
+              status: string
+              updated_at: string
+            }
+            SetofOptions: {
+              from: "*"
+              to: "driver_presence"
+              isOneToOne: true
+              isSetofReturn: false
+            }
+          }
+      verify_active_device: {
+        Args: { p_device_id: string }
         Returns: {
-          app_state: string
-          created_at: string
-          driver_id: string
-          heading: number | null
-          last_heartbeat_at: string
-          last_location_at: string | null
-          last_realtime_seen_at: string | null
-          lat: number | null
-          lng: number | null
-          platform: string | null
-          push_token: string | null
-          speed: number | null
-          status: string
-          updated_at: string
-        }
-        SetofOptions: {
-          from: "*"
-          to: "driver_presence"
-          isOneToOne: true
-          isSetofReturn: false
-        }
+          active_device_id: string
+          is_active: boolean
+        }[]
       }
     }
     Enums: {

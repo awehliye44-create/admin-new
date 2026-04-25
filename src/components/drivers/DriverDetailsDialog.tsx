@@ -335,21 +335,44 @@ export function DriverDetailsDialog({
 
   const updateDriverApprovalStatus = async (newStatus: string) => {
     if (!driver) return;
-    
+
     setIsUpdating(true);
     try {
-      const { error } = await supabase
+      const { data: updated, error } = await supabase
         .from('drivers')
         .update({ approval_status: newStatus })
-        .eq('id', driver.id);
+        .eq('id', driver.id)
+        .select('approval_status, documents_approved')
+        .single();
 
       if (error) throw error;
-      
+
+      const docsApproved = updated?.documents_approved ?? false;
       onDriverUpdate({ ...driver, approval_status: newStatus });
-      toast.success(`Driver ${newStatus === 'approved' ? 'approved' : newStatus === 'rejected' ? 'rejected' : 'set to pending'} successfully`);
+
+      if (newStatus === 'approved') {
+        if (docsApproved) {
+          toast.success('Driver profile approved', {
+            description: 'Identity and vehicle details approved. Documents are valid — driver is eligible to go online.',
+          });
+        } else {
+          toast.success('Driver profile approved (soft approval)', {
+            description: 'Identity and vehicle details approved. Documents are still pending review — the driver cannot go online until all required documents are approved on the Driver Documents page.',
+          });
+        }
+      } else if (newStatus === 'rejected') {
+        toast.success('Driver rejected', {
+          description: 'Profile marked as rejected. The driver cannot go online.',
+        });
+      } else {
+        toast.success('Driver set to pending', {
+          description: 'Profile moved back to pending review.',
+        });
+      }
     } catch (err) {
       console.error('Error updating driver:', err);
-      toast.error('Failed to update driver status');
+      const message = err instanceof Error ? err.message : 'Failed to update driver status';
+      toast.error('Failed to update driver status', { description: message });
     } finally {
       setIsUpdating(false);
     }
