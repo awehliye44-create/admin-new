@@ -77,6 +77,51 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_payment_audit: {
+        Row: {
+          action: string
+          admin_user_id: string
+          amount_pence_after: number | null
+          amount_pence_before: number | null
+          created_at: string
+          delta_pence: number | null
+          id: string
+          metadata: Json | null
+          reason: string
+          stripe_payment_intent_id: string | null
+          stripe_refund_id: string | null
+          trip_id: string
+        }
+        Insert: {
+          action: string
+          admin_user_id: string
+          amount_pence_after?: number | null
+          amount_pence_before?: number | null
+          created_at?: string
+          delta_pence?: number | null
+          id?: string
+          metadata?: Json | null
+          reason: string
+          stripe_payment_intent_id?: string | null
+          stripe_refund_id?: string | null
+          trip_id: string
+        }
+        Update: {
+          action?: string
+          admin_user_id?: string
+          amount_pence_after?: number | null
+          amount_pence_before?: number | null
+          created_at?: string
+          delta_pence?: number | null
+          id?: string
+          metadata?: Json | null
+          reason?: string
+          stripe_payment_intent_id?: string | null
+          stripe_refund_id?: string | null
+          trip_id?: string
+        }
+        Relationships: []
+      }
       admin_settings: {
         Row: {
           created_at: string
