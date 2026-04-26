@@ -551,6 +551,12 @@ export default function ServiceAreaPricing() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="trips">
+          {selectedServiceAreaId && (
+            <ServiceAreaTripsTab serviceAreaId={selectedServiceAreaId} currencyCode={regionCurrency} />
+          )}
+        </TabsContent>
       </Tabs>
     </AdminLayout>
   );
