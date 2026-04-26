@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
   } catch (e) {
     console.error("ops-run-detections error:", e);
     return new Response(
-      JSON.stringify({ success: false, error: e.message }),
+      JSON.stringify({ success: false, error: (e as Error).message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
