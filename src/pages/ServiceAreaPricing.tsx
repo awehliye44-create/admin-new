@@ -37,6 +37,7 @@ import { PreauthBufferConfig } from '@/components/payment/PreauthBufferConfig';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { PresetOffersConfig } from '@/components/pricing/PresetOffersConfig';
 import { FareEngineConfig } from '@/components/pricing/FareEngineConfig';
+import { ServiceAreaTripsTab } from '@/components/payment/ServiceAreaTripsTab';
 
 interface VehicleType {
   id: string;
@@ -332,6 +333,10 @@ export default function ServiceAreaPricing() {
             <Users className="h-4 w-4" />
             Assignments
           </TabsTrigger>
+          <TabsTrigger value="trips" className="flex items-center gap-2">
+            <Banknote className="h-4 w-4" />
+            Trips & Payments
+          </TabsTrigger>
         </TabsList>
 
         {/* Fare Engine Tab (PRIMARY) */}
@@ -545,6 +550,12 @@ export default function ServiceAreaPricing() {
               </Tabs>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="trips">
+          {selectedServiceAreaId && (
+            <ServiceAreaTripsTab serviceAreaId={selectedServiceAreaId} currencyCode={regionCurrency} />
+          )}
         </TabsContent>
       </Tabs>
     </AdminLayout>

@@ -21,6 +21,7 @@ import {
   ArrowUpRight, ArrowDownLeft, Wallet, Clock, CheckCircle2, XCircle,
   Banknote, Smartphone
 } from 'lucide-react';
+import { PaymentControlsCard } from '@/components/payment/PaymentControlsCard';
 
 interface PaymentSummary {
   totalGrossFares: number;
@@ -456,7 +457,8 @@ export default function AdminPayments() {
                 <p className="text-sm text-muted-foreground mt-1">{detailError.message}</p>
               </div>
             ) : paymentDetail ? (
-              <div className="space-y-4 py-4">
+              <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto">
+                {viewingTripId && <PaymentControlsCard tripId={viewingTripId} />}
                 {/* Trip Info */}
                 <div className="grid gap-4 grid-cols-2">
                   <div>

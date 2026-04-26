@@ -161,7 +161,7 @@ ${logs && logs.length > 0 ? logs.map((l: any) => `[${l.level}] ${l.source}: ${l.
       );
     }
 
-    const aiResult = await aiResponse.json();
+    const aiResult = await aiResponse!.json();
     const toolCall = aiResult.choices?.[0]?.message?.tool_calls?.[0];
 
     let analysis: { summary: string; root_cause: string; recommended_action: string };
@@ -208,7 +208,7 @@ ${logs && logs.length > 0 ? logs.map((l: any) => `[${l.level}] ${l.source}: ${l.
   } catch (e) {
     console.error("ops-ai-summary error:", e);
     return new Response(
-      JSON.stringify({ error: e.message || "Unknown error" }),
+      JSON.stringify({ error: (e as Error).message || "Unknown error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
