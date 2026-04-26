@@ -9404,6 +9404,7 @@ export type Database = {
           current_trip_id: string | null
           driver_id: string | null
           first_name: string | null
+          has_push_token: boolean | null
           heading: number | null
           heartbeat_age_seconds: number | null
           last_heartbeat_at: string | null
@@ -9710,6 +9711,10 @@ export type Database = {
           p_require_push_token?: boolean
         }
         Returns: string
+      }
+      driver_can_view_trip_via_offer: {
+        Args: { _trip_id: string }
+        Returns: boolean
       }
       expire_stale_drivers: {
         Args: { p_ttl_seconds?: number }
@@ -10055,23 +10060,19 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: undefined
       }
+      reconcile_stale_online_drivers: {
+        Args: never
+        Returns: {
+          driver_id: string
+          heartbeat_age_seconds: number
+        }[]
+      }
       record_cash_trip_completion: {
         Args: {
           p_commission_pence: number
           p_currency_code: string
           p_driver_id: string
           p_gross_fare_pence: number
-          p_trip_id: string
-        }
-        Returns: string
-      }
-      record_digital_trip_payment: {
-        Args: {
-          p_commission_pence: number
-          p_currency_code: string
-          p_driver_id: string
-          p_gross_fare_pence: number
-          p_stripe_payment_intent_id: string
           p_trip_id: string
         }
         Returns: string
