@@ -94,6 +94,8 @@ interface PaymentDetail {
     driver_net_pence: number;
     /** Stripe fee is absorbed inside commission — shown for transparency only, NOT deducted from driver */
     stripe_processing_fee_pence: number;
+    /** ONECAB net after Stripe (commission - stripe fee). Read from DB. */
+    onecab_net_pence: number;
   };
   payment_info: {
     payment_method: string;
