@@ -1352,6 +1352,36 @@ export default function TripHistory() {
                               <span>{fmt(selectedTrip.driver_net_pence)}</span>
                             </div>
                           )}
+
+                          {/* ONECAB net-after-Stripe — fields read from DB, never recomputed */}
+                          {selectedTrip.commission_pence != null && (
+                            <>
+                              <Separator />
+                              <div className="flex justify-between text-sm">
+                                <span className="text-muted-foreground">Gross commission</span>
+                                <span>{fmt(selectedTrip.commission_pence)}</span>
+                              </div>
+                              <div className="flex justify-between text-sm">
+                                <span className="text-muted-foreground">Stripe fee</span>
+                                <span className="text-orange-600">
+                                  {selectedTrip.stripe_processing_fee_pence && selectedTrip.stripe_processing_fee_pence > 0
+                                    ? `−${fmt(selectedTrip.stripe_processing_fee_pence)}`
+                                    : '—'}
+                                </span>
+                              </div>
+                              <Separator />
+                              <div className="flex justify-between text-sm font-medium">
+                                <span>ONECAB net</span>
+                                <span className="text-blue-600">
+                                  {fmt(
+                                    selectedTrip.onecab_net_pence != null
+                                      ? selectedTrip.onecab_net_pence
+                                      : selectedTrip.commission_pence
+                                  )}
+                                </span>
+                              </div>
+                            </>
+                          )}
                           <div className="flex justify-between text-sm">
                             <span className="text-muted-foreground">Payment Status</span>
                             <Badge variant="outline" className="text-xs">
