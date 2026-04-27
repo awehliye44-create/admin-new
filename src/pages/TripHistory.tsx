@@ -96,6 +96,8 @@ interface CompletedTrip {
   commission_pence: number | null;
   driver_net_pence: number | null;
   final_fare_pence: number | null;
+  stripe_processing_fee_pence: number | null;
+  onecab_net_pence: number | null;
   payment_status: string | null;
   payment_method: string | null;
   currency_code: string | null;
