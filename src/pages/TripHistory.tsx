@@ -216,6 +216,7 @@ export default function TripHistory() {
           id, trip_code, trip_number, status, passenger_name, passenger_phone,
           pickup_address, pickup_latitude, pickup_longitude, dropoff_address, dropoff_latitude, dropoff_longitude,
           estimated_fare, fare, gross_fare_pence, commission_pence, driver_net_pence, final_fare_pence,
+          stripe_processing_fee_pence, onecab_net_pence,
           payment_status, payment_method, currency_code, estimated_distance_km, estimated_duration_minutes,
           total_stops, created_at, started_at, completed_at, surge_multiplier, driver_id,
           driver_location_lat, driver_location_lng, stripe_payment_intent_id, stacked_trip_id,
