@@ -8130,6 +8130,7 @@ export type Database = {
           offer_currency: string | null
           offer_discount_pence: number
           offer_snapshot: Json | null
+          onecab_net_pence: number | null
           original_payment_method: string | null
           paid_waiting_started_at: string | null
           passenger_id: string
@@ -8282,6 +8283,7 @@ export type Database = {
           offer_currency?: string | null
           offer_discount_pence?: number
           offer_snapshot?: Json | null
+          onecab_net_pence?: number | null
           original_payment_method?: string | null
           paid_waiting_started_at?: string | null
           passenger_id: string
@@ -8434,6 +8436,7 @@ export type Database = {
           offer_currency?: string | null
           offer_discount_pence?: number
           offer_snapshot?: Json | null
+          onecab_net_pence?: number | null
           original_payment_method?: string | null
           paid_waiting_started_at?: string | null
           passenger_id?: string
