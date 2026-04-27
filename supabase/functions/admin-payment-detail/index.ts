@@ -276,7 +276,7 @@ serve(async (req) => {
         platformCommission: commission,
         driverNet,
         stripeFee,
-        platformNet: commission - stripeFee,
+        onecabNet,
       },
       stripe: {
         paymentIntentId: trip.stripe_payment_intent_id,
