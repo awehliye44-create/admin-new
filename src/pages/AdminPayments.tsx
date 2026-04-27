@@ -94,6 +94,8 @@ interface PaymentDetail {
     driver_net_pence: number;
     /** Stripe fee is absorbed inside commission — shown for transparency only, NOT deducted from driver */
     stripe_processing_fee_pence: number;
+    /** ONECAB net after Stripe (commission - stripe fee). Read from DB. */
+    onecab_net_pence: number;
   };
   payment_info: {
     payment_method: string;
@@ -186,6 +188,7 @@ export default function AdminPayments() {
           platform_commission_pence: data.commissionBreakdown?.platformCommission || 0,
           driver_net_pence: data.commissionBreakdown?.driverNet || 0,
           stripe_processing_fee_pence: data.commissionBreakdown?.stripeFee || 0,
+          onecab_net_pence: data.commissionBreakdown?.onecabNet ?? (data.commissionBreakdown?.platformCommission || 0),
         },
         payment_info: {
           payment_method: data.trip?.paymentMethod || 'unknown',
@@ -525,16 +528,30 @@ export default function AdminPayments() {
                         <span className="text-muted-foreground">Platform Commission</span>
                         <span className="text-blue-600">{formatPence(paymentDetail.commission_breakdown.platform_commission_pence || 0)}</span>
                       </div>
-                      {paymentDetail.commission_breakdown.stripe_processing_fee_pence > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Stripe Fee (absorbed by platform)</span>
-                          <span className="text-muted-foreground text-xs">{formatPence(paymentDetail.commission_breakdown.stripe_processing_fee_pence)}</span>
-                        </div>
-                      )}
                       <Separator />
                       <div className="flex justify-between font-medium">
                         <span>Driver Net</span>
                         <span className="text-green-600">{formatPence(paymentDetail.commission_breakdown.driver_net_pence || 0)}</span>
+                      </div>
+
+                      {/* ONECAB net-after-Stripe breakdown — read from DB, never recomputed */}
+                      <Separator />
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Gross commission</span>
+                        <span>{formatPence(paymentDetail.commission_breakdown.platform_commission_pence || 0)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Stripe fee</span>
+                        <span className="text-orange-600">
+                          {paymentDetail.commission_breakdown.stripe_processing_fee_pence > 0
+                            ? `−${formatPence(paymentDetail.commission_breakdown.stripe_processing_fee_pence)}`
+                            : '—'}
+                        </span>
+                      </div>
+                      <Separator />
+                      <div className="flex justify-between font-medium">
+                        <span>ONECAB net</span>
+                        <span className="text-blue-600">{formatPence(paymentDetail.commission_breakdown.onecab_net_pence || 0)}</span>
                       </div>
                     </CardContent>
                   </Card>

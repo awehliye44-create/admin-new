@@ -96,6 +96,8 @@ interface CompletedTrip {
   commission_pence: number | null;
   driver_net_pence: number | null;
   final_fare_pence: number | null;
+  stripe_processing_fee_pence: number | null;
+  onecab_net_pence: number | null;
   payment_status: string | null;
   payment_method: string | null;
   currency_code: string | null;
@@ -214,6 +216,7 @@ export default function TripHistory() {
           id, trip_code, trip_number, status, passenger_name, passenger_phone,
           pickup_address, pickup_latitude, pickup_longitude, dropoff_address, dropoff_latitude, dropoff_longitude,
           estimated_fare, fare, gross_fare_pence, commission_pence, driver_net_pence, final_fare_pence,
+          stripe_processing_fee_pence, onecab_net_pence,
           payment_status, payment_method, currency_code, estimated_distance_km, estimated_duration_minutes,
           total_stops, created_at, started_at, completed_at, surge_multiplier, driver_id,
           driver_location_lat, driver_location_lng, stripe_payment_intent_id, stacked_trip_id,
@@ -1348,6 +1351,36 @@ export default function TripHistory() {
                               <span className="text-muted-foreground">Driver Net</span>
                               <span>{fmt(selectedTrip.driver_net_pence)}</span>
                             </div>
+                          )}
+
+                          {/* ONECAB net-after-Stripe — fields read from DB, never recomputed */}
+                          {selectedTrip.commission_pence != null && (
+                            <>
+                              <Separator />
+                              <div className="flex justify-between text-sm">
+                                <span className="text-muted-foreground">Gross commission</span>
+                                <span>{fmt(selectedTrip.commission_pence)}</span>
+                              </div>
+                              <div className="flex justify-between text-sm">
+                                <span className="text-muted-foreground">Stripe fee</span>
+                                <span className="text-orange-600">
+                                  {selectedTrip.stripe_processing_fee_pence && selectedTrip.stripe_processing_fee_pence > 0
+                                    ? `−${fmt(selectedTrip.stripe_processing_fee_pence)}`
+                                    : '—'}
+                                </span>
+                              </div>
+                              <Separator />
+                              <div className="flex justify-between text-sm font-medium">
+                                <span>ONECAB net</span>
+                                <span className="text-blue-600">
+                                  {fmt(
+                                    selectedTrip.onecab_net_pence != null
+                                      ? selectedTrip.onecab_net_pence
+                                      : selectedTrip.commission_pence
+                                  )}
+                                </span>
+                              </div>
+                            </>
                           )}
                           <div className="flex justify-between text-sm">
                             <span className="text-muted-foreground">Payment Status</span>
