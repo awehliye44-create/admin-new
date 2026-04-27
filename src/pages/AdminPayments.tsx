@@ -528,12 +528,6 @@ export default function AdminPayments() {
                         <span className="text-muted-foreground">Platform Commission</span>
                         <span className="text-blue-600">{formatPence(paymentDetail.commission_breakdown.platform_commission_pence || 0)}</span>
                       </div>
-                      {paymentDetail.commission_breakdown.stripe_processing_fee_pence > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Stripe Fee (absorbed by platform)</span>
-                          <span className="text-muted-foreground text-xs">{formatPence(paymentDetail.commission_breakdown.stripe_processing_fee_pence)}</span>
-                        </div>
-                      )}
                       <Separator />
                       <div className="flex justify-between font-medium">
                         <span>Driver Net</span>
