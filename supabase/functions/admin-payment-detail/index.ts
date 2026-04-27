@@ -233,6 +233,11 @@ serve(async (req) => {
     const commission = trip.commission_pence || 0;
     const driverNet = trip.driver_net_pence || 0;
     const stripeFee = trip.stripe_processing_fee_pence || 0;
+    // ONECAB net after Stripe — read from DB (do NOT recompute on the client).
+    // Historical trips that pre-date fee tracking fall back to gross commission.
+    const onecabNet = trip.onecab_net_pence != null
+      ? trip.onecab_net_pence
+      : (stripeFee > 0 ? Math.max(0, commission - stripeFee) : commission);
 
     const response = {
       trip: {
