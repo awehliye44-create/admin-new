@@ -539,6 +539,26 @@ export default function AdminPayments() {
                         <span>Driver Net</span>
                         <span className="text-green-600">{formatPence(paymentDetail.commission_breakdown.driver_net_pence || 0)}</span>
                       </div>
+
+                      {/* ONECAB net-after-Stripe breakdown — read from DB, never recomputed */}
+                      <Separator />
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Gross commission</span>
+                        <span>{formatPence(paymentDetail.commission_breakdown.platform_commission_pence || 0)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Stripe fee</span>
+                        <span className="text-orange-600">
+                          {paymentDetail.commission_breakdown.stripe_processing_fee_pence > 0
+                            ? `−${formatPence(paymentDetail.commission_breakdown.stripe_processing_fee_pence)}`
+                            : '—'}
+                        </span>
+                      </div>
+                      <Separator />
+                      <div className="flex justify-between font-medium">
+                        <span>ONECAB net</span>
+                        <span className="text-blue-600">{formatPence(paymentDetail.commission_breakdown.onecab_net_pence || 0)}</span>
+                      </div>
                     </CardContent>
                   </Card>
                 </div>
