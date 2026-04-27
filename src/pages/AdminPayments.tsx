@@ -188,6 +188,7 @@ export default function AdminPayments() {
           platform_commission_pence: data.commissionBreakdown?.platformCommission || 0,
           driver_net_pence: data.commissionBreakdown?.driverNet || 0,
           stripe_processing_fee_pence: data.commissionBreakdown?.stripeFee || 0,
+          onecab_net_pence: data.commissionBreakdown?.onecabNet ?? (data.commissionBreakdown?.platformCommission || 0),
         },
         payment_info: {
           payment_method: data.trip?.paymentMethod || 'unknown',
