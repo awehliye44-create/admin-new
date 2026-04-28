@@ -4,8 +4,12 @@
  * ║                                                                ║
  * ║  NON-NEGOTIABLE RULES:                                         ║
  * ║  1. Commission is based on driver tier (snapshotted per trip)   ║
- * ║  2. Commission = fare × tier_commission_pct (full fare)         ║
- * ║  3. Stripe fee is INCLUDED inside commission — never separate   ║
+ * ║  2. commission_pence = fare × tier_commission_pct (GROSS,       ║
+ * ║     before Stripe fee). NEVER reduced by Stripe fee.            ║
+ * ║  3. Stripe fee is tracked SEPARATELY on the trip as              ║
+ * ║     stripe_processing_fee_pence (from balance_transaction).     ║
+ * ║     ONECAB net = commission_pence - stripe_processing_fee_pence  ║
+ * ║     and is reported separately — never deducted from driver.     ║
  * ║  4. Tips are NOT part of fare — NEVER commissioned              ║
  * ║  5. driver_net = fare - commission (tips added separately)      ║
  * ║  6. Card trip → wallet += driver_net + tips                     ║

@@ -531,7 +531,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Revenue Cards — from driver_wallet_ledger COMPANY_COMMISSION */}
+      {/* Revenue Cards — ONECAB net (commission − Stripe fee) from trips.onecab_net_pence */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -542,7 +542,7 @@ export default function Dashboard() {
             <div className="text-2xl font-bold">
               {revenueLoading ? '...' : formatPence(revenueData?.todayRevenue || 0, activeCurrencyCode)}
             </div>
-            <p className="text-xs text-muted-foreground">Platform commission today</p>
+            <p className="text-xs text-muted-foreground">ONECAB net (after Stripe fee)</p>
           </CardContent>
         </Card>
 
@@ -588,7 +588,7 @@ export default function Dashboard() {
             <p className="text-xs text-muted-foreground">
               {period === 'custom' && customDateFrom
                 ? `${format(customDateFrom, 'MMM d')}${customDateTo ? ` – ${format(customDateTo, 'MMM d')}` : ' – now'}`
-                : 'Total platform commission'}
+                : 'Total ONECAB net (after Stripe fee)'}
             </p>
           </CardContent>
         </Card>
