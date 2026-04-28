@@ -531,7 +531,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Revenue Cards — from driver_wallet_ledger COMPANY_COMMISSION */}
+      {/* Revenue Cards — ONECAB net (commission − Stripe fee) from trips.onecab_net_pence */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
