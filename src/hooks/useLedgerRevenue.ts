@@ -80,13 +80,11 @@ function sumNet(rows: TripRow[]): number {
   return rows.reduce((s, r) => s + netOf(r), 0);
 }
 
-function bucketChart(
-  rows: { created_at: string; amount_pence: number }[],
-  period: RevenuePeriod
-): RevenueDataPoint[] {
+function bucketChart(rows: TripRow[], period: RevenuePeriod): RevenueDataPoint[] {
   const buckets = new Map<string, number>();
   for (const r of rows) {
-    const d = new Date(r.created_at);
+    if (!r.completed_at) continue;
+    const d = new Date(r.completed_at);
     let key: string;
     if (period === 'daily' || period === 'custom') {
       key = format(d, 'MMM d');
@@ -96,7 +94,7 @@ function bucketChart(
     } else {
       key = format(d, 'MMM yyyy');
     }
-    buckets.set(key, (buckets.get(key) || 0) + (r.amount_pence || 0));
+    buckets.set(key, (buckets.get(key) || 0) + netOf(r));
   }
   return Array.from(buckets.entries()).map(([label, revenue]) => ({ label, revenue }));
 }
@@ -129,7 +127,7 @@ export function useLedgerRevenue({
 
   return useQuery<LedgerRevenueResult>({
     queryKey: [
-      'ledger-revenue',
+      'ledger-revenue-net',
       period,
       serviceAreaId,
       customFrom?.toISOString(),
@@ -138,13 +136,12 @@ export function useLedgerRevenue({
     queryFn: async () => {
       const saId = serviceAreaId || null;
 
-      const [todayRev, weeklyRev, monthlyRev, allTimeRev, chartRows, saRows] = await Promise.all([
-        fetchSum(todayStart, todayEnd, saId),
-        fetchSum(weekStart, todayEnd, saId),
-        fetchSum(monthStart, todayEnd, saId),
-        fetchAllTimeSum(saId),
-        fetchGrouped(chartFrom, chartTo, saId),
-        saId ? Promise.resolve([]) : fetchByServiceArea(chartFrom, chartTo),
+      const [todayRows, weeklyRows, monthlyRows, allTimeRows, chartRows] = await Promise.all([
+        fetchTrips(todayStart, todayEnd, saId),
+        fetchTrips(weekStart, todayEnd, saId),
+        fetchTrips(monthStart, todayEnd, saId),
+        fetchTrips(null, null, saId),
+        fetchTrips(chartFrom, chartTo, saId),
       ]);
 
       let customRev = 0;
@@ -152,19 +149,20 @@ export function useLedgerRevenue({
         const cFrom = startOfDay(customFrom);
         const cTo = customTo ? endOfDay(customTo) : todayEnd;
         customRev = chartRows.reduce((s, r) => {
-          const t = new Date(r.created_at).getTime();
-          return t >= cFrom.getTime() && t <= cTo.getTime()
-            ? s + (r.amount_pence || 0)
-            : s;
+          if (!r.completed_at) return s;
+          const t = new Date(r.completed_at).getTime();
+          return t >= cFrom.getTime() && t <= cTo.getTime() ? s + netOf(r) : s;
         }, 0);
       }
 
       const chartData = bucketChart(chartRows, period);
 
       const saMap = new Map<string, number>();
-      for (const r of saRows) {
-        if (r.service_area_id) {
-          saMap.set(r.service_area_id, (saMap.get(r.service_area_id) || 0) + (r.amount_pence || 0));
+      if (!saId) {
+        for (const r of chartRows) {
+          if (r.service_area_id) {
+            saMap.set(r.service_area_id, (saMap.get(r.service_area_id) || 0) + netOf(r));
+          }
         }
       }
       const serviceAreaBreakdown: ServiceAreaRevenueBreakdown[] = [];
@@ -182,10 +180,10 @@ export function useLedgerRevenue({
       serviceAreaBreakdown.sort((a, b) => b.revenue - a.revenue);
 
       return {
-        todayRevenue: todayRev,
-        weeklyRevenue: weeklyRev,
-        monthlyRevenue: monthlyRev,
-        allTimeRevenue: allTimeRev,
+        todayRevenue: sumNet(todayRows),
+        weeklyRevenue: sumNet(weeklyRows),
+        monthlyRevenue: sumNet(monthlyRows),
+        allTimeRevenue: sumNet(allTimeRows),
         customRevenue: customRev,
         chartData,
         serviceAreaBreakdown,
