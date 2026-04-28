@@ -588,7 +588,7 @@ export default function Dashboard() {
             <p className="text-xs text-muted-foreground">
               {period === 'custom' && customDateFrom
                 ? `${format(customDateFrom, 'MMM d')}${customDateTo ? ` – ${format(customDateTo, 'MMM d')}` : ' – now'}`
-                : 'Total platform commission'}
+                : 'Total ONECAB net (after Stripe fee)'}
             </p>
           </CardContent>
         </Card>
