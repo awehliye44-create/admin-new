@@ -3849,27 +3849,38 @@ export type Database = {
           created_at: string
           current_value: number
           id: string
-          region_id: string
+          region_id: string | null
           sequence_type: string
+          service_area_id: string | null
           updated_at: string
         }
         Insert: {
           created_at?: string
           current_value?: number
           id?: string
-          region_id: string
+          region_id?: string | null
           sequence_type: string
+          service_area_id?: string | null
           updated_at?: string
         }
         Update: {
           created_at?: string
           current_value?: number
           id?: string
-          region_id?: string
+          region_id?: string | null
           sequence_type?: string
+          service_area_id?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "id_sequences_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       invoice_delivery_logs: {
         Row: {
@@ -9866,6 +9877,10 @@ export type Database = {
         }[]
       }
       get_region_code: { Args: { p_region_id: string }; Returns: string }
+      get_service_area_code: {
+        Args: { p_service_area_id: string }
+        Returns: string
+      }
       get_staff_role_prefix: {
         Args: { p_role: Database["public"]["Enums"]["staff_role"] }
         Returns: string
