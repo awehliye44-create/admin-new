@@ -542,7 +542,7 @@ export default function Dashboard() {
             <div className="text-2xl font-bold">
               {revenueLoading ? '...' : formatPence(revenueData?.todayRevenue || 0, activeCurrencyCode)}
             </div>
-            <p className="text-xs text-muted-foreground">Platform commission today</p>
+            <p className="text-xs text-muted-foreground">ONECAB net (after Stripe fee)</p>
           </CardContent>
         </Card>
 
