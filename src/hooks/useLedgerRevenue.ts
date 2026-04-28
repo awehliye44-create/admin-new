@@ -41,63 +41,43 @@ interface UseLedgerRevenueOptions {
   serviceAreas: { id: string; name: string; region?: { currency_code: string } | null }[];
 }
 
-const COMMISSION_TYPE = 'PLATFORM_COMMISSION';
+/**
+ * Revenue widgets show ONECAB NET revenue: commission_pence - stripe_processing_fee_pence.
+ * Source: trips table (onecab_net_pence is persisted at capture; falls back to commission_pence
+ * for historical trips that pre-date Stripe fee tracking).
+ * Filtered to financially countable outcomes only (COMPLETED, NO_SHOW, LATE_PASSENGER_CANCELLATION).
+ */
+const COUNTABLE_OUTCOMES = ['COMPLETED', 'NO_SHOW', 'LATE_PASSENGER_CANCELLATION'];
 
-async function fetchSum(from: Date, to: Date, saId: string | null): Promise<number> {
+type TripRow = {
+  completed_at: string | null;
+  service_area_id: string | null;
+  commission_pence: number | null;
+  stripe_processing_fee_pence: number | null;
+  onecab_net_pence: number | null;
+};
+
+function netOf(r: Pick<TripRow, 'onecab_net_pence' | 'commission_pence' | 'stripe_processing_fee_pence'>): number {
+  if (r.onecab_net_pence != null) return r.onecab_net_pence;
+  return (r.commission_pence || 0) - (r.stripe_processing_fee_pence || 0);
+}
+
+async function fetchTrips(from: Date | null, to: Date | null, saId: string | null): Promise<TripRow[]> {
   let q = supabase
-    .from('driver_wallet_ledger')
-    .select('amount_pence')
-    .eq('type', COMMISSION_TYPE)
-    .gte('created_at', from.toISOString())
-    .lte('created_at', to.toISOString());
+    .from('trips')
+    .select('completed_at, service_area_id, commission_pence, stripe_processing_fee_pence, onecab_net_pence')
+    .in('financial_outcome', COUNTABLE_OUTCOMES)
+    .not('completed_at', 'is', null);
+  if (from) q = q.gte('completed_at', from.toISOString());
+  if (to) q = q.lte('completed_at', to.toISOString());
   if (saId) q = q.eq('service_area_id', saId);
   const { data, error } = await q;
   if (error) throw error;
-  return (data || []).reduce((s, r) => s + (r.amount_pence || 0), 0);
+  return (data || []) as TripRow[];
 }
 
-async function fetchAllTimeSum(saId: string | null): Promise<number> {
-  let q = supabase
-    .from('driver_wallet_ledger')
-    .select('amount_pence')
-    .eq('type', COMMISSION_TYPE);
-  if (saId) q = q.eq('service_area_id', saId);
-  const { data, error } = await q;
-  if (error) throw error;
-  return (data || []).reduce((s, r) => s + (r.amount_pence || 0), 0);
-}
-
-async function fetchGrouped(
-  from: Date,
-  to: Date,
-  saId: string | null
-): Promise<{ created_at: string; amount_pence: number }[]> {
-  let q = supabase
-    .from('driver_wallet_ledger')
-    .select('created_at, amount_pence')
-    .eq('type', COMMISSION_TYPE)
-    .gte('created_at', from.toISOString())
-    .lte('created_at', to.toISOString())
-    .order('created_at', { ascending: true });
-  if (saId) q = q.eq('service_area_id', saId);
-  const { data, error } = await q;
-  if (error) throw error;
-  return data || [];
-}
-
-async function fetchByServiceArea(
-  from: Date,
-  to: Date
-): Promise<{ service_area_id: string; amount_pence: number }[]> {
-  const { data, error } = await supabase
-    .from('driver_wallet_ledger')
-    .select('service_area_id, amount_pence')
-    .eq('type', COMMISSION_TYPE)
-    .gte('created_at', from.toISOString())
-    .lte('created_at', to.toISOString())
-    .not('service_area_id', 'is', null);
-  if (error) throw error;
-  return data || [];
+function sumNet(rows: TripRow[]): number {
+  return rows.reduce((s, r) => s + netOf(r), 0);
 }
 
 function bucketChart(
