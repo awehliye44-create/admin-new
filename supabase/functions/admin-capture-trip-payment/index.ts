@@ -57,10 +57,29 @@ serve(async (req) => {
       { idempotencyKey: `admin_capture_${trip_id}_${captureAmount}_${Date.now()}` },
     );
 
-    const charge = captured.latest_charge && typeof captured.latest_charge === 'object'
+    let charge = captured.latest_charge && typeof captured.latest_charge === 'object'
       ? captured.latest_charge as Stripe.Charge
       : null;
     const newCaptured = charge?.amount_captured ?? captureAmount;
+
+    // Fetch balance transaction for actual Stripe fee
+    let stripeFee = 0;
+    if (charge?.id) {
+      try {
+        const fullCharge = await stripe.charges.retrieve(charge.id, { expand: ['balance_transaction'] });
+        const bt = fullCharge.balance_transaction;
+        if (bt && typeof bt === 'object' && 'fee' in bt) stripeFee = (bt as Stripe.BalanceTransaction).fee ?? 0;
+      } catch (feeErr) {
+        console.warn('[admin-capture] Could not fetch balance_transaction fee:', (feeErr as Error).message);
+      }
+    }
+
+    // Get gross commission to compute ONECAB net (commission - stripe fee).
+    // Driver payout is unchanged: fare - commission. Stripe fee never deducted from driver.
+    const { data: tripFin } = await gate.supabase
+      .from('trips').select('commission_pence').eq('id', trip_id).single();
+    const commission = tripFin?.commission_pence ?? 0;
+    const onecabNet = Math.max(0, commission - stripeFee);
 
     await gate.supabase
       .from('trips')
@@ -68,6 +87,8 @@ serve(async (req) => {
         payment_status: 'captured',
         capture_amount_pence: newCaptured,
         stripe_charge_id: charge?.id ?? null,
+        stripe_processing_fee_pence: stripeFee,
+        onecab_net_pence: onecabNet,
         updated_at: new Date().toISOString(),
       })
       .eq('id', trip_id);
