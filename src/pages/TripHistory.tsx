@@ -41,6 +41,7 @@ import {
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
 import { getCurrencySymbol, formatDistance as formatDistanceUtil, getDistanceUnitShort } from '@/lib/regionSettings';
+import { PaymentControlsCard } from '@/components/payment/PaymentControlsCard';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 
@@ -1462,6 +1463,9 @@ export default function TripHistory() {
                   </div>
                 </div>
               </div>
+
+              {/* Admin Payment Controls — Capture, Cancel, Refund, Edit + full payment logs */}
+              {selectedTrip.id && <PaymentControlsCard tripId={selectedTrip.id} />}
             </div>
           )}
         </DialogContent>
