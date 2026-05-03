@@ -232,12 +232,19 @@ serve(async (req) => {
         destination: driverStripeAccountId,
       };
       piParams.application_fee_amount = applicationFeeAmount;
+      piParams.metadata = {
+        ...piParams.metadata,
+        application_fee_amount_pence: String(applicationFeeAmount),
+        stripe_destination_account_id: driverStripeAccountId,
+        connect_flow: 'destination_charge',
+      };
     } else {
       console.warn(`[create-payment-intent] Driver has no Stripe connected account for trip ${trip_id}. Commission will be enforced at capture time.`);
       piParams.metadata = {
         ...piParams.metadata,
         application_fee_amount_pence: String(applicationFeeAmount),
         no_connected_account: "true",
+        connect_flow: 'platform_charge_manual_payout',
       };
     }
 
@@ -261,6 +268,10 @@ serve(async (req) => {
       .from("trips")
       .update({
         stripe_payment_intent_id: paymentIntent.id,
+        stripe_application_fee_amount_pence: applicationFeeAmount,
+        stripe_destination_account_id: driverStripeAccountId,
+        stripe_settlement_verified: false,
+        stripe_settlement_warning: driverStripeAccountId ? null : 'NO_DRIVER_CONNECT_ACCOUNT_PLATFORM_CHARGE_ONLY_UNTIL_MANUAL_PAYOUT',
         payment_method: payment_method_type === "apple_pay" ? "APPLE_PAY" : payment_method_type === "google_pay" ? "GOOGLE_PAY" : "CARD",
         payment_status: "authorized",
         authorised_amount_pence: hold_pence,
