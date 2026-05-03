@@ -241,6 +241,8 @@ serve(async (req) => {
     // === Update trip with settlement data ===
     await supabase.from('trips').update({
       payment_status: captureSuccess ? 'captured' : 'capture_failed',
+      capture_amount_pence: final_trip_total_pence,
+      stripe_charge_id: stripeTransferId ? undefined : undefined,
       stripe_processing_fee_pence: stripeFee,
       onecab_net_pence: Math.max(0, platform_commission_pence - stripeFee),
       stripe_application_fee_id: stripeApplicationFeeId,
