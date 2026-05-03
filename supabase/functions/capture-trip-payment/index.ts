@@ -114,6 +114,8 @@ serve(async (req) => {
     console.log(`[capture] Final payout after debt recovery: ${finalDriverPayoutPence}p`);
 
     // === STRIPE: Capture PaymentIntent and enforce real settlement ===
+    let stripeChargeId: string | null = null;
+    let stripeCapturedAmount = final_trip_total_pence;
     let stripeFee = 0;
     let stripeApplicationFeeId: string | null = null;
     let stripeApplicationFeeAmount: number | null = null;
@@ -145,6 +147,8 @@ serve(async (req) => {
 
         console.log(`[capture] PaymentIntent captured: ${settlement.capturedPaymentIntent.id}, status: ${settlement.capturedPaymentIntent.status}`);
 
+        stripeChargeId = settlement.chargeId;
+        stripeCapturedAmount = settlement.capturedAmountPence;
         stripeFee = settlement.stripeFeePence;
         stripeApplicationFeeId = settlement.applicationFeeId;
         stripeApplicationFeeAmount = settlement.applicationFeeAmountPence;
@@ -241,8 +245,8 @@ serve(async (req) => {
     // === Update trip with settlement data ===
     await supabase.from('trips').update({
       payment_status: captureSuccess ? 'captured' : 'capture_failed',
-      capture_amount_pence: final_trip_total_pence,
-      stripe_charge_id: stripeTransferId ? undefined : undefined,
+      capture_amount_pence: stripeCapturedAmount,
+      stripe_charge_id: stripeChargeId,
       stripe_processing_fee_pence: stripeFee,
       onecab_net_pence: Math.max(0, platform_commission_pence - stripeFee),
       stripe_application_fee_id: stripeApplicationFeeId,
