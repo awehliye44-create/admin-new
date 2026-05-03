@@ -242,6 +242,14 @@ serve(async (req) => {
     await supabase.from('trips').update({
       payment_status: captureSuccess ? 'captured' : 'capture_failed',
       stripe_processing_fee_pence: stripeFee,
+      onecab_net_pence: Math.max(0, platform_commission_pence - stripeFee),
+      stripe_application_fee_id: stripeApplicationFeeId,
+      stripe_application_fee_amount_pence: stripeApplicationFeeAmount,
+      stripe_destination_account_id: stripeDestinationAccountId,
+      stripe_transfer_id: stripeTransferId,
+      stripe_transfer_amount_pence: stripeTransferAmount,
+      stripe_settlement_verified: stripeSettlementVerified,
+      stripe_settlement_warning: stripeSettlementWarning,
       debt_recovery_pence: debtRecoveryPence,
       final_payout_pence: finalDriverPayoutPence,
       wallet_balance_before: walletBalanceBefore,
@@ -250,7 +258,7 @@ serve(async (req) => {
     }).eq('id', trip_id);
 
     console.log(`[capture] Trip ${trip_id} settlement complete`);
-    console.log(`[capture] Summary: total=${final_trip_total_pence}p, commission(gross)=${platform_commission_pence}p, stripeFee=${stripeFee}p, onecabNet=${platform_commission_pence - stripeFee}p, driverEarnings=${driver_total_earnings_pence}p, debtRecovery=${debtRecoveryPence}p, finalPayout=${finalDriverPayoutPence}p`);
+    console.log(`[capture] Summary: total=${final_trip_total_pence}p, commission(gross)=${platform_commission_pence}p, stripeFee=${stripeFee}p, onecabNet=${platform_commission_pence - stripeFee}p, driverEarnings=${driver_total_earnings_pence}p, debtRecovery=${debtRecoveryPence}p, finalPayout=${finalDriverPayoutPence}p, appFeeId=${stripeApplicationFeeId ?? 'none'}, appFeeAmount=${stripeApplicationFeeAmount ?? 'none'}p, destination=${stripeDestinationAccountId ?? 'none'}, transfer=${stripeTransferId ?? 'none'}, verified=${stripeSettlementVerified}`);
     // NOTE: commission_pence is GROSS (before Stripe fee). Stripe fee is tracked separately as stripe_processing_fee_pence. ONECAB net = commission - stripe fee. Stripe fee is NEVER deducted from the driver.
 
     return new Response(JSON.stringify({
@@ -264,6 +272,12 @@ serve(async (req) => {
       tip_amount_pence,
       stripe_fee_pence: stripeFee,
       stripe_application_fee_id: stripeApplicationFeeId,
+      stripe_application_fee_amount_pence: stripeApplicationFeeAmount,
+      stripe_destination_account_id: stripeDestinationAccountId,
+      stripe_transfer_id: stripeTransferId,
+      stripe_transfer_amount_pence: stripeTransferAmount,
+      stripe_settlement_verified: stripeSettlementVerified,
+      stripe_settlement_warning: stripeSettlementWarning,
       debt_recovery_pence: debtRecoveryPence,
       final_driver_payout_pence: finalDriverPayoutPence,
       wallet_balance_before: walletBalanceBefore,
