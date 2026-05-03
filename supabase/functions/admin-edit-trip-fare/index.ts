@@ -71,6 +71,7 @@ serve(async (req) => {
       stripeChargeId = settlement.chargeId;
       resultingCaptured = settlement.capturedAmountPence;
       settlementMetadata = {
+        application_fee_id: settlement.applicationFeeId,
         application_fee_amount_pence: settlement.applicationFeeAmountPence,
         expected_commission_pence: commission,
         destination_account_id: settlement.destinationAccountId,
@@ -127,6 +128,7 @@ serve(async (req) => {
           ? (resultingRefunded > 0 ? 'partially_refunded' : 'captured')
           : 'refunded',
         ...(Object.keys(settlementMetadata).length > 0 ? {
+          stripe_application_fee_id: settlementMetadata.application_fee_id,
           stripe_application_fee_amount_pence: settlementMetadata.application_fee_amount_pence,
           stripe_destination_account_id: settlementMetadata.destination_account_id,
           stripe_transfer_id: settlementMetadata.transfer_id,
