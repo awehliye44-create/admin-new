@@ -7,6 +7,7 @@ type SupabaseLike = {
 export interface StripeSettlementResult {
   capturedPaymentIntent: Stripe.PaymentIntent;
   chargeId: string | null;
+  capturedAmountPence: number;
   stripeFeePence: number;
   applicationFeeId: string | null;
   applicationFeeAmountPence: number | null;
@@ -93,6 +94,7 @@ export async function capturePaymentIntentWithSettlement({
   const latestChargeId = asStripeId(capturedPaymentIntent.latest_charge);
 
   let chargeId: string | null = latestChargeId;
+  let capturedAmountPence = captureAmountPence;
   let stripeFeePence = 0;
   let applicationFeeId: string | null = null;
   let applicationFeeAmountPence: number | null = null;
@@ -110,6 +112,7 @@ export async function capturePaymentIntentWithSettlement({
     });
 
     chargeId = charge.id;
+    capturedAmountPence = charge.amount_captured ?? captureAmountPence;
     const balanceTransaction = charge.balance_transaction;
     if (balanceTransaction && typeof balanceTransaction === 'object' && 'fee' in balanceTransaction) {
       stripeFeePence = (balanceTransaction as Stripe.BalanceTransaction).fee ?? 0;
@@ -182,6 +185,7 @@ export async function capturePaymentIntentWithSettlement({
   return {
     capturedPaymentIntent,
     chargeId,
+    capturedAmountPence,
     stripeFeePence,
     applicationFeeId,
     applicationFeeAmountPence,
