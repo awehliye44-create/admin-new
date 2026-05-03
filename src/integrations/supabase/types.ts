@@ -8295,10 +8295,16 @@ export type Database = {
           status: string | null
           stop_charge_total_pence: number | null
           stops: Json | null
+          stripe_application_fee_amount_pence: number | null
+          stripe_application_fee_id: string | null
           stripe_charge_id: string | null
+          stripe_destination_account_id: string | null
           stripe_fee_amount: number | null
           stripe_payment_intent_id: string | null
           stripe_processing_fee_pence: number | null
+          stripe_settlement_verified: boolean
+          stripe_settlement_warning: string | null
+          stripe_transfer_amount_pence: number | null
           stripe_transfer_id: string | null
           surge_multiplier: number | null
           tip_amount_pence: number
@@ -8448,10 +8454,16 @@ export type Database = {
           status?: string | null
           stop_charge_total_pence?: number | null
           stops?: Json | null
+          stripe_application_fee_amount_pence?: number | null
+          stripe_application_fee_id?: string | null
           stripe_charge_id?: string | null
+          stripe_destination_account_id?: string | null
           stripe_fee_amount?: number | null
           stripe_payment_intent_id?: string | null
           stripe_processing_fee_pence?: number | null
+          stripe_settlement_verified?: boolean
+          stripe_settlement_warning?: string | null
+          stripe_transfer_amount_pence?: number | null
           stripe_transfer_id?: string | null
           surge_multiplier?: number | null
           tip_amount_pence?: number
@@ -8601,10 +8613,16 @@ export type Database = {
           status?: string | null
           stop_charge_total_pence?: number | null
           stops?: Json | null
+          stripe_application_fee_amount_pence?: number | null
+          stripe_application_fee_id?: string | null
           stripe_charge_id?: string | null
+          stripe_destination_account_id?: string | null
           stripe_fee_amount?: number | null
           stripe_payment_intent_id?: string | null
           stripe_processing_fee_pence?: number | null
+          stripe_settlement_verified?: boolean
+          stripe_settlement_warning?: string | null
+          stripe_transfer_amount_pence?: number | null
           stripe_transfer_id?: string | null
           surge_multiplier?: number | null
           tip_amount_pence?: number
