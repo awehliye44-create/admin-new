@@ -2396,6 +2396,97 @@ export type Database = {
           },
         ]
       }
+      driver_alerts: {
+        Row: {
+          alert_type: string
+          booking_id: string | null
+          context: Json
+          created_at: string
+          driver_id: string
+          first_detected_at: string
+          id: string
+          last_detected_at: string
+          message: string
+          resolved_at: string | null
+          severity: Database["public"]["Enums"]["driver_alert_severity"]
+          status: Database["public"]["Enums"]["driver_alert_status"]
+          updated_at: string
+        }
+        Insert: {
+          alert_type: string
+          booking_id?: string | null
+          context?: Json
+          created_at?: string
+          driver_id: string
+          first_detected_at?: string
+          id?: string
+          last_detected_at?: string
+          message: string
+          resolved_at?: string | null
+          severity?: Database["public"]["Enums"]["driver_alert_severity"]
+          status?: Database["public"]["Enums"]["driver_alert_status"]
+          updated_at?: string
+        }
+        Update: {
+          alert_type?: string
+          booking_id?: string | null
+          context?: Json
+          created_at?: string
+          driver_id?: string
+          first_detected_at?: string
+          id?: string
+          last_detected_at?: string
+          message?: string
+          resolved_at?: string | null
+          severity?: Database["public"]["Enums"]["driver_alert_severity"]
+          status?: Database["public"]["Enums"]["driver_alert_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_alerts_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_alerts_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_alerts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_alerts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_alerts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_alerts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_categories: {
         Row: {
           category_priority: number
@@ -2741,15 +2832,22 @@ export type Database = {
       }
       driver_presence: {
         Row: {
+          accuracy_m: number | null
           app_state: string
+          battery_level: number | null
           created_at: string
           driver_id: string
           heading: number | null
           last_heartbeat_at: string
           last_location_at: string | null
           last_realtime_seen_at: string | null
+          last_significant_move_at: string | null
+          last_significant_move_lat: number | null
+          last_significant_move_lng: number | null
           lat: number | null
           lng: number | null
+          low_accuracy: boolean
+          low_accuracy_since: string | null
           platform: string | null
           push_token: string | null
           speed: number | null
@@ -2757,15 +2855,22 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          accuracy_m?: number | null
           app_state?: string
+          battery_level?: number | null
           created_at?: string
           driver_id: string
           heading?: number | null
           last_heartbeat_at?: string
           last_location_at?: string | null
           last_realtime_seen_at?: string | null
+          last_significant_move_at?: string | null
+          last_significant_move_lat?: number | null
+          last_significant_move_lng?: number | null
           lat?: number | null
           lng?: number | null
+          low_accuracy?: boolean
+          low_accuracy_since?: string | null
           platform?: string | null
           push_token?: string | null
           speed?: number | null
@@ -2773,15 +2878,22 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          accuracy_m?: number | null
           app_state?: string
+          battery_level?: number | null
           created_at?: string
           driver_id?: string
           heading?: number | null
           last_heartbeat_at?: string
           last_location_at?: string | null
           last_realtime_seen_at?: string | null
+          last_significant_move_at?: string | null
+          last_significant_move_lat?: number | null
+          last_significant_move_lng?: number | null
           lat?: number | null
           lng?: number | null
+          low_accuracy?: boolean
+          low_accuracy_since?: string | null
           platform?: string | null
           push_token?: string | null
           speed?: number | null
@@ -9088,6 +9200,73 @@ export type Database = {
       }
     }
     Views: {
+      active_driver_alerts: {
+        Row: {
+          active_for_seconds: number | null
+          alert_type: string | null
+          booking_id: string | null
+          context: Json | null
+          driver_accuracy_m: number | null
+          driver_battery_level: number | null
+          driver_id: string | null
+          driver_last_heartbeat_at: string | null
+          driver_last_location_at: string | null
+          driver_lat: number | null
+          driver_lng: number | null
+          driver_name: string | null
+          driver_phone: string | null
+          driver_presence_status: string | null
+          first_detected_at: string | null
+          id: string | null
+          last_detected_at: string | null
+          message: string | null
+          severity: Database["public"]["Enums"]["driver_alert_severity"] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_alerts_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_alerts_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_alerts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_alerts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_alerts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_alerts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       app_health_summary: {
         Row: {
           app_name: string | null
@@ -9761,6 +9940,7 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
       }
+      detect_driver_problems: { Args: never; Returns: undefined }
       dispatch_trip_offers: { Args: { p_trip_id: string }; Returns: undefined }
       dispatchable_reason: {
         Args: {
@@ -10111,6 +10291,37 @@ export type Database = {
         Returns: Json
       }
       purge_dispatch_eligibility_log: { Args: never; Returns: number }
+      raise_driver_alert: {
+        Args: {
+          p_alert_type: string
+          p_booking_id?: string
+          p_context?: Json
+          p_driver_id: string
+          p_message?: string
+          p_severity?: Database["public"]["Enums"]["driver_alert_severity"]
+        }
+        Returns: {
+          alert_type: string
+          booking_id: string | null
+          context: Json
+          created_at: string
+          driver_id: string
+          first_detected_at: string
+          id: string
+          last_detected_at: string
+          message: string
+          resolved_at: string | null
+          severity: Database["public"]["Enums"]["driver_alert_severity"]
+          status: Database["public"]["Enums"]["driver_alert_status"]
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "driver_alerts"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       reactivate_corporate_account: {
         Args: { p_account_id: string }
         Returns: undefined
@@ -10139,6 +10350,10 @@ export type Database = {
           p_trip_id: string
         }
         Returns: string
+      }
+      resolve_driver_alert: {
+        Args: { p_alert_type: string; p_driver_id: string }
+        Returns: number
       }
       resolve_zone: {
         Args: {
@@ -10201,78 +10416,51 @@ export type Database = {
         }
         Returns: undefined
       }
-      upsert_driver_presence:
-        | {
-            Args: {
-              p_app_state?: string
-              p_driver_id: string
-              p_heading?: number
-              p_lat?: number
-              p_lng?: number
-              p_platform?: string
-              p_push_token?: string
-              p_speed?: number
-              p_status?: string
-            }
-            Returns: {
-              app_state: string
-              created_at: string
-              driver_id: string
-              heading: number | null
-              last_heartbeat_at: string
-              last_location_at: string | null
-              last_realtime_seen_at: string | null
-              lat: number | null
-              lng: number | null
-              platform: string | null
-              push_token: string | null
-              speed: number | null
-              status: string
-              updated_at: string
-            }
-            SetofOptions: {
-              from: "*"
-              to: "driver_presence"
-              isOneToOne: true
-              isSetofReturn: false
-            }
-          }
-        | {
-            Args: {
-              p_app_state?: string
-              p_device_id?: string
-              p_driver_id: string
-              p_heading?: number
-              p_lat?: number
-              p_lng?: number
-              p_platform?: string
-              p_push_token?: string
-              p_speed?: number
-              p_status?: string
-            }
-            Returns: {
-              app_state: string
-              created_at: string
-              driver_id: string
-              heading: number | null
-              last_heartbeat_at: string
-              last_location_at: string | null
-              last_realtime_seen_at: string | null
-              lat: number | null
-              lng: number | null
-              platform: string | null
-              push_token: string | null
-              speed: number | null
-              status: string
-              updated_at: string
-            }
-            SetofOptions: {
-              from: "*"
-              to: "driver_presence"
-              isOneToOne: true
-              isSetofReturn: false
-            }
-          }
+      upsert_driver_presence: {
+        Args: {
+          p_accuracy?: number
+          p_app_state?: string
+          p_battery_level?: number
+          p_device_id?: string
+          p_driver_id: string
+          p_heading?: number
+          p_lat?: number
+          p_lng?: number
+          p_platform?: string
+          p_push_token?: string
+          p_speed?: number
+          p_status?: string
+        }
+        Returns: {
+          accuracy_m: number | null
+          app_state: string
+          battery_level: number | null
+          created_at: string
+          driver_id: string
+          heading: number | null
+          last_heartbeat_at: string
+          last_location_at: string | null
+          last_realtime_seen_at: string | null
+          last_significant_move_at: string | null
+          last_significant_move_lat: number | null
+          last_significant_move_lng: number | null
+          lat: number | null
+          lng: number | null
+          low_accuracy: boolean
+          low_accuracy_since: string | null
+          platform: string | null
+          push_token: string | null
+          speed: number | null
+          status: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "driver_presence"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       verify_active_device: {
         Args: { p_device_id: string }
         Returns: {
@@ -10286,6 +10474,8 @@ export type Database = {
       app_scope: "customer" | "driver" | "corporate" | "shared" | "legal"
       app_user_role: "admin" | "driver" | "customer" | "corporate"
       content_status: "draft" | "published"
+      driver_alert_severity: "warning" | "critical" | "recovered"
+      driver_alert_status: "active" | "resolved"
       driver_status: "active" | "disabled" | "deleted"
       offer_redemption_status: "reserved" | "applied" | "reversed"
       offer_status: "draft" | "active" | "archived"
@@ -10446,6 +10636,8 @@ export const Constants = {
       app_scope: ["customer", "driver", "corporate", "shared", "legal"],
       app_user_role: ["admin", "driver", "customer", "corporate"],
       content_status: ["draft", "published"],
+      driver_alert_severity: ["warning", "critical", "recovered"],
+      driver_alert_status: ["active", "resolved"],
       driver_status: ["active", "disabled", "deleted"],
       offer_redemption_status: ["reserved", "applied", "reversed"],
       offer_status: ["draft", "active", "archived"],
