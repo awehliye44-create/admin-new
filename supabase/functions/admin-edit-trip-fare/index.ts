@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import { z } from "https://esm.sh/zod@3.23.8";
 import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
+import { capturePaymentIntentWithSettlement } from "../_shared/stripeSettlement.ts";
 
 const InputSchema = z.object({
   trip_id: z.string().uuid(),
@@ -27,7 +28,7 @@ serve(async (req) => {
 
     const { data: trip, error: tripErr } = await gate.supabase
       .from('trips')
-      .select('id, stripe_payment_intent_id, stripe_charge_id, capture_amount_pence, authorised_amount_pence, refund_amount_pence, gross_fare_pence, final_fare_pence')
+      .select('id, driver_id, stripe_payment_intent_id, stripe_charge_id, capture_amount_pence, authorised_amount_pence, refund_amount_pence, gross_fare_pence, final_fare_pence, commission_pence, tip_amount_pence, currency_code, currency')
       .eq('id', trip_id)
       .single();
     if (tripErr || !trip) return jsonResponse({ error: 'Trip not found' }, 404);
@@ -44,6 +45,7 @@ serve(async (req) => {
     let resultingCaptured = 0;
     let resultingRefunded = trip.refund_amount_pence ?? 0;
     let scenario: string;
+    let settlementMetadata: Record<string, unknown> = {};
 
     if (pi.status === 'requires_capture') {
       // Authorized but not captured — capture exactly new_total_pence
@@ -53,15 +55,30 @@ serve(async (req) => {
           error: `Cannot edit fare to ${new_total_pence}p — only ${authorized}p was authorized. Authorize a new amount first.`,
         }, 400);
       }
-      const captured = await stripe.paymentIntents.capture(
-        trip.stripe_payment_intent_id,
-        { amount_to_capture: new_total_pence },
-        { idempotencyKey: `admin_edit_capture_${trip_id}_${new_total_pence}_${Date.now()}` },
-      );
-      const charge = captured.latest_charge && typeof captured.latest_charge === 'object'
-        ? captured.latest_charge as Stripe.Charge : null;
-      stripeChargeId = charge?.id ?? null;
-      resultingCaptured = charge?.amount_captured ?? new_total_pence;
+      const commission = trip.commission_pence ?? 0;
+      const settlement = await capturePaymentIntentWithSettlement({
+        stripe,
+        supabase: gate.supabase,
+        tripId: trip_id,
+        driverId: trip.driver_id,
+        paymentIntentId: trip.stripe_payment_intent_id,
+        captureAmountPence: new_total_pence,
+        commissionPence: commission,
+        driverPayoutPence: Math.max(0, new_total_pence - commission),
+        currencyCode: (trip.currency_code ?? trip.currency ?? pi.currency ?? 'gbp').toLowerCase(),
+        idempotencyKey: `admin_edit_capture_${trip_id}_${new_total_pence}_${Date.now()}`,
+      });
+      stripeChargeId = settlement.chargeId;
+      resultingCaptured = settlement.capturedAmountPence;
+      settlementMetadata = {
+        application_fee_amount_pence: settlement.applicationFeeAmountPence,
+        expected_commission_pence: commission,
+        destination_account_id: settlement.destinationAccountId,
+        transfer_id: settlement.transferId,
+        transfer_amount_pence: settlement.transferAmountPence,
+        settlement_verified: settlement.settlementVerified,
+        settlement_warning: settlement.settlementWarning,
+      };
       scenario = 'captured_at_new_total';
     } else {
       const charge = pi.latest_charge && typeof pi.latest_charge === 'object'
@@ -109,6 +126,14 @@ serve(async (req) => {
         payment_status: netCapturedAfter > 0
           ? (resultingRefunded > 0 ? 'partially_refunded' : 'captured')
           : 'refunded',
+        ...(Object.keys(settlementMetadata).length > 0 ? {
+          stripe_application_fee_amount_pence: settlementMetadata.application_fee_amount_pence,
+          stripe_destination_account_id: settlementMetadata.destination_account_id,
+          stripe_transfer_id: settlementMetadata.transfer_id,
+          stripe_transfer_amount_pence: settlementMetadata.transfer_amount_pence,
+          stripe_settlement_verified: settlementMetadata.settlement_verified,
+          stripe_settlement_warning: settlementMetadata.settlement_warning,
+        } : {}),
         updated_at: new Date().toISOString(),
       })
       .eq('id', trip_id);
@@ -123,7 +148,7 @@ serve(async (req) => {
       delta_pence: new_total_pence - beforeFare,
       stripe_payment_intent_id: trip.stripe_payment_intent_id,
       stripe_refund_id: stripeRefundId,
-      metadata: { scenario, resulting_captured: resultingCaptured, resulting_refunded: resultingRefunded },
+      metadata: { scenario, resulting_captured: resultingCaptured, resulting_refunded: resultingRefunded, ...settlementMetadata },
     });
 
     return jsonResponse({
