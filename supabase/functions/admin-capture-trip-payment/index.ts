@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import { z } from "https://esm.sh/zod@3.23.8";
 import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
+import { capturePaymentIntentWithSettlement } from "../_shared/stripeSettlement.ts";
 
 const InputSchema = z.object({
   trip_id: z.string().uuid(),
@@ -27,7 +28,7 @@ serve(async (req) => {
 
     const { data: trip, error: tripErr } = await gate.supabase
       .from('trips')
-      .select('id, stripe_payment_intent_id, capture_amount_pence, authorised_amount_pence, payment_status')
+      .select('id, driver_id, stripe_payment_intent_id, capture_amount_pence, authorised_amount_pence, payment_status, commission_pence, driver_total_earnings_pence, driver_net_pence, tip_amount_pence, currency_code, currency')
       .eq('id', trip_id)
       .single();
     if (tripErr || !trip) return jsonResponse({ error: 'Trip not found' }, 404);
@@ -51,34 +52,23 @@ serve(async (req) => {
 
     const before = trip.capture_amount_pence ?? 0;
 
-    const captured = await stripe.paymentIntents.capture(
-      trip.stripe_payment_intent_id,
-      { amount_to_capture: captureAmount },
-      { idempotencyKey: `admin_capture_${trip_id}_${captureAmount}_${Date.now()}` },
-    );
+    const commission = trip.commission_pence ?? 0;
+    const driverPayout = trip.driver_total_earnings_pence ?? ((trip.driver_net_pence ?? Math.max(0, captureAmount - commission)) + (trip.tip_amount_pence ?? 0));
+    const settlement = await capturePaymentIntentWithSettlement({
+      stripe,
+      supabase: gate.supabase,
+      tripId: trip_id,
+      driverId: trip.driver_id,
+      paymentIntentId: trip.stripe_payment_intent_id,
+      captureAmountPence: captureAmount,
+      commissionPence: commission,
+      driverPayoutPence: driverPayout,
+      currencyCode: (trip.currency_code ?? trip.currency ?? pi.currency ?? 'gbp').toLowerCase(),
+      idempotencyKey: `admin_capture_${trip_id}_${captureAmount}_${Date.now()}`,
+    });
 
-    let charge = captured.latest_charge && typeof captured.latest_charge === 'object'
-      ? captured.latest_charge as Stripe.Charge
-      : null;
-    const newCaptured = charge?.amount_captured ?? captureAmount;
-
-    // Fetch balance transaction for actual Stripe fee
-    let stripeFee = 0;
-    if (charge?.id) {
-      try {
-        const fullCharge = await stripe.charges.retrieve(charge.id, { expand: ['balance_transaction'] });
-        const bt = fullCharge.balance_transaction;
-        if (bt && typeof bt === 'object' && 'fee' in bt) stripeFee = (bt as Stripe.BalanceTransaction).fee ?? 0;
-      } catch (feeErr) {
-        console.warn('[admin-capture] Could not fetch balance_transaction fee:', (feeErr as Error).message);
-      }
-    }
-
-    // Get gross commission to compute ONECAB net (commission - stripe fee).
-    // Driver payout is unchanged: fare - commission. Stripe fee never deducted from driver.
-    const { data: tripFin } = await gate.supabase
-      .from('trips').select('commission_pence').eq('id', trip_id).single();
-    const commission = tripFin?.commission_pence ?? 0;
+    const newCaptured = settlement.capturedAmountPence;
+    const stripeFee = settlement.stripeFeePence;
     const onecabNet = Math.max(0, commission - stripeFee);
 
     await gate.supabase
@@ -86,9 +76,16 @@ serve(async (req) => {
       .update({
         payment_status: 'captured',
         capture_amount_pence: newCaptured,
-        stripe_charge_id: charge?.id ?? null,
+        stripe_charge_id: settlement.chargeId,
         stripe_processing_fee_pence: stripeFee,
         onecab_net_pence: onecabNet,
+        stripe_application_fee_id: settlement.applicationFeeId,
+        stripe_application_fee_amount_pence: settlement.applicationFeeAmountPence,
+        stripe_destination_account_id: settlement.destinationAccountId,
+        stripe_transfer_id: settlement.transferId,
+        stripe_transfer_amount_pence: settlement.transferAmountPence,
+        stripe_settlement_verified: settlement.settlementVerified,
+        stripe_settlement_warning: settlement.settlementWarning,
         updated_at: new Date().toISOString(),
       })
       .eq('id', trip_id);
@@ -102,13 +99,27 @@ serve(async (req) => {
       amount_pence_after: newCaptured,
       delta_pence: newCaptured - before,
       stripe_payment_intent_id: trip.stripe_payment_intent_id,
-      metadata: { authorized_total: authorizedTotal, requested_amount: amount_pence ?? null },
+      metadata: {
+        authorized_total: authorizedTotal,
+        requested_amount: amount_pence ?? null,
+        application_fee_amount_pence: settlement.applicationFeeAmountPence,
+        expected_commission_pence: commission,
+        destination_account_id: settlement.destinationAccountId,
+        transfer_id: settlement.transferId,
+        transfer_amount_pence: settlement.transferAmountPence,
+        settlement_verified: settlement.settlementVerified,
+        settlement_warning: settlement.settlementWarning,
+      },
     });
 
     return jsonResponse({
       success: true,
       stripe_payment_intent_id: trip.stripe_payment_intent_id,
-      stripe_charge_id: charge?.id ?? null,
+      stripe_charge_id: settlement.chargeId,
+      stripe_application_fee_id: settlement.applicationFeeId,
+      stripe_application_fee_amount_pence: settlement.applicationFeeAmountPence,
+      stripe_settlement_verified: settlement.settlementVerified,
+      stripe_settlement_warning: settlement.settlementWarning,
       captured_pence: newCaptured,
       message: `Captured ${(newCaptured / 100).toFixed(2)} successfully`,
     });

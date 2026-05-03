@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import { validateTripAccounting } from "../_shared/tripAccounting.ts";
+import { capturePaymentIntentWithSettlement } from "../_shared/stripeSettlement.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -112,9 +113,17 @@ serve(async (req) => {
     const finalDriverPayoutPence = driver_total_earnings_pence - debtRecoveryPence;
     console.log(`[capture] Final payout after debt recovery: ${finalDriverPayoutPence}p`);
 
-    // === STRIPE: Capture PaymentIntent (Destination Charges) ===
+    // === STRIPE: Capture PaymentIntent and enforce real settlement ===
+    let stripeChargeId: string | null = null;
+    let stripeCapturedAmount = final_trip_total_pence;
     let stripeFee = 0;
     let stripeApplicationFeeId: string | null = null;
+    let stripeApplicationFeeAmount: number | null = null;
+    let stripeDestinationAccountId: string | null = null;
+    let stripeTransferId: string | null = null;
+    let stripeTransferAmount: number | null = null;
+    let stripeSettlementVerified = false;
+    let stripeSettlementWarning: string | null = null;
     let captureSuccess = false;
 
     if (stripeSecretKey) {
@@ -122,41 +131,33 @@ serve(async (req) => {
       const idempotencyKey = `capture_${trip_id}`;
 
       try {
-        const captureParams: Record<string, unknown> = {
-          amount_to_capture: final_trip_total_pence,
-        };
+        const settlement = await capturePaymentIntentWithSettlement({
+          stripe,
+          supabase,
+          tripId: trip_id,
+          driverId: driver_id,
+          paymentIntentId: payment_intent_id,
+          captureAmountPence: final_trip_total_pence,
+          commissionPence: platform_commission_pence,
+          driverPayoutPence: driver_total_earnings_pence,
+          currencyCode: currency_code,
+          driverStripeAccountId: driver_stripe_account_id,
+          idempotencyKey: `${idempotencyKey}_capture`,
+        });
 
-        if (driver_stripe_account_id) {
-          captureParams.application_fee_amount = platform_commission_pence;
-        }
+        console.log(`[capture] PaymentIntent captured: ${settlement.capturedPaymentIntent.id}, status: ${settlement.capturedPaymentIntent.status}`);
 
-        const pi = await stripe.paymentIntents.capture(
-          payment_intent_id,
-          captureParams as Stripe.PaymentIntentCaptureParams,
-          { idempotencyKey: `${idempotencyKey}_capture` },
-        );
-
-        console.log(`[capture] PaymentIntent captured: ${pi.id}, status: ${pi.status}`);
-
-        if (pi.latest_charge) {
-          try {
-            const charge = await stripe.charges.retrieve(pi.latest_charge as string, {
-              expand: ['balance_transaction', 'application_fee'],
-            });
-            const bt = charge.balance_transaction;
-            if (bt && typeof bt === 'object' && 'fee' in bt) {
-              stripeFee = bt.fee;
-              console.log(`[capture] Stripe fee: ${stripeFee}p`);
-            }
-            if (charge.application_fee && typeof charge.application_fee === 'object') {
-              stripeApplicationFeeId = charge.application_fee.id;
-            } else if (typeof charge.application_fee === 'string') {
-              stripeApplicationFeeId = charge.application_fee;
-            }
-          } catch (feeErr) {
-            console.log(`[capture] Could not retrieve Stripe fee: ${(feeErr as Error).message}`);
-          }
-        }
+        stripeChargeId = settlement.chargeId;
+        stripeCapturedAmount = settlement.capturedAmountPence;
+        stripeFee = settlement.stripeFeePence;
+        stripeApplicationFeeId = settlement.applicationFeeId;
+        stripeApplicationFeeAmount = settlement.applicationFeeAmountPence;
+        stripeDestinationAccountId = settlement.destinationAccountId;
+        stripeTransferId = settlement.transferId;
+        stripeTransferAmount = settlement.transferAmountPence;
+        stripeSettlementVerified = settlement.settlementVerified;
+        stripeSettlementWarning = settlement.settlementWarning;
+        console.log(`[capture] Stripe fee: ${stripeFee}p, application_fee_amount=${stripeApplicationFeeAmount ?? 'none'}p, transfer_amount=${stripeTransferAmount ?? 'none'}p`);
 
         captureSuccess = true;
 
@@ -244,7 +245,17 @@ serve(async (req) => {
     // === Update trip with settlement data ===
     await supabase.from('trips').update({
       payment_status: captureSuccess ? 'captured' : 'capture_failed',
+      capture_amount_pence: stripeCapturedAmount,
+      stripe_charge_id: stripeChargeId,
       stripe_processing_fee_pence: stripeFee,
+      onecab_net_pence: Math.max(0, platform_commission_pence - stripeFee),
+      stripe_application_fee_id: stripeApplicationFeeId,
+      stripe_application_fee_amount_pence: stripeApplicationFeeAmount,
+      stripe_destination_account_id: stripeDestinationAccountId,
+      stripe_transfer_id: stripeTransferId,
+      stripe_transfer_amount_pence: stripeTransferAmount,
+      stripe_settlement_verified: stripeSettlementVerified,
+      stripe_settlement_warning: stripeSettlementWarning,
       debt_recovery_pence: debtRecoveryPence,
       final_payout_pence: finalDriverPayoutPence,
       wallet_balance_before: walletBalanceBefore,
@@ -253,7 +264,7 @@ serve(async (req) => {
     }).eq('id', trip_id);
 
     console.log(`[capture] Trip ${trip_id} settlement complete`);
-    console.log(`[capture] Summary: total=${final_trip_total_pence}p, commission(gross)=${platform_commission_pence}p, stripeFee=${stripeFee}p, onecabNet=${platform_commission_pence - stripeFee}p, driverEarnings=${driver_total_earnings_pence}p, debtRecovery=${debtRecoveryPence}p, finalPayout=${finalDriverPayoutPence}p`);
+    console.log(`[capture] Summary: total=${final_trip_total_pence}p, commission(gross)=${platform_commission_pence}p, stripeFee=${stripeFee}p, onecabNet=${platform_commission_pence - stripeFee}p, driverEarnings=${driver_total_earnings_pence}p, debtRecovery=${debtRecoveryPence}p, finalPayout=${finalDriverPayoutPence}p, appFeeId=${stripeApplicationFeeId ?? 'none'}, appFeeAmount=${stripeApplicationFeeAmount ?? 'none'}p, destination=${stripeDestinationAccountId ?? 'none'}, transfer=${stripeTransferId ?? 'none'}, verified=${stripeSettlementVerified}`);
     // NOTE: commission_pence is GROSS (before Stripe fee). Stripe fee is tracked separately as stripe_processing_fee_pence. ONECAB net = commission - stripe fee. Stripe fee is NEVER deducted from the driver.
 
     return new Response(JSON.stringify({
@@ -267,6 +278,12 @@ serve(async (req) => {
       tip_amount_pence,
       stripe_fee_pence: stripeFee,
       stripe_application_fee_id: stripeApplicationFeeId,
+      stripe_application_fee_amount_pence: stripeApplicationFeeAmount,
+      stripe_destination_account_id: stripeDestinationAccountId,
+      stripe_transfer_id: stripeTransferId,
+      stripe_transfer_amount_pence: stripeTransferAmount,
+      stripe_settlement_verified: stripeSettlementVerified,
+      stripe_settlement_warning: stripeSettlementWarning,
       debt_recovery_pence: debtRecoveryPence,
       final_driver_payout_pence: finalDriverPayoutPence,
       wallet_balance_before: walletBalanceBefore,
