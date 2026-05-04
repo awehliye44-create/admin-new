@@ -2844,14 +2844,17 @@ export type Database = {
           last_significant_move_at: string | null
           last_significant_move_lat: number | null
           last_significant_move_lng: number | null
+          last_socket_pong_at: string | null
           lat: number | null
           lng: number | null
           low_accuracy: boolean
           low_accuracy_since: string | null
           platform: string | null
           push_token: string | null
+          socket_connected: boolean | null
           speed: number | null
           status: string
+          unresolved_critical_tracking: boolean
           updated_at: string
         }
         Insert: {
@@ -2867,14 +2870,17 @@ export type Database = {
           last_significant_move_at?: string | null
           last_significant_move_lat?: number | null
           last_significant_move_lng?: number | null
+          last_socket_pong_at?: string | null
           lat?: number | null
           lng?: number | null
           low_accuracy?: boolean
           low_accuracy_since?: string | null
           platform?: string | null
           push_token?: string | null
+          socket_connected?: boolean | null
           speed?: number | null
           status?: string
+          unresolved_critical_tracking?: boolean
           updated_at?: string
         }
         Update: {
@@ -2890,14 +2896,17 @@ export type Database = {
           last_significant_move_at?: string | null
           last_significant_move_lat?: number | null
           last_significant_move_lng?: number | null
+          last_socket_pong_at?: string | null
           lat?: number | null
           lng?: number | null
           low_accuracy?: boolean
           low_accuracy_since?: string | null
           platform?: string | null
           push_token?: string | null
+          socket_connected?: boolean | null
           speed?: number | null
           status?: string
+          unresolved_critical_tracking?: boolean
           updated_at?: string
         }
         Relationships: [
@@ -6314,7 +6323,11 @@ export type Database = {
           customer_respond_by: string | null
           decline_reason: string | null
           delivered_at: string | null
+          delivery_first_dispatched_at: string | null
           delivery_method: string | null
+          delivery_phase: string
+          delivery_push_attempts: number
+          delivery_trace: Json
           distance_meters: number | null
           driver_id: string
           driver_offer_fare: number | null
@@ -6325,6 +6338,7 @@ export type Database = {
           id: string
           is_stacked: boolean
           is_urgent_dispatch: boolean
+          last_push_requested_at: string | null
           negotiation_status: string | null
           offer_options: number[] | null
           offer_snapshot: Json | null
@@ -6344,7 +6358,11 @@ export type Database = {
           customer_respond_by?: string | null
           decline_reason?: string | null
           delivered_at?: string | null
+          delivery_first_dispatched_at?: string | null
           delivery_method?: string | null
+          delivery_phase?: string
+          delivery_push_attempts?: number
+          delivery_trace?: Json
           distance_meters?: number | null
           driver_id: string
           driver_offer_fare?: number | null
@@ -6355,6 +6373,7 @@ export type Database = {
           id?: string
           is_stacked?: boolean
           is_urgent_dispatch?: boolean
+          last_push_requested_at?: string | null
           negotiation_status?: string | null
           offer_options?: number[] | null
           offer_snapshot?: Json | null
@@ -6374,7 +6393,11 @@ export type Database = {
           customer_respond_by?: string | null
           decline_reason?: string | null
           delivered_at?: string | null
+          delivery_first_dispatched_at?: string | null
           delivery_method?: string | null
+          delivery_phase?: string
+          delivery_push_attempts?: number
+          delivery_trace?: Json
           distance_meters?: number | null
           driver_id?: string
           driver_offer_fare?: number | null
@@ -6385,6 +6408,7 @@ export type Database = {
           id?: string
           is_stacked?: boolean
           is_urgent_dispatch?: boolean
+          last_push_requested_at?: string | null
           negotiation_status?: string | null
           offer_options?: number[] | null
           offer_snapshot?: Json | null
@@ -9660,7 +9684,7 @@ export type Database = {
           current_trip_id: string | null
           driver_id: string | null
           first_name: string | null
-          has_push_token: boolean | null
+          has_presence_push_token_hint: boolean | null
           heading: number | null
           heartbeat_age_seconds: number | null
           last_heartbeat_at: string | null
@@ -9673,6 +9697,7 @@ export type Database = {
           rating: number | null
           speed: number | null
           status: string | null
+          unresolved_critical_tracking: boolean | null
         }
         Relationships: [
           {
@@ -9854,6 +9879,7 @@ export type Database = {
         Args: { p_method: string; p_offer_id: string }
         Returns: Json
       }
+      ack_timeout_sweep: { Args: never; Returns: undefined }
       admin_user_directory: {
         Args: never
         Returns: {
@@ -10043,6 +10069,7 @@ export type Database = {
           total_pence: number
         }[]
       }
+      get_driver_pending_ride_offers: { Args: never; Returns: Json }
       get_driver_wallet_balance: {
         Args: { p_driver_id: string }
         Returns: {
@@ -10172,6 +10199,10 @@ export type Database = {
           customer_photos: string[]
           found_item_photos: string[]
         }[]
+      }
+      merge_ride_offer_push_log: {
+        Args: { p_json: Json; p_offer_id: string }
+        Returns: undefined
       }
       ops_acknowledge_alert: {
         Args: { p_alert_id: string; p_user_id: string }
@@ -10304,6 +10335,14 @@ export type Database = {
         Args: { point_lat: number; point_lng: number; polygon_geojson: Json }
         Returns: boolean
       }
+      process_ride_offer_ack_timeouts: {
+        Args: never
+        Returns: {
+          driver_id: string
+          offer_id: string
+          trip_id: string
+        }[]
+      }
       promote_stacked_trip: {
         Args: { p_completed_trip_id?: string; p_driver_id: string }
         Returns: Json
@@ -10388,6 +10427,15 @@ export type Database = {
           zone_type: string
         }[]
       }
+      ride_offer_build_send_notification_body: {
+        Args: { p_offer_id: string }
+        Returns: Json
+      }
+      ride_offer_dispatch_push_delivery: {
+        Args: { p_offer_id: string; p_skip_notifications_insert?: boolean }
+        Returns: undefined
+      }
+      ride_offer_retry_unacked_push_deliveries: { Args: never; Returns: number }
       start_stop_waiting: {
         Args: {
           p_charge_interval_seconds?: number
@@ -10446,8 +10494,10 @@ export type Database = {
           p_lng?: number
           p_platform?: string
           p_push_token?: string
+          p_socket_connected?: boolean
           p_speed?: number
           p_status?: string
+          p_unresolved_critical_tracking?: boolean
         }
         Returns: {
           accuracy_m: number | null
@@ -10462,14 +10512,17 @@ export type Database = {
           last_significant_move_at: string | null
           last_significant_move_lat: number | null
           last_significant_move_lng: number | null
+          last_socket_pong_at: string | null
           lat: number | null
           lng: number | null
           low_accuracy: boolean
           low_accuracy_since: string | null
           platform: string | null
           push_token: string | null
+          socket_connected: boolean | null
           speed: number | null
           status: string
+          unresolved_critical_tracking: boolean
           updated_at: string
         }
         SetofOptions: {
