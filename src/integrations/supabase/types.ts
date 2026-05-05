@@ -355,6 +355,89 @@ export type Database = {
         }
         Relationships: []
       }
+      booking_delivery_log: {
+        Row: {
+          booking_id: string
+          created_at: string
+          detail: Json
+          driver_id: string | null
+          id: string
+          offer_id: string | null
+          phase: string
+          source: string
+        }
+        Insert: {
+          booking_id: string
+          created_at?: string
+          detail?: Json
+          driver_id?: string | null
+          id?: string
+          offer_id?: string | null
+          phase: string
+          source?: string
+        }
+        Update: {
+          booking_id?: string
+          created_at?: string
+          detail?: Json
+          driver_id?: string | null
+          id?: string
+          offer_id?: string | null
+          phase?: string
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booking_delivery_log_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_delivery_log_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_delivery_log_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "booking_delivery_log_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "booking_delivery_log_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "booking_delivery_log_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_delivery_log_offer_id_fkey"
+            columns: ["offer_id"]
+            isOneToOne: false
+            referencedRelation: "ride_offers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       call_masking_sessions: {
         Row: {
           caller_id: string | null
@@ -2849,6 +2932,7 @@ export type Database = {
           lng: number | null
           low_accuracy: boolean
           low_accuracy_since: string | null
+          network_type: string | null
           platform: string | null
           push_token: string | null
           socket_connected: boolean | null
@@ -2875,6 +2959,7 @@ export type Database = {
           lng?: number | null
           low_accuracy?: boolean
           low_accuracy_since?: string | null
+          network_type?: string | null
           platform?: string | null
           push_token?: string | null
           socket_connected?: boolean | null
@@ -2901,6 +2986,7 @@ export type Database = {
           lng?: number | null
           low_accuracy?: boolean
           low_accuracy_since?: string | null
+          network_type?: string | null
           platform?: string | null
           push_token?: string | null
           socket_connected?: boolean | null
@@ -3503,6 +3589,7 @@ export type Database = {
           last_location_updated_at: string | null
           last_name: string
           last_offer_at: string | null
+          last_seen_at: string | null
           last_trip_end_at: string | null
           onboarding_complete: boolean | null
           online_since: string | null
@@ -3544,6 +3631,7 @@ export type Database = {
           last_location_updated_at?: string | null
           last_name: string
           last_offer_at?: string | null
+          last_seen_at?: string | null
           last_trip_end_at?: string | null
           onboarding_complete?: boolean | null
           online_since?: string | null
@@ -3585,6 +3673,7 @@ export type Database = {
           last_location_updated_at?: string | null
           last_name?: string
           last_offer_at?: string | null
+          last_seen_at?: string | null
           last_trip_end_at?: string | null
           onboarding_complete?: boolean | null
           online_since?: string | null
@@ -9689,12 +9778,16 @@ export type Database = {
           heartbeat_age_seconds: number | null
           last_heartbeat_at: string | null
           last_location_at: string | null
+          last_location_updated_at: string | null
           last_name: string | null
+          last_seen_at: string | null
+          last_socket_pong_at: string | null
           lat: number | null
           lng: number | null
           platform: string | null
           push_token: string | null
           rating: number | null
+          socket_connected: boolean | null
           speed: number | null
           status: string | null
           unresolved_critical_tracking: boolean | null
@@ -10062,6 +10155,16 @@ export type Database = {
           total_trips: number
         }[]
       }
+      get_dispatch_metrics: {
+        Args: {
+          p_driver_id?: string
+          p_end: string
+          p_region_id?: string
+          p_service_area_id?: string
+          p_start: string
+        }
+        Returns: Json
+      }
       get_driver_ledger_aggregates: {
         Args: { p_driver_id: string }
         Returns: {
@@ -10321,6 +10424,24 @@ export type Database = {
         }
         Returns: string
       }
+      passenger_map_nearby_drivers: {
+        Args: {
+          p_lat: number
+          p_limit?: number
+          p_lng: number
+          p_radius_meters: number
+          p_stale_seconds?: number
+        }
+        Returns: {
+          distance_meters: number
+          driver_id: string
+          heading: number
+          lat: number
+          lng: number
+          speed: number
+          updated_at: string
+        }[]
+      }
       point_in_circle: {
         Args: {
           center_lat: number
@@ -10397,6 +10518,17 @@ export type Database = {
           driver_id: string
           heartbeat_age_seconds: number
         }[]
+      }
+      record_booking_delivery: {
+        Args: {
+          p_booking_id: string
+          p_detail?: Json
+          p_driver_id?: string
+          p_offer_id?: string
+          p_phase: string
+          p_source?: string
+        }
+        Returns: undefined
       }
       record_cash_trip_completion: {
         Args: {
@@ -10492,6 +10624,7 @@ export type Database = {
           p_heading?: number
           p_lat?: number
           p_lng?: number
+          p_network_type?: string
           p_platform?: string
           p_push_token?: string
           p_socket_connected?: boolean
@@ -10517,6 +10650,7 @@ export type Database = {
           lng: number | null
           low_accuracy: boolean
           low_accuracy_since: string | null
+          network_type: string | null
           platform: string | null
           push_token: string | null
           socket_connected: boolean | null

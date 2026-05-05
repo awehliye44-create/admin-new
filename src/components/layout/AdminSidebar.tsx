@@ -63,6 +63,7 @@ import {
   PackageSearch,
   Sparkles,
   Gauge,
+  Activity,
 } from 'lucide-react';
 import {
   Collapsible,
@@ -253,6 +254,7 @@ export function AdminSidebar() {
               <P pageSlug="trip-history" to="/trip-history" icon={<History className="h-4 w-4" />} label="Trip History" active={currentPath === '/trip-history'} collapsed={isCollapsed} />
               <P pageSlug="manual-trip" to="/manual-trip" icon={<Plus className="h-4 w-4" />} label="Manual Trip Creation" active={currentPath === '/manual-trip'} collapsed={isCollapsed} />
               <P pageSlug="qr-booking" to="/qr-booking" icon={<QrCode className="h-4 w-4" />} label="QR Booking" active={currentPath === '/qr-booking'} collapsed={isCollapsed} />
+              <P pageSlug="dispatch-metrics" to="/dispatch-metrics" icon={<Activity className="h-4 w-4" />} label="Dispatch Metrics" active={currentPath === '/dispatch-metrics'} collapsed={isCollapsed} />
             </div>
           </div>
 
