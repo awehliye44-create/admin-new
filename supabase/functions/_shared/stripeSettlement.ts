@@ -63,7 +63,7 @@ export async function capturePaymentIntentWithSettlement({
   driverStripeAccountId?: string | null;
   idempotencyKey: string;
 }): Promise<StripeSettlementResult> {
-  const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+  let paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
   if (paymentIntent.status !== 'requires_capture') {
     throw new Error(`Cannot capture — PaymentIntent status is "${paymentIntent.status}"`);
   }
@@ -81,6 +81,14 @@ export async function capturePaymentIntentWithSettlement({
   }
   const driverTransferAmountPence = expectedDriverTransferAmountPence;
 
+  let platformAccountId: string | null = null;
+  try {
+    const platformAccount = await stripe.accounts.retrieve();
+    platformAccountId = platformAccount.id;
+  } catch (error) {
+    console.warn(`[stripe-settlement] Could not resolve platform Stripe account: ${(error as Error).message}`);
+  }
+
   let destinationAccountId = asStripeId(paymentIntent.transfer_data?.destination);
   let resolvedDriverAccountId = driverStripeAccountId ?? null;
 
@@ -93,8 +101,46 @@ export async function capturePaymentIntentWithSettlement({
     resolvedDriverAccountId = driver?.stripe_account_id ?? null;
   }
 
+  if (destinationAccountId && resolvedDriverAccountId && destinationAccountId !== resolvedDriverAccountId) {
+    throw new Error(`STRIPE_DESTINATION_MISMATCH: PaymentIntent destination ${destinationAccountId} does not match driver account ${resolvedDriverAccountId}`);
+  }
+
+  if (!destinationAccountId && resolvedDriverAccountId) {
+    try {
+      paymentIntent = await stripe.paymentIntents.update(
+        paymentIntentId,
+        {
+          transfer_data: { destination: resolvedDriverAccountId },
+          ...(commissionPence > 0 ? { application_fee_amount: commissionPence } : {}),
+          metadata: {
+            ...paymentIntent.metadata,
+            trip_id: tripId,
+            connect_flow: 'destination_charge',
+            settlement_normalized_before_capture: 'true',
+            commission_pence: String(commissionPence),
+            expected_driver_transfer_amount_pence: String(driverTransferAmountPence),
+          },
+        },
+        { idempotencyKey: `${idempotencyKey}_connect_destination_normalize` },
+      );
+      destinationAccountId = asStripeId(paymentIntent.transfer_data?.destination);
+      console.log(`[stripe-settlement] Normalized PI ${paymentIntentId} to destination charge destination=${destinationAccountId ?? 'none'} application_fee_amount=${commissionPence}`);
+    } catch (error) {
+      console.error(`[stripe-settlement] Could not normalize PI ${paymentIntentId} to destination charge; falling back to separate charge + transfer: ${(error as Error).message}`);
+    }
+  }
+
   const captureParams: Stripe.PaymentIntentCaptureParams = {
     amount_to_capture: captureAmountPence,
+    metadata: {
+      trip_id: tripId,
+      final_fare_pence: String(captureAmountPence),
+      commission_pence: String(commissionPence),
+      driver_transfer_amount: String(driverTransferAmountPence),
+      connected_account_id: destinationAccountId ?? resolvedDriverAccountId ?? 'none',
+      platform_account_id: platformAccountId ?? 'unknown',
+      settlement_mode: destinationAccountId ? 'destination_charge' : resolvedDriverAccountId ? 'separate_charge_transfer' : 'platform_charge_only',
+    },
   };
 
   if (destinationAccountId && commissionPence > 0) {
@@ -104,8 +150,7 @@ export async function capturePaymentIntentWithSettlement({
   console.log(
     `[stripe-settlement] trip=${tripId} pi=${paymentIntentId} final_fare_pence=${captureAmountPence} commission_pence=${commissionPence} ` +
     `driver_transfer_amount=${driverTransferAmountPence} application_fee_amount=${captureParams.application_fee_amount ?? 'none'} ` +
-    `application_fee_amount=${captureParams.application_fee_amount ?? 'none'} destination=${destinationAccountId ?? 'none'} ` +
-    `driver_account=${resolvedDriverAccountId ?? 'none'}`,
+    `destination=${destinationAccountId ?? 'none'} driver_account=${resolvedDriverAccountId ?? 'none'} platform_account=${platformAccountId ?? 'unknown'}`,
   );
 
   const capturedPaymentIntent = await stripe.paymentIntents.capture(paymentIntentId, captureParams, { idempotencyKey });

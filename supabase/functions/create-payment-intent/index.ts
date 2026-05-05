@@ -83,6 +83,13 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
+    let platformStripeAccountId: string | null = null;
+    try {
+      const platformAccount = await stripe.accounts.retrieve();
+      platformStripeAccountId = platformAccount.id;
+    } catch (accountError) {
+      console.warn('[create-payment-intent] Could not resolve platform Stripe account:', accountError);
+    }
 
     // === Resolve currency from Region (single source of truth) ===
     let currency_code: string;
@@ -217,6 +224,7 @@ serve(async (req) => {
         trip_id,
         customer_id,
         payment_method_type,
+        platform_stripe_account_id: platformStripeAccountId ?? 'unknown',
         commission_pct: String(commissionPercentage),
         estimated_fare_pence: String(estimated_fare_pence),
         discount_amount_pence: String(safeDiscount),
@@ -257,8 +265,8 @@ serve(async (req) => {
       idempotencyKey: `create_pi_${trip_id}`,
     });
 
-    console.log(`[create-payment-intent] Created PI: ${paymentIntent.id} for trip ${trip_id}, currency: ${currency_code}`);
-    console.log(`[create-payment-intent] Estimated: ${estimated_fare_pence}p, Discount: ${safeDiscount}p, Payable: ${payable_pence}p, Buffer: ${buffer_pence}p, Hold: ${hold_pence}p, AppFee: ${applicationFeeAmount}p, Destination: ${driverStripeAccountId || "none"}`);
+    console.log(`[create-payment-intent] Created PI: ${paymentIntent.id} for trip ${trip_id}, currency: ${currency_code}, platform_account=${platformStripeAccountId ?? 'unknown'}`);
+    console.log(`[stripe-settlement-create] payment_intent_id=${paymentIntent.id} trip=${trip_id} charge_type=${driverStripeAccountId ? 'destination_charge' : 'platform_charge_manual_payout'} final_fare_pence=${payable_pence} commission_pence=${applicationFeeAmount} driver_transfer_amount=${Math.max(0, payable_pence - applicationFeeAmount)} application_fee_amount=${driverStripeAccountId ? applicationFeeAmount : 'none'} connected_account_id=${driverStripeAccountId || "none"} platform_account_id=${platformStripeAccountId ?? 'unknown'} preauth_hold_pence=${hold_pence} preauth_buffer_pence=${buffer_pence}`);
 
     // Store PI + informational hold/buffer columns on the trip.
     // authorised_amount_pence = the actual Stripe hold (informational).
