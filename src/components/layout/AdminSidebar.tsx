@@ -63,6 +63,7 @@ import {
   PackageSearch,
   Sparkles,
   Gauge,
+  Activity,
 } from 'lucide-react';
 import {
   Collapsible,
