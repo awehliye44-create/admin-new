@@ -10155,6 +10155,16 @@ export type Database = {
           total_trips: number
         }[]
       }
+      get_dispatch_metrics: {
+        Args: {
+          p_driver_id?: string
+          p_end: string
+          p_region_id?: string
+          p_service_area_id?: string
+          p_start: string
+        }
+        Returns: Json
+      }
       get_driver_ledger_aggregates: {
         Args: { p_driver_id: string }
         Returns: {
