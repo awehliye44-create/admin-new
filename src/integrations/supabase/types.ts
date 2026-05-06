@@ -8295,6 +8295,7 @@ export type Database = {
           cancelled_at: string | null
           cancelled_by: string | null
           cancelled_by_role: string | null
+          cancelled_driver_ids: string[]
           capture_amount_pence: number | null
           check_in_reminder_sent_at: string | null
           client_action_id: string | null
@@ -8399,6 +8400,7 @@ export type Database = {
           scheduled_broadcast_at: string | null
           scheduled_convert_at: string | null
           scheduled_status: string | null
+          searching_expires_at: string | null
           sequence_no: number | null
           service_area_code: string | null
           service_area_id: string | null
@@ -8454,6 +8456,7 @@ export type Database = {
           cancelled_at?: string | null
           cancelled_by?: string | null
           cancelled_by_role?: string | null
+          cancelled_driver_ids?: string[]
           capture_amount_pence?: number | null
           check_in_reminder_sent_at?: string | null
           client_action_id?: string | null
@@ -8558,6 +8561,7 @@ export type Database = {
           scheduled_broadcast_at?: string | null
           scheduled_convert_at?: string | null
           scheduled_status?: string | null
+          searching_expires_at?: string | null
           sequence_no?: number | null
           service_area_code?: string | null
           service_area_id?: string | null
@@ -8613,6 +8617,7 @@ export type Database = {
           cancelled_at?: string | null
           cancelled_by?: string | null
           cancelled_by_role?: string | null
+          cancelled_driver_ids?: string[]
           capture_amount_pence?: number | null
           check_in_reminder_sent_at?: string | null
           client_action_id?: string | null
@@ -8717,6 +8722,7 @@ export type Database = {
           scheduled_broadcast_at?: string | null
           scheduled_convert_at?: string | null
           scheduled_status?: string | null
+          searching_expires_at?: string | null
           sequence_no?: number | null
           service_area_code?: string | null
           service_area_id?: string | null
