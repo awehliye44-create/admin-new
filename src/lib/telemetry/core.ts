@@ -210,6 +210,7 @@ export class OnecabTelemetry {
         headers: {
           'Content-Type': 'application/json',
           apikey: this.config.supabaseAnonKey,
+          Authorization: `Bearer ${this.config.supabaseAnonKey}`,
         },
         body: JSON.stringify({ events: batch }),
       });
