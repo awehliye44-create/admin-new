@@ -627,7 +627,7 @@ export default function Dashboard() {
       )}
 
       {/* Revenue by Service Area — from ledger */}
-      {(revenueData?.serviceAreaBreakdown?.length || 0) > 0 && (
+      {selectedServiceArea === 'all' && (revenueData?.serviceAreaBreakdown?.length || 0) > 0 && (
         <Card className="mb-6">
           <CardHeader className="flex flex-row items-center gap-2">
             <MapPin className="h-5 w-5 text-primary" />
