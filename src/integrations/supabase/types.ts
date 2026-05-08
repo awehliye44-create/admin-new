@@ -1770,6 +1770,8 @@ export type Database = {
           id: string
           last_name: string
           phone: string | null
+          phone_verified: boolean
+          phone_verified_at: string | null
           rider_status: string
           stripe_customer_id: string | null
           updated_at: string
@@ -1784,6 +1786,8 @@ export type Database = {
           id?: string
           last_name: string
           phone?: string | null
+          phone_verified?: boolean
+          phone_verified_at?: string | null
           rider_status?: string
           stripe_customer_id?: string | null
           updated_at?: string
@@ -1798,6 +1802,8 @@ export type Database = {
           id?: string
           last_name?: string
           phone?: string | null
+          phone_verified?: boolean
+          phone_verified_at?: string | null
           rider_status?: string
           stripe_customer_id?: string | null
           updated_at?: string
@@ -10592,6 +10598,10 @@ export type Database = {
       }
       suspend_corporate_request: {
         Args: { p_request_id: string; p_reviewed_by?: string }
+        Returns: undefined
+      }
+      sync_customer_phone_verification: {
+        Args: { _user_id: string }
         Returns: undefined
       }
       tick_stop_waiting: { Args: { p_waiting_id: string }; Returns: Json }
