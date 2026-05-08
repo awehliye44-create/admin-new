@@ -531,7 +531,15 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Revenue Cards — ONECAB net (commission − Stripe fee) from trips.onecab_net_pence */}
+      {/* Context label */}
+      <div className="mb-4 text-sm text-muted-foreground">
+        {selectedServiceArea === 'all'
+          ? 'Showing commission breakdown across all service areas'
+          : `Showing financial data for ${selectedArea?.name || 'selected service area'}`}
+      </div>
+
+      {/* Revenue Cards — only shown when a specific service area is selected (avoids mixed-currency aggregation) */}
+      {selectedServiceArea !== 'all' && (
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
