@@ -601,9 +601,10 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+      )}
 
-      {/* Revenue Over Time Chart */}
-      {(revenueData?.chartData?.length || 0) > 0 && (
+      {/* Revenue Over Time Chart — only when a specific service area is selected */}
+      {selectedServiceArea !== 'all' && (revenueData?.chartData?.length || 0) > 0 && (
         <Card className="mb-6">
           <CardHeader className="flex flex-row items-center gap-2">
             <TrendingUp className="h-5 w-5 text-primary" />
