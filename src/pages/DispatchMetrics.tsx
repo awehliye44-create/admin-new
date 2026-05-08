@@ -14,6 +14,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import { cn } from "@/lib/utils";
 import { useRegions } from "@/hooks/useRegions";
 import { useServiceAreas } from "@/hooks/useServiceAreas";
@@ -79,7 +80,7 @@ export default function DispatchMetrics() {
 
   const { start, end } = useMemo(() => rangeFromPreset(preset, customRange), [preset, customRange]);
 
-  const { data, isLoading, refetch, isFetching } = useQuery({
+  const { data, isLoading, refetch, isFetching, error } = useQuery({
     queryKey: ["dispatch-metrics", start.toISOString(), end.toISOString(), regionId, serviceAreaId, driverId],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("get_dispatch_metrics", {
@@ -215,7 +216,7 @@ export default function DispatchMetrics() {
           <CardHeader><CardTitle className="text-lg">Offered vs Received</CardTitle></CardHeader>
           <CardContent>
             <div className="h-72">
-              {isLoading ? <Skeleton className="h-full w-full" /> : (
+              {isLoading ? <Skeleton className="h-full w-full" /> : error ? <QueryErrorState error={error} onRetry={() => refetch()} compact /> : (
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={(data?.timeline ?? []).map((t) => ({ ...t, label: format(new Date(t.bucket), "MM/dd HH:mm") }))}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
@@ -236,7 +237,7 @@ export default function DispatchMetrics() {
           <CardHeader><CardTitle className="text-lg">Timeouts & Reassignments by Hour</CardTitle></CardHeader>
           <CardContent>
             <div className="h-72">
-              {isLoading ? <Skeleton className="h-full w-full" /> : (
+              {isLoading ? <Skeleton className="h-full w-full" /> : error ? <QueryErrorState error={error} onRetry={() => refetch()} compact /> : (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={(data?.hourly_failures ?? []).map((t) => ({ ...t, label: format(new Date(t.bucket), "MM/dd HH:mm") }))}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
@@ -274,6 +275,8 @@ export default function DispatchMetrics() {
               <TableBody>
                 {isLoading ? (
                   <TableRow><TableCell colSpan={7}><Skeleton className="h-8 w-full" /></TableCell></TableRow>
+                ) : error ? (
+                  <TableRow><TableCell colSpan={7}><QueryErrorState error={error} onRetry={() => refetch()} compact /></TableCell></TableRow>
                 ) : (data?.recent_failures ?? []).length === 0 ? (
                   <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground">No failed deliveries in this range</TableCell></TableRow>
                 ) : data!.recent_failures.map((f, i) => (
