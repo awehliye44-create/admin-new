@@ -334,3 +334,12 @@ function MetricCard({ title, value, sub, icon, loading }: { title: string; value
     </Card>
   );
 }
+
+function DebugStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border border-border p-3">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-xl font-semibold mt-1">{value}</div>
+    </div>
+  );
+}
