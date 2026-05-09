@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, subDays, startOfDay, endOfDay } from "date-fns";
-import { CalendarIcon, Activity, Send, Timer, RefreshCw } from "lucide-react";
+import { CalendarIcon, Activity, Send, Timer, RefreshCw, CheckCircle2, AlertCircle, XCircle, ChevronDown, Users, ShieldAlert } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,21 +14,13 @@ import { Calendar } from "@/components/ui/calendar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { cn } from "@/lib/utils";
 import { useRegions } from "@/hooks/useRegions";
 import { useServiceAreas } from "@/hooks/useServiceAreas";
 import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
+  ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts";
 
 type Preset = "today" | "24h" | "7d" | "custom";
@@ -44,29 +36,32 @@ interface DispatchMetricsResult {
   total_offers: number;
   reassigned_offers: number;
   reassigned_pct: number | null;
+  accepted_offers: number;
+  acceptance_rate: number | null;
+  expired_offers: number;
+  timeout_rate: number | null;
+  fallback_rate: number | null;
+  trips_evaluated: number;
+  trips_no_eligible: number;
+  no_eligible_rate: number | null;
   timeline: Array<{ bucket: string; offered: number; received: number }>;
   hourly_failures: Array<{ bucket: string; timeout: number; reassigned: number }>;
   recent_failures: Array<{
-    booking_id: string;
-    driver_id: string | null;
-    offer_id: string | null;
-    phase: string;
-    failure_reason: string;
-    created_at: string;
-    last_event_at: string;
+    booking_id: string; driver_id: string | null; offer_id: string | null;
+    phase: string; failure_reason: string; created_at: string; last_event_at: string;
   }>;
   debug?: {
-    duplicate_ack_count: number;
-    duplicate_push_count: number;
-    retry_delivery_count: number;
-    pending_offer_recovery_count: number;
+    duplicate_ack_count: number; duplicate_push_count: number;
+    retry_delivery_count: number; pending_offer_recovery_count: number;
   };
 }
+
+type Health = "healthy" | "warning" | "critical" | "unknown";
 
 const clampPct = (v: number | null | undefined) =>
   v == null ? null : Math.min(Math.max(v, 0), 100);
 
-function rangeFromPreset(preset: Preset, custom: { from?: Date; to?: Date }): { start: Date; end: Date } {
+function rangeFromPreset(preset: Preset, custom: { from?: Date; to?: Date }) {
   const now = new Date();
   if (preset === "today") return { start: startOfDay(now), end: endOfDay(now) };
   if (preset === "24h") return { start: new Date(now.getTime() - 24 * 60 * 60 * 1000), end: now };
@@ -77,6 +72,98 @@ function rangeFromPreset(preset: Preset, custom: { from?: Date; to?: Date }): { 
   };
 }
 
+// Health classification per metric
+function deliveryHealth(v: number | null): Health {
+  if (v == null) return "unknown";
+  if (v >= 98) return "healthy";
+  if (v >= 95) return "warning";
+  return "critical";
+}
+function acceptanceHealth(v: number | null): Health {
+  if (v == null) return "unknown";
+  if (v >= 70) return "healthy";
+  if (v >= 40) return "warning";
+  return "critical";
+}
+function timeoutHealth(v: number | null): Health {
+  if (v == null) return "unknown";
+  if (v < 15) return "healthy";
+  if (v <= 30) return "warning";
+  return "critical";
+}
+function fallbackHealth(v: number | null): Health {
+  if (v == null) return "unknown";
+  if (v < 5) return "healthy";
+  if (v <= 15) return "warning";
+  return "critical";
+}
+function noEligibleHealth(v: number | null): Health {
+  if (v == null) return "unknown";
+  if (v < 10) return "healthy";
+  if (v <= 25) return "warning";
+  return "critical";
+}
+
+const HEALTH_TEXT: Record<string, Record<Health, string>> = {
+  delivery: {
+    healthy: "Delivery system healthy. Ride offers are reliably reaching drivers.",
+    warning: "Some ride offers are delayed or missing. Check push delivery, realtime sockets, and fallback recovery.",
+    critical: "Delivery reliability is degraded. Drivers may not receive ride offers consistently. Inspect push_failed, socket_failed, and booking_received gaps.",
+    unknown: "No offer delivery activity in this window.",
+  },
+  acceptance: {
+    healthy: "Drivers are accepting most delivered offers.",
+    warning: "Acceptance rate is moderate. Pricing, distance, or driver preferences may be reducing acceptance.",
+    critical: "Low acceptance rate. Drivers are receiving offers but frequently ignoring or rejecting them.",
+    unknown: "No offers in this window to evaluate acceptance.",
+  },
+  timeout: {
+    healthy: "Drivers are responding quickly to offers.",
+    warning: "Some drivers are not responding before expiry.",
+    critical: "Many offers expire without driver response. Consider longer expiry windows or improved alert visibility.",
+    unknown: "No offers in this window.",
+  },
+  fallback: {
+    healthy: "Realtime delivery is stable. Fallback rarely needed.",
+    warning: "Fallback recovery is assisting some deliveries. Monitor realtime reliability.",
+    critical: "Primary realtime delivery may be unstable. Pending-offers fallback is heavily relied upon.",
+    unknown: "No offer activity in this window.",
+  },
+  noEligible: {
+    healthy: "Driver availability is healthy.",
+    warning: "Some trips cannot find eligible drivers. Review online presence, service area coverage, and filters.",
+    critical: "Many trips have no eligible drivers. Dispatch eligibility or driver availability may be too restrictive.",
+    unknown: "No dispatch eligibility evaluations in this window.",
+  },
+};
+
+const HEALTH_STYLE: Record<Health, { card: string; badge: string; icon: JSX.Element; label: string }> = {
+  healthy: {
+    card: "border-emerald-500/30",
+    badge: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30",
+    icon: <CheckCircle2 className="h-3.5 w-3.5" />,
+    label: "Healthy",
+  },
+  warning: {
+    card: "border-amber-500/40",
+    badge: "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30",
+    icon: <AlertCircle className="h-3.5 w-3.5" />,
+    label: "Warning",
+  },
+  critical: {
+    card: "border-destructive/50",
+    badge: "bg-destructive/15 text-destructive border-destructive/40",
+    icon: <XCircle className="h-3.5 w-3.5" />,
+    label: "Critical",
+  },
+  unknown: {
+    card: "border-border",
+    badge: "bg-muted text-muted-foreground border-border",
+    icon: <AlertCircle className="h-3.5 w-3.5" />,
+    label: "No data",
+  },
+};
+
 export default function DispatchMetrics() {
   const [preset, setPreset] = useState<Preset>("24h");
   const [customRange, setCustomRange] = useState<{ from?: Date; to?: Date }>({});
@@ -86,7 +173,6 @@ export default function DispatchMetrics() {
 
   const { data: regions = [] } = useRegions();
   const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: true });
-
   const { start, end } = useMemo(() => rangeFromPreset(preset, customRange), [preset, customRange]);
 
   const { data, isLoading, refetch, isFetching, error } = useQuery({
@@ -105,6 +191,27 @@ export default function DispatchMetrics() {
   });
 
   const filteredServiceAreas = regionId === "all" ? serviceAreas : serviceAreas.filter((s) => s.region_id === regionId);
+
+  // Derived health states
+  const hDelivery = deliveryHealth(data?.ack_success_rate ?? null);
+  const hAcceptance = acceptanceHealth(data?.acceptance_rate ?? null);
+  const hTimeout = timeoutHealth(data?.timeout_rate ?? null);
+  const hFallback = fallbackHealth(data?.fallback_rate ?? null);
+  const hNoEligible = noEligibleHealth(data?.no_eligible_rate ?? null);
+
+  // Operational hints
+  const hints: string[] = [];
+  if (data) {
+    if (hDelivery === "healthy" && (hAcceptance === "warning" || hAcceptance === "critical")) {
+      hints.push("Technical delivery is healthy. This is likely a market/pricing/driver preference issue rather than a notification problem.");
+    }
+    if (hDelivery === "healthy" && (hFallback === "warning" || hFallback === "critical")) {
+      hints.push("Drivers still receive rides because fallback recovery is compensating for realtime instability.");
+    }
+    if (hDelivery === "healthy" && (hAcceptance === "warning" || hAcceptance === "critical") && (hTimeout === "warning" || hTimeout === "critical")) {
+      hints.push("Drivers are receiving offers correctly but are not accepting them.");
+    }
+  }
 
   return (
     <AdminLayout title="Dispatch Metrics" description="Real-time booking delivery health from booking_delivery_log and ride_offers.">
@@ -139,13 +246,9 @@ export default function DispatchMetrics() {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="range"
-                    selected={{ from: customRange.from, to: customRange.to }}
-                    onSelect={(r) => setCustomRange({ from: r?.from, to: r?.to })}
-                    initialFocus
-                    className={cn("p-3 pointer-events-auto")}
-                  />
+                  <Calendar mode="range" selected={{ from: customRange.from, to: customRange.to }}
+                    onSelect={(r) => setCustomRange({ from: r?.from, to: r?.to })} initialFocus
+                    className={cn("p-3 pointer-events-auto")} />
                 </PopoverContent>
               </Popover>
             </div>
@@ -187,34 +290,81 @@ export default function DispatchMetrics() {
         </CardContent>
       </Card>
 
-      {/* Metric cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
-        <MetricCard
-          title="ACK Success Rate"
+      {/* Operational hints */}
+      {hints.length > 0 && (
+        <Card className="mb-6 border-primary/30 bg-primary/5">
+          <CardContent className="pt-6 space-y-2">
+            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <ShieldAlert className="h-4 w-4 text-primary" />
+              Operational guidance
+            </div>
+            <ul className="list-disc pl-5 space-y-1 text-sm text-muted-foreground">
+              {hints.map((h, i) => <li key={i}>{h}</li>)}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Health metric cards */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-6">
+        <HealthCard
+          title="Delivery Reliability"
           icon={<Activity className="h-4 w-4 text-primary" />}
           value={data?.ack_success_rate != null ? `${clampPct(data.ack_success_rate)}%` : "—"}
           sub={data ? `${Math.min(data.received, data.offered)} received / ${data.offered} offered` : undefined}
+          health={hDelivery}
+          helpText={HEALTH_TEXT.delivery[hDelivery]}
+          why="Calculated from booking_delivery_log: unique offers reaching 'booking_received' / unique 'booking_sent'. Healthy ≥ 98%, Warning 95–97.9%, Critical < 95%."
           loading={isLoading}
         />
-        <MetricCard
-          title="Push Success Rate"
+        <HealthCard
+          title="Driver Acceptance"
+          icon={<CheckCircle2 className="h-4 w-4 text-primary" />}
+          value={data?.acceptance_rate != null ? `${clampPct(data.acceptance_rate)}%` : "—"}
+          sub={data ? `${data.accepted_offers} accepted / ${data.total_offers} offers` : undefined}
+          health={hAcceptance}
+          helpText={HEALTH_TEXT.acceptance[hAcceptance]}
+          why="Accepted offers / total offers in ride_offers. Healthy ≥ 70%, Warning 40–69%, Critical < 40%."
+          loading={isLoading}
+        />
+        <HealthCard
+          title="Driver Timeout"
+          icon={<Timer className="h-4 w-4 text-primary" />}
+          value={data?.timeout_rate != null ? `${clampPct(data.timeout_rate)}%` : "—"}
+          sub={data ? `${data.expired_offers} expired / ${data.total_offers} offers` : undefined}
+          health={hTimeout}
+          helpText={HEALTH_TEXT.timeout[hTimeout]}
+          why="Expired offers (status='expired' or revoked_reason='ack_timeout') / total offers. Healthy < 15%, Warning 15–30%, Critical > 30%."
+          loading={isLoading}
+        />
+        <HealthCard
+          title="Fallback Recovery"
+          icon={<RefreshCw className="h-4 w-4 text-primary" />}
+          value={data?.fallback_rate != null ? `${clampPct(data.fallback_rate)}%` : "—"}
+          sub={data ? `${data.debug?.pending_offer_recovery_count ?? 0} fallbacks / ${data.offered} offered` : undefined}
+          health={hFallback}
+          helpText={HEALTH_TEXT.fallback[hFallback]}
+          why="pending_offers_fallback events / offered. Healthy < 5%, Warning 5–15%, Critical > 15%."
+          loading={isLoading}
+        />
+        <HealthCard
+          title="No Eligible Drivers"
+          icon={<Users className="h-4 w-4 text-primary" />}
+          value={data?.no_eligible_rate != null ? `${clampPct(data.no_eligible_rate)}%` : "—"}
+          sub={data ? `${data.trips_no_eligible} of ${data.trips_evaluated} trips` : undefined}
+          health={hNoEligible}
+          helpText={HEALTH_TEXT.noEligible[hNoEligible]}
+          why="Trips where dispatch_eligibility_log shows zero eligible drivers / trips evaluated. Healthy < 10%, Warning 10–25%, Critical > 25%."
+          loading={isLoading}
+        />
+        <HealthCard
+          title="Push Delivery"
           icon={<Send className="h-4 w-4 text-primary" />}
           value={data?.push_success_rate != null ? `${clampPct(data.push_success_rate)}%` : "—"}
           sub={data ? `${Math.min(data.push_sent, data.push_enqueued)} sent / ${data.push_enqueued} enqueued` : undefined}
-          loading={isLoading}
-        />
-        <MetricCard
-          title="Average Accept Time"
-          icon={<Timer className="h-4 w-4 text-primary" />}
-          value={data ? `${data.avg_accept_seconds.toFixed(1)}s` : "—"}
-          sub="Time from offered → accepted"
-          loading={isLoading}
-        />
-        <MetricCard
-          title="Reassigned Booking %"
-          icon={<RefreshCw className="h-4 w-4 text-primary" />}
-          value={data?.reassigned_pct != null ? `${clampPct(data.reassigned_pct)}%` : "—"}
-          sub={data ? `${data.reassigned_offers} of ${data.total_offers} offers` : undefined}
+          health={deliveryHealth(data?.push_success_rate ?? null)}
+          helpText="Push notification provider deliverability. Low values indicate FCM/APNs token or provider issues."
+          why="push_sent / push_enqueued from booking_delivery_log. Same thresholds as delivery reliability."
           loading={isLoading}
         />
       </div>
@@ -320,16 +470,41 @@ export default function DispatchMetrics() {
   );
 }
 
-function MetricCard({ title, value, sub, icon, loading }: { title: string; value: string; sub?: string; icon: React.ReactNode; loading?: boolean }) {
+function HealthCard({
+  title, value, sub, icon, health, helpText, why, loading,
+}: {
+  title: string; value: string; sub?: string; icon: React.ReactNode;
+  health: Health; helpText: string; why: string; loading?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const style = HEALTH_STYLE[health];
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
-        {icon}
+    <Card className={cn("border-2", style.card)}>
+      <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+        <div className="flex items-center gap-2">
+          {icon}
+          <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
+        </div>
+        <Badge variant="outline" className={cn("flex items-center gap-1 text-xs", style.badge)}>
+          {style.icon}
+          {style.label}
+        </Badge>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-2">
         {loading ? <Skeleton className="h-8 w-24" /> : <div className="text-2xl font-bold">{value}</div>}
-        {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
+        {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
+        <p className="text-xs text-foreground/80 leading-relaxed">{helpText}</p>
+        <Collapsible open={open} onOpenChange={setOpen}>
+          <CollapsibleTrigger asChild>
+            <button type="button" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+              Why?
+              <ChevronDown className={cn("h-3 w-3 transition-transform", open && "rotate-180")} />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="mt-2 text-xs text-muted-foreground border-t border-border/50 pt-2">
+            {why}
+          </CollapsibleContent>
+        </Collapsible>
       </CardContent>
     </Card>
   );
