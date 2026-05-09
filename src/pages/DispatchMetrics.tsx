@@ -55,7 +55,16 @@ interface DispatchMetricsResult {
     created_at: string;
     last_event_at: string;
   }>;
+  debug?: {
+    duplicate_ack_count: number;
+    duplicate_push_count: number;
+    retry_delivery_count: number;
+    pending_offer_recovery_count: number;
+  };
 }
+
+const clampPct = (v: number | null | undefined) =>
+  v == null ? null : Math.min(Math.max(v, 0), 100);
 
 function rangeFromPreset(preset: Preset, custom: { from?: Date; to?: Date }): { start: Date; end: Date } {
   const now = new Date();
@@ -183,15 +192,15 @@ export default function DispatchMetrics() {
         <MetricCard
           title="ACK Success Rate"
           icon={<Activity className="h-4 w-4 text-primary" />}
-          value={data?.ack_success_rate != null ? `${data.ack_success_rate}%` : "—"}
-          sub={data ? `${data.received} received / ${data.offered} offered` : undefined}
+          value={data?.ack_success_rate != null ? `${clampPct(data.ack_success_rate)}%` : "—"}
+          sub={data ? `${Math.min(data.received, data.offered)} received / ${data.offered} offered` : undefined}
           loading={isLoading}
         />
         <MetricCard
           title="Push Success Rate"
           icon={<Send className="h-4 w-4 text-primary" />}
-          value={data?.push_success_rate != null ? `${data.push_success_rate}%` : "—"}
-          sub={data ? `${data.push_sent} sent / ${data.push_enqueued} enqueued` : undefined}
+          value={data?.push_success_rate != null ? `${clampPct(data.push_success_rate)}%` : "—"}
+          sub={data ? `${Math.min(data.push_sent, data.push_enqueued)} sent / ${data.push_enqueued} enqueued` : undefined}
           loading={isLoading}
         />
         <MetricCard
@@ -204,11 +213,23 @@ export default function DispatchMetrics() {
         <MetricCard
           title="Reassigned Booking %"
           icon={<RefreshCw className="h-4 w-4 text-primary" />}
-          value={data?.reassigned_pct != null ? `${data.reassigned_pct}%` : "—"}
+          value={data?.reassigned_pct != null ? `${clampPct(data.reassigned_pct)}%` : "—"}
           sub={data ? `${data.reassigned_offers} of ${data.total_offers} offers` : undefined}
           loading={isLoading}
         />
       </div>
+
+      {data?.debug && (
+        <Card className="mb-6">
+          <CardHeader><CardTitle className="text-lg">Dedupe Diagnostics</CardTitle></CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-4">
+            <DebugStat label="Duplicate ACK events" value={data.debug.duplicate_ack_count} />
+            <DebugStat label="Duplicate push events" value={data.debug.duplicate_push_count} />
+            <DebugStat label="Retry / reassigned deliveries" value={data.debug.retry_delivery_count} />
+            <DebugStat label="Pending-offer recoveries" value={data.debug.pending_offer_recovery_count} />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Charts */}
       <div className="grid gap-6 lg:grid-cols-2 mb-6">
@@ -311,5 +332,14 @@ function MetricCard({ title, value, sub, icon, loading }: { title: string; value
         {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
       </CardContent>
     </Card>
+  );
+}
+
+function DebugStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border border-border p-3">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-xl font-semibold mt-1">{value}</div>
+    </div>
   );
 }
