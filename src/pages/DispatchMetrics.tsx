@@ -55,7 +55,16 @@ interface DispatchMetricsResult {
     created_at: string;
     last_event_at: string;
   }>;
+  debug?: {
+    duplicate_ack_count: number;
+    duplicate_push_count: number;
+    retry_delivery_count: number;
+    pending_offer_recovery_count: number;
+  };
 }
+
+const clampPct = (v: number | null | undefined) =>
+  v == null ? null : Math.min(Math.max(v, 0), 100);
 
 function rangeFromPreset(preset: Preset, custom: { from?: Date; to?: Date }): { start: Date; end: Date } {
   const now = new Date();
