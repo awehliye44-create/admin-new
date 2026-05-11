@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { 
   Car, Clock, Ban, UserX, Timer, MapPin,
-  CheckCircle2, ShieldCheck, AlertTriangle, Banknote, Info
+  ShieldCheck, AlertTriangle, Banknote, Info
 } from 'lucide-react';
 
 interface TripLifecycleTimelineProps {
