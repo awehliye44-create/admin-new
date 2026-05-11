@@ -399,7 +399,7 @@ export function TripLifecycleTimeline({
               />
             </div>
             <p className="text-xs text-muted-foreground mb-3">
-              Fee applied when a passenger cancels too close to a scheduled pickup time
+              Cancellation fee applies close to scheduled pickup time
             </p>
             {lateCancelEnabled && (
               <div className="space-y-3">
