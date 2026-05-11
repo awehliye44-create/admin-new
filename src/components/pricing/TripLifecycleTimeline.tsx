@@ -307,7 +307,7 @@ export function TripLifecycleTimeline({
       color: 'text-destructive',
       bgColor: 'bg-destructive/10',
       borderColor: 'border-destructive/30',
-      subtitle: `After ${noShowWaitMinutes} min total wait`,
+      subtitle: 'Driver can mark passenger as no-show after total waiting time',
       content: (
         <div className="space-y-3">
           <div className="flex flex-wrap items-end gap-3">
