@@ -145,18 +145,25 @@ export function TripLifecycleTimeline({
       ),
     },
     {
-      id: 'arrived',
-      icon: CheckCircle2,
-      label: 'Driver Arrived',
-      color: 'text-emerald-600',
-      bgColor: 'bg-emerald-500/10',
-      borderColor: 'border-emerald-500/30',
-      subtitle: 'Grace resets + free waiting begins',
+      id: 'arrived-paid-waiting',
+      icon: Banknote,
+      label: 'Driver Arrived & Paid Waiting',
+      color: 'text-amber-600',
+      bgColor: 'bg-amber-500/10',
+      borderColor: 'border-amber-500/30',
+      subtitle: 'Free waiting begins on arrival, then waiting charges apply after the free waiting time ends',
       content: (
         <div className="space-y-3">
           <div className="flex flex-wrap items-end gap-3">
             <MinuteInput value={freeWaitingMinutes} field="free_waiting_minutes" label="Free Waiting" />
+            <PenceInput value={waitingPerMinutePence} field="waiting_per_minute_pence" label="Per Minute Rate" />
           </div>
+          <ToggleRow
+            checked={recalculateOnWaiting}
+            field="recalculate_on_waiting"
+            label="Enable Waiting Charge"
+            description="Apply per-minute charge after free waiting expires"
+          />
           <div className="space-y-1 mt-2">
             <div className="flex items-center gap-2 text-xs">
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
@@ -170,33 +177,9 @@ export function TripLifecycleTimeline({
               <Clock className="h-3.5 w-3.5 text-primary shrink-0" />
               <span className="text-muted-foreground">Free waiting for <strong className="text-foreground">{freeWaitingMinutes} min</strong> — no charge</span>
             </div>
-          </div>
-        </div>
-      ),
-    },
-    {
-      id: 'paid-waiting',
-      icon: Banknote,
-      label: 'Paid Waiting',
-      color: 'text-amber-600',
-      bgColor: 'bg-amber-500/10',
-      borderColor: 'border-amber-500/30',
-      subtitle: `Starts after ${freeWaitingMinutes} min free waiting`,
-      content: (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-end gap-3">
-            <PenceInput value={waitingPerMinutePence} field="waiting_per_minute_pence" label="Per Minute Rate" />
-          </div>
-          <ToggleRow
-            checked={recalculateOnWaiting}
-            field="recalculate_on_waiting"
-            label="Enable Waiting Charge"
-            description="Apply per-minute charge after free waiting expires"
-          />
-          <div className="space-y-1 mt-2">
             <div className="flex items-center gap-2 text-xs">
               <Banknote className="h-3.5 w-3.5 text-amber-600 shrink-0" />
-              <span className="text-muted-foreground"><strong className="text-foreground">{currencySymbol}{penceToDisplay(waitingPerMinutePence)}/min</strong> charged automatically</span>
+              <span className="text-muted-foreground"><strong className="text-foreground">{currencySymbol}{penceToDisplay(waitingPerMinutePence)}/min</strong> charged automatically after free waiting</span>
             </div>
             <div className="flex items-center gap-2 text-xs">
               <Ban className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
