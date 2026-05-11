@@ -196,7 +196,7 @@ export function TripLifecycleTimeline({
       color: 'text-green-600',
       bgColor: 'bg-green-500/10',
       borderColor: 'border-green-500/30',
-      subtitle: 'Driver-controlled stop charging',
+      subtitle: 'Driver manually starts waiting charges by tapping "Get Paid"',
       content: (
         <div className="space-y-3">
           <div className="flex items-start gap-2 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
