@@ -113,7 +113,7 @@ export function TripLifecycleTimeline({
       color: 'text-primary',
       bgColor: 'bg-primary/10',
       borderColor: 'border-primary/30',
-      subtitle: 'Post-booking cancellation grace period',
+      subtitle: 'Passenger can cancel without charge during this period',
       content: (
         <div className="space-y-3">
           <div className="flex flex-wrap items-end gap-3">
