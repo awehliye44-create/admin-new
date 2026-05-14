@@ -3601,6 +3601,8 @@ export type Database = {
           online_since: string | null
           payouts_enabled: boolean | null
           phone: string
+          phone_verified: boolean
+          phone_verified_at: string | null
           profile_photo_url: string | null
           rating: number | null
           rating_count: number
@@ -3643,6 +3645,8 @@ export type Database = {
           online_since?: string | null
           payouts_enabled?: boolean | null
           phone: string
+          phone_verified?: boolean
+          phone_verified_at?: string | null
           profile_photo_url?: string | null
           rating?: number | null
           rating_count?: number
@@ -3685,6 +3689,8 @@ export type Database = {
           online_since?: string | null
           payouts_enabled?: boolean | null
           phone?: string
+          phone_verified?: boolean
+          phone_verified_at?: string | null
           profile_photo_url?: string | null
           rating?: number | null
           rating_count?: number
