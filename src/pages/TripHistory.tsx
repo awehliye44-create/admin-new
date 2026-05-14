@@ -1397,36 +1397,66 @@ export default function TripHistory() {
 
                           <Separator />
 
-                          {selectedTrip.gross_fare_pence != null && (
-                            <div className="flex justify-between text-sm">
-                              <span className="text-muted-foreground">Gross Fare</span>
-                              <span>{fmt(selectedTrip.gross_fare_pence)}</span>
-                            </div>
-                          )}
-                          {selectedTrip.commission_pence != null && (
-                            <div className="flex justify-between text-sm">
-                              <span className="text-muted-foreground">
-                                Commission
-                                {(selectedTrip as any).commission_pct != null && (
-                                  <span className="text-xs ml-1">({(selectedTrip as any).commission_pct}%)</span>
+                          {(() => {
+                            const isCard = isCardTrip(selectedTrip);
+                            const captured = selectedTrip.payment_captured_pence;
+                            const authorized = selectedTrip.payment_authorized_pence;
+                            const useSettlement = isCard && captured != null && captured > 0;
+                            const grossDiffers = useSettlement && selectedTrip.gross_fare_pence != null && selectedTrip.gross_fare_pence !== captured;
+                            const effectiveCommission = getEffectiveCommissionPence(selectedTrip);
+                            const effectiveDriverNet = getEffectiveDriverNetPence(selectedTrip);
+                            const releasedBuffer = useSettlement && authorized != null ? Math.max(0, authorized - (captured as number)) : null;
+                            const pctLabel = (selectedTrip as any).commission_pct
+                              ?? (selectedTrip.fare_breakdown as any)?.commission_pct
+                              ?? selectedTrip.payment_commission_pct;
+                            return (
+                              <>
+                                {/* Show fare engine estimate separately when it differs from settlement truth */}
+                                {grossDiffers && (
+                                  <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">Fare engine estimate</span>
+                                    <span className="line-through text-muted-foreground">{fmt(selectedTrip.gross_fare_pence!)}</span>
+                                  </div>
                                 )}
-                                {(() => {
-                                  const fbPct = (selectedTrip.fare_breakdown as any)?.commission_pct;
-                                  if (fbPct != null && (selectedTrip as any).commission_pct == null) {
-                                    return <span className="text-xs ml-1">({fbPct}%)</span>;
-                                  }
-                                  return null;
-                                })()}
-                              </span>
-                              <span className="text-orange-600">-{fmt(selectedTrip.commission_pence)}</span>
-                            </div>
-                          )}
-                          {selectedTrip.driver_net_pence != null && (
-                            <div className="flex justify-between text-sm">
-                              <span className="text-muted-foreground">Driver Net</span>
-                              <span>{fmt(selectedTrip.driver_net_pence)}</span>
-                            </div>
-                          )}
+                                {useSettlement ? (
+                                  <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">Captured (Stripe)</span>
+                                    <span className="font-medium">{fmt(captured as number)}</span>
+                                  </div>
+                                ) : (
+                                  selectedTrip.gross_fare_pence != null && (
+                                    <div className="flex justify-between text-sm">
+                                      <span className="text-muted-foreground">Gross Fare</span>
+                                      <span>{fmt(selectedTrip.gross_fare_pence)}</span>
+                                    </div>
+                                  )
+                                )}
+                                {releasedBuffer != null && releasedBuffer > 0 && (
+                                  <div className="flex justify-between text-xs text-muted-foreground">
+                                    <span>Released buffer ({fmt(authorized!)} authorised − {fmt(captured as number)} captured)</span>
+                                    <span>{fmt(releasedBuffer)}</span>
+                                  </div>
+                                )}
+                                {effectiveCommission != null && (
+                                  <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">
+                                      Commission
+                                      {pctLabel != null && (
+                                        <span className="text-xs ml-1">({pctLabel}%)</span>
+                                      )}
+                                    </span>
+                                    <span className="text-orange-600">-{fmt(effectiveCommission)}</span>
+                                  </div>
+                                )}
+                                {effectiveDriverNet != null && (
+                                  <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">Driver Net</span>
+                                    <span>{fmt(effectiveDriverNet)}</span>
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
 
                           {/* ONECAB net-after-Stripe — fields read from DB, never recomputed */}
                           {selectedTrip.commission_pence != null && (
