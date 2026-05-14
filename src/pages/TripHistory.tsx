@@ -697,12 +697,51 @@ export default function TripHistory() {
     return matchesSearch;
   });
 
-  // Helper to get fare in pounds from pence-based fields (source of truth) or legacy fare field
-  const getTripFarePounds = (trip: CompletedTrip): number => {
-    if (trip.gross_fare_pence != null && trip.gross_fare_pence > 0) return trip.gross_fare_pence / 100;
-    if (trip.fare != null && trip.fare > 0) return trip.fare;
+  // Card payment methods that settle through Stripe — captured amount is settlement truth
+  const isCardTrip = (trip: CompletedTrip): boolean => {
+    const m = (trip.payment_method || '').toLowerCase();
+    return m === 'card' || m === 'apple_pay' || m === 'google_pay';
+  };
+
+  // Settlement-truth fare in pence: for card trips with a captured amount, use captured; else fall back to fare engine values
+  const getEffectiveFarePence = (trip: CompletedTrip): number => {
+    if (isCardTrip(trip) && trip.payment_captured_pence != null && trip.payment_captured_pence > 0) {
+      return trip.payment_captured_pence;
+    }
+    if (trip.final_fare_pence != null && trip.final_fare_pence > 0) return trip.final_fare_pence;
+    if (trip.gross_fare_pence != null && trip.gross_fare_pence > 0) return trip.gross_fare_pence;
+    if (trip.fare != null && trip.fare > 0) return Math.round(trip.fare * 100);
     return 0;
   };
+
+  // Commission derived from settlement-truth fare for card trips
+  const getEffectiveCommissionPence = (trip: CompletedTrip): number | null => {
+    if (isCardTrip(trip) && trip.payment_captured_pence != null && trip.payment_captured_pence > 0) {
+      if (trip.payment_commission_pence != null) return trip.payment_commission_pence;
+      const pct = trip.payment_commission_pct
+        ?? ((trip.fare_breakdown as any)?.commission_pct)
+        ?? (trip.gross_fare_pence && trip.commission_pence != null
+              ? (trip.commission_pence / trip.gross_fare_pence) * 100
+              : null);
+      if (pct != null) return Math.round(trip.payment_captured_pence * (Number(pct) / 100));
+    }
+    return trip.commission_pence ?? null;
+  };
+
+  const getEffectiveDriverNetPence = (trip: CompletedTrip): number | null => {
+    const fare = getEffectiveFarePence(trip);
+    const commission = getEffectiveCommissionPence(trip);
+    if (commission == null) return trip.driver_net_pence ?? null;
+    return Math.max(0, fare - commission);
+  };
+
+  // Helper to get fare in pounds — uses settlement truth for card trips
+  const getTripFarePounds = (trip: CompletedTrip): number => getEffectiveFarePence(trip) / 100;
+
+  // Stats based on filtered trips
+  const totalRevenue = filteredTrips.reduce((sum, t) => sum + getTripFarePounds(t), 0);
+  const avgFare = filteredTrips.length > 0 ? totalRevenue / filteredTrips.length : 0;
+  const multiStopTrips = filteredTrips.filter(t => isMultiStopTrip(t)).length;
 
   // Stats based on filtered trips
   const totalRevenue = filteredTrips.reduce((sum, t) => sum + getTripFarePounds(t), 0);
