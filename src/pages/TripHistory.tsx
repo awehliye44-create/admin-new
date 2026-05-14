@@ -743,10 +743,6 @@ export default function TripHistory() {
   const avgFare = filteredTrips.length > 0 ? totalRevenue / filteredTrips.length : 0;
   const multiStopTrips = filteredTrips.filter(t => isMultiStopTrip(t)).length;
 
-  // Stats based on filtered trips
-  const totalRevenue = filteredTrips.reduce((sum, t) => sum + getTripFarePounds(t), 0);
-  const avgFare = filteredTrips.length > 0 ? totalRevenue / filteredTrips.length : 0;
-  const multiStopTrips = filteredTrips.filter(t => isMultiStopTrip(t)).length;
 
   // Resolve a single currency across all filtered trips for the stats widgets
   const statsCurrencyItems = filteredTrips.map(t => ({ currency_code: resolveTripCurrency(t) || '???' }));
