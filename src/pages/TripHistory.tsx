@@ -985,7 +985,7 @@ export default function TripHistory() {
                       </div>
                       {trip.commission_pence != null && (
                         <div className="text-[10px] text-muted-foreground mt-0.5">
-                          Net: {getCurrencySymbol(resolveTripCurrency(trip))}{((trip.driver_net_pence || 0) / 100).toFixed(2)}
+                          Net: {getCurrencySymbol(resolveTripCurrency(trip))}{((getEffectiveDriverNetPence(trip) || 0) / 100).toFixed(2)}
                         </div>
                       )}
                     </TableCell>
