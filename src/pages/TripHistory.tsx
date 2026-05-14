@@ -144,6 +144,11 @@ interface CompletedTrip {
   } | null;
   // Joined trip_stops for display
   trip_stops?: TripStop[];
+  // Joined from payments table — settlement source of truth
+  payment_captured_pence?: number | null;
+  payment_authorized_pence?: number | null;
+  payment_commission_pence?: number | null;
+  payment_commission_pct?: number | null;
 }
 
 export default function TripHistory() {
