@@ -257,10 +257,44 @@ export default function TripHistory() {
         }
       }
 
-      return (tripsData || []).map(trip => ({
-        ...trip,
-        trip_stops: stopsMap[trip.id] || [],
-      })) as CompletedTrip[];
+      // Fetch payments — captured_amount_pence is the settlement source of truth for card trips
+      let paymentsMap: Record<string, {
+        captured: number | null;
+        authorized: number | null;
+        commission: number | null;
+        commission_pct: number | null;
+      }> = {};
+      if (tripIds.length > 0) {
+        const { data: paymentsData } = await supabase
+          .from('payments')
+          .select('trip_id, amount_pence, captured_amount_pence, commission_amount_pence, commission_pct, status, updated_at')
+          .in('trip_id', tripIds)
+          .order('updated_at', { ascending: false });
+        if (paymentsData) {
+          for (const p of paymentsData as any[]) {
+            // Keep latest (first due to desc order) per trip
+            if (paymentsMap[p.trip_id]) continue;
+            paymentsMap[p.trip_id] = {
+              captured: p.captured_amount_pence ?? null,
+              authorized: p.amount_pence ?? null,
+              commission: p.commission_amount_pence ?? null,
+              commission_pct: p.commission_pct ?? null,
+            };
+          }
+        }
+      }
+
+      return (tripsData || []).map(trip => {
+        const pay = paymentsMap[trip.id];
+        return {
+          ...trip,
+          trip_stops: stopsMap[trip.id] || [],
+          payment_captured_pence: pay?.captured ?? null,
+          payment_authorized_pence: pay?.authorized ?? null,
+          payment_commission_pence: pay?.commission ?? null,
+          payment_commission_pct: pay?.commission_pct ?? null,
+        };
+      }) as CompletedTrip[];
     },
     staleTime: 30_000,
   });
