@@ -997,7 +997,7 @@ export default function TripHistory() {
                     <TableCell className="text-muted-foreground">
                       {formatTripDistance(getTripDistance(trip), trip)}
                     </TableCell>
-                    <TableCell>
+                     <TableCell>
                       <div className="font-medium text-green-600">
                         {getCurrencySymbol(resolveTripCurrency(trip))}
                         {getTripFarePounds(trip).toFixed(2)}
@@ -1007,6 +1007,32 @@ export default function TripHistory() {
                           Net: {getCurrencySymbol(resolveTripCurrency(trip))}{((getEffectiveDriverNetPence(trip) || 0) / 100).toFixed(2)}
                         </div>
                       )}
+                      {(() => {
+                        const mismatch = getFareCapturedMismatch(trip);
+                        if (!mismatch) return null;
+                        const sym = getCurrencySymbol(resolveTripCurrency(trip));
+                        return (
+                          <TooltipProvider delayDuration={150}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge
+                                  variant="outline"
+                                  className="mt-1 text-[10px] border-amber-400 bg-amber-500/10 text-amber-700 gap-1"
+                                >
+                                  <AlertTriangle className="h-3 w-3" />
+                                  Fare ≠ Captured
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="text-xs">
+                                <div>Final fare: {sym}{(mismatch.finalFarePence / 100).toFixed(2)}</div>
+                                <div>Captured: {sym}{(mismatch.capturedPence / 100).toFixed(2)}</div>
+                                <div>Diff: {mismatch.diffPence > 0 ? '+' : ''}{sym}{(mismatch.diffPence / 100).toFixed(2)}</div>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        );
+                      })()}
+                    </TableCell>
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-0.5">
