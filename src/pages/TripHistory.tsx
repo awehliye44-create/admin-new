@@ -1379,6 +1379,28 @@ export default function TripHistory() {
                     </div>
                   </div>
 
+                  {/* Consistency check: Final Fare vs Stripe captured amount */}
+                  {(() => {
+                    const mismatch = getFareCapturedMismatch(selectedTrip);
+                    if (!mismatch) return null;
+                    const cs = getCurrencySymbol(resolveTripCurrency(selectedTrip));
+                    const fmtP = (p: number) => `${cs}${(p / 100).toFixed(2)}`;
+                    return (
+                      <Alert variant="destructive" className="border-amber-400 bg-amber-500/10 text-amber-900 dark:text-amber-100 [&>svg]:text-amber-600">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle>Final Fare ≠ Captured amount</AlertTitle>
+                        <AlertDescription className="text-xs space-y-1 mt-1">
+                          <div>Final Fare (DB): <span className="font-medium">{fmtP(mismatch.finalFarePence)}</span></div>
+                          <div>Captured (Stripe): <span className="font-medium">{fmtP(mismatch.capturedPence)}</span></div>
+                          <div>Difference: <span className="font-medium">{mismatch.diffPence > 0 ? '+' : ''}{fmtP(mismatch.diffPence)}</span></div>
+                          <div className="pt-1 text-amber-800 dark:text-amber-200">
+                            Captured amount is the settlement source of truth. Final Fare in the database may be stale — review and reconcile.
+                          </div>
+                        </AlertDescription>
+                      </Alert>
+                    );
+                  })()}
+
                   {/* Fare Breakdown */}
                   <div className="space-y-2">
                     <h4 className="text-sm font-semibold flex items-center gap-2">
