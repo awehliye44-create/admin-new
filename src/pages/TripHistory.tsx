@@ -1033,7 +1033,6 @@ export default function TripHistory() {
                         );
                       })()}
                     </TableCell>
-                    </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-0.5">
                         <Badge variant="outline" className="text-[10px] w-fit">
