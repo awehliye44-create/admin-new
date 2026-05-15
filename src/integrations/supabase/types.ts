@@ -8372,6 +8372,7 @@ export type Database = {
           job_type: string | null
           last_broadcast_at: string | null
           late_cancel_fee_pence: number | null
+          locked_driver_id: string | null
           max_broadcast_rounds: number | null
           negotiation_locked_until: string | null
           negotiation_owner_driver_id: string | null
@@ -8407,6 +8408,7 @@ export type Database = {
           refund_reason: string | null
           refunded_at: string | null
           region_id: string | null
+          scan_go: boolean
           scheduled_accepted_at: string | null
           scheduled_at: string | null
           scheduled_broadcast_at: string | null
@@ -8533,6 +8535,7 @@ export type Database = {
           job_type?: string | null
           last_broadcast_at?: string | null
           late_cancel_fee_pence?: number | null
+          locked_driver_id?: string | null
           max_broadcast_rounds?: number | null
           negotiation_locked_until?: string | null
           negotiation_owner_driver_id?: string | null
@@ -8568,6 +8571,7 @@ export type Database = {
           refund_reason?: string | null
           refunded_at?: string | null
           region_id?: string | null
+          scan_go?: boolean
           scheduled_accepted_at?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
@@ -8694,6 +8698,7 @@ export type Database = {
           job_type?: string | null
           last_broadcast_at?: string | null
           late_cancel_fee_pence?: number | null
+          locked_driver_id?: string | null
           max_broadcast_rounds?: number | null
           negotiation_locked_until?: string | null
           negotiation_owner_driver_id?: string | null
@@ -8729,6 +8734,7 @@ export type Database = {
           refund_reason?: string | null
           refunded_at?: string | null
           region_id?: string | null
+          scan_go?: boolean
           scheduled_accepted_at?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
@@ -8884,6 +8890,34 @@ export type Database = {
             columns: ["fare_engine_config_id"]
             isOneToOne: false
             referencedRelation: "fare_pricing_settings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_locked_driver_id_fkey"
+            columns: ["locked_driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_locked_driver_id_fkey"
+            columns: ["locked_driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_locked_driver_id_fkey"
+            columns: ["locked_driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_locked_driver_id_fkey"
+            columns: ["locked_driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
           {
