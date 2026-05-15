@@ -36,8 +36,10 @@ import { useServiceAreas as useSharedServiceAreas } from '@/hooks/useServiceArea
 import { 
   History, Loader2, Search, RefreshCw, MapPin, Phone,
   Eye, CheckCircle, Route, DollarSign,
-  Navigation, User, Car, Globe, Settings2
+  Navigation, User, Car, Globe, Settings2, AlertTriangle
 } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
 import { getCurrencySymbol, formatDistance as formatDistanceUtil, getDistanceUnitShort } from '@/lib/regionSettings';
@@ -735,6 +737,23 @@ export default function TripHistory() {
     return Math.max(0, fare - commission);
   };
 
+  // Consistency check — flags card trips where Final Fare differs from Stripe captured amount.
+  // Returns null when there is no mismatch (or when settlement data is unavailable).
+  const getFareCapturedMismatch = (trip: CompletedTrip): {
+    capturedPence: number;
+    finalFarePence: number;
+    diffPence: number;
+  } | null => {
+    if (!isCardTrip(trip)) return null;
+    const captured = trip.payment_captured_pence;
+    if (captured == null || captured <= 0) return null;
+    const finalFare = trip.final_fare_pence ?? trip.gross_fare_pence ?? null;
+    if (finalFare == null) return null;
+    const diff = finalFare - captured;
+    if (diff === 0) return null;
+    return { capturedPence: captured, finalFarePence: finalFare, diffPence: diff };
+  };
+
   // Helper to get fare in pounds — uses settlement truth for card trips
   const getTripFarePounds = (trip: CompletedTrip): number => getEffectiveFarePence(trip) / 100;
 
@@ -978,7 +997,7 @@ export default function TripHistory() {
                     <TableCell className="text-muted-foreground">
                       {formatTripDistance(getTripDistance(trip), trip)}
                     </TableCell>
-                    <TableCell>
+                     <TableCell>
                       <div className="font-medium text-green-600">
                         {getCurrencySymbol(resolveTripCurrency(trip))}
                         {getTripFarePounds(trip).toFixed(2)}
@@ -988,6 +1007,31 @@ export default function TripHistory() {
                           Net: {getCurrencySymbol(resolveTripCurrency(trip))}{((getEffectiveDriverNetPence(trip) || 0) / 100).toFixed(2)}
                         </div>
                       )}
+                      {(() => {
+                        const mismatch = getFareCapturedMismatch(trip);
+                        if (!mismatch) return null;
+                        const sym = getCurrencySymbol(resolveTripCurrency(trip));
+                        return (
+                          <TooltipProvider delayDuration={150}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge
+                                  variant="outline"
+                                  className="mt-1 text-[10px] border-amber-400 bg-amber-500/10 text-amber-700 gap-1"
+                                >
+                                  <AlertTriangle className="h-3 w-3" />
+                                  Fare ≠ Captured
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="text-xs">
+                                <div>Final fare: {sym}{(mismatch.finalFarePence / 100).toFixed(2)}</div>
+                                <div>Captured: {sym}{(mismatch.capturedPence / 100).toFixed(2)}</div>
+                                <div>Diff: {mismatch.diffPence > 0 ? '+' : ''}{sym}{(mismatch.diffPence / 100).toFixed(2)}</div>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-0.5">
@@ -1334,6 +1378,28 @@ export default function TripHistory() {
                       )}
                     </div>
                   </div>
+
+                  {/* Consistency check: Final Fare vs Stripe captured amount */}
+                  {(() => {
+                    const mismatch = getFareCapturedMismatch(selectedTrip);
+                    if (!mismatch) return null;
+                    const cs = getCurrencySymbol(resolveTripCurrency(selectedTrip));
+                    const fmtP = (p: number) => `${cs}${(p / 100).toFixed(2)}`;
+                    return (
+                      <Alert variant="destructive" className="border-amber-400 bg-amber-500/10 text-amber-900 dark:text-amber-100 [&>svg]:text-amber-600">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle>Final Fare ≠ Captured amount</AlertTitle>
+                        <AlertDescription className="text-xs space-y-1 mt-1">
+                          <div>Final Fare (DB): <span className="font-medium">{fmtP(mismatch.finalFarePence)}</span></div>
+                          <div>Captured (Stripe): <span className="font-medium">{fmtP(mismatch.capturedPence)}</span></div>
+                          <div>Difference: <span className="font-medium">{mismatch.diffPence > 0 ? '+' : ''}{fmtP(mismatch.diffPence)}</span></div>
+                          <div className="pt-1 text-amber-800 dark:text-amber-200">
+                            Captured amount is the settlement source of truth. Final Fare in the database may be stale — review and reconcile.
+                          </div>
+                        </AlertDescription>
+                      </Alert>
+                    );
+                  })()}
 
                   {/* Fare Breakdown */}
                   <div className="space-y-2">
