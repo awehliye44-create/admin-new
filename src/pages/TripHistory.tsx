@@ -737,6 +737,23 @@ export default function TripHistory() {
     return Math.max(0, fare - commission);
   };
 
+  // Consistency check — flags card trips where Final Fare differs from Stripe captured amount.
+  // Returns null when there is no mismatch (or when settlement data is unavailable).
+  const getFareCapturedMismatch = (trip: CompletedTrip): {
+    capturedPence: number;
+    finalFarePence: number;
+    diffPence: number;
+  } | null => {
+    if (!isCardTrip(trip)) return null;
+    const captured = trip.payment_captured_pence;
+    if (captured == null || captured <= 0) return null;
+    const finalFare = trip.final_fare_pence ?? trip.gross_fare_pence ?? null;
+    if (finalFare == null) return null;
+    const diff = finalFare - captured;
+    if (diff === 0) return null;
+    return { capturedPence: captured, finalFarePence: finalFare, diffPence: diff };
+  };
+
   // Helper to get fare in pounds — uses settlement truth for card trips
   const getTripFarePounds = (trip: CompletedTrip): number => getEffectiveFarePence(trip) / 100;
 
