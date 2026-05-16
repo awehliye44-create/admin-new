@@ -405,6 +405,13 @@ export type Database = {
             foreignKeyName: "booking_delivery_log_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_delivery_log_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -487,6 +494,13 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_masking_sessions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
             referencedColumns: ["id"]
           },
           {
@@ -1901,6 +1915,13 @@ export type Database = {
             foreignKeyName: "dispatch_candidates_log_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispatch_candidates_log_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -2400,6 +2421,13 @@ export type Database = {
             foreignKeyName: "documents_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documents_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -2455,6 +2483,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "driver_active_devices_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "driver_active_devices_driver_id_fkey"
             columns: ["driver_id"]
@@ -2544,6 +2579,13 @@ export type Database = {
             columns: ["booking_id"]
             isOneToOne: false
             referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_alerts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
             referencedColumns: ["id"]
           },
           {
@@ -2752,6 +2794,13 @@ export type Database = {
             foreignKeyName: "driver_inbox_messages_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_inbox_messages_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -2813,6 +2862,13 @@ export type Database = {
           trip_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "driver_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "driver_ledger_driver_id_fkey"
             columns: ["driver_id"]
@@ -2893,6 +2949,13 @@ export type Database = {
             foreignKeyName: "driver_live_locations_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: true
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_live_locations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -2940,6 +3003,7 @@ export type Database = {
           low_accuracy_since: string | null
           network_type: string | null
           platform: string | null
+          presence_health: string
           push_token: string | null
           socket_connected: boolean | null
           speed: number | null
@@ -2967,6 +3031,7 @@ export type Database = {
           low_accuracy_since?: string | null
           network_type?: string | null
           platform?: string | null
+          presence_health?: string
           push_token?: string | null
           socket_connected?: boolean | null
           speed?: number | null
@@ -2994,6 +3059,7 @@ export type Database = {
           low_accuracy_since?: string | null
           network_type?: string | null
           platform?: string | null
+          presence_health?: string
           push_token?: string | null
           socket_connected?: boolean | null
           speed?: number | null
@@ -3002,6 +3068,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "driver_presence_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "driver_presence_driver_id_fkey"
             columns: ["driver_id"]
@@ -3052,6 +3125,13 @@ export type Database = {
           service_area_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "driver_service_areas_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "driver_service_areas_driver_id_fkey"
             columns: ["driver_id"]
@@ -3148,6 +3228,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "driver_settings_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "driver_settings_driver_id_fkey"
             columns: ["driver_id"]
@@ -3250,6 +3337,13 @@ export type Database = {
             foreignKeyName: "driver_statements_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_statements_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -3335,6 +3429,13 @@ export type Database = {
             foreignKeyName: "driver_support_tickets_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_support_tickets_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -3387,6 +3488,13 @@ export type Database = {
           vehicle_type_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "driver_vehicle_categories_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "driver_vehicle_categories_driver_id_fkey"
             columns: ["driver_id"]
@@ -3469,6 +3577,13 @@ export type Database = {
             foreignKeyName: "driver_wallet_ledger_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -3546,6 +3661,13 @@ export type Database = {
             foreignKeyName: "driver_wallets_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: true
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallets_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -3585,6 +3707,7 @@ export type Database = {
           display_rating: number
           documents_approved: boolean
           driver_code: string | null
+          driver_online_intent: boolean
           driver_status: Database["public"]["Enums"]["driver_status"]
           email: string
           first_name: string
@@ -3629,6 +3752,7 @@ export type Database = {
           display_rating?: number
           documents_approved?: boolean
           driver_code?: string | null
+          driver_online_intent?: boolean
           driver_status?: Database["public"]["Enums"]["driver_status"]
           email: string
           first_name: string
@@ -3673,6 +3797,7 @@ export type Database = {
           display_rating?: number
           documents_approved?: boolean
           driver_code?: string | null
+          driver_online_intent?: boolean
           driver_status?: Database["public"]["Enums"]["driver_status"]
           email?: string
           first_name?: string
@@ -3997,6 +4122,13 @@ export type Database = {
           zone_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "geofence_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "geofence_events_driver_id_fkey"
             columns: ["driver_id"]
@@ -4342,6 +4474,13 @@ export type Database = {
             foreignKeyName: "invoices_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -4503,6 +4642,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "lost_property_cases_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "lost_property_cases_driver_id_fkey"
             columns: ["driver_id"]
@@ -5590,6 +5736,13 @@ export type Database = {
             foreignKeyName: "passenger_ratings_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "passenger_ratings_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -5711,6 +5864,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "payments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "payments_driver_id_fkey"
             columns: ["driver_id"]
@@ -5873,6 +6033,13 @@ export type Database = {
             columns: ["batch_id"]
             isOneToOne: false
             referencedRelation: "payout_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_items_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
             referencedColumns: ["id"]
           },
           {
@@ -6197,35 +6364,66 @@ export type Database = {
       push_tokens: {
         Row: {
           app_type: string
+          app_version: string | null
           created_at: string
           device_id: string | null
           driver_id: string
+          failure_count: number
           id: string
+          is_active: boolean
+          last_failure_at: string | null
+          last_failure_reason: string | null
+          last_seen_at: string | null
+          last_success_at: string | null
           platform: string
           token: string
           updated_at: string
+          user_id: string | null
         }
         Insert: {
           app_type?: string
+          app_version?: string | null
           created_at?: string
           device_id?: string | null
           driver_id: string
+          failure_count?: number
           id?: string
+          is_active?: boolean
+          last_failure_at?: string | null
+          last_failure_reason?: string | null
+          last_seen_at?: string | null
+          last_success_at?: string | null
           platform: string
           token: string
           updated_at?: string
+          user_id?: string | null
         }
         Update: {
           app_type?: string
+          app_version?: string | null
           created_at?: string
           device_id?: string | null
           driver_id?: string
+          failure_count?: number
           id?: string
+          is_active?: boolean
+          last_failure_at?: string | null
+          last_failure_reason?: string | null
+          last_seen_at?: string | null
+          last_success_at?: string | null
           platform?: string
           token?: string
           updated_at?: string
+          user_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "push_tokens_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "push_tokens_driver_id_fkey"
             columns: ["driver_id"]
@@ -6525,6 +6723,13 @@ export type Database = {
             foreignKeyName: "ride_offers_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ride_offers_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -6606,6 +6811,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "rider_feedback_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "rider_feedback_driver_id_fkey"
             columns: ["driver_id"]
@@ -6712,6 +6924,13 @@ export type Database = {
           trip_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "scheduled_offer_attempts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "scheduled_offer_attempts_driver_id_fkey"
             columns: ["driver_id"]
@@ -7577,6 +7796,13 @@ export type Database = {
             foreignKeyName: "support_conversations_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_conversations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -7992,6 +8218,13 @@ export type Database = {
             foreignKeyName: "trip_offers_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_offers_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -8157,6 +8390,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "trip_stop_waiting_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "trip_stop_waiting_driver_id_fkey"
             columns: ["driver_id"]
@@ -8791,6 +9031,13 @@ export type Database = {
             foreignKeyName: "trips_confirmed_driver_id_fkey"
             columns: ["confirmed_driver_id"]
             isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_confirmed_driver_id_fkey"
+            columns: ["confirmed_driver_id"]
+            isOneToOne: false
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -8826,6 +9073,13 @@ export type Database = {
             foreignKeyName: "trips_current_offer_driver_id_fkey"
             columns: ["current_offer_driver_id"]
             isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_current_offer_driver_id_fkey"
+            columns: ["current_offer_driver_id"]
+            isOneToOne: false
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -8848,6 +9102,13 @@ export type Database = {
             columns: ["current_offer_driver_id"]
             isOneToOne: false
             referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
             referencedColumns: ["id"]
           },
           {
@@ -8896,6 +9157,13 @@ export type Database = {
             foreignKeyName: "trips_locked_driver_id_fkey"
             columns: ["locked_driver_id"]
             isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_locked_driver_id_fkey"
+            columns: ["locked_driver_id"]
+            isOneToOne: false
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -8925,6 +9193,13 @@ export type Database = {
             columns: ["pickup_zone_id"]
             isOneToOne: false
             referencedRelation: "custom_zones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_pre_assigned_driver_id_fkey"
+            columns: ["pre_assigned_driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
             referencedColumns: ["id"]
           },
           {
@@ -9067,6 +9342,13 @@ export type Database = {
             foreignKeyName: "vehicle_change_requests_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vehicle_change_requests_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -9201,6 +9483,13 @@ export type Database = {
           year?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "vehicles_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "vehicles_driver_id_fkey"
             columns: ["driver_id"]
@@ -9424,6 +9713,13 @@ export type Database = {
             foreignKeyName: "driver_alerts_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_alerts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -9446,6 +9742,42 @@ export type Database = {
             columns: ["driver_id"]
             isOneToOne: false
             referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      admin_driver_online_snapshot: {
+        Row: {
+          app_state: string | null
+          current_trip_id: string | null
+          documents_approved: boolean | null
+          driver_online_intent: boolean | null
+          driver_status: Database["public"]["Enums"]["driver_status"] | null
+          first_name: string | null
+          id: string | null
+          is_online: boolean | null
+          last_heartbeat_at: string | null
+          last_location_at: string | null
+          last_name: string | null
+          last_seen_at: string | null
+          network_type: string | null
+          platform: string | null
+          presence_status: string | null
+          socket_connected: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "drivers_current_trip_id_fkey"
+            columns: ["current_trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drivers_current_trip_id_fkey"
+            columns: ["current_trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
             referencedColumns: ["id"]
           },
         ]
@@ -9688,6 +10020,13 @@ export type Database = {
             foreignKeyName: "trips_confirmed_driver_id_fkey"
             columns: ["confirmed_driver_id"]
             isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_confirmed_driver_id_fkey"
+            columns: ["confirmed_driver_id"]
+            isOneToOne: false
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -9716,6 +10055,13 @@ export type Database = {
             foreignKeyName: "trips_current_offer_driver_id_fkey"
             columns: ["current_offer_driver_id"]
             isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_current_offer_driver_id_fkey"
+            columns: ["current_offer_driver_id"]
+            isOneToOne: false
             referencedRelation: "dispatchable_drivers"
             referencedColumns: ["driver_id"]
           },
@@ -9738,6 +10084,13 @@ export type Database = {
             columns: ["current_offer_driver_id"]
             isOneToOne: false
             referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
             referencedColumns: ["id"]
           },
           {
@@ -9780,6 +10133,13 @@ export type Database = {
             columns: ["pickup_zone_id"]
             isOneToOne: false
             referencedRelation: "custom_zones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_pre_assigned_driver_id_fkey"
+            columns: ["pre_assigned_driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
             referencedColumns: ["id"]
           },
           {
@@ -9997,6 +10357,22 @@ export type Database = {
         }
         Relationships: []
       }
+      push_delivery_metrics_24h: {
+        Row: {
+          attempts_android: number | null
+          attempts_ios: number | null
+          push_failed_invalid_token: number | null
+          push_failed_platform_mismatch: number | null
+          push_failed_provider_error: number | null
+          push_failed_rate_limit: number | null
+          push_failed_unknown: number | null
+          push_failed_unregistered: number | null
+          push_success: number | null
+          push_success_rate_pct: number | null
+          total_attempts: number | null
+        }
+        Relationships: []
+      }
       user_directory: {
         Row: {
           created_at: string | null
@@ -10145,7 +10521,10 @@ export type Database = {
         Returns: boolean
       }
       expire_stale_drivers: {
-        Args: { p_ttl_seconds?: number }
+        Args: {
+          p_degraded_ttl_seconds?: number
+          p_offline_ttl_seconds?: number
+        }
         Returns: number
       }
       expire_stale_modification_requests: { Args: never; Returns: number }
@@ -10592,6 +10971,39 @@ export type Database = {
         }
         Returns: string
       }
+      record_push_send_result: {
+        Args: {
+          p_detail?: Json
+          p_error_classification?: string
+          p_error_code?: string
+          p_success: boolean
+          p_token: string
+        }
+        Returns: {
+          app_type: string
+          app_version: string | null
+          created_at: string
+          device_id: string | null
+          driver_id: string
+          failure_count: number
+          id: string
+          is_active: boolean
+          last_failure_at: string | null
+          last_failure_reason: string | null
+          last_seen_at: string | null
+          last_success_at: string | null
+          platform: string
+          token: string
+          updated_at: string
+          user_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "push_tokens"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       resolve_driver_alert: {
         Args: { p_alert_type: string; p_driver_id: string }
         Returns: number
@@ -10708,6 +11120,7 @@ export type Database = {
           low_accuracy_since: string | null
           network_type: string | null
           platform: string | null
+          presence_health: string
           push_token: string | null
           socket_connected: boolean | null
           speed: number | null
