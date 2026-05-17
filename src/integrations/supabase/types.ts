@@ -8541,6 +8541,7 @@ export type Database = {
           authorised_amount_pence: number | null
           base_fare_pence: number | null
           booking_source: string | null
+          broadcast_enabled: boolean
           broadcast_started_at: string | null
           cancel_reason: string | null
           cancellation_fee_pence: number | null
@@ -8564,6 +8565,7 @@ export type Database = {
           currency: string | null
           currency_code: string | null
           current_broadcast_round: number | null
+          current_negotiation_id: string | null
           current_offer_driver_id: string | null
           current_offer_expires_at: string | null
           current_stop_index: number | null
@@ -8617,8 +8619,10 @@ export type Database = {
           late_cancel_fee_pence: number | null
           locked_driver_id: string | null
           max_broadcast_rounds: number | null
+          negotiation_disabled: boolean
           negotiation_locked_until: string | null
           negotiation_owner_driver_id: string | null
+          negotiation_status: string | null
           no_show_charge_pence: number | null
           offer_currency: string | null
           offer_discount_pence: number
@@ -8704,6 +8708,7 @@ export type Database = {
           authorised_amount_pence?: number | null
           base_fare_pence?: number | null
           booking_source?: string | null
+          broadcast_enabled?: boolean
           broadcast_started_at?: string | null
           cancel_reason?: string | null
           cancellation_fee_pence?: number | null
@@ -8727,6 +8732,7 @@ export type Database = {
           currency?: string | null
           currency_code?: string | null
           current_broadcast_round?: number | null
+          current_negotiation_id?: string | null
           current_offer_driver_id?: string | null
           current_offer_expires_at?: string | null
           current_stop_index?: number | null
@@ -8780,8 +8786,10 @@ export type Database = {
           late_cancel_fee_pence?: number | null
           locked_driver_id?: string | null
           max_broadcast_rounds?: number | null
+          negotiation_disabled?: boolean
           negotiation_locked_until?: string | null
           negotiation_owner_driver_id?: string | null
+          negotiation_status?: string | null
           no_show_charge_pence?: number | null
           offer_currency?: string | null
           offer_discount_pence?: number
@@ -8867,6 +8875,7 @@ export type Database = {
           authorised_amount_pence?: number | null
           base_fare_pence?: number | null
           booking_source?: string | null
+          broadcast_enabled?: boolean
           broadcast_started_at?: string | null
           cancel_reason?: string | null
           cancellation_fee_pence?: number | null
@@ -8890,6 +8899,7 @@ export type Database = {
           currency?: string | null
           currency_code?: string | null
           current_broadcast_round?: number | null
+          current_negotiation_id?: string | null
           current_offer_driver_id?: string | null
           current_offer_expires_at?: string | null
           current_stop_index?: number | null
@@ -8943,8 +8953,10 @@ export type Database = {
           late_cancel_fee_pence?: number | null
           locked_driver_id?: string | null
           max_broadcast_rounds?: number | null
+          negotiation_disabled?: boolean
           negotiation_locked_until?: string | null
           negotiation_owner_driver_id?: string | null
+          negotiation_status?: string | null
           no_show_charge_pence?: number | null
           offer_currency?: string | null
           offer_discount_pence?: number
@@ -10408,6 +10420,10 @@ export type Database = {
         Returns: Json
       }
       ack_timeout_sweep: { Args: never; Returns: undefined }
+      admin_cancel_trip_negotiation: {
+        Args: { p_reason?: string; p_trip_id: string }
+        Returns: Json
+      }
       admin_user_directory: {
         Args: never
         Returns: {
@@ -10488,6 +10504,15 @@ export type Database = {
           previous_device_id: string
         }[]
       }
+      compute_preset_offer_fare_pence: {
+        Args: {
+          p_base_pence: number
+          p_fixed_amount_pence: number
+          p_multiplier: number
+          p_price_mode: string
+        }
+        Returns: number
+      }
       create_driver_vehicle: {
         Args: {
           p_color: string
@@ -10502,6 +10527,10 @@ export type Database = {
       current_customer_id: { Args: never; Returns: string }
       current_driver_id: { Args: never; Returns: string }
       current_driver_profile_id: { Args: never; Returns: string }
+      customer_counter_ride_offer: {
+        Args: { p_offer_id: string; p_selected_fare_pence: number }
+        Returns: Json
+      }
       decline_ride_offer:
         | { Args: { p_driver_id: string; p_offer_id: string }; Returns: Json }
         | {
@@ -10523,10 +10552,32 @@ export type Database = {
         }
         Returns: string
       }
+      driver_accept_counter_offer: {
+        Args: { p_driver_id: string; p_offer_id: string }
+        Returns: Json
+      }
       driver_can_view_trip_via_offer: {
         Args: { _trip_id: string }
         Returns: boolean
       }
+      driver_cancel_negotiation: {
+        Args: { p_driver_id: string; p_offer_id: string }
+        Returns: Json
+      }
+      driver_send_preset_offer: {
+        Args: {
+          p_driver_offer_fare_pence: number
+          p_offer_id: string
+          p_offer_options?: number[]
+        }
+        Returns: Json
+      }
+      enrich_ride_offer_presets: { Args: { p_trip_id: string }; Returns: Json }
+      ensure_trip_stops_for_assignment: {
+        Args: { p_trip_id: string }
+        Returns: undefined
+      }
+      expire_negotiation_offer: { Args: { p_offer_id: string }; Returns: Json }
       expire_stale_drivers: {
         Args: {
           p_degraded_ttl_seconds?: number
@@ -10536,6 +10587,16 @@ export type Database = {
       }
       expire_stale_modification_requests: { Args: never; Returns: number }
       expire_stale_offers: { Args: never; Returns: Json }
+      finalize_negotiation_failure: {
+        Args: {
+          p_failed_driver_id: string
+          p_offer_id?: string
+          p_offer_negotiation_status?: string
+          p_offer_terminal_status?: string
+          p_trip_id: string
+        }
+        Returns: Json
+      }
       find_nearby_drivers: {
         Args: {
           p_lat: number
@@ -10747,6 +10808,10 @@ export type Database = {
       }
       merge_ride_offer_push_log: {
         Args: { p_json: Json; p_offer_id: string }
+        Returns: undefined
+      }
+      notify_drivers_trip_cancelled: {
+        Args: { p_reason: string; p_trip_id: string }
         Returns: undefined
       }
       ops_acknowledge_alert: {
@@ -11015,9 +11080,21 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      release_trip_negotiation_lock: {
+        Args: { p_next_status?: string; p_trip_id: string }
+        Returns: undefined
+      }
       resolve_driver_alert: {
         Args: { p_alert_type: string; p_driver_id: string }
         Returns: number
+      }
+      resolve_trip_service_area_from_pickup: {
+        Args: {
+          p_pickup_lat: number
+          p_pickup_lng: number
+          p_selected_service_area_id?: string
+        }
+        Returns: Json
       }
       resolve_zone: {
         Args: {
@@ -11072,6 +11149,10 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
       }
+      trip_pickup_coordinates_valid: {
+        Args: { p_lat: number; p_lng: number }
+        Returns: boolean
+      }
       update_driver_location: {
         Args: {
           p_driver_id: string
@@ -11093,116 +11174,61 @@ export type Database = {
         }
         Returns: undefined
       }
-      upsert_driver_presence:
-        | {
-            Args: {
-              p_accuracy?: number
-              p_app_state?: string
-              p_battery_level?: number
-              p_device_id?: string
-              p_driver_id: string
-              p_heading?: number
-              p_lat?: number
-              p_lng?: number
-              p_network_type?: string
-              p_platform?: string
-              p_push_token?: string
-              p_socket_connected?: boolean
-              p_speed?: number
-              p_status?: string
-              p_unresolved_critical_tracking?: boolean
-            }
-            Returns: {
-              accuracy_m: number | null
-              app_state: string
-              battery_level: number | null
-              created_at: string
-              driver_id: string
-              heading: number | null
-              last_heartbeat_at: string
-              last_location_at: string | null
-              last_realtime_seen_at: string | null
-              last_significant_move_at: string | null
-              last_significant_move_lat: number | null
-              last_significant_move_lng: number | null
-              last_socket_pong_at: string | null
-              lat: number | null
-              lng: number | null
-              low_accuracy: boolean
-              low_accuracy_since: string | null
-              network_type: string | null
-              offline_reason: string | null
-              platform: string | null
-              presence_health: string
-              push_token: string | null
-              socket_connected: boolean | null
-              speed: number | null
-              status: string
-              unresolved_critical_tracking: boolean
-              updated_at: string
-            }
-            SetofOptions: {
-              from: "*"
-              to: "driver_presence"
-              isOneToOne: true
-              isSetofReturn: false
-            }
-          }
-        | {
-            Args: {
-              p_accuracy?: number
-              p_app_state?: string
-              p_battery_level?: number
-              p_device_id?: string
-              p_driver_id: string
-              p_heading?: number
-              p_lat?: number
-              p_lng?: number
-              p_network_type?: string
-              p_offline_reason?: string
-              p_platform?: string
-              p_push_token?: string
-              p_socket_connected?: boolean
-              p_speed?: number
-              p_status?: string
-              p_unresolved_critical_tracking?: boolean
-            }
-            Returns: {
-              accuracy_m: number | null
-              app_state: string
-              battery_level: number | null
-              created_at: string
-              driver_id: string
-              heading: number | null
-              last_heartbeat_at: string
-              last_location_at: string | null
-              last_realtime_seen_at: string | null
-              last_significant_move_at: string | null
-              last_significant_move_lat: number | null
-              last_significant_move_lng: number | null
-              last_socket_pong_at: string | null
-              lat: number | null
-              lng: number | null
-              low_accuracy: boolean
-              low_accuracy_since: string | null
-              network_type: string | null
-              offline_reason: string | null
-              platform: string | null
-              presence_health: string
-              push_token: string | null
-              socket_connected: boolean | null
-              speed: number | null
-              status: string
-              unresolved_critical_tracking: boolean
-              updated_at: string
-            }
-            SetofOptions: {
-              from: "*"
-              to: "driver_presence"
-              isOneToOne: true
-              isSetofReturn: false
-            }
-          }
+      upsert_driver_presence: {
+        Args: {
+          p_accuracy?: number
+          p_app_state?: string
+          p_battery_level?: number
+          p_device_id?: string
+          p_driver_id: string
+          p_heading?: number
+          p_lat?: number
+          p_lng?: number
+          p_network_type?: string
+          p_offline_reason?: string
+          p_platform?: string
+          p_push_token?: string
+          p_socket_connected?: boolean
+          p_speed?: number
+          p_status?: string
+          p_unresolved_critical_tracking?: boolean
+        }
+        Returns: {
+          accuracy_m: number | null
+          app_state: string
+          battery_level: number | null
+          created_at: string
+          driver_id: string
+          heading: number | null
+          last_heartbeat_at: string
+          last_location_at: string | null
+          last_realtime_seen_at: string | null
+          last_significant_move_at: string | null
+          last_significant_move_lat: number | null
+          last_significant_move_lng: number | null
+          last_socket_pong_at: string | null
+          lat: number | null
+          lng: number | null
+          low_accuracy: boolean
+          low_accuracy_since: string | null
+          network_type: string | null
+          offline_reason: string | null
+          platform: string | null
+          presence_health: string
+          push_token: string | null
+          socket_connected: boolean | null
+          speed: number | null
+          status: string
+          unresolved_critical_tracking: boolean
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "driver_presence"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       verify_active_device: {
         Args: { p_device_id: string }
         Returns: {
