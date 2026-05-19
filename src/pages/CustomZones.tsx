@@ -607,28 +607,24 @@ export default function CustomZones() {
                 <div className="space-y-4">
                   <Label className="text-base font-medium">Pricing Rules</Label>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label>Pickup Fee (£)</Label>
-                      <Input type="number" step="0.01" value={formData.metadata.pickup_fee ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, pickup_fee: e.target.value ? parseFloat(e.target.value) : undefined } })} placeholder="0.00" />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Dropoff Fee (£)</Label>
-                      <Input type="number" step="0.01" value={formData.metadata.dropoff_fee ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, dropoff_fee: e.target.value ? parseFloat(e.target.value) : undefined } })} placeholder="0.00" />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label>Airport Fee — Pickup (£)</Label>
-                      <Input type="number" step="0.01" value={formData.metadata.airport_fee_pickup ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, airport_fee_pickup: e.target.value ? parseFloat(e.target.value) : undefined } })} placeholder="0.00" />
-                      <p className="text-xs text-muted-foreground">Optional airport-specific pickup fee</p>
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Airport Fee — Dropoff (£)</Label>
-                      <Input type="number" step="0.01" value={formData.metadata.airport_fee_dropoff ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, airport_fee_dropoff: e.target.value ? parseFloat(e.target.value) : undefined } })} placeholder="0.00" />
-                      <p className="text-xs text-muted-foreground">Optional airport-specific dropoff fee</p>
-                    </div>
+                  <div className="grid gap-2">
+                    <Label>Airport Charge (£)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={formData.metadata.airport_charge ?? ""}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        metadata: {
+                          ...formData.metadata,
+                          airport_charge: e.target.value ? parseFloat(e.target.value) : undefined,
+                        },
+                      })}
+                      placeholder="0.00"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Single charge applied to BOTH airport pickup and airport dropoff trips. Final fare = Fixed Fare + Airport Charge.
+                    </p>
                   </div>
 
                   <div className="grid gap-2">
