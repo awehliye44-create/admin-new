@@ -452,8 +452,7 @@ export default function CustomZones() {
                         <TableHead>Service Area</TableHead>
                         <TableHead>Shape</TableHead>
                         <TableHead>Priority</TableHead>
-                        <TableHead>Pickup Fee</TableHead>
-                        <TableHead>Dropoff Fee</TableHead>
+                        <TableHead>Airport Charge</TableHead>
                         <TableHead>Surcharge %</TableHead>
                         <TableHead>Override</TableHead>
                         <TableHead>Status</TableHead>
