@@ -23,17 +23,11 @@ import {
 } from "lucide-react";
 
 interface ZoneMetadata {
-  pickup_fee?: number;
-  dropoff_fee?: number;
-  airport_fee_pickup?: number;
-  airport_fee_dropoff?: number;
+  airport_charge?: number;
   surcharge_pct?: number;
   fare_override_mode?: 'NONE' | 'FIXED_FARE' | 'MULTIPLIER';
   fare_override_value?: number;
   notes?: string;
-  // legacy fields kept for backwards compatibility
-  surge_multiplier?: number;
-  min_fare_override?: number;
 }
 
 interface CustomZone {
