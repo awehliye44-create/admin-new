@@ -9753,15 +9753,12 @@ export type Database = {
       }
       zone_route_pricing: {
         Row: {
-          airport_dropoff_fee: number
-          airport_pickup_fee: number
+          airport_charge: number
           created_at: string
-          dropoff_fee: number
           fixed_fare: number
           from_zone_id: string
           id: string
           is_active: boolean
-          pickup_fee: number
           priority: number
           service_area_id: string | null
           surcharge_pct: number
@@ -9770,15 +9767,12 @@ export type Database = {
           vehicle_type_id: string | null
         }
         Insert: {
-          airport_dropoff_fee?: number
-          airport_pickup_fee?: number
+          airport_charge?: number
           created_at?: string
-          dropoff_fee?: number
           fixed_fare: number
           from_zone_id: string
           id?: string
           is_active?: boolean
-          pickup_fee?: number
           priority?: number
           service_area_id?: string | null
           surcharge_pct?: number
@@ -9787,15 +9781,12 @@ export type Database = {
           vehicle_type_id?: string | null
         }
         Update: {
-          airport_dropoff_fee?: number
-          airport_pickup_fee?: number
+          airport_charge?: number
           created_at?: string
-          dropoff_fee?: number
           fixed_fare?: number
           from_zone_id?: string
           id?: string
           is_active?: boolean
-          pickup_fee?: number
           priority?: number
           service_area_id?: string | null
           surcharge_pct?: number
