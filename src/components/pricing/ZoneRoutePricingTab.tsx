@@ -19,11 +19,8 @@ interface ZoneRouteRule {
   service_area_id: string | null;
   vehicle_type_id: string | null;
   fixed_fare: number;
-  pickup_fee: number;
-  dropoff_fee: number;
   surcharge_pct: number;
-  airport_pickup_fee: number;
-  airport_dropoff_fee: number;
+  airport_charge: number;
   is_active: boolean;
   priority: number;
 }
@@ -36,11 +33,8 @@ interface ServiceArea { id: string; name: string; }
 interface MatrixRow {
   vehicle_type_id: string | null; // null = explicit fallback
   fixed_fare: string;
-  pickup_fee: string;
-  dropoff_fee: string;
   surcharge_pct: string;
-  airport_pickup_fee: string;
-  airport_dropoff_fee: string;
+  airport_charge: string;
   is_active: boolean;
   existing_id: string | null;
 }
@@ -48,11 +42,8 @@ interface MatrixRow {
 const blankRow = (vehicle_type_id: string | null): MatrixRow => ({
   vehicle_type_id,
   fixed_fare: '',
-  pickup_fee: '0',
-  dropoff_fee: '0',
   surcharge_pct: '0',
-  airport_pickup_fee: '0',
-  airport_dropoff_fee: '0',
+  airport_charge: '0',
   is_active: true,
   existing_id: null,
 });
@@ -84,7 +75,7 @@ export function ZoneRoutePricingTab() {
       supabase.from('vehicle_types').select('id, name').eq('is_active', true).order('display_order'),
       supabase.from('service_areas').select('id, name').eq('is_active', true),
     ]);
-    if (rulesRes.data) setRules(rulesRes.data as ZoneRouteRule[]);
+    if (rulesRes.data) setRules(rulesRes.data as unknown as ZoneRouteRule[]);
     if (zonesRes.data) setZones(zonesRes.data as Zone[]);
     if (vtRes.data) setVehicleTypes(vtRes.data as VehicleType[]);
     if (saRes.data) setServiceAreas(saRes.data as ServiceArea[]);
@@ -108,7 +99,6 @@ export function ZoneRoutePricingTab() {
 
   const openCreate = () => {
     setRouteHeader({ from_zone_id: '', to_zone_id: '', service_area_id: '', priority: '0' });
-    // Initialize matrix with one row per active vehicle type + fallback
     setMatrix([
       ...vehicleTypes.map(vt => blankRow(vt.id)),
       blankRow(null),
@@ -123,7 +113,6 @@ export function ZoneRoutePricingTab() {
       service_area_id: group.service_area_id ?? '',
       priority: String(group.rows[0]?.priority ?? 0),
     });
-    // Build matrix: one row per vehicle type + fallback, prefilled if existing
     const byVt = new Map(group.rows.map(r => [r.vehicle_type_id, r]));
     const next: MatrixRow[] = vehicleTypes.map(vt => {
       const existing = byVt.get(vt.id);
@@ -131,11 +120,8 @@ export function ZoneRoutePricingTab() {
         return {
           vehicle_type_id: vt.id,
           fixed_fare: String(existing.fixed_fare),
-          pickup_fee: String(existing.pickup_fee ?? 0),
-          dropoff_fee: String(existing.dropoff_fee ?? 0),
           surcharge_pct: String(existing.surcharge_pct ?? 0),
-          airport_pickup_fee: String(existing.airport_pickup_fee ?? 0),
-          airport_dropoff_fee: String(existing.airport_dropoff_fee ?? 0),
+          airport_charge: String(existing.airport_charge ?? 0),
           is_active: existing.is_active,
           existing_id: existing.id,
         };
@@ -146,11 +132,8 @@ export function ZoneRoutePricingTab() {
     next.push(fallback ? {
       vehicle_type_id: null,
       fixed_fare: String(fallback.fixed_fare),
-      pickup_fee: String(fallback.pickup_fee ?? 0),
-      dropoff_fee: String(fallback.dropoff_fee ?? 0),
       surcharge_pct: String(fallback.surcharge_pct ?? 0),
-      airport_pickup_fee: String(fallback.airport_pickup_fee ?? 0),
-      airport_dropoff_fee: String(fallback.airport_dropoff_fee ?? 0),
+      airport_charge: String(fallback.airport_charge ?? 0),
       is_active: fallback.is_active,
       existing_id: fallback.id,
     } : blankRow(null));
@@ -171,7 +154,6 @@ export function ZoneRoutePricingTab() {
       toast.error('From Zone and To Zone must be different');
       return;
     }
-    // Only persist rows where the admin entered a fixed_fare
     const filled = matrix.filter(r => r.fixed_fare !== '' && !isNaN(parseFloat(r.fixed_fare)));
     if (filled.length === 0) {
       toast.error('Enter at least one fixed fare for a vehicle category');
@@ -180,7 +162,6 @@ export function ZoneRoutePricingTab() {
 
     setSaving(true);
     try {
-      // Delete rows that were cleared (had existing_id but now no fare)
       const toDelete = matrix.filter(r => r.existing_id && (r.fixed_fare === '' || isNaN(parseFloat(r.fixed_fare))));
       if (toDelete.length > 0) {
         const { error } = await supabase
@@ -190,7 +171,6 @@ export function ZoneRoutePricingTab() {
         if (error) throw error;
       }
 
-      // Upsert filled rows
       const payloads = filled.map(r => ({
         ...(r.existing_id ? { id: r.existing_id } : {}),
         from_zone_id: routeHeader.from_zone_id,
@@ -198,16 +178,12 @@ export function ZoneRoutePricingTab() {
         service_area_id: routeHeader.service_area_id || null,
         vehicle_type_id: r.vehicle_type_id,
         fixed_fare: parseFloat(r.fixed_fare),
-        pickup_fee: parseFloat(r.pickup_fee) || 0,
-        dropoff_fee: parseFloat(r.dropoff_fee) || 0,
         surcharge_pct: parseFloat(r.surcharge_pct) || 0,
-        airport_pickup_fee: parseFloat(r.airport_pickup_fee) || 0,
-        airport_dropoff_fee: parseFloat(r.airport_dropoff_fee) || 0,
+        airport_charge: parseFloat(r.airport_charge) || 0,
         is_active: r.is_active,
         priority: parseInt(routeHeader.priority) || 0,
       }));
 
-      // Update + insert separately to keep simple semantics
       for (const p of payloads) {
         if ((p as any).id) {
           const { id, ...patch } = p as any;
@@ -315,9 +291,7 @@ export function ZoneRoutePricingTab() {
                             <TableRow>
                               <TableHead>Vehicle Category</TableHead>
                               <TableHead>Fixed Fare</TableHead>
-                              <TableHead>Pickup Fee</TableHead>
-                              <TableHead>Dropoff Fee</TableHead>
-                              <TableHead>Airport P/D</TableHead>
+                              <TableHead>Airport Charge</TableHead>
                               <TableHead>Surcharge %</TableHead>
                               <TableHead>Active</TableHead>
                               <TableHead className="text-right">Actions</TableHead>
@@ -331,9 +305,7 @@ export function ZoneRoutePricingTab() {
                                   {r.vehicle_type_id === null && <Badge variant="outline" className="ml-2">fallback</Badge>}
                                 </TableCell>
                                 <TableCell>£{Number(r.fixed_fare).toFixed(2)}</TableCell>
-                                <TableCell>£{Number(r.pickup_fee ?? 0).toFixed(2)}</TableCell>
-                                <TableCell>£{Number(r.dropoff_fee ?? 0).toFixed(2)}</TableCell>
-                                <TableCell>£{Number(r.airport_pickup_fee ?? 0).toFixed(2)} / £{Number(r.airport_dropoff_fee ?? 0).toFixed(2)}</TableCell>
+                                <TableCell>£{Number(r.airport_charge ?? 0).toFixed(2)}</TableCell>
                                 <TableCell>{Number(r.surcharge_pct ?? 0).toFixed(1)}%</TableCell>
                                 <TableCell>
                                   <Switch checked={r.is_active} onCheckedChange={(v) => handleToggleRow(r.id, v)} />
@@ -359,11 +331,11 @@ export function ZoneRoutePricingTab() {
 
       {/* Matrix editor dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Route Pricing Matrix</DialogTitle>
             <DialogDescription>
-              Set an independent fixed fare for each vehicle category. Leave a row blank to skip it — that category will fall through to the "Default (fallback)" row, or to standard meter pricing if no fallback is set.
+              Set an independent fixed fare for each vehicle category. Airport Charge applies to BOTH airport pickup and airport dropoff trips. Leave a row blank to skip it — that category will fall through to the "Default (fallback)" row, or to standard meter pricing if no fallback is set.
             </DialogDescription>
           </DialogHeader>
 
@@ -408,10 +380,7 @@ export function ZoneRoutePricingTab() {
                   <TableRow>
                     <TableHead className="min-w-[140px]">Vehicle</TableHead>
                     <TableHead>Fixed Fare £</TableHead>
-                    <TableHead>Pickup £</TableHead>
-                    <TableHead>Dropoff £</TableHead>
-                    <TableHead>Airport Pickup £</TableHead>
-                    <TableHead>Airport Dropoff £</TableHead>
+                    <TableHead>Airport Charge £</TableHead>
                     <TableHead>Surcharge %</TableHead>
                     <TableHead>Active</TableHead>
                   </TableRow>
@@ -424,29 +393,14 @@ export function ZoneRoutePricingTab() {
                         {row.vehicle_type_id === null && <Badge variant="outline" className="ml-2">fallback</Badge>}
                       </TableCell>
                       <TableCell>
-                        <Input type="number" step="0.01" min="0" placeholder="—" className="w-24"
+                        <Input type="number" step="0.01" min="0" placeholder="—" className="w-28"
                           value={row.fixed_fare}
                           onChange={e => updateMatrixRow(idx, { fixed_fare: e.target.value })} />
                       </TableCell>
                       <TableCell>
-                        <Input type="number" step="0.01" min="0" className="w-20"
-                          value={row.pickup_fee}
-                          onChange={e => updateMatrixRow(idx, { pickup_fee: e.target.value })} />
-                      </TableCell>
-                      <TableCell>
-                        <Input type="number" step="0.01" min="0" className="w-20"
-                          value={row.dropoff_fee}
-                          onChange={e => updateMatrixRow(idx, { dropoff_fee: e.target.value })} />
-                      </TableCell>
-                      <TableCell>
-                        <Input type="number" step="0.01" min="0" className="w-20"
-                          value={row.airport_pickup_fee}
-                          onChange={e => updateMatrixRow(idx, { airport_pickup_fee: e.target.value })} />
-                      </TableCell>
-                      <TableCell>
-                        <Input type="number" step="0.01" min="0" className="w-20"
-                          value={row.airport_dropoff_fee}
-                          onChange={e => updateMatrixRow(idx, { airport_dropoff_fee: e.target.value })} />
+                        <Input type="number" step="0.01" min="0" className="w-28"
+                          value={row.airport_charge}
+                          onChange={e => updateMatrixRow(idx, { airport_charge: e.target.value })} />
                       </TableCell>
                       <TableCell>
                         <Input type="number" step="0.1" min="0" max="100" className="w-20"
@@ -464,7 +418,7 @@ export function ZoneRoutePricingTab() {
             </div>
 
             <p className="text-xs text-muted-foreground">
-              💡 Only rows with a fixed fare value are saved. Leave the fare blank to skip a category — the engine will use the fallback row, or standard meter pricing if no fallback is set.
+              💡 Only rows with a fixed fare value are saved. Airport Charge is added on top of the fixed fare whenever the trip involves an airport zone (pickup OR dropoff).
             </p>
           </div>
 

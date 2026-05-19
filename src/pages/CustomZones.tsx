@@ -23,17 +23,11 @@ import {
 } from "lucide-react";
 
 interface ZoneMetadata {
-  pickup_fee?: number;
-  dropoff_fee?: number;
-  airport_fee_pickup?: number;
-  airport_fee_dropoff?: number;
+  airport_charge?: number;
   surcharge_pct?: number;
   fare_override_mode?: 'NONE' | 'FIXED_FARE' | 'MULTIPLIER';
   fare_override_value?: number;
   notes?: string;
-  // legacy fields kept for backwards compatibility
-  surge_multiplier?: number;
-  min_fare_override?: number;
 }
 
 interface CustomZone {
@@ -458,8 +452,7 @@ export default function CustomZones() {
                         <TableHead>Service Area</TableHead>
                         <TableHead>Shape</TableHead>
                         <TableHead>Priority</TableHead>
-                        <TableHead>Pickup Fee</TableHead>
-                        <TableHead>Dropoff Fee</TableHead>
+                        <TableHead>Airport Charge</TableHead>
                         <TableHead>Surcharge %</TableHead>
                         <TableHead>Override</TableHead>
                         <TableHead>Status</TableHead>
@@ -492,16 +485,9 @@ export default function CustomZones() {
                           </TableCell>
                           <TableCell>{zone.priority || 0}</TableCell>
                           <TableCell>
-                            <div className="text-sm space-y-0.5">
-                              {zone.metadata?.pickup_fee ? <div>£{zone.metadata.pickup_fee}</div> : <span className="text-muted-foreground">—</span>}
-                              {zone.metadata?.airport_fee_pickup ? <div className="text-xs text-muted-foreground">Airport: £{zone.metadata.airport_fee_pickup}</div> : null}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="text-sm space-y-0.5">
-                              {zone.metadata?.dropoff_fee ? <div>£{zone.metadata.dropoff_fee}</div> : <span className="text-muted-foreground">—</span>}
-                              {zone.metadata?.airport_fee_dropoff ? <div className="text-xs text-muted-foreground">Airport: £{zone.metadata.airport_fee_dropoff}</div> : null}
-                            </div>
+                            {zone.metadata?.airport_charge
+                              ? <span>£{zone.metadata.airport_charge}</span>
+                              : <span className="text-muted-foreground">—</span>}
                           </TableCell>
                           <TableCell>
                             {zone.metadata?.surcharge_pct ? <span>{zone.metadata.surcharge_pct}%</span> : <span className="text-muted-foreground">—</span>}
@@ -621,28 +607,24 @@ export default function CustomZones() {
                 <div className="space-y-4">
                   <Label className="text-base font-medium">Pricing Rules</Label>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label>Pickup Fee (£)</Label>
-                      <Input type="number" step="0.01" value={formData.metadata.pickup_fee ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, pickup_fee: e.target.value ? parseFloat(e.target.value) : undefined } })} placeholder="0.00" />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Dropoff Fee (£)</Label>
-                      <Input type="number" step="0.01" value={formData.metadata.dropoff_fee ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, dropoff_fee: e.target.value ? parseFloat(e.target.value) : undefined } })} placeholder="0.00" />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label>Airport Fee — Pickup (£)</Label>
-                      <Input type="number" step="0.01" value={formData.metadata.airport_fee_pickup ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, airport_fee_pickup: e.target.value ? parseFloat(e.target.value) : undefined } })} placeholder="0.00" />
-                      <p className="text-xs text-muted-foreground">Optional airport-specific pickup fee</p>
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Airport Fee — Dropoff (£)</Label>
-                      <Input type="number" step="0.01" value={formData.metadata.airport_fee_dropoff ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, airport_fee_dropoff: e.target.value ? parseFloat(e.target.value) : undefined } })} placeholder="0.00" />
-                      <p className="text-xs text-muted-foreground">Optional airport-specific dropoff fee</p>
-                    </div>
+                  <div className="grid gap-2">
+                    <Label>Airport Charge (£)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={formData.metadata.airport_charge ?? ""}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        metadata: {
+                          ...formData.metadata,
+                          airport_charge: e.target.value ? parseFloat(e.target.value) : undefined,
+                        },
+                      })}
+                      placeholder="0.00"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Single charge applied to BOTH airport pickup and airport dropoff trips. Final fare = Fixed Fare + Airport Charge.
+                    </p>
                   </div>
 
                   <div className="grid gap-2">
