@@ -109,36 +109,32 @@ export async function resolveZoneRoutePricing(params: {
 
 /**
  * Apply a zone-route-pricing row to produce a final pence quote.
- * Logic: fixed_fare + pickup + dropoff + airport fees, then ×(1 + surcharge_pct/100).
+ *
+ * Logic (unified airport charge model):
+ *   final = (fixed_fare + airport_charge) × (1 + surcharge_pct/100)
+ *
+ * `airport_charge` is a single field applied to BOTH airport pickup and airport
+ * dropoff trips. Admins set it to 0 for routes that don't involve an airport.
  */
 export function applyZoneRoutePricing(row: ZoneRoutePricingRow): {
   quoted_fare_pence: number;
   fixed_fare_pence: number;
-  pickup_fee_pence: number;
-  dropoff_fee_pence: number;
-  airport_pickup_fee_pence: number;
-  airport_dropoff_fee_pence: number;
+  airport_charge_pence: number;
   surcharge_pct: number;
 } {
   const toPence = (v: number | string | null | undefined) =>
     Math.round(Number(v ?? 0) * 100);
 
   const fixed = toPence(row.fixed_fare);
-  const pickup = toPence(row.pickup_fee);
-  const dropoff = toPence(row.dropoff_fee);
-  const apickup = toPence(row.airport_pickup_fee);
-  const adropoff = toPence(row.airport_dropoff_fee);
-  const subtotal = fixed + pickup + dropoff + apickup + adropoff;
+  const airport = toPence(row.airport_charge);
+  const subtotal = fixed + airport;
   const surcharge = Number(row.surcharge_pct ?? 0);
-  const final = Math.round(subtotal * (1 + surcharge / 100));
+  const finalPence = Math.round(subtotal * (1 + surcharge / 100));
 
   return {
-    quoted_fare_pence: final,
+    quoted_fare_pence: finalPence,
     fixed_fare_pence: fixed,
-    pickup_fee_pence: pickup,
-    dropoff_fee_pence: dropoff,
-    airport_pickup_fee_pence: apickup,
-    airport_dropoff_fee_pence: adropoff,
+    airport_charge_pence: airport,
     surcharge_pct: surcharge,
   };
 }
