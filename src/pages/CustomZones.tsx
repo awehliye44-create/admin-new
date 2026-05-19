@@ -485,16 +485,9 @@ export default function CustomZones() {
                           </TableCell>
                           <TableCell>{zone.priority || 0}</TableCell>
                           <TableCell>
-                            <div className="text-sm space-y-0.5">
-                              {zone.metadata?.pickup_fee ? <div>£{zone.metadata.pickup_fee}</div> : <span className="text-muted-foreground">—</span>}
-                              {zone.metadata?.airport_fee_pickup ? <div className="text-xs text-muted-foreground">Airport: £{zone.metadata.airport_fee_pickup}</div> : null}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="text-sm space-y-0.5">
-                              {zone.metadata?.dropoff_fee ? <div>£{zone.metadata.dropoff_fee}</div> : <span className="text-muted-foreground">—</span>}
-                              {zone.metadata?.airport_fee_dropoff ? <div className="text-xs text-muted-foreground">Airport: £{zone.metadata.airport_fee_dropoff}</div> : null}
-                            </div>
+                            {zone.metadata?.airport_charge
+                              ? <span>£{zone.metadata.airport_charge}</span>
+                              : <span className="text-muted-foreground">—</span>}
                           </TableCell>
                           <TableCell>
                             {zone.metadata?.surcharge_pct ? <span>{zone.metadata.surcharge_pct}%</span> : <span className="text-muted-foreground">—</span>}
