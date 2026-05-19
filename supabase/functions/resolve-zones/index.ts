@@ -151,21 +151,20 @@ serve(async (req) => {
       }
     }
 
-    // Step 5: Calculate pricing modifiers
+    // Step 5: Calculate pricing modifiers (unified airport charge model)
     const pm = pickupZone?.metadata || {};
     const dm = dropoffZone?.metadata || {};
 
-    const pickupFee = (pm.pickup_fee || 0) + (pm.airport_fee_pickup || 0);
-    const dropoffFee = (dm.dropoff_fee || 0) + (dm.airport_fee_dropoff || 0);
+    // A single airport_charge applies to BOTH airport pickup and airport dropoff
+    // trips. Take whichever zone defines one (pickup wins ties).
+    const zoneAirportCharge =
+      Number(pm.airport_charge || 0) || Number(dm.airport_charge || 0) || 0;
+
     const surcharge_pct = pm.surcharge_pct || dm.surcharge_pct || 0;
 
     // Fare override from pickup zone takes priority
     const fare_override_mode = pm.fare_override_mode || dm.fare_override_mode || 'NONE';
     const fare_override_value = pm.fare_override_value ?? dm.fare_override_value ?? null;
-
-    // Legacy support
-    const surgeMultiplier = pm.surge_multiplier || dm.surge_multiplier || 1;
-    const minFareOverride = pm.min_fare_override || null;
 
     return new Response(
       JSON.stringify({
@@ -198,26 +197,22 @@ serve(async (req) => {
           ? {
               id: zoneRoutePricing.id,
               fixed_fare: Number(zoneRoutePricing.fixed_fare),
-              pickup_fee: Number(zoneRoutePricing.pickup_fee ?? 0),
-              dropoff_fee: Number(zoneRoutePricing.dropoff_fee ?? 0),
+              airport_charge: Number(zoneRoutePricing.airport_charge ?? 0),
               vehicle_type_id: zoneRoutePricing.vehicle_type_id,
               priority: zoneRoutePricing.priority,
               use_fixed_fare: true,
             }
           : null,
         pricing_modifiers: {
-          pickup_fee: zoneRoutePricing ? Number(zoneRoutePricing.pickup_fee ?? 0) : pickupFee,
-          dropoff_fee: zoneRoutePricing ? Number(zoneRoutePricing.dropoff_fee ?? 0) : dropoffFee,
-          airport_fee_pickup: zoneRoutePricing ? 0 : (pm.airport_fee_pickup || 0),
-          airport_fee_dropoff: zoneRoutePricing ? 0 : (dm.airport_fee_dropoff || 0),
+          airport_charge: zoneRoutePricing
+            ? Number(zoneRoutePricing.airport_charge ?? 0)
+            : zoneAirportCharge,
           surcharge_pct: zoneRoutePricing ? 0 : surcharge_pct,
           fare_override_mode: zoneRoutePricing ? 'FIXED_FARE' : fare_override_mode,
           fare_override_value: zoneRoutePricing ? Number(zoneRoutePricing.fixed_fare) : fare_override_value,
-          surge_multiplier: zoneRoutePricing ? 1 : surgeMultiplier,
-          min_fare_override: zoneRoutePricing ? null : minFareOverride,
           total_zone_fees: zoneRoutePricing
-            ? Number(zoneRoutePricing.pickup_fee ?? 0) + Number(zoneRoutePricing.dropoff_fee ?? 0)
-            : (pickupFee + dropoffFee),
+            ? Number(zoneRoutePricing.airport_charge ?? 0)
+            : zoneAirportCharge,
         },
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
