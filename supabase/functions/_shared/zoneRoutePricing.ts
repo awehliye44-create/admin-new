@@ -16,11 +16,8 @@ export interface ZoneRoutePricingRow {
   service_area_id: string | null;
   vehicle_type_id: string | null;
   fixed_fare: number;
-  pickup_fee: number;
-  dropoff_fee: number;
   surcharge_pct: number;
-  airport_pickup_fee: number;
-  airport_dropoff_fee: number;
+  airport_charge: number;
   priority: number;
   is_active: boolean;
 }
