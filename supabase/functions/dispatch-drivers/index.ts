@@ -561,6 +561,11 @@ serve(async (req) => {
             .update({ status: STATUS_EXPIRED, updated_at: new Date().toISOString() })
             .eq("trip_id", trip_id)
             .eq("status", STATUS_OFFERED);
+
+          // Wave delay between waves before expanding to next batch / radius
+          if (waveDelaySeconds > 0) {
+            await new Promise((r) => setTimeout(r, waveDelaySeconds * 1000));
+          }
         }
       }
 
