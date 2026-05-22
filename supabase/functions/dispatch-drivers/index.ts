@@ -68,35 +68,9 @@ function minutesSince(dateStr: string | null, fallback: string | null): number {
   return Math.max(0, (Date.now() - new Date(ref).getTime()) / 60000);
 }
 
-function parseSettings(row: Record<string, any>): DispatchSettings {
-  return {
-    search_radius_start_km: row.search_radius_start_km,
-    search_radius_expand_km: row.search_radius_expand_km,
-    search_radius_max_km: row.search_radius_max_km,
-    shortlist_limit: row.shortlist_limit,
-    wave1_size: row.wave1_size,
-    wave2_size: row.wave2_size,
-    wave3_size: row.wave3_size,
-    offer_expiry_seconds: row.offer_expiry_seconds,
-    wave1_offer_expiry_seconds: row.wave1_offer_expiry_seconds,
-    wave2_offer_expiry_seconds: row.wave2_offer_expiry_seconds,
-    wave3_offer_expiry_seconds: row.wave3_offer_expiry_seconds,
-    distance_penalty_per_km: row.distance_penalty_per_km,
-    waiting_bonus_per_minute: row.waiting_bonus_per_minute,
-    max_waiting_bonus_minutes: row.max_waiting_bonus_minutes,
-    fairness_idle_minutes: row.fairness_idle_minutes,
-    fairness_boost_score: row.fairness_boost_score,
-    accept_timeout_seconds: row.accept_timeout_seconds,
-    max_driver_find_time_minutes: row.max_driver_find_time_minutes,
-    stacked_rides_enabled: row.stacked_rides_enabled,
-    max_stacked_rides: row.max_stacked_rides,
-    stacked_min_trip_distance_km: row.stacked_min_trip_distance_km,
-    stacked_max_detour_minutes: row.stacked_max_detour_minutes,
-    stacked_priority_mode: row.stacked_priority_mode,
-    simulate_mode: row.simulate_mode,
-    block_multiple_active_rides: row.block_multiple_active_rides,
-  };
-}
+// Settings are loaded from `global_dispatch_settings` (singleton) and mapped
+// into the DispatchSettings shape inline inside the handler.
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
