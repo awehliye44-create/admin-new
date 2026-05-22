@@ -68,35 +68,9 @@ function minutesSince(dateStr: string | null, fallback: string | null): number {
   return Math.max(0, (Date.now() - new Date(ref).getTime()) / 60000);
 }
 
-function parseSettings(row: Record<string, any>): DispatchSettings {
-  return {
-    search_radius_start_km: row.search_radius_start_km,
-    search_radius_expand_km: row.search_radius_expand_km,
-    search_radius_max_km: row.search_radius_max_km,
-    shortlist_limit: row.shortlist_limit,
-    wave1_size: row.wave1_size,
-    wave2_size: row.wave2_size,
-    wave3_size: row.wave3_size,
-    offer_expiry_seconds: row.offer_expiry_seconds,
-    wave1_offer_expiry_seconds: row.wave1_offer_expiry_seconds,
-    wave2_offer_expiry_seconds: row.wave2_offer_expiry_seconds,
-    wave3_offer_expiry_seconds: row.wave3_offer_expiry_seconds,
-    distance_penalty_per_km: row.distance_penalty_per_km,
-    waiting_bonus_per_minute: row.waiting_bonus_per_minute,
-    max_waiting_bonus_minutes: row.max_waiting_bonus_minutes,
-    fairness_idle_minutes: row.fairness_idle_minutes,
-    fairness_boost_score: row.fairness_boost_score,
-    accept_timeout_seconds: row.accept_timeout_seconds,
-    max_driver_find_time_minutes: row.max_driver_find_time_minutes,
-    stacked_rides_enabled: row.stacked_rides_enabled,
-    max_stacked_rides: row.max_stacked_rides,
-    stacked_min_trip_distance_km: row.stacked_min_trip_distance_km,
-    stacked_max_detour_minutes: row.stacked_max_detour_minutes,
-    stacked_priority_mode: row.stacked_priority_mode,
-    simulate_mode: row.simulate_mode,
-    block_multiple_active_rides: row.block_multiple_active_rides,
-  };
-}
+// Settings are loaded from `global_dispatch_settings` (singleton) and mapped
+// into the DispatchSettings shape inline inside the handler.
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -179,48 +153,83 @@ serve(async (req) => {
       return successResponse({ dispatched: true, scan_go: true, offers_sent: 1 });
     }
 
-    // ====== LOAD DISPATCH SETTINGS (strict — no hardcoded defaults) ======
+    // ====== LOAD GLOBAL DISPATCH SETTINGS (singleton) ======
     const resolvedSaId = service_area_id || trip.service_area_id;
 
-    if (!resolvedSaId) {
-      return errorResponse("No service area resolved for trip. Configure dispatch_settings in Admin.", 422);
-    }
-
-    const { data: saSettings } = await supabase
-      .from("dispatch_settings")
+    const { data: globalRow } = await supabase
+      .from("global_dispatch_settings")
       .select("*")
-      .eq("service_area_id", resolvedSaId)
+      .eq("singleton", true)
       .maybeSingle();
 
-    if (!saSettings) {
+    if (!globalRow) {
       return errorResponse(
-        `No dispatch_settings configured for service area ${resolvedSaId}. Configure in Admin Panel → Auto-Dispatch Rules.`,
+        "No global_dispatch_settings configured. Configure in Admin Panel → Dispatch Rules.",
         422
       );
     }
 
-    const settings = parseSettings(saSettings);
+    // Optional per-SA legacy row (only used for scoring weights — never radii/waves/stacked)
+    const saRes = resolvedSaId
+      ? await supabase
+          .from("dispatch_settings")
+          .select(
+            "shortlist_limit,distance_penalty_per_km,waiting_bonus_per_minute,max_waiting_bonus_minutes,fairness_idle_minutes,fairness_boost_score,max_driver_find_time_minutes,simulate_mode"
+          )
+          .eq("service_area_id", resolvedSaId)
+          .maybeSingle()
+      : { data: null };
+    const saSettings: any = saRes.data;
+
+    const settings: DispatchSettings = {
+      search_radius_start_km: globalRow.start_radius_meters / 1000,
+      search_radius_expand_km: globalRow.expand_radius_meters / 1000,
+      search_radius_max_km: globalRow.max_radius_meters / 1000,
+      shortlist_limit: saSettings?.shortlist_limit ?? 100,
+      wave1_size: globalRow.drivers_per_wave,
+      wave2_size: globalRow.drivers_per_wave,
+      wave3_size: globalRow.drivers_per_wave,
+      offer_expiry_seconds: globalRow.driver_response_timeout_seconds,
+      wave1_offer_expiry_seconds: globalRow.driver_response_timeout_seconds,
+      wave2_offer_expiry_seconds: globalRow.driver_response_timeout_seconds,
+      wave3_offer_expiry_seconds: globalRow.driver_response_timeout_seconds,
+      distance_penalty_per_km: saSettings?.distance_penalty_per_km ?? 2.0,
+      waiting_bonus_per_minute: saSettings?.waiting_bonus_per_minute ?? 0.5,
+      max_waiting_bonus_minutes: saSettings?.max_waiting_bonus_minutes ?? 20,
+      fairness_idle_minutes: saSettings?.fairness_idle_minutes ?? 20,
+      fairness_boost_score: saSettings?.fairness_boost_score ?? 10,
+      accept_timeout_seconds: globalRow.driver_response_timeout_seconds,
+      max_driver_find_time_minutes: saSettings?.max_driver_find_time_minutes ?? 3,
+      stacked_rides_enabled: globalRow.stacked_rides_enabled,
+      // "additional" rides allowed (matches existing `+1` math below = current + stacked)
+      max_stacked_rides: Math.max(0, globalRow.max_active_rides_per_driver - 1),
+      stacked_min_trip_distance_km: globalRow.max_pickup_detour_meters / 1000,
+      stacked_max_detour_minutes: 10,
+      stacked_priority_mode: globalRow.allow_same_direction_only ? "same_direction" : "nearest",
+      simulate_mode: saSettings?.simulate_mode ?? false,
+      block_multiple_active_rides: !globalRow.allow_new_ride_while_driver_active,
+    };
+    const waveDelaySeconds: number = globalRow.wave_delay_seconds ?? 0;
 
     // ====== SIMULATE MODE ======
     if (settings.simulate_mode) {
       console.log(`[dispatch-drivers] SIMULATE MODE — no offers will be sent`);
     }
 
-    // Calculate absolute deadline from maxDriverFindTimeMinutes
-    // CRITICAL: Supabase Edge Functions have a ~60s execution limit.
-    // Cap total execution to 50s regardless of admin config to prevent timeout kills.
+    // Calculate absolute deadline (cap at edge function 50s limit)
     const EDGE_FUNCTION_SAFE_LIMIT_MS = 50_000;
     const adminMaxMs = settings.max_driver_find_time_minutes * 60 * 1000;
     const maxFindTimeMs = Math.min(adminMaxMs, EDGE_FUNCTION_SAFE_LIMIT_MS);
 
-    console.log(`[dispatch-drivers] Settings loaded: start=${settings.search_radius_start_km}km, waves=${settings.wave1_size}/${settings.wave2_size}/${settings.wave3_size}, stacked=${settings.stacked_rides_enabled}, max_stacked=${settings.max_stacked_rides}, max_find_time=${settings.max_driver_find_time_minutes}min, simulate=${settings.simulate_mode}, block_multi=${settings.block_multiple_active_rides}`);
+    console.log(`[dispatch-drivers] GLOBAL settings: start=${settings.search_radius_start_km}km expand=${settings.search_radius_expand_km}km max=${settings.search_radius_max_km}km, drivers/wave=${settings.wave1_size}, response_timeout=${globalRow.driver_response_timeout_seconds}s, wave_delay=${waveDelaySeconds}s, stacked=${settings.stacked_rides_enabled}, max_active=${globalRow.max_active_rides_per_driver}`);
 
     // ====== EXPANDING RADIUS SEARCH + SCORING ======
-    const radiusSteps = [
+    // Deduplicate identical radii so we don't waste time scanning the same area twice
+    const radiusSteps = Array.from(new Set([
       settings.search_radius_start_km,
       settings.search_radius_expand_km,
       settings.search_radius_max_km,
-    ];
+    ])).sort((a, b) => a - b);
 
     let allCandidates: ScoredCandidate[] = [];
     const offeredDriverIds = new Set<string>();
@@ -526,6 +535,11 @@ serve(async (req) => {
             .update({ status: STATUS_EXPIRED, updated_at: new Date().toISOString() })
             .eq("trip_id", trip_id)
             .eq("status", STATUS_OFFERED);
+
+          // Wave delay between waves before expanding to next batch / radius
+          if (waveDelaySeconds > 0) {
+            await new Promise((r) => setTimeout(r, waveDelaySeconds * 1000));
+          }
         }
       }
 
@@ -594,8 +608,8 @@ serve(async (req) => {
 
       return successResponse({
         dispatched: false,
-        message: "No drivers available right now",
-        subtext: "All nearby drivers are busy. Please try again shortly.",
+        message: "No drivers available right now. Please try again.",
+        subtext: "No drivers available right now. Please try again.",
         candidates_scored: allCandidates.length,
         offers_sent: offeredDriverIds.size,
       });
