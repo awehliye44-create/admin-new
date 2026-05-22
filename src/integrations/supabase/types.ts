@@ -4183,66 +4183,6 @@ export type Database = {
           },
         ]
       }
-      global_dispatch_settings: {
-        Row: {
-          allow_new_ride_while_driver_active: boolean
-          allow_same_direction_only: boolean
-          created_at: string
-          dispatch_mode: string
-          driver_response_timeout_seconds: number
-          drivers_per_wave: number
-          expand_radius_meters: number
-          id: string
-          max_active_rides_per_driver: number
-          max_dropoff_detour_meters: number
-          max_pickup_detour_meters: number
-          max_radius_meters: number
-          singleton: boolean
-          stacked_rides_enabled: boolean
-          start_radius_meters: number
-          updated_at: string
-          wave_delay_seconds: number
-        }
-        Insert: {
-          allow_new_ride_while_driver_active?: boolean
-          allow_same_direction_only?: boolean
-          created_at?: string
-          dispatch_mode?: string
-          driver_response_timeout_seconds?: number
-          drivers_per_wave?: number
-          expand_radius_meters?: number
-          id?: string
-          max_active_rides_per_driver?: number
-          max_dropoff_detour_meters?: number
-          max_pickup_detour_meters?: number
-          max_radius_meters?: number
-          singleton?: boolean
-          stacked_rides_enabled?: boolean
-          start_radius_meters?: number
-          updated_at?: string
-          wave_delay_seconds?: number
-        }
-        Update: {
-          allow_new_ride_while_driver_active?: boolean
-          allow_same_direction_only?: boolean
-          created_at?: string
-          dispatch_mode?: string
-          driver_response_timeout_seconds?: number
-          drivers_per_wave?: number
-          expand_radius_meters?: number
-          id?: string
-          max_active_rides_per_driver?: number
-          max_dropoff_detour_meters?: number
-          max_pickup_detour_meters?: number
-          max_radius_meters?: number
-          singleton?: boolean
-          stacked_rides_enabled?: boolean
-          start_radius_meters?: number
-          updated_at?: string
-          wave_delay_seconds?: number
-        }
-        Relationships: []
-      }
       global_sequences: {
         Row: {
           current_value: number

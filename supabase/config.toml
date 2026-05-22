@@ -1,10 +1,5 @@
 project_id = "thazislrdkjpvvghtvzo"
 
-[functions.dispatch-config]
-verify_jwt = false
-
-
-
 [functions.find-drivers]
 verify_jwt = false
 
