@@ -634,8 +634,8 @@ serve(async (req) => {
 
       return successResponse({
         dispatched: false,
-        message: "No drivers available right now",
-        subtext: "All nearby drivers are busy. Please try again shortly.",
+        message: "No drivers available right now. Please try again.",
+        subtext: "No drivers available right now. Please try again.",
         candidates_scored: allCandidates.length,
         offers_sent: offeredDriverIds.size,
       });
