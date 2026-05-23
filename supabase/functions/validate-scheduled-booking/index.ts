@@ -37,9 +37,9 @@ serve(async (req) => {
     );
 
     const { data: ds, error: dsErr } = await supabase
-      .from("dispatch_settings")
+      .from("global_dispatch_settings")
       .select("scheduled_rides_enabled, min_advance_time_minutes, max_advance_days")
-      .eq("service_area_id", service_area_id)
+      .eq("singleton", true)
       .maybeSingle();
 
     if (dsErr) {
@@ -47,11 +47,10 @@ serve(async (req) => {
       return errorResponse("Failed to load dispatch settings", 500);
     }
 
-    // If no config exists for this service area, reject — strict mode per memory
     if (!ds) {
       return successResponse({
         valid: false,
-        reason: "No dispatch configuration found for this service area.",
+        reason: "No global dispatch configuration found.",
         code: "NO_CONFIG",
       });
     }

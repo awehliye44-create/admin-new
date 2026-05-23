@@ -29,7 +29,7 @@ import {
 import { DriverTiersConfig } from '@/components/dispatch/DriverTiersConfig';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { useServiceAreas } from '@/hooks/useServiceAreas';
+// useServiceAreas removed — dispatch config is global
 import { useRegions } from '@/hooks/useRegions';
 import { convertDistance, convertToKm, getDistanceUnitShort } from '@/lib/regionSettings';
 
@@ -138,10 +138,11 @@ const defaultSettings: DispatchSettings = {
 
 // ServiceArea type now provided by useServiceAreas hook
 
+// DB stores all distances in METERS. UI keeps km-named state for display conversion.
 const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
-  searchRadiusStartKm: (data.search_radius_start_km as number) ?? defaultSettings.searchRadiusStartKm,
-  searchRadiusExpandKm: (data.search_radius_expand_km as number) ?? defaultSettings.searchRadiusExpandKm,
-  searchRadiusMaxKm: (data.search_radius_max_km as number) ?? defaultSettings.searchRadiusMaxKm,
+  searchRadiusStartKm: Number(data.start_radius_meters ?? 4000) / 1000,
+  searchRadiusExpandKm: Number(data.expand_radius_meters ?? 8000) / 1000,
+  searchRadiusMaxKm: Number(data.max_radius_meters ?? 13000) / 1000,
   shortlistLimit: (data.shortlist_limit as number) ?? defaultSettings.shortlistLimit,
   wave1Size: (data.wave1_size as number) ?? defaultSettings.wave1Size,
   wave2Size: (data.wave2_size as number) ?? defaultSettings.wave2Size,
@@ -150,24 +151,25 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   wave1OfferExpirySeconds: (data.wave1_offer_expiry_seconds as number) ?? defaultSettings.wave1OfferExpirySeconds,
   wave2OfferExpirySeconds: (data.wave2_offer_expiry_seconds as number) ?? defaultSettings.wave2OfferExpirySeconds,
   wave3OfferExpirySeconds: (data.wave3_offer_expiry_seconds as number) ?? defaultSettings.wave3OfferExpirySeconds,
-  distancePenaltyPerKm: (data.distance_penalty_per_km as number) ?? defaultSettings.distancePenaltyPerKm,
+  // distance_penalty_per_meter in DB → per_km in UI for readability
+  distancePenaltyPerKm: Number(data.distance_penalty_per_meter ?? 0.002) * 1000,
   waitingBonusPerMinute: (data.waiting_bonus_per_minute as number) ?? defaultSettings.waitingBonusPerMinute,
   maxWaitingBonusMinutes: (data.max_waiting_bonus_minutes as number) ?? defaultSettings.maxWaitingBonusMinutes,
   fairnessIdleMinutes: (data.fairness_idle_minutes as number) ?? defaultSettings.fairnessIdleMinutes,
   fairnessBoostScore: (data.fairness_boost_score as number) ?? defaultSettings.fairnessBoostScore,
   acceptTimeoutSeconds: (data.accept_timeout_seconds as number) ?? defaultSettings.acceptTimeoutSeconds,
   maxDriverFindTimeMinutes: (data.max_driver_find_time_minutes as number) ?? defaultSettings.maxDriverFindTimeMinutes,
-  stackedRidesEnabled: data.stacked_rides_enabled as boolean,
-  maxStackedRides: data.max_stacked_rides as number,
-  stackedSearchRadiusMeters: data.stacked_search_radius_meters as number,
-  stackedMinTripDistanceKm: Number(data.stacked_min_trip_distance_km),
-  stackedMaxDetourMinutes: data.stacked_max_detour_minutes as number,
-  stackedOfferWindowMinutes: data.stacked_offer_window_minutes as number,
-  stackedPriorityMode: data.stacked_priority_mode as 'same_direction' | 'nearest' | 'highest_fare',
-  stackedDriverIncentive: data.stacked_driver_incentive as number,
-  stackedRiderDiscount: data.stacked_rider_discount as number,
-  stackedShowEtaToDriver: data.stacked_show_eta_to_driver as boolean,
-  stackedAllowRiderOptOut: data.stacked_allow_rider_opt_out as boolean,
+  stackedRidesEnabled: Boolean(data.stacked_rides_enabled),
+  maxStackedRides: Number(data.max_stacked_rides ?? defaultSettings.maxStackedRides),
+  stackedSearchRadiusMeters: Number(data.stacked_search_radius_meters ?? defaultSettings.stackedSearchRadiusMeters),
+  stackedMinTripDistanceKm: Number(data.stacked_min_trip_distance_meters ?? 3000) / 1000,
+  stackedMaxDetourMinutes: Number(data.stacked_max_detour_minutes ?? defaultSettings.stackedMaxDetourMinutes),
+  stackedOfferWindowMinutes: Number(data.stacked_offer_window_minutes ?? defaultSettings.stackedOfferWindowMinutes),
+  stackedPriorityMode: (data.stacked_priority_mode as 'same_direction' | 'nearest' | 'highest_fare') ?? 'same_direction',
+  stackedDriverIncentive: Number(data.stacked_driver_incentive ?? 0),
+  stackedRiderDiscount: Number(data.stacked_rider_discount ?? 0),
+  stackedShowEtaToDriver: Boolean(data.stacked_show_eta_to_driver),
+  stackedAllowRiderOptOut: Boolean(data.stacked_allow_rider_opt_out),
   scheduledRidesEnabled: (data.scheduled_rides_enabled as boolean) ?? defaultSettings.scheduledRidesEnabled,
   minAdvanceTimeMinutes: (data.min_advance_time_minutes as number) ?? defaultSettings.minAdvanceTimeMinutes,
   maxAdvanceDays: (data.max_advance_days as number) ?? defaultSettings.maxAdvanceDays,
@@ -185,12 +187,10 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   driverFareDisplay: (data.driver_fare_display as 'net_earnings' | 'gross_fare' | 'smart_display') ?? defaultSettings.driverFareDisplay,
 });
 
-const mapSettingsToDb = (settings: DispatchSettings, serviceAreaId: string | null) => ({
-  service_area_id: serviceAreaId,
-  // PostGIS Dispatch Scoring — single source of truth for dispatch execution
-  search_radius_start_km: settings.searchRadiusStartKm,
-  search_radius_expand_km: settings.searchRadiusExpandKm,
-  search_radius_max_km: settings.searchRadiusMaxKm,
+const mapSettingsToDb = (settings: DispatchSettings) => ({
+  start_radius_meters: Math.round(settings.searchRadiusStartKm * 1000),
+  expand_radius_meters: Math.round(settings.searchRadiusExpandKm * 1000),
+  max_radius_meters: Math.round(settings.searchRadiusMaxKm * 1000),
   shortlist_limit: settings.shortlistLimit,
   wave1_size: settings.wave1Size,
   wave2_size: settings.wave2Size,
@@ -199,25 +199,26 @@ const mapSettingsToDb = (settings: DispatchSettings, serviceAreaId: string | nul
   wave1_offer_expiry_seconds: settings.wave1OfferExpirySeconds,
   wave2_offer_expiry_seconds: settings.wave2OfferExpirySeconds,
   wave3_offer_expiry_seconds: settings.wave3OfferExpirySeconds,
-  distance_penalty_per_km: settings.distancePenaltyPerKm,
+  distance_penalty_per_meter: settings.distancePenaltyPerKm / 1000,
   waiting_bonus_per_minute: settings.waitingBonusPerMinute,
   max_waiting_bonus_minutes: settings.maxWaitingBonusMinutes,
   fairness_idle_minutes: settings.fairnessIdleMinutes,
   fairness_boost_score: settings.fairnessBoostScore,
   accept_timeout_seconds: settings.acceptTimeoutSeconds,
   max_driver_find_time_minutes: settings.maxDriverFindTimeMinutes,
-  // Policy layers (not dispatch execution)
-  stacked_rides_enabled: settings.stackedRidesEnabled,
+  // Stacked rides — stable typed booleans/ints for mobile apps
+  stacked_rides_enabled: !!settings.stackedRidesEnabled,
   max_stacked_rides: settings.maxStackedRides,
+  max_active_rides_per_driver: settings.maxStackedRides + 1,
   stacked_search_radius_meters: settings.stackedSearchRadiusMeters,
-  stacked_min_trip_distance_km: settings.stackedMinTripDistanceKm,
+  stacked_min_trip_distance_meters: Math.round(settings.stackedMinTripDistanceKm * 1000),
   stacked_max_detour_minutes: settings.stackedMaxDetourMinutes,
   stacked_offer_window_minutes: settings.stackedOfferWindowMinutes,
   stacked_priority_mode: settings.stackedPriorityMode,
   stacked_driver_incentive: settings.stackedDriverIncentive,
   stacked_rider_discount: settings.stackedRiderDiscount,
-  stacked_show_eta_to_driver: settings.stackedShowEtaToDriver,
-  stacked_allow_rider_opt_out: settings.stackedAllowRiderOptOut,
+  stacked_show_eta_to_driver: !!settings.stackedShowEtaToDriver,
+  stacked_allow_rider_opt_out: !!settings.stackedAllowRiderOptOut,
   scheduled_rides_enabled: settings.scheduledRidesEnabled,
   min_advance_time_minutes: settings.minAdvanceTimeMinutes,
   max_advance_days: settings.maxAdvanceDays,
@@ -237,8 +238,6 @@ const mapSettingsToDb = (settings: DispatchSettings, serviceAreaId: string | nul
 
 export default function AutoDispatchRules() {
   const [settings, setSettings] = useState<DispatchSettings>(defaultSettings);
-  const [serviceAreaId, setServiceAreaId] = useState<string | null>(null);
-  const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: true });
   const { data: regions = [] } = useRegions();
   const [scheduledTab, setScheduledTab] = useState('booking');
   const [stackedTab, setStackedTab] = useState('general');
@@ -247,42 +246,30 @@ export default function AutoDispatchRules() {
   const [hasChanges, setHasChanges] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
 
-  // Resolve active distance unit:
-  // - Per-service-area: use that area's region distance_unit
-  // - Global: use the most common unit across regions, falling back to 'mile'
+  // Global config — display unit is the most common region distance_unit (fallback km)
   const distanceUnit: 'mile' | 'km' = (() => {
-    if (serviceAreaId) {
-      const sa = serviceAreas.find((a) => a.id === serviceAreaId);
-      const u = sa?.region?.distance_unit;
-      if (u === 'mile' || u === 'km') return u;
-    }
-    // Global: pick the most common region distance_unit, default to mile
     const counts = regions.reduce<Record<string, number>>((acc, r) => {
-      const u = r.distance_unit || 'mile';
+      const u = r.distance_unit || 'km';
       acc[u] = (acc[u] || 0) + 1;
       return acc;
     }, {});
     const winner = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
-    return (winner === 'km' ? 'km' : 'mile');
+    return winner === 'mile' ? 'mile' : 'km';
   })();
 
   const unitShort = getDistanceUnitShort(distanceUnit);
-  // Convert km (storage) → display unit
   const fromKm = (km: number) => Number(convertDistance(km, distanceUnit).toFixed(2));
-  // Convert display unit → km (storage)
   const toKm = (val: number) => Number(convertToKm(val, distanceUnit).toFixed(4));
 
   useEffect(() => {
     const loadDispatchSettings = async () => {
       setIsLoading(true);
       try {
-        let query = supabase.from('dispatch_settings').select('*');
-        if (serviceAreaId === null) {
-          query = query.is('service_area_id', null);
-        } else {
-          query = query.eq('service_area_id', serviceAreaId);
-        }
-        const { data, error } = await query.maybeSingle();
+        const { data, error } = await supabase
+          .from('global_dispatch_settings')
+          .select('*')
+          .eq('singleton', true)
+          .maybeSingle();
         if (error) throw error;
         if (data) {
           setSettings(mapDbToSettings(data as Record<string, unknown>));
@@ -298,7 +285,7 @@ export default function AutoDispatchRules() {
       }
     };
     loadDispatchSettings();
-  }, [serviceAreaId]);
+  }, []);
 
   const updateSetting = <K extends keyof DispatchSettings>(key: K, value: DispatchSettings[K]) => {
     setSettings(prev => ({ ...prev, [key]: value }));
@@ -314,34 +301,16 @@ export default function AutoDispatchRules() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const dbData = mapSettingsToDb(settings, serviceAreaId);
-      let existingQuery = supabase.from('dispatch_settings').select('id');
-      if (serviceAreaId === null) {
-        existingQuery = existingQuery.is('service_area_id', null);
-      } else {
-        existingQuery = existingQuery.eq('service_area_id', serviceAreaId);
-      }
-      const { data: existing } = await existingQuery.maybeSingle();
-
-      let error;
-      if (existing) {
-        let updateQuery = supabase.from('dispatch_settings').update(dbData);
-        if (serviceAreaId === null) {
-          updateQuery = updateQuery.is('service_area_id', null);
-        } else {
-          updateQuery = updateQuery.eq('service_area_id', serviceAreaId);
-        }
-        const result = await updateQuery;
-        error = result.error;
-      } else {
-        const result = await supabase.from('dispatch_settings').insert(dbData);
-        error = result.error;
-      }
+      const dbData = mapSettingsToDb(settings);
+      const { error } = await supabase
+        .from('global_dispatch_settings')
+        .update(dbData)
+        .eq('singleton', true);
       if (error) throw error;
 
       setHasChanges(false);
       setLastSaved(new Date());
-      toast.success('Auto-dispatch settings saved successfully');
+      toast.success('Global dispatch settings saved');
     } catch (err) {
       console.error('Error saving settings:', err);
       toast.error('Failed to save settings');
@@ -350,35 +319,19 @@ export default function AutoDispatchRules() {
     }
   };
 
-  const handleServiceAreaChange = (value: string) => {
-    if (hasChanges) {
-      const confirm = window.confirm('You have unsaved changes. Are you sure you want to switch service areas?');
-      if (!confirm) return;
-    }
-    setServiceAreaId(value === 'all' ? null : value);
-  };
-
   return (
-    <AdminLayout 
-      title="Auto-Dispatch Rules" 
-      description="Configure automatic dispatch settings — PostGIS Dispatch Scoring is the single source of truth"
+    <AdminLayout
+      title="Auto-Dispatch Rules"
+      description="Global dispatch configuration — applies to all service areas and countries"
     >
-      {/* Header with Service Area selector and action buttons */}
+      {/* Header — single global config, no service area selector */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
         <div className="flex items-center gap-3">
-          <Label className="text-sm text-muted-foreground">Service Area:</Label>
-          <Select value={serviceAreaId || 'all'} onValueChange={handleServiceAreaChange}>
-            <SelectTrigger className="w-[200px]">
-              <Globe className="h-4 w-4 mr-2" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Service Areas (Global)</SelectItem>
-              {serviceAreas.map((area) => (
-                <SelectItem key={area.id} value={area.id}>{area.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Globe className="h-5 w-5 text-primary" />
+          <div>
+            <p className="text-sm font-medium">Global Configuration</p>
+            <p className="text-xs text-muted-foreground">One shared dispatch policy across every service area</p>
+          </div>
           {isLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
         </div>
         <div className="flex items-center gap-3">

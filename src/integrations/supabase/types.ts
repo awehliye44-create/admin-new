@@ -4185,61 +4185,181 @@ export type Database = {
       }
       global_dispatch_settings: {
         Row: {
+          accept_timeout_seconds: number
           allow_new_ride_while_driver_active: boolean
           allow_same_direction_only: boolean
+          block_multiple_active_rides: boolean
+          cancel_protection: boolean
           created_at: string
           dispatch_mode: string
+          distance_penalty_per_meter: number
+          driver_fare_display: string
           driver_response_timeout_seconds: number
           drivers_per_wave: number
+          enable_logging: boolean
+          enable_scheduled_to_urgent_conversion: boolean
           expand_radius_meters: number
+          fairness_boost_score: number
+          fairness_idle_minutes: number
           id: string
+          locked_driver_response_minutes: number
           max_active_rides_per_driver: number
+          max_advance_days: number
+          max_driver_find_time_minutes: number
           max_dropoff_detour_meters: number
           max_pickup_detour_meters: number
           max_radius_meters: number
+          max_stacked_rides: number
+          max_waiting_bonus_minutes: number
+          min_advance_time_minutes: number
+          offer_expiry_seconds: number
+          scheduled_response_window_minutes: number
+          scheduled_ride_incentives_enabled: boolean
+          scheduled_rides_enabled: boolean
+          scheduled_urgent_card_label: string
+          shortlist_limit: number
+          simulate_mode: boolean
           singleton: boolean
+          stacked_allow_rider_opt_out: boolean
+          stacked_driver_incentive: number
+          stacked_max_detour_minutes: number
+          stacked_min_trip_distance_meters: number
+          stacked_offer_window_minutes: number
+          stacked_priority_mode: string
+          stacked_rider_discount: number
           stacked_rides_enabled: boolean
+          stacked_search_radius_meters: number
+          stacked_show_eta_to_driver: boolean
           start_radius_meters: number
           updated_at: string
+          urgent_dispatch_trigger_minutes_before_pickup: number
+          waiting_bonus_per_minute: number
+          waiting_time_grace_period_minutes: number
           wave_delay_seconds: number
+          wave1_offer_expiry_seconds: number
+          wave1_size: number
+          wave2_offer_expiry_seconds: number
+          wave2_size: number
+          wave3_offer_expiry_seconds: number
+          wave3_size: number
         }
         Insert: {
+          accept_timeout_seconds?: number
           allow_new_ride_while_driver_active?: boolean
           allow_same_direction_only?: boolean
+          block_multiple_active_rides?: boolean
+          cancel_protection?: boolean
           created_at?: string
           dispatch_mode?: string
+          distance_penalty_per_meter?: number
+          driver_fare_display?: string
           driver_response_timeout_seconds?: number
           drivers_per_wave?: number
+          enable_logging?: boolean
+          enable_scheduled_to_urgent_conversion?: boolean
           expand_radius_meters?: number
+          fairness_boost_score?: number
+          fairness_idle_minutes?: number
           id?: string
+          locked_driver_response_minutes?: number
           max_active_rides_per_driver?: number
+          max_advance_days?: number
+          max_driver_find_time_minutes?: number
           max_dropoff_detour_meters?: number
           max_pickup_detour_meters?: number
           max_radius_meters?: number
+          max_stacked_rides?: number
+          max_waiting_bonus_minutes?: number
+          min_advance_time_minutes?: number
+          offer_expiry_seconds?: number
+          scheduled_response_window_minutes?: number
+          scheduled_ride_incentives_enabled?: boolean
+          scheduled_rides_enabled?: boolean
+          scheduled_urgent_card_label?: string
+          shortlist_limit?: number
+          simulate_mode?: boolean
           singleton?: boolean
+          stacked_allow_rider_opt_out?: boolean
+          stacked_driver_incentive?: number
+          stacked_max_detour_minutes?: number
+          stacked_min_trip_distance_meters?: number
+          stacked_offer_window_minutes?: number
+          stacked_priority_mode?: string
+          stacked_rider_discount?: number
           stacked_rides_enabled?: boolean
+          stacked_search_radius_meters?: number
+          stacked_show_eta_to_driver?: boolean
           start_radius_meters?: number
           updated_at?: string
+          urgent_dispatch_trigger_minutes_before_pickup?: number
+          waiting_bonus_per_minute?: number
+          waiting_time_grace_period_minutes?: number
           wave_delay_seconds?: number
+          wave1_offer_expiry_seconds?: number
+          wave1_size?: number
+          wave2_offer_expiry_seconds?: number
+          wave2_size?: number
+          wave3_offer_expiry_seconds?: number
+          wave3_size?: number
         }
         Update: {
+          accept_timeout_seconds?: number
           allow_new_ride_while_driver_active?: boolean
           allow_same_direction_only?: boolean
+          block_multiple_active_rides?: boolean
+          cancel_protection?: boolean
           created_at?: string
           dispatch_mode?: string
+          distance_penalty_per_meter?: number
+          driver_fare_display?: string
           driver_response_timeout_seconds?: number
           drivers_per_wave?: number
+          enable_logging?: boolean
+          enable_scheduled_to_urgent_conversion?: boolean
           expand_radius_meters?: number
+          fairness_boost_score?: number
+          fairness_idle_minutes?: number
           id?: string
+          locked_driver_response_minutes?: number
           max_active_rides_per_driver?: number
+          max_advance_days?: number
+          max_driver_find_time_minutes?: number
           max_dropoff_detour_meters?: number
           max_pickup_detour_meters?: number
           max_radius_meters?: number
+          max_stacked_rides?: number
+          max_waiting_bonus_minutes?: number
+          min_advance_time_minutes?: number
+          offer_expiry_seconds?: number
+          scheduled_response_window_minutes?: number
+          scheduled_ride_incentives_enabled?: boolean
+          scheduled_rides_enabled?: boolean
+          scheduled_urgent_card_label?: string
+          shortlist_limit?: number
+          simulate_mode?: boolean
           singleton?: boolean
+          stacked_allow_rider_opt_out?: boolean
+          stacked_driver_incentive?: number
+          stacked_max_detour_minutes?: number
+          stacked_min_trip_distance_meters?: number
+          stacked_offer_window_minutes?: number
+          stacked_priority_mode?: string
+          stacked_rider_discount?: number
           stacked_rides_enabled?: boolean
+          stacked_search_radius_meters?: number
+          stacked_show_eta_to_driver?: boolean
           start_radius_meters?: number
           updated_at?: string
+          urgent_dispatch_trigger_minutes_before_pickup?: number
+          waiting_bonus_per_minute?: number
+          waiting_time_grace_period_minutes?: number
           wave_delay_seconds?: number
+          wave1_offer_expiry_seconds?: number
+          wave1_size?: number
+          wave2_offer_expiry_seconds?: number
+          wave2_size?: number
+          wave3_offer_expiry_seconds?: number
+          wave3_size?: number
         }
         Relationships: []
       }

@@ -64,27 +64,23 @@ serve(async (req) => {
     console.log(`[schedule-dispatch] Found ${pendingTrips.length} candidate trips`);
 
     // ══════════════════════════════════════════
-    // 2. Group trips by service_area_id and load dispatch_settings
+    // 2. Load GLOBAL dispatch settings (singleton — applies to all service areas)
     // ══════════════════════════════════════════
-    const serviceAreaIds = [...new Set(pendingTrips.map((t) => t.service_area_id).filter(Boolean))];
+    const { data: globalCfg } = await supabase
+      .from("global_dispatch_settings")
+      .select("urgent_dispatch_trigger_minutes_before_pickup, scheduled_rides_enabled")
+      .eq("singleton", true)
+      .maybeSingle();
 
-    const settingsMap = new Map<string, { trigger_minutes: number; scheduled_rides_enabled: boolean }>();
-
-    if (serviceAreaIds.length > 0) {
-      const { data: settingsRows } = await supabase
-        .from("dispatch_settings")
-        .select("service_area_id, urgent_dispatch_trigger_minutes_before_pickup, scheduled_rides_enabled")
-        .in("service_area_id", serviceAreaIds);
-
-      for (const row of settingsRows || []) {
-        if (row.service_area_id) {
-          settingsMap.set(row.service_area_id, {
-            trigger_minutes: row.urgent_dispatch_trigger_minutes_before_pickup,
-            scheduled_rides_enabled: row.scheduled_rides_enabled,
-          });
-        }
-      }
+    if (!globalCfg) {
+      return errorResponse(
+        "No global_dispatch_settings row found. Configure in Admin Panel → Auto-Dispatch Rules.",
+        422
+      );
     }
+
+    const triggerMinutes = Number(globalCfg.urgent_dispatch_trigger_minutes_before_pickup);
+    const scheduledEnabled = Boolean(globalCfg.scheduled_rides_enabled);
 
     // ══════════════════════════════════════════
     // 3. Process each trip
@@ -99,33 +95,15 @@ serve(async (req) => {
         const scheduledAt = new Date(trip.scheduled_at);
         const minutesUntilPickup = (scheduledAt.getTime() - now.getTime()) / 60000;
 
-        // Require explicit dispatch_settings for the service area — no fallback defaults
-        if (!trip.service_area_id) {
-          console.log(`[schedule-dispatch] Trip ${trip.id}: no service_area_id — skipping`);
-          skipped++;
-          results.push({ trip_id: trip.id, action: "skipped", detail: "no_service_area_id" });
-          continue;
-        }
-
-        const saConfig = settingsMap.get(trip.service_area_id);
-
-        if (!saConfig) {
-          console.log(`[schedule-dispatch] Trip ${trip.id}: no dispatch_settings for SA ${trip.service_area_id} — skipping`);
-          skipped++;
-          results.push({ trip_id: trip.id, action: "skipped", detail: "no_dispatch_settings" });
-          continue;
-        }
-
-        const triggerMinutes = saConfig.trigger_minutes;
-        const scheduledEnabled = saConfig.scheduled_rides_enabled;
-
-        // Skip if scheduled rides are disabled for this service area
+        // Skip if scheduled rides are globally disabled
         if (!scheduledEnabled) {
-          console.log(`[schedule-dispatch] Trip ${trip.id}: scheduled rides disabled for SA ${trip.service_area_id}`);
+          console.log(`[schedule-dispatch] Trip ${trip.id}: scheduled rides disabled globally`);
           skipped++;
           results.push({ trip_id: trip.id, action: "skipped", detail: "scheduled_rides_disabled" });
           continue;
         }
+
+
 
         // Skip if pickup is still too far away
         if (minutesUntilPickup > triggerMinutes) {
