@@ -349,8 +349,8 @@ serve(async (req) => {
             continue;
           }
 
-          const distanceKm = nd.distance_meters / 1000;
-          if (distanceKm > settings.stacked_min_trip_distance_km) {
+          // Stacked min-trip-distance gate (compare meters directly — no km conversion)
+          if (nd.distance_meters > settings.stacked_min_trip_distance_meters) {
             continue;
           }
 
@@ -366,7 +366,8 @@ serve(async (req) => {
         const catInfo = detail.category_id ? categoryMap.get(detail.category_id) : null;
         const categoryPriority = catInfo?.priority ?? 10;
 
-        const distancePenalty = distanceKm * settings.distance_penalty_per_km;
+        // Distance penalty applied per-meter (config in meters, all internal units in meters)
+        const distancePenalty = nd.distance_meters * settings.distance_penalty_per_meter;
         const waitingBonus = isStackedCandidate ? 0 : waitingMin * settings.waiting_bonus_per_minute;
 
         let fairnessBoost = 0;
