@@ -179,48 +179,43 @@ serve(async (req) => {
       return successResponse({ dispatched: true, scan_go: true, offers_sent: 1 });
     }
 
-    // ====== LOAD DISPATCH SETTINGS (strict — no hardcoded defaults) ======
-    const resolvedSaId = service_area_id || trip.service_area_id;
-
-    if (!resolvedSaId) {
-      return errorResponse("No service area resolved for trip. Configure dispatch_settings in Admin.", 422);
-    }
-
-    const { data: saSettings } = await supabase
-      .from("dispatch_settings")
+    // ====== LOAD GLOBAL DISPATCH SETTINGS (singleton, single source of truth) ======
+    const { data: globalSettings, error: gsErr } = await supabase
+      .from("global_dispatch_settings")
       .select("*")
-      .eq("service_area_id", resolvedSaId)
+      .eq("singleton", true)
       .maybeSingle();
 
-    if (!saSettings) {
+    if (gsErr || !globalSettings) {
       return errorResponse(
-        `No dispatch_settings configured for service area ${resolvedSaId}. Configure in Admin Panel → Auto-Dispatch Rules.`,
+        "No global_dispatch_settings row found. Configure in Admin Panel → Auto-Dispatch Rules.",
         422
       );
     }
 
-    const settings = parseSettings(saSettings);
+    const settings = parseSettings(globalSettings);
 
     // ====== SIMULATE MODE ======
     if (settings.simulate_mode) {
       console.log(`[dispatch-drivers] SIMULATE MODE — no offers will be sent`);
     }
 
-    // Calculate absolute deadline from maxDriverFindTimeMinutes
-    // CRITICAL: Supabase Edge Functions have a ~60s execution limit.
-    // Cap total execution to 50s regardless of admin config to prevent timeout kills.
+    // Edge function execution cap: 50s (Supabase ~60s limit)
     const EDGE_FUNCTION_SAFE_LIMIT_MS = 50_000;
     const adminMaxMs = settings.max_driver_find_time_minutes * 60 * 1000;
     const maxFindTimeMs = Math.min(adminMaxMs, EDGE_FUNCTION_SAFE_LIMIT_MS);
 
-    console.log(`[dispatch-drivers] Settings loaded: start=${settings.search_radius_start_km}km, waves=${settings.wave1_size}/${settings.wave2_size}/${settings.wave3_size}, stacked=${settings.stacked_rides_enabled}, max_stacked=${settings.max_stacked_rides}, max_find_time=${settings.max_driver_find_time_minutes}min, simulate=${settings.simulate_mode}, block_multi=${settings.block_multiple_active_rides}`);
+    console.log(
+      `[dispatch-drivers] Settings: radii=${settings.start_radius_meters}/${settings.expand_radius_meters}/${settings.max_radius_meters}m, waves=${settings.wave1_size}/${settings.wave2_size}/${settings.wave3_size}, stacked=${settings.stacked_rides_enabled}, max_stacked=${settings.max_stacked_rides}, max_find_time=${settings.max_driver_find_time_minutes}min, simulate=${settings.simulate_mode}, block_multi=${settings.block_multiple_active_rides}`
+    );
 
     // ====== EXPANDING RADIUS SEARCH + SCORING ======
-    const radiusSteps = [
-      settings.search_radius_start_km,
-      settings.search_radius_expand_km,
-      settings.search_radius_max_km,
-    ];
+    // Always use the CURRENT expanded radius on each iteration.
+    const radiusStepsMeters: number[] = [
+      settings.start_radius_meters,
+      settings.expand_radius_meters,
+      settings.max_radius_meters,
+    ].filter((m, i, arr) => Number.isFinite(m) && m > 0 && (i === 0 || m > arr[i - 1]));
 
     let allCandidates: ScoredCandidate[] = [];
     const offeredDriverIds = new Set<string>();
@@ -228,7 +223,8 @@ serve(async (req) => {
     const driverWaveMap = new Map<string, number>();
     let accepted = false;
 
-    for (const radiusKm of radiusSteps) {
+    for (let stepIdx = 0; stepIdx < radiusStepsMeters.length; stepIdx++) {
+      const radiusMeters = radiusStepsMeters[stepIdx];
       if (accepted) break;
 
       // ====== ENFORCE MAX FIND TIME ======
@@ -238,8 +234,8 @@ serve(async (req) => {
         break;
       }
 
-      const radiusMeters = radiusKm * 1000;
-      console.log(`[dispatch-drivers] Searching radius ${radiusKm}km (${radiusMeters}m)`);
+      console.log(`[dispatch-drivers] Radius step ${stepIdx + 1}/${radiusStepsMeters.length}: searching ${radiusMeters}m`);
+
 
       // PostGIS query via RPC
       const { data: nearbyDrivers, error: nearbyErr } = await supabase.rpc("find_nearby_drivers", {
