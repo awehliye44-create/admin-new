@@ -320,26 +320,18 @@ export default function AutoDispatchRules() {
   };
 
   return (
-    <AdminLayout 
-      title="Auto-Dispatch Rules" 
-      description="Configure automatic dispatch settings — PostGIS Dispatch Scoring is the single source of truth"
+    <AdminLayout
+      title="Auto-Dispatch Rules"
+      description="Global dispatch configuration — applies to all service areas and countries"
     >
-      {/* Header with Service Area selector and action buttons */}
+      {/* Header — single global config, no service area selector */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
         <div className="flex items-center gap-3">
-          <Label className="text-sm text-muted-foreground">Service Area:</Label>
-          <Select value={serviceAreaId || 'all'} onValueChange={handleServiceAreaChange}>
-            <SelectTrigger className="w-[200px]">
-              <Globe className="h-4 w-4 mr-2" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Service Areas (Global)</SelectItem>
-              {serviceAreas.map((area) => (
-                <SelectItem key={area.id} value={area.id}>{area.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Globe className="h-5 w-5 text-primary" />
+          <div>
+            <p className="text-sm font-medium">Global Configuration</p>
+            <p className="text-xs text-muted-foreground">One shared dispatch policy across every service area</p>
+          </div>
           {isLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
         </div>
         <div className="flex items-center gap-3">
