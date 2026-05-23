@@ -238,8 +238,6 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
 
 export default function AutoDispatchRules() {
   const [settings, setSettings] = useState<DispatchSettings>(defaultSettings);
-  const [serviceAreaId, setServiceAreaId] = useState<string | null>(null);
-  const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: true });
   const { data: regions = [] } = useRegions();
   const [scheduledTab, setScheduledTab] = useState('booking');
   const [stackedTab, setStackedTab] = useState('general');
@@ -248,42 +246,30 @@ export default function AutoDispatchRules() {
   const [hasChanges, setHasChanges] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
 
-  // Resolve active distance unit:
-  // - Per-service-area: use that area's region distance_unit
-  // - Global: use the most common unit across regions, falling back to 'mile'
+  // Global config — display unit is the most common region distance_unit (fallback km)
   const distanceUnit: 'mile' | 'km' = (() => {
-    if (serviceAreaId) {
-      const sa = serviceAreas.find((a) => a.id === serviceAreaId);
-      const u = sa?.region?.distance_unit;
-      if (u === 'mile' || u === 'km') return u;
-    }
-    // Global: pick the most common region distance_unit, default to mile
     const counts = regions.reduce<Record<string, number>>((acc, r) => {
-      const u = r.distance_unit || 'mile';
+      const u = r.distance_unit || 'km';
       acc[u] = (acc[u] || 0) + 1;
       return acc;
     }, {});
     const winner = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
-    return (winner === 'km' ? 'km' : 'mile');
+    return winner === 'mile' ? 'mile' : 'km';
   })();
 
   const unitShort = getDistanceUnitShort(distanceUnit);
-  // Convert km (storage) → display unit
   const fromKm = (km: number) => Number(convertDistance(km, distanceUnit).toFixed(2));
-  // Convert display unit → km (storage)
   const toKm = (val: number) => Number(convertToKm(val, distanceUnit).toFixed(4));
 
   useEffect(() => {
     const loadDispatchSettings = async () => {
       setIsLoading(true);
       try {
-        let query = supabase.from('dispatch_settings').select('*');
-        if (serviceAreaId === null) {
-          query = query.is('service_area_id', null);
-        } else {
-          query = query.eq('service_area_id', serviceAreaId);
-        }
-        const { data, error } = await query.maybeSingle();
+        const { data, error } = await supabase
+          .from('global_dispatch_settings')
+          .select('*')
+          .eq('singleton', true)
+          .maybeSingle();
         if (error) throw error;
         if (data) {
           setSettings(mapDbToSettings(data as Record<string, unknown>));
@@ -299,7 +285,7 @@ export default function AutoDispatchRules() {
       }
     };
     loadDispatchSettings();
-  }, [serviceAreaId]);
+  }, []);
 
   const updateSetting = <K extends keyof DispatchSettings>(key: K, value: DispatchSettings[K]) => {
     setSettings(prev => ({ ...prev, [key]: value }));
@@ -315,48 +301,22 @@ export default function AutoDispatchRules() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const dbData = mapSettingsToDb(settings, serviceAreaId);
-      let existingQuery = supabase.from('dispatch_settings').select('id');
-      if (serviceAreaId === null) {
-        existingQuery = existingQuery.is('service_area_id', null);
-      } else {
-        existingQuery = existingQuery.eq('service_area_id', serviceAreaId);
-      }
-      const { data: existing } = await existingQuery.maybeSingle();
-
-      let error;
-      if (existing) {
-        let updateQuery = supabase.from('dispatch_settings').update(dbData);
-        if (serviceAreaId === null) {
-          updateQuery = updateQuery.is('service_area_id', null);
-        } else {
-          updateQuery = updateQuery.eq('service_area_id', serviceAreaId);
-        }
-        const result = await updateQuery;
-        error = result.error;
-      } else {
-        const result = await supabase.from('dispatch_settings').insert(dbData);
-        error = result.error;
-      }
+      const dbData = mapSettingsToDb(settings);
+      const { error } = await supabase
+        .from('global_dispatch_settings')
+        .update(dbData)
+        .eq('singleton', true);
       if (error) throw error;
 
       setHasChanges(false);
       setLastSaved(new Date());
-      toast.success('Auto-dispatch settings saved successfully');
+      toast.success('Global dispatch settings saved');
     } catch (err) {
       console.error('Error saving settings:', err);
       toast.error('Failed to save settings');
     } finally {
       setIsSaving(false);
     }
-  };
-
-  const handleServiceAreaChange = (value: string) => {
-    if (hasChanges) {
-      const confirm = window.confirm('You have unsaved changes. Are you sure you want to switch service areas?');
-      if (!confirm) return;
-    }
-    setServiceAreaId(value === 'all' ? null : value);
   };
 
   return (
