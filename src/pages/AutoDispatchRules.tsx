@@ -29,7 +29,7 @@ import {
 import { DriverTiersConfig } from '@/components/dispatch/DriverTiersConfig';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { useServiceAreas } from '@/hooks/useServiceAreas';
+// useServiceAreas removed — dispatch config is global
 import { useRegions } from '@/hooks/useRegions';
 import { convertDistance, convertToKm, getDistanceUnitShort } from '@/lib/regionSettings';
 
