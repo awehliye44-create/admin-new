@@ -405,7 +405,7 @@ serve(async (req) => {
       });
       allCandidates = [...allCandidates, ...candidates];
 
-      console.log(`[dispatch-drivers] ${candidates.length} scored candidates at ${radiusKm}km (${candidates.filter(c => c.is_stacked).length} stacked)`);
+      console.log(`[dispatch-drivers] ${candidates.length} scored candidates at ${radiusMeters}m (${candidates.filter(c => c.is_stacked).length} stacked)`);
 
       // ====== WAVE DISPATCH ======
       const waves = [
