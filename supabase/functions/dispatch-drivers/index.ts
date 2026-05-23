@@ -252,7 +252,7 @@ serve(async (req) => {
       }
 
       if (!nearbyDrivers || nearbyDrivers.length === 0) {
-        console.log(`[dispatch-drivers] No drivers at ${radiusKm}km`);
+        console.log(`[dispatch-drivers] No drivers at ${radiusMeters}m`);
         continue;
       }
 
