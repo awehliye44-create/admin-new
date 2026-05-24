@@ -10995,12 +10995,10 @@ export type Database = {
         Returns: Json
       }
       detect_driver_problems: { Args: never; Returns: undefined }
-      dispatch_trip_offers:
-        | { Args: { p_trip_id: string }; Returns: undefined }
-        | {
-            Args: { p_trigger_reason?: string; p_trip_id: string }
-            Returns: undefined
-          }
+      dispatch_trip_offers: {
+        Args: { p_trigger_reason?: string; p_trip_id: string }
+        Returns: undefined
+      }
       dispatchable_reason: {
         Args: {
           p_driver_id: string
@@ -11337,19 +11335,14 @@ export type Database = {
           found_item_photos: string[]
         }[]
       }
-      maybe_advance_dispatch_after_offer_resolution:
-        | {
-            Args: { p_resolved_driver_id?: string; p_trip_id: string }
-            Returns: undefined
-          }
-        | {
-            Args: {
-              p_resolved_driver_id?: string
-              p_trigger_reason?: string
-              p_trip_id: string
-            }
-            Returns: undefined
-          }
+      maybe_advance_dispatch_after_offer_resolution: {
+        Args: {
+          p_resolved_driver_id?: string
+          p_trigger_reason?: string
+          p_trip_id: string
+        }
+        Returns: undefined
+      }
       merge_ride_offer_push_log: {
         Args: { p_json: Json; p_offer_id: string }
         Returns: undefined
