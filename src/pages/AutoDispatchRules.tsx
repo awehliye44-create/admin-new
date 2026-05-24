@@ -38,11 +38,9 @@ interface DispatchSettings {
   searchRadiusStartKm: number;
   searchRadiusExpandKm: number;
   searchRadiusMaxKm: number;
-  shortlistLimit: number;
   wave1Size: number;
   wave2Size: number;
   wave3Size: number;
-  offerExpirySeconds: number;
   wave1OfferExpirySeconds: number;
   wave2OfferExpirySeconds: number;
   wave3OfferExpirySeconds: number;
@@ -51,7 +49,11 @@ interface DispatchSettings {
   maxWaitingBonusMinutes: number;
   fairnessIdleMinutes: number;
   fairnessBoostScore: number;
-  acceptTimeoutSeconds: number;
+
+  // Newly promoted from hardcoded constants
+  maxDispatchRounds: number;
+  degradedDriverPenalty: number;
+  presenceMaxAgeSeconds: number;
 
   // Maximum Time to Find Driver
   maxDriverFindTimeMinutes: number;
@@ -86,18 +88,15 @@ interface DispatchSettings {
   simulateMode: boolean;
   blockMultipleActiveRides: boolean;
   cancelProtection: boolean;
-  driverFareDisplay: 'net_earnings' | 'gross_fare' | 'smart_display';
 }
 
 const defaultSettings: DispatchSettings = {
   searchRadiusStartKm: 3,
   searchRadiusExpandKm: 5,
   searchRadiusMaxKm: 8,
-  shortlistLimit: 100,
   wave1Size: 3,
   wave2Size: 5,
   wave3Size: 10,
-  offerExpirySeconds: 40,
   wave1OfferExpirySeconds: 40,
   wave2OfferExpirySeconds: 45,
   wave3OfferExpirySeconds: 50,
@@ -106,7 +105,9 @@ const defaultSettings: DispatchSettings = {
   maxWaitingBonusMinutes: 20,
   fairnessIdleMinutes: 20,
   fairnessBoostScore: 10,
-  acceptTimeoutSeconds: 25,
+  maxDispatchRounds: 3,
+  degradedDriverPenalty: 100,
+  presenceMaxAgeSeconds: 60,
   maxDriverFindTimeMinutes: 3,
   stackedRidesEnabled: false,
   maxStackedRides: 1,
@@ -133,31 +134,27 @@ const defaultSettings: DispatchSettings = {
   simulateMode: false,
   blockMultipleActiveRides: false,
   cancelProtection: false,
-  driverFareDisplay: 'smart_display',
 };
-
-// ServiceArea type now provided by useServiceAreas hook
 
 // DB stores all distances in METERS. UI keeps km-named state for display conversion.
 const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   searchRadiusStartKm: Number(data.start_radius_meters ?? 4000) / 1000,
   searchRadiusExpandKm: Number(data.expand_radius_meters ?? 8000) / 1000,
   searchRadiusMaxKm: Number(data.max_radius_meters ?? 13000) / 1000,
-  shortlistLimit: (data.shortlist_limit as number) ?? defaultSettings.shortlistLimit,
   wave1Size: (data.wave1_size as number) ?? defaultSettings.wave1Size,
   wave2Size: (data.wave2_size as number) ?? defaultSettings.wave2Size,
   wave3Size: (data.wave3_size as number) ?? defaultSettings.wave3Size,
-  offerExpirySeconds: (data.offer_expiry_seconds as number) ?? defaultSettings.offerExpirySeconds,
   wave1OfferExpirySeconds: (data.wave1_offer_expiry_seconds as number) ?? defaultSettings.wave1OfferExpirySeconds,
   wave2OfferExpirySeconds: (data.wave2_offer_expiry_seconds as number) ?? defaultSettings.wave2OfferExpirySeconds,
   wave3OfferExpirySeconds: (data.wave3_offer_expiry_seconds as number) ?? defaultSettings.wave3OfferExpirySeconds,
-  // distance_penalty_per_meter in DB → per_km in UI for readability
   distancePenaltyPerKm: Number(data.distance_penalty_per_meter ?? 0.002) * 1000,
   waitingBonusPerMinute: (data.waiting_bonus_per_minute as number) ?? defaultSettings.waitingBonusPerMinute,
   maxWaitingBonusMinutes: (data.max_waiting_bonus_minutes as number) ?? defaultSettings.maxWaitingBonusMinutes,
   fairnessIdleMinutes: (data.fairness_idle_minutes as number) ?? defaultSettings.fairnessIdleMinutes,
   fairnessBoostScore: (data.fairness_boost_score as number) ?? defaultSettings.fairnessBoostScore,
-  acceptTimeoutSeconds: (data.accept_timeout_seconds as number) ?? defaultSettings.acceptTimeoutSeconds,
+  maxDispatchRounds: (data.max_dispatch_rounds as number) ?? defaultSettings.maxDispatchRounds,
+  degradedDriverPenalty: (data.degraded_driver_penalty as number) ?? defaultSettings.degradedDriverPenalty,
+  presenceMaxAgeSeconds: (data.presence_max_age_seconds as number) ?? defaultSettings.presenceMaxAgeSeconds,
   maxDriverFindTimeMinutes: (data.max_driver_find_time_minutes as number) ?? defaultSettings.maxDriverFindTimeMinutes,
   stackedRidesEnabled: Boolean(data.stacked_rides_enabled),
   maxStackedRides: Number(data.max_stacked_rides ?? defaultSettings.maxStackedRides),
@@ -184,18 +181,15 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   simulateMode: (data.simulate_mode as boolean) ?? defaultSettings.simulateMode,
   blockMultipleActiveRides: (data.block_multiple_active_rides as boolean) ?? defaultSettings.blockMultipleActiveRides,
   cancelProtection: (data.cancel_protection as boolean) ?? defaultSettings.cancelProtection,
-  driverFareDisplay: (data.driver_fare_display as 'net_earnings' | 'gross_fare' | 'smart_display') ?? defaultSettings.driverFareDisplay,
 });
 
 const mapSettingsToDb = (settings: DispatchSettings) => ({
   start_radius_meters: Math.round(settings.searchRadiusStartKm * 1000),
   expand_radius_meters: Math.round(settings.searchRadiusExpandKm * 1000),
   max_radius_meters: Math.round(settings.searchRadiusMaxKm * 1000),
-  shortlist_limit: settings.shortlistLimit,
   wave1_size: settings.wave1Size,
   wave2_size: settings.wave2Size,
   wave3_size: settings.wave3Size,
-  offer_expiry_seconds: settings.offerExpirySeconds,
   wave1_offer_expiry_seconds: settings.wave1OfferExpirySeconds,
   wave2_offer_expiry_seconds: settings.wave2OfferExpirySeconds,
   wave3_offer_expiry_seconds: settings.wave3OfferExpirySeconds,
@@ -204,9 +198,10 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
   max_waiting_bonus_minutes: settings.maxWaitingBonusMinutes,
   fairness_idle_minutes: settings.fairnessIdleMinutes,
   fairness_boost_score: settings.fairnessBoostScore,
-  accept_timeout_seconds: settings.acceptTimeoutSeconds,
+  max_dispatch_rounds: settings.maxDispatchRounds,
+  degraded_driver_penalty: settings.degradedDriverPenalty,
+  presence_max_age_seconds: settings.presenceMaxAgeSeconds,
   max_driver_find_time_minutes: settings.maxDriverFindTimeMinutes,
-  // Stacked rides — stable typed booleans/ints for mobile apps
   stacked_rides_enabled: !!settings.stackedRidesEnabled,
   max_stacked_rides: settings.maxStackedRides,
   max_active_rides_per_driver: settings.maxStackedRides + 1,
@@ -233,7 +228,6 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
   simulate_mode: settings.simulateMode,
   block_multiple_active_rides: settings.blockMultipleActiveRides,
   cancel_protection: settings.cancelProtection,
-  driver_fare_display: settings.driverFareDisplay,
 });
 
 export default function AutoDispatchRules() {
