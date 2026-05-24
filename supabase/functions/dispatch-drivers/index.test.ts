@@ -28,16 +28,56 @@ Deno.test("radiusStepsMeters: zero/non-finite values are dropped", () => {
 
 Deno.test({
   name:
-    "find_nearby_drivers RPC returns monotonically non-decreasing counts as radius expands",
+    "find_nearby_drivers: expanding radius around a real online driver yields monotonic non-decreasing counts and discovers the driver",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
     const supabase = createClient(SUPABASE_URL, ANON_KEY, {
       auth: { persistSession: false },
     });
-    const p_lat = 51.5074;
-    const p_lng = -0.1278;
-    const steps = [1000, 7000, 13000];
+
+    // Pick a real, currently-online driver from driver_presence as the pickup center.
+    // Uses the same predicates the RPC uses (status/health/intent/offline_reason).
+    const { data: online, error: onlineErr } = await supabase
+      .from("driver_presence")
+      .select("driver_id, lat, lng, status, presence_health, offline_reason, updated_at")
+      .eq("status", "online")
+      .eq("presence_health", "healthy")
+      .is("offline_reason", null)
+      .not("lat", "is", null)
+      .not("lng", "is", null)
+      .order("updated_at", { ascending: false })
+      .limit(1);
+
+    assertEquals(onlineErr, null, `driver_presence query error: ${JSON.stringify(onlineErr)}`);
+    assert(online && online.length > 0, "no online driver found to anchor the test");
+    const anchor = online[0];
+    const p_lat = Number(anchor.lat);
+    const p_lng = Number(anchor.lng);
+    console.log(`[test] anchor driver ${anchor.driver_id} @ ${p_lat},${p_lng}`);
+
+    // Pull the live global radius steps — no magic numbers.
+    const { data: gs, error: gsErr } = await supabase
+      .from("global_dispatch_settings")
+      .select("start_radius_meters, expand_radius_meters, max_radius_meters")
+      .eq("singleton", true)
+      .maybeSingle();
+    assertEquals(gsErr, null, `global_dispatch_settings error: ${JSON.stringify(gsErr)}`);
+    assert(gs, "global_dispatch_settings singleton missing");
+
+    const steps = buildRadiusSteps(
+      Number(gs.start_radius_meters),
+      Number(gs.expand_radius_meters),
+      Number(gs.max_radius_meters),
+    );
+    console.log("[test] live radius steps (m):", steps);
+    assert(steps.length >= 1, "expected at least one radius step from live config");
+    for (let i = 1; i < steps.length; i++) {
+      assert(steps[i] > steps[i - 1], `live steps not strictly increasing: ${steps}`);
+    }
+
+    // Call RPC at each step; results must be monotonically non-decreasing and
+    // the anchor driver must be present in every step (distance == 0 to itself).
     const counts: number[] = [];
     for (const r of steps) {
       const { data, error } = await supabase.rpc("find_nearby_drivers", {
@@ -48,15 +88,20 @@ Deno.test({
         p_stale_seconds: 60,
       });
       assertEquals(error, null, `RPC error at ${r}m: ${JSON.stringify(error)}`);
-      counts.push((data ?? []).length);
+      const rows = data ?? [];
+      counts.push(rows.length);
+      const foundAnchor = rows.some((d: any) => d.driver_id === anchor.driver_id);
+      assert(foundAnchor, `anchor driver missing at radius ${r}m`);
     }
     console.log("[test] driver counts per radius (m):", steps, "=>", counts);
+
     for (let i = 1; i < counts.length; i++) {
       assert(
         counts[i] >= counts[i - 1],
         `non-monotonic: ${steps[i]}m=${counts[i]} < ${steps[i - 1]}m=${counts[i - 1]}`,
       );
     }
+
     try {
       await supabase.removeAllChannels();
       // @ts-ignore — best-effort cleanup

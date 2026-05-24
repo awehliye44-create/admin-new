@@ -1487,6 +1487,7 @@ export type Database = {
       }
       custom_zones: {
         Row: {
+          airport_fee: number
           center_lat: number | null
           center_lng: number | null
           color: string | null
@@ -1506,6 +1507,7 @@ export type Database = {
           zone_type: string
         }
         Insert: {
+          airport_fee?: number
           center_lat?: number | null
           center_lng?: number | null
           color?: string | null
@@ -1525,6 +1527,7 @@ export type Database = {
           zone_type?: string
         }
         Update: {
+          airport_fee?: number
           center_lat?: number | null
           center_lng?: number | null
           color?: string | null
