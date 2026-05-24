@@ -212,7 +212,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
 
   const fetchStopWaitingSettings = async () => {
     const { data } = await supabase
-      .from('dispatch_settings')
+      .from('stop_waiting_settings')
       .select('stop_radius_enabled, stop_radius_meters, stop_waiting_charge_interval_seconds, stop_waiting_grace_period_seconds, stop_waiting_rate_pence_per_minute, stop_waiting_max_minutes')
       .eq('service_area_id', serviceAreaId)
       .maybeSingle();
@@ -229,6 +229,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
     }
     setStopWaitingHasChanges(false);
   };
+
 
   const updateStopWaitingField = (key: string, value: number | boolean | null) => {
     setStopWaiting(prev => ({ ...prev, [key]: value }));
@@ -319,7 +320,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
         if (data) setSettings(data as unknown as FarePricingSettings);
       }
 
-      // Save stop waiting settings to dispatch_settings if changed
+      // Save stop waiting settings to stop_waiting_settings if changed
       if (stopWaitingHasChanges) {
         const stopPayload = {
           service_area_id: serviceAreaId,
@@ -332,23 +333,24 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
         };
 
         const { data: existing } = await supabase
-          .from('dispatch_settings')
+          .from('stop_waiting_settings')
           .select('id')
           .eq('service_area_id', serviceAreaId)
           .maybeSingle();
 
         if (existing) {
           await supabase
-            .from('dispatch_settings')
+            .from('stop_waiting_settings')
             .update(stopPayload)
             .eq('service_area_id', serviceAreaId);
         } else {
           await supabase
-            .from('dispatch_settings')
+            .from('stop_waiting_settings')
             .insert(stopPayload);
         }
         setStopWaitingHasChanges(false);
       }
+
 
       setHasChanges(false);
       // Update configured set
