@@ -155,23 +155,24 @@ serve(async (req) => {
           errors++;
           results.push({ trip_id: trip.id, action: "error", detail: rpcErr.message });
         } else {
-          // Inspect ride_offers to confirm whether any offer was created in this wave
-          const { count: offerCount } = await supabase
-            .from("ride_offers")
-            .select("id", { count: "exact", head: true })
-            .eq("trip_id", trip.id)
-            .eq("status", "pending");
+          const r: any = rpcData ?? {};
+          const offersCreated = Number(r.offers_created ?? 0);
+          const status = String(r.status ?? 'unknown');
 
-          if ((offerCount ?? 0) > 0) {
+          if (offersCreated > 0 || status === 'dispatched' || status === 'dispatched_locked_driver') {
             dispatched++;
             results.push({
               trip_id: trip.id,
               action: trip.confirmed_driver_id ? "dispatched_locked_driver" : "dispatched",
-              detail: `offers=${offerCount}`,
+              detail: `status=${status} offers=${offersCreated} round=${r.round ?? '?'}`,
             });
           } else {
             errors++;
-            results.push({ trip_id: trip.id, action: "no_drivers" });
+            results.push({
+              trip_id: trip.id,
+              action: status === 'no_drivers' ? 'no_drivers' : status,
+              detail: r.reason ?? null,
+            });
           }
         }
 
