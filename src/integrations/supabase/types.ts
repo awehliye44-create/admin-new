@@ -2095,6 +2095,7 @@ export type Database = {
           stacked_driver_incentive: number
           stacked_max_detour_minutes: number
           stacked_min_trip_distance_km: number
+          stacked_offer_layout: string
           stacked_offer_window_minutes: number
           stacked_priority_mode: string
           stacked_rider_discount: number
@@ -2185,6 +2186,7 @@ export type Database = {
           stacked_driver_incentive?: number
           stacked_max_detour_minutes?: number
           stacked_min_trip_distance_km?: number
+          stacked_offer_layout?: string
           stacked_offer_window_minutes?: number
           stacked_priority_mode?: string
           stacked_rider_discount?: number
@@ -2275,6 +2277,7 @@ export type Database = {
           stacked_driver_incentive?: number
           stacked_max_detour_minutes?: number
           stacked_min_trip_distance_km?: number
+          stacked_offer_layout?: string
           stacked_offer_window_minutes?: number
           stacked_priority_mode?: string
           stacked_rider_discount?: number
@@ -2992,6 +2995,7 @@ export type Database = {
           heading: number | null
           last_heartbeat_at: string
           last_location_at: string | null
+          last_offline_at: string | null
           last_realtime_seen_at: string | null
           last_significant_move_at: string | null
           last_significant_move_lat: number | null
@@ -3021,6 +3025,7 @@ export type Database = {
           heading?: number | null
           last_heartbeat_at?: string
           last_location_at?: string | null
+          last_offline_at?: string | null
           last_realtime_seen_at?: string | null
           last_significant_move_at?: string | null
           last_significant_move_lat?: number | null
@@ -3050,6 +3055,7 @@ export type Database = {
           heading?: number | null
           last_heartbeat_at?: string
           last_location_at?: string | null
+          last_offline_at?: string | null
           last_realtime_seen_at?: string | null
           last_significant_move_at?: string | null
           last_significant_move_lat?: number | null
@@ -8860,6 +8866,7 @@ export type Database = {
       }
       trips: {
         Row: {
+          airport_charge_pence: number
           applied_offer_code: string | null
           applied_offer_id: string | null
           arrived_at: string | null
@@ -8883,6 +8890,7 @@ export type Database = {
           client_action_id: string | null
           commission_pct: number | null
           commission_pence: number | null
+          commissionable_fare_pence: number | null
           completed_at: string | null
           confirm_deadline_at: string | null
           confirmed_driver_id: string | null
@@ -8914,6 +8922,7 @@ export type Database = {
           driver_passenger_rating_at: string | null
           driver_passenger_rating_skipped: boolean | null
           driver_passenger_rating_submitted: boolean | null
+          driver_tier_commission_percent: number | null
           driver_total_earnings_pence: number | null
           dropoff_address: string
           dropoff_latitude: number | null
@@ -8956,6 +8965,7 @@ export type Database = {
           offer_snapshot: Json | null
           onecab_net_pence: number | null
           original_payment_method: string | null
+          other_pass_through_charges_pence: number
           paid_waiting_started_at: string | null
           passenger_id: string
           passenger_name: string | null
@@ -9028,6 +9038,7 @@ export type Database = {
           wallet_balance_before: number | null
         }
         Insert: {
+          airport_charge_pence?: number
           applied_offer_code?: string | null
           applied_offer_id?: string | null
           arrived_at?: string | null
@@ -9051,6 +9062,7 @@ export type Database = {
           client_action_id?: string | null
           commission_pct?: number | null
           commission_pence?: number | null
+          commissionable_fare_pence?: number | null
           completed_at?: string | null
           confirm_deadline_at?: string | null
           confirmed_driver_id?: string | null
@@ -9082,6 +9094,7 @@ export type Database = {
           driver_passenger_rating_at?: string | null
           driver_passenger_rating_skipped?: boolean | null
           driver_passenger_rating_submitted?: boolean | null
+          driver_tier_commission_percent?: number | null
           driver_total_earnings_pence?: number | null
           dropoff_address: string
           dropoff_latitude?: number | null
@@ -9124,6 +9137,7 @@ export type Database = {
           offer_snapshot?: Json | null
           onecab_net_pence?: number | null
           original_payment_method?: string | null
+          other_pass_through_charges_pence?: number
           paid_waiting_started_at?: string | null
           passenger_id: string
           passenger_name?: string | null
@@ -9196,6 +9210,7 @@ export type Database = {
           wallet_balance_before?: number | null
         }
         Update: {
+          airport_charge_pence?: number
           applied_offer_code?: string | null
           applied_offer_id?: string | null
           arrived_at?: string | null
@@ -9219,6 +9234,7 @@ export type Database = {
           client_action_id?: string | null
           commission_pct?: number | null
           commission_pence?: number | null
+          commissionable_fare_pence?: number | null
           completed_at?: string | null
           confirm_deadline_at?: string | null
           confirmed_driver_id?: string | null
@@ -9250,6 +9266,7 @@ export type Database = {
           driver_passenger_rating_at?: string | null
           driver_passenger_rating_skipped?: boolean | null
           driver_passenger_rating_submitted?: boolean | null
+          driver_tier_commission_percent?: number | null
           driver_total_earnings_pence?: number | null
           dropoff_address?: string
           dropoff_latitude?: number | null
@@ -9292,6 +9309,7 @@ export type Database = {
           offer_snapshot?: Json | null
           onecab_net_pence?: number | null
           original_payment_method?: string | null
+          other_pass_through_charges_pence?: number
           paid_waiting_started_at?: string | null
           passenger_id?: string
           passenger_name?: string | null
@@ -10085,6 +10103,8 @@ export type Database = {
         Row: {
           app_state: string | null
           current_trip_id: string | null
+          customer_visible: boolean | null
+          delivery_channel: string | null
           dispatchable: boolean | null
           dispatchable_reason: string | null
           documents_approved: boolean | null
@@ -10103,10 +10123,12 @@ export type Database = {
           last_heartbeat_at: string | null
           last_location_at: string | null
           last_name: string | null
+          last_offline_at: string | null
           last_seen_at: string | null
           location_age_seconds: number | null
           network_type: string | null
           offline_reason: string | null
+          operational_online: boolean | null
           platform: string | null
           presence_health: string | null
           presence_status: string | null
@@ -11234,6 +11256,10 @@ export type Database = {
         Args: { p_json: Json; p_offer_id: string }
         Returns: undefined
       }
+      normalize_driver_offline_reason: {
+        Args: { p_reason: string }
+        Returns: string
+      }
       notify_drivers_trip_cancelled: {
         Args: { p_reason: string; p_trip_id: string }
         Returns: undefined
@@ -11512,6 +11538,10 @@ export type Database = {
         Args: { p_alert_type: string; p_driver_id: string }
         Returns: number
       }
+      resolve_driver_tier_commission_percent: {
+        Args: { p_driver_id: string }
+        Returns: number
+      }
       resolve_trip_service_area_from_pickup: {
         Args: {
           p_pickup_lat: number
@@ -11579,6 +11609,10 @@ export type Database = {
       }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
+      snapshot_driver_tier_commission_on_trip: {
+        Args: { p_driver_id: string; p_trip_id: string }
+        Returns: number
+      }
       start_stop_waiting: {
         Args: {
           p_charge_interval_seconds?: number
@@ -11660,6 +11694,7 @@ export type Database = {
               heading: number | null
               last_heartbeat_at: string
               last_location_at: string | null
+              last_offline_at: string | null
               last_realtime_seen_at: string | null
               last_significant_move_at: string | null
               last_significant_move_lat: number | null
@@ -11715,6 +11750,7 @@ export type Database = {
               heading: number | null
               last_heartbeat_at: string
               last_location_at: string | null
+              last_offline_at: string | null
               last_realtime_seen_at: string | null
               last_significant_move_at: string | null
               last_significant_move_lat: number | null
