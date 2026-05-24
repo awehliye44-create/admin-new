@@ -260,11 +260,18 @@ serve(async (req) => {
     }
 
     const result: any = dispatchResult ?? {};
-    const dispatched = Boolean(result.dispatched);
-    const offersSent = Number(result.offers_sent ?? 0);
-    const candidatesScored = Number(result.candidates_scored ?? 0);
+    const dispatchStatus: string = String(result.status ?? 'unknown');
+    const offersCreated = Number(result.offers_created ?? 0);
+    const dispatched = offersCreated > 0
+      || dispatchStatus === 'dispatched'
+      || dispatchStatus === 'dispatched_locked_driver';
+    const candidatesScored = Number(result.candidate_count ?? 0);
+    const offerIds: string[] = Array.isArray(result.offer_ids) ? result.offer_ids : [];
+    const selectedDriverIds: string[] = Array.isArray(result.selected_driver_ids) ? result.selected_driver_ids : [];
 
-    console.log(`[dispatch-trip] dispatch_trip_offers result: dispatched=${dispatched}, offers_sent=${offersSent}`);
+    console.log(
+      `[dispatch-trip] dispatch_trip_offers result: status=${dispatchStatus}, offers_created=${offersCreated}, reason=${result.reason ?? ''}`
+    );
 
     await logAuditEvent(supabase, 'trip_dispatched', {
       tripId: trip_id,
@@ -272,9 +279,12 @@ serve(async (req) => {
         trip_number: tripNumber,
         region: matchedRegion.name,
         service_area_id: matchedServiceAreaIds[0],
-        dispatch_result: dispatched ? 'dispatched' : 'no_drivers',
-        offers_sent: offersSent,
+        dispatch_status: dispatchStatus,
+        offers_created: offersCreated,
+        offer_ids: offerIds,
+        selected_driver_ids: selectedDriverIds,
         candidates_scored: candidatesScored,
+        reason: result.reason ?? null,
       },
       ipAddress: clientIP,
       userAgent,
@@ -282,15 +292,21 @@ serve(async (req) => {
 
     return successResponse({
       dispatched,
+      status: dispatchStatus,
       trip_number: tripNumber,
       service_area_id: matchedServiceAreaIds[0],
-      offers_sent: offersSent,
+      offers_created: offersCreated,
+      offer_ids: offerIds,
+      selected_driver_ids: selectedDriverIds,
+      skipped_driver_ids: result.skipped_driver_ids ?? [],
       candidates_scored: candidatesScored,
+      round: result.round ?? null,
+      wave_cap: result.wave_cap ?? null,
+      search_radius_meters: result.search_radius_meters ?? null,
       preset_offer_config: presetOfferConfig,
       preset_offers: presetOffers,
-      message: result.message || (dispatched ? 'Dispatched' : 'No drivers available'),
-      subtext: result.subtext,
-      top_candidates: result.top_candidates,
+      message: dispatched ? 'Dispatched' : (result.reason || 'No drivers available'),
+      reason: result.reason ?? null,
     });
 
   } catch (error) {
