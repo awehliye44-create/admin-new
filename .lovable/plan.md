@@ -1,81 +1,79 @@
-# Global Dispatch Config Consolidation + Fixes
 
-Strict scope: simplify configuration only. Do **not** touch dispatch scoring engine, PostGIS, wave logic, live tracking, or active trip code paths.
+# Phase 1 — Dispatch Scoring & Execution: Production Hardening
 
-## 1. Database (migration)
+Scope: normal (immediate, non-scheduled, non-stacked) dispatch only. Stacked-quality rules and Scheduled-only fields untouched except where they share the same edge.
 
-Extend `global_dispatch_settings` (singleton) to be the **only** dispatch config source. Add every field currently per-SA in `dispatch_settings`, store all radii as **meters**:
+## What is already correct (do not change)
 
-New / ensured columns on `global_dispatch_settings`:
-- `start_radius_meters`, `expand_radius_meters`, `max_radius_meters` (already exist)
-- `shortlist_limit`, `wave1_size`, `wave2_size`, `wave3_size`
-- `wave1_offer_expiry_seconds`, `wave2_offer_expiry_seconds`, `wave3_offer_expiry_seconds`, `offer_expiry_seconds`, `accept_timeout_seconds`
-- `distance_penalty_per_meter` (converted from per_km), `waiting_bonus_per_minute`, `max_waiting_bonus_minutes`, `fairness_idle_minutes`, `fairness_boost_score`
-- `max_driver_find_time_minutes`
-- Stacked: `stacked_rides_enabled`, `max_stacked_rides`, `stacked_search_radius_meters`, `stacked_min_trip_distance_meters`, `stacked_max_detour_minutes`, `stacked_offer_window_minutes`, `stacked_priority_mode`, `stacked_driver_incentive`, `stacked_rider_discount`, `stacked_show_eta_to_driver`, `stacked_allow_rider_opt_out`
-- Scheduled & system flags: scheduled_rides_enabled, min_advance_time_minutes, max_advance_days, waiting_time_grace_period_minutes, scheduled_ride_incentives_enabled, scheduled_response_window_minutes, urgent_dispatch_trigger_minutes_before_pickup, locked_driver_response_minutes, scheduled_urgent_card_label, enable_scheduled_to_urgent_conversion, enable_logging, simulate_mode, block_multiple_active_rides, cancel_protection, driver_fare_display
+- `public.dispatch_trip_offers(uuid, text)` RPC = single dispatcher. Reads `global_dispatch_settings` singleton every call. Wave caps 7/9/13 and radii 7000/9000/13000 m proven in `dispatch_wave_snapshots`.
+- `tr_trips_dispatch_after_insert` trigger on `public.trips` already auto-invokes the RPC on customer booking.
+- `expire_stale_offers()` cron (10 s) → `maybe_advance_dispatch_after_offer_resolution(..., 'offer_expired')` → re-invokes the RPC for the next wave. Round-advance is idempotent via `dispatch_round_advance_log` unique constraint.
+- Every selected driver already gets a `ride_offers` row (single `INSERT ... RETURNING` inside the RPC).
+- `dispatch_wave_snapshots` is written for every round with `wave_cap`, `search_radius_meters`, `candidate_count`, `eligible_count`, `selected_count`, `offer_created_count`, `selected_drivers`, `previous_round_drivers`, `reason_for_next_wave`.
 
-Backfill the singleton row from the existing global `dispatch_settings` row (where `service_area_id IS NULL`), converting km→meters.
+## Problems to fix
 
-**Drop** `public.dispatch_settings` table entirely (no commented fallback) after backfill.
+1. **Duplicate dispatcher path** — `supabase/functions/dispatch-trip` invokes the same RPC after the DB trigger already fired, producing a wasted call that returns `duplicate_trigger`. Customer/Manual booking flows currently call both. Single source: the DB trigger.
+2. **Legacy `public.dispatch_settings` table still exists**, and `trg_sync_fare_pricing_to_dispatch_settings` keeps writing into it from `fare_pricing_settings`. No reader. Conflicts with the user "no legacy fallback" rule.
+3. **`tr_dispatch_trip_offers()` trigger function** must swallow its own errors. A dispatch failure must never block the trip INSERT.
+4. **Push delivery is not actually tracked.** `tr_send_push_on_ride_offer_insert` exists but FCM backend is missing (per memory). We need a `ride_offer_deliveries` row per offer so admin/ops can see delivery status; the actual FCM send stays as-is until the FCM backend lands.
+5. **Dead UI knobs** in Admin → Auto-Dispatch Rules that nothing reads: `dispatch_mode`, `drivers_per_wave`, `wave_delay_seconds`, `shortlist_limit`, `driver_fare_display`, `offer_expiry_seconds` (generic), `accept_timeout_seconds`, `driver_response_timeout_seconds`. Per cleanup policy these must be permanently removed, not hidden.
+6. **Hardcoded values surfaced**: `v_max_rounds=3`, degraded penalty `100`, `presence_max_age=60s`. Promote to admin so the screen is honest.
 
-RLS: admin-only write, authenticated read (matches current pattern).
+## Changes
 
-## 2. Admin UI — `src/pages/AutoDispatchRules.tsx`
+### 1. Migration (single migration, no fallbacks)
 
-- Remove `Service Area` dropdown, `useServiceAreas`, `serviceAreaId` state and switching logic — permanently delete.
-- Read/write via `global_dispatch_settings` singleton (`.eq('singleton', true).single()`).
-- Keep all tabs (Scoring, Stacked, Scheduled, System) and all existing inputs working identically.
-- Distance fields: store **meters** in DB, display in **km** (single unit, no per-region resolution). Add helpers `metersToKm`, `kmToMeters`.
-- Header copy: "Global Auto-Dispatch Configuration — applies to all service areas".
+- `DROP TRIGGER trg_sync_fare_pricing_to_dispatch_settings ON public.fare_pricing_settings`
+- `DROP FUNCTION public.sync_fare_pricing_to_dispatch_settings()`
+- `DROP TABLE public.dispatch_settings` (CASCADE — its only remaining trigger is its own `updated_at`).
+- Add to `global_dispatch_settings`: `max_dispatch_rounds int NOT NULL DEFAULT 3`, `degraded_driver_penalty int NOT NULL DEFAULT 100`, `presence_max_age_seconds int NOT NULL DEFAULT 60`. Backfill row, then drop the dead columns `drivers_per_wave`, `wave_delay_seconds`, `shortlist_limit`, `dispatch_mode`, `driver_fare_display`, `offer_expiry_seconds`, `accept_timeout_seconds`, `driver_response_timeout_seconds`.
+- Replace `public.dispatch_trip_offers` to:
+  - read the three new fields,
+  - replace `v_max_rounds := 3` with the admin value,
+  - replace literal `100` with `v_g.degraded_driver_penalty`,
+  - replace literal `60` with `v_g.presence_max_age_seconds`,
+  - drop the second-redundant `SELECT ... FROM global_dispatch_settings` (one fetch at top).
+- Replace `tr_dispatch_trip_offers()` so the `PERFORM dispatch_trip_offers(NEW.id, 'auto')` is wrapped in `BEGIN ... EXCEPTION WHEN OTHERS THEN ... insert into dispatch_round_advance_log + RAISE WARNING; END;` — the booking row must commit even if the RPC errors.
+- Create `public.ride_offer_deliveries` ( `id uuid pk`, `ride_offer_id uuid fk → ride_offers(id) on delete cascade`, `driver_id uuid`, `channel text` ('fcm' | 'realtime'), `status text` ('queued' | 'sent' | 'delivered' | 'failed'), `error_code text`, `error_message text`, `attempted_at timestamptz default now()`, `delivered_at timestamptz`, `payload jsonb`). RLS: admins read all, drivers read own, service-role write.
+- Replace `tr_send_push_on_ride_offer_insert` to also insert a `ride_offer_deliveries` row with `status='queued'` and channel based on `driver_presence.push_token`/`socket_connected` (no behavior change to FCM, just observability).
 
-## 3. Edge function — `supabase/functions/dispatch-drivers/index.ts`
+### 2. Edge function — `dispatch-trip`
 
-- Replace `dispatch_settings` query with `global_dispatch_settings` singleton fetch. No per-SA branching, no per-SA fallback.
-- `parseSettings()` reads `*_meters` directly (no km conversion in backend at all).
-- **Radius expansion fix**: build `radiusStepsMeters = [start, expand, max]` from meters columns and pass `radiusMeters` directly into `find_nearby_drivers(p_radius_meters)` on each iteration (current loop already does this — verified the bug is the stale `dispatch_settings` row using km that may have wrong values; switching to meters singleton fixes it). Add an `console.log` per iteration with the actual radius used.
-- Stacked rides: use `stacked_min_trip_distance_meters` (compare to `nd.distance_meters` directly — no km conversion). Use `max_stacked_rides` and `stacked_rides_enabled` from singleton.
+Delete the function directory entirely (`supabase/functions/dispatch-trip/`). Remove from `supabase/config.toml`. The DB trigger is the only path for normal bookings. Manual-trip / admin "re-dispatch" call the RPC directly via `supabase.rpc('dispatch_trip_offers', { p_trip_id, p_trigger_reason: 'manual' })`.
 
-## 4. Edge function — `supabase/functions/schedule-dispatch/index.ts` and any other reader of `dispatch_settings`
+Audit + update callers:
+- `src/pages/ManualTrip.tsx` (uses `functions.invoke('dispatch-trip', ...)`) → switch to `.rpc('dispatch_trip_offers')`.
+- Any other `supabase.functions.invoke('dispatch-trip'` call across `src/` and `supabase/functions/`.
 
-Audit & migrate all callers to `global_dispatch_settings`. List of files to update:
-- `supabase/functions/dispatch-drivers/index.ts`
-- `supabase/functions/schedule-dispatch/index.ts`
-- `supabase/functions/find-drivers/index.ts` (if any)
-- `supabase/functions/dispatch-trip/index.ts`
-- `supabase/functions/validate-scheduled-booking/index.ts`
+### 3. Admin UI — `src/pages/AutoDispatchRules.tsx`
 
-(Will grep before editing.)
+- Remove every input bound to the dead columns listed above (Scoring tab and System tab).
+- Add Scoring inputs for `max_dispatch_rounds`, `degraded_driver_penalty`, `presence_max_age_seconds`.
+- Keep wave1/2/3 size + wave1/2/3 expiry, radii, distance penalty, waiting bonus, fairness, all unchanged.
+- Header note already says "Global". No service-area selector to remove.
 
-## 5. Mobile-stable API fields
+### 4. Tests / verification
 
-Where the apps consume dispatch settings (config endpoints / trip offer payloads), expose stable, typed fields:
-```
-{
-  stacked_rides_enabled: boolean,
-  max_active_rides_per_driver: number,   // alias of max_stacked_rides + 1
-  start_radius_meters: number,
-  expand_radius_meters: number,
-  max_radius_meters: number
-}
-```
-Booleans/numbers only (no nulls — safe defaults applied server-side).
-
-## 6. Keep intact (do not touch)
-
-- `find_nearby_drivers` RPC
-- Wave dispatch loop, scoring formula, fairness/waiting bonus logic
-- Live tracking (`upsert-driver-location`, `FleetTracking`, `ActiveTrips`)
-- `accept-trip`, `decline-trip`, `complete-trip`, trip offers table
+- `vitest`: keep existing tests; add a unit test only if a helper changes.
+- Manual verification: open Admin → Auto-Dispatch Rules, save; place a test booking; confirm:
+  - one `dispatch_round_advance_log` row per round (no `duplicate_trigger`),
+  - `dispatch_wave_snapshots` written with new `wave_cap` / radius,
+  - `ride_offer_deliveries` row per offer,
+  - no rows landing in (gone) `dispatch_settings`.
 
 ## Files touched
 
 - `supabase/migrations/<new>.sql`
-- `src/pages/AutoDispatchRules.tsx`
-- `supabase/functions/dispatch-drivers/index.ts`
-- `supabase/functions/schedule-dispatch/index.ts` (if reads dispatch_settings)
-- Any other edge fn referencing `dispatch_settings`
-- `src/integrations/supabase/types.ts` (auto-regen)
-- Update memory: `mem://features/global-dispatch-settings` to reflect deprecation of `dispatch_settings` table
+- `supabase/functions/dispatch-trip/` (delete)
+- `supabase/config.toml` (remove `[functions.dispatch-trip]`)
+- `src/pages/ManualTrip.tsx` (caller switch)
+- `src/pages/AutoDispatchRules.tsx` (drop dead inputs, add 3 new)
+- Any other caller found by `rg "functions.invoke\\('dispatch-trip'"`
+- Memory update: `mem://features/global-dispatch-settings` to record dropped columns + new ones, and removal of `dispatch-trip` edge.
+
+## Explicitly NOT touched in Phase 1
+
+- `accept-trip`, `decline-trip`, `schedule-dispatch`, `find-drivers`, `expire_stale_offers`, `maybe_advance_dispatch_after_offer_resolution`, `dispatch_round_advance_log`, scoring formula, stacked-quality rules (min distance / detour / same-direction / priority mode), scheduled-only fields, fare engine, live tracking.
 
 Approve to proceed.

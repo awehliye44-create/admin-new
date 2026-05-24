@@ -3,8 +3,6 @@ project_id = "thazislrdkjpvvghtvzo"
 [functions.find-drivers]
 verify_jwt = false
 
-[functions.dispatch-trip]
-verify_jwt = false
 
 [functions.accept-trip]
 verify_jwt = false
