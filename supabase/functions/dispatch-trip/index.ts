@@ -246,62 +246,51 @@ serve(async (req) => {
       presetOffers = offersData || [];
     }
 
-    // ====== DELEGATE TO dispatch-drivers (PostGIS Dispatch Scoring) ======
-    // dispatch-drivers is the single source of truth for driver ranking,
-    // radius expansion, wave dispatch, scoring, and first-accept-wins assignment.
-    console.log(`[dispatch-trip] Delegating to dispatch-drivers (PostGIS scoring)`);
+    // ====== Invoke production SQL dispatcher (ride_offers SOT) ======
+    console.log(`[dispatch-trip] Invoking dispatch_trip_offers RPC for trip ${trip_id}`);
 
-    const dispatchPayload = {
-      trip_id,
-      pickup_lat,
-      pickup_lng,
-      vehicle_type_id: vehicle_type_id || undefined,
-      service_area_id: matchedServiceAreaIds[0],
-    };
-
-    const dispatchResponse = await fetch(
-      `${supabaseUrl}/functions/v1/dispatch-drivers`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabaseServiceKey}`,
-        },
-        body: JSON.stringify(dispatchPayload),
-      }
+    const { data: dispatchResult, error: dispatchErr } = await supabase.rpc(
+      'dispatch_trip_offers',
+      { p_trip_id: trip_id, p_trigger_reason: 'initial_dispatch' }
     );
 
-    const dispatchResult = await dispatchResponse.json();
+    if (dispatchErr) {
+      console.error('[dispatch-trip] dispatch_trip_offers failed:', dispatchErr);
+      return errorResponse(dispatchErr.message, 500, undefined, 'DISPATCH_FAILED');
+    }
 
-    console.log(`[dispatch-trip] dispatch-drivers result: dispatched=${dispatchResult?.data?.dispatched}`);
+    const result: any = dispatchResult ?? {};
+    const dispatched = Boolean(result.dispatched);
+    const offersSent = Number(result.offers_sent ?? 0);
+    const candidatesScored = Number(result.candidates_scored ?? 0);
 
-    // Log dispatch event
+    console.log(`[dispatch-trip] dispatch_trip_offers result: dispatched=${dispatched}, offers_sent=${offersSent}`);
+
     await logAuditEvent(supabase, 'trip_dispatched', {
       tripId: trip_id,
       details: {
         trip_number: tripNumber,
         region: matchedRegion.name,
         service_area_id: matchedServiceAreaIds[0],
-        dispatch_result: dispatchResult?.data?.dispatched ? 'dispatched' : 'no_drivers',
-        offers_sent: dispatchResult?.data?.offers_sent || 0,
-        candidates_scored: dispatchResult?.data?.candidates_scored || 0,
+        dispatch_result: dispatched ? 'dispatched' : 'no_drivers',
+        offers_sent: offersSent,
+        candidates_scored: candidatesScored,
       },
       ipAddress: clientIP,
       userAgent,
     });
 
-    // Return combined result with preset offers
     return successResponse({
-      dispatched: dispatchResult?.data?.dispatched || false,
+      dispatched,
       trip_number: tripNumber,
       service_area_id: matchedServiceAreaIds[0],
-      offers_sent: dispatchResult?.data?.offers_sent || 0,
-      candidates_scored: dispatchResult?.data?.candidates_scored || 0,
+      offers_sent: offersSent,
+      candidates_scored: candidatesScored,
       preset_offer_config: presetOfferConfig,
       preset_offers: presetOffers,
-      message: dispatchResult?.data?.message || (dispatchResult?.data?.dispatched ? 'Dispatched' : 'No drivers available'),
-      subtext: dispatchResult?.data?.subtext,
-      top_candidates: dispatchResult?.data?.top_candidates,
+      message: result.message || (dispatched ? 'Dispatched' : 'No drivers available'),
+      subtext: result.subtext,
+      top_candidates: result.top_candidates,
     });
 
   } catch (error) {

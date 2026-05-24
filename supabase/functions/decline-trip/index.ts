@@ -65,22 +65,17 @@ serve(async (req) => {
 
     console.log(`[decline-trip] Driver ${driver_id} declining trip ${trip_id}`);
 
-    // Find and update the offer
-    const { data: offer, error: offerError } = await supabase
-      .from('trip_offers')
-      .update({ 
-        status: 'declined', 
-        responded_at: new Date().toISOString() 
-      })
+    // Locate the live offer on ride_offers (production SOT)
+    const { data: offer, error: lookupErr } = await supabase
+      .from('ride_offers')
+      .select('id')
       .eq('trip_id', trip_id)
       .eq('driver_id', driver_id)
-      .eq('status', 'offered')
-      .select()
-      .single();
+      .eq('status', 'pending')
+      .maybeSingle();
 
-    if (offerError || !offer) {
-      console.log(`[decline-trip] No active offer found`);
-      
+    if (lookupErr || !offer) {
+      console.log(`[decline-trip] No active ride_offer found`);
       await logAuditEvent(supabase, 'trip_decline_failed', {
         driverId: driver_id,
         tripId: trip_id,
@@ -88,88 +83,31 @@ serve(async (req) => {
         ipAddress: clientIP,
         userAgent,
       });
-
       return errorResponse('Offer not found or already processed', 404, undefined, 'OFFER_NOT_FOUND');
     }
 
-    console.log(`[decline-trip] Offer declined successfully`);
+    // Invoke decline_ride_offer RPC — it updates the offer and triggers
+    // maybe_advance_dispatch_after_offer_resolution (wave advance / no_drivers).
+    const { error: declineErr } = await supabase.rpc('decline_ride_offer', {
+      p_offer_id: offer.id,
+      p_driver_id: driver_id,
+      p_reason: reason || null,
+    });
 
-    // Log the decline
+    if (declineErr) {
+      console.error('[decline-trip] decline_ride_offer RPC failed:', declineErr);
+      return errorResponse(declineErr.message, 500, undefined, 'DECLINE_FAILED');
+    }
+
     await logAuditEvent(supabase, 'trip_declined', {
       driverId: driver_id,
       tripId: trip_id,
-      details: { 
-        decline_reason: reason || 'not_provided',
-        offer_id: offer.id
-      },
+      details: { decline_reason: reason || 'not_provided', offer_id: offer.id },
       ipAddress: clientIP,
       userAgent,
     });
 
-    // Check if all offers are now declined/expired
-    const { data: remainingOffers, error: remainingError } = await supabase
-      .from('trip_offers')
-      .select('id')
-      .eq('trip_id', trip_id)
-      .eq('status', 'offered');
-
-    if (!remainingError && (!remainingOffers || remainingOffers.length === 0)) {
-      console.log(`[decline-trip] No remaining offers for trip ${trip_id}`);
-      
-      // Check if trip is still in 'offered' status (not yet accepted or cancelled)
-      const { data: trip } = await supabase
-        .from('trips')
-        .select('status, pickup_latitude, pickup_longitude, vehicle_type_id, service_area_id, dispatch_status')
-        .eq('id', trip_id)
-        .single();
-
-      if (trip?.status === 'offered') {
-        // Determine current wave from dispatch_status
-        const currentWave = parseInt(trip.dispatch_status?.replace('wave_', '') || '0');
-        
-        // Check dispatch_status to determine if dispatch-drivers has finished.
-        // dispatch-drivers sets 'no_drivers_found' when it exits without acceptance.
-        // If dispatch_status is still 'wave_N', the poller may still be active.
-        const dispatchFinished = trip.dispatch_status === 'no_drivers_found' || trip.dispatch_status === 'all_declined';
-        
-        // Also check if there are any non-expired offers still pending
-        // (the dispatcher creates offers with expires_at — if all are past expiry, dispatcher is done)
-        const { count: activeOfferCount } = await supabase
-          .from('trip_offers')
-          .select('id', { count: 'exact', head: true })
-          .eq('trip_id', trip_id)
-          .eq('status', 'offered')
-          .gt('expires_at', new Date().toISOString());
-        
-        const hasActiveOffers = (activeOfferCount || 0) > 0;
-        
-        // Only mark as no_drivers if:
-        // 1. dispatch-drivers has already exited (dispatch_status = 'no_drivers_found'), OR
-        // 2. No active offers remain AND all waves are done (wave_3 or higher)
-        if (dispatchFinished || (!hasActiveOffers && currentWave >= 3)) {
-          await supabase
-            .from('trips')
-            .update({ status: 'no_drivers', dispatch_status: 'all_declined' })
-            .eq('id', trip_id);
-          
-          console.log(`[decline-trip] Trip ${trip_id} marked as no_drivers (dispatch finished or all waves exhausted)`);
-
-          await logAuditEvent(supabase, 'trip_no_drivers', {
-            tripId: trip_id,
-            details: { last_declined_by: driver_id, wave: currentWave, dispatch_finished: dispatchFinished },
-            ipAddress: clientIP,
-            userAgent,
-          });
-        } else {
-          console.log(`[decline-trip] Trip ${trip_id}: dispatcher likely still active (wave ${currentWave}, active_offers=${activeOfferCount}), not marking as no_drivers`);
-        }
-      }
-    }
-
-    return successResponse({
-      declined: true,
-      message: 'Offer declined'
-    });
+    return successResponse({ declined: true, message: 'Offer declined' });
 
   } catch (error) {
     console.error('[decline-trip] Error:', error);

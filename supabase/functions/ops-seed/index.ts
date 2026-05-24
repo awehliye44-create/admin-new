@@ -74,7 +74,7 @@ serve(async (req) => {
       // 13. Webhook failure
       { fingerprint: 'demo:webhook_failure:stripe', category: 'backend', severity: 'critical', source: 'system', app: 'backend', title: 'Webhook Processing Failed', description: 'Stripe webhook handler returned 500 for 4 consecutive events.', metadata: { webhook_source: 'stripe', failure_count: 4, event_types: ['payment_intent.succeeded', 'charge.refunded'] } },
       // 14. Edge function failure
-      { fingerprint: 'demo:edge_fn_crash:dispatch', category: 'backend', severity: 'critical', source: 'system', app: 'backend', title: 'Edge Function Crash: dispatch-drivers', description: 'dispatch-drivers edge function crashed 3 times with OOM error.', metadata: { function_name: 'dispatch-drivers', error: 'out_of_memory', crash_count: 3 } },
+      { fingerprint: 'demo:edge_fn_crash:dispatch', category: 'backend', severity: 'critical', source: 'system', app: 'backend', title: 'Edge Function Crash: dispatch-trip', description: 'dispatch-trip edge function crashed 3 times with OOM error.', metadata: { function_name: 'dispatch-trip', error: 'out_of_memory', crash_count: 3 } },
       // 15. Duplicate booking
       { fingerprint: 'demo:dup_booking:trip-006', category: 'duplication', severity: 'warning', source: 'system', app: 'guest', title: 'Duplicate Booking Detected', description: 'Same customer submitted 2 identical bookings within 3 seconds.', metadata: { time_diff_seconds: 3 } },
       // 16. Duplicate payment
@@ -129,7 +129,7 @@ serve(async (req) => {
 
     // Edge function crashes
     for (let i = 0; i < 3; i++) {
-      logs.push({ ...logBase, level: 'error', source: 'dispatch-drivers', app: 'backend', message: `Edge function crashed: out of memory (instance ${i + 1})`, error_code: 'EDGE_OOM', duration_ms: 0, http_status: 546, created_at: new Date(now.getTime() - i * 4 * 60 * 1000).toISOString() });
+      logs.push({ ...logBase, level: 'error', source: 'dispatch-trip', app: 'backend', message: `Edge function crashed: out of memory (instance ${i + 1})`, error_code: 'EDGE_OOM', duration_ms: 0, http_status: 546, created_at: new Date(now.getTime() - i * 4 * 60 * 1000).toISOString() });
     }
 
     // Webhook failures
