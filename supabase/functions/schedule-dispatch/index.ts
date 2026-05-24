@@ -144,93 +144,37 @@ serve(async (req) => {
           })
           .eq("id", trip.id);
 
-        // ── PATH A: Driver already locked (confirmed_driver_id) ──
-        if (trip.confirmed_driver_id && trip.scheduled_status === "driver_assigned") {
-          console.log(
-            `[schedule-dispatch] Trip ${trip.id}: locked driver ${trip.confirmed_driver_id} — sending direct offer via dispatch-drivers`
-          );
+        // Dispatch via the SQL RPC (single production dispatcher → ride_offers)
+        const { data: rpcData, error: rpcErr } = await supabase.rpc(
+          "dispatch_trip_offers",
+          { p_trip_id: trip.id, p_trigger_reason: "scheduled_lead_time" },
+        );
 
-          const dispatchRes = await fetch(`${supabaseUrl}/functions/v1/dispatch-drivers`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${supabaseServiceKey}`,
-            },
-            body: JSON.stringify({
-              trip_id: trip.id,
-              pickup_lat: trip.pickup_latitude,
-              pickup_lng: trip.pickup_longitude,
-              vehicle_type_id: trip.vehicle_type_id || undefined,
-              service_area_id: trip.service_area_id || undefined,
-              booking_type: "SCAN_GO",
-              assigned_driver_id: trip.confirmed_driver_id,
-            }),
-          });
+        if (rpcErr) {
+          console.error(`[schedule-dispatch] dispatch_trip_offers failed for ${trip.id}:`, rpcErr);
+          errors++;
+          results.push({ trip_id: trip.id, action: "error", detail: rpcErr.message });
+        } else {
+          // Inspect ride_offers to confirm whether any offer was created in this wave
+          const { count: offerCount } = await supabase
+            .from("ride_offers")
+            .select("id", { count: "exact", head: true })
+            .eq("trip_id", trip.id)
+            .eq("status", "pending");
 
-          const dispatchData = await dispatchRes.json();
-          const success = dispatchData?.data?.dispatched === true;
-
-          if (success) {
+          if ((offerCount ?? 0) > 0) {
             dispatched++;
-            results.push({ trip_id: trip.id, action: "dispatched_locked_driver" });
-          } else {
-            // Locked driver unavailable — fall through to general dispatch
-            console.log(
-              `[schedule-dispatch] Trip ${trip.id}: locked driver unavailable, falling back to general dispatch`
-            );
-            const fallbackRes = await fetch(`${supabaseUrl}/functions/v1/dispatch-drivers`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${supabaseServiceKey}`,
-              },
-              body: JSON.stringify({
-                trip_id: trip.id,
-                pickup_lat: trip.pickup_latitude,
-                pickup_lng: trip.pickup_longitude,
-                vehicle_type_id: trip.vehicle_type_id || undefined,
-                service_area_id: trip.service_area_id || undefined,
-              }),
-            });
-
-            const fallbackData = await fallbackRes.json();
-            const fallbackSuccess = fallbackData?.data?.dispatched === true;
-            dispatched += fallbackSuccess ? 1 : 0;
-            errors += fallbackSuccess ? 0 : 1;
             results.push({
               trip_id: trip.id,
-              action: fallbackSuccess ? "dispatched_fallback" : "no_drivers",
+              action: trip.confirmed_driver_id ? "dispatched_locked_driver" : "dispatched",
+              detail: `offers=${offerCount}`,
             });
+          } else {
+            errors++;
+            results.push({ trip_id: trip.id, action: "no_drivers" });
           }
         }
-        // ── PATH B: No pre-assigned driver — full dispatch cascade ──
-        else {
-          const dispatchRes = await fetch(`${supabaseUrl}/functions/v1/dispatch-drivers`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${supabaseServiceKey}`,
-            },
-            body: JSON.stringify({
-              trip_id: trip.id,
-              pickup_lat: trip.pickup_latitude,
-              pickup_lng: trip.pickup_longitude,
-              vehicle_type_id: trip.vehicle_type_id || undefined,
-              service_area_id: trip.service_area_id || undefined,
-            }),
-          });
 
-          const dispatchData = await dispatchRes.json();
-          const success = dispatchData?.data?.dispatched === true;
-
-          dispatched += success ? 1 : 0;
-          if (!success) errors++;
-          results.push({
-            trip_id: trip.id,
-            action: success ? "dispatched" : "no_drivers",
-            detail: `candidates=${dispatchData?.data?.candidates_scored || 0}`,
-          });
-        }
 
         // Audit log
         await logAuditEvent(supabase, "schedule_dispatch_triggered", {
