@@ -10905,7 +10905,7 @@ export type Database = {
       detect_driver_problems: { Args: never; Returns: undefined }
       dispatch_trip_offers: {
         Args: { p_trigger_reason?: string; p_trip_id: string }
-        Returns: undefined
+        Returns: Json
       }
       dispatchable_reason: {
         Args: {
