@@ -65,11 +65,8 @@ interface DispatchSettings {
   stackedMinTripDistanceKm: number;
   stackedMaxDetourMinutes: number;
   stackedOfferWindowMinutes: number;
-  stackedPriorityMode: 'same_direction' | 'nearest' | 'highest_fare';
-  stackedDriverIncentive: number;
-  stackedRiderDiscount: number;
-  stackedShowEtaToDriver: boolean;
-  stackedAllowRiderOptOut: boolean;
+  stackedSameDirectionOnly: boolean;
+
 
   // Scheduled Rides (policy layer)
   scheduledRidesEnabled: boolean;
