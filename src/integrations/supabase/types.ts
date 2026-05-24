@@ -11414,117 +11414,62 @@ export type Database = {
         }
         Returns: undefined
       }
-      upsert_driver_presence:
-        | {
-            Args: {
-              p_accuracy?: number
-              p_app_state?: string
-              p_battery_level?: number
-              p_device_id?: string
-              p_driver_id: string
-              p_heading?: number
-              p_lat?: number
-              p_lng?: number
-              p_platform?: string
-              p_push_token?: string
-              p_socket_connected?: boolean
-              p_speed?: number
-              p_status?: string
-              p_unresolved_critical_tracking?: boolean
-            }
-            Returns: {
-              accuracy_m: number | null
-              app_state: string
-              battery_level: number | null
-              created_at: string
-              driver_id: string
-              heading: number | null
-              last_heartbeat_at: string
-              last_location_at: string | null
-              last_offline_at: string | null
-              last_realtime_seen_at: string | null
-              last_significant_move_at: string | null
-              last_significant_move_lat: number | null
-              last_significant_move_lng: number | null
-              last_socket_pong_at: string | null
-              lat: number | null
-              lng: number | null
-              low_accuracy: boolean
-              low_accuracy_since: string | null
-              network_type: string | null
-              offline_reason: string | null
-              platform: string | null
-              presence_health: string
-              push_token: string | null
-              socket_connected: boolean | null
-              speed: number | null
-              status: string
-              unresolved_critical_tracking: boolean
-              updated_at: string
-            }
-            SetofOptions: {
-              from: "*"
-              to: "driver_presence"
-              isOneToOne: true
-              isSetofReturn: false
-            }
-          }
-        | {
-            Args: {
-              p_accuracy?: number
-              p_app_state?: string
-              p_battery_level?: number
-              p_device_id?: string
-              p_driver_id: string
-              p_heading?: number
-              p_lat?: number
-              p_lng?: number
-              p_network_type?: string
-              p_offline_reason?: string
-              p_platform?: string
-              p_push_token?: string
-              p_socket_connected?: boolean
-              p_speed?: number
-              p_status?: string
-              p_unresolved_critical_tracking?: boolean
-            }
-            Returns: {
-              accuracy_m: number | null
-              app_state: string
-              battery_level: number | null
-              created_at: string
-              driver_id: string
-              heading: number | null
-              last_heartbeat_at: string
-              last_location_at: string | null
-              last_offline_at: string | null
-              last_realtime_seen_at: string | null
-              last_significant_move_at: string | null
-              last_significant_move_lat: number | null
-              last_significant_move_lng: number | null
-              last_socket_pong_at: string | null
-              lat: number | null
-              lng: number | null
-              low_accuracy: boolean
-              low_accuracy_since: string | null
-              network_type: string | null
-              offline_reason: string | null
-              platform: string | null
-              presence_health: string
-              push_token: string | null
-              socket_connected: boolean | null
-              speed: number | null
-              status: string
-              unresolved_critical_tracking: boolean
-              updated_at: string
-            }
-            SetofOptions: {
-              from: "*"
-              to: "driver_presence"
-              isOneToOne: true
-              isSetofReturn: false
-            }
-          }
+      upsert_driver_presence: {
+        Args: {
+          p_accuracy?: number
+          p_app_state?: string
+          p_battery_level?: number
+          p_device_id?: string
+          p_driver_id: string
+          p_heading?: number
+          p_lat?: number
+          p_lng?: number
+          p_network_type?: string
+          p_offline_reason?: string
+          p_platform?: string
+          p_push_token?: string
+          p_socket_connected?: boolean
+          p_speed?: number
+          p_status?: string
+          p_unresolved_critical_tracking?: boolean
+        }
+        Returns: {
+          accuracy_m: number | null
+          app_state: string
+          battery_level: number | null
+          created_at: string
+          driver_id: string
+          heading: number | null
+          last_heartbeat_at: string
+          last_location_at: string | null
+          last_offline_at: string | null
+          last_realtime_seen_at: string | null
+          last_significant_move_at: string | null
+          last_significant_move_lat: number | null
+          last_significant_move_lng: number | null
+          last_socket_pong_at: string | null
+          lat: number | null
+          lng: number | null
+          low_accuracy: boolean
+          low_accuracy_since: string | null
+          network_type: string | null
+          offline_reason: string | null
+          platform: string | null
+          presence_health: string
+          push_token: string | null
+          socket_connected: boolean | null
+          speed: number | null
+          status: string
+          unresolved_critical_tracking: boolean
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "driver_presence"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       verify_active_device: {
         Args: { p_device_id: string }
         Returns: {
