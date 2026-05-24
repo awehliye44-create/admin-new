@@ -4022,16 +4022,12 @@ export type Database = {
           scheduled_urgent_card_label: string
           simulate_mode: boolean
           singleton: boolean
-          stacked_allow_rider_opt_out: boolean
-          stacked_driver_incentive: number
           stacked_max_detour_minutes: number
           stacked_min_trip_distance_meters: number
           stacked_offer_window_minutes: number
-          stacked_priority_mode: string
-          stacked_rider_discount: number
           stacked_rides_enabled: boolean
+          stacked_same_direction_only: boolean
           stacked_search_radius_meters: number
-          stacked_show_eta_to_driver: boolean
           start_radius_meters: number
           updated_at: string
           urgent_dispatch_trigger_minutes_before_pickup: number
@@ -4076,16 +4072,12 @@ export type Database = {
           scheduled_urgent_card_label?: string
           simulate_mode?: boolean
           singleton?: boolean
-          stacked_allow_rider_opt_out?: boolean
-          stacked_driver_incentive?: number
           stacked_max_detour_minutes?: number
           stacked_min_trip_distance_meters?: number
           stacked_offer_window_minutes?: number
-          stacked_priority_mode?: string
-          stacked_rider_discount?: number
           stacked_rides_enabled?: boolean
+          stacked_same_direction_only?: boolean
           stacked_search_radius_meters?: number
-          stacked_show_eta_to_driver?: boolean
           start_radius_meters?: number
           updated_at?: string
           urgent_dispatch_trigger_minutes_before_pickup?: number
@@ -4130,16 +4122,12 @@ export type Database = {
           scheduled_urgent_card_label?: string
           simulate_mode?: boolean
           singleton?: boolean
-          stacked_allow_rider_opt_out?: boolean
-          stacked_driver_incentive?: number
           stacked_max_detour_minutes?: number
           stacked_min_trip_distance_meters?: number
           stacked_offer_window_minutes?: number
-          stacked_priority_mode?: string
-          stacked_rider_discount?: number
           stacked_rides_enabled?: boolean
+          stacked_same_direction_only?: boolean
           stacked_search_radius_meters?: number
-          stacked_show_eta_to_driver?: boolean
           start_radius_meters?: number
           updated_at?: string
           urgent_dispatch_trigger_minutes_before_pickup?: number
@@ -10555,6 +10543,10 @@ export type Database = {
       assign_trip_number: {
         Args: { p_service_area_id: string; p_trip_id: string }
         Returns: Json
+      }
+      bearing_deg: {
+        Args: { lat1: number; lat2: number; lng1: number; lng2: number }
+        Returns: number
       }
       can_corporate_user_view_driver: {
         Args: { p_driver_id: string; p_user_id: string }
