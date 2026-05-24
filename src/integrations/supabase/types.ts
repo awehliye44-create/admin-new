@@ -2031,6 +2031,27 @@ export type Database = {
         }
         Relationships: []
       }
+      dispatch_round_advance_log: {
+        Row: {
+          created_at: string
+          previous_round: number
+          trigger_reason: string
+          trip_id: string
+        }
+        Insert: {
+          created_at?: string
+          previous_round: number
+          trigger_reason: string
+          trip_id: string
+        }
+        Update: {
+          created_at?: string
+          previous_round?: number
+          trigger_reason?: string
+          trip_id?: string
+        }
+        Relationships: []
+      }
       dispatch_settings: {
         Row: {
           accept_timeout_seconds: number
@@ -2314,6 +2335,66 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      dispatch_wave_snapshots: {
+        Row: {
+          candidate_count: number
+          created_at: string
+          degraded_count: number
+          dispatch_round: number
+          eligible_count: number
+          errors: Json | null
+          hard_excluded_count: number
+          id: string
+          offer_created_count: number
+          previous_round_drivers: Json
+          reason_for_next_wave: string | null
+          search_radius_meters: number
+          selected_count: number
+          selected_drivers: Json
+          trigger_reason: string
+          trip_id: string
+          wave_cap: number
+        }
+        Insert: {
+          candidate_count?: number
+          created_at?: string
+          degraded_count?: number
+          dispatch_round: number
+          eligible_count?: number
+          errors?: Json | null
+          hard_excluded_count?: number
+          id?: string
+          offer_created_count?: number
+          previous_round_drivers?: Json
+          reason_for_next_wave?: string | null
+          search_radius_meters?: number
+          selected_count?: number
+          selected_drivers?: Json
+          trigger_reason?: string
+          trip_id: string
+          wave_cap?: number
+        }
+        Update: {
+          candidate_count?: number
+          created_at?: string
+          degraded_count?: number
+          dispatch_round?: number
+          eligible_count?: number
+          errors?: Json | null
+          hard_excluded_count?: number
+          id?: string
+          offer_created_count?: number
+          previous_round_drivers?: Json
+          reason_for_next_wave?: string | null
+          search_radius_meters?: number
+          selected_count?: number
+          selected_drivers?: Json
+          trigger_reason?: string
+          trip_id?: string
+          wave_cap?: number
+        }
+        Relationships: []
       }
       document_types: {
         Row: {
@@ -10914,7 +10995,12 @@ export type Database = {
         Returns: Json
       }
       detect_driver_problems: { Args: never; Returns: undefined }
-      dispatch_trip_offers: { Args: { p_trip_id: string }; Returns: undefined }
+      dispatch_trip_offers:
+        | { Args: { p_trip_id: string }; Returns: undefined }
+        | {
+            Args: { p_trigger_reason?: string; p_trip_id: string }
+            Returns: undefined
+          }
       dispatchable_reason: {
         Args: {
           p_driver_id: string
@@ -11251,10 +11337,19 @@ export type Database = {
           found_item_photos: string[]
         }[]
       }
-      maybe_advance_dispatch_after_offer_resolution: {
-        Args: { p_resolved_driver_id?: string; p_trip_id: string }
-        Returns: undefined
-      }
+      maybe_advance_dispatch_after_offer_resolution:
+        | {
+            Args: { p_resolved_driver_id?: string; p_trip_id: string }
+            Returns: undefined
+          }
+        | {
+            Args: {
+              p_resolved_driver_id?: string
+              p_trigger_reason?: string
+              p_trip_id: string
+            }
+            Returns: undefined
+          }
       merge_ride_offer_push_log: {
         Args: { p_json: Json; p_offer_id: string }
         Returns: undefined
