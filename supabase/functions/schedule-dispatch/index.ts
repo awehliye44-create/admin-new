@@ -17,7 +17,7 @@ import {
  *  1. Reads `urgent_dispatch_trigger_minutes_before_pickup` from `dispatch_settings`
  *     (Admin Panel is the single source of truth).
  *  2. If a driver is already locked (`confirmed_driver_id`), sends a direct offer.
- *  3. Otherwise, delegates to `dispatch-drivers` for the full wave-cascade.
+ *  3. Otherwise, invokes `dispatch_trip_offers` RPC for the full wave-cascade.
  *  4. Updates `scheduled_status` so the trip is not re-processed.
  */
 
