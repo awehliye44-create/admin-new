@@ -8064,6 +8064,53 @@ export type Database = {
           },
         ]
       }
+      stop_waiting_settings: {
+        Row: {
+          created_at: string
+          id: string
+          service_area_id: string
+          stop_radius_enabled: boolean
+          stop_radius_meters: number
+          stop_waiting_charge_interval_seconds: number
+          stop_waiting_grace_period_seconds: number
+          stop_waiting_max_minutes: number | null
+          stop_waiting_rate_pence_per_minute: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          service_area_id: string
+          stop_radius_enabled?: boolean
+          stop_radius_meters?: number
+          stop_waiting_charge_interval_seconds?: number
+          stop_waiting_grace_period_seconds?: number
+          stop_waiting_max_minutes?: number | null
+          stop_waiting_rate_pence_per_minute?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          service_area_id?: string
+          stop_radius_enabled?: boolean
+          stop_radius_meters?: number
+          stop_waiting_charge_interval_seconds?: number
+          stop_waiting_grace_period_seconds?: number
+          stop_waiting_max_minutes?: number | null
+          stop_waiting_rate_pence_per_minute?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stop_waiting_settings_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: true
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       support_conversations: {
         Row: {
           assigned_admin_id: string | null
