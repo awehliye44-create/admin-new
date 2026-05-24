@@ -438,16 +438,10 @@ export default function AutoDispatchRules() {
               </div>
             </div>
 
-            {/* Shortlist & Waves */}
+            {/* Wave Sizes */}
             <div>
-              <h4 className="text-sm font-semibold mb-3">Shortlist & Wave Sizes</h4>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="space-y-2">
-                  <Label>Shortlist Limit</Label>
-                  <Input type="number" min="10" max="500" value={settings.shortlistLimit}
-                    onChange={(e) => updateSetting('shortlistLimit', parseInt(e.target.value) || 100)} disabled={isLoading} />
-                  <p className="text-xs text-muted-foreground">Top N to score</p>
-                </div>
+              <h4 className="text-sm font-semibold mb-3">Wave Sizes</h4>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label>Wave 1 Size</Label>
                   <Input type="number" min="1" max="20" value={settings.wave1Size}
@@ -492,15 +486,33 @@ export default function AutoDispatchRules() {
                   <p className="text-xs text-muted-foreground">Time Wave 3 waits before marking unassigned</p>
                 </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+            </div>
+
+            {/* Dispatcher Internals — promoted from hardcoded values */}
+            <div>
+              <h4 className="text-sm font-semibold mb-3">Dispatcher Internals</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label>Accept Timeout (seconds)</Label>
-                  <Input type="number" min="5" max="60" value={settings.acceptTimeoutSeconds}
-                    onChange={(e) => updateSetting('acceptTimeoutSeconds', parseInt(e.target.value) || 25)} disabled={isLoading} />
-                  <p className="text-xs text-muted-foreground">Time each driver has to accept/reject the offer</p>
+                  <Label>Max Dispatch Rounds</Label>
+                  <Input type="number" min="1" max="6" value={settings.maxDispatchRounds}
+                    onChange={(e) => updateSetting('maxDispatchRounds', parseInt(e.target.value) || 3)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Wave cascade limit before marking trip unassigned</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Degraded Driver Penalty</Label>
+                  <Input type="number" min="0" max="500" value={settings.degradedDriverPenalty}
+                    onChange={(e) => updateSetting('degradedDriverPenalty', parseInt(e.target.value) || 100)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Score penalty for degraded presence drivers</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Presence Max Age (seconds)</Label>
+                  <Input type="number" min="15" max="300" value={settings.presenceMaxAgeSeconds}
+                    onChange={(e) => updateSetting('presenceMaxAgeSeconds', parseInt(e.target.value) || 60)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Max heartbeat age to be considered live</p>
                 </div>
               </div>
             </div>
+
 
             {/* Scoring Weights */}
             <div>
