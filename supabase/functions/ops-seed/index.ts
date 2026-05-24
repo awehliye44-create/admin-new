@@ -129,7 +129,7 @@ serve(async (req) => {
 
     // Edge function crashes
     for (let i = 0; i < 3; i++) {
-      logs.push({ ...logBase, level: 'error', source: 'dispatch-drivers', app: 'backend', message: `Edge function crashed: out of memory (instance ${i + 1})`, error_code: 'EDGE_OOM', duration_ms: 0, http_status: 546, created_at: new Date(now.getTime() - i * 4 * 60 * 1000).toISOString() });
+      logs.push({ ...logBase, level: 'error', source: 'dispatch-trip', app: 'backend', message: `Edge function crashed: out of memory (instance ${i + 1})`, error_code: 'EDGE_OOM', duration_ms: 0, http_status: 546, created_at: new Date(now.getTime() - i * 4 * 60 * 1000).toISOString() });
     }
 
     // Webhook failures
