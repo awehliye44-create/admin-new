@@ -132,61 +132,21 @@ serve(async (req) => {
       }
     }
 
-    // ====== STACKED RIDES ENFORCEMENT ======
-    // Check if driver already has an active trip — if so, enforce Admin max_stacked_rides
-    const { data: driverData } = await supabase
-      .from('drivers')
-      .select('current_trip_id')
-      .eq('id', driver_id)
-      .single();
-
-    if (driverData?.current_trip_id) {
-      // Driver is on an active trip — check stacked rides config
-      const { data: stackedConfig } = await supabase
-        .from('dispatch_settings')
-        .select('stacked_rides_enabled, max_stacked_rides')
-        .eq('service_area_id', tripForSA?.service_area_id)
-        .maybeSingle();
-
-      if (!stackedConfig || !stackedConfig.stacked_rides_enabled) {
-        console.log(`[accept-trip] Stacked rides disabled — driver ${driver_id} already on trip`);
-        return errorResponse('Stacked rides are not enabled for this service area', 403, {
-          code: 'STACKED_RIDES_DISABLED'
-        });
-      }
-
-      // Count driver's current active trips
-      const { count: activeCount } = await supabase
-        .from('trips')
-        .select('id', { count: 'exact', head: true })
-        .eq('driver_id', driver_id)
-        .in('status', ['accepted', 'driver_arriving', 'arrived', 'in_progress']);
-
-      const maxAllowed = stackedConfig.max_stacked_rides + 1; // current + stacked
-      if ((activeCount || 0) >= maxAllowed) {
-        console.log(`[accept-trip] Driver ${driver_id} at stacked limit: ${activeCount}/${maxAllowed}`);
-        return errorResponse('Maximum stacked rides reached', 403, {
-          code: 'MAX_STACKED_RIDES',
-          current: activeCount,
-          max: maxAllowed,
-        });
-      }
-    }
-
     console.log(`[accept-trip] Driver ${driver_id} attempting to accept trip ${trip_id}`);
 
-    // Verify the offer exists and is still valid
+    // Locate the live ride_offer for this driver/trip (production SOT)
     const { data: offer, error: offerError } = await supabase
-      .from('trip_offers')
-      .select('id, status, expires_at')
+      .from('ride_offers')
+      .select('id, status')
       .eq('trip_id', trip_id)
       .eq('driver_id', driver_id)
-      .single();
+      .in('status', ['pending', 'countered', 'accepted'])
+      .order('offered_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     if (offerError || !offer) {
-      console.log(`[accept-trip] No offer found for driver ${driver_id} on trip ${trip_id}`);
-      
-      // Log failed attempt
+      console.log(`[accept-trip] No ride_offer found for driver ${driver_id} on trip ${trip_id}`);
       await logAuditEvent(supabase, 'trip_accept_failed', {
         driverId: driver_id,
         tripId: trip_id,
@@ -194,163 +154,53 @@ serve(async (req) => {
         ipAddress: clientIP,
         userAgent,
       });
-
       return errorResponse('Offer not found', 404, { message: 'This ride offer is no longer available' });
     }
 
-    // Check if offer has expired
-    if (new Date(offer.expires_at) < new Date()) {
-      console.log(`[accept-trip] Offer expired for driver ${driver_id}`);
-      
-      await supabase
-        .from('trip_offers')
-        .update({ status: 'expired', responded_at: new Date().toISOString() })
-        .eq('id', offer.id);
+    // Delegate to the production RPC — handles stacked-rides, atomic claim,
+    // withdraw-other-offers, fare snapshot, and trip lifecycle.
+    const { data: rpcResult, error: rpcErr } = await supabase.rpc('accept_ride_offer', {
+      p_offer_id: offer.id,
+      p_driver_id: driver_id,
+    });
+
+    if (rpcErr) {
+      console.error('[accept-trip] accept_ride_offer RPC failed:', rpcErr);
+      return errorResponse(rpcErr.message, 500, undefined, 'ACCEPT_FAILED');
+    }
+
+    const r: any = rpcResult ?? {};
+    if (!r.success) {
+      const code = r.error || 'ACCEPT_REJECTED';
+      const status =
+        code === 'OFFER_NOT_FOUND' ? 404 :
+        code === 'OFFER_EXPIRED' ? 400 :
+        code === 'TRIP_NOT_AVAILABLE' ? 409 :
+        code === 'MAX_STACK_REACHED' || code === 'STACKED_RIDES_DISABLED' ? 403 :
+        400;
 
       await logAuditEvent(supabase, 'trip_accept_failed', {
         driverId: driver_id,
         tripId: trip_id,
-        details: { reason: 'offer_expired' },
+        details: { reason: code, rpc_response: r },
         ipAddress: clientIP,
         userAgent,
       });
 
-      return errorResponse('Offer expired', 400, { message: 'This offer has expired' });
+      return errorResponse(r.message || 'Could not accept offer', status, { code, ...r });
     }
 
-    // Check if offer was already responded to
-    if (offer.status !== 'offered') {
-      console.log(`[accept-trip] Offer already processed: ${offer.status}`);
-      return errorResponse('Already processed', 400, { 
-        message: offer.status === 'accepted' ? 'You already accepted this ride' : 'This offer is no longer available' 
-      });
-    }
+    console.log(`[accept-trip] Trip ${trip_id} successfully assigned to driver ${driver_id}`);
 
-    // === Fetch cancellation grace period from fare_pricing_settings ===
-    const { data: tripSAData } = await supabase
-      .from('trips')
-      .select('service_area_id, vehicle_type_id')
-      .eq('id', trip_id)
-      .single();
-
-    if (!tripSAData?.service_area_id) {
-      return errorResponse('Trip has no service_area_id — cannot resolve lifecycle rules', 422);
-    }
-
-    const fpsQuery = supabase
-      .from('fare_pricing_settings')
-      .select('cancellation_grace_period_minutes')
-      .eq('service_area_id', tripSAData.service_area_id);
-
-    if (tripSAData.vehicle_type_id) {
-      fpsQuery.eq('vehicle_type_id', tripSAData.vehicle_type_id);
-    }
-
-    const { data: fps, error: fpsErr } = await fpsQuery.maybeSingle();
-    if (fpsErr || !fps || fps.cancellation_grace_period_minutes == null) {
-      console.error(`[accept-trip] No fare_pricing_settings for SA=${tripSAData.service_area_id}`);
-      return errorResponse(
-        'No fare pricing settings configured for this service area. Configure lifecycle rules in Admin Panel.',
-        422
-      );
-    }
-
-    const gracePeriodMinutes = fps.cancellation_grace_period_minutes;
-
-    const now = new Date();
-    const graceExpiresAt = new Date(now.getTime() + gracePeriodMinutes * 60 * 1000);
-
-    // Determine if this is a stacked ride
-    const isStackedRide = !!driverData?.current_trip_id;
-
-    // ATOMIC OPERATION: Try to claim the trip
-    const tripUpdatePayload: Record<string, any> = {
-      status: 'accepted',
-      driver_id: driver_id,
-      confirmed_driver_id: driver_id,
-      assigned_at: now.toISOString(),
-      cancellation_grace_expires_at: graceExpiresAt.toISOString(),
-      updated_at: now.toISOString(),
-    };
-
-    // If stacked, link to the driver's current active trip
-    if (isStackedRide) {
-      tripUpdatePayload.stacked_trip_id = driverData.current_trip_id;
-      console.log(`[accept-trip] Stacked ride: linking trip ${trip_id} to parent ${driverData.current_trip_id}`);
-    }
-
-    const { data: updatedTrip, error: tripUpdateError } = await supabase
-      .from('trips')
-      .update(tripUpdatePayload)
-      .eq('id', trip_id)
-      .is('confirmed_driver_id', null)
-      .eq('status', 'offered')
-      .select()
-      .single();
-
-    if (tripUpdateError || !updatedTrip) {
-      console.log(`[accept-trip] Trip already claimed by another driver`);
-      
-      await supabase
-        .from('trip_offers')
-        .update({ status: 'withdrawn', responded_at: new Date().toISOString() })
-        .eq('id', offer.id);
-
-      await logAuditEvent(supabase, 'trip_accept_failed', {
-        driverId: driver_id,
-        tripId: trip_id,
-        details: { reason: 'already_taken' },
-        ipAddress: clientIP,
-        userAgent,
-      });
-
-      return errorResponse('Already accepted', 409, { message: 'Another driver accepted this ride first' });
-    }
-
-    console.log(`[accept-trip] Trip ${trip_id} successfully assigned to driver ${driver_id}${isStackedRide ? ' (STACKED)' : ''}`);
-
-    // Mark this driver's offer as accepted
-    await supabase
-      .from('trip_offers')
-      .update({ status: 'accepted', responded_at: new Date().toISOString() })
-      .eq('id', offer.id);
-
-    // Withdraw all other offers for this trip
-    const { data: withdrawnOffers, error: withdrawError } = await supabase
-      .from('trip_offers')
-      .update({ status: 'withdrawn', responded_at: new Date().toISOString() })
-      .eq('trip_id', trip_id)
-      .eq('status', 'offered')
-      .neq('driver_id', driver_id)
-      .select('driver_id');
-
-    if (withdrawError) {
-      console.error('[accept-trip] Error withdrawing other offers:', withdrawError);
-    } else {
-      console.log(`[accept-trip] Withdrew ${withdrawnOffers?.length || 0} other offers`);
-    }
-
-    // Update driver's current trip (only if not stacked — keep the original active trip as current)
-    if (!isStackedRide) {
-      await supabase
-        .from('drivers')
-        .update({ current_trip_id: trip_id })
-        .eq('id', driver_id);
-    }
-
-    // Log successful acceptance
     await logAuditEvent(supabase, 'trip_accepted', {
       driverId: driver_id,
       tripId: trip_id,
-      details: { 
-        withdrawn_offers: withdrawnOffers?.length || 0,
-        offer_id: offer.id
-      },
+      details: { offer_id: offer.id, idempotent: !!r.idempotent },
       ipAddress: clientIP,
       userAgent,
     });
 
-    // Get trip details for response
+    // Fetch trip details for response payload
     const { data: tripDetails } = await supabase
       .from('trips')
       .select(`
@@ -377,8 +227,9 @@ serve(async (req) => {
     return successResponse({
       accepted: true,
       message: 'Ride accepted successfully!',
-      trip: tripDetails || updatedTrip,
-      withdrawn_offers: withdrawnOffers?.length || 0
+      trip: tripDetails,
+      final_fare_pence: r.final_fare_pence,
+      fare_source: r.fare_source,
     });
 
   } catch (error) {
