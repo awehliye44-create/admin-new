@@ -116,7 +116,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
   const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState<string>('__default__');
   const [configuredVtIds, setConfiguredVtIds] = useState<Set<string>>(new Set());
 
-  // Stop Waiting & Get Paid (from dispatch_settings)
+  // Stop Waiting & Get Paid (from stop_waiting_settings)
   const [stopWaiting, setStopWaiting] = useState({
     stopRadiusEnabled: false,
     stopRadiusMeters: 100,
