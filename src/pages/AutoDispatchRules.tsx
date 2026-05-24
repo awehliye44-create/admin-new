@@ -65,11 +65,8 @@ interface DispatchSettings {
   stackedMinTripDistanceKm: number;
   stackedMaxDetourMinutes: number;
   stackedOfferWindowMinutes: number;
-  stackedPriorityMode: 'same_direction' | 'nearest' | 'highest_fare';
-  stackedDriverIncentive: number;
-  stackedRiderDiscount: number;
-  stackedShowEtaToDriver: boolean;
-  stackedAllowRiderOptOut: boolean;
+  stackedSameDirectionOnly: boolean;
+
 
   // Scheduled Rides (policy layer)
   scheduledRidesEnabled: boolean;
@@ -115,11 +112,8 @@ const defaultSettings: DispatchSettings = {
   stackedMinTripDistanceKm: 3,
   stackedMaxDetourMinutes: 10,
   stackedOfferWindowMinutes: 5,
-  stackedPriorityMode: 'same_direction',
-  stackedDriverIncentive: 5,
-  stackedRiderDiscount: 10,
-  stackedShowEtaToDriver: true,
-  stackedAllowRiderOptOut: true,
+  stackedSameDirectionOnly: true,
+
   scheduledRidesEnabled: true,
   minAdvanceTimeMinutes: 15,
   maxAdvanceDays: 30,
@@ -162,11 +156,8 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   stackedMinTripDistanceKm: Number(data.stacked_min_trip_distance_meters ?? 3000) / 1000,
   stackedMaxDetourMinutes: Number(data.stacked_max_detour_minutes ?? defaultSettings.stackedMaxDetourMinutes),
   stackedOfferWindowMinutes: Number(data.stacked_offer_window_minutes ?? defaultSettings.stackedOfferWindowMinutes),
-  stackedPriorityMode: (data.stacked_priority_mode as 'same_direction' | 'nearest' | 'highest_fare') ?? 'same_direction',
-  stackedDriverIncentive: Number(data.stacked_driver_incentive ?? 0),
-  stackedRiderDiscount: Number(data.stacked_rider_discount ?? 0),
-  stackedShowEtaToDriver: Boolean(data.stacked_show_eta_to_driver),
-  stackedAllowRiderOptOut: Boolean(data.stacked_allow_rider_opt_out),
+  stackedSameDirectionOnly: (data.stacked_same_direction_only as boolean) ?? true,
+
   scheduledRidesEnabled: (data.scheduled_rides_enabled as boolean) ?? defaultSettings.scheduledRidesEnabled,
   minAdvanceTimeMinutes: (data.min_advance_time_minutes as number) ?? defaultSettings.minAdvanceTimeMinutes,
   maxAdvanceDays: (data.max_advance_days as number) ?? defaultSettings.maxAdvanceDays,
@@ -209,11 +200,8 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
   stacked_min_trip_distance_meters: Math.round(settings.stackedMinTripDistanceKm * 1000),
   stacked_max_detour_minutes: settings.stackedMaxDetourMinutes,
   stacked_offer_window_minutes: settings.stackedOfferWindowMinutes,
-  stacked_priority_mode: settings.stackedPriorityMode,
-  stacked_driver_incentive: settings.stackedDriverIncentive,
-  stacked_rider_discount: settings.stackedRiderDiscount,
-  stacked_show_eta_to_driver: !!settings.stackedShowEtaToDriver,
-  stacked_allow_rider_opt_out: !!settings.stackedAllowRiderOptOut,
+  stacked_same_direction_only: !!settings.stackedSameDirectionOnly,
+
   scheduled_rides_enabled: settings.scheduledRidesEnabled,
   min_advance_time_minutes: settings.minAdvanceTimeMinutes,
   max_advance_days: settings.maxAdvanceDays,
@@ -602,11 +590,9 @@ export default function AutoDispatchRules() {
             </div>
 
             <Tabs value={stackedTab} onValueChange={setStackedTab}>
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="general">General</TabsTrigger>
                 <TabsTrigger value="matching">Matching Rules</TabsTrigger>
-                <TabsTrigger value="incentives">Incentives</TabsTrigger>
-                <TabsTrigger value="display">Display Options</TabsTrigger>
               </TabsList>
 
               <TabsContent value="general" className="space-y-6 pt-4">
@@ -623,28 +609,23 @@ export default function AutoDispatchRules() {
                     <Input type="number" min="500" max="10000" step="100" value={settings.stackedSearchRadiusMeters}
                       onChange={(e) => updateSetting('stackedSearchRadiusMeters', parseInt(e.target.value) || 2000)}
                       disabled={isLoading || !settings.stackedRidesEnabled} />
-                    <p className="text-xs text-muted-foreground">Search radius for finding stackable rides ({fromKm(settings.stackedSearchRadiusMeters / 1000).toFixed(2)} {unitShort})</p>
+                    <p className="text-xs text-muted-foreground">Pickup must be within this distance of driver ({fromKm(settings.stackedSearchRadiusMeters / 1000).toFixed(2)} {unitShort})</p>
                   </div>
                   <div className="space-y-2">
                     <Label>Offer Window (minutes)</Label>
-                    <Input type="number" min="1" max="15" value={settings.stackedOfferWindowMinutes}
+                    <Input type="number" min="1" max="60" value={settings.stackedOfferWindowMinutes}
                       onChange={(e) => updateSetting('stackedOfferWindowMinutes', parseInt(e.target.value) || 5)}
                       disabled={isLoading || !settings.stackedRidesEnabled} />
-                    <p className="text-xs text-muted-foreground">Time before current trip ends to offer stacked ride</p>
+                    <p className="text-xs text-muted-foreground">Only stack when active trip's remaining time is within this window</p>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Priority Mode</Label>
-                    <Select value={settings.stackedPriorityMode} 
-                      onValueChange={(value: 'same_direction' | 'nearest' | 'highest_fare') => updateSetting('stackedPriorityMode', value)}
-                      disabled={isLoading || !settings.stackedRidesEnabled}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="same_direction">Same Direction First</SelectItem>
-                        <SelectItem value="nearest">Nearest Pickup First</SelectItem>
-                        <SelectItem value="highest_fare">Highest Fare First</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">How to prioritize stacked ride offers</p>
+                  <div className="flex items-center justify-between p-3 border rounded-lg">
+                    <div>
+                      <p className="text-sm font-medium">Same Direction Only</p>
+                      <p className="text-xs text-muted-foreground">Reject stacked offers whose bearing differs by more than 90° from the active trip</p>
+                    </div>
+                    <Switch checked={settings.stackedSameDirectionOnly}
+                      onCheckedChange={(checked) => updateSetting('stackedSameDirectionOnly', checked)}
+                      disabled={isLoading || !settings.stackedRidesEnabled} />
                   </div>
                 </div>
               </TabsContent>
@@ -656,62 +637,19 @@ export default function AutoDispatchRules() {
                     <Input type="number" step="0.5" min="0" value={fromKm(settings.stackedMinTripDistanceKm)}
                       onChange={(e) => updateSetting('stackedMinTripDistanceKm', toKm(parseFloat(e.target.value) || 0))}
                       disabled={isLoading || !settings.stackedRidesEnabled} />
-                    <p className="text-xs text-muted-foreground">Minimum trip distance to qualify for stacking</p>
+                    <p className="text-xs text-muted-foreground">New trip must be at least this long to qualify for stacking</p>
                   </div>
                   <div className="space-y-2">
                     <Label>Max Detour Time (minutes)</Label>
                     <Input type="number" min="1" max="30" value={settings.stackedMaxDetourMinutes}
                       onChange={(e) => updateSetting('stackedMaxDetourMinutes', parseInt(e.target.value) || 10)}
                       disabled={isLoading || !settings.stackedRidesEnabled} />
-                    <p className="text-xs text-muted-foreground">Maximum detour allowed for stacked pickup</p>
+                    <p className="text-xs text-muted-foreground">Maximum detour (active drop → new pickup) at the active trip's speed</p>
                   </div>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="incentives" className="space-y-6 pt-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label>Driver Incentive (%)</Label>
-                    <Input type="number" min="0" max="100" value={settings.stackedDriverIncentive}
-                      onChange={(e) => updateSetting('stackedDriverIncentive', Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
-                      disabled={isLoading || !settings.stackedRidesEnabled} />
-                    <p className="text-xs text-muted-foreground">Bonus percentage for accepting stacked rides</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Rider Discount (%)</Label>
-                    <Input type="number" min="0" max="50" value={settings.stackedRiderDiscount}
-                      onChange={(e) => updateSetting('stackedRiderDiscount', Math.min(50, Math.max(0, parseInt(e.target.value) || 0)))}
-                      disabled={isLoading || !settings.stackedRidesEnabled} />
-                    <p className="text-xs text-muted-foreground">Discount for riders who opt into stacked rides</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-                  <Percent className="h-4 w-4 text-green-600 mt-0.5" />
-                  <p className="text-sm text-green-700 dark:text-green-400">
-                    Incentives help increase stacked ride acceptance rates and rider participation.
-                  </p>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="display" className="space-y-4 pt-4">
-                <div className="flex items-center justify-between p-4 border rounded-lg">
-                  <div>
-                    <p className="font-medium">Show ETA to Driver</p>
-                    <p className="text-sm text-muted-foreground">Display estimated pickup time for stacked ride</p>
-                  </div>
-                  <Switch checked={settings.stackedShowEtaToDriver} onCheckedChange={(checked) => updateSetting('stackedShowEtaToDriver', checked)}
-                    disabled={isLoading || !settings.stackedRidesEnabled} />
-                </div>
-                <div className="flex items-center justify-between p-4 border rounded-lg">
-                  <div>
-                    <p className="font-medium">Allow Rider Opt-Out</p>
-                    <p className="text-sm text-muted-foreground">Let riders choose to not be part of stacked rides</p>
-                  </div>
-                  <Switch checked={settings.stackedAllowRiderOptOut} onCheckedChange={(checked) => updateSetting('stackedAllowRiderOptOut', checked)}
-                    disabled={isLoading || !settings.stackedRidesEnabled} />
                 </div>
               </TabsContent>
             </Tabs>
+
           </CardContent>
         </Card>
 
