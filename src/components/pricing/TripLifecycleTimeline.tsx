@@ -23,7 +23,7 @@ interface TripLifecycleTimelineProps {
   recalculateOnWaiting: boolean;
   currencySymbol: string;
   onUpdate: (key: string, value: number | boolean) => void;
-  // Stop Waiting & Get Paid (from dispatch_settings)
+  // Stop Waiting & Get Paid (from stop_waiting_settings)
   stopRadiusEnabled: boolean;
   stopRadiusMeters: number;
   stopWaitingChargeIntervalSeconds: number;

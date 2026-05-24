@@ -459,17 +459,17 @@ export default function ManualTrip() {
         }
       }
 
-      // 3. Validate scheduled booking rules from dispatch_settings
-      if (isScheduled && resolvedServiceAreaId) {
+      // 3. Validate scheduled booking rules from global_dispatch_settings (singleton)
+      if (isScheduled) {
         const { data: dsRow } = await supabase
-          .from('dispatch_settings')
+          .from('global_dispatch_settings')
           .select('scheduled_rides_enabled, min_advance_time_minutes, max_advance_days')
-          .eq('service_area_id', resolvedServiceAreaId)
+          .eq('singleton', true)
           .maybeSingle();
 
         if (dsRow) {
           if (!dsRow.scheduled_rides_enabled) {
-            toast.error('Scheduled rides are disabled for this service area.');
+            toast.error('Scheduled rides are disabled.');
             setIsSubmitting(false);
             return;
           }
@@ -494,6 +494,7 @@ export default function ManualTrip() {
           }
         }
       }
+
 
       // 4. Create trip — trip_number assigned via DB trigger (assign_trip_number)
       const tripData = {

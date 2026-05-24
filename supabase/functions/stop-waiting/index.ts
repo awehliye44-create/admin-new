@@ -55,7 +55,7 @@ serve(async (req) => {
           return errorResponse("Missing trip_id or stop_id for start", 400);
         }
 
-        // Get trip's service area — Admin Panel config is the single source of truth.
+        // Get trip's service area — stop_waiting_settings is SOT for waiting rules.
         const { data: trip, error: tripErr } = await supabase
           .from("trips")
           .select("service_area_id")
@@ -67,20 +67,21 @@ serve(async (req) => {
         }
 
         const { data: ds, error: dsErr } = await supabase
-          .from("dispatch_settings")
+          .from("stop_waiting_settings")
           .select("stop_waiting_grace_period_seconds, stop_waiting_charge_interval_seconds, stop_waiting_rate_pence_per_minute")
           .eq("service_area_id", trip.service_area_id)
           .maybeSingle();
 
         if (dsErr || !ds) {
           console.error(
-            `[stop-waiting] No dispatch_settings found for service_area=${trip.service_area_id}. Admin must configure stop waiting rules first.`
+            `[stop-waiting] No stop_waiting_settings found for service_area=${trip.service_area_id}. Admin must configure stop waiting rules first.`
           );
           return errorResponse(
             "No stop waiting settings configured for this service area. Please configure in Admin Panel.",
             422
           );
         }
+
 
         const gracePeriod = ds.stop_waiting_grace_period_seconds;
         const chargeInterval = ds.stop_waiting_charge_interval_seconds;
