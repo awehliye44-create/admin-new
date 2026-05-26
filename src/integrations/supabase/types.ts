@@ -2052,6 +2052,266 @@ export type Database = {
         }
         Relationships: []
       }
+      dispatch_settings: {
+        Row: {
+          accept_timeout_seconds: number
+          auto_reassign_enabled: boolean
+          auto_retry_attempts: number
+          batch_mode: string
+          block_multiple_active_rides: boolean
+          cancel_protection: boolean
+          cancellation_fee_after_grace_pence: number
+          cascade_batch_size: number
+          cascade_step_delay_seconds: number
+          cooldown_after_reject_seconds: number
+          created_at: string
+          customer_response_timeout_seconds: number
+          distance_penalty_per_km: number
+          driver_fare_display: string
+          driver_final_response_timeout_seconds: number
+          enable_logging: boolean
+          fairness_boost_score: number
+          fairness_idle_minutes: number
+          fare_max_increase_pence: number
+          fare_negotiation_enabled: boolean
+          fare_offer_increment_1_pence: number
+          fare_offer_increment_2_pence: number
+          fare_offer_increment_3_pence: number
+          global_timeout_minutes: number
+          id: string
+          instant_retry_enabled: boolean
+          late_cancel_enabled: boolean
+          late_cancel_fee_pence: number
+          late_cancel_threshold_minutes: number
+          max_advance_days: number
+          max_cancel_rate: number
+          max_concurrent_offers_per_driver: number
+          max_driver_find_time_minutes: number
+          max_offer_hops: number
+          max_offers_per_request: number
+          max_stacked_rides: number
+          max_waiting_bonus_minutes: number
+          min_advance_time_minutes: number
+          minimum_rating: number
+          no_show_charge_pence: number
+          offer_expiry_seconds: number
+          pickup_paid_waiting_enabled: boolean
+          pickup_paid_waiting_rate_pence_per_minute: number
+          pickup_radius_enabled: boolean
+          pickup_radius_meters: number
+          pickup_waiting_grace_period_seconds: number
+          pickup_waiting_max_minutes: number | null
+          priority_order: string
+          scheduled_ride_incentives_enabled: boolean
+          scheduled_rides_enabled: boolean
+          search_radius_expand_km: number
+          search_radius_max_km: number
+          search_radius_meters: number
+          search_radius_start_km: number
+          service_area_id: string | null
+          shortlist_limit: number
+          simulate_mode: boolean
+          stacked_allow_rider_opt_out: boolean
+          stacked_driver_incentive: number
+          stacked_max_detour_minutes: number
+          stacked_min_trip_distance_km: number
+          stacked_offer_layout: string
+          stacked_offer_window_minutes: number
+          stacked_priority_mode: string
+          stacked_rider_discount: number
+          stacked_rides_enabled: boolean
+          stacked_search_radius_meters: number
+          stacked_show_eta_to_driver: boolean
+          stop_radius_enabled: boolean
+          stop_radius_meters: number
+          stop_waiting_charge_interval_seconds: number
+          stop_waiting_grace_period_seconds: number
+          stop_waiting_max_minutes: number | null
+          stop_waiting_rate_pence_per_minute: number
+          suppress_recent_offers_seconds: number
+          updated_at: string
+          waiting_bonus_per_minute: number
+          waiting_time_grace_period_minutes: number
+          wave1_size: number
+          wave2_size: number
+          wave3_size: number
+        }
+        Insert: {
+          accept_timeout_seconds?: number
+          auto_reassign_enabled?: boolean
+          auto_retry_attempts?: number
+          batch_mode?: string
+          block_multiple_active_rides?: boolean
+          cancel_protection?: boolean
+          cancellation_fee_after_grace_pence?: number
+          cascade_batch_size?: number
+          cascade_step_delay_seconds?: number
+          cooldown_after_reject_seconds?: number
+          created_at?: string
+          customer_response_timeout_seconds?: number
+          distance_penalty_per_km?: number
+          driver_fare_display?: string
+          driver_final_response_timeout_seconds?: number
+          enable_logging?: boolean
+          fairness_boost_score?: number
+          fairness_idle_minutes?: number
+          fare_max_increase_pence?: number
+          fare_negotiation_enabled?: boolean
+          fare_offer_increment_1_pence?: number
+          fare_offer_increment_2_pence?: number
+          fare_offer_increment_3_pence?: number
+          global_timeout_minutes?: number
+          id?: string
+          instant_retry_enabled?: boolean
+          late_cancel_enabled?: boolean
+          late_cancel_fee_pence?: number
+          late_cancel_threshold_minutes?: number
+          max_advance_days?: number
+          max_cancel_rate?: number
+          max_concurrent_offers_per_driver?: number
+          max_driver_find_time_minutes?: number
+          max_offer_hops?: number
+          max_offers_per_request?: number
+          max_stacked_rides?: number
+          max_waiting_bonus_minutes?: number
+          min_advance_time_minutes?: number
+          minimum_rating?: number
+          no_show_charge_pence?: number
+          offer_expiry_seconds?: number
+          pickup_paid_waiting_enabled?: boolean
+          pickup_paid_waiting_rate_pence_per_minute?: number
+          pickup_radius_enabled?: boolean
+          pickup_radius_meters?: number
+          pickup_waiting_grace_period_seconds?: number
+          pickup_waiting_max_minutes?: number | null
+          priority_order?: string
+          scheduled_ride_incentives_enabled?: boolean
+          scheduled_rides_enabled?: boolean
+          search_radius_expand_km?: number
+          search_radius_max_km?: number
+          search_radius_meters?: number
+          search_radius_start_km?: number
+          service_area_id?: string | null
+          shortlist_limit?: number
+          simulate_mode?: boolean
+          stacked_allow_rider_opt_out?: boolean
+          stacked_driver_incentive?: number
+          stacked_max_detour_minutes?: number
+          stacked_min_trip_distance_km?: number
+          stacked_offer_layout?: string
+          stacked_offer_window_minutes?: number
+          stacked_priority_mode?: string
+          stacked_rider_discount?: number
+          stacked_rides_enabled?: boolean
+          stacked_search_radius_meters?: number
+          stacked_show_eta_to_driver?: boolean
+          stop_radius_enabled?: boolean
+          stop_radius_meters?: number
+          stop_waiting_charge_interval_seconds?: number
+          stop_waiting_grace_period_seconds?: number
+          stop_waiting_max_minutes?: number | null
+          stop_waiting_rate_pence_per_minute?: number
+          suppress_recent_offers_seconds?: number
+          updated_at?: string
+          waiting_bonus_per_minute?: number
+          waiting_time_grace_period_minutes?: number
+          wave1_size?: number
+          wave2_size?: number
+          wave3_size?: number
+        }
+        Update: {
+          accept_timeout_seconds?: number
+          auto_reassign_enabled?: boolean
+          auto_retry_attempts?: number
+          batch_mode?: string
+          block_multiple_active_rides?: boolean
+          cancel_protection?: boolean
+          cancellation_fee_after_grace_pence?: number
+          cascade_batch_size?: number
+          cascade_step_delay_seconds?: number
+          cooldown_after_reject_seconds?: number
+          created_at?: string
+          customer_response_timeout_seconds?: number
+          distance_penalty_per_km?: number
+          driver_fare_display?: string
+          driver_final_response_timeout_seconds?: number
+          enable_logging?: boolean
+          fairness_boost_score?: number
+          fairness_idle_minutes?: number
+          fare_max_increase_pence?: number
+          fare_negotiation_enabled?: boolean
+          fare_offer_increment_1_pence?: number
+          fare_offer_increment_2_pence?: number
+          fare_offer_increment_3_pence?: number
+          global_timeout_minutes?: number
+          id?: string
+          instant_retry_enabled?: boolean
+          late_cancel_enabled?: boolean
+          late_cancel_fee_pence?: number
+          late_cancel_threshold_minutes?: number
+          max_advance_days?: number
+          max_cancel_rate?: number
+          max_concurrent_offers_per_driver?: number
+          max_driver_find_time_minutes?: number
+          max_offer_hops?: number
+          max_offers_per_request?: number
+          max_stacked_rides?: number
+          max_waiting_bonus_minutes?: number
+          min_advance_time_minutes?: number
+          minimum_rating?: number
+          no_show_charge_pence?: number
+          offer_expiry_seconds?: number
+          pickup_paid_waiting_enabled?: boolean
+          pickup_paid_waiting_rate_pence_per_minute?: number
+          pickup_radius_enabled?: boolean
+          pickup_radius_meters?: number
+          pickup_waiting_grace_period_seconds?: number
+          pickup_waiting_max_minutes?: number | null
+          priority_order?: string
+          scheduled_ride_incentives_enabled?: boolean
+          scheduled_rides_enabled?: boolean
+          search_radius_expand_km?: number
+          search_radius_max_km?: number
+          search_radius_meters?: number
+          search_radius_start_km?: number
+          service_area_id?: string | null
+          shortlist_limit?: number
+          simulate_mode?: boolean
+          stacked_allow_rider_opt_out?: boolean
+          stacked_driver_incentive?: number
+          stacked_max_detour_minutes?: number
+          stacked_min_trip_distance_km?: number
+          stacked_offer_layout?: string
+          stacked_offer_window_minutes?: number
+          stacked_priority_mode?: string
+          stacked_rider_discount?: number
+          stacked_rides_enabled?: boolean
+          stacked_search_radius_meters?: number
+          stacked_show_eta_to_driver?: boolean
+          stop_radius_enabled?: boolean
+          stop_radius_meters?: number
+          stop_waiting_charge_interval_seconds?: number
+          stop_waiting_grace_period_seconds?: number
+          stop_waiting_max_minutes?: number | null
+          stop_waiting_rate_pence_per_minute?: number
+          suppress_recent_offers_seconds?: number
+          updated_at?: string
+          waiting_bonus_per_minute?: number
+          waiting_time_grace_period_minutes?: number
+          wave1_size?: number
+          wave2_size?: number
+          wave3_size?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dispatch_settings_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: true
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dispatch_wave_snapshots: {
         Row: {
           candidate_count: number
@@ -10486,16 +10746,14 @@ export type Database = {
       }
     }
     Functions: {
-      accept_ride_offer:
-        | { Args: { p_driver_id: string; p_offer_id: string }; Returns: Json }
-        | {
-            Args: {
-              p_allow_customer_counter?: boolean
-              p_driver_id: string
-              p_offer_id: string
-            }
-            Returns: Json
-          }
+      accept_ride_offer: {
+        Args: {
+          p_allow_customer_counter?: boolean
+          p_driver_id: string
+          p_offer_id: string
+        }
+        Returns: Json
+      }
       accept_scheduled_ride: {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
@@ -10527,10 +10785,6 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
-      }
-      apply_customer_decline_grace: {
-        Args: { p_offer_id: string; p_reason?: string }
-        Returns: Json
       }
       approve_corporate_request: {
         Args: { p_request_id: string; p_reviewed_by?: string }
@@ -10604,6 +10858,10 @@ export type Database = {
           is_new_device: boolean
           previous_device_id: string
         }[]
+      }
+      claim_trip_negotiation: {
+        Args: { p_driver_id: string; p_trip_id: string }
+        Returns: Json
       }
       compute_preset_offer_fare_pence: {
         Args: {
@@ -10737,6 +10995,7 @@ export type Database = {
         Returns: number
       }
       expire_stale_modification_requests: { Args: never; Returns: number }
+      expire_stale_negotiations: { Args: never; Returns: Json }
       expire_stale_offers: { Args: never; Returns: Json }
       expire_trip_when_search_exhausted: {
         Args: { p_trip_id: string }
@@ -11346,8 +11605,6 @@ export type Database = {
           tags: string[]
         }[]
       }
-      show_limit: { Args: never; Returns: number }
-      show_trgm: { Args: { "": string }; Returns: string[] }
       snapshot_driver_tier_commission_on_trip: {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: number
