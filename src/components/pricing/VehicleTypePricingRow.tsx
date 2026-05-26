@@ -8,6 +8,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { Car, CheckCircle2, Loader2, Plane, Save, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+
 interface Props {
   serviceAreaId: string;
   vehicleType: { id: string; name: string; slug: string; capacity: number; features: string[] | null; is_active: boolean };
@@ -17,6 +19,23 @@ interface Props {
   onChanged?: () => void;
 }
 
+interface ChipPreset { id: string; label: string; value: number }
+interface OfferSettings {
+  enabled: boolean;
+  presetType: 'FLAT' | 'PERCENT';
+  presets: ChipPreset[];
+}
+
+const DEFAULT_OFFER_SETTINGS: OfferSettings = {
+  enabled: true,
+  presetType: 'FLAT',
+  presets: [
+    { id: 'P1', label: 'Offer 1', value: 0.5 },
+    { id: 'P2', label: 'Offer 2', value: 0.7 },
+    { id: 'P3', label: 'Offer 3', value: 0.9 },
+  ],
+};
+
 interface SavRow {
   id: string;
   is_enabled: boolean;
@@ -25,7 +44,9 @@ interface SavRow {
   per_km_rate_pence: number;
   per_min_rate_pence: number;
   airport_charge_pence: number;
+  offer_settings: OfferSettings | null;
 }
+
 
 export function VehicleTypePricingRow({
   serviceAreaId,
@@ -44,14 +65,30 @@ export function VehicleTypePricingRow({
     setLoading(true);
     const { data } = await supabase
       .from('service_area_vehicle_pricing')
-      .select('id, is_enabled, base_fare, minimum_fare, per_km_rate_pence, per_min_rate_pence, airport_charge_pence')
+      .select('id, is_enabled, base_fare, minimum_fare, per_km_rate_pence, per_min_rate_pence, airport_charge_pence, offer_settings')
       .eq('service_area_id', serviceAreaId)
       .eq('vehicle_type_id', vehicleType.id)
       .maybeSingle();
-    setRow((data as SavRow) ?? null);
+    if (data) {
+      const merged: SavRow = {
+        ...(data as any),
+        offer_settings: {
+          ...DEFAULT_OFFER_SETTINGS,
+          ...((data as any).offer_settings ?? {}),
+          presets:
+            ((data as any).offer_settings?.presets?.length
+              ? (data as any).offer_settings.presets
+              : DEFAULT_OFFER_SETTINGS.presets),
+        },
+      };
+      setRow(merged);
+    } else {
+      setRow(null);
+    }
     setDirty(false);
     setLoading(false);
   };
+
 
   useEffect(() => { load(); }, [serviceAreaId, vehicleType.id]);
 
