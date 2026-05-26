@@ -1,79 +1,77 @@
 
-# Phase 1 — Dispatch Scoring & Execution: Production Hardening
+# Pricing System Repair Plan
 
-Scope: normal (immediate, non-scheduled, non-stacked) dispatch only. Stacked-quality rules and Scheduled-only fields untouched except where they share the same edge.
+Before any code changes I need to flag four conflicts between your spec and the current database, because picking the wrong path will break trips, settlements, and the offer flow.
 
-## What is already correct (do not change)
+## What's actually there today
 
-- `public.dispatch_trip_offers(uuid, text)` RPC = single dispatcher. Reads `global_dispatch_settings` singleton every call. Wave caps 7/9/13 and radii 7000/9000/13000 m proven in `dispatch_wave_snapshots`.
-- `tr_trips_dispatch_after_insert` trigger on `public.trips` already auto-invokes the RPC on customer booking.
-- `expire_stale_offers()` cron (10 s) → `maybe_advance_dispatch_after_offer_resolution(..., 'offer_expired')` → re-invokes the RPC for the next wave. Round-advance is idempotent via `dispatch_round_advance_log` unique constraint.
-- Every selected driver already gets a `ride_offers` row (single `INSERT ... RETURNING` inside the RPC).
-- `dispatch_wave_snapshots` is written for every round with `wave_cap`, `search_radius_meters`, `candidate_count`, `eligible_count`, `selected_count`, `offer_created_count`, `selected_drivers`, `previous_round_drivers`, `reason_for_next_wave`.
+There are **two pricing tables** running in parallel, which is the root cause of "vehicle pricing fields disappeared":
 
-## Problems to fix
+| Table | What it has | Who reads it |
+|---|---|---|
+| `service_area_vehicle_pricing` (SOT per memory) | per vehicle: `base_fare`, `minimum_fare`, `distance_pricing` (jsonb tiers), `time_pricing` (jsonb tiers), `commission_percentage`, `offer_settings` (jsonb) | Admin UI only |
+| `fare_pricing_settings` | flat: `base_fare_pence`, `per_km_rate_pence`, `per_min_rate_pence`, `minimum_fare_pence`, plus dynamic-pricing, waiting, cancellation, no-show, late-cancel fields | The fare engine (`estimate-fare`) |
 
-1. **Duplicate dispatcher path** — `supabase/functions/dispatch-trip` invokes the same RPC after the DB trigger already fired, producing a wasted call that returns `duplicate_trigger`. Customer/Manual booking flows currently call both. Single source: the DB trigger.
-2. **Legacy `public.dispatch_settings` table still exists**, and `trg_sync_fare_pricing_to_dispatch_settings` keeps writing into it from `fare_pricing_settings`. No reader. Conflicts with the user "no legacy fallback" rule.
-3. **`tr_dispatch_trip_offers()` trigger function** must swallow its own errors. A dispatch failure must never block the trip INSERT.
-4. **Push delivery is not actually tracked.** `tr_send_push_on_ride_offer_insert` exists but FCM backend is missing (per memory). We need a `ride_offer_deliveries` row per offer so admin/ops can see delivery status; the actual FCM send stays as-is until the FCM backend lands.
-5. **Dead UI knobs** in Admin → Auto-Dispatch Rules that nothing reads: `dispatch_mode`, `drivers_per_wave`, `wave_delay_seconds`, `shortlist_limit`, `driver_fare_display`, `offer_expiry_seconds` (generic), `accept_timeout_seconds`, `driver_response_timeout_seconds`. Per cleanup policy these must be permanently removed, not hidden.
-6. **Hardcoded values surfaced**: `v_max_rounds=3`, degraded penalty `100`, `presence_max_age=60s`. Promote to admin so the screen is honest.
+The engine ignores `service_area_vehicle_pricing` rate fields entirely. That's why the "Vehicle Types for this Service Area" tab looks broken: the admin form edits one table, the engine quotes from another.
 
-## Changes
+## Conflicts in your spec vs. reality
 
-### 1. Migration (single migration, no fallbacks)
+1. **`perMileRate`** — DB stores per-km, not per-mile. Region has `distance_unit`. I'll display in the region's unit but store km internally (no schema rename).
+2. **`pickup_fee` / `dropoff_fee`** — those columns don't exist. `custom_zones.airport_fee` exists but is unused. `zone_route_pricing.airport_charge` exists and is in use today.
+3. **`pickupZone.is_airport` / `pickupZone.type === "airport"`** — `custom_zones` has `zone_type` (text) but no `is_airport` boolean. I'll detect airports by `zone_type ILIKE 'airport'` OR `airport_fee > 0`.
+4. **Chip presets** — current model is PERCENT (`presets: [{value:10},{value:15},{value:20}]` = +10%/+15%/+20% of fare). Your spec wants flat-increment chips (`+0.50`, `+0.70`, `+0.90`). This is a behavior change, not a bug fix.
 
-- `DROP TRIGGER trg_sync_fare_pricing_to_dispatch_settings ON public.fare_pricing_settings`
-- `DROP FUNCTION public.sync_fare_pricing_to_dispatch_settings()`
-- `DROP TABLE public.dispatch_settings` (CASCADE — its only remaining trigger is its own `updated_at`).
-- Add to `global_dispatch_settings`: `max_dispatch_rounds int NOT NULL DEFAULT 3`, `degraded_driver_penalty int NOT NULL DEFAULT 100`, `presence_max_age_seconds int NOT NULL DEFAULT 60`. Backfill row, then drop the dead columns `drivers_per_wave`, `wave_delay_seconds`, `shortlist_limit`, `dispatch_mode`, `driver_fare_display`, `offer_expiry_seconds`, `accept_timeout_seconds`, `driver_response_timeout_seconds`.
-- Replace `public.dispatch_trip_offers` to:
-  - read the three new fields,
-  - replace `v_max_rounds := 3` with the admin value,
-  - replace literal `100` with `v_g.degraded_driver_penalty`,
-  - replace literal `60` with `v_g.presence_max_age_seconds`,
-  - drop the second-redundant `SELECT ... FROM global_dispatch_settings` (one fetch at top).
-- Replace `tr_dispatch_trip_offers()` so the `PERFORM dispatch_trip_offers(NEW.id, 'auto')` is wrapped in `BEGIN ... EXCEPTION WHEN OTHERS THEN ... insert into dispatch_round_advance_log + RAISE WARNING; END;` — the booking row must commit even if the RPC errors.
-- Create `public.ride_offer_deliveries` ( `id uuid pk`, `ride_offer_id uuid fk → ride_offers(id) on delete cascade`, `driver_id uuid`, `channel text` ('fcm' | 'realtime'), `status text` ('queued' | 'sent' | 'delivered' | 'failed'), `error_code text`, `error_message text`, `attempted_at timestamptz default now()`, `delivered_at timestamptz`, `payload jsonb`). RLS: admins read all, drivers read own, service-role write.
-- Replace `tr_send_push_on_ride_offer_insert` to also insert a `ride_offer_deliveries` row with `status='queued'` and channel based on `driver_presence.push_token`/`socket_connected` (no behavior change to FCM, just observability).
+## Proposed work
 
-### 2. Edge function — `dispatch-trip`
+### Phase A — Make `service_area_vehicle_pricing` the real SOT (db)
+- Add flat columns to `service_area_vehicle_pricing`: `per_km_rate_pence`, `per_min_rate_pence` (computed from existing `distance_pricing[0].rate` and `time_pricing[0].rate` on migration so no data loss).
+- Backfill `fare_pricing_settings.{base_fare_pence, per_km_rate_pence, per_min_rate_pence, minimum_fare_pence}` so per-vehicle rows match `service_area_vehicle_pricing`.
+- Add trigger: writes to `service_area_vehicle_pricing` mirror the four rate fields into `fare_pricing_settings` (vehicle-scoped row, auto-created). This keeps the engine working while admin edits one table.
 
-Delete the function directory entirely (`supabase/functions/dispatch-trip/`). Remove from `supabase/config.toml`. The DB trigger is the only path for normal bookings. Manual-trip / admin "re-dispatch" call the RPC directly via `supabase.rpc('dispatch_trip_offers', { p_trip_id, p_trigger_reason: 'manual' })`.
+### Phase B — Admin "Vehicle Types for this Service Area" tab
+Restore the per-vehicle pricing card with these editable fields, sourced from `service_area_vehicle_pricing`:
+- Base fare, Per km rate (label "per mile" if region distance_unit=mi), Per minute rate, Minimum fare, Active toggle.
+- Show all assigned vehicle types (do not hide when airport charge changes).
 
-Audit + update callers:
-- `src/pages/ManualTrip.tsx` (uses `functions.invoke('dispatch-trip', ...)`) → switch to `.rpc('dispatch_trip_offers')`.
-- Any other `supabase.functions.invoke('dispatch-trip'` call across `src/` and `supabase/functions/`.
+### Phase C — Separate airport charge for normal bookings
+- Add `airport_charge_pence` to `service_area_vehicle_pricing` (per vehicle) — admin sets it once per vehicle.
+- In `estimate-fare`, after meter calculation: detect airport via pickup/dropoff zone `zone_type='airport'`; if true, add `airport_charge_pence` as a separate line. Never folded into base_fare.
 
-### 3. Admin UI — `src/pages/AutoDispatchRules.tsx`
+### Phase D — Route pricing keeps its airport charge separate
+- Stop bundling `airport_charge` inside `quoted_fare_pence` in `applyZoneRoutePricing`. Return base + airport as two fields; `estimate-fare` returns them as separate `fareDetails` lines and a `totalFare`.
 
-- Remove every input bound to the dead columns listed above (Scoring tab and System tab).
-- Add Scoring inputs for `max_dispatch_rounds`, `degraded_driver_penalty`, `presence_max_age_seconds`.
-- Keep wave1/2/3 size + wave1/2/3 expiry, radii, distance penalty, waiting bonus, fairness, all unchanged.
-- Header note already says "Global". No service-area selector to remove.
+### Phase E — API response shape
+`estimate-fare` returns per vehicle:
+```
+{
+  pricingMode: "NORMAL_DISTANCE_TIME" | "ROUTE_PRICING",
+  baseFarePence, airportChargePence, totalFarePence,
+  driverKeepPence, driverTierCommissionPercent,
+  chipsPence: [...],
+  fareDetails: [{label, amountPence}, ...]  // airport row only if > 0
+}
+```
 
-### 4. Tests / verification
+### Phase F — Driver-keep & commission
+- Commission % from driver tier (already snapshotted on trip). For the estimate, use the vehicle's `commission_percentage`.
+- `driverKeep = (baseFare - baseFare * pct/100) + airportCharge`. Airport charge is never commissioned. This matches the locked `tripAccounting` invariants for **estimates only**; settlement still goes through `tripAccounting.ts` unchanged.
 
-- `vitest`: keep existing tests; add a unit test only if a helper changes.
-- Manual verification: open Admin → Auto-Dispatch Rules, save; place a test booking; confirm:
-  - one `dispatch_round_advance_log` row per round (no `duplicate_trigger`),
-  - `dispatch_wave_snapshots` written with new `wave_cap` / radius,
-  - `ride_offer_deliveries` row per offer,
-  - no rows landing in (gone) `dispatch_settings`.
+### Phase G — Chip presets (flat increments)
+- Extend `offer_settings.presets[].value` semantics with `presetType: 'FLAT' | 'PERCENT'` (already exists). When `presetType='FLAT'`, treat value as currency units added to `totalFare`.
+- Admin UI: allow choosing FLAT and entering 0.50 / 0.70 / 0.90.
+- `estimate-fare` computes `chipsPence` from `totalFare` (never `driverKeep`, never double-airport).
 
-## Files touched
+## What I will NOT touch
+- `tripAccounting.ts` (locked invariants — settlement math stays as-is).
+- Driver mobile app "You keep" display string — not in this repo. I'll fix the API; the driver app already reads `driverKeep`.
+- Existing `fare_pricing_settings` columns — kept for waiting/cancellation/no-show config.
+- Stacked/Scheduled dispatch (Phase 2/3 work from earlier).
 
-- `supabase/migrations/<new>.sql`
-- `supabase/functions/dispatch-trip/` (delete)
-- `supabase/config.toml` (remove `[functions.dispatch-trip]`)
-- `src/pages/ManualTrip.tsx` (caller switch)
-- `src/pages/AutoDispatchRules.tsx` (drop dead inputs, add 3 new)
-- Any other caller found by `rg "functions.invoke\\('dispatch-trip'"`
-- Memory update: `mem://features/global-dispatch-settings` to record dropped columns + new ones, and removal of `dispatch-trip` edge.
+## Open decisions I need from you
 
-## Explicitly NOT touched in Phase 1
+1. **Airport charge per vehicle vs. per service area?** Spec says `airportChargeFromAdmin` (one value). I propose **per-vehicle** so XL/Premium can charge more — agree, or one flat value for the whole service area?
+2. **Chip presets — keep PERCENT option or fully replace with FLAT?** Your example uses FLAT; some operators may want PERCENT. I propose keeping both with a toggle. OK?
+3. **Miles vs km labels** — keep storage in km, label as mi/km from region setting. OK?
+4. **Migrating existing route-pricing rows** — today the airport charge is folded into `quoted_fare`; after this change the rider's total is unchanged but the breakdown changes. OK to ship as-is, or do you want me to ALSO split historical rows visually (no money change)?
 
-- `accept-trip`, `decline-trip`, `schedule-dispatch`, `find-drivers`, `expire_stale_offers`, `maybe_advance_dispatch_after_offer_resolution`, `dispatch_round_advance_log`, scoring formula, stacked-quality rules (min distance / detour / same-direction / priority mode), scheduled-only fields, fare engine, live tracking.
-
-Approve to proceed.
+I'll start coding the moment you confirm those four decisions (or say "use your defaults").

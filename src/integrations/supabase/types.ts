@@ -1487,7 +1487,6 @@ export type Database = {
       }
       custom_zones: {
         Row: {
-          airport_fee: number
           center_lat: number | null
           center_lng: number | null
           color: string | null
@@ -1507,7 +1506,6 @@ export type Database = {
           zone_type: string
         }
         Insert: {
-          airport_fee?: number
           center_lat?: number | null
           center_lng?: number | null
           color?: string | null
@@ -1527,7 +1525,6 @@ export type Database = {
           zone_type?: string
         }
         Update: {
-          airport_fee?: number
           center_lat?: number | null
           center_lng?: number | null
           color?: string | null
@@ -7488,6 +7485,7 @@ export type Database = {
       }
       service_area_vehicle_pricing: {
         Row: {
+          airport_charge_pence: number
           base_fare: number
           commission_percentage: number
           created_at: string
@@ -7497,6 +7495,8 @@ export type Database = {
           is_enabled: boolean
           minimum_fare: number
           offer_settings: Json
+          per_km_rate_pence: number
+          per_min_rate_pence: number
           pickup_waiting_charges: Json
           service_area_id: string
           stops_waiting_charges: Json
@@ -7505,6 +7505,7 @@ export type Database = {
           vehicle_type_id: string
         }
         Insert: {
+          airport_charge_pence?: number
           base_fare?: number
           commission_percentage?: number
           created_at?: string
@@ -7514,6 +7515,8 @@ export type Database = {
           is_enabled?: boolean
           minimum_fare?: number
           offer_settings?: Json
+          per_km_rate_pence?: number
+          per_min_rate_pence?: number
           pickup_waiting_charges?: Json
           service_area_id: string
           stops_waiting_charges?: Json
@@ -7522,6 +7525,7 @@ export type Database = {
           vehicle_type_id: string
         }
         Update: {
+          airport_charge_pence?: number
           base_fare?: number
           commission_percentage?: number
           created_at?: string
@@ -7531,6 +7535,8 @@ export type Database = {
           is_enabled?: boolean
           minimum_fare?: number
           offer_settings?: Json
+          per_km_rate_pence?: number
+          per_min_rate_pence?: number
           pickup_waiting_charges?: Json
           service_area_id?: string
           stops_waiting_charges?: Json

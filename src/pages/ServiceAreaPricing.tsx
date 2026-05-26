@@ -22,14 +22,11 @@ import {
   Save, 
   Loader2, 
   Car, 
-  
   Banknote,
   Users,
   FileText,
   Globe,
   Calculator,
-  CheckCircle2,
-  XCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ServiceAreaPaymentConfig } from '@/components/payment/ServiceAreaPaymentConfig';
@@ -38,6 +35,7 @@ import { getCurrencySymbol } from '@/lib/regionSettings';
 import { PresetOffersConfig } from '@/components/pricing/PresetOffersConfig';
 import { FareEngineConfig } from '@/components/pricing/FareEngineConfig';
 import { ServiceAreaTripsTab } from '@/components/payment/ServiceAreaTripsTab';
+import { VehicleTypePricingRow } from '@/components/pricing/VehicleTypePricingRow';
 
 interface VehicleType {
   id: string;
@@ -79,10 +77,11 @@ export default function ServiceAreaPricing() {
 
 
   // Vehicle pricing assignments (SSOT: service_area_vehicle_pricing)
+  // Only used here to compute the "assigned" badge count; the row component owns its own state.
   const [allVehicleTypes, setAllVehicleTypes] = useState<VehicleType[]>([]);
   const [pricingAssignments, setPricingAssignments] = useState<Record<string, VehiclePricingAssignment>>({});
   const [vehicleTypesLoading, setVehicleTypesLoading] = useState(false);
-  const [vehicleTypesSaving, setVehicleTypesSaving] = useState(false);
+
   
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -167,42 +166,8 @@ export default function ServiceAreaPricing() {
     }
   };
 
-  const toggleVehicleType = async (vehicleTypeId: string) => {
-    if (!selectedServiceAreaId || !selectedServiceArea?.region?.currency_code) return;
-    
-    setVehicleTypesSaving(true);
-    try {
-      const existing = pricingAssignments[vehicleTypeId];
-      
-      if (existing?.id) {
-        // Toggle is_enabled
-        const { error } = await supabase
-          .from('service_area_vehicle_pricing')
-          .update({ is_enabled: !existing.is_enabled, updated_at: new Date().toISOString() })
-          .eq('id', existing.id);
-        if (error) throw error;
-      } else {
-        // Insert new row with defaults
-        const { error } = await supabase
-          .from('service_area_vehicle_pricing')
-          .insert({
-            service_area_id: selectedServiceAreaId,
-            vehicle_type_id: vehicleTypeId,
-            is_enabled: true,
-            currency_code: selectedServiceArea.region.currency_code,
-          });
-        if (error) throw error;
-      }
-      
-      toast.success('Vehicle assignment updated');
-      await fetchPricingAssignments(selectedServiceAreaId);
-    } catch (err: any) {
-      console.error('Error toggling vehicle type:', err);
-      toast.error(err.message || 'Failed to update');
-    } finally {
-      setVehicleTypesSaving(false);
-    }
-  };
+  // Per-vehicle toggle + pricing is owned by <VehicleTypePricingRow />.
+
 
   const updatePerBookingFee = (field: 'per_booking_fee_enabled' | 'per_booking_fee_pence', value: boolean | number) => {
     setServiceAreas(prev => prev.map(sa => 
@@ -369,66 +334,17 @@ export default function ServiceAreaPricing() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {allVehicleTypes.map(vt => {
-                    const assignment = pricingAssignments[vt.id];
-                    const isAssigned = assignment?.is_enabled ?? false;
-
-                    return (
-                      <div 
-                        key={vt.id}
-                        className={`flex items-center justify-between p-4 border rounded-lg transition-colors ${
-                          isAssigned 
-                            ? 'border-primary/30 bg-primary/5' 
-                            : 'border-border bg-muted/30'
-                        }`}
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                            isAssigned ? 'bg-primary/10' : 'bg-muted'
-                          }`}>
-                            <Car className={`h-5 w-5 ${isAssigned ? 'text-primary' : 'text-muted-foreground'}`} />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <p className="font-medium">{vt.name}</p>
-                              <Badge variant="outline" className="text-[10px]">{vt.slug}</Badge>
-                              {!vt.is_active && (
-                                <Badge variant="destructive" className="text-[10px]">Inactive</Badge>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-3 mt-1">
-                              <span className="text-xs text-muted-foreground">
-                                Capacity: {vt.capacity}
-                              </span>
-                              {vt.features && vt.features.length > 0 && (
-                                <span className="text-xs text-muted-foreground">
-                                  Features: {vt.features.join(', ')}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          {isAssigned ? (
-                            <Badge variant="default" className="gap-1">
-                              <CheckCircle2 className="h-3 w-3" />
-                              Assigned
-                            </Badge>
-                          ) : (
-                            <Badge variant="secondary" className="gap-1 text-muted-foreground">
-                              <XCircle className="h-3 w-3" />
-                              Not Assigned
-                            </Badge>
-                          )}
-                          <Switch
-                            checked={isAssigned}
-                            disabled={vehicleTypesSaving}
-                            onCheckedChange={() => toggleVehicleType(vt.id)}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {allVehicleTypes.map(vt => (
+                    <VehicleTypePricingRow
+                      key={vt.id}
+                      serviceAreaId={selectedServiceAreaId}
+                      vehicleType={vt}
+                      currencyCode={regionCurrency}
+                      currencySymbol={getCurrencySymbol(regionCurrency)}
+                      distanceUnitLabel={selectedServiceArea?.region?.distance_unit === 'mi' ? 'mile' : 'km'}
+                      onChanged={() => fetchPricingAssignments(selectedServiceAreaId)}
+                    />
+                  ))}
 
                   {allVehicleTypes.length === 0 && (
                     <div className="text-center py-8 text-muted-foreground">
