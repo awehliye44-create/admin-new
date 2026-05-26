@@ -149,6 +149,7 @@ export function VehicleTypePricingRow({
           per_km_rate_pence: row.per_km_rate_pence,
           per_min_rate_pence: row.per_min_rate_pence,
           airport_charge_pence: row.airport_charge_pence,
+          offer_settings: (row.offer_settings ?? DEFAULT_OFFER_SETTINGS) as any,
           updated_at: new Date().toISOString(),
         })
         .eq('id', row.id);
@@ -163,12 +164,28 @@ export function VehicleTypePricingRow({
     }
   };
 
+  const updateOffer = (patch: Partial<OfferSettings>) => {
+    if (!row) return;
+    const current = row.offer_settings ?? DEFAULT_OFFER_SETTINGS;
+    setRow({ ...row, offer_settings: { ...current, ...patch } });
+    setDirty(true);
+  };
+  const updatePreset = (idx: number, value: number) => {
+    if (!row) return;
+    const current = row.offer_settings ?? DEFAULT_OFFER_SETTINGS;
+    const presets = current.presets.map((p, i) => (i === idx ? { ...p, value } : p));
+    setRow({ ...row, offer_settings: { ...current, presets } });
+    setDirty(true);
+  };
+
+
   const isAssigned = row?.is_enabled ?? false;
-  const setField = <K extends keyof SavRow>(k: K, v: SavRow[K]) => {
+  const setField = <K extends Exclude<keyof SavRow, 'offer_settings'>>(k: K, v: SavRow[K]) => {
     if (!row) return;
     setRow({ ...row, [k]: v });
     setDirty(true);
   };
+
 
   return (
     <div className={`p-4 border rounded-lg transition-colors ${
@@ -227,12 +244,52 @@ export function VehicleTypePricingRow({
             <Input type="number" step="0.01" min="0" value={(row.airport_charge_pence / 100).toFixed(2)}
               onChange={(e) => setField('airport_charge_pence', Math.round((parseFloat(e.target.value) || 0) * 100))} />
           </div>
+          <div className="col-span-2 md:col-span-5 mt-2 pt-4 border-t">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-sm font-semibold">Driver offer chips</p>
+                <p className="text-xs text-muted-foreground">
+                  Shown on the driver app over the total fare. Three values, lowest first.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Label className="text-xs">Type</Label>
+                <Select
+                  value={(row.offer_settings ?? DEFAULT_OFFER_SETTINGS).presetType}
+                  onValueChange={(v) => updateOffer({ presetType: v as 'FLAT' | 'PERCENT' })}
+                >
+                  <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="FLAT">Flat ({currencySymbol})</SelectItem>
+                    <SelectItem value="PERCENT">Percent (%)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Label className="text-xs ml-2">Enabled</Label>
+                <Switch
+                  checked={(row.offer_settings ?? DEFAULT_OFFER_SETTINGS).enabled}
+                  onCheckedChange={(checked) => updateOffer({ enabled: checked })}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              {(row.offer_settings ?? DEFAULT_OFFER_SETTINGS).presets.map((p, i) => (
+                <div key={p.id} className="space-y-1">
+                  <Label className="text-xs">
+                    {p.label} ({(row.offer_settings ?? DEFAULT_OFFER_SETTINGS).presetType === 'FLAT' ? `+${currencySymbol}` : '+%'})
+                  </Label>
+                  <Input type="number" step="0.01" min="0" value={p.value}
+                    onChange={(e) => updatePreset(i, parseFloat(e.target.value) || 0)} />
+                </div>
+              ))}
+            </div>
+          </div>
           <div className="col-span-2 md:col-span-5 flex justify-end">
             <Button size="sm" disabled={!dirty || saving} onClick={save}>
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
               Save {vehicleType.name}
             </Button>
           </div>
+
         </div>
       )}
     </div>
