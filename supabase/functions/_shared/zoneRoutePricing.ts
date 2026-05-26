@@ -108,17 +108,14 @@ export async function resolveZoneRoutePricing(params: {
 }
 
 /**
- * Apply a zone-route-pricing row to produce a final pence quote.
+ * Apply a zone-route-pricing row to produce pence quotes.
  *
- * Logic (unified airport charge model):
- *   final = (fixed_fare + airport_charge) × (1 + surcharge_pct/100)
- *
- * `airport_charge` is a single field applied to BOTH airport pickup and airport
- * dropoff trips. Admins set it to 0 for routes that don't involve an airport.
+ * Returns base and airport SEPARATELY. The caller decides whether to add them
+ * for display. `surcharge_pct` is applied to base only — airport charge is
+ * never multiplied and never commissioned.
  */
 export function applyZoneRoutePricing(row: ZoneRoutePricingRow): {
-  quoted_fare_pence: number;
-  fixed_fare_pence: number;
+  base_fare_pence: number;
   airport_charge_pence: number;
   surcharge_pct: number;
 } {
@@ -127,17 +124,16 @@ export function applyZoneRoutePricing(row: ZoneRoutePricingRow): {
 
   const fixed = toPence(row.fixed_fare);
   const airport = toPence(row.airport_charge);
-  const subtotal = fixed + airport;
   const surcharge = Number(row.surcharge_pct ?? 0);
-  const finalPence = Math.round(subtotal * (1 + surcharge / 100));
+  const basePence = Math.round(fixed * (1 + surcharge / 100));
 
   return {
-    quoted_fare_pence: finalPence,
-    fixed_fare_pence: fixed,
+    base_fare_pence: basePence,
     airport_charge_pence: airport,
     surcharge_pct: surcharge,
   };
 }
+
 
 /**
  * Resolve which pricing zone (if any) contains a point, scoped to a service area's region.
