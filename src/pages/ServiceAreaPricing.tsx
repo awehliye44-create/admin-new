@@ -38,6 +38,7 @@ import { getCurrencySymbol } from '@/lib/regionSettings';
 import { PresetOffersConfig } from '@/components/pricing/PresetOffersConfig';
 import { FareEngineConfig } from '@/components/pricing/FareEngineConfig';
 import { ServiceAreaTripsTab } from '@/components/payment/ServiceAreaTripsTab';
+import { VehicleTypePricingRow } from '@/components/pricing/VehicleTypePricingRow';
 
 interface VehicleType {
   id: string;
@@ -369,66 +370,17 @@ export default function ServiceAreaPricing() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {allVehicleTypes.map(vt => {
-                    const assignment = pricingAssignments[vt.id];
-                    const isAssigned = assignment?.is_enabled ?? false;
-
-                    return (
-                      <div 
-                        key={vt.id}
-                        className={`flex items-center justify-between p-4 border rounded-lg transition-colors ${
-                          isAssigned 
-                            ? 'border-primary/30 bg-primary/5' 
-                            : 'border-border bg-muted/30'
-                        }`}
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                            isAssigned ? 'bg-primary/10' : 'bg-muted'
-                          }`}>
-                            <Car className={`h-5 w-5 ${isAssigned ? 'text-primary' : 'text-muted-foreground'}`} />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <p className="font-medium">{vt.name}</p>
-                              <Badge variant="outline" className="text-[10px]">{vt.slug}</Badge>
-                              {!vt.is_active && (
-                                <Badge variant="destructive" className="text-[10px]">Inactive</Badge>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-3 mt-1">
-                              <span className="text-xs text-muted-foreground">
-                                Capacity: {vt.capacity}
-                              </span>
-                              {vt.features && vt.features.length > 0 && (
-                                <span className="text-xs text-muted-foreground">
-                                  Features: {vt.features.join(', ')}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          {isAssigned ? (
-                            <Badge variant="default" className="gap-1">
-                              <CheckCircle2 className="h-3 w-3" />
-                              Assigned
-                            </Badge>
-                          ) : (
-                            <Badge variant="secondary" className="gap-1 text-muted-foreground">
-                              <XCircle className="h-3 w-3" />
-                              Not Assigned
-                            </Badge>
-                          )}
-                          <Switch
-                            checked={isAssigned}
-                            disabled={vehicleTypesSaving}
-                            onCheckedChange={() => toggleVehicleType(vt.id)}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {allVehicleTypes.map(vt => (
+                    <VehicleTypePricingRow
+                      key={vt.id}
+                      serviceAreaId={selectedServiceAreaId}
+                      vehicleType={vt}
+                      currencyCode={regionCurrency}
+                      currencySymbol={getCurrencySymbol(regionCurrency)}
+                      distanceUnitLabel={selectedServiceArea?.region?.distance_unit === 'mi' ? 'mile' : 'km'}
+                      onChanged={() => fetchPricingAssignments(selectedServiceAreaId)}
+                    />
+                  ))}
 
                   {allVehicleTypes.length === 0 && (
                     <div className="text-center py-8 text-muted-foreground">
