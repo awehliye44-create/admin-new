@@ -92,26 +92,27 @@ export function VehicleTypePricingRow({
 
   useEffect(() => { load(); }, [serviceAreaId, vehicleType.id]);
 
-  const upsertNew = async (initial: Partial<SavRow>) => {
+  const upsertNew = async (overrides: { is_enabled?: boolean } = {}) => {
     const { data, error } = await supabase
       .from('service_area_vehicle_pricing')
       .insert({
         service_area_id: serviceAreaId,
         vehicle_type_id: vehicleType.id,
         currency_code: currencyCode,
-        is_enabled: true,
+        is_enabled: overrides.is_enabled ?? true,
         base_fare: 0,
         minimum_fare: 0,
         per_km_rate_pence: 0,
         per_min_rate_pence: 0,
         airport_charge_pence: 0,
-        ...initial,
+        offer_settings: DEFAULT_OFFER_SETTINGS as any,
       })
-      .select('id, is_enabled, base_fare, minimum_fare, per_km_rate_pence, per_min_rate_pence, airport_charge_pence')
+      .select('id, is_enabled, base_fare, minimum_fare, per_km_rate_pence, per_min_rate_pence, airport_charge_pence, offer_settings')
       .single();
     if (error) throw error;
-    return data as SavRow;
+    return data as unknown as SavRow;
   };
+
 
   const toggleEnabled = async (next: boolean) => {
     setSaving(true);
