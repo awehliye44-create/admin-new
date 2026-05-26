@@ -22,14 +22,11 @@ import {
   Save, 
   Loader2, 
   Car, 
-  
   Banknote,
   Users,
   FileText,
   Globe,
   Calculator,
-  CheckCircle2,
-  XCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ServiceAreaPaymentConfig } from '@/components/payment/ServiceAreaPaymentConfig';
@@ -80,10 +77,11 @@ export default function ServiceAreaPricing() {
 
 
   // Vehicle pricing assignments (SSOT: service_area_vehicle_pricing)
+  // Only used here to compute the "assigned" badge count; the row component owns its own state.
   const [allVehicleTypes, setAllVehicleTypes] = useState<VehicleType[]>([]);
   const [pricingAssignments, setPricingAssignments] = useState<Record<string, VehiclePricingAssignment>>({});
   const [vehicleTypesLoading, setVehicleTypesLoading] = useState(false);
-  const [vehicleTypesSaving, setVehicleTypesSaving] = useState(false);
+
   
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -168,42 +166,8 @@ export default function ServiceAreaPricing() {
     }
   };
 
-  const toggleVehicleType = async (vehicleTypeId: string) => {
-    if (!selectedServiceAreaId || !selectedServiceArea?.region?.currency_code) return;
-    
-    setVehicleTypesSaving(true);
-    try {
-      const existing = pricingAssignments[vehicleTypeId];
-      
-      if (existing?.id) {
-        // Toggle is_enabled
-        const { error } = await supabase
-          .from('service_area_vehicle_pricing')
-          .update({ is_enabled: !existing.is_enabled, updated_at: new Date().toISOString() })
-          .eq('id', existing.id);
-        if (error) throw error;
-      } else {
-        // Insert new row with defaults
-        const { error } = await supabase
-          .from('service_area_vehicle_pricing')
-          .insert({
-            service_area_id: selectedServiceAreaId,
-            vehicle_type_id: vehicleTypeId,
-            is_enabled: true,
-            currency_code: selectedServiceArea.region.currency_code,
-          });
-        if (error) throw error;
-      }
-      
-      toast.success('Vehicle assignment updated');
-      await fetchPricingAssignments(selectedServiceAreaId);
-    } catch (err: any) {
-      console.error('Error toggling vehicle type:', err);
-      toast.error(err.message || 'Failed to update');
-    } finally {
-      setVehicleTypesSaving(false);
-    }
-  };
+  // Per-vehicle toggle + pricing is owned by <VehicleTypePricingRow />.
+
 
   const updatePerBookingFee = (field: 'per_booking_fee_enabled' | 'per_booking_fee_pence', value: boolean | number) => {
     setServiceAreas(prev => prev.map(sa => 
