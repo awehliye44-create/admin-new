@@ -16,6 +16,87 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+// ─── Helpers ───────────────────────────────────────────────────────────────
+
+interface ZoneInfo {
+  zone_id: string;
+  zone_name: string;
+  is_airport: boolean;
+}
+
+async function resolveZoneWithType(
+  supabase: any,
+  lat: number,
+  lng: number,
+  region_id: string,
+): Promise<ZoneInfo | null> {
+  const z = await resolvePricingZone({ supabase, lat, lng, region_id });
+  if (!z) return null;
+  const { data } = await supabase
+    .from("custom_zones")
+    .select("zone_type")
+    .eq("id", z.zone_id)
+    .maybeSingle();
+  const is_airport = (data?.zone_type ?? "").toLowerCase().trim() === "airport";
+  return { ...z, is_airport };
+}
+
+interface ChipPreset {
+  id: string;
+  label: string;
+  value: number; // FLAT = currency units; PERCENT = % of totalFare
+}
+
+interface OfferSettings {
+  enabled?: boolean;
+  presetType?: "FLAT" | "PERCENT";
+  presets?: ChipPreset[];
+}
+
+function computeChipsPence(
+  totalFarePence: number,
+  offerSettings: OfferSettings | null,
+): { id: string; label: string; amountPence: number }[] {
+  if (!offerSettings?.enabled || !offerSettings.presets?.length) return [];
+  const type = offerSettings.presetType ?? "PERCENT";
+  return offerSettings.presets.map((p) => {
+    let amountPence: number;
+    if (type === "FLAT") {
+      amountPence = totalFarePence + Math.round((p.value ?? 0) * 100);
+    } else {
+      const pct = Number(p.value ?? 0) / 100;
+      amountPence = Math.round(totalFarePence * (1 + pct));
+    }
+    return { id: p.id, label: p.label, amountPence };
+  });
+}
+
+function computeDriverKeep(
+  baseFarePence: number,
+  airportChargePence: number,
+  commissionPct: number,
+): { driverKeepPence: number; commissionPence: number } {
+  const commissionPence = Math.round(
+    (baseFarePence * Math.max(0, commissionPct)) / 100,
+  );
+  const driverKeepPence = (baseFarePence - commissionPence) + airportChargePence;
+  return { driverKeepPence, commissionPence };
+}
+
+function buildFareDetails(
+  baseFarePence: number,
+  airportChargePence: number,
+  currency: string,
+) {
+  const out = [{ label: "Fare", amountPence: baseFarePence }];
+  if (airportChargePence > 0) {
+    out.push({ label: "Airport charge", amountPence: airportChargePence });
+  }
+  return out;
+}
+
+// ─── Handler ───────────────────────────────────────────────────────────────
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -44,23 +125,25 @@ Deno.serve(async (req) => {
     let estimated_duration_min = client_duration_min;
     let directions_polyline: string | null = null;
 
-    if (pickup_lat != null && pickup_lng != null && dropoff_lat != null && dropoff_lng != null) {
+    if (
+      pickup_lat != null && pickup_lng != null &&
+      dropoff_lat != null && dropoff_lng != null
+    ) {
       try {
         const directions = await getDirections(
           pickup_lat, pickup_lng,
           dropoff_lat, dropoff_lng,
-          waypoints
+          waypoints,
         );
         estimated_distance_km = directions.distance_km;
         estimated_duration_min = directions.duration_min;
         directions_polyline = directions.polyline;
-        console.log(`[estimate-fare] Google Directions: ${estimated_distance_km}km, ${estimated_duration_min}min`);
       } catch (dirErr) {
-        console.warn("[estimate-fare] Directions API failed, falling back to client estimates:", dirErr);
+        console.warn("[estimate-fare] Directions API failed:", dirErr);
         if (estimated_distance_km == null || estimated_duration_min == null) {
           return new Response(
-            JSON.stringify({ error: "Could not calculate route. Please provide pickup and dropoff coordinates." }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            JSON.stringify({ error: "Could not calculate route." }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
           );
         }
       }
@@ -68,47 +151,58 @@ Deno.serve(async (req) => {
 
     if (!service_area_id || estimated_distance_km == null || estimated_duration_min == null) {
       return new Response(
-        JSON.stringify({ error: "Missing required fields: service_area_id, estimated_distance_km, estimated_duration_min" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ error: "Missing required fields" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    // Resolve currency + region from service area
-    const { data: saData, error: saErr } = await supabase
+    const { data: saData } = await supabase
       .from("service_areas")
       .select("region_id, region:regions(currency_code, distance_unit)")
       .eq("id", service_area_id)
       .single();
-
-    if (saErr) console.error("Error fetching service area region:", saErr);
 
     const regionCurrency = (saData?.region as any)?.currency_code;
     const regionId = saData?.region_id ?? null;
 
     if (!regionCurrency) {
       return new Response(
-        JSON.stringify({ error: "REGION_CURRENCY_UNRESOLVABLE: Service area has no Region with currency_code configured.", error_code: "REGION_CURRENCY_UNRESOLVABLE" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({
+          error: "REGION_CURRENCY_UNRESOLVABLE",
+          error_code: "REGION_CURRENCY_UNRESOLVABLE",
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    // ─── Resolve pickup/dropoff PRICING zones once (shared across all vehicles) ───
-    let pickupZone: { zone_id: string; zone_name: string } | null = null;
-    let dropoffZone: { zone_id: string; zone_name: string } | null = null;
+    // Resolve zones once + check airport type
+    let pickupZone: ZoneInfo | null = null;
+    let dropoffZone: ZoneInfo | null = null;
 
-    if (regionId && pickup_lat != null && pickup_lng != null && dropoff_lat != null && dropoff_lng != null) {
+    if (
+      regionId &&
+      pickup_lat != null && pickup_lng != null &&
+      dropoff_lat != null && dropoff_lng != null
+    ) {
       [pickupZone, dropoffZone] = await Promise.all([
-        resolvePricingZone({ supabase, lat: pickup_lat, lng: pickup_lng, region_id: regionId }),
-        resolvePricingZone({ supabase, lat: dropoff_lat, lng: dropoff_lng, region_id: regionId }),
+        resolveZoneWithType(supabase, pickup_lat, pickup_lng, regionId),
+        resolveZoneWithType(supabase, dropoff_lat, dropoff_lng, regionId),
       ]);
-      console.log(`[estimate-fare] Zones resolved — pickup=${pickupZone?.zone_name ?? "none"} dropoff=${dropoffZone?.zone_name ?? "none"}`);
     }
 
-    // Helper: compute fare for a single vehicle, applying zone-route pricing if any.
-    // NOTE: pricing buffer / pre-auth logic intentionally lives OUTSIDE the fare engine
-    // (in create-payment-intent). Estimated fare here is the REAL trip fare.
-    async function quoteForVehicle(vtId: string, settings: any) {
-      // 1. Try zone-route pricing for THIS vehicle category
+    const isAirportTrip =
+      (pickupZone?.is_airport === true) || (dropoffZone?.is_airport === true);
+
+    // ─── Quote helper: returns the full pricing envelope for one vehicle ───
+    async function quoteForVehicle(
+      vtId: string,
+      engineSettings: any,
+      savRow: {
+        commission_percentage: number;
+        offer_settings: OfferSettings | null;
+        airport_charge_pence: number;
+      },
+    ) {
       const zoneResolution = await resolveZoneRoutePricing({
         supabase,
         from_zone_id: pickupZone?.zone_id ?? null,
@@ -117,81 +211,88 @@ Deno.serve(async (req) => {
         service_area_id,
       });
 
-      let breakdown;
-      let pricingSource: "zone_route" | "meter";
-      let zoneRouteQuote: ReturnType<typeof applyZoneRoutePricing> | null = null;
+      let baseFarePence = 0;
+      let airportChargePence = 0;
+      let pricingMode: "NORMAL_DISTANCE_TIME" | "ROUTE_PRICING";
+      let meterBreakdown: any = null;
 
       if (zoneResolution.row) {
-        zoneRouteQuote = applyZoneRoutePricing(zoneResolution.row);
-        pricingSource = "zone_route";
-        breakdown = {
-          base_fare_pence: zoneRouteQuote.fixed_fare_pence,
-          distance_charge_pence: 0,
-          time_charge_pence: 0,
-          booking_fee_pence: 0,
-          subtotal_pence: zoneRouteQuote.quoted_fare_pence,
-          minimum_applied: false,
-          quoted_fare_pence: zoneRouteQuote.quoted_fare_pence,
-        };
+        const q = applyZoneRoutePricing(zoneResolution.row);
+        baseFarePence = q.base_fare_pence;
+        // Route pricing has its OWN airport_charge field (admin set per-route)
+        airportChargePence = isAirportTrip ? q.airport_charge_pence : 0;
+        pricingMode = "ROUTE_PRICING";
       } else {
-        // 2. Standard meter pricing
-        const engine = new FareEngine(settings as FarePricingSettings);
-        breakdown = engine.estimateFare({
+        const engine = new FareEngine(engineSettings as FarePricingSettings);
+        meterBreakdown = engine.estimateFare({
           estimated_distance_km,
           estimated_duration_min,
           stops_count,
         });
-        pricingSource = "meter";
+        baseFarePence = meterBreakdown.quoted_fare_pence;
+        // Normal pricing: airport charge from the vehicle's SAV row
+        airportChargePence = isAirportTrip ? (savRow.airport_charge_pence ?? 0) : 0;
+        pricingMode = "NORMAL_DISTANCE_TIME";
       }
 
-      const quotedFarePence = breakdown.quoted_fare_pence;
+      const totalFarePence = baseFarePence + airportChargePence;
+      const commissionPct = Number(savRow.commission_percentage ?? 0);
+      const { driverKeepPence, commissionPence } = computeDriverKeep(
+        baseFarePence, airportChargePence, commissionPct,
+      );
+      const chips = computeChipsPence(totalFarePence, savRow.offer_settings);
+      const fareDetails = buildFareDetails(baseFarePence, airportChargePence, regionCurrency);
 
       return {
-        breakdown,
-        pricingSource,
-        zoneRouteQuote,
-        quotedFarePence,
+        pricingMode,
+        baseFarePence,
+        airportChargePence,
+        totalFarePence,
+        driverKeepPence,
+        commissionPence,
+        driverTierCommissionPercent: commissionPct,
+        chips,
+        fareDetails,
+        meterBreakdown,
         zoneDebug: {
           pickup_zone: pickupZone,
           dropoff_zone: dropoffZone,
+          is_airport_trip: isAirportTrip,
           route_pricing_row_id: zoneResolution.pricing_row_id,
           route_pricing_source: zoneResolution.source,
-          route_pricing_fallback_reason: zoneResolution.fallback_reason,
-          vehicle_type_id_used: vtId,
         },
       };
     }
 
     // ─── BATCH MODE ───
     if (!vehicle_type_id) {
-      const { data: pricingRows, error: pricingErr } = await supabase
+      const { data: savRows, error: savErr } = await supabase
         .from("service_area_vehicle_pricing")
-        .select("vehicle_type_id")
+        .select("vehicle_type_id, commission_percentage, offer_settings, airport_charge_pence")
         .eq("service_area_id", service_area_id)
         .eq("is_enabled", true);
 
-      if (pricingErr) {
-        console.error("[estimate-fare] Error fetching service_area_vehicle_pricing:", pricingErr);
+      if (savErr) {
         return new Response(
-          JSON.stringify({ error: "Failed to fetch vehicle types" }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          JSON.stringify({ error: "Failed to fetch vehicle pricing" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
 
-      const assignedVtIds = (pricingRows || []).map((a: any) => a.vehicle_type_id);
-
+      const assignedVtIds = (savRows || []).map((r: any) => r.vehicle_type_id);
       if (assignedVtIds.length === 0) {
         return new Response(
           JSON.stringify({ error: "No active vehicle types in this service area", vehicles: [] }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
 
-      const { data: allFareSettings } = await supabase
-        .from("fare_pricing_settings")
-        .select("*")
-        .eq("service_area_id", service_area_id);
+      const savByVt = new Map(
+        (savRows || []).map((r: any) => [r.vehicle_type_id, r]),
+      );
 
+      const { data: allFareSettings } = await supabase
+        .from("fare_pricing_settings").select("*").eq("service_area_id", service_area_id);
       const fareMap = new Map<string | null, any>();
       for (const fs of allFareSettings || []) fareMap.set(fs.vehicle_type_id, fs);
       const defaultSettings = fareMap.get(null) || null;
@@ -199,67 +300,59 @@ Deno.serve(async (req) => {
       const { data: vtMeta } = await supabase
         .from("vehicle_types")
         .select("id, name, slug, description, icon, capacity, features, display_order")
-        .in("id", assignedVtIds)
-        .eq("is_active", true);
-
+        .in("id", assignedVtIds).eq("is_active", true);
       const vtMetaMap = new Map((vtMeta || []).map((v: any) => [v.id, v]));
 
       const vehicles: any[] = [];
       for (const vtId of assignedVtIds) {
-        const settings = fareMap.get(vtId) || defaultSettings;
         const meta = vtMetaMap.get(vtId);
-        if (!settings || !meta) continue;
+        const engineSettings = fareMap.get(vtId) || defaultSettings;
+        const savRow = savByVt.get(vtId);
+        if (!meta || !engineSettings || !savRow) continue;
 
-        const { breakdown, pricingSource, zoneRouteQuote, zoneDebug, quotedFarePence } = await quoteForVehicle(vtId, settings);
-        const fareLocked = settings.pricing_mode === "fixed" || pricingSource === "zone_route";
+        const q = await quoteForVehicle(vtId, engineSettings, savRow as any);
 
         vehicles.push({
           vehicleTypeId: vtId,
-          vehicleName: meta.name,
+          vehicleTypeName: meta.name,
           vehicleSlug: meta.slug,
           vehicleIcon: meta.icon,
           vehicleCapacity: meta.capacity,
           vehicleDescription: meta.description,
           vehicleFeatures: meta.features,
           displayOrder: meta.display_order ?? 0,
-          pricingMode: pricingSource === "zone_route" ? "fixed" : settings.pricing_mode,
-          pricingSource,
+          pricingMode: q.pricingMode,
           currencyCode: regionCurrency,
-          // quotedFarePence = REAL fare. No buffer. Pre-auth hold is computed at payment time.
-          quotedFarePence,
-          baseFarePence: quotedFarePence,
-          discountAmountPence: 0,
-          finalTotalPence: quotedFarePence,
-          fareEngineConfigId: settings.id,
-          fareLocked,
-          fareBreakdown: {
-            baseFarePence: breakdown.base_fare_pence,
-            distanceChargePence: breakdown.distance_charge_pence,
-            timeChargePence: breakdown.time_charge_pence,
-            bookingFeePence: breakdown.booking_fee_pence,
-            subtotalPence: breakdown.subtotal_pence,
-            minimumApplied: breakdown.minimum_applied,
-            zoneRoute: zoneRouteQuote,
-          },
-          zoneDebug,
+          baseFarePence: q.baseFarePence,
+          airportChargePence: q.airportChargePence,
+          totalFarePence: q.totalFarePence,
+          driverKeepPence: q.driverKeepPence,
+          driverTierCommissionPercent: q.driverTierCommissionPercent,
+          chips: q.chips,
+          fareDetails: q.fareDetails,
+          // Back-compat for existing clients still reading these:
+          quotedFarePence: q.totalFarePence,
+          finalTotalPence: q.totalFarePence,
+          fareEngineConfigId: engineSettings.id,
+          fareLocked: q.pricingMode === "ROUTE_PRICING" || engineSettings.pricing_mode === "fixed",
+          zoneDebug: q.zoneDebug,
           fareSnapshotJson: {
-            config_id: settings.id,
-            pricing_mode: pricingSource === "zone_route" ? "fixed" : settings.pricing_mode,
-            pricing_source: pricingSource,
-            zone_route_pricing_row_id: zoneDebug.route_pricing_row_id,
-            zone_route_source: zoneDebug.route_pricing_source,
+            config_id: engineSettings.id,
+            pricing_mode: q.pricingMode,
+            base_fare_pence: q.baseFarePence,
+            airport_charge_pence: q.airportChargePence,
+            total_fare_pence: q.totalFarePence,
+            commission_pct: q.driverTierCommissionPercent,
             currency_code: regionCurrency,
             snapshot_at: new Date().toISOString(),
           },
-          freeWaitingMinutes: settings.free_waiting_minutes,
-          waitingPerMinutePence: settings.waiting_per_minute_pence,
-          extraStopFlatFeePence: settings.extra_stop_flat_fee_pence,
+          freeWaitingMinutes: engineSettings.free_waiting_minutes,
+          waitingPerMinutePence: engineSettings.waiting_per_minute_pence,
+          extraStopFlatFeePence: engineSettings.extra_stop_flat_fee_pence,
         });
       }
 
-      vehicles.sort((a: any, b: any) => a.displayOrder - b.displayOrder);
-
-      console.log(`[estimate-fare] BATCH: ${vehicles.length} vehicles quoted (zone_route=${vehicles.filter(v=>v.pricingSource==='zone_route').length})`);
+      vehicles.sort((a, b) => a.displayOrder - b.displayOrder);
 
       return new Response(
         JSON.stringify({
@@ -267,98 +360,95 @@ Deno.serve(async (req) => {
           estimatedDurationMin: estimated_duration_min,
           currencyCode: regionCurrency,
           vehicles,
-          zoneContext: {
-            pickup_zone: pickupZone,
-            dropoff_zone: dropoffZone,
-          },
+          zoneContext: { pickup_zone: pickupZone, dropoff_zone: dropoffZone, is_airport_trip: isAirportTrip },
           ...(directions_polyline ? { routePolyline: directions_polyline } : {}),
         }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
     // ─── SINGLE VEHICLE MODE ───
-    const { data: pricingRow } = await supabase
+    const { data: savRow } = await supabase
       .from("service_area_vehicle_pricing")
-      .select("id")
+      .select("commission_percentage, offer_settings, airport_charge_pence")
       .eq("service_area_id", service_area_id)
       .eq("vehicle_type_id", vehicle_type_id)
       .eq("is_enabled", true)
       .maybeSingle();
 
-    if (!pricingRow) {
+    if (!savRow) {
       return new Response(
-        JSON.stringify({ error: "Vehicle type is not available in this service area", code: "VEHICLE_TYPE_NOT_AVAILABLE" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({
+          error: "Vehicle type is not available in this service area",
+          code: "VEHICLE_TYPE_NOT_AVAILABLE",
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    let settings: any = null;
+    let engineSettings: any = null;
     const { data: vtSettings } = await supabase
       .from("fare_pricing_settings").select("*")
-      .eq("service_area_id", service_area_id).eq("vehicle_type_id", vehicle_type_id).maybeSingle();
-    settings = vtSettings;
-    if (!settings) {
-      const { data: defaultSettings } = await supabase
+      .eq("service_area_id", service_area_id)
+      .eq("vehicle_type_id", vehicle_type_id).maybeSingle();
+    engineSettings = vtSettings;
+    if (!engineSettings) {
+      const { data: defaults } = await supabase
         .from("fare_pricing_settings").select("*")
         .eq("service_area_id", service_area_id).is("vehicle_type_id", null).maybeSingle();
-      settings = defaultSettings;
+      engineSettings = defaults;
     }
-    if (!settings) {
+    if (!engineSettings) {
       return new Response(
-        JSON.stringify({ error: "Fare pricing settings not found for this service area" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ error: "Fare pricing settings not found" }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    const { breakdown, pricingSource, zoneRouteQuote, zoneDebug, quotedFarePence } = await quoteForVehicle(vehicle_type_id, settings);
-    const fareLocked = settings.pricing_mode === "fixed" || pricingSource === "zone_route";
+    const q = await quoteForVehicle(vehicle_type_id, engineSettings, savRow as any);
 
     return new Response(
       JSON.stringify({
-        pricingMode: pricingSource === "zone_route" ? "fixed" : settings.pricing_mode,
-        pricingSource,
+        pricingMode: q.pricingMode,
         currencyCode: regionCurrency,
-        quotedFarePence,
-        baseFarePence: quotedFarePence,
-        discountAmountPence: 0,
-        finalTotalPence: quotedFarePence,
+        vehicleTypeId: vehicle_type_id,
+        baseFarePence: q.baseFarePence,
+        airportChargePence: q.airportChargePence,
+        totalFarePence: q.totalFarePence,
+        driverKeepPence: q.driverKeepPence,
+        driverTierCommissionPercent: q.driverTierCommissionPercent,
+        chips: q.chips,
+        fareDetails: q.fareDetails,
+        // Back-compat
+        quotedFarePence: q.totalFarePence,
+        finalTotalPence: q.totalFarePence,
         estimatedDistanceKm: estimated_distance_km,
         estimatedDurationMin: estimated_duration_min,
-        vehicleTypeId: vehicle_type_id,
-        fareEngineConfigId: settings.id,
-        fareLocked,
-        zoneDebug,
+        fareEngineConfigId: engineSettings.id,
+        fareLocked: q.pricingMode === "ROUTE_PRICING" || engineSettings.pricing_mode === "fixed",
+        zoneDebug: q.zoneDebug,
         fareSnapshotJson: {
-          config_id: settings.id,
-          pricing_mode: pricingSource === "zone_route" ? "fixed" : settings.pricing_mode,
-          pricing_source: pricingSource,
-          zone_route_pricing_row_id: zoneDebug.route_pricing_row_id,
-          zone_route_source: zoneDebug.route_pricing_source,
+          config_id: engineSettings.id,
+          pricing_mode: q.pricingMode,
+          base_fare_pence: q.baseFarePence,
+          airport_charge_pence: q.airportChargePence,
+          total_fare_pence: q.totalFarePence,
+          commission_pct: q.driverTierCommissionPercent,
           currency_code: regionCurrency,
           snapshot_at: new Date().toISOString(),
         },
-        fareBreakdown: {
-          baseFarePence: breakdown.base_fare_pence,
-          distanceChargePence: breakdown.distance_charge_pence,
-          timeChargePence: breakdown.time_charge_pence,
-          bookingFeePence: breakdown.booking_fee_pence,
-          subtotalPence: breakdown.subtotal_pence,
-          minimumApplied: breakdown.minimum_applied,
-          zoneRoute: zoneRouteQuote,
-        },
-        freeWaitingMinutes: settings.free_waiting_minutes,
-        waitingPerMinutePence: settings.waiting_per_minute_pence,
-        extraStopFlatFeePence: settings.extra_stop_flat_fee_pence,
+        freeWaitingMinutes: engineSettings.free_waiting_minutes,
+        waitingPerMinutePence: engineSettings.waiting_per_minute_pence,
+        extraStopFlatFeePence: engineSettings.extra_stop_flat_fee_pence,
         ...(directions_polyline ? { routePolyline: directions_polyline } : {}),
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {
     console.error("estimate-fare error:", err);
     return new Response(
       JSON.stringify({ error: "Internal server error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });
