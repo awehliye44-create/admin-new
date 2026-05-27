@@ -163,6 +163,7 @@ Deno.serve(async (req) => {
       .single();
 
     const regionCurrency = (saData?.region as any)?.currency_code;
+    const regionDistanceUnit = (saData?.region as any)?.distance_unit ?? 'km';
     const regionId = saData?.region_id ?? null;
 
     if (!regionCurrency) {
