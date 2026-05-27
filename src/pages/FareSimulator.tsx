@@ -191,7 +191,7 @@ export default function FareSimulator() {
           .eq('service_area_id', formData.service_area_id)
           .eq('vehicle_type_id', formData.vehicle_type_id)
           .maybeSingle();
-        if (data) return data as FarePricingSettings;
+        if (data) return data as unknown as FarePricingSettings;
       }
 
       // Fall back to default (vehicle_type_id IS NULL)
