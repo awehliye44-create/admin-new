@@ -87,6 +87,7 @@ const DEFAULT_SETTINGS: Omit<FarePricingSettings, 'service_area_id'> = {
   zone_multiplier: 1.0,
   traffic_multiplier: 1.0,
   demand_supply_multiplier: 1.0,
+  distance_pricing_bands: [],
   cancellation_grace_period_minutes: 3,
   cancellation_fee_pence: 0,
   cancellation_apply_after_arrival_only: true,
