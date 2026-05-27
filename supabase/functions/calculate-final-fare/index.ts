@@ -54,7 +54,15 @@ Deno.serve(async (req) => {
       );
     }
 
-    const engine = new FareEngine(settings as FarePricingSettings);
+    // Resolve SA distance_unit from Region (SOT) so tiered distance bands compute correctly.
+    const { data: saRow } = await supabase
+      .from("service_areas")
+      .select("region:regions(distance_unit)")
+      .eq("id", trip.service_area_id)
+      .maybeSingle();
+    const distanceUnit = (saRow?.region as any)?.distance_unit ?? 'km';
+
+    const engine = new FareEngine({ ...settings, distance_unit: distanceUnit } as FarePricingSettings);
     const quotedFare = trip.quoted_fare_pence || trip.estimated_total_pence || 0;
     let waitingCharge = trip.waiting_charge_pence || 0;
     let stopChargeTotal = trip.stop_charge_total_pence || 0;
