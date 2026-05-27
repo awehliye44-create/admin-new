@@ -55,6 +55,7 @@ interface FarePricingSettings {
   zone_multiplier: number;
   traffic_multiplier: number;
   demand_supply_multiplier: number;
+  distance_pricing_bands?: Array<{ from: number; to: number | null; rate_pence: number }> | null;
 }
 
 interface CustomZone {
