@@ -577,14 +577,24 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
               </CardTitle>
               <CardDescription>Core fare calculation parameters</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-6">
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 {penceField('base_fare_pence', 'Base Fare', 'Starting fare for every trip')}
-                {penceField('per_km_rate_pence', `Per ${distanceUnitShort} Rate`, `Charge per ${distanceUnitLong}`)}
                 {penceField('per_min_rate_pence', 'Per Minute Rate', 'Charge per minute')}
                 {penceField('booking_fee_pence', 'Booking Fee', 'Platform booking fee')}
                 {penceField('minimum_fare_pence', 'Minimum Fare', 'Floor fare amount')}
+                {(!settings.distance_pricing_bands || settings.distance_pricing_bands.length === 0) &&
+                  penceField('per_km_rate_pence', `Per ${distanceUnitShort} Rate`, `Flat rate — used when no bands configured`)}
               </div>
+
+              <DistanceBandsEditor
+                bands={settings.distance_pricing_bands ?? []}
+                unitShort={distanceUnitShort}
+                unitLong={distanceUnitLong}
+                currencySymbol={symbol}
+                currencyCode={currencyCode}
+                onChange={(next) => updateField('distance_pricing_bands', next)}
+              />
             </CardContent>
           </Card>
 
