@@ -74,7 +74,10 @@ export function FareSimulatorCard({ settings, currencySymbol, distanceUnit }: Fa
 
   // Compute fare
   const base = settings.base_fare_pence;
-  const distCharge = Math.round(distKm * settings.per_km_rate_pence);
+  const bands = settings.distance_pricing_bands ?? [];
+  const distCharge = bands.length > 0
+    ? tieredCharge(distKm, bands) // distKm here is in user's unit
+    : Math.round(distKm * settings.per_km_rate_pence);
   const timeCharge = Math.round(durMin * settings.per_min_rate_pence);
   const booking = settings.booking_fee_pence;
 
