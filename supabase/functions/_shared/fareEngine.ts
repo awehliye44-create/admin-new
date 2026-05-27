@@ -160,7 +160,7 @@ export class FixedPricingStrategy {
     }
 
     const flat = this.settings.extra_stop_flat_fee_pence;
-    const distance = Math.round(additionalDistanceKm * this.settings.per_km_rate_pence);
+    const distance = calculateDistanceCharge(additionalDistanceKm, this.settings);
     const time = Math.round(additionalDurationMin * this.settings.per_min_rate_pence);
 
     return {
