@@ -224,7 +224,7 @@ Deno.serve(async (req) => {
         airportChargePence = isAirportTrip ? q.airport_charge_pence : 0;
         pricingMode = "ROUTE_PRICING";
       } else {
-        const engine = new FareEngine(engineSettings as FarePricingSettings);
+        const engine = new FareEngine({ ...engineSettings, distance_unit: regionDistanceUnit } as FarePricingSettings);
         meterBreakdown = engine.estimateFare({
           estimated_distance_km,
           estimated_duration_min,
