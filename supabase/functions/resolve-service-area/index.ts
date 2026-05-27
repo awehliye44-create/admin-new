@@ -185,6 +185,7 @@ serve(async (req) => {
         waitingPerMinutePence: fc.waiting_per_minute_pence,
         extraStopFlatFeePence: fc.extra_stop_flat_fee_pence,
         currencyCode: fc.currency_code,
+        distancePricingBands: fc.distance_pricing_bands ?? [],
         fareLocked: fc.pricing_mode === 'fixed',
       });
     }
