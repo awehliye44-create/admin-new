@@ -297,6 +297,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
         zone_multiplier: settings.zone_multiplier,
         traffic_multiplier: settings.traffic_multiplier,
         demand_supply_multiplier: settings.demand_supply_multiplier,
+        distance_pricing_bands: settings.distance_pricing_bands ?? [],
         cancellation_grace_period_minutes: settings.cancellation_grace_period_minutes,
         cancellation_fee_pence: settings.cancellation_fee_pence,
         cancellation_apply_after_arrival_only: settings.cancellation_apply_after_arrival_only,
