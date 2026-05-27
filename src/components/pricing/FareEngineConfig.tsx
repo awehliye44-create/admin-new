@@ -23,6 +23,12 @@ import { getCurrencySymbol } from '@/lib/regionSettings';
 import { FareSimulatorCard } from '@/components/pricing/FareSimulatorCard';
 import { TripLifecycleTimeline } from '@/components/pricing/TripLifecycleTimeline';
 
+export interface DistanceBand {
+  from: number;
+  to: number | null;
+  rate_pence: number;
+}
+
 interface FarePricingSettings {
   id?: string;
   service_area_id: string;
@@ -46,6 +52,7 @@ interface FarePricingSettings {
   zone_multiplier: number;
   traffic_multiplier: number;
   demand_supply_multiplier: number;
+  distance_pricing_bands: DistanceBand[];
   // Cancellation
   cancellation_grace_period_minutes: number;
   cancellation_fee_pence: number;
