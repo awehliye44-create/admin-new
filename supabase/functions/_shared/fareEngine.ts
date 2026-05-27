@@ -202,7 +202,7 @@ export class DynamicPricingStrategy {
 
   calculateInitialQuote(req: FareEstimateRequest): FareBreakdown {
     const base = this.settings.base_fare_pence;
-    const distance = Math.round(req.estimated_distance_km * this.settings.per_km_rate_pence);
+    const distance = calculateDistanceCharge(req.estimated_distance_km, this.settings);
     const time = Math.round(req.estimated_duration_min * this.settings.per_min_rate_pence);
     const booking = this.settings.booking_fee_pence;
 
