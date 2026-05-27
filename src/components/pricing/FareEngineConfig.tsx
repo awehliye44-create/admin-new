@@ -22,6 +22,13 @@ import { toast } from 'sonner';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { FareSimulatorCard } from '@/components/pricing/FareSimulatorCard';
 import { TripLifecycleTimeline } from '@/components/pricing/TripLifecycleTimeline';
+import { DistanceBandsEditor } from '@/components/pricing/DistanceBandsEditor';
+
+export interface DistanceBand {
+  from: number;
+  to: number | null;
+  rate_pence: number;
+}
 
 interface FarePricingSettings {
   id?: string;
@@ -46,6 +53,7 @@ interface FarePricingSettings {
   zone_multiplier: number;
   traffic_multiplier: number;
   demand_supply_multiplier: number;
+  distance_pricing_bands: DistanceBand[];
   // Cancellation
   cancellation_grace_period_minutes: number;
   cancellation_fee_pence: number;
@@ -80,6 +88,7 @@ const DEFAULT_SETTINGS: Omit<FarePricingSettings, 'service_area_id'> = {
   zone_multiplier: 1.0,
   traffic_multiplier: 1.0,
   demand_supply_multiplier: 1.0,
+  distance_pricing_bands: [],
   cancellation_grace_period_minutes: 3,
   cancellation_fee_pence: 0,
   cancellation_apply_after_arrival_only: true,
@@ -289,6 +298,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
         zone_multiplier: settings.zone_multiplier,
         traffic_multiplier: settings.traffic_multiplier,
         demand_supply_multiplier: settings.demand_supply_multiplier,
+        distance_pricing_bands: (settings.distance_pricing_bands ?? []) as any,
         cancellation_grace_period_minutes: settings.cancellation_grace_period_minutes,
         cancellation_fee_pence: settings.cancellation_fee_pence,
         cancellation_apply_after_arrival_only: settings.cancellation_apply_after_arrival_only,
@@ -568,14 +578,24 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
               </CardTitle>
               <CardDescription>Core fare calculation parameters</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-6">
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 {penceField('base_fare_pence', 'Base Fare', 'Starting fare for every trip')}
-                {penceField('per_km_rate_pence', `Per ${distanceUnitShort} Rate`, `Charge per ${distanceUnitLong}`)}
                 {penceField('per_min_rate_pence', 'Per Minute Rate', 'Charge per minute')}
                 {penceField('booking_fee_pence', 'Booking Fee', 'Platform booking fee')}
                 {penceField('minimum_fare_pence', 'Minimum Fare', 'Floor fare amount')}
+                {(!settings.distance_pricing_bands || settings.distance_pricing_bands.length === 0) &&
+                  penceField('per_km_rate_pence', `Per ${distanceUnitShort} Rate`, `Flat rate — used when no bands configured`)}
               </div>
+
+              <DistanceBandsEditor
+                bands={settings.distance_pricing_bands ?? []}
+                unitShort={distanceUnitShort}
+                unitLong={distanceUnitLong}
+                currencySymbol={symbol}
+                currencyCode={currencyCode}
+                onChange={(next) => updateField('distance_pricing_bands', next)}
+              />
             </CardContent>
           </Card>
 

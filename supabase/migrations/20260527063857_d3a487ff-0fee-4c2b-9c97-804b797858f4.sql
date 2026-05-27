@@ -1,0 +1,3 @@
+ALTER TABLE public.fare_pricing_settings ALTER COLUMN distance_pricing_bands SET DEFAULT '[]'::jsonb;
+UPDATE public.fare_pricing_settings SET distance_pricing_bands = '[]'::jsonb WHERE distance_pricing_bands IS NULL;
+COMMENT ON COLUMN public.fare_pricing_settings.distance_pricing_bands IS 'Array of tiered distance bands: [{from, to|null, rate_pence}]. Units & currency follow parent Service Area / Region SOT. Empty array = use flat per_km_rate_pence.';

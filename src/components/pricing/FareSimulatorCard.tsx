@@ -6,6 +6,12 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Calculator, RotateCcw } from 'lucide-react';
 
+interface DistanceBand {
+  from: number;
+  to: number | null;
+  rate_pence: number;
+}
+
 interface FareSettings {
   pricing_mode: string;
   base_fare_pence: number;
@@ -23,6 +29,20 @@ interface FareSettings {
   surge_multiplier_default: number;
   zone_multiplier: number;
   traffic_multiplier: number;
+  distance_pricing_bands?: DistanceBand[] | null;
+}
+
+const KM_PER_MILE = 1.609344;
+
+function tieredCharge(distInUnit: number, bands: DistanceBand[]): number {
+  let charge = 0;
+  const sorted = [...bands].sort((a, b) => (a.from ?? 0) - (b.from ?? 0));
+  for (const b of sorted) {
+    const upper = b.to == null ? Infinity : b.to;
+    const span = Math.max(0, Math.min(distInUnit, upper) - (b.from ?? 0));
+    if (span > 0) charge += span * (b.rate_pence ?? 0);
+  }
+  return Math.round(charge);
 }
 
 interface FareSimulatorCardProps {
@@ -54,7 +74,10 @@ export function FareSimulatorCard({ settings, currencySymbol, distanceUnit }: Fa
 
   // Compute fare
   const base = settings.base_fare_pence;
-  const distCharge = Math.round(distKm * settings.per_km_rate_pence);
+  const bands = settings.distance_pricing_bands ?? [];
+  const distCharge = bands.length > 0
+    ? tieredCharge(distKm, bands) // distKm here is in user's unit
+    : Math.round(distKm * settings.per_km_rate_pence);
   const timeCharge = Math.round(durMin * settings.per_min_rate_pence);
   const booking = settings.booking_fee_pence;
 

@@ -5,6 +5,15 @@
  * All monetary values in pence (integer).
  */
 
+export interface DistanceBand {
+  /** From distance, expressed in the Service Area's distance_unit. */
+  from: number;
+  /** To distance (exclusive upper bound). null = "and above". */
+  to: number | null;
+  /** Rate per unit, in minor currency (pence/cents). */
+  rate_pence: number;
+}
+
 export interface FarePricingSettings {
   pricing_mode: 'fixed' | 'dynamic';
   currency_code: string;
@@ -25,6 +34,37 @@ export interface FarePricingSettings {
   zone_multiplier: number;
   traffic_multiplier: number;
   demand_supply_multiplier: number;
+  /** Tiered distance pricing. If present and non-empty, overrides per_km_rate_pence. */
+  distance_pricing_bands?: DistanceBand[] | null;
+  /** Service Area distance unit ('mile' | 'km'). Required when distance_pricing_bands is set. */
+  distance_unit?: 'mile' | 'km' | string;
+}
+
+const KM_PER_MILE = 1.609344;
+
+/**
+ * Calculate the distance charge in pence.
+ * - If distance_pricing_bands is set, applies tiered rates in the SA's distance_unit.
+ * - Otherwise falls back to the flat per_km_rate_pence.
+ */
+export function calculateDistanceCharge(
+  estimatedDistanceKm: number,
+  settings: Pick<FarePricingSettings, 'per_km_rate_pence' | 'distance_pricing_bands' | 'distance_unit'>,
+): number {
+  const bands = settings.distance_pricing_bands;
+  if (!bands || bands.length === 0) {
+    return Math.round(estimatedDistanceKm * settings.per_km_rate_pence);
+  }
+  const isMiles = (settings.distance_unit ?? 'km').toLowerCase().startsWith('mi');
+  const tripDist = isMiles ? estimatedDistanceKm / KM_PER_MILE : estimatedDistanceKm;
+  let charge = 0;
+  const sorted = [...bands].sort((a, b) => (a.from ?? 0) - (b.from ?? 0));
+  for (const b of sorted) {
+    const upper = b.to == null ? Infinity : b.to;
+    const span = Math.max(0, Math.min(tripDist, upper) - (b.from ?? 0));
+    if (span > 0) charge += span * (b.rate_pence ?? 0);
+  }
+  return Math.round(charge);
 }
 
 export interface FareEstimateRequest {
@@ -81,7 +121,7 @@ export class FixedPricingStrategy {
 
   calculateInitialQuote(req: FareEstimateRequest): FareBreakdown {
     const base = this.settings.base_fare_pence;
-    const distance = Math.round(req.estimated_distance_km * this.settings.per_km_rate_pence);
+    const distance = calculateDistanceCharge(req.estimated_distance_km, this.settings);
     const time = Math.round(req.estimated_duration_min * this.settings.per_min_rate_pence);
     const booking = this.settings.booking_fee_pence;
 
@@ -120,7 +160,7 @@ export class FixedPricingStrategy {
     }
 
     const flat = this.settings.extra_stop_flat_fee_pence;
-    const distance = Math.round(additionalDistanceKm * this.settings.per_km_rate_pence);
+    const distance = calculateDistanceCharge(additionalDistanceKm, this.settings);
     const time = Math.round(additionalDurationMin * this.settings.per_min_rate_pence);
 
     return {
@@ -162,7 +202,7 @@ export class DynamicPricingStrategy {
 
   calculateInitialQuote(req: FareEstimateRequest): FareBreakdown {
     const base = this.settings.base_fare_pence;
-    const distance = Math.round(req.estimated_distance_km * this.settings.per_km_rate_pence);
+    const distance = calculateDistanceCharge(req.estimated_distance_km, this.settings);
     const time = Math.round(req.estimated_duration_min * this.settings.per_min_rate_pence);
     const booking = this.settings.booking_fee_pence;
 

@@ -163,6 +163,7 @@ Deno.serve(async (req) => {
       .single();
 
     const regionCurrency = (saData?.region as any)?.currency_code;
+    const regionDistanceUnit = (saData?.region as any)?.distance_unit ?? 'km';
     const regionId = saData?.region_id ?? null;
 
     if (!regionCurrency) {
@@ -223,7 +224,7 @@ Deno.serve(async (req) => {
         airportChargePence = isAirportTrip ? q.airport_charge_pence : 0;
         pricingMode = "ROUTE_PRICING";
       } else {
-        const engine = new FareEngine(engineSettings as FarePricingSettings);
+        const engine = new FareEngine({ ...engineSettings, distance_unit: regionDistanceUnit } as FarePricingSettings);
         meterBreakdown = engine.estimateFare({
           estimated_distance_km,
           estimated_duration_min,

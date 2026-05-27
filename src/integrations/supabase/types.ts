@@ -2069,11 +2069,7 @@ export type Database = {
           enable_logging: boolean
           fairness_boost_score: number
           fairness_idle_minutes: number
-          fare_max_increase_pence: number
           fare_negotiation_enabled: boolean
-          fare_offer_increment_1_pence: number
-          fare_offer_increment_2_pence: number
-          fare_offer_increment_3_pence: number
           global_timeout_minutes: number
           id: string
           instant_retry_enabled: boolean
@@ -2129,8 +2125,11 @@ export type Database = {
           updated_at: string
           waiting_bonus_per_minute: number
           waiting_time_grace_period_minutes: number
+          wave1_offer_expiry_seconds: number
           wave1_size: number
+          wave2_offer_expiry_seconds: number
           wave2_size: number
+          wave3_offer_expiry_seconds: number
           wave3_size: number
         }
         Insert: {
@@ -2152,11 +2151,7 @@ export type Database = {
           enable_logging?: boolean
           fairness_boost_score?: number
           fairness_idle_minutes?: number
-          fare_max_increase_pence?: number
           fare_negotiation_enabled?: boolean
-          fare_offer_increment_1_pence?: number
-          fare_offer_increment_2_pence?: number
-          fare_offer_increment_3_pence?: number
           global_timeout_minutes?: number
           id?: string
           instant_retry_enabled?: boolean
@@ -2212,8 +2207,11 @@ export type Database = {
           updated_at?: string
           waiting_bonus_per_minute?: number
           waiting_time_grace_period_minutes?: number
+          wave1_offer_expiry_seconds?: number
           wave1_size?: number
+          wave2_offer_expiry_seconds?: number
           wave2_size?: number
+          wave3_offer_expiry_seconds?: number
           wave3_size?: number
         }
         Update: {
@@ -2235,11 +2233,7 @@ export type Database = {
           enable_logging?: boolean
           fairness_boost_score?: number
           fairness_idle_minutes?: number
-          fare_max_increase_pence?: number
           fare_negotiation_enabled?: boolean
-          fare_offer_increment_1_pence?: number
-          fare_offer_increment_2_pence?: number
-          fare_offer_increment_3_pence?: number
           global_timeout_minutes?: number
           id?: string
           instant_retry_enabled?: boolean
@@ -2295,8 +2289,11 @@ export type Database = {
           updated_at?: string
           waiting_bonus_per_minute?: number
           waiting_time_grace_period_minutes?: number
+          wave1_offer_expiry_seconds?: number
           wave1_size?: number
+          wave2_offer_expiry_seconds?: number
           wave2_size?: number
+          wave3_offer_expiry_seconds?: number
           wave3_size?: number
         }
         Relationships: [
@@ -4020,6 +4017,7 @@ export type Database = {
       }
       fare_pricing_settings: {
         Row: {
+          airport_charge_pence: number
           base_fare_pence: number
           booking_fee_pence: number
           cancellation_apply_after_arrival_only: boolean
@@ -4028,6 +4026,7 @@ export type Database = {
           created_at: string
           currency_code: string
           demand_supply_multiplier: number
+          distance_pricing_bands: Json | null
           enable_surge: boolean
           extra_stop_flat_fee_pence: number
           free_waiting_minutes: number
@@ -4060,6 +4059,7 @@ export type Database = {
           zone_multiplier: number
         }
         Insert: {
+          airport_charge_pence?: number
           base_fare_pence?: number
           booking_fee_pence?: number
           cancellation_apply_after_arrival_only?: boolean
@@ -4068,6 +4068,7 @@ export type Database = {
           created_at?: string
           currency_code?: string
           demand_supply_multiplier?: number
+          distance_pricing_bands?: Json | null
           enable_surge?: boolean
           extra_stop_flat_fee_pence?: number
           free_waiting_minutes?: number
@@ -4100,6 +4101,7 @@ export type Database = {
           zone_multiplier?: number
         }
         Update: {
+          airport_charge_pence?: number
           base_fare_pence?: number
           booking_fee_pence?: number
           cancellation_apply_after_arrival_only?: boolean
@@ -4108,6 +4110,7 @@ export type Database = {
           created_at?: string
           currency_code?: string
           demand_supply_multiplier?: number
+          distance_pricing_bands?: Json | null
           enable_surge?: boolean
           extra_stop_flat_fee_pence?: number
           free_waiting_minutes?: number
@@ -7445,6 +7448,53 @@ export type Database = {
           },
         ]
       }
+      service_area_pricing_settings: {
+        Row: {
+          airport_charge: number
+          created_at: string
+          driver_chip_enabled: boolean
+          driver_chip_offer_1: number | null
+          driver_chip_offer_2: number | null
+          driver_chip_offer_3: number | null
+          driver_chip_type: string
+          id: string
+          service_area_id: string
+          updated_at: string
+        }
+        Insert: {
+          airport_charge?: number
+          created_at?: string
+          driver_chip_enabled?: boolean
+          driver_chip_offer_1?: number | null
+          driver_chip_offer_2?: number | null
+          driver_chip_offer_3?: number | null
+          driver_chip_type?: string
+          id?: string
+          service_area_id: string
+          updated_at?: string
+        }
+        Update: {
+          airport_charge?: number
+          created_at?: string
+          driver_chip_enabled?: boolean
+          driver_chip_offer_1?: number | null
+          driver_chip_offer_2?: number | null
+          driver_chip_offer_3?: number | null
+          driver_chip_type?: string
+          id?: string
+          service_area_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_area_pricing_settings_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: true
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       service_area_sequences: {
         Row: {
           created_at: string
@@ -7494,9 +7544,10 @@ export type Database = {
           id: string
           is_enabled: boolean
           minimum_fare: number
-          offer_settings: Json
+          per_km_rate: number | null
           per_km_rate_pence: number
           per_min_rate_pence: number
+          per_minute_rate: number | null
           pickup_waiting_charges: Json
           service_area_id: string
           stops_waiting_charges: Json
@@ -7514,9 +7565,10 @@ export type Database = {
           id?: string
           is_enabled?: boolean
           minimum_fare?: number
-          offer_settings?: Json
+          per_km_rate?: number | null
           per_km_rate_pence?: number
           per_min_rate_pence?: number
+          per_minute_rate?: number | null
           pickup_waiting_charges?: Json
           service_area_id: string
           stops_waiting_charges?: Json
@@ -7534,9 +7586,10 @@ export type Database = {
           id?: string
           is_enabled?: boolean
           minimum_fare?: number
-          offer_settings?: Json
+          per_km_rate?: number | null
           per_km_rate_pence?: number
           per_min_rate_pence?: number
+          per_minute_rate?: number | null
           pickup_waiting_charges?: Json
           service_area_id?: string
           stops_waiting_charges?: Json
@@ -9946,11 +9999,15 @@ export type Database = {
       zone_route_pricing: {
         Row: {
           airport_charge: number
+          airport_dropoff_fee: number | null
+          airport_pickup_fee: number | null
           created_at: string
+          dropoff_fee: number
           fixed_fare: number
           from_zone_id: string
           id: string
           is_active: boolean
+          pickup_fee: number
           priority: number
           service_area_id: string | null
           surcharge_pct: number
@@ -9960,11 +10017,15 @@ export type Database = {
         }
         Insert: {
           airport_charge?: number
+          airport_dropoff_fee?: number | null
+          airport_pickup_fee?: number | null
           created_at?: string
+          dropoff_fee?: number
           fixed_fare: number
           from_zone_id: string
           id?: string
           is_active?: boolean
+          pickup_fee?: number
           priority?: number
           service_area_id?: string | null
           surcharge_pct?: number
@@ -9974,11 +10035,15 @@ export type Database = {
         }
         Update: {
           airport_charge?: number
+          airport_dropoff_fee?: number | null
+          airport_pickup_fee?: number | null
           created_at?: string
+          dropoff_fee?: number
           fixed_fare?: number
           from_zone_id?: string
           id?: string
           is_active?: boolean
+          pickup_fee?: number
           priority?: number
           service_area_id?: string | null
           surcharge_pct?: number
@@ -10753,11 +10818,7 @@ export type Database = {
     }
     Functions: {
       accept_ride_offer: {
-        Args: {
-          p_allow_customer_counter?: boolean
-          p_driver_id: string
-          p_offer_id: string
-        }
+        Args: { p_driver_id: string; p_offer_id: string }
         Returns: Json
       }
       accept_scheduled_ride: {
@@ -10791,6 +10852,10 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      apply_customer_decline_grace: {
+        Args: { p_offer_id: string; p_reason?: string }
+        Returns: Json
       }
       approve_corporate_request: {
         Args: { p_request_id: string; p_reviewed_by?: string }
@@ -10869,6 +10934,16 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
       }
+      compute_dispatch_score: {
+        Args: {
+          p_acceptance_rate: number
+          p_display_rating: number
+          p_distance_meters: number
+          p_idle_minutes: number
+          p_settings: Database["public"]["Tables"]["dispatch_settings"]["Row"]
+        }
+        Returns: number
+      }
       compute_preset_offer_fare_pence: {
         Args: {
           p_base_pence: number
@@ -10907,9 +10982,39 @@ export type Database = {
         Returns: Json
       }
       detect_driver_problems: { Args: never; Returns: undefined }
-      dispatch_trip_offers: {
-        Args: { p_trigger_reason?: string; p_trip_id: string }
-        Returns: Json
+      dispatch_effective_radius_meters: {
+        Args: {
+          p_round: number
+          p_settings: Database["public"]["Tables"]["dispatch_settings"]["Row"]
+        }
+        Returns: number
+      }
+      dispatch_max_broadcast_rounds: {
+        Args: {
+          p_settings: Database["public"]["Tables"]["dispatch_settings"]["Row"]
+          p_trip_max_rounds?: number
+        }
+        Returns: number
+      }
+      dispatch_trip_offers:
+        | { Args: { p_trip_id: string }; Returns: undefined }
+        | {
+            Args: { p_trigger_reason?: string; p_trip_id: string }
+            Returns: Json
+          }
+      dispatch_wave_cap: {
+        Args: {
+          p_round: number
+          p_settings: Database["public"]["Tables"]["dispatch_settings"]["Row"]
+        }
+        Returns: number
+      }
+      dispatch_wave_offer_expiry_seconds: {
+        Args: {
+          p_round: number
+          p_settings: Database["public"]["Tables"]["dispatch_settings"]["Row"]
+        }
+        Returns: number
       }
       dispatchable_reason: {
         Args: {
@@ -10977,6 +11082,15 @@ export type Database = {
           p_require_push_token?: boolean
         }
         Returns: string
+      }
+      driver_idle_minutes: {
+        Args: {
+          p_last_seen_at: string
+          p_last_trip_end_at: string
+          p_now?: string
+          p_online_since: string
+        }
+        Returns: number
       }
       driver_presence_last_signal_at: {
         Args: { p_driver_id: string }
@@ -11094,6 +11208,97 @@ export type Database = {
           p_start: string
         }
         Returns: Json
+      }
+      get_dispatch_settings: {
+        Args: { p_service_area_id: string }
+        Returns: {
+          accept_timeout_seconds: number
+          auto_reassign_enabled: boolean
+          auto_retry_attempts: number
+          batch_mode: string
+          block_multiple_active_rides: boolean
+          cancel_protection: boolean
+          cancellation_fee_after_grace_pence: number
+          cascade_batch_size: number
+          cascade_step_delay_seconds: number
+          cooldown_after_reject_seconds: number
+          created_at: string
+          customer_response_timeout_seconds: number
+          distance_penalty_per_km: number
+          driver_fare_display: string
+          driver_final_response_timeout_seconds: number
+          enable_logging: boolean
+          fairness_boost_score: number
+          fairness_idle_minutes: number
+          fare_negotiation_enabled: boolean
+          global_timeout_minutes: number
+          id: string
+          instant_retry_enabled: boolean
+          late_cancel_enabled: boolean
+          late_cancel_fee_pence: number
+          late_cancel_threshold_minutes: number
+          max_advance_days: number
+          max_cancel_rate: number
+          max_concurrent_offers_per_driver: number
+          max_driver_find_time_minutes: number
+          max_offer_hops: number
+          max_offers_per_request: number
+          max_stacked_rides: number
+          max_waiting_bonus_minutes: number
+          min_advance_time_minutes: number
+          minimum_rating: number
+          no_show_charge_pence: number
+          offer_expiry_seconds: number
+          pickup_paid_waiting_enabled: boolean
+          pickup_paid_waiting_rate_pence_per_minute: number
+          pickup_radius_enabled: boolean
+          pickup_radius_meters: number
+          pickup_waiting_grace_period_seconds: number
+          pickup_waiting_max_minutes: number | null
+          priority_order: string
+          scheduled_ride_incentives_enabled: boolean
+          scheduled_rides_enabled: boolean
+          search_radius_expand_km: number
+          search_radius_max_km: number
+          search_radius_meters: number
+          search_radius_start_km: number
+          service_area_id: string | null
+          shortlist_limit: number
+          simulate_mode: boolean
+          stacked_allow_rider_opt_out: boolean
+          stacked_driver_incentive: number
+          stacked_max_detour_minutes: number
+          stacked_min_trip_distance_km: number
+          stacked_offer_layout: string
+          stacked_offer_window_minutes: number
+          stacked_priority_mode: string
+          stacked_rider_discount: number
+          stacked_rides_enabled: boolean
+          stacked_search_radius_meters: number
+          stacked_show_eta_to_driver: boolean
+          stop_radius_enabled: boolean
+          stop_radius_meters: number
+          stop_waiting_charge_interval_seconds: number
+          stop_waiting_grace_period_seconds: number
+          stop_waiting_max_minutes: number | null
+          stop_waiting_rate_pence_per_minute: number
+          suppress_recent_offers_seconds: number
+          updated_at: string
+          waiting_bonus_per_minute: number
+          waiting_time_grace_period_minutes: number
+          wave1_offer_expiry_seconds: number
+          wave1_size: number
+          wave2_offer_expiry_seconds: number
+          wave2_size: number
+          wave3_offer_expiry_seconds: number
+          wave3_size: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "dispatch_settings"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       get_driver_ledger_aggregates: {
         Args: { p_driver_id: string }
@@ -11248,14 +11453,19 @@ export type Database = {
           found_item_photos: string[]
         }[]
       }
-      maybe_advance_dispatch_after_offer_resolution: {
-        Args: {
-          p_resolved_driver_id?: string
-          p_trigger_reason?: string
-          p_trip_id: string
-        }
-        Returns: undefined
-      }
+      maybe_advance_dispatch_after_offer_resolution:
+        | {
+            Args: { p_resolved_driver_id?: string; p_trip_id: string }
+            Returns: undefined
+          }
+        | {
+            Args: {
+              p_resolved_driver_id?: string
+              p_trigger_reason?: string
+              p_trip_id: string
+            }
+            Returns: undefined
+          }
       merge_ride_offer_push_log: {
         Args: { p_json: Json; p_offer_id: string }
         Returns: undefined
@@ -11644,6 +11854,10 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
       }
+      trip_negotiation_base_fare_pence: {
+        Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
+        Returns: number
+      }
       trip_pickup_coordinates_valid: {
         Args: { p_lat: number; p_lng: number }
         Returns: boolean
@@ -11657,6 +11871,18 @@ export type Database = {
           p_speed?: number
         }
         Returns: Json
+      }
+      upsert_customer_live_location: {
+        Args: {
+          p_accuracy?: number
+          p_heading?: number
+          p_latitude: number
+          p_longitude: number
+          p_speed?: number
+          p_trip_id: string
+          p_updated_at?: string
+        }
+        Returns: undefined
       }
       upsert_driver_live_location: {
         Args: {

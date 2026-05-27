@@ -55,6 +55,7 @@ interface FarePricingSettings {
   zone_multiplier: number;
   traffic_multiplier: number;
   demand_supply_multiplier: number;
+  distance_pricing_bands?: Array<{ from: number; to: number | null; rate_pence: number }> | null;
 }
 
 interface CustomZone {
@@ -190,7 +191,7 @@ export default function FareSimulator() {
           .eq('service_area_id', formData.service_area_id)
           .eq('vehicle_type_id', formData.vehicle_type_id)
           .maybeSingle();
-        if (data) return data as FarePricingSettings;
+        if (data) return data as unknown as FarePricingSettings;
       }
 
       // Fall back to default (vehicle_type_id IS NULL)
@@ -200,7 +201,7 @@ export default function FareSimulator() {
         .eq('service_area_id', formData.service_area_id)
         .is('vehicle_type_id', null)
         .maybeSingle();
-      return data as FarePricingSettings | null;
+      return data as unknown as FarePricingSettings | null;
     },
     enabled: !!formData.service_area_id,
   });
@@ -252,12 +253,29 @@ export default function FareSimulator() {
 
       // Base fare calculation (mirrors fareEngine.ts logic)
       const base = s.base_fare_pence;
-      const distCharge = Math.round(formData.distance_km * s.per_km_rate_pence);
+      const bands = s.distance_pricing_bands ?? [];
+      let distCharge: number;
+      if (bands.length > 0) {
+        const sorted = [...bands].sort((a, b) => (a.from ?? 0) - (b.from ?? 0));
+        let charge = 0;
+        for (const b of sorted) {
+          const upper = b.to == null ? Infinity : b.to;
+          const span = Math.max(0, Math.min(formData.distance_km, upper) - (b.from ?? 0));
+          if (span > 0) charge += span * (b.rate_pence ?? 0);
+        }
+        distCharge = Math.round(charge);
+      } else {
+        distCharge = Math.round(formData.distance_km * s.per_km_rate_pence);
+      }
       const timeCharge = Math.round(formData.duration_minutes * s.per_min_rate_pence);
       const booking = s.booking_fee_pence;
 
       appliedRules.push(`Base fare: ${fmt(base)}`);
-      appliedRules.push(`Distance: ${formData.distance_km}km × ${fmt(s.per_km_rate_pence)}/km = ${fmt(distCharge)}`);
+      if (bands.length > 0) {
+        appliedRules.push(`Distance (tiered ${bands.length} bands): ${formData.distance_km} → ${fmt(distCharge)}`);
+      } else {
+        appliedRules.push(`Distance: ${formData.distance_km} × ${fmt(s.per_km_rate_pence)} = ${fmt(distCharge)}`);
+      }
       appliedRules.push(`Time: ${formData.duration_minutes}min × ${fmt(s.per_min_rate_pence)}/min = ${fmt(timeCharge)}`);
       appliedRules.push(`Booking fee: ${fmt(booking)}`);
 
