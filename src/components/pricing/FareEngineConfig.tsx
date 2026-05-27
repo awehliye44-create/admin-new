@@ -22,6 +22,7 @@ import { toast } from 'sonner';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { FareSimulatorCard } from '@/components/pricing/FareSimulatorCard';
 import { TripLifecycleTimeline } from '@/components/pricing/TripLifecycleTimeline';
+import { DistanceBandsEditor } from '@/components/pricing/DistanceBandsEditor';
 
 export interface DistanceBand {
   from: number;
