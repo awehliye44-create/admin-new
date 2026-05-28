@@ -1,125 +1,73 @@
 import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { supabase } from '@/integrations/supabase/client';
-import { Car, CheckCircle2, Loader2, Plane, Save, XCircle } from 'lucide-react';
+import { Car, CheckCircle2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
-
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface Props {
   serviceAreaId: string;
   vehicleType: { id: string; name: string; slug: string; capacity: number; features: string[] | null; is_active: boolean };
   currencyCode: string;
-  currencySymbol: string;
-  distanceUnitLabel: string; // "mi" or "km"
   onChanged?: () => void;
 }
-
-interface ChipPreset { id: string; label: string; value: number }
-interface OfferSettings {
-  enabled: boolean;
-  presetType: 'FLAT' | 'PERCENT';
-  presets: ChipPreset[];
-}
-
-const DEFAULT_OFFER_SETTINGS: OfferSettings = {
-  enabled: true,
-  presetType: 'FLAT',
-  presets: [
-    { id: 'P1', label: 'Offer 1', value: 0.5 },
-    { id: 'P2', label: 'Offer 2', value: 0.7 },
-    { id: 'P3', label: 'Offer 3', value: 0.9 },
-  ],
-};
 
 interface SavRow {
   id: string;
   is_enabled: boolean;
-  base_fare: number;
-  minimum_fare: number;
-  per_km_rate_pence: number;
-  per_min_rate_pence: number;
-  airport_charge_pence: number;
-  offer_settings: OfferSettings | null;
 }
 
-
+/**
+ * Vehicle Types card — pure assignment toggle.
+ * Pricing (base fare, per-km/min, minimum, airport charge, distance bands, chips)
+ * lives EXCLUSIVELY in the Fare Engine. This row only controls whether a vehicle
+ * type is offered in this service area.
+ */
 export function VehicleTypePricingRow({
   serviceAreaId,
   vehicleType,
   currencyCode,
-  currencySymbol,
-  distanceUnitLabel,
   onChanged,
 }: Props) {
   const [row, setRow] = useState<SavRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
 
   const load = async () => {
     setLoading(true);
     const { data } = await supabase
       .from('service_area_vehicle_pricing')
-      .select('id, is_enabled, base_fare, minimum_fare, per_km_rate_pence, per_min_rate_pence, airport_charge_pence, offer_settings')
+      .select('id, is_enabled')
       .eq('service_area_id', serviceAreaId)
       .eq('vehicle_type_id', vehicleType.id)
       .maybeSingle();
-    if (data) {
-      const merged: SavRow = {
-        ...(data as any),
-        offer_settings: {
-          ...DEFAULT_OFFER_SETTINGS,
-          ...((data as any).offer_settings ?? {}),
-          presets:
-            ((data as any).offer_settings?.presets?.length
-              ? (data as any).offer_settings.presets
-              : DEFAULT_OFFER_SETTINGS.presets),
-        },
-      };
-      setRow(merged);
-    } else {
-      setRow(null);
-    }
-    setDirty(false);
+    setRow((data as SavRow | null) ?? null);
     setLoading(false);
   };
 
-
   useEffect(() => { load(); }, [serviceAreaId, vehicleType.id]);
-
-  const upsertNew = async (overrides: { is_enabled?: boolean } = {}) => {
-    const { data, error } = await supabase
-      .from('service_area_vehicle_pricing')
-      .insert({
-        service_area_id: serviceAreaId,
-        vehicle_type_id: vehicleType.id,
-        currency_code: currencyCode,
-        is_enabled: overrides.is_enabled ?? true,
-        base_fare: 0,
-        minimum_fare: 0,
-        per_km_rate_pence: 0,
-        per_min_rate_pence: 0,
-        airport_charge_pence: 0,
-        offer_settings: DEFAULT_OFFER_SETTINGS as any,
-      })
-      .select('id, is_enabled, base_fare, minimum_fare, per_km_rate_pence, per_min_rate_pence, airport_charge_pence, offer_settings')
-      .single();
-    if (error) throw error;
-    return data as unknown as SavRow;
-  };
-
 
   const toggleEnabled = async (next: boolean) => {
     setSaving(true);
     try {
       if (!row) {
-        const created = await upsertNew({ is_enabled: next });
-        setRow(created);
+        const { data, error } = await supabase
+          .from('service_area_vehicle_pricing')
+          .insert({
+            service_area_id: serviceAreaId,
+            vehicle_type_id: vehicleType.id,
+            currency_code: currencyCode,
+            is_enabled: next,
+            base_fare: 0,
+            minimum_fare: 0,
+            per_km_rate_pence: 0,
+            per_min_rate_pence: 0,
+            airport_charge_pence: 0,
+          })
+          .select('id, is_enabled')
+          .single();
+        if (error) throw error;
+        setRow(data as SavRow);
       } else {
         const { error } = await supabase
           .from('service_area_vehicle_pricing')
@@ -128,7 +76,7 @@ export function VehicleTypePricingRow({
         if (error) throw error;
         setRow({ ...row, is_enabled: next });
       }
-      toast.success(next ? 'Vehicle enabled' : 'Vehicle disabled');
+      toast.success(next ? `${vehicleType.name} enabled` : `${vehicleType.name} disabled`);
       onChanged?.();
     } catch (e: any) {
       toast.error(e.message || 'Failed to update');
@@ -137,55 +85,7 @@ export function VehicleTypePricingRow({
     }
   };
 
-  const save = async () => {
-    if (!row) return;
-    setSaving(true);
-    try {
-      const { error } = await supabase
-        .from('service_area_vehicle_pricing')
-        .update({
-          base_fare: row.base_fare,
-          minimum_fare: row.minimum_fare,
-          per_km_rate_pence: row.per_km_rate_pence,
-          per_min_rate_pence: row.per_min_rate_pence,
-          airport_charge_pence: row.airport_charge_pence,
-          offer_settings: (row.offer_settings ?? DEFAULT_OFFER_SETTINGS) as any,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', row.id);
-      if (error) throw error;
-      toast.success(`${vehicleType.name} pricing saved`);
-      setDirty(false);
-      onChanged?.();
-    } catch (e: any) {
-      toast.error(e.message || 'Save failed');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const updateOffer = (patch: Partial<OfferSettings>) => {
-    if (!row) return;
-    const current = row.offer_settings ?? DEFAULT_OFFER_SETTINGS;
-    setRow({ ...row, offer_settings: { ...current, ...patch } });
-    setDirty(true);
-  };
-  const updatePreset = (idx: number, value: number) => {
-    if (!row) return;
-    const current = row.offer_settings ?? DEFAULT_OFFER_SETTINGS;
-    const presets = current.presets.map((p, i) => (i === idx ? { ...p, value } : p));
-    setRow({ ...row, offer_settings: { ...current, presets } });
-    setDirty(true);
-  };
-
-
   const isAssigned = row?.is_enabled ?? false;
-  const setField = <K extends Exclude<keyof SavRow, 'offer_settings'>>(k: K, v: SavRow[K]) => {
-    if (!row) return;
-    setRow({ ...row, [k]: v });
-    setDirty(true);
-  };
-
 
   return (
     <div className={`p-4 border rounded-lg transition-colors ${
@@ -216,82 +116,6 @@ export function VehicleTypePricingRow({
           <Switch checked={isAssigned} disabled={saving || loading} onCheckedChange={toggleEnabled} />
         </div>
       </div>
-
-      {isAssigned && row && (
-        <div className="mt-4 pt-4 border-t grid grid-cols-2 md:grid-cols-5 gap-4">
-          <div className="space-y-1">
-            <Label className="text-xs">Base fare ({currencySymbol})</Label>
-            <Input type="number" step="0.01" min="0" value={row.base_fare}
-              onChange={(e) => setField('base_fare', parseFloat(e.target.value) || 0)} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Per {distanceUnitLabel} ({currencySymbol})</Label>
-            <Input type="number" step="0.01" min="0" value={(row.per_km_rate_pence / 100).toFixed(2)}
-              onChange={(e) => setField('per_km_rate_pence', Math.round((parseFloat(e.target.value) || 0) * 100))} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Per minute ({currencySymbol})</Label>
-            <Input type="number" step="0.01" min="0" value={(row.per_min_rate_pence / 100).toFixed(2)}
-              onChange={(e) => setField('per_min_rate_pence', Math.round((parseFloat(e.target.value) || 0) * 100))} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Minimum fare ({currencySymbol})</Label>
-            <Input type="number" step="0.01" min="0" value={row.minimum_fare}
-              onChange={(e) => setField('minimum_fare', parseFloat(e.target.value) || 0)} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs flex items-center gap-1"><Plane className="h-3 w-3" />Airport charge ({currencySymbol})</Label>
-            <Input type="number" step="0.01" min="0" value={(row.airport_charge_pence / 100).toFixed(2)}
-              onChange={(e) => setField('airport_charge_pence', Math.round((parseFloat(e.target.value) || 0) * 100))} />
-          </div>
-          <div className="col-span-2 md:col-span-5 mt-2 pt-4 border-t">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <p className="text-sm font-semibold">Driver offer chips</p>
-                <p className="text-xs text-muted-foreground">
-                  Shown on the driver app over the total fare. Three values, lowest first.
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Label className="text-xs">Type</Label>
-                <Select
-                  value={(row.offer_settings ?? DEFAULT_OFFER_SETTINGS).presetType}
-                  onValueChange={(v) => updateOffer({ presetType: v as 'FLAT' | 'PERCENT' })}
-                >
-                  <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="FLAT">Flat ({currencySymbol})</SelectItem>
-                    <SelectItem value="PERCENT">Percent (%)</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Label className="text-xs ml-2">Enabled</Label>
-                <Switch
-                  checked={(row.offer_settings ?? DEFAULT_OFFER_SETTINGS).enabled}
-                  onCheckedChange={(checked) => updateOffer({ enabled: checked })}
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              {(row.offer_settings ?? DEFAULT_OFFER_SETTINGS).presets.map((p, i) => (
-                <div key={p.id} className="space-y-1">
-                  <Label className="text-xs">
-                    {p.label} ({(row.offer_settings ?? DEFAULT_OFFER_SETTINGS).presetType === 'FLAT' ? `+${currencySymbol}` : '+%'})
-                  </Label>
-                  <Input type="number" step="0.01" min="0" value={p.value}
-                    onChange={(e) => updatePreset(i, parseFloat(e.target.value) || 0)} />
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="col-span-2 md:col-span-5 flex justify-end">
-            <Button size="sm" disabled={!dirty || saving} onClick={save}>
-              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-              Save {vehicleType.name}
-            </Button>
-          </div>
-
-        </div>
-      )}
     </div>
   );
 }
