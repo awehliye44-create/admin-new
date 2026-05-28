@@ -11011,10 +11011,6 @@ export type Database = {
         Args: { _trip_id: string }
         Returns: boolean
       }
-      assign_trip_number: {
-        Args: { p_service_area_id: string; p_trip_id: string }
-        Returns: Json
-      }
       bearing_deg: {
         Args: { lat1: number; lat2: number; lng1: number; lng2: number }
         Returns: number
@@ -11331,14 +11327,6 @@ export type Database = {
       generate_lost_property_case_number: {
         Args: { p_service_area_id: string }
         Returns: string
-      }
-      generate_trip_number: {
-        Args: { p_service_area_id: string }
-        Returns: {
-          sequence_no: number
-          service_area_code: string
-          trip_number: string
-        }[]
       }
       get_active_stop_waiting: { Args: { p_driver_id: string }; Returns: Json }
       get_customer_live_for_driver: {
