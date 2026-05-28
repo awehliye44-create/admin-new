@@ -323,7 +323,9 @@ export default function ServiceAreaPricing() {
                 <div>
                   <h3 className="text-lg font-semibold">Vehicle Types for this Service Area</h3>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Toggle vehicle types on/off. Changes are saved immediately to <code>service_area_vehicle_pricing</code> — the single source of truth for fare calculations.
+                    Toggle vehicle types on/off for this service area. All pricing — base fare,
+                    per-distance rates, distance bands, minimum fare, airport charge and driver offer
+                    chips — is configured exclusively in the <strong>Fare Engine</strong> tab.
                   </p>
                 </div>
               </div>
@@ -340,8 +342,6 @@ export default function ServiceAreaPricing() {
                       serviceAreaId={selectedServiceAreaId}
                       vehicleType={vt}
                       currencyCode={regionCurrency}
-                      currencySymbol={getCurrencySymbol(regionCurrency)}
-                      distanceUnitLabel={selectedServiceArea?.region?.distance_unit === 'mi' ? 'mile' : 'km'}
                       onChanged={() => fetchPricingAssignments(selectedServiceAreaId)}
                     />
                   ))}
@@ -358,8 +358,8 @@ export default function ServiceAreaPricing() {
 
               <div className="mt-4 pt-4 border-t">
                 <p className="text-xs text-muted-foreground">
-                  <strong>Note:</strong> Only assigned and active vehicle types will appear in the Customer and Driver apps for this service area. 
-                  Pricing for all vehicle types is determined by the Fare Engine settings above.
+                  <strong>Note:</strong> Only assigned and active vehicle types will appear in the Customer and Driver apps for this service area.
+                  All fare calculations are powered by the Fare Engine.
                 </p>
               </div>
             </CardContent>
