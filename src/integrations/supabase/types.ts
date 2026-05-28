@@ -2076,6 +2076,7 @@ export type Database = {
           late_cancel_enabled: boolean
           late_cancel_fee_pence: number
           late_cancel_threshold_minutes: number
+          manual_emergency_dispatch_only: boolean
           max_advance_days: number
           max_cancel_rate: number
           max_concurrent_offers_per_driver: number
@@ -2158,6 +2159,7 @@ export type Database = {
           late_cancel_enabled?: boolean
           late_cancel_fee_pence?: number
           late_cancel_threshold_minutes?: number
+          manual_emergency_dispatch_only?: boolean
           max_advance_days?: number
           max_cancel_rate?: number
           max_concurrent_offers_per_driver?: number
@@ -2240,6 +2242,7 @@ export type Database = {
           late_cancel_enabled?: boolean
           late_cancel_fee_pence?: number
           late_cancel_threshold_minutes?: number
+          manual_emergency_dispatch_only?: boolean
           max_advance_days?: number
           max_cancel_rate?: number
           max_concurrent_offers_per_driver?: number
@@ -2302,6 +2305,102 @@ export type Database = {
             columns: ["service_area_id"]
             isOneToOne: true
             referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dispatch_wave_snapshot: {
+        Row: {
+          created_at: string
+          dispatch_round: number
+          driver_id: string | null
+          id: string
+          metadata: Json
+          ride_offer_id: string | null
+          source: string | null
+          stage: string
+          trip_id: string
+          wave_number: number
+        }
+        Insert: {
+          created_at?: string
+          dispatch_round?: number
+          driver_id?: string | null
+          id?: string
+          metadata?: Json
+          ride_offer_id?: string | null
+          source?: string | null
+          stage: string
+          trip_id: string
+          wave_number?: number
+        }
+        Update: {
+          created_at?: string
+          dispatch_round?: number
+          driver_id?: string | null
+          id?: string
+          metadata?: Json
+          ride_offer_id?: string | null
+          source?: string | null
+          stage?: string
+          trip_id?: string
+          wave_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dispatch_wave_snapshot_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispatch_wave_snapshot_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "dispatch_wave_snapshot_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "dispatch_wave_snapshot_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "dispatch_wave_snapshot_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispatch_wave_snapshot_ride_offer_id_fkey"
+            columns: ["ride_offer_id"]
+            isOneToOne: false
+            referencedRelation: "ride_offers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispatch_wave_snapshot_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispatch_wave_snapshot_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
             referencedColumns: ["id"]
           },
         ]
@@ -7544,6 +7643,7 @@ export type Database = {
           id: string
           is_enabled: boolean
           minimum_fare: number
+          offer_settings: Json
           per_km_rate: number | null
           per_km_rate_pence: number
           per_min_rate_pence: number
@@ -7565,6 +7665,7 @@ export type Database = {
           id?: string
           is_enabled?: boolean
           minimum_fare?: number
+          offer_settings?: Json
           per_km_rate?: number | null
           per_km_rate_pence?: number
           per_min_rate_pence?: number
@@ -7586,6 +7687,7 @@ export type Database = {
           id?: string
           is_enabled?: boolean
           minimum_fare?: number
+          offer_settings?: Json
           per_km_rate?: number | null
           per_km_rate_pence?: number
           per_min_rate_pence?: number
@@ -8933,6 +9035,8 @@ export type Database = {
           cancelled_by_role: string | null
           cancelled_driver_ids: string[]
           capture_amount_pence: number | null
+          cash_collected_at: string | null
+          cash_collected_by_driver_id: string | null
           check_in_reminder_sent_at: string | null
           client_action_id: string | null
           commission_pct: number | null
@@ -8969,6 +9073,7 @@ export type Database = {
           driver_passenger_rating_at: string | null
           driver_passenger_rating_skipped: boolean | null
           driver_passenger_rating_submitted: boolean | null
+          driver_payment_confirmed_at: string | null
           driver_tier_commission_percent: number | null
           driver_total_earnings_pence: number | null
           dropoff_address: string
@@ -9105,6 +9210,8 @@ export type Database = {
           cancelled_by_role?: string | null
           cancelled_driver_ids?: string[]
           capture_amount_pence?: number | null
+          cash_collected_at?: string | null
+          cash_collected_by_driver_id?: string | null
           check_in_reminder_sent_at?: string | null
           client_action_id?: string | null
           commission_pct?: number | null
@@ -9141,6 +9248,7 @@ export type Database = {
           driver_passenger_rating_at?: string | null
           driver_passenger_rating_skipped?: boolean | null
           driver_passenger_rating_submitted?: boolean | null
+          driver_payment_confirmed_at?: string | null
           driver_tier_commission_percent?: number | null
           driver_total_earnings_pence?: number | null
           dropoff_address: string
@@ -9277,6 +9385,8 @@ export type Database = {
           cancelled_by_role?: string | null
           cancelled_driver_ids?: string[]
           capture_amount_pence?: number | null
+          cash_collected_at?: string | null
+          cash_collected_by_driver_id?: string | null
           check_in_reminder_sent_at?: string | null
           client_action_id?: string | null
           commission_pct?: number | null
@@ -9313,6 +9423,7 @@ export type Database = {
           driver_passenger_rating_at?: string | null
           driver_passenger_rating_skipped?: boolean | null
           driver_passenger_rating_submitted?: boolean | null
+          driver_payment_confirmed_at?: string | null
           driver_tier_commission_percent?: number | null
           driver_total_earnings_pence?: number | null
           dropoff_address?: string
@@ -9434,6 +9545,41 @@ export type Database = {
             columns: ["applied_offer_id"]
             isOneToOne: false
             referencedRelation: "offers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_cash_collected_by_driver_id_fkey"
+            columns: ["cash_collected_by_driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_cash_collected_by_driver_id_fkey"
+            columns: ["cash_collected_by_driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_cash_collected_by_driver_id_fkey"
+            columns: ["cash_collected_by_driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_cash_collected_by_driver_id_fkey"
+            columns: ["cash_collected_by_driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_cash_collected_by_driver_id_fkey"
+            columns: ["cash_collected_by_driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
           {
@@ -10934,16 +11080,27 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
       }
-      compute_dispatch_score: {
-        Args: {
-          p_acceptance_rate: number
-          p_display_rating: number
-          p_distance_meters: number
-          p_idle_minutes: number
-          p_settings: Database["public"]["Tables"]["dispatch_settings"]["Row"]
-        }
-        Returns: number
-      }
+      compute_dispatch_score:
+        | {
+            Args: {
+              p_acceptance_rate: number
+              p_display_rating: number
+              p_distance_meters: number
+              p_idle_minutes: number
+              p_settings: Database["public"]["Tables"]["dispatch_settings"]["Row"]
+            }
+            Returns: number
+          }
+        | {
+            Args: {
+              p_acceptance_rate: number
+              p_display_rating: number
+              p_distance_meters: number
+              p_idle_minutes: number
+              p_settings: Database["public"]["Tables"]["dispatch_settings"]["Row"]
+            }
+            Returns: number
+          }
       compute_preset_offer_fare_pence: {
         Args: {
           p_base_pence: number
@@ -10998,6 +11155,10 @@ export type Database = {
       }
       dispatch_trip_offers:
         | { Args: { p_trip_id: string }; Returns: undefined }
+        | {
+            Args: { p_internal?: boolean; p_trip_id: string }
+            Returns: undefined
+          }
         | {
             Args: { p_trigger_reason?: string; p_trip_id: string }
             Returns: Json
@@ -11237,6 +11398,7 @@ export type Database = {
           late_cancel_enabled: boolean
           late_cancel_fee_pence: number
           late_cancel_threshold_minutes: number
+          manual_emergency_dispatch_only: boolean
           max_advance_days: number
           max_cancel_rate: number
           max_concurrent_offers_per_driver: number
@@ -11710,6 +11872,19 @@ export type Database = {
           p_trip_id: string
         }
         Returns: string
+      }
+      record_dispatch_wave_snapshot: {
+        Args: {
+          p_dispatch_round: number
+          p_driver_id?: string
+          p_metadata?: Json
+          p_ride_offer_id?: string
+          p_source?: string
+          p_stage: string
+          p_trip_id: string
+          p_wave_number?: number
+        }
+        Returns: undefined
       }
       record_push_send_result: {
         Args: {
