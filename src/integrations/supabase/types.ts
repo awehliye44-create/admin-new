@@ -7643,6 +7643,7 @@ export type Database = {
           id: string
           is_enabled: boolean
           minimum_fare: number
+          offer_settings: Json
           per_km_rate: number | null
           per_km_rate_pence: number
           per_min_rate_pence: number
@@ -7664,6 +7665,7 @@ export type Database = {
           id?: string
           is_enabled?: boolean
           minimum_fare?: number
+          offer_settings?: Json
           per_km_rate?: number | null
           per_km_rate_pence?: number
           per_min_rate_pence?: number
@@ -7685,6 +7687,7 @@ export type Database = {
           id?: string
           is_enabled?: boolean
           minimum_fare?: number
+          offer_settings?: Json
           per_km_rate?: number | null
           per_km_rate_pence?: number
           per_min_rate_pence?: number

@@ -1,0 +1,2 @@
+ALTER TABLE public.service_area_vehicle_pricing
+  ADD COLUMN IF NOT EXISTS offer_settings jsonb NOT NULL DEFAULT '{"enabled": false, "presetType": "PERCENT", "presets": [{"id":"p1","label":"+10%","value":10},{"id":"p2","label":"+15%","value":15},{"id":"p3","label":"+20%","value":20}]}'::jsonb;
