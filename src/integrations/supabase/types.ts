@@ -5156,6 +5156,282 @@ export type Database = {
           },
         ]
       }
+      merchant_ai_credits: {
+        Row: {
+          credits_remaining: number
+          merchant_id: string
+          updated_at: string
+        }
+        Insert: {
+          credits_remaining?: number
+          merchant_id: string
+          updated_at?: string
+        }
+        Update: {
+          credits_remaining?: number
+          merchant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "merchant_ai_credits_merchant_id_fkey"
+            columns: ["merchant_id"]
+            isOneToOne: true
+            referencedRelation: "merchants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      merchant_ai_generations: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          image_url: string | null
+          merchant_id: string
+          product_id: string | null
+          prompt: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          image_url?: string | null
+          merchant_id: string
+          product_id?: string | null
+          prompt: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          image_url?: string | null
+          merchant_id?: string
+          product_id?: string | null
+          prompt?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "merchant_ai_generations_merchant_id_fkey"
+            columns: ["merchant_id"]
+            isOneToOne: false
+            referencedRelation: "merchants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "merchant_ai_generations_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "merchant_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      merchant_categories: {
+        Row: {
+          category: Database["public"]["Enums"]["merchant_category"]
+          display_name: string
+          enabled: boolean
+          updated_at: string
+        }
+        Insert: {
+          category: Database["public"]["Enums"]["merchant_category"]
+          display_name: string
+          enabled?: boolean
+          updated_at?: string
+        }
+        Update: {
+          category?: Database["public"]["Enums"]["merchant_category"]
+          display_name?: string
+          enabled?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      merchant_product_categories: {
+        Row: {
+          created_at: string
+          id: string
+          merchant_id: string
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          merchant_id: string
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          merchant_id?: string
+          name?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "merchant_product_categories_merchant_id_fkey"
+            columns: ["merchant_id"]
+            isOneToOne: false
+            referencedRelation: "merchants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      merchant_products: {
+        Row: {
+          attributes: Json
+          availability: boolean
+          created_at: string
+          description: string | null
+          id: string
+          image_approved: boolean
+          image_source: Database["public"]["Enums"]["merchant_image_source"]
+          image_url: string | null
+          merchant_id: string
+          name: string
+          price: number
+          product_category_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          attributes?: Json
+          availability?: boolean
+          created_at?: string
+          description?: string | null
+          id?: string
+          image_approved?: boolean
+          image_source?: Database["public"]["Enums"]["merchant_image_source"]
+          image_url?: string | null
+          merchant_id: string
+          name: string
+          price?: number
+          product_category_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          attributes?: Json
+          availability?: boolean
+          created_at?: string
+          description?: string | null
+          id?: string
+          image_approved?: boolean
+          image_source?: Database["public"]["Enums"]["merchant_image_source"]
+          image_url?: string | null
+          merchant_id?: string
+          name?: string
+          price?: number
+          product_category_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "merchant_products_merchant_id_fkey"
+            columns: ["merchant_id"]
+            isOneToOne: false
+            referencedRelation: "merchants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "merchant_products_product_category_id_fkey"
+            columns: ["product_category_id"]
+            isOneToOne: false
+            referencedRelation: "merchant_product_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      merchants: {
+        Row: {
+          address: string | null
+          banner_url: string | null
+          business_name: string
+          category: Database["public"]["Enums"]["merchant_category"]
+          city: string | null
+          commission_pct: number | null
+          created_at: string
+          delivery_radius_km: number
+          description: string | null
+          email: string | null
+          id: string
+          is_open: boolean
+          logo_url: string | null
+          min_order_amount: number
+          opening_hours: Json
+          owner_name: string | null
+          owner_user_id: string | null
+          phone: string | null
+          postcode: string | null
+          prep_time_minutes: number
+          service_area_id: string
+          status: Database["public"]["Enums"]["merchant_status"]
+          updated_at: string
+        }
+        Insert: {
+          address?: string | null
+          banner_url?: string | null
+          business_name: string
+          category: Database["public"]["Enums"]["merchant_category"]
+          city?: string | null
+          commission_pct?: number | null
+          created_at?: string
+          delivery_radius_km?: number
+          description?: string | null
+          email?: string | null
+          id?: string
+          is_open?: boolean
+          logo_url?: string | null
+          min_order_amount?: number
+          opening_hours?: Json
+          owner_name?: string | null
+          owner_user_id?: string | null
+          phone?: string | null
+          postcode?: string | null
+          prep_time_minutes?: number
+          service_area_id: string
+          status?: Database["public"]["Enums"]["merchant_status"]
+          updated_at?: string
+        }
+        Update: {
+          address?: string | null
+          banner_url?: string | null
+          business_name?: string
+          category?: Database["public"]["Enums"]["merchant_category"]
+          city?: string | null
+          commission_pct?: number | null
+          created_at?: string
+          delivery_radius_km?: number
+          description?: string | null
+          email?: string | null
+          id?: string
+          is_open?: boolean
+          logo_url?: string | null
+          min_order_amount?: number
+          opening_hours?: Json
+          owner_name?: string | null
+          owner_user_id?: string | null
+          phone?: string | null
+          postcode?: string | null
+          prep_time_minutes?: number
+          service_area_id?: string
+          status?: Database["public"]["Enums"]["merchant_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "merchants_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notification_settings: {
         Row: {
           created_at: string
@@ -7455,6 +7731,41 @@ export type Database = {
           },
           {
             foreignKeyName: "service_area_document_rules_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      service_area_merchant_settings: {
+        Row: {
+          category: Database["public"]["Enums"]["merchant_category"]
+          delivery_enabled: boolean
+          enabled: boolean
+          id: string
+          service_area_id: string
+          updated_at: string
+        }
+        Insert: {
+          category: Database["public"]["Enums"]["merchant_category"]
+          delivery_enabled?: boolean
+          enabled?: boolean
+          id?: string
+          service_area_id: string
+          updated_at?: string
+        }
+        Update: {
+          category?: Database["public"]["Enums"]["merchant_category"]
+          delivery_enabled?: boolean
+          enabled?: boolean
+          id?: string
+          service_area_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_area_merchant_settings_service_area_id_fkey"
             columns: ["service_area_id"]
             isOneToOne: false
             referencedRelation: "service_areas"
@@ -12125,6 +12436,14 @@ export type Database = {
       driver_alert_severity: "warning" | "critical" | "recovered"
       driver_alert_status: "active" | "resolved"
       driver_status: "active" | "disabled" | "deleted"
+      merchant_category: "food" | "grocery" | "retail" | "pharmacy" | "parcel"
+      merchant_image_source: "uploaded" | "ai_generated"
+      merchant_status:
+        | "pending"
+        | "approved"
+        | "rejected"
+        | "suspended"
+        | "closed"
       offer_redemption_status: "reserved" | "applied" | "reversed"
       offer_status: "draft" | "active" | "archived"
       offer_type: "percent_discount" | "fixed_amount_discount"
@@ -12287,6 +12606,15 @@ export const Constants = {
       driver_alert_severity: ["warning", "critical", "recovered"],
       driver_alert_status: ["active", "resolved"],
       driver_status: ["active", "disabled", "deleted"],
+      merchant_category: ["food", "grocery", "retail", "pharmacy", "parcel"],
+      merchant_image_source: ["uploaded", "ai_generated"],
+      merchant_status: [
+        "pending",
+        "approved",
+        "rejected",
+        "suspended",
+        "closed",
+      ],
       offer_redemption_status: ["reserved", "applied", "reversed"],
       offer_status: ["draft", "active", "archived"],
       offer_type: ["percent_discount", "fixed_amount_discount"],
