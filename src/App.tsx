@@ -82,6 +82,8 @@ import LostPropertyDetail from "./pages/LostPropertyDetail";
 import MerchantManagement from "./pages/MerchantManagement";
 import MerchantDetail from "./pages/MerchantDetail";
 import { AdminTelemetryProvider } from "@/lib/telemetry/adminBootstrap";
+import MerchantApprovals from "./pages/MerchantApprovals";
+import MarketplaceSettings from "./pages/MarketplaceSettings";
 const queryClient = createAppQueryClient();
 
 const App = () => (
@@ -138,9 +140,10 @@ const App = () => (
               
               {/* Pricing & Fares */}
               <Route path="promo-codes" element={<PromoCodes />} />
-              <Route path="offers" element={<Offers />} />
-              <Route path="custom-zones" element={<CustomZones />} />
-              <Route path="zone-pricing" element={<ZonePricing />} />
+              <Route path="merchants" element={<MerchantManagement />} />
+              <Route path="merchants/:id" element={<MerchantDetail />} />
+              <Route path="merchant-approvals" element={<MerchantApprovals />} />
+              <Route path="marketplace-settings" element={<MarketplaceSettings />} />
               
               
               
