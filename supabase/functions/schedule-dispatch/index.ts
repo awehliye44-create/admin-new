@@ -22,10 +22,15 @@ import { assertServiceRole } from "../_shared/internalAuth.ts";
  *  3. Otherwise, invokes `dispatch_trip_offers` RPC for the full wave-cascade.
  *  4. Updates `scheduled_status` so the trip is not re-processed.
  */
-
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  const gate = assertServiceRole(req);
+  if (gate) return gate;
+
+
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
