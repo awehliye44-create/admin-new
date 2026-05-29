@@ -64,6 +64,7 @@ import {
   Sparkles,
   Gauge,
   Activity,
+  Store,
 } from 'lucide-react';
 import {
   Collapsible,
@@ -270,6 +271,15 @@ export function AdminSidebar() {
 
             </div>
           </div>
+
+          {/* MARKETPLACE */}
+          <div>
+            <NavSection label="Marketplace" collapsed={isCollapsed} />
+            <div className="space-y-1">
+              <P pageSlug="merchants" to="/merchants" icon={<Store className="h-4 w-4" />} label="Merchant Management" active={currentPath.startsWith('/merchants')} collapsed={isCollapsed} />
+            </div>
+          </div>
+
 
           {/* SERVICE AREAS */}
           <div>

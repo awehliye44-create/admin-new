@@ -79,6 +79,8 @@ import OpsIntelligence from "./pages/OpsIntelligence";
 import DispatchMetrics from "./pages/DispatchMetrics";
 import LostProperty from "./pages/LostProperty";
 import LostPropertyDetail from "./pages/LostPropertyDetail";
+import MerchantManagement from "./pages/MerchantManagement";
+import MerchantDetail from "./pages/MerchantDetail";
 import { AdminTelemetryProvider } from "@/lib/telemetry/adminBootstrap";
 const queryClient = createAppQueryClient();
 
@@ -128,6 +130,11 @@ const App = () => (
               <Route path="drivers" element={<Drivers />} />
               <Route path="vehicles" element={<Vehicles />} />
               <Route path="riders" element={<Riders />} />
+
+              {/* Merchant Management */}
+              <Route path="merchants" element={<MerchantManagement />} />
+              <Route path="merchants/:id" element={<MerchantDetail />} />
+
               
               {/* Pricing & Fares */}
               <Route path="promo-codes" element={<PromoCodes />} />
