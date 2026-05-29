@@ -130,6 +130,11 @@ const App = () => (
               <Route path="drivers" element={<Drivers />} />
               <Route path="vehicles" element={<Vehicles />} />
               <Route path="riders" element={<Riders />} />
+
+              {/* Merchant Management */}
+              <Route path="merchants" element={<MerchantManagement />} />
+              <Route path="merchants/:id" element={<MerchantDetail />} />
+
               
               {/* Pricing & Fares */}
               <Route path="promo-codes" element={<PromoCodes />} />
