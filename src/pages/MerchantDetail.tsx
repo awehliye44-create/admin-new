@@ -47,14 +47,19 @@ export default function MerchantDetail() {
 
   const load = async () => {
     if (!id) return;
-    const [{ data: m }, { data: p }, { data: c }, { data: cr }, { data: g }, { data: o }] = await Promise.all([
-      supabase.from('merchants').select('*').eq('id', id).maybeSingle(),
-      supabase.from('merchant_products').select('*').eq('merchant_id', id).order('created_at', { ascending: false }),
-      supabase.from('merchant_product_categories').select('id,name').eq('merchant_id', id).order('sort_order'),
-      supabase.from('merchant_ai_credits').select('credits_remaining').eq('merchant_id', id).maybeSingle(),
-      supabase.from('merchant_ai_generations').select('*').eq('merchant_id', id).order('created_at', { ascending: false }).limit(50),
-      supabase.from('trips' as any).select('id, total_fare, payment_status, status, created_at').eq('merchant_id' as any, id).order('created_at', { ascending: false }).limit(100),
-    ]);
+    const m = await supabase.from('merchants').select('*').eq('id', id).maybeSingle();
+    const p = await supabase.from('merchant_products').select('*').eq('merchant_id', id).order('created_at', { ascending: false });
+    const c = await supabase.from('merchant_product_categories').select('id,name').eq('merchant_id', id).order('sort_order');
+    const cr = await supabase.from('merchant_ai_credits').select('credits_remaining').eq('merchant_id', id).maybeSingle();
+    const g = await supabase.from('merchant_ai_generations').select('*').eq('merchant_id', id).order('created_at', { ascending: false }).limit(50);
+    const o = await (supabase.from('trips' as any) as any).select('id, total_fare, payment_status, status, created_at').eq('merchant_id', id).order('created_at', { ascending: false }).limit(100);
+    setMerchant(m.data);
+    setProducts((p.data as any) ?? []);
+    setCategories((c.data as any) ?? []);
+    setCredits(cr.data?.credits_remaining ?? 0);
+    setGenerations(g.data ?? []);
+    setOrders(o.data ?? []);
+  };
     setMerchant(m);
     setProducts((p as any) ?? []);
     setCategories((c as any) ?? []);
