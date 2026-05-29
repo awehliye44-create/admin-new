@@ -9,6 +9,8 @@ import {
   errorResponse,
   successResponse,
 } from "../_shared/security.ts";
+import { authenticateDriver } from "../_shared/driverAuth.ts";
+
 
 // Rate limit: 30 requests per 10 seconds per driver (location updates every 3-5s)
 const RATE_LIMIT_CONFIG = { limit: 30, windowMs: 10 * 1000 };
@@ -43,15 +45,17 @@ function encodeGeohash(lat: number, lng: number, precision = 6): string {
   }
   return geohash;
 }
-
-serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    // Require driver JWT and derive driver_id from auth (never trust body)
+    const auth = await authenticateDriver(req);
+    if (auth instanceof Response) return auth;
+    const driver_id = auth.driverId;
+
     let body: {
-      driver_id: string;
       lat: number;
       lng: number;
       speed?: number;
@@ -65,10 +69,13 @@ serve(async (req) => {
       return errorResponse("Invalid JSON", 400);
     }
 
-    const { driver_id, lat, lng, speed, heading, timestamp } = body;
+    const { lat, lng, speed, heading, timestamp } = body;
 
     // Validate required fields
-    if (!driver_id || typeof lat !== "number" || typeof lng !== "number") {
+    if (typeof lat !== "number" || typeof lng !== "number") {
+      return errorResponse("Missing lat or lng", 400);
+    }
+
       return errorResponse("Missing driver_id, lat, or lng", 400);
     }
 

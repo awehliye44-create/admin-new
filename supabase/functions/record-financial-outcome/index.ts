@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { calculateCommission } from "../_shared/commission.ts";
 import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
+import { assertServiceRole } from "../_shared/internalAuth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -20,11 +21,15 @@ const corsHeaders = {
  *   - outcome: 'NO_SHOW' | 'LATE_PASSENGER_CANCELLATION'
  *   - fee_pence: number (the no-show fee or late cancellation fee)
  *   - payment_method: string (from the original trip)
- */
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const gate = assertServiceRole(req);
+  if (gate) return gate;
+
+  try {
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;

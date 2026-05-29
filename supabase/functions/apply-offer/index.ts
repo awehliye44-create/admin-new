@@ -48,10 +48,11 @@ Deno.serve(async (req) => {
       offer_code,
       service_area_id,
       ride_fare_pence,
-      customer_id,
       trip_id,
       mode,
     } = body;
+    let customer_id = body.customer_id;
+
 
     if (!offer_id && !offer_code) {
       return json({ ok: false, reason: "OFFER_IDENTIFIER_REQUIRED" }, 400);
@@ -68,15 +69,35 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
-
     // --- Identify caller (for per-user limits / new-customer checks) ---
+    // For mode='apply' we REQUIRE a valid JWT and derive customer_id from it,
+    // so unauthenticated callers cannot bypass per-user/first-ride limits.
     const authHeader = req.headers.get("authorization");
     let user_id: string | null = null;
+    let authedCustomerId: string | null = null;
     if (authHeader) {
       const token = authHeader.replace("Bearer ", "");
       const { data: u } = await supabase.auth.getUser(token);
       user_id = u?.user?.id ?? null;
+      if (user_id) {
+        const { data: c } = await supabase
+          .from("customers")
+          .select("id")
+          .eq("user_id", user_id)
+          .maybeSingle();
+        authedCustomerId = c?.id ?? null;
+      }
     }
+    if (mode === "apply") {
+      if (!user_id || !authedCustomerId) {
+        return json({ ok: false, reason: "AUTH_REQUIRED" }, 401);
+      }
+      // Override any body-supplied customer_id with the authenticated one
+      customer_id = authedCustomerId;
+    }
+
+    }
+
 
     // --- Load offer ---
     const offerQuery = supabase.from("offers").select("*").limit(1);

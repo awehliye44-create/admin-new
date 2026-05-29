@@ -133,9 +133,14 @@ export default function OpsIntelligence() {
 
   const callOpsSeed = async (seedAction: 'seed' | 'clear') => {
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ops-seed`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          'Authorization': `Bearer ${session?.access_token ?? ''}`,
+        },
         body: JSON.stringify({ action: seedAction }),
       });
       const data = await res.json();
@@ -146,6 +151,7 @@ export default function OpsIntelligence() {
       } else toast.error('Operation failed', { description: JSON.stringify(data) });
     } catch (e: any) { toast.error('Operation failed', { description: e.message }); }
   };
+
 
   const handleRunDetections = async () => {
     try {

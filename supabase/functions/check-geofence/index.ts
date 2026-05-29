@@ -14,6 +14,8 @@ import {
   checkGeofenceSchema, 
   CheckGeofenceRequest 
 } from "../_shared/validation.ts";
+import { authenticateDriver } from "../_shared/driverAuth.ts";
+
 
 // Rate limit: 120 requests per minute per IP (high frequency for location updates)
 const RATE_LIMIT_CONFIG = { limit: 120, windowMs: 60 * 1000 };
@@ -38,9 +40,12 @@ serve(async (req) => {
   if (!rateLimitResult.allowed) {
     console.log(`[check-geofence] Rate limit exceeded for IP: ${clientIP}`);
     return rateLimitResponse(rateLimitResult.retryAfter!);
-  }
-
   try {
+    // Require driver JWT — derive driver_id from auth, reject body-supplied driver_id
+    const auth = await authenticateDriver(req);
+    if (auth instanceof Response) return auth;
+    const authDriverId = auth.driverId;
+
     // Parse and validate request body
     let body: unknown;
     try {
@@ -54,6 +59,9 @@ serve(async (req) => {
       console.log(`[check-geofence] Validation failed:`, validation.errors);
       return errorResponse('Validation failed', 400, { validation_errors: validation.errors });
     }
+
+    const { lat, lng, prev_lat, prev_lng, trip_id } = validation.data!;
+    const driver_id = authDriverId;
 
     const { driver_id, lat, lng, prev_lat, prev_lng, trip_id } = validation.data!;
 
