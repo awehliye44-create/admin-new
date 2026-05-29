@@ -7814,6 +7814,53 @@ export type Database = {
           },
         ]
       }
+      service_area_marketplace_settings: {
+        Row: {
+          created_at: string
+          delivery_enabled: boolean
+          food_enabled: boolean
+          grocery_enabled: boolean
+          id: string
+          parcel_enabled: boolean
+          pharmacy_enabled: boolean
+          retail_enabled: boolean
+          service_area_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          delivery_enabled?: boolean
+          food_enabled?: boolean
+          grocery_enabled?: boolean
+          id?: string
+          parcel_enabled?: boolean
+          pharmacy_enabled?: boolean
+          retail_enabled?: boolean
+          service_area_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          delivery_enabled?: boolean
+          food_enabled?: boolean
+          grocery_enabled?: boolean
+          id?: string
+          parcel_enabled?: boolean
+          pharmacy_enabled?: boolean
+          retail_enabled?: boolean
+          service_area_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_area_marketplace_settings_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: true
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       service_area_merchant_settings: {
         Row: {
           category: Database["public"]["Enums"]["merchant_category"]
@@ -11856,6 +11903,10 @@ export type Database = {
           can_early_cashout: boolean
           can_payout: boolean
         }[]
+      }
+      get_marketplace_delivery_config: {
+        Args: { p_service_area_id: string }
+        Returns: Json
       }
       get_p95_screen_metrics: {
         Args: { p_app_name: string; p_metric_name: string }

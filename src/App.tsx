@@ -68,7 +68,7 @@ import { StaffProfileProvider } from "@/hooks/useStaffProfile";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AdminShell } from "@/components/layout/AdminShell";
 
-import { Airports } from "./pages/PlaceholderPage";
+
 import ManageContent from "./pages/ManageContent";
 import LiveChat from "./pages/LiveChat";
 import OnecabDocuments from "./pages/OnecabDocuments";
@@ -149,8 +149,6 @@ const App = () => (
               
               <Route path="fare-simulator" element={<FareSimulator />} />
               
-              {/* Airports & Terminals */}
-              <Route path="airports" element={<Airports />} />
               
               {/* Corporate */}
               <Route path="corporate-accounts" element={<CorporateAccounts />} />
