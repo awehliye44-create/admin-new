@@ -9,6 +9,8 @@ import {
   errorResponse,
   logAuditEvent,
 } from "../_shared/security.ts";
+import { requireUser } from "../_shared/internalAuth.ts";
+
 
 /**
  * cancel-trip
