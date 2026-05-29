@@ -28,7 +28,7 @@ import {
   Target,
   Building2,
   Calculator,
-  Plane,
+  
   Briefcase,
   FileText,
   CreditCard,
@@ -306,13 +306,6 @@ export function AdminSidebar() {
             </div>
           </div>
 
-          {/* AIRPORTS & TERMINALS */}
-          <div>
-            <NavSection label="Airports & Terminals" collapsed={isCollapsed} />
-            <div className="space-y-1">
-              <P pageSlug="airports" to="/airports" icon={<Plane className="h-4 w-4" />} label="Manage Airports" active={currentPath === '/airports'} collapsed={isCollapsed} />
-            </div>
-          </div>
 
           {/* CORPORATE */}
           <div>
