@@ -130,6 +130,7 @@ const defaultSettings: DispatchSettings = {
   simulateMode: false,
   blockMultipleActiveRides: false,
   cancelProtection: false,
+  driverFareDisplay: 'smart_display',
 };
 
 // DB stores all distances in METERS. UI keeps km-named state for display conversion.
