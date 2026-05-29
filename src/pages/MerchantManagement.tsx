@@ -157,7 +157,7 @@ export default function MerchantManagement() {
   };
 
   return (
-    <AdminLayout title="Merchant Management" subtitle="Marketplace for food, grocery, retail, pharmacy & parcel delivery">
+    <AdminLayout title="Merchant Management" description="Marketplace for food, grocery, retail, pharmacy & parcel delivery">
       <div className="space-y-6 p-6">
         {/* Overview cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
