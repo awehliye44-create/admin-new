@@ -5419,6 +5419,7 @@ export type Database = {
       merchants: {
         Row: {
           address: string | null
+          admin_notes: string | null
           banner_url: string | null
           business_name: string
           category: Database["public"]["Enums"]["merchant_category"]
@@ -5438,12 +5439,14 @@ export type Database = {
           phone: string | null
           postcode: string | null
           prep_time_minutes: number
+          rejection_reason: string | null
           service_area_id: string
           status: Database["public"]["Enums"]["merchant_status"]
           updated_at: string
         }
         Insert: {
           address?: string | null
+          admin_notes?: string | null
           banner_url?: string | null
           business_name: string
           category: Database["public"]["Enums"]["merchant_category"]
@@ -5463,12 +5466,14 @@ export type Database = {
           phone?: string | null
           postcode?: string | null
           prep_time_minutes?: number
+          rejection_reason?: string | null
           service_area_id: string
           status?: Database["public"]["Enums"]["merchant_status"]
           updated_at?: string
         }
         Update: {
           address?: string | null
+          admin_notes?: string | null
           banner_url?: string | null
           business_name?: string
           category?: Database["public"]["Enums"]["merchant_category"]
@@ -5488,6 +5493,7 @@ export type Database = {
           phone?: string | null
           postcode?: string | null
           prep_time_minutes?: number
+          rejection_reason?: string | null
           service_area_id?: string
           status?: Database["public"]["Enums"]["merchant_status"]
           updated_at?: string
@@ -12514,6 +12520,7 @@ export type Database = {
         | "rejected"
         | "suspended"
         | "closed"
+        | "disabled"
       offer_redemption_status: "reserved" | "applied" | "reversed"
       offer_status: "draft" | "active" | "archived"
       offer_type: "percent_discount" | "fixed_amount_discount"
@@ -12684,6 +12691,7 @@ export const Constants = {
         "rejected",
         "suspended",
         "closed",
+        "disabled",
       ],
       offer_redemption_status: ["reserved", "applied", "reversed"],
       offer_status: ["draft", "active", "archived"],
