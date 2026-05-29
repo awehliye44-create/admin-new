@@ -48,10 +48,11 @@ Deno.serve(async (req) => {
       offer_code,
       service_area_id,
       ride_fare_pence,
-      customer_id,
       trip_id,
       mode,
     } = body;
+    let customer_id = body.customer_id;
+
 
     if (!offer_id && !offer_code) {
       return json({ ok: false, reason: "OFFER_IDENTIFIER_REQUIRED" }, 400);
