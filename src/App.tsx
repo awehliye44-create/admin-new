@@ -82,10 +82,10 @@ import LostPropertyDetail from "./pages/LostPropertyDetail";
 import MerchantManagement from "./pages/MerchantManagement";
 import MerchantDetail from "./pages/MerchantDetail";
 import { AdminTelemetryProvider } from "@/lib/telemetry/adminBootstrap";
-import MerchantManagement from "./pages/MerchantManagement";
-import MerchantDetail from "./pages/MerchantDetail";
 import MerchantApprovals from "./pages/MerchantApprovals";
 import MarketplaceSettings from "./pages/MarketplaceSettings";
+const queryClient = createAppQueryClient();
+
 const App = () => (
   <GlobalErrorBoundary>
   <QueryClientProvider client={queryClient}>
