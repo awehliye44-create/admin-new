@@ -175,6 +175,7 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   simulateMode: (data.simulate_mode as boolean) ?? defaultSettings.simulateMode,
   blockMultipleActiveRides: (data.block_multiple_active_rides as boolean) ?? defaultSettings.blockMultipleActiveRides,
   cancelProtection: (data.cancel_protection as boolean) ?? defaultSettings.cancelProtection,
+  driverFareDisplay: ((data.driver_fare_display as DispatchSettings['driverFareDisplay']) ?? defaultSettings.driverFareDisplay),
 });
 
 const mapSettingsToDb = (settings: DispatchSettings) => ({
