@@ -19,11 +19,16 @@ const corsHeaders = {
  * No hardcoded currency — currency_code is REQUIRED.
  * 
  * All financial entries go to driver_wallet_ledger (single source of truth).
- */
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const gate = assertServiceRole(req);
+  if (gate) return gate;
+
+  try {
+    const body = await req.json();
 
   try {
     const body = await req.json();
