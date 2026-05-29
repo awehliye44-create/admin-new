@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireAdmin } from "../_shared/internalAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,7 +12,11 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const admin = await requireAdmin(req);
+  if (admin instanceof Response) return admin;
+
   try {
+
     const { alert_id } = await req.json();
     if (!alert_id) {
       return new Response(JSON.stringify({ error: "alert_id required" }), {
