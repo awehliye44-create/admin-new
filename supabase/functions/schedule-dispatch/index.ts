@@ -6,6 +6,8 @@ import {
   errorResponse,
   logAuditEvent,
 } from "../_shared/security.ts";
+import { assertServiceRole } from "../_shared/internalAuth.ts";
+
 
 /**
  * schedule-dispatch
