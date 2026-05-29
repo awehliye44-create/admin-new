@@ -47,7 +47,7 @@ interface SAMerchantSetting {
 
 export default function MerchantManagement() {
   const navigate = useNavigate();
-  const { serviceAreas } = useServiceAreas();
+  const { data: serviceAreas } = useServiceAreas();
   const [globalCats, setGlobalCats] = useState<{ category: Category; enabled: boolean; display_name: string }[]>([]);
   const [merchants, setMerchants] = useState<MerchantRow[]>([]);
   const [saSettings, setSaSettings] = useState<SAMerchantSetting[]>([]);
