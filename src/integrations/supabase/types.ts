@@ -4357,6 +4357,7 @@ export type Database = {
           created_at: string
           degraded_driver_penalty: number
           distance_penalty_per_meter: number
+          driver_fare_display: string
           enable_logging: boolean
           enable_scheduled_to_urgent_conversion: boolean
           expand_radius_meters: number
@@ -4407,6 +4408,7 @@ export type Database = {
           created_at?: string
           degraded_driver_penalty?: number
           distance_penalty_per_meter?: number
+          driver_fare_display?: string
           enable_logging?: boolean
           enable_scheduled_to_urgent_conversion?: boolean
           expand_radius_meters?: number
@@ -4457,6 +4459,7 @@ export type Database = {
           created_at?: string
           degraded_driver_penalty?: number
           distance_penalty_per_meter?: number
+          driver_fare_display?: string
           enable_logging?: boolean
           enable_scheduled_to_urgent_conversion?: boolean
           expand_radius_meters?: number
