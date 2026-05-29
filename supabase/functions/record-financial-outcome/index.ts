@@ -21,11 +21,15 @@ const corsHeaders = {
  *   - outcome: 'NO_SHOW' | 'LATE_PASSENGER_CANCELLATION'
  *   - fee_pence: number (the no-show fee or late cancellation fee)
  *   - payment_method: string (from the original trip)
- */
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const gate = assertServiceRole(req);
+  if (gate) return gate;
+
+  try {
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
