@@ -1,77 +1,59 @@
+# Merchant Management — Implementation Plan
 
-# Pricing System Repair Plan
+Build a single new admin page `/merchants` that controls the ONECAB Delivery marketplace. Reuses existing booking, payment, wallet, commission, dispatch, tracking, and notification systems — no parallel infrastructure.
 
-Before any code changes I need to flag four conflicts between your spec and the current database, because picking the wrong path will break trips, settlements, and the offer flow.
+## 1. Database (one migration)
 
-## What's actually there today
+New tables (all in `public`, with GRANTs + RLS, admin-only writes via `has_role(auth.uid(),'admin')`, authenticated read where needed):
 
-There are **two pricing tables** running in parallel, which is the root cause of "vehicle pricing fields disappeared":
+- `merchant_categories` — enum-like reference: `food | grocery | retail | pharmacy | parcel`. Seeded. Global ON/OFF flag (`enabled boolean`) drives the "Merchant Type Controls" section. Customer app reads this.
+- `service_area_merchant_settings` — `(service_area_id, category)` unique. `delivery_enabled boolean`, `enabled boolean`. Drives per-service-area visibility.
+- `merchants` — business_name, category, service_area_id, owner_name, phone, email, address, city, postcode, description, logo_url, banner_url, opening_hours (jsonb), is_open, prep_time_minutes, delivery_radius_km, min_order_amount, commission_pct (nullable override; default uses global 15%), status (`pending|approved|rejected|suspended|closed`), created_at.
+- `merchant_products` — merchant_id, category_section, name, description, price, image_url, image_source (`uploaded|ai_generated`), image_approved, availability, plus type-specific jsonb `attributes` (unit/weight, stock, prescription_required, parcel size, add-ons).
+- `merchant_product_categories` — merchant_id, name, sort_order.
+- `merchant_ai_credits` — merchant_id, credits_remaining, updated_at.
+- `merchant_ai_generations` — merchant_id, prompt, image_url, status, created_at (history).
 
-| Table | What it has | Who reads it |
-|---|---|---|
-| `service_area_vehicle_pricing` (SOT per memory) | per vehicle: `base_fare`, `minimum_fare`, `distance_pricing` (jsonb tiers), `time_pricing` (jsonb tiers), `commission_percentage`, `offer_settings` (jsonb) | Admin UI only |
-| `fare_pricing_settings` | flat: `base_fare_pence`, `per_km_rate_pence`, `per_min_rate_pence`, `minimum_fare_pence`, plus dynamic-pricing, waiting, cancellation, no-show, late-cancel fields | The fare engine (`estimate-fare`) |
+Storage buckets: `merchant-logos` (public), `merchant-banners` (public), `merchant-products` (public).
 
-The engine ignores `service_area_vehicle_pricing` rate fields entirely. That's why the "Vehicle Types for this Service Area" tab looks broken: the admin form edits one table, the engine quotes from another.
+Orders tab is a **view**, not a new table — selects from existing `trips` where `booking_type='delivery'` joined by `merchant_id`.
 
-## Conflicts in your spec vs. reality
+## 2. Edge functions
 
-1. **`perMileRate`** — DB stores per-km, not per-mile. Region has `distance_unit`. I'll display in the region's unit but store km internally (no schema rename).
-2. **`pickup_fee` / `dropoff_fee`** — those columns don't exist. `custom_zones.airport_fee` exists but is unused. `zone_route_pricing.airport_charge` exists and is in use today.
-3. **`pickupZone.is_airport` / `pickupZone.type === "airport"`** — `custom_zones` has `zone_type` (text) but no `is_airport` boolean. I'll detect airports by `zone_type ILIKE 'airport'` OR `airport_fee > 0`.
-4. **Chip presets** — current model is PERCENT (`presets: [{value:10},{value:15},{value:20}]` = +10%/+15%/+20% of fare). Your spec wants flat-increment chips (`+0.50`, `+0.70`, `+0.90`). This is a behavior change, not a bug fix.
+- `generate-merchant-image` — calls Lovable AI Gateway image model, decrements `merchant_ai_credits`, writes to storage, inserts history row. Admin-only.
+- (Reuse existing `accept-trip`, payment, wallet, commission flows. No new dispatch/payment code.)
 
-## Proposed work
+## 3. Frontend
 
-### Phase A — Make `service_area_vehicle_pricing` the real SOT (db)
-- Add flat columns to `service_area_vehicle_pricing`: `per_km_rate_pence`, `per_min_rate_pence` (computed from existing `distance_pricing[0].rate` and `time_pricing[0].rate` on migration so no data loss).
-- Backfill `fare_pricing_settings.{base_fare_pence, per_km_rate_pence, per_min_rate_pence, minimum_fare_pence}` so per-vehicle rows match `service_area_vehicle_pricing`.
-- Add trigger: writes to `service_area_vehicle_pricing` mirror the four rate fields into `fare_pricing_settings` (vehicle-scoped row, auto-created). This keeps the engine working while admin edits one table.
+**Sidebar:** Add "Merchant Management" item in `AdminSidebar.tsx` under an appropriate section (Operations or new "Marketplace" group).
 
-### Phase B — Admin "Vehicle Types for this Service Area" tab
-Restore the per-vehicle pricing card with these editable fields, sourced from `service_area_vehicle_pricing`:
-- Base fare, Per km rate (label "per mile" if region distance_unit=mi), Per minute rate, Minimum fare, Active toggle.
-- Show all assigned vehicle types (do not hide when airport charge changes).
+**Route:** `/merchants` in `App.tsx` → `src/pages/MerchantManagement.tsx`.
 
-### Phase C — Separate airport charge for normal bookings
-- Add `airport_charge_pence` to `service_area_vehicle_pricing` (per vehicle) — admin sets it once per vehicle.
-- In `estimate-fare`, after meter calculation: detect airport via pickup/dropoff zone `zone_type='airport'`; if true, add `airport_charge_pence` as a separate line. Never folded into base_fare.
+**Page sections (single page, tabbed):**
+1. Overview cards — counts + revenue aggregates from `merchants` and delivery `trips`.
+2. Global Merchant Type Controls — 5 switches bound to `merchant_categories.enabled`.
+3. Per-Service-Area Controls — service area selector + 6 switches (delivery + 5 categories) bound to `service_area_merchant_settings`.
+4. Merchant table — filters by service area / type / status, columns per spec, row actions (View/Edit/Approve/Reject/Suspend/Delete).
+5. "Add Merchant" dialog with full form + logo/banner upload.
 
-### Phase D — Route pricing keeps its airport charge separate
-- Stop bundling `airport_charge` inside `quoted_fare_pence` in `applyZoneRoutePricing`. Return base + airport as two fields; `estimate-fare` returns them as separate `fareDetails` lines and a `totalFare`.
+**Merchant detail** (`/merchants/:id`) — tabs: Overview, Orders, Menu/Products, Opening Hours, Payments, AI Images, Settings. Type-aware product editor (restaurant/grocery/retail/pharmacy/parcel forms share one component with conditional fields). AI Images tab shows credits, Generate button, history grid with approve/reject.
 
-### Phase E — API response shape
-`estimate-fare` returns per vehicle:
-```
-{
-  pricingMode: "NORMAL_DISTANCE_TIME" | "ROUTE_PRICING",
-  baseFarePence, airportChargePence, totalFarePence,
-  driverKeepPence, driverTierCommissionPercent,
-  chipsPence: [...],
-  fareDetails: [{label, amountPence}, ...]  // airport row only if > 0
-}
-```
+**Customer-app visibility:** Document that customer app must filter categories by `merchant_categories.enabled = true AND service_area_merchant_settings.enabled = true` for the active service area. No customer-app code lives in this admin repo, so this is enforced by the data layer + RLS (read policies expose only enabled rows to `anon`).
 
-### Phase F — Driver-keep & commission
-- Commission % from driver tier (already snapshotted on trip). For the estimate, use the vehicle's `commission_percentage`.
-- `driverKeep = (baseFare - baseFare * pct/100) + airportCharge`. Airport charge is never commissioned. This matches the locked `tripAccounting` invariants for **estimates only**; settlement still goes through `tripAccounting.ts` unchanged.
+## 4. Reuse, not rebuild
 
-### Phase G — Chip presets (flat increments)
-- Extend `offer_settings.presets[].value` semantics with `presetType: 'FLAT' | 'PERCENT'` (already exists). When `presetType='FLAT'`, treat value as currency units added to `totalFare`.
-- Admin UI: allow choosing FLAT and entering 0.50 / 0.70 / 0.90.
-- `estimate-fare` computes `chipsPence` from `totalFare` (never `driverKeep`, never double-airport).
+- Commission: read global 15% from existing service-area pricing; `merchants.commission_pct` is an optional override only.
+- Orders tab: query existing `trips` table filtered by `booking_type='delivery'` and `merchant_id`.
+- Payments/Wallet/Dispatch/Tracking/Notifications: untouched — delivery trips flow through the same pipelines as ride trips.
 
-## What I will NOT touch
-- `tripAccounting.ts` (locked invariants — settlement math stays as-is).
-- Driver mobile app "You keep" display string — not in this repo. I'll fix the API; the driver app already reads `driverKeep`.
-- Existing `fare_pricing_settings` columns — kept for waiting/cancellation/no-show config.
-- Stacked/Scheduled dispatch (Phase 2/3 work from earlier).
+## Technical notes
 
-## Open decisions I need from you
+- All UI uses existing shadcn primitives + semantic tokens (gold/navy theme).
+- RLS: admin full access; `anon` SELECT only on `merchant_categories`, `service_area_merchant_settings`, approved/open `merchants`, and available `merchant_products` (so customer app can read).
+- File uploads go through Supabase Storage with per-bucket public read + admin write policies.
+- AI image generation uses `LOVABLE_API_KEY` via edge function — never from client.
+- Type-aware product schema kept flexible via `attributes jsonb` to avoid 5 separate tables.
 
-1. **Airport charge per vehicle vs. per service area?** Spec says `airportChargeFromAdmin` (one value). I propose **per-vehicle** so XL/Premium can charge more — agree, or one flat value for the whole service area?
-2. **Chip presets — keep PERCENT option or fully replace with FLAT?** Your example uses FLAT; some operators may want PERCENT. I propose keeping both with a toggle. OK?
-3. **Miles vs km labels** — keep storage in km, label as mi/km from region setting. OK?
-4. **Migrating existing route-pricing rows** — today the airport charge is folded into `quoted_fare`; after this change the rider's total is unchanged but the breakdown changes. OK to ship as-is, or do you want me to ALSO split historical rows visually (no money change)?
+## Scope confirmation needed
 
-I'll start coding the moment you confirm those four decisions (or say "use your defaults").
+This is a large build (~1 migration, 1 edge function, 3 storage buckets, 1 list page, 1 detail page with 7 tabs, ~10+ components). I'll execute it as one coherent change once you approve. Reply "go" to proceed, or tell me which sections to trim/defer.
