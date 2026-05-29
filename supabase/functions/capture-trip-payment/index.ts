@@ -3,6 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import { validateTripAccounting } from "../_shared/tripAccounting.ts";
 import { capturePaymentIntentWithSettlement } from "../_shared/stripeSettlement.ts";
+import { assertServiceRole } from "../_shared/internalAuth.ts";
+
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
