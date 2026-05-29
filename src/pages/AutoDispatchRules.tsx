@@ -570,6 +570,54 @@ export default function AutoDispatchRules() {
           </CardContent>
         </Card>
 
+        {/* Driver Fare Display */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <Percent className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <CardTitle>Driver Fare Display</CardTitle>
+                <CardDescription>Controls what fare information drivers see on the offer card before accepting</CardDescription>
+              </div>
+              <Badge variant="outline" className="ml-auto">Display</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2 max-w-md">
+              <Label>Fare Visibility Mode</Label>
+              <Select
+                value={settings.driverFareDisplay}
+                onValueChange={(value) => updateSetting('driverFareDisplay', value as DispatchSettings['driverFareDisplay'])}
+                disabled={isLoading}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="net_earnings">Net Earnings (driver keep only)</SelectItem>
+                  <SelectItem value="gross_fare">Gross Fare (total customer pays)</SelectItem>
+                  <SelectItem value="smart_display">Smart Display (recommended)</SelectItem>
+                  <SelectItem value="full_breakdown">Full Breakdown (gross + commission + net)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Applies to instant, scheduled, and scan & go offers.</p>
+            </div>
+
+            <div className="flex items-start gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <Info className="h-4 w-4 text-blue-600 mt-0.5" />
+              <div className="text-sm text-blue-700 dark:text-blue-400 space-y-1">
+                <p className="font-medium">How each mode works</p>
+                <ul className="list-disc pl-5 space-y-0.5">
+                  <li><span className="font-medium">Net Earnings:</span> driver only sees what they keep after commission.</li>
+                  <li><span className="font-medium">Gross Fare:</span> driver sees the total fare the customer is charged.</li>
+                  <li><span className="font-medium">Smart Display:</span> shows net earnings with a small tooltip linking to the full breakdown.</li>
+                  <li><span className="font-medium">Full Breakdown:</span> shows gross fare, commission, and net earnings line-by-line.</li>
+                </ul>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Driver Tiers Configuration — single source of truth */}
         <DriverTiersConfig />
 
