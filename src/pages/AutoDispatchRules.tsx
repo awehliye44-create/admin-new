@@ -584,25 +584,26 @@ export default function AutoDispatchRules() {
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Mode selector — card grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {([
                 {
-                  value: 'net_earnings',
+                  value: 'net_earnings' as const,
                   title: 'Net Earnings Only',
                   desc: 'Driver only sees what they keep after commission.',
+                  recommended: false,
                 },
                 {
-                  value: 'gross_fare',
+                  value: 'gross_fare' as const,
                   title: 'Gross Fare Only',
                   desc: 'Driver sees the total fare the customer is charged.',
+                  recommended: false,
                 },
                 {
-                  value: 'smart_display',
+                  value: 'smart_display' as const,
                   title: 'Smart Display',
                   desc: 'Cash: show gross + you keep. Digital: show net earnings.',
                   recommended: true,
                 },
-              ] as const).map((opt) => {
+              ]).map((opt) => {
                 const active = settings.driverFareDisplay === opt.value;
                 return (
                   <button
