@@ -79,6 +79,8 @@ interface DispatchSettings {
   lockedDriverResponseMinutes: number;
   scheduledUrgentCardLabel: string;
   enableScheduledToUrgentConversion: boolean;
+  // Driver Fare Display (what drivers see in the offer card)
+  driverFareDisplay: 'net_earnings' | 'gross_fare' | 'smart_display' | 'full_breakdown';
 
   // System Settings (operational flags, not dispatch execution)
   enableLogging: boolean;
