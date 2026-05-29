@@ -570,53 +570,157 @@ export default function AutoDispatchRules() {
           </CardContent>
         </Card>
 
-        {/* Driver Fare Display */}
+        {/* Driver Fare Display — Uber-style Smart Display */}
         <Card>
           <CardHeader>
             <div className="flex items-center gap-3">
               <Percent className="h-5 w-5 text-muted-foreground" />
               <div>
                 <CardTitle>Driver Fare Display</CardTitle>
-                <CardDescription>Controls what fare information drivers see on the offer card before accepting</CardDescription>
+                <CardDescription>How fare information appears to drivers on the ride offer card, trip summary, and wallet</CardDescription>
               </div>
               <Badge variant="outline" className="ml-auto">Display</Badge>
             </div>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2 max-w-md">
-              <Label>Fare Visibility Mode</Label>
-              <Select
-                value={settings.driverFareDisplay}
-                onValueChange={(value) => updateSetting('driverFareDisplay', value as DispatchSettings['driverFareDisplay'])}
-                disabled={isLoading}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="net_earnings">Net Earnings (driver keep only)</SelectItem>
-                  <SelectItem value="gross_fare">Gross Fare (total customer pays)</SelectItem>
-                  <SelectItem value="smart_display">Smart Display (recommended)</SelectItem>
-                  <SelectItem value="full_breakdown">Full Breakdown (gross + commission + net)</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">Applies to instant, scheduled, and scan & go offers.</p>
+          <CardContent className="space-y-6">
+            {/* Mode selector — card grid */}
+              {([
+                {
+                  value: 'net_earnings' as const,
+                  title: 'Net Earnings Only',
+                  desc: 'Driver only sees what they keep after commission.',
+                  recommended: false,
+                },
+                {
+                  value: 'gross_fare' as const,
+                  title: 'Gross Fare Only',
+                  desc: 'Driver sees the total fare the customer is charged.',
+                  recommended: false,
+                },
+                {
+                  value: 'smart_display' as const,
+                  title: 'Smart Display',
+                  desc: 'Cash: show gross + you keep. Digital: show net earnings.',
+                  recommended: true,
+                },
+              ]).map((opt) => {
+                const active = settings.driverFareDisplay === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => updateSetting('driverFareDisplay', opt.value)}
+                    disabled={isLoading}
+                    className={`text-left rounded-lg border-2 p-4 transition ${
+                      active
+                        ? 'border-primary bg-primary/5 ring-2 ring-primary/30'
+                        : 'border-border hover:border-primary/40'
+                    } ${isLoading ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="font-semibold">{opt.title}</p>
+                      <div className="flex items-center gap-2">
+                        {opt.recommended && (
+                          <Badge className="bg-primary text-primary-foreground">Recommended</Badge>
+                        )}
+                        {active && <CheckCircle2 className="h-4 w-4 text-primary" />}
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{opt.desc}</p>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Live preview — Ride Offer Card */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Label className="text-sm font-semibold">Ride Offer Card — Driver App Preview</Label>
+                <Badge variant="outline" className="text-xs">Live</Badge>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Cash trip preview */}
+                <div className="rounded-lg border bg-card p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Badge variant="secondary" className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">CASH</Badge>
+                    <span className="text-xs text-muted-foreground">4.2 km · 12 min</span>
+                  </div>
+                  {settings.driverFareDisplay === 'net_earnings' && (
+                    <p className="text-2xl font-bold">You earn £59.50</p>
+                  )}
+                  {settings.driverFareDisplay === 'gross_fare' && (
+                    <p className="text-2xl font-bold">Fare £70.00</p>
+                  )}
+                  {settings.driverFareDisplay === 'smart_display' && (
+                    <>
+                      <p className="text-2xl font-bold">Fare £70.00</p>
+                      <p className="text-sm text-muted-foreground">You keep £59.50</p>
+                    </>
+                  )}
+                  {settings.driverFareDisplay === 'full_breakdown' && (
+                    <>
+                      <p className="text-2xl font-bold">Fare £70.00</p>
+                      <p className="text-xs text-muted-foreground">Commission £10.50 · You keep £59.50</p>
+                    </>
+                  )}
+                </div>
+
+                {/* Digital trip preview */}
+                <div className="rounded-lg border bg-card p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">CARD</Badge>
+                    <span className="text-xs text-muted-foreground">4.2 km · 12 min</span>
+                  </div>
+                  {settings.driverFareDisplay === 'net_earnings' && (
+                    <p className="text-2xl font-bold">You earn £59.50</p>
+                  )}
+                  {settings.driverFareDisplay === 'gross_fare' && (
+                    <p className="text-2xl font-bold">Fare £70.00</p>
+                  )}
+                  {settings.driverFareDisplay === 'smart_display' && (
+                    <p className="text-2xl font-bold">You earn £59.50</p>
+                  )}
+                  {settings.driverFareDisplay === 'full_breakdown' && (
+                    <>
+                      <p className="text-2xl font-bold">You earn £59.50</p>
+                      <p className="text-xs text-muted-foreground">Fare £70.00 · Commission £10.50</p>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Completed Trip Summary preview */}
+            <div className="space-y-3">
+              <Label className="text-sm font-semibold">Completed Trip Summary — Driver App Preview</Label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="rounded-lg border bg-muted/30 p-4 space-y-1 text-sm">
+                  <p className="font-semibold mb-2">Cash Trip</p>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Payment Method</span><span>Cash</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Fare Collected</span><span>£70.00</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">ONECAB Commission</span><span>£10.50</span></div>
+                  <div className="flex justify-between font-semibold pt-1 border-t mt-1"><span>Your Net Earnings</span><span>£59.50</span></div>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-4 space-y-1 text-sm">
+                  <p className="font-semibold mb-2">Digital Trip</p>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Payment Method</span><span>Card</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Customer Paid</span><span>Digitally</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">ONECAB Commission</span><span>£10.50</span></div>
+                  <div className="flex justify-between font-semibold pt-1 border-t mt-1"><span>Your Net Earnings</span><span>£59.50</span></div>
+                  <p className="text-xs text-muted-foreground pt-1">Paid to wallet / payout</p>
+                </div>
+              </div>
             </div>
 
             <div className="flex items-start gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
               <Info className="h-4 w-4 text-blue-600 mt-0.5" />
-              <div className="text-sm text-blue-700 dark:text-blue-400 space-y-1">
-                <p className="font-medium">How each mode works</p>
-                <ul className="list-disc pl-5 space-y-0.5">
-                  <li><span className="font-medium">Net Earnings:</span> driver only sees what they keep after commission.</li>
-                  <li><span className="font-medium">Gross Fare:</span> driver sees the total fare the customer is charged.</li>
-                  <li><span className="font-medium">Smart Display:</span> shows net earnings with a small tooltip linking to the full breakdown.</li>
-                  <li><span className="font-medium">Full Breakdown:</span> shows gross fare, commission, and net earnings line-by-line.</li>
-                </ul>
+              <div className="text-sm text-blue-700 dark:text-blue-400">
+                Applies to instant bookings, scheduled rides, and scan & go offers. Smart Display is recommended for mixed cash/digital fleets.
               </div>
             </div>
           </CardContent>
         </Card>
+
 
         {/* Driver Tiers Configuration — single source of truth */}
         <DriverTiersConfig />
