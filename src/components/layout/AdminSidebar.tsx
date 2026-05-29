@@ -64,6 +64,7 @@ import {
   Sparkles,
   Gauge,
   Activity,
+  Store,
 } from 'lucide-react';
 import {
   Collapsible,
