@@ -4357,6 +4357,7 @@ export type Database = {
           created_at: string
           degraded_driver_penalty: number
           distance_penalty_per_meter: number
+          driver_fare_display: string
           enable_logging: boolean
           enable_scheduled_to_urgent_conversion: boolean
           expand_radius_meters: number
@@ -4407,6 +4408,7 @@ export type Database = {
           created_at?: string
           degraded_driver_penalty?: number
           distance_penalty_per_meter?: number
+          driver_fare_display?: string
           enable_logging?: boolean
           enable_scheduled_to_urgent_conversion?: boolean
           expand_radius_meters?: number
@@ -4457,6 +4459,7 @@ export type Database = {
           created_at?: string
           degraded_driver_penalty?: number
           distance_penalty_per_meter?: number
+          driver_fare_display?: string
           enable_logging?: boolean
           enable_scheduled_to_urgent_conversion?: boolean
           expand_radius_meters?: number
@@ -11267,6 +11270,7 @@ export type Database = {
         Returns: undefined
       }
       expire_negotiation_offer: { Args: { p_offer_id: string }; Returns: Json }
+      expire_offers_sweep: { Args: never; Returns: undefined }
       expire_stale_drivers: {
         Args: { p_ttl_seconds?: number }
         Returns: number
@@ -11603,19 +11607,10 @@ export type Database = {
           found_item_photos: string[]
         }[]
       }
-      maybe_advance_dispatch_after_offer_resolution:
-        | {
-            Args: { p_resolved_driver_id?: string; p_trip_id: string }
-            Returns: undefined
-          }
-        | {
-            Args: {
-              p_resolved_driver_id?: string
-              p_trigger_reason?: string
-              p_trip_id: string
-            }
-            Returns: undefined
-          }
+      maybe_advance_dispatch_after_offer_resolution: {
+        Args: { p_resolved_driver_id?: string; p_trip_id: string }
+        Returns: undefined
+      }
       merge_ride_offer_push_log: {
         Args: { p_json: Json; p_offer_id: string }
         Returns: undefined
