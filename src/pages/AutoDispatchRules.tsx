@@ -584,6 +584,7 @@ export default function AutoDispatchRules() {
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Mode selector — card grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {([
                 {
                   value: 'net_earnings' as const,
