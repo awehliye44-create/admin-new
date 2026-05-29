@@ -40,13 +40,16 @@ serve(async (req) => {
   const userAgent = req.headers.get("user-agent") || "unknown";
 
   const rl = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
-  if (!rl.allowed) return rateLimitResponse(rl.retryAfter!);
-
   try {
+    // Require an authenticated caller (rider, driver, or admin)
+    const authed = await requireUser(req);
+    if (authed instanceof Response) return authed;
+    const callerUserId = authed.userId;
+
     let body: {
       trip_id: string;
       cancelled_by: string; // 'rider' | 'driver' | 'admin'
-      cancelled_by_id: string;
+      cancelled_by_id?: string;
       reason?: string;
       is_no_show?: boolean;
     };
@@ -57,10 +60,10 @@ serve(async (req) => {
       return errorResponse("Invalid JSON", 400);
     }
 
-    const { trip_id, cancelled_by, cancelled_by_id, reason, is_no_show } = body;
+    const { trip_id, cancelled_by, reason, is_no_show } = body;
 
-    if (!trip_id || !cancelled_by || !cancelled_by_id) {
-      return errorResponse("Missing trip_id, cancelled_by, or cancelled_by_id", 400);
+    if (!trip_id || !cancelled_by) {
+      return errorResponse("Missing trip_id or cancelled_by", 400);
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -71,12 +74,52 @@ serve(async (req) => {
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, status, driver_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at"
+        "id, status, driver_id, customer_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at"
       )
       .eq("id", trip_id)
       .single();
 
     if (tripErr || !trip) {
+      return errorResponse("Trip not found", 404);
+    }
+
+    // Verify caller is authorised: admin OR the rider OR the assigned driver of this trip
+    let cancelled_by_id: string | null = null;
+    const { data: adminRole } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", callerUserId)
+      .in("role", ["admin", "super_admin"])
+      .maybeSingle();
+
+    if (adminRole) {
+      cancelled_by_id = callerUserId;
+    } else {
+      // Try as rider (customers.user_id)
+      const { data: customer } = await supabase
+        .from("customers")
+        .select("id")
+        .eq("user_id", callerUserId)
+        .maybeSingle();
+      if (customer && trip.customer_id === customer.id) {
+        cancelled_by_id = customer.id;
+      } else {
+        // Try as driver (drivers.user_id)
+        const { data: driver } = await supabase
+          .from("drivers")
+          .select("id")
+          .eq("user_id", callerUserId)
+          .maybeSingle();
+        if (driver && trip.driver_id === driver.id) {
+          cancelled_by_id = driver.id;
+        }
+      }
+    }
+
+    if (!cancelled_by_id) {
+      return errorResponse("Forbidden: caller not authorised to cancel this trip", 403);
+    }
+
       return errorResponse("Trip not found", 404);
     }
 
