@@ -9,6 +9,8 @@ import {
   errorResponse,
   successResponse,
 } from "../_shared/security.ts";
+import { authenticateDriver } from "../_shared/driverAuth.ts";
+
 
 // Rate limit: 30 requests per 10 seconds per driver (location updates every 3-5s)
 const RATE_LIMIT_CONFIG = { limit: 30, windowMs: 10 * 1000 };
