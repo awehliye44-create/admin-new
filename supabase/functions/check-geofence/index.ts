@@ -14,6 +14,8 @@ import {
   checkGeofenceSchema, 
   CheckGeofenceRequest 
 } from "../_shared/validation.ts";
+import { authenticateDriver } from "../_shared/driverAuth.ts";
+
 
 // Rate limit: 120 requests per minute per IP (high frequency for location updates)
 const RATE_LIMIT_CONFIG = { limit: 120, windowMs: 60 * 1000 };
