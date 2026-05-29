@@ -88,13 +88,14 @@ Deno.serve(async (req) => {
         authedCustomerId = c?.id ?? null;
       }
     }
-
     if (mode === "apply") {
       if (!user_id || !authedCustomerId) {
         return json({ ok: false, reason: "AUTH_REQUIRED" }, 401);
       }
       // Override any body-supplied customer_id with the authenticated one
-      (body as ApplyOfferRequest).customer_id = authedCustomerId;
+      customer_id = authedCustomerId;
+    }
+
     }
 
 
