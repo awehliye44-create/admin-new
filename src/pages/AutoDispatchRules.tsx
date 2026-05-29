@@ -220,6 +220,7 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
   simulate_mode: settings.simulateMode,
   block_multiple_active_rides: settings.blockMultipleActiveRides,
   cancel_protection: settings.cancelProtection,
+  driver_fare_display: settings.driverFareDisplay,
 });
 
 export default function AutoDispatchRules() {
