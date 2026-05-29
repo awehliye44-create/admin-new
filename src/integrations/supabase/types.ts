@@ -4642,6 +4642,76 @@ export type Database = {
           },
         ]
       }
+      invoice_pdf_delivery_logs: {
+        Row: {
+          created_at: string
+          driver_id: string | null
+          error_message: string | null
+          id: string
+          invoice_id: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          driver_id?: string | null
+          error_message?: string | null
+          id?: string
+          invoice_id: string
+          status: string
+        }
+        Update: {
+          created_at?: string
+          driver_id?: string | null
+          error_message?: string | null
+          id?: string
+          invoice_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_pdf_delivery_logs_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_pdf_delivery_logs_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "invoice_pdf_delivery_logs_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "invoice_pdf_delivery_logs_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "invoice_pdf_delivery_logs_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_pdf_delivery_logs_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invoice_templates: {
         Row: {
           company_address: string | null
