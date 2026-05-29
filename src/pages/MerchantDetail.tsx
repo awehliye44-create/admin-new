@@ -60,13 +60,6 @@ export default function MerchantDetail() {
     setGenerations(g.data ?? []);
     setOrders(o.data ?? []);
   };
-    setMerchant(m);
-    setProducts((p as any) ?? []);
-    setCategories((c as any) ?? []);
-    setCredits(cr?.credits_remaining ?? 0);
-    setGenerations(g ?? []);
-    setOrders(o ?? []);
-  };
 
   useEffect(() => { load(); }, [id]);
 
