@@ -172,10 +172,9 @@ export default function TripHistory() {
 
   // Map state
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<google.maps.Map | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const markersRef = useRef<any[]>([]);
-  const polylineRef = useRef<google.maps.Polyline | null>(null);
+  const mapRef = useRef<mapboxgl.Map | null>(null);
+  const markersRef = useRef<mapboxgl.Marker[]>([]);
+  const routeSourceIdRef = useRef<string>('trip-history-route');
 
   const queryClient = useQueryClient();
 
@@ -384,170 +383,118 @@ export default function TripHistory() {
   useEffect(() => {
     if (!isViewOpen || !selectedTrip || !mapContainerRef.current) return;
 
-    // Wait for dialog to be fully rendered
     const initTimer = setTimeout(() => {
-      if (!mapContainerRef.current || !window.google) return;
-
-      const center = {
-        lat: selectedTrip.pickup_latitude || 51.5074,
-        lng: selectedTrip.pickup_longitude || -0.1278,
-      };
-
-      mapRef.current = new window.google.maps.Map(mapContainerRef.current, {
+      if (!mapContainerRef.current) return;
+      const center: [number, number] = [
+        selectedTrip.dropoff_longitude || selectedTrip.pickup_longitude || -0.1278,
+        selectedTrip.pickup_latitude || 51.5074,
+      ];
+      const map = new mapboxgl.Map({
+        container: mapContainerRef.current,
+        style: MAPBOX_STYLE,
         center,
         zoom: 13,
-        styles: [
-          { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-          { featureType: 'transit', stylers: [{ visibility: 'off' }] },
-        ],
       });
+      map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
+      mapRef.current = map;
     }, 100);
 
     return () => {
       clearTimeout(initTimer);
-      // Cleanup markers and polyline
-      markersRef.current.forEach(m => m.setMap(null));
+      markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
-      polylineRef.current?.setMap(null);
-      polylineRef.current = null;
+      mapRef.current?.remove();
+      mapRef.current = null;
     };
   }, [isViewOpen, selectedTrip]);
 
   // Update markers when trip or stops change
   useEffect(() => {
-    if (!mapRef.current || !selectedTrip) return;
+    const map = mapRef.current;
+    if (!map || !selectedTrip) return;
 
-    // Clear existing markers
-    markersRef.current.forEach(m => m.setMap(null));
-    markersRef.current = [];
-    polylineRef.current?.setMap(null);
+    const addRouteWhenReady = () => {
+      // Clear existing markers
+      markersRef.current.forEach((m) => m.remove());
+      markersRef.current = [];
 
-    const bounds = new window.google.maps.LatLngBounds();
-    const path: google.maps.LatLngLiteral[] = [];
+      const bounds = new mapboxgl.LngLatBounds();
+      const path: [number, number][] = [];
 
-    // Add pickup marker
-    if (selectedTrip.pickup_latitude && selectedTrip.pickup_longitude) {
-      const pickupPos = { lat: selectedTrip.pickup_latitude, lng: selectedTrip.pickup_longitude };
-      path.push(pickupPos);
-      bounds.extend(pickupPos);
-
-      const pickupMarker = new window.google.maps.Marker({
-        position: pickupPos,
-        map: mapRef.current,
-        icon: {
-          path: window.google.maps.SymbolPath.CIRCLE,
-          scale: 10,
-          fillColor: '#22c55e',
-          fillOpacity: 1,
-          strokeColor: '#ffffff',
-          strokeWeight: 2,
-        },
-        title: 'Pickup',
-      });
-      markersRef.current.push(pickupMarker);
-    }
-
-    // Add intermediate stops
-    tripStops
-      .filter(s => s.type !== 'pickup' && s.type !== 'dropoff' && s.lat && s.lng)
-      .forEach((stop, idx) => {
-        const pos = { lat: stop.lat!, lng: stop.lng! };
-        path.push(pos);
-        bounds.extend(pos);
-
-        const marker = new window.google.maps.Marker({
-          position: pos,
-          map: mapRef.current!,
-          label: {
-            text: String(idx + 1),
-            color: '#ffffff',
-            fontSize: '12px',
-            fontWeight: 'bold',
-          },
-          icon: {
-            path: window.google.maps.SymbolPath.CIRCLE,
-            scale: 10,
-            fillColor: '#3b82f6',
-            fillOpacity: 1,
-            strokeColor: '#ffffff',
-            strokeWeight: 2,
-          },
-          title: `Stop ${idx + 1}`,
-        });
+      const addCircleMarker = (lng: number, lat: number, color: string, title: string, label?: string) => {
+        const el = document.createElement('div');
+        el.style.width = '20px'; el.style.height = '20px'; el.style.borderRadius = '50%';
+        el.style.background = color; el.style.border = '2px solid #ffffff';
+        el.style.boxShadow = '0 1px 4px rgba(0,0,0,0.4)';
+        el.style.display = 'flex'; el.style.alignItems = 'center'; el.style.justifyContent = 'center';
+        el.style.color = '#fff'; el.style.fontSize = '11px'; el.style.fontWeight = 'bold';
+        if (label) el.textContent = label;
+        el.title = title;
+        const marker = new mapboxgl.Marker({ element: el }).setLngLat([lng, lat]).addTo(map);
         markersRef.current.push(marker);
-      });
+      };
 
-    // Add dropoff marker
-    if (selectedTrip.dropoff_latitude && selectedTrip.dropoff_longitude) {
-      const dropoffPos = { lat: selectedTrip.dropoff_latitude, lng: selectedTrip.dropoff_longitude };
-      path.push(dropoffPos);
-      bounds.extend(dropoffPos);
-
-      const dropoffMarker = new window.google.maps.Marker({
-        position: dropoffPos,
-        map: mapRef.current,
-        icon: {
-          path: window.google.maps.SymbolPath.CIRCLE,
-          scale: 10,
-          fillColor: '#ef4444',
-          fillOpacity: 1,
-          strokeColor: '#ffffff',
-          strokeWeight: 2,
-        },
-        title: 'Dropoff (Destination)',
-      });
-      markersRef.current.push(dropoffMarker);
-    }
-
-    // Add driver completion location marker (where driver actually was when trip completed)
-    if (selectedTrip.driver_location_lat && selectedTrip.driver_location_lng) {
-      const driverEndPos = { lat: selectedTrip.driver_location_lat, lng: selectedTrip.driver_location_lng };
-      
-      // Only show if it's meaningfully different from the dropoff (>100m away)
-      const dropoffLat = selectedTrip.dropoff_latitude;
-      const dropoffLng = selectedTrip.dropoff_longitude;
-      let showDriverEnd = true;
-      if (dropoffLat && dropoffLng) {
-        const dist = haversineDistance(driverEndPos.lat, driverEndPos.lng, dropoffLat, dropoffLng);
-        if (dist < 0.1) showDriverEnd = false; // less than 100m
+      if (selectedTrip.pickup_latitude && selectedTrip.pickup_longitude) {
+        addCircleMarker(selectedTrip.pickup_longitude, selectedTrip.pickup_latitude, '#22c55e', 'Pickup');
+        path.push([selectedTrip.pickup_longitude, selectedTrip.pickup_latitude]);
+        bounds.extend([selectedTrip.pickup_longitude, selectedTrip.pickup_latitude]);
       }
 
-      if (showDriverEnd) {
-        bounds.extend(driverEndPos);
-
-        const driverEndMarker = new window.google.maps.Marker({
-          position: driverEndPos,
-          map: mapRef.current,
-          icon: {
-            path: window.google.maps.SymbolPath.CIRCLE,
-            scale: 10,
-            fillColor: '#f59e0b',
-            fillOpacity: 1,
-            strokeColor: '#ffffff',
-            strokeWeight: 2,
-          },
-          title: 'Driver Completion Location',
+      tripStops
+        .filter((s) => s.type !== 'pickup' && s.type !== 'dropoff' && s.lat && s.lng)
+        .forEach((stop, idx) => {
+          addCircleMarker(stop.lng!, stop.lat!, '#3b82f6', `Stop ${idx + 1}`, String(idx + 1));
+          path.push([stop.lng!, stop.lat!]);
+          bounds.extend([stop.lng!, stop.lat!]);
         });
-        markersRef.current.push(driverEndMarker);
+
+      if (selectedTrip.dropoff_latitude && selectedTrip.dropoff_longitude) {
+        addCircleMarker(selectedTrip.dropoff_longitude, selectedTrip.dropoff_latitude, '#ef4444', 'Dropoff');
+        path.push([selectedTrip.dropoff_longitude, selectedTrip.dropoff_latitude]);
+        bounds.extend([selectedTrip.dropoff_longitude, selectedTrip.dropoff_latitude]);
       }
-    }
 
-    // Draw route polyline
-    if (path.length >= 2) {
-      polylineRef.current = new window.google.maps.Polyline({
-        path,
-        geodesic: true,
-        strokeColor: '#6366f1',
-        strokeOpacity: 0.8,
-        strokeWeight: 4,
-      });
-      polylineRef.current.setMap(mapRef.current);
-    }
+      if (selectedTrip.driver_location_lat && selectedTrip.driver_location_lng) {
+        const dLat = selectedTrip.driver_location_lat, dLng = selectedTrip.driver_location_lng;
+        const dropL = selectedTrip.dropoff_latitude, dropG = selectedTrip.dropoff_longitude;
+        let show = true;
+        if (dropL && dropG) {
+          const dist = haversineDistance(dLat, dLng, dropL, dropG);
+          if (dist < 0.1) show = false;
+        }
+        if (show) {
+          addCircleMarker(dLng, dLat, '#f59e0b', 'Driver Completion Location');
+          bounds.extend([dLng, dLat]);
+        }
+      }
 
-    // Fit bounds
-    if (path.length > 0) {
-      mapRef.current.fitBounds(bounds, 50);
-    }
+      // Draw route polyline as a line layer
+      const srcId = routeSourceIdRef.current;
+      const layerId = `${srcId}-layer`;
+      const lineData: GeoJSON.Feature<GeoJSON.LineString> = {
+        type: 'Feature', properties: {},
+        geometry: { type: 'LineString', coordinates: path },
+      };
+      const existing = map.getSource(srcId) as mapboxgl.GeoJSONSource | undefined;
+      if (existing) {
+        existing.setData(path.length >= 2
+          ? lineData
+          : { type: 'FeatureCollection', features: [] } as unknown as GeoJSON.Feature<GeoJSON.LineString>);
+      } else if (path.length >= 2) {
+        map.addSource(srcId, { type: 'geojson', data: lineData });
+        map.addLayer({
+          id: layerId, type: 'line', source: srcId,
+          paint: { 'line-color': '#6366f1', 'line-width': 4, 'line-opacity': 0.8 },
+        });
+      }
+
+      if (path.length > 0 && !bounds.isEmpty()) {
+        map.fitBounds(bounds, { padding: 50, animate: false });
+      }
+    };
+
+    if (map.isStyleLoaded()) addRouteWhenReady();
+    else map.once('load', addRouteWhenReady);
   }, [selectedTrip, tripStops]);
 
   const formatDuration = (minutes: number | null) => {

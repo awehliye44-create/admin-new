@@ -17,7 +17,8 @@ import {
   Navigation, Phone, Star, Clock, Wifi, WifiOff
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { getEnhancedCarIcon, preloadMarkerImage } from '@/lib/mapMarkers';
+import { createCarMarkerElement, preloadMarkerImage } from '@/lib/mapMarkers';
+import { mapboxgl, MAPBOX_STYLE } from '@/lib/mapbox';
 
 interface Driver {
   id: string;
@@ -56,11 +57,6 @@ interface ServiceArea {
   region_id: string;
 }
 
-declare global {
-  interface Window {
-    google: any;
-  }
-}
 
 export default function FleetTracking() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -75,45 +71,34 @@ export default function FleetTracking() {
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(new Date());
-  
+
   const mapRef = useRef<HTMLDivElement>(null);
-  const googleMapRef = useRef<any>(null);
-  const markersRef = useRef<Map<string, any>>(new Map());
-  const polygonsRef = useRef<Map<string, any>>(new Map());
+  const mapboxMapRef = useRef<mapboxgl.Map | null>(null);
+  const markersRef = useRef<Map<string, mapboxgl.Marker>>(new Map());
+  const regionLayerIdsRef = useRef<string[]>([]);
 
   // Preload marker image
   useEffect(() => {
     preloadMarkerImage();
   }, []);
 
-  // Load Google Maps
+  // Initialize Mapbox
   useEffect(() => {
-    if (window.google?.maps) {
-      setIsMapLoaded(true);
-      return;
-    }
-
-    const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY}&libraries=geometry`;
-    script.async = true;
-    script.defer = true;
-    script.onload = () => setIsMapLoaded(true);
-    document.head.appendChild(script);
-  }, []);
-
-  // Initialize map
-  useEffect(() => {
-    if (!isMapLoaded || !mapRef.current || googleMapRef.current) return;
-
-    googleMapRef.current = new window.google.maps.Map(mapRef.current, {
-      center: { lat: 52.0406, lng: -0.7594 },
+    if (!mapRef.current || mapboxMapRef.current) return;
+    const map = new mapboxgl.Map({
+      container: mapRef.current,
+      style: MAPBOX_STYLE,
+      center: [-0.7594, 52.0406],
       zoom: 13,
-      mapTypeId: 'roadmap',
-      styles: [
-        { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
-      ],
     });
-  }, [isMapLoaded]);
+    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
+    map.on('load', () => setIsMapLoaded(true));
+    mapboxMapRef.current = map;
+    return () => {
+      map.remove();
+      mapboxMapRef.current = null;
+    };
+  }, []);
 
   // Fetch data
   const fetchData = useCallback(async (isBackground = false) => {
