@@ -2892,6 +2892,7 @@ export type Database = {
         Row: {
           body: string
           created_at: string
+          dismissed_at: string | null
           document_id: string | null
           document_type_id: string | null
           driver_id: string
@@ -2906,6 +2907,7 @@ export type Database = {
         Insert: {
           body: string
           created_at?: string
+          dismissed_at?: string | null
           document_id?: string | null
           document_type_id?: string | null
           driver_id: string
@@ -2920,6 +2922,7 @@ export type Database = {
         Update: {
           body?: string
           created_at?: string
+          dismissed_at?: string | null
           document_id?: string | null
           document_type_id?: string | null
           driver_id?: string
@@ -2979,6 +2982,70 @@ export type Database = {
             columns: ["driver_id"]
             isOneToOne: false
             referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      driver_invoice_dismissals: {
+        Row: {
+          dismissed_at: string
+          driver_id: string
+          id: string
+          invoice_id: string
+        }
+        Insert: {
+          dismissed_at?: string
+          driver_id: string
+          id?: string
+          invoice_id: string
+        }
+        Update: {
+          dismissed_at?: string
+          driver_id?: string
+          id?: string
+          invoice_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_invoice_dismissals_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_invoice_dismissals_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_invoice_dismissals_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_invoice_dismissals_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_invoice_dismissals_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_invoice_dismissals_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
             referencedColumns: ["id"]
           },
         ]
@@ -9460,6 +9527,7 @@ export type Database = {
           authorised_amount_pence: number | null
           base_fare_pence: number | null
           booking_source: string | null
+          booking_type: string | null
           broadcast_enabled: boolean
           broadcast_started_at: string | null
           cancel_reason: string | null
@@ -9492,6 +9560,8 @@ export type Database = {
           current_offer_expires_at: string | null
           current_stop_index: number | null
           debt_recovery_pence: number | null
+          delivery_metadata: Json | null
+          delivery_type: string | null
           destination_change_adjustment_pence: number | null
           dispatch_mode: string | null
           dispatch_status: string | null
@@ -9635,6 +9705,7 @@ export type Database = {
           authorised_amount_pence?: number | null
           base_fare_pence?: number | null
           booking_source?: string | null
+          booking_type?: string | null
           broadcast_enabled?: boolean
           broadcast_started_at?: string | null
           cancel_reason?: string | null
@@ -9667,6 +9738,8 @@ export type Database = {
           current_offer_expires_at?: string | null
           current_stop_index?: number | null
           debt_recovery_pence?: number | null
+          delivery_metadata?: Json | null
+          delivery_type?: string | null
           destination_change_adjustment_pence?: number | null
           dispatch_mode?: string | null
           dispatch_status?: string | null
@@ -9810,6 +9883,7 @@ export type Database = {
           authorised_amount_pence?: number | null
           base_fare_pence?: number | null
           booking_source?: string | null
+          booking_type?: string | null
           broadcast_enabled?: boolean
           broadcast_started_at?: string | null
           cancel_reason?: string | null
@@ -9842,6 +9916,8 @@ export type Database = {
           current_offer_expires_at?: string | null
           current_stop_index?: number | null
           debt_recovery_pence?: number | null
+          delivery_metadata?: Json | null
+          delivery_type?: string | null
           destination_change_adjustment_pence?: number | null
           dispatch_mode?: string | null
           dispatch_status?: string | null
@@ -11400,10 +11476,16 @@ export type Database = {
       }
     }
     Functions: {
-      accept_ride_offer: {
-        Args: { p_driver_id: string; p_offer_id: string }
-        Returns: Json
-      }
+      accept_ride_offer:
+        | { Args: { p_driver_id: string; p_offer_id: string }; Returns: Json }
+        | {
+            Args: {
+              p_allow_customer_counter?: boolean
+              p_driver_id: string
+              p_offer_id: string
+            }
+            Returns: Json
+          }
       accept_scheduled_ride: {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
