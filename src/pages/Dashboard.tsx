@@ -44,7 +44,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar } from 'recharts';
-import { getEnhancedCarIcon, preloadMarkerImage } from '@/lib/mapMarkers';
+import { preloadMarkerImage } from '@/lib/mapMarkers';
+import { mapboxgl, MAPBOX_STYLE } from '@/lib/mapbox';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 
 interface Stats {
@@ -207,38 +208,29 @@ export default function Dashboard() {
   // Map state
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
-  const googleMapRef = useRef<any>(null);
-  const markersRef = useRef<Map<string, any>>(new Map());
+  const mapboxMapRef = useRef<mapboxgl.Map | null>(null);
 
   // Preload marker image
   useEffect(() => {
     preloadMarkerImage();
   }, []);
 
-  // Load Google Maps
+  // Initialize Mapbox
   useEffect(() => {
-    if (window.google?.maps) {
-      setIsMapLoaded(true);
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY}&libraries=geometry`;
-    script.async = true;
-    script.defer = true;
-    script.onload = () => setIsMapLoaded(true);
-    document.head.appendChild(script);
-  }, []);
-
-  // Initialize map
-  useEffect(() => {
-    if (!isMapLoaded || !mapRef.current || googleMapRef.current) return;
-    googleMapRef.current = new window.google.maps.Map(mapRef.current, {
-      center: { lat: 52.0406, lng: -0.7594 },
-      zoom: 13,
-      mapTypeId: 'roadmap',
-      styles: [{ featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] }],
+    if (!mapRef.current || mapboxMapRef.current) return;
+    const map = new mapboxgl.Map({
+      container: mapRef.current,
+      style: MAPBOX_STYLE,
+      center: [-0.7594, 52.0406],
+      zoom: 12,
     });
-  }, [isMapLoaded]);
+    map.on('load', () => setIsMapLoaded(true));
+    mapboxMapRef.current = map;
+    return () => {
+      map.remove();
+      mapboxMapRef.current = null;
+    };
+  }, []);
 
   // Fetch service areas — use shared cached hook
   const { data: sharedServiceAreas } = useServiceAreas({ activeOnly: true });
