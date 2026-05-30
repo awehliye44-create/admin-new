@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Trash2, Undo, MapPin } from 'lucide-react';
+import { mapboxgl, MAPBOX_STYLE } from '@/lib/mapbox';
 
 interface LatLng {
   lat: number;
@@ -14,11 +15,33 @@ interface RegionBoundaryMapProps {
   height?: string;
 }
 
-declare global {
-  interface Window {
-    google: any;
-    initRegionMap: () => void;
-  }
+const FILL_SRC = 'region-fill-src';
+const FILL_LAYER = 'region-fill-layer';
+const LINE_LAYER = 'region-line-layer';
+const POINTS_SRC = 'region-points-src';
+const POINTS_LAYER = 'region-points-layer';
+const POINTS_LABELS = 'region-points-labels';
+
+function buildPolygonFeature(points: LatLng[]): GeoJSON.Feature<GeoJSON.Polygon> | null {
+  if (points.length < 3) return null;
+  const ring = points.map((p) => [p.lng, p.lat]);
+  ring.push(ring[0]);
+  return {
+    type: 'Feature',
+    properties: {},
+    geometry: { type: 'Polygon', coordinates: [ring] },
+  };
+}
+
+function buildPointsFC(points: LatLng[]): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: points.map((p, i) => ({
+      type: 'Feature',
+      properties: { index: i + 1 },
+      geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+    })),
+  };
 }
 
 export function RegionBoundaryMap({
@@ -27,221 +50,97 @@ export function RegionBoundaryMap({
   isEditable = true,
   height = '400px',
 }: RegionBoundaryMapProps) {
-  const mapRef = useRef<HTMLDivElement>(null);
-  const googleMapRef = useRef<any>(null);
-  const polygonRef = useRef<any>(null);
-  const markersRef = useRef<any[]>([]);
-  const clickListenerRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<mapboxgl.Map | null>(null);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [points, setPoints] = useState<LatLng[]>(boundary || []);
   const [isDrawing, setIsDrawing] = useState(!boundary || boundary.length === 0);
 
-  // Use ref to track isDrawing for click handler
   const isDrawingRef = useRef(isDrawing);
   useEffect(() => {
     isDrawingRef.current = isDrawing;
   }, [isDrawing]);
 
-  // Load Google Maps script
+  // Init map
   useEffect(() => {
-    if (window.google?.maps) {
-      setIsMapLoaded(true);
-      return;
-    }
-
-    const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY}&libraries=drawing,geometry`;
-    script.async = true;
-    script.defer = true;
-    script.onload = () => {
-      setIsMapLoaded(true);
-    };
-    document.head.appendChild(script);
-
-    return () => {
-      // Cleanup if needed
-    };
-  }, []);
-
-  // Handle map click to add points
-  const handleMapClick = useCallback((e: any) => {
-    if (!isDrawingRef.current) return;
-    const newPoint = { lat: e.latLng.lat(), lng: e.latLng.lng() };
-    setPoints(prev => [...prev, newPoint]);
-  }, []);
-
-  // Initialize map
-  useEffect(() => {
-    if (!isMapLoaded || !mapRef.current) return;
-
-    const defaultCenter = { lat: 52.0406, lng: -0.7594 }; // Milton Keynes as default
-    const center = boundary && boundary.length > 0
-      ? { lat: boundary[0].lat, lng: boundary[0].lng }
+    if (!containerRef.current || mapRef.current) return;
+    const defaultCenter: [number, number] = [-0.7594, 52.0406];
+    const center: [number, number] = boundary && boundary.length > 0
+      ? [boundary[0].lng, boundary[0].lat]
       : defaultCenter;
 
-    googleMapRef.current = new window.google.maps.Map(mapRef.current, {
+    const map = new mapboxgl.Map({
+      container: containerRef.current,
+      style: MAPBOX_STYLE,
       center,
       zoom: 11,
-      mapTypeId: 'roadmap',
-      mapTypeControl: true,
-      mapTypeControlOptions: {
-        style: window.google.maps.MapTypeControlStyle.HORIZONTAL_BAR,
-        position: window.google.maps.ControlPosition.TOP_LEFT,
-      },
-      fullscreenControl: true,
-      styles: [
-        {
-          featureType: 'poi',
-          elementType: 'labels',
-          stylers: [{ visibility: 'off' }],
-        },
-      ],
+    });
+    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-left');
+    map.addControl(new mapboxgl.FullscreenControl(), 'top-right');
+
+    map.on('load', () => {
+      map.addSource(FILL_SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addLayer({ id: FILL_LAYER, type: 'fill', source: FILL_SRC, paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.2 } });
+      map.addLayer({ id: LINE_LAYER, type: 'line', source: FILL_SRC, paint: { 'line-color': '#3b82f6', 'line-width': 2 } });
+      map.addSource(POINTS_SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addLayer({
+        id: POINTS_LAYER,
+        type: 'circle',
+        source: POINTS_SRC,
+        paint: { 'circle-radius': 8, 'circle-color': '#3b82f6', 'circle-stroke-color': '#1d4ed8', 'circle-stroke-width': 2 },
+      });
+      map.addLayer({
+        id: POINTS_LABELS,
+        type: 'symbol',
+        source: POINTS_SRC,
+        layout: { 'text-field': ['get', 'index'], 'text-size': 11, 'text-allow-overlap': true },
+        paint: { 'text-color': '#ffffff' },
+      });
+      setIsMapLoaded(true);
     });
 
-    // Add click listener for drawing
-    if (isEditable) {
-      clickListenerRef.current = googleMapRef.current.addListener('click', handleMapClick);
-    }
+    map.on('click', (e) => {
+      if (!isDrawingRef.current) return;
+      setPoints((prev) => [...prev, { lat: e.lngLat.lat, lng: e.lngLat.lng }]);
+    });
 
-    // Set initial points from boundary
-    if (boundary && boundary.length > 0) {
-      setPoints(boundary);
-      setIsDrawing(false);
-    }
+    mapRef.current = map;
 
     return () => {
-      if (clickListenerRef.current) {
-        window.google.maps.event.removeListener(clickListenerRef.current);
-      }
+      map.remove();
+      mapRef.current = null;
     };
-  }, [isMapLoaded, isEditable, handleMapClick]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update polygon when points change
+  // Sync source data when points change
   useEffect(() => {
-    if (!googleMapRef.current || !isMapLoaded) return;
+    const map = mapRef.current;
+    if (!map || !isMapLoaded) return;
+    const fillSrc = map.getSource(FILL_SRC) as mapboxgl.GeoJSONSource | undefined;
+    const ptsSrc = map.getSource(POINTS_SRC) as mapboxgl.GeoJSONSource | undefined;
 
-    // Clear existing polygon
-    if (polygonRef.current) {
-      polygonRef.current.setMap(null);
-    }
+    const polygon = buildPolygonFeature(points);
+    fillSrc?.setData(polygon ? { type: 'FeatureCollection', features: [polygon] } : { type: 'FeatureCollection', features: [] });
+    ptsSrc?.setData(isDrawing ? buildPointsFC(points) : { type: 'FeatureCollection', features: [] });
+  }, [points, isMapLoaded, isDrawing]);
 
-    // Clear existing markers
-    markersRef.current.forEach(marker => marker.setMap(null));
-    markersRef.current = [];
-
-    if (points.length >= 3) {
-      // Create polygon
-      polygonRef.current = new window.google.maps.Polygon({
-        paths: points,
-        strokeColor: '#3b82f6',
-        strokeOpacity: 0.8,
-        strokeWeight: 2,
-        fillColor: '#3b82f6',
-        fillOpacity: 0.2,
-        editable: isEditable && !isDrawing,
-        draggable: false,
-        map: googleMapRef.current,
-      });
-
-      // Listen for polygon edits
-      if (isEditable && !isDrawing) {
-        const path = polygonRef.current.getPath();
-        window.google.maps.event.addListener(path, 'set_at', () => {
-          const newPoints = getPolygonPoints();
-          setPoints(newPoints);
-          onBoundaryChange(newPoints);
-        });
-        window.google.maps.event.addListener(path, 'insert_at', () => {
-          const newPoints = getPolygonPoints();
-          setPoints(newPoints);
-          onBoundaryChange(newPoints);
-        });
-      }
-    }
-
-    // Add markers for points while drawing
-    if (isDrawing && points.length > 0) {
-      points.forEach((point, index) => {
-        const marker = new window.google.maps.Marker({
-          position: point,
-          map: googleMapRef.current,
-          label: {
-            text: String(index + 1),
-            color: 'white',
-            fontSize: '12px',
-          },
-          icon: {
-            path: window.google.maps.SymbolPath.CIRCLE,
-            scale: 12,
-            fillColor: '#3b82f6',
-            fillOpacity: 1,
-            strokeColor: '#1d4ed8',
-            strokeWeight: 2,
-          },
-        });
-        markersRef.current.push(marker);
-      });
-
-      // Draw lines between points while drawing
-      if (points.length >= 2) {
-        const polyline = new window.google.maps.Polyline({
-          path: points,
-          strokeColor: '#3b82f6',
-          strokeOpacity: 0.8,
-          strokeWeight: 2,
-          map: googleMapRef.current,
-        });
-        markersRef.current.push(polyline);
-      }
-    }
-  }, [points, isMapLoaded, isDrawing, isEditable, onBoundaryChange]);
-
-  const getPolygonPoints = useCallback((): LatLng[] => {
-    if (!polygonRef.current) return [];
-    const path = polygonRef.current.getPath();
-    const newPoints: LatLng[] = [];
-    for (let i = 0; i < path.getLength(); i++) {
-      const latLng = path.getAt(i);
-      newPoints.push({ lat: latLng.lat(), lng: latLng.lng() });
-    }
-    return newPoints;
-  }, []);
-
-  const handleUndo = () => {
-    if (points.length > 0) {
-      setPoints(prev => prev.slice(0, -1));
-    }
-  };
-
+  const handleUndo = () => points.length > 0 && setPoints((p) => p.slice(0, -1));
   const handleClear = () => {
     setPoints([]);
     setIsDrawing(true);
-    if (polygonRef.current) {
-      polygonRef.current.setMap(null);
-      polygonRef.current = null;
-    }
     onBoundaryChange([]);
   };
-
   const handleFinishDrawing = () => {
     if (points.length >= 5) {
       setIsDrawing(false);
       onBoundaryChange(points);
     }
   };
-
-  const handleEditMode = () => {
-    setIsDrawing(true);
-  };
+  const handleEditMode = () => setIsDrawing(true);
 
   return (
     <div className="space-y-3">
-      <div
-        ref={mapRef}
-        style={{ height, width: '100%' }}
-        className="rounded-lg border border-border overflow-hidden"
-      />
-      
+      <div ref={containerRef} style={{ height, width: '100%' }} className="rounded-lg border border-border overflow-hidden" />
       {isEditable && (
         <div className="flex items-center justify-between gap-2 p-3 bg-muted/50 rounded-lg">
           <div className="text-sm text-muted-foreground">
@@ -258,23 +157,15 @@ export function RegionBoundaryMap({
               )
             ) : (
               <span className="flex items-center gap-1 text-blue-600">
-                ✓ Boundary set ({points.length} points) - Drag vertices to edit
+                ✓ Boundary set ({points.length} points)
               </span>
             )}
           </div>
-          
           <div className="flex gap-2">
             {isDrawing ? (
               <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleUndo}
-                  disabled={points.length === 0}
-                >
-                  <Undo className="h-4 w-4 mr-1" />
-                  Undo
+                <Button type="button" variant="outline" size="sm" onClick={handleUndo} disabled={points.length === 0}>
+                  <Undo className="h-4 w-4 mr-1" /> Undo
                 </Button>
                 <Button
                   type="button"
@@ -288,22 +179,11 @@ export function RegionBoundaryMap({
               </>
             ) : (
               <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleEditMode}
-                >
+                <Button type="button" variant="outline" size="sm" onClick={handleEditMode}>
                   Redraw
                 </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleClear}
-                >
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  Clear
+                <Button type="button" variant="destructive" size="sm" onClick={handleClear}>
+                  <Trash2 className="h-4 w-4 mr-1" /> Clear
                 </Button>
               </>
             )}
