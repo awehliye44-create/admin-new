@@ -145,6 +145,7 @@ const App = () => (
               <Route path="merchants/:id" element={<MerchantDetail />} />
               <Route path="merchant-approvals" element={<MerchantApprovals />} />
               <Route path="marketplace-settings" element={<MarketplaceSettings />} />
+              <Route path="marketplace-settlements" element={<MarketplaceSettlements />} />
               
               
               
