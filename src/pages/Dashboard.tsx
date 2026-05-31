@@ -278,7 +278,7 @@ export default function Dashboard() {
       const byCategory = (cat: string) => merchants.filter(m => m.category === cat).length;
       return {
         merchantCount: merchants.length,
-        activeMerchants: merchants.filter(m => m.status === 'active').length,
+        activeMerchants: merchants.filter(m => m.status === 'approved').length,
         byCategory: {
           food: byCategory('food'),
           grocery: byCategory('grocery'),
