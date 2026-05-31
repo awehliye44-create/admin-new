@@ -96,7 +96,7 @@ Deno.serve(async (req) => {
       customer_id = authedCustomerId;
     }
 
-    }
+
 
 
     // --- Load offer ---
