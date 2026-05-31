@@ -5317,6 +5317,13 @@ export type Database = {
             referencedRelation: "merchants"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "merchant_ai_credits_merchant_id_fkey"
+            columns: ["merchant_id"]
+            isOneToOne: true
+            referencedRelation: "merchants_public"
+            referencedColumns: ["id"]
+          },
         ]
       }
       merchant_ai_generations: {
@@ -5356,6 +5363,13 @@ export type Database = {
             columns: ["merchant_id"]
             isOneToOne: false
             referencedRelation: "merchants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "merchant_ai_generations_merchant_id_fkey"
+            columns: ["merchant_id"]
+            isOneToOne: false
+            referencedRelation: "merchants_public"
             referencedColumns: ["id"]
           },
           {
@@ -5418,6 +5432,13 @@ export type Database = {
             referencedRelation: "merchants"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "merchant_product_categories_merchant_id_fkey"
+            columns: ["merchant_id"]
+            isOneToOne: false
+            referencedRelation: "merchants_public"
+            referencedColumns: ["id"]
+          },
         ]
       }
       merchant_products: {
@@ -5472,6 +5493,13 @@ export type Database = {
             columns: ["merchant_id"]
             isOneToOne: false
             referencedRelation: "merchants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "merchant_products_merchant_id_fkey"
+            columns: ["merchant_id"]
+            isOneToOne: false
+            referencedRelation: "merchants_public"
             referencedColumns: ["id"]
           },
           {
@@ -11483,6 +11511,86 @@ export type Database = {
             columns: ["region_id"]
             isOneToOne: false
             referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      merchants_public: {
+        Row: {
+          address: string | null
+          banner_url: string | null
+          business_name: string | null
+          category: Database["public"]["Enums"]["merchant_category"] | null
+          city: string | null
+          created_at: string | null
+          delivery_radius_km: number | null
+          description: string | null
+          email: string | null
+          id: string | null
+          is_open: boolean | null
+          logo_url: string | null
+          min_order_amount: number | null
+          opening_hours: Json | null
+          owner_name: string | null
+          phone: string | null
+          postcode: string | null
+          prep_time_minutes: number | null
+          service_area_id: string | null
+          status: Database["public"]["Enums"]["merchant_status"] | null
+          updated_at: string | null
+        }
+        Insert: {
+          address?: string | null
+          banner_url?: string | null
+          business_name?: string | null
+          category?: Database["public"]["Enums"]["merchant_category"] | null
+          city?: string | null
+          created_at?: string | null
+          delivery_radius_km?: number | null
+          description?: string | null
+          email?: string | null
+          id?: string | null
+          is_open?: boolean | null
+          logo_url?: string | null
+          min_order_amount?: number | null
+          opening_hours?: Json | null
+          owner_name?: string | null
+          phone?: string | null
+          postcode?: string | null
+          prep_time_minutes?: number | null
+          service_area_id?: string | null
+          status?: Database["public"]["Enums"]["merchant_status"] | null
+          updated_at?: string | null
+        }
+        Update: {
+          address?: string | null
+          banner_url?: string | null
+          business_name?: string | null
+          category?: Database["public"]["Enums"]["merchant_category"] | null
+          city?: string | null
+          created_at?: string | null
+          delivery_radius_km?: number | null
+          description?: string | null
+          email?: string | null
+          id?: string | null
+          is_open?: boolean | null
+          logo_url?: string | null
+          min_order_amount?: number | null
+          opening_hours?: Json | null
+          owner_name?: string | null
+          phone?: string | null
+          postcode?: string | null
+          prep_time_minutes?: number | null
+          service_area_id?: string | null
+          status?: Database["public"]["Enums"]["merchant_status"] | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "merchants_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
             referencedColumns: ["id"]
           },
         ]
