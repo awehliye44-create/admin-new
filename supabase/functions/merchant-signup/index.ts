@@ -98,9 +98,16 @@ Deno.serve(async (req) => {
   const { data: merchant, error: insErr } = await supabase
     .from('merchants').insert(insertPayload).select('id').single();
   if (insErr || !merchant) {
-    const code = insErr?.code === '23505' ? 409 : 500;
+    if (insErr?.code === '23505') {
+      const msg = /email/i.test(insErr.message)
+        ? 'An application with this email has already been submitted.'
+        : 'A merchant with this business name already exists in this service area.';
+      return new Response(JSON.stringify({ error: msg, code: 'duplicate_application' }), {
+        status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
     return new Response(JSON.stringify({ error: insErr?.message ?? 'Failed to create application' }), {
-      status: code, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 
