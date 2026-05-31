@@ -9519,6 +9519,9 @@ export type Database = {
       }
       trips: {
         Row: {
+          accepted_driver_offer_fare_pence: number | null
+          accepted_preset_offer_fare_pence: number | null
+          accepted_ride_offer_id: string | null
           airport_charge_pence: number
           applied_offer_code: string | null
           applied_offer_id: string | null
@@ -9559,10 +9562,12 @@ export type Database = {
           current_offer_driver_id: string | null
           current_offer_expires_at: string | null
           current_stop_index: number | null
+          customer_modification_charge_pence: number | null
           debt_recovery_pence: number | null
           delivery_metadata: Json | null
           delivery_type: string | null
           destination_change_adjustment_pence: number | null
+          discount_pence: number | null
           dispatch_mode: string | null
           dispatch_status: string | null
           distance_unit: string | null
@@ -9599,7 +9604,9 @@ export type Database = {
           fare_breakdown: Json | null
           fare_engine_config_id: string | null
           fare_locked: boolean | null
+          fare_locked_at: string | null
           fare_snapshot_json: Json | null
+          final_customer_fare_pence: number | null
           final_fare_pence: number | null
           final_payout_pence: number | null
           financial_outcome: string | null
@@ -9611,8 +9618,16 @@ export type Database = {
           job_type: string | null
           last_broadcast_at: string | null
           late_cancel_fee_pence: number | null
+          locked_base_fare_pence: number | null
           locked_driver_id: string | null
+          locked_offer_type: string | null
           max_broadcast_rounds: number | null
+          modification_confirmed_at: string | null
+          modification_delta_pence: number | null
+          modification_status: string | null
+          modified_dropoff_address: string | null
+          modified_dropoff_latitude: number | null
+          modified_dropoff_longitude: number | null
           negotiation_allowed: boolean
           negotiation_disabled: boolean
           negotiation_locked_until: string | null
@@ -9623,6 +9638,9 @@ export type Database = {
           offer_discount_pence: number
           offer_snapshot: Json | null
           onecab_net_pence: number | null
+          original_dropoff_address: string | null
+          original_dropoff_latitude: number | null
+          original_dropoff_longitude: number | null
           original_payment_method: string | null
           other_pass_through_charges_pence: number
           paid_waiting_started_at: string | null
@@ -9697,6 +9715,9 @@ export type Database = {
           wallet_balance_before: number | null
         }
         Insert: {
+          accepted_driver_offer_fare_pence?: number | null
+          accepted_preset_offer_fare_pence?: number | null
+          accepted_ride_offer_id?: string | null
           airport_charge_pence?: number
           applied_offer_code?: string | null
           applied_offer_id?: string | null
@@ -9737,10 +9758,12 @@ export type Database = {
           current_offer_driver_id?: string | null
           current_offer_expires_at?: string | null
           current_stop_index?: number | null
+          customer_modification_charge_pence?: number | null
           debt_recovery_pence?: number | null
           delivery_metadata?: Json | null
           delivery_type?: string | null
           destination_change_adjustment_pence?: number | null
+          discount_pence?: number | null
           dispatch_mode?: string | null
           dispatch_status?: string | null
           distance_unit?: string | null
@@ -9777,7 +9800,9 @@ export type Database = {
           fare_breakdown?: Json | null
           fare_engine_config_id?: string | null
           fare_locked?: boolean | null
+          fare_locked_at?: string | null
           fare_snapshot_json?: Json | null
+          final_customer_fare_pence?: number | null
           final_fare_pence?: number | null
           final_payout_pence?: number | null
           financial_outcome?: string | null
@@ -9789,8 +9814,16 @@ export type Database = {
           job_type?: string | null
           last_broadcast_at?: string | null
           late_cancel_fee_pence?: number | null
+          locked_base_fare_pence?: number | null
           locked_driver_id?: string | null
+          locked_offer_type?: string | null
           max_broadcast_rounds?: number | null
+          modification_confirmed_at?: string | null
+          modification_delta_pence?: number | null
+          modification_status?: string | null
+          modified_dropoff_address?: string | null
+          modified_dropoff_latitude?: number | null
+          modified_dropoff_longitude?: number | null
           negotiation_allowed?: boolean
           negotiation_disabled?: boolean
           negotiation_locked_until?: string | null
@@ -9801,6 +9834,9 @@ export type Database = {
           offer_discount_pence?: number
           offer_snapshot?: Json | null
           onecab_net_pence?: number | null
+          original_dropoff_address?: string | null
+          original_dropoff_latitude?: number | null
+          original_dropoff_longitude?: number | null
           original_payment_method?: string | null
           other_pass_through_charges_pence?: number
           paid_waiting_started_at?: string | null
@@ -9875,6 +9911,9 @@ export type Database = {
           wallet_balance_before?: number | null
         }
         Update: {
+          accepted_driver_offer_fare_pence?: number | null
+          accepted_preset_offer_fare_pence?: number | null
+          accepted_ride_offer_id?: string | null
           airport_charge_pence?: number
           applied_offer_code?: string | null
           applied_offer_id?: string | null
@@ -9915,10 +9954,12 @@ export type Database = {
           current_offer_driver_id?: string | null
           current_offer_expires_at?: string | null
           current_stop_index?: number | null
+          customer_modification_charge_pence?: number | null
           debt_recovery_pence?: number | null
           delivery_metadata?: Json | null
           delivery_type?: string | null
           destination_change_adjustment_pence?: number | null
+          discount_pence?: number | null
           dispatch_mode?: string | null
           dispatch_status?: string | null
           distance_unit?: string | null
@@ -9955,7 +9996,9 @@ export type Database = {
           fare_breakdown?: Json | null
           fare_engine_config_id?: string | null
           fare_locked?: boolean | null
+          fare_locked_at?: string | null
           fare_snapshot_json?: Json | null
+          final_customer_fare_pence?: number | null
           final_fare_pence?: number | null
           final_payout_pence?: number | null
           financial_outcome?: string | null
@@ -9967,8 +10010,16 @@ export type Database = {
           job_type?: string | null
           last_broadcast_at?: string | null
           late_cancel_fee_pence?: number | null
+          locked_base_fare_pence?: number | null
           locked_driver_id?: string | null
+          locked_offer_type?: string | null
           max_broadcast_rounds?: number | null
+          modification_confirmed_at?: string | null
+          modification_delta_pence?: number | null
+          modification_status?: string | null
+          modified_dropoff_address?: string | null
+          modified_dropoff_latitude?: number | null
+          modified_dropoff_longitude?: number | null
           negotiation_allowed?: boolean
           negotiation_disabled?: boolean
           negotiation_locked_until?: string | null
@@ -9979,6 +10030,9 @@ export type Database = {
           offer_discount_pence?: number
           offer_snapshot?: Json | null
           onecab_net_pence?: number | null
+          original_dropoff_address?: string | null
+          original_dropoff_latitude?: number | null
+          original_dropoff_longitude?: number | null
           original_payment_method?: string | null
           other_pass_through_charges_pence?: number
           paid_waiting_started_at?: string | null
@@ -11476,16 +11530,14 @@ export type Database = {
       }
     }
     Functions: {
-      accept_ride_offer:
-        | { Args: { p_driver_id: string; p_offer_id: string }; Returns: Json }
-        | {
-            Args: {
-              p_allow_customer_counter?: boolean
-              p_driver_id: string
-              p_offer_id: string
-            }
-            Returns: Json
-          }
+      accept_ride_offer: {
+        Args: {
+          p_allow_customer_counter?: boolean
+          p_driver_id: string
+          p_offer_id: string
+        }
+        Returns: Json
+      }
       accept_scheduled_ride: {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
@@ -11518,9 +11570,29 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      apply_approved_trip_change_from_request: {
+        Args: {
+          p_req: Database["public"]["Tables"]["trip_change_requests"]["Row"]
+        }
+        Returns: undefined
+      }
       apply_customer_decline_grace: {
         Args: { p_offer_id: string; p_reason?: string }
         Returns: Json
+      }
+      apply_trip_modification_to_trip: {
+        Args: {
+          p_after_snapshot: Json
+          p_before_snapshot: Json
+          p_change_type: string
+          p_fare_delta_pence: number
+          p_fare_preview?: Json
+          p_new_distance_meters: number
+          p_new_duration_seconds: number
+          p_new_fare_pence: number
+          p_trip_id: string
+        }
+        Returns: undefined
       }
       approve_corporate_request: {
         Args: { p_request_id: string; p_reviewed_by?: string }
