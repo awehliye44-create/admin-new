@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireAdmin } from "../_shared/internalAuth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -8,6 +9,11 @@ const corsHeaders = {
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
+
+  // Admin-only: seeding and clearing demo ops data must never be reachable
+  // anonymously. Requires a valid JWT with admin/super_admin role.
+  const gate = await requireAdmin(req);
+  if (gate instanceof Response) return gate;
 
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
@@ -18,7 +24,7 @@ serve(async (req) => {
 
   // ── CLEAR: Remove all demo seed data ──
   if (action === 'clear') {
-    await supabase.from('ops_ai_summaries').delete().like('alert_id', '%');
+    // Scope ops_ai_summaries deletion to demo alert IDs only (never wipe all summaries).
     const { data: demoAlerts } = await supabase.from('ops_alerts').select('id').like('fingerprint', 'demo:%');
     if (demoAlerts?.length) {
       const ids = demoAlerts.map(a => a.id);
@@ -34,6 +40,7 @@ serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
+
 
   if (action === 'seed') {
     // ── All 18 required seed scenarios via ops_upsert_alert ──
