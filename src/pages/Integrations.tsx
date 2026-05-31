@@ -54,7 +54,7 @@ const INTEGRATION_PROVIDERS = [
   { value: 'stripe', label: 'Stripe', icon: '💳', description: 'Payment processing' },
   { value: 'twilio', label: 'Twilio', icon: '📱', description: 'SMS & Voice' },
   { value: 'sendgrid', label: 'SendGrid', icon: '📧', description: 'Email delivery' },
-  { value: 'google_maps', label: 'Google Maps', icon: '🗺️', description: 'Maps & Geocoding' },
+  { value: 'mapbox', label: 'Mapbox', icon: '🗺️', description: 'Maps & Geocoding' },
   { value: 'firebase', label: 'Firebase', icon: '🔥', description: 'Push notifications' },
   { value: 'segment', label: 'Segment', icon: '📊', description: 'Analytics' },
   { value: 'intercom', label: 'Intercom', icon: '💬', description: 'Customer support' },

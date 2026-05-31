@@ -7,7 +7,7 @@
  *   - active trip (pickup_to_dropoff): 45 seconds
  */
 
-import { getDirections, type DirectionsResult } from "./googleMaps.ts";
+import { getDirections, type DirectionsResult } from "./mapbox.ts";
 
 export type RouteLeg = "driver_to_pickup" | "pickup_to_dropoff";
 

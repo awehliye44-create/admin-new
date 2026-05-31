@@ -3,7 +3,7 @@ import {
   FareEngine,
   type FarePricingSettings,
 } from "../_shared/fareEngine.ts";
-import { getDirections } from "../_shared/googleMaps.ts";
+import { getDirections } from "../_shared/mapbox.ts";
 import {
   resolvePricingZone,
   resolveZoneRoutePricing,
