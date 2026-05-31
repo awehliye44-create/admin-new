@@ -279,6 +279,7 @@ export function AdminSidebar() {
               <P pageSlug="merchants" to="/merchants" icon={<Store className="h-4 w-4" />} label="Merchant Management" active={currentPath === '/merchants' || (currentPath.startsWith('/merchants/') && currentPath !== '/merchants')} collapsed={isCollapsed} />
               <P pageSlug="merchant-approvals" to="/merchant-approvals" icon={<ShieldCheck className="h-4 w-4" />} label="Merchant Approvals" active={currentPath === '/merchant-approvals'} collapsed={isCollapsed} />
               <P pageSlug="marketplace-settings" to="/marketplace-settings" icon={<Settings2 className="h-4 w-4" />} label="Marketplace Settings" active={currentPath === '/marketplace-settings'} collapsed={isCollapsed} />
+              <P pageSlug="marketplace-settlements" to="/marketplace-settlements" icon={<Wallet className="h-4 w-4" />} label="Marketplace Settlements" active={currentPath === '/marketplace-settlements'} collapsed={isCollapsed} />
             </div>
           </div>
 
