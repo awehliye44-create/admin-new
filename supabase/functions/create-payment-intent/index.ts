@@ -53,20 +53,20 @@ serve(async (req) => {
     const body = await req.json();
     const {
       trip_id,
-      customer_id,
       estimated_fare_pence,
       discount_amount_pence = 0,
       payment_method_type = "card",
       stripe_payment_method_id,
     } = body;
 
-    if (!trip_id || !customer_id || !estimated_fare_pence) {
-      return errorResponse("Missing required fields: trip_id, customer_id, estimated_fare_pence", 400, undefined, "VALIDATION_MISSING_FIELD");
+    if (!trip_id || !estimated_fare_pence) {
+      return errorResponse("Missing required fields: trip_id, estimated_fare_pence", 400, undefined, "VALIDATION_MISSING_FIELD");
     }
 
     if (estimated_fare_pence < 50) {
       return errorResponse("Minimum fare is 50 pence", 400, undefined, "VALIDATION_FAILED");
     }
+
 
     // Payable amount = what we will MAX capture (estimated fare minus discount).
     // This is the upper bound for `application_fee_amount` and the base for the buffer.
