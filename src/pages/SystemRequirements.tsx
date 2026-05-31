@@ -192,7 +192,7 @@ const DEFAULT_ENV_VARS: Omit<EnvironmentVariable, 'id'>[] = [
   { key: 'SUPABASE_URL', value: '***', is_secret: false, category: 'database', description: 'Supabase project URL', is_required: true, is_set: true },
   { key: 'SUPABASE_ANON_KEY', value: '***', is_secret: true, category: 'database', description: 'Supabase anonymous key', is_required: true, is_set: true },
   { key: 'SUPABASE_SERVICE_ROLE_KEY', value: '***', is_secret: true, category: 'database', description: 'Supabase service role key', is_required: true, is_set: true },
-  { key: 'GOOGLE_MAPS_API_KEY', value: '***', is_secret: true, category: 'integrations', description: 'Google Maps API key for location services', is_required: true, is_set: true },
+  { key: 'MAPBOX_PUBLIC_TOKEN', value: '***', is_secret: false, category: 'integrations', description: 'Mapbox public access token for maps & geocoding', is_required: true, is_set: true },
   { key: 'RESEND_API_KEY', value: '***', is_secret: true, category: 'integrations', description: 'Resend API key for email notifications', is_required: false, is_set: true },
   { key: 'VAPID_PUBLIC_KEY', value: '***', is_secret: false, category: 'notifications', description: 'VAPID public key for push notifications', is_required: false, is_set: true },
   { key: 'VAPID_PRIVATE_KEY', value: '***', is_secret: true, category: 'notifications', description: 'VAPID private key for push notifications', is_required: false, is_set: true },
