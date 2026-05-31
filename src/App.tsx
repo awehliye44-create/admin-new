@@ -84,6 +84,7 @@ import MerchantDetail from "./pages/MerchantDetail";
 import { AdminTelemetryProvider } from "@/lib/telemetry/adminBootstrap";
 import MerchantApprovals from "./pages/MerchantApprovals";
 import MarketplaceSettings from "./pages/MarketplaceSettings";
+import MarketplaceSettlements from "./pages/MarketplaceSettlements";
 const queryClient = createAppQueryClient();
 
 const App = () => (
