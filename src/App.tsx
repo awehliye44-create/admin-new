@@ -140,6 +140,7 @@ const App = () => (
               
               {/* Pricing & Fares */}
               <Route path="promo-codes" element={<PromoCodes />} />
+              <Route path="offers" element={<Offers />} />
               <Route path="merchants" element={<MerchantManagement />} />
               <Route path="merchants/:id" element={<MerchantDetail />} />
               <Route path="merchant-approvals" element={<MerchantApprovals />} />
