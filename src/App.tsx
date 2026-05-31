@@ -84,6 +84,7 @@ import MerchantDetail from "./pages/MerchantDetail";
 import { AdminTelemetryProvider } from "@/lib/telemetry/adminBootstrap";
 import MerchantApprovals from "./pages/MerchantApprovals";
 import MarketplaceSettings from "./pages/MarketplaceSettings";
+import MarketplaceSettlements from "./pages/MarketplaceSettlements";
 const queryClient = createAppQueryClient();
 
 const App = () => (
@@ -145,6 +146,7 @@ const App = () => (
               <Route path="merchants/:id" element={<MerchantDetail />} />
               <Route path="merchant-approvals" element={<MerchantApprovals />} />
               <Route path="marketplace-settings" element={<MarketplaceSettings />} />
+              <Route path="marketplace-settlements" element={<MarketplaceSettlements />} />
               
               
               
