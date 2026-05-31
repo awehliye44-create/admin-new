@@ -166,7 +166,7 @@ export default function MarketplaceSettlements() {
   };
 
   return (
-    <AdminLayout>
+    <AdminLayout title="Marketplace Settlements" description="Merchant payout tracking for delivery marketplace orders">
       <div className="flex flex-col gap-1 mb-6">
         <h1 className="text-3xl font-bold flex items-center gap-2">
           <Wallet className="h-7 w-7 text-primary" />
