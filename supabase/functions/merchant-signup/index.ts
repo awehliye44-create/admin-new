@@ -74,20 +74,10 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Duplicate check
-  const { data: dup } = await supabase
-    .from('merchants')
-    .select('id')
-    .or(`email.ilike.${p.email},business_name.ilike.${p.business_name}`)
-    .limit(1)
-    .maybeSingle();
-  if (dup) {
-    return new Response(JSON.stringify({ error: 'An application with this email or business name already exists.' }), {
-      status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
-
-  // Insert merchant first to get id, then upload media
+  // Insert merchant first to get id, then upload media.
+  // Duplicate protection is enforced by unique indexes:
+  //  - merchants_email_unique_ci         (lower(email))
+  //  - merchants_business_name_area_unique_ci  (lower(business_name), service_area_id)
   const insertPayload: Record<string, unknown> = {
     business_name: sanitize(p.business_name),
     category: p.merchant_type,
@@ -108,9 +98,16 @@ Deno.serve(async (req) => {
   const { data: merchant, error: insErr } = await supabase
     .from('merchants').insert(insertPayload).select('id').single();
   if (insErr || !merchant) {
-    const code = insErr?.code === '23505' ? 409 : 500;
+    if (insErr?.code === '23505') {
+      const msg = /email/i.test(insErr.message)
+        ? 'An application with this email has already been submitted.'
+        : 'A merchant with this business name already exists in this service area.';
+      return new Response(JSON.stringify({ error: msg, code: 'duplicate_application' }), {
+        status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
     return new Response(JSON.stringify({ error: insErr?.message ?? 'Failed to create application' }), {
-      status: code, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 
