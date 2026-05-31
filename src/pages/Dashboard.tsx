@@ -677,7 +677,72 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       )}
+
+      {/* ─── Delivery Marketplace Overview ─── */}
+      {/* Respects the selected service area filter. Values are labelled
+          explicitly as Delivery Marketplace to never get mixed with Ride
+          Revenue. Cash is not allowed for marketplace delivery — all
+          customer-side payments are card / Apple Pay / Google Pay. */}
+      <Card className="mb-6">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Send className="h-5 w-5 text-primary" />
+              Delivery Marketplace Overview
+            </CardTitle>
+            <span className="text-xs text-muted-foreground">
+              {selectedServiceArea === 'all'
+                ? 'All service areas'
+                : selectedArea?.name || 'Selected service area'}
+            </span>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-4">
+            <DeliveryStat label="Delivery Orders Today" value="0" sub={`${deliveryData?.activeMerchants ?? 0} active merchants`} />
+            <DeliveryStat label="Active Delivery Orders" value="0" sub="In progress" />
+            <DeliveryStat label="Completed Delivery Orders" value="0" sub="This period" />
+            <DeliveryStat label="Cancelled Delivery Orders" value="0" sub="This period" />
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-4">
+            <DeliveryStat
+              label="Delivery Marketplace Revenue"
+              value={selectedServiceArea === 'all' ? '—' : formatPence(0, activeCurrencyCode)}
+              sub="ONECAB commission (delivery)"
+            />
+            <DeliveryStat
+              label="Merchant Sales"
+              value={selectedServiceArea === 'all' ? '—' : formatPence(0, activeCurrencyCode)}
+              sub="Gross merchant sales"
+            />
+            <DeliveryStat
+              label="Driver Delivery Earnings"
+              value={selectedServiceArea === 'all' ? '—' : formatPence(0, activeCurrencyCode)}
+              sub="Paid to delivery drivers"
+            />
+            <DeliveryStat
+              label="Pending Merchant Settlements"
+              value={selectedServiceArea === 'all' ? '—' : formatPence(0, activeCurrencyCode)}
+              sub="Net owed to merchants"
+            />
+          </div>
+          <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-5">
+            <DeliveryCategoryCard label="Food Orders" count={deliveryData?.byCategory.food ?? 0} />
+            <DeliveryCategoryCard label="Grocery Orders" count={deliveryData?.byCategory.grocery ?? 0} />
+            <DeliveryCategoryCard label="Retail Orders" count={deliveryData?.byCategory.retail ?? 0} />
+            <DeliveryCategoryCard label="Pharmacy Orders" count={deliveryData?.byCategory.pharmacy ?? 0} />
+            <DeliveryCategoryCard label="Parcel Orders" count={deliveryData?.byCategory.parcel ?? 0} />
+          </div>
+          <p className="mt-4 text-xs text-muted-foreground">
+            Delivery order volumes populate once marketplace orders flow through the
+            ONECAB payment workflow (card, Apple Pay, Google Pay — no cash). Counts above
+            reflect registered merchants in the selected service area.
+          </p>
+        </CardContent>
+      </Card>
+
       <div className="grid gap-6 lg:grid-cols-2 mb-6">
+
         {/* User Statistics */}
         <Card>
           <CardHeader>
