@@ -968,3 +968,29 @@ export default function Dashboard() {
     </AdminLayout>
   );
 }
+
+function DeliveryStat({ label, value, sub }: { label: string; value: string; sub: string }) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-bold">{value}</div>
+        <p className="text-xs text-muted-foreground">{sub}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DeliveryCategoryCard({ label, count }: { label: string; count: number }) {
+  return (
+    <Card className="bg-muted/30">
+      <CardContent className="pt-4">
+        <div className="text-xs text-muted-foreground">{label}</div>
+        <div className="text-xl font-bold mt-1">0</div>
+        <div className="text-[10px] text-muted-foreground mt-0.5">{count} merchants</div>
+      </CardContent>
+    </Card>
+  );
+}
