@@ -101,15 +101,31 @@ serve(async (req) => {
       return errorResponse((e as Error).message, 400, undefined, "REGION_CURRENCY_UNRESOLVABLE");
     }
 
-    // === Get trip details ===
+    // === Resolve caller's customer record server-side (never trust body) ===
+    const { data: callerCustomer, error: callerCustomerError } = await supabase
+      .from("customers")
+      .select("id, stripe_customer_id, first_name, last_name, phone, rider_status")
+      .eq("user_id", authUser.id)
+      .maybeSingle();
+
+    if (callerCustomerError || !callerCustomer) {
+      return errorResponse("Customer profile not found for authenticated user", 403, undefined, "AUTH_INVALID");
+    }
+    const customer_id = callerCustomer.id;
+
+    // === Get trip details and verify ownership ===
     const { data: trip, error: tripError } = await supabase
       .from("trips")
-      .select("id, status, driver_id, service_area_id, stripe_payment_intent_id")
+      .select("id, status, driver_id, service_area_id, stripe_payment_intent_id, passenger_id")
       .eq("id", trip_id)
       .single();
 
     if (tripError || !trip) {
       return errorResponse("Trip not found", 404, undefined, "TRIP_NOT_FOUND");
+    }
+
+    if (trip.passenger_id !== customer_id) {
+      return errorResponse("Forbidden: trip does not belong to caller", 403, undefined, "AUTH_INVALID");
     }
 
     // Idempotency: if PI already exists, return it
@@ -129,16 +145,9 @@ serve(async (req) => {
       }
     }
 
-    // === Get customer and verify rider_status ===
-    const { data: customer } = await supabase
-      .from("customers")
-      .select("id, stripe_customer_id, first_name, last_name, phone, rider_status")
-      .eq("id", customer_id)
-      .single();
+    // === Verify rider_status on caller's customer record ===
+    const customer = callerCustomer;
 
-    if (!customer) {
-      return errorResponse("Customer not found", 404, undefined, "VALIDATION_FAILED");
-    }
 
     const riderStatus = (customer as any).rider_status || "active";
     if (riderStatus !== "active") {
