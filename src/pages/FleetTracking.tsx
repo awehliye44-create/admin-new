@@ -225,45 +225,71 @@ export default function FleetTracking() {
 
   // Draw region boundaries on map
   useEffect(() => {
-    if (!googleMapRef.current || !isMapLoaded) return;
+    const map = mapboxMapRef.current;
+    if (!map || !isMapLoaded) return;
 
-    // Clear existing polygons
-    polygonsRef.current.forEach(polygon => polygon.setMap(null));
-    polygonsRef.current.clear();
-
-    regions.forEach(region => {
-      if (region.geo_boundary && Array.isArray(region.geo_boundary) && region.geo_boundary.length >= 3) {
-        const polygon = new window.google.maps.Polygon({
-          paths: region.geo_boundary,
-          strokeColor: '#3b82f6',
-          strokeOpacity: 0.5,
-          strokeWeight: 2,
-          fillColor: '#3b82f6',
-          fillOpacity: 0.1,
-          map: googleMapRef.current,
-        });
-        polygonsRef.current.set(region.id, polygon);
+    const apply = () => {
+      // Clear existing region layers/sources
+      for (const id of regionLayerIdsRef.current) {
+        if (map.getLayer(`${id}-fill`)) map.removeLayer(`${id}-fill`);
+        if (map.getLayer(`${id}-line`)) map.removeLayer(`${id}-line`);
+        if (map.getSource(id)) map.removeSource(id);
       }
-    });
+      regionLayerIdsRef.current = [];
+
+      regions.forEach((region) => {
+        const coords = region.geo_boundary;
+        if (!Array.isArray(coords) || coords.length < 3) return;
+        const ring: [number, number][] = coords.map((p: any) => [p.lng, p.lat]);
+        // Close ring
+        if (ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1]) {
+          ring.push(ring[0]);
+        }
+        const sourceId = `region-${region.id}`;
+        map.addSource(sourceId, {
+          type: 'geojson',
+          data: { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } },
+        });
+        map.addLayer({
+          id: `${sourceId}-fill`,
+          type: 'fill',
+          source: sourceId,
+          paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.1 },
+        });
+        map.addLayer({
+          id: `${sourceId}-line`,
+          type: 'line',
+          source: sourceId,
+          paint: { 'line-color': '#3b82f6', 'line-width': 2, 'line-opacity': 0.5 },
+        });
+        regionLayerIdsRef.current.push(sourceId);
+      });
+    };
+
+    if (map.isStyleLoaded()) apply();
+    else map.once('load', apply);
   }, [regions, isMapLoaded]);
 
   // Update driver markers with real GPS coordinates
   useEffect(() => {
-    if (!googleMapRef.current || !isMapLoaded) return;
+    const map = mapboxMapRef.current;
+    if (!map || !isMapLoaded) return;
 
     // Clear existing markers
-    markersRef.current.forEach(marker => marker.setMap(null));
+    markersRef.current.forEach((m) => m.remove());
     markersRef.current.clear();
 
     // Filter drivers
-    const filtered = drivers.filter(driver => {
-      const matchesSearch = 
+    const filtered = drivers.filter((driver) => {
+      const matchesSearch =
         `${driver.first_name} ${driver.last_name}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
         driver.phone.includes(searchQuery);
       const matchesRegion = regionFilter === 'all' || driver.region_id === regionFilter;
-      const matchesServiceArea = serviceAreaFilter === 'all' || 
-        (driverServiceAreasMap[driver.id]?.includes(serviceAreaFilter));
-      const matchesStatus = statusFilter === 'all' || 
+      const matchesServiceArea =
+        serviceAreaFilter === 'all' ||
+        driverServiceAreasMap[driver.id]?.includes(serviceAreaFilter);
+      const matchesStatus =
+        statusFilter === 'all' ||
         (statusFilter === 'online' && driver.is_online) ||
         (statusFilter === 'offline' && !driver.is_online) ||
         (statusFilter === 'on_trip' && driver.current_trip);
@@ -272,15 +298,12 @@ export default function FleetTracking() {
 
     // Create markers for each driver
     filtered.forEach((driver) => {
-      // Use real GPS coordinates if available, otherwise fallback to region center
       let position: { lat: number; lng: number } | null = null;
-      
+
       if (driver.current_lat && driver.current_lng) {
-        // Real GPS coordinates
         position = { lat: driver.current_lat, lng: driver.current_lng };
       } else {
-        // Fallback: use region center if no GPS data
-        const region = regions.find(r => r.id === driver.region_id);
+        const region = regions.find((r) => r.id === driver.region_id);
         if (region?.geo_boundary?.[0]) {
           position = {
             lat: region.geo_boundary[0].lat,
@@ -288,32 +311,28 @@ export default function FleetTracking() {
           };
         }
       }
-
-      // Skip if no position available
       if (!position) return;
 
-      // Determine if this driver is selected
       const isSelected = selectedDriver?.id === driver.id;
       const markerSize = isSelected ? 64 : 32;
-      const zIndex = isSelected ? 1000 : driver.current_trip ? 100 : 1;
-
       const isOnTrip = !!driver.current_trip;
-      const marker = new window.google.maps.Marker({
-        position,
-        map: googleMapRef.current,
-        icon: getEnhancedCarIcon(markerSize as 32 | 64, driver.heading || 0, isOnTrip),
-        title: `${driver.first_name} ${driver.last_name}${driver.speed ? ` (${Math.round(driver.speed * 3.6)} km/h)` : ''}`,
-        optimized: false,
-        zIndex,
-      });
 
-      marker.addListener('click', () => {
+      const el = createCarMarkerElement(markerSize as 32 | 64, isOnTrip);
+      el.title = `${driver.first_name} ${driver.last_name}${driver.speed ? ` (${Math.round(driver.speed * 3.6)} km/h)` : ''}`;
+      el.style.zIndex = String(isSelected ? 1000 : isOnTrip ? 100 : 1);
+
+      const marker = new mapboxgl.Marker({
+        element: el,
+        rotation: driver.heading || 0,
+        rotationAlignment: 'map',
+      })
+        .setLngLat([position.lng, position.lat])
+        .addTo(map);
+
+      el.addEventListener('click', () => {
         setSelectedDriver(driver);
-        
-        // Pan to driver location
-        if (googleMapRef.current && position) {
-          googleMapRef.current.panTo(position);
-          googleMapRef.current.setZoom(15);
+        if (mapboxMapRef.current && position) {
+          mapboxMapRef.current.flyTo({ center: [position.lng, position.lat], zoom: 15 });
         }
       });
 
