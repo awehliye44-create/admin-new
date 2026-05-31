@@ -1567,16 +1567,11 @@ export default function TripHistory() {
                     <MapPin className="h-4 w-4" />
                     Route Map
                   </h4>
-                  <div 
-                    ref={mapContainerRef} 
+                  <div
+                    ref={mapContainerRef}
                     className="h-[400px] lg:h-full min-h-[400px] rounded-lg border bg-muted"
-                  >
-                    {typeof window !== 'undefined' && !(window as any).google && (
-                      <div className="flex items-center justify-center h-full text-muted-foreground">
-                        <p className="text-sm">Map loading...</p>
-                      </div>
-                    )}
-                  </div>
+                  />
+
                 </div>
               </div>
 

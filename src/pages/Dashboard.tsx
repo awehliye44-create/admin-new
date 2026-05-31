@@ -97,11 +97,6 @@ interface BookingDataPoint {
   cancelled: number;
 }
 
-declare global {
-  interface Window {
-    google: any;
-  }
-}
 
 // Quick Actions panel with live badge counts
 function QuickActionsPanel({ navigate }: { navigate: (path: string) => void }) {
