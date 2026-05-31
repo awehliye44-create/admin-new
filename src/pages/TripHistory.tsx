@@ -46,8 +46,7 @@ import { getCurrencySymbol, formatDistance as formatDistanceUtil, getDistanceUni
 import { PaymentControlsCard } from '@/components/payment/PaymentControlsCard';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
-
-/* global google */
+import { mapboxgl, MAPBOX_STYLE } from '@/lib/mapbox';
 
 interface TripStop {
   id: string;
