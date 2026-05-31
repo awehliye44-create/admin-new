@@ -260,6 +260,37 @@ export default function Dashboard() {
     serviceAreas,
   });
 
+  // ─── Delivery Marketplace Overview — respects service area filter ───
+  // Source: merchants table grouped by category. Marketplace order flow is not
+  // yet emitting completed orders, so the volumetric widgets render 0 until
+  // delivery orders are recorded — we never invent numbers.
+  const { data: deliveryData } = useQuery({
+    queryKey: ['dashboard-delivery-overview', selectedServiceArea],
+    queryFn: async () => {
+      let q = supabase
+        .from('merchants')
+        .select('id, category, status, service_area_id')
+        .limit(5000);
+      if (selectedServiceArea !== 'all') q = q.eq('service_area_id', selectedServiceArea);
+      const { data, error } = await q;
+      if (error) throw error;
+      const merchants = data || [];
+      const byCategory = (cat: string) => merchants.filter(m => m.category === cat).length;
+      return {
+        merchantCount: merchants.length,
+        activeMerchants: merchants.filter(m => m.status === 'active').length,
+        byCategory: {
+          food: byCategory('food'),
+          grocery: byCategory('grocery'),
+          retail: byCategory('retail'),
+          pharmacy: byCategory('pharmacy'),
+          parcel: byCategory('parcel'),
+        },
+      };
+    },
+  });
+
+
   // ─── MAIN DASHBOARD QUERY — operational stats only (no revenue) ───
   const { data: dashData, isLoading, refetch: fetchStats } = useQuery({
     queryKey: ['dashboard-stats', period, selectedServiceArea, customDateFrom?.toISOString(), customDateTo?.toISOString()],
