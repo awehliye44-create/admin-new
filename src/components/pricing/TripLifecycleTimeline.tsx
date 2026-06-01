@@ -152,17 +152,17 @@ export function TripLifecycleTimeline({
     {
       id: 'stop-waiting',
       icon: MapPin,
-      label: 'Stop Waiting & Get Paid',
+      label: 'Stop Waiting',
       color: 'text-green-600',
       bgColor: 'bg-green-500/10',
       borderColor: 'border-green-500/30',
-      subtitle: 'Customer gets free stop waiting time before "Get Paid" waiting charges begin',
+      subtitle: 'Stop waiting starts automatically when the driver enters the configured GPS radius',
       content: (
         <div className="space-y-3">
           <div className="flex items-start gap-2 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
             <Info className="h-3.5 w-3.5 text-blue-600 mt-0.5 shrink-0" />
             <p className="text-[11px] text-blue-700 dark:text-blue-400">
-              Applies only to intermediate stops during an active trip. Driver taps <strong>"Get Paid"</strong> at a stop → waiting charge accumulates after free stop waiting time → driver taps <strong>"Next"</strong> to continue trip.
+              Applies only to intermediate stops during an active trip. Stop waiting starts automatically when the driver enters the configured GPS radius. Paid waiting begins after the free stop waiting time expires. Driver taps <strong>"Drive to Next"</strong> to continue the trip.
             </p>
           </div>
 
