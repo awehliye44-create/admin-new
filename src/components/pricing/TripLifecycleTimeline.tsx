@@ -156,13 +156,13 @@ export function TripLifecycleTimeline({
       color: 'text-green-600',
       bgColor: 'bg-green-500/10',
       borderColor: 'border-green-500/30',
-      subtitle: 'Stop waiting starts automatically when the driver enters the configured GPS radius',
+      subtitle: 'Free stop waiting starts when driver marks Arrived at Stop',
       content: (
         <div className="space-y-3">
           <div className="flex items-start gap-2 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
             <Info className="h-3.5 w-3.5 text-blue-600 mt-0.5 shrink-0" />
             <p className="text-[11px] text-blue-700 dark:text-blue-400">
-              Applies only to intermediate stops during an active trip. Stop waiting starts automatically when the driver enters the configured GPS radius. Paid waiting begins after the free stop waiting time expires. Driver taps <strong>"Drive to Next"</strong> to continue the trip.
+              Applies only to intermediate stops during an active trip. Free stop waiting begins when the driver marks <strong>Arrived at Stop</strong>. After the free stop waiting time expires, waiting charges accumulate automatically at the configured charge interval until the driver continues the trip. GPS Radius Restriction is used to validate stop arrival location and may trigger a confirmation warning if the driver is too far from the stop.
             </p>
           </div>
 
