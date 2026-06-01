@@ -11978,6 +11978,16 @@ export type Database = {
         Args: { p_trip_id: string }
         Returns: boolean
       }
+      finalize_negotiated_fare: {
+        Args: {
+          p_driver_id: string
+          p_fare_source: string
+          p_final_fare_pence: number
+          p_ride_offer_id: string
+          p_trip_id: string
+        }
+        Returns: Json
+      }
       finalize_negotiation_failure: {
         Args: {
           p_failed_driver_id: string
