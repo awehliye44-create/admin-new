@@ -1,6 +1,11 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { z } from 'npm:zod@3.23.8';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
 
 const CATEGORIES = ['food', 'grocery', 'retail', 'pharmacy', 'parcel'] as const;
 
@@ -18,7 +23,6 @@ const BodySchema = z.object({
   opening_hours: z.record(z.any()).optional(),
   delivery_radius_km: z.number().min(0).max(100).optional(),
   prep_time_minutes: z.number().int().min(0).max(600).optional(),
-  // Base64 data URLs for optional uploads
   logo_base64: z.string().max(8_000_000).optional(),
   logo_mime: z.string().max(80).optional(),
   banner_base64: z.string().max(12_000_000).optional(),
@@ -36,28 +40,34 @@ function b64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+
+  let body: unknown;
+  try { body = await req.json(); } catch {
+    return json({ error: 'Invalid JSON' }, 400);
   }
 
-  let json: unknown;
-  try { json = await req.json(); } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
-      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
-
-  const parsed = BodySchema.safeParse(json);
+  const parsed = BodySchema.safeParse(body);
   if (!parsed.success) {
-    return new Response(JSON.stringify({ error: 'Validation failed', details: parsed.error.flatten().fieldErrors }), {
-      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    console.error('[merchant-signup] validation failed', parsed.error.flatten().fieldErrors);
+    return json({ error: 'Validation failed', details: parsed.error.flatten().fieldErrors }, 400);
   }
   const p = parsed.data;
+
+  console.log('[merchant-signup] incoming application', {
+    business_name: p.business_name,
+    email: p.email,
+    merchant_type: p.merchant_type,
+    service_area_id: p.service_area_id,
+  });
 
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
@@ -65,19 +75,13 @@ Deno.serve(async (req) => {
     { auth: { persistSession: false } },
   );
 
-  // Validate service area exists
   const { data: sa, error: saErr } = await supabase
     .from('service_areas').select('id').eq('id', p.service_area_id).maybeSingle();
   if (saErr || !sa) {
-    return new Response(JSON.stringify({ error: 'Invalid service_area_id' }), {
-      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    console.error('[merchant-signup] invalid service_area_id', p.service_area_id, saErr?.message);
+    return json({ error: 'Invalid service area selected.' }, 400);
   }
 
-  // Insert merchant first to get id, then upload media.
-  // Duplicate protection is enforced by unique indexes:
-  //  - merchants_email_unique_ci         (lower(email))
-  //  - merchants_business_name_area_unique_ci  (lower(business_name), service_area_id)
   const insertPayload: Record<string, unknown> = {
     business_name: sanitize(p.business_name),
     category: p.merchant_type,
@@ -97,19 +101,29 @@ Deno.serve(async (req) => {
 
   const { data: merchant, error: insErr } = await supabase
     .from('merchants').insert(insertPayload).select('id').single();
+
   if (insErr || !merchant) {
+    console.error('[merchant-signup] insert failed', {
+      business_name: p.business_name,
+      email: p.email,
+      code: insErr?.code,
+      message: insErr?.message,
+      details: insErr?.details,
+    });
     if (insErr?.code === '23505') {
       const msg = /email/i.test(insErr.message)
         ? 'An application with this email has already been submitted.'
         : 'A merchant with this business name already exists in this service area.';
-      return new Response(JSON.stringify({ error: msg, code: 'duplicate_application' }), {
-        status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return json({ error: msg, code: 'duplicate_application' }, 409);
     }
-    return new Response(JSON.stringify({ error: insErr?.message ?? 'Failed to create application' }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return json({ error: 'Application could not be submitted. Please try again.' }, 500);
   }
+
+  console.log('[merchant-signup] inserted application', {
+    id: merchant.id,
+    business_name: p.business_name,
+    email: p.email,
+  });
 
   const updates: Record<string, string> = {};
   try {
@@ -118,7 +132,8 @@ Deno.serve(async (req) => {
       const path = `${merchant.id}/logo-${Date.now()}`;
       const { error } = await supabase.storage.from('merchant-logos')
         .upload(path, bytes, { contentType: p.logo_mime ?? 'image/png', upsert: true });
-      if (!error) {
+      if (error) console.error('[merchant-signup] logo upload error', error.message);
+      else {
         const { data } = supabase.storage.from('merchant-logos').getPublicUrl(path);
         updates.logo_url = data.publicUrl;
       }
@@ -128,7 +143,8 @@ Deno.serve(async (req) => {
       const path = `${merchant.id}/banner-${Date.now()}`;
       const { error } = await supabase.storage.from('merchant-banners')
         .upload(path, bytes, { contentType: p.banner_mime ?? 'image/png', upsert: true });
-      if (!error) {
+      if (error) console.error('[merchant-signup] banner upload error', error.message);
+      else {
         const { data } = supabase.storage.from('merchant-banners').getPublicUrl(path);
         updates.banner_url = data.publicUrl;
       }
@@ -137,10 +153,8 @@ Deno.serve(async (req) => {
       await supabase.from('merchants').update(updates).eq('id', merchant.id);
     }
   } catch (e) {
-    console.error('Upload error', e);
+    console.error('[merchant-signup] upload exception', e);
   }
 
-  return new Response(JSON.stringify({ success: true, application_id: merchant.id, status: 'pending' }), {
-    status: 201, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
+  return json({ success: true, application_id: merchant.id, status: 'pending' }, 201);
 });

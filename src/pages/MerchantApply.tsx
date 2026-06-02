@@ -78,12 +78,32 @@ export default function MerchantApply() {
       if (logo) { payload.logo_base64 = await fileToBase64(logo); payload.logo_mime = logo.type; }
       if (banner) { payload.banner_base64 = await fileToBase64(banner); payload.banner_mime = banner.type; }
 
+      console.log('[merchant-apply] submitting', {
+        business_name: form.business_name,
+        email: form.email,
+        merchant_type: form.merchant_type,
+        service_area_id: form.service_area_id,
+      });
+
       const { data, error } = await supabase.functions.invoke('merchant-signup', { body: payload });
-      if (error) throw error;
-      if ((data as any)?.error) throw new Error((data as any).error);
+      const result = data as { success?: boolean; application_id?: string; error?: string } | null;
+
+      if (error || result?.error || !result?.application_id) {
+        const message = result?.error || error?.message || 'Application could not be submitted. Please try again.';
+        console.error('[merchant-apply] submission failed', { error: error?.message, result });
+        toast({ title: 'Submission failed', description: message, variant: 'destructive' });
+        return;
+      }
+
+      console.log('[merchant-apply] inserted application', { application_id: result.application_id });
       setDone(true);
     } catch (err: any) {
-      toast({ title: 'Submission failed', description: err?.message ?? 'Please try again.', variant: 'destructive' });
+      console.error('[merchant-apply] unexpected error', err);
+      toast({
+        title: 'Submission failed',
+        description: err?.message ?? 'Application could not be submitted. Please try again.',
+        variant: 'destructive',
+      });
     } finally {
       setSubmitting(false);
     }
