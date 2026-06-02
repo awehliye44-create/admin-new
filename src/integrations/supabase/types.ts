@@ -2067,6 +2067,7 @@ export type Database = {
           driver_fare_display: string
           driver_final_response_timeout_seconds: number
           enable_logging: boolean
+          enable_stop_waiting_charge: boolean
           fairness_boost_score: number
           fairness_idle_minutes: number
           fare_negotiation_enabled: boolean
@@ -2150,6 +2151,7 @@ export type Database = {
           driver_fare_display?: string
           driver_final_response_timeout_seconds?: number
           enable_logging?: boolean
+          enable_stop_waiting_charge?: boolean
           fairness_boost_score?: number
           fairness_idle_minutes?: number
           fare_negotiation_enabled?: boolean
@@ -2233,6 +2235,7 @@ export type Database = {
           driver_fare_display?: string
           driver_final_response_timeout_seconds?: number
           enable_logging?: boolean
+          enable_stop_waiting_charge?: boolean
           fairness_boost_score?: number
           fairness_idle_minutes?: number
           fare_negotiation_enabled?: boolean
@@ -3401,8 +3404,10 @@ export type Database = {
       driver_settings: {
         Row: {
           accept_cash: boolean
+          accept_delivery_jobs: boolean
           auto_accept: boolean
           created_at: string
+          delivery_category_preferences: Json
           driver_id: string
           id: string
           max_pickup_distance_miles: number
@@ -3420,8 +3425,10 @@ export type Database = {
         }
         Insert: {
           accept_cash?: boolean
+          accept_delivery_jobs?: boolean
           auto_accept?: boolean
           created_at?: string
+          delivery_category_preferences?: Json
           driver_id: string
           id?: string
           max_pickup_distance_miles?: number
@@ -3439,8 +3446,10 @@ export type Database = {
         }
         Update: {
           accept_cash?: boolean
+          accept_delivery_jobs?: boolean
           auto_accept?: boolean
           created_at?: string
+          delivery_category_preferences?: Json
           driver_id?: string
           id?: string
           max_pickup_distance_miles?: number
@@ -9586,9 +9595,12 @@ export type Database = {
           currency: string | null
           currency_code: string | null
           current_broadcast_round: number | null
+          current_destination_index: number | null
+          current_destination_type: string | null
           current_negotiation_id: string | null
           current_offer_driver_id: string | null
           current_offer_expires_at: string | null
+          current_stop_id: string | null
           current_stop_index: number | null
           customer_modification_charge_pence: number | null
           debt_recovery_pence: number | null
@@ -9681,10 +9693,12 @@ export type Database = {
           payment_status: string | null
           payment_type: string | null
           pickup_address: string
+          pickup_arrived_at: string | null
           pickup_latitude: number | null
           pickup_longitude: number | null
           pickup_paid_waiting_started_at: string | null
           pickup_waiting_charge_pence: number
+          pickup_waiting_started_at: string | null
           pickup_zone_id: string | null
           platform_commission_amount: number | null
           pre_assigned_driver_id: string | null
@@ -9711,7 +9725,14 @@ export type Database = {
           stacked_trip_id: string | null
           started_at: string | null
           status: string | null
+          stop_arrived_at: string | null
           stop_charge_total_pence: number | null
+          stop_waiting_charge_amount: number
+          stop_waiting_finalized_at: string | null
+          stop_waiting_free_seconds: number | null
+          stop_waiting_paid_started_at: string | null
+          stop_waiting_started_at: string | null
+          stop_waiting_status: string | null
           stops: Json | null
           stripe_application_fee_amount_pence: number | null
           stripe_application_fee_id: string | null
@@ -9782,9 +9803,12 @@ export type Database = {
           currency?: string | null
           currency_code?: string | null
           current_broadcast_round?: number | null
+          current_destination_index?: number | null
+          current_destination_type?: string | null
           current_negotiation_id?: string | null
           current_offer_driver_id?: string | null
           current_offer_expires_at?: string | null
+          current_stop_id?: string | null
           current_stop_index?: number | null
           customer_modification_charge_pence?: number | null
           debt_recovery_pence?: number | null
@@ -9877,10 +9901,12 @@ export type Database = {
           payment_status?: string | null
           payment_type?: string | null
           pickup_address: string
+          pickup_arrived_at?: string | null
           pickup_latitude?: number | null
           pickup_longitude?: number | null
           pickup_paid_waiting_started_at?: string | null
           pickup_waiting_charge_pence?: number
+          pickup_waiting_started_at?: string | null
           pickup_zone_id?: string | null
           platform_commission_amount?: number | null
           pre_assigned_driver_id?: string | null
@@ -9907,7 +9933,14 @@ export type Database = {
           stacked_trip_id?: string | null
           started_at?: string | null
           status?: string | null
+          stop_arrived_at?: string | null
           stop_charge_total_pence?: number | null
+          stop_waiting_charge_amount?: number
+          stop_waiting_finalized_at?: string | null
+          stop_waiting_free_seconds?: number | null
+          stop_waiting_paid_started_at?: string | null
+          stop_waiting_started_at?: string | null
+          stop_waiting_status?: string | null
           stops?: Json | null
           stripe_application_fee_amount_pence?: number | null
           stripe_application_fee_id?: string | null
@@ -9978,9 +10011,12 @@ export type Database = {
           currency?: string | null
           currency_code?: string | null
           current_broadcast_round?: number | null
+          current_destination_index?: number | null
+          current_destination_type?: string | null
           current_negotiation_id?: string | null
           current_offer_driver_id?: string | null
           current_offer_expires_at?: string | null
+          current_stop_id?: string | null
           current_stop_index?: number | null
           customer_modification_charge_pence?: number | null
           debt_recovery_pence?: number | null
@@ -10073,10 +10109,12 @@ export type Database = {
           payment_status?: string | null
           payment_type?: string | null
           pickup_address?: string
+          pickup_arrived_at?: string | null
           pickup_latitude?: number | null
           pickup_longitude?: number | null
           pickup_paid_waiting_started_at?: string | null
           pickup_waiting_charge_pence?: number
+          pickup_waiting_started_at?: string | null
           pickup_zone_id?: string | null
           platform_commission_amount?: number | null
           pre_assigned_driver_id?: string | null
@@ -10103,7 +10141,14 @@ export type Database = {
           stacked_trip_id?: string | null
           started_at?: string | null
           status?: string | null
+          stop_arrived_at?: string | null
           stop_charge_total_pence?: number | null
+          stop_waiting_charge_amount?: number
+          stop_waiting_finalized_at?: string | null
+          stop_waiting_free_seconds?: number | null
+          stop_waiting_paid_started_at?: string | null
+          stop_waiting_started_at?: string | null
+          stop_waiting_status?: string | null
           stops?: Json | null
           stripe_application_fee_amount_pence?: number | null
           stripe_application_fee_id?: string | null
@@ -10252,6 +10297,13 @@ export type Database = {
             columns: ["current_offer_driver_id"]
             isOneToOne: false
             referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_current_stop_id_fkey"
+            columns: ["current_stop_id"]
+            isOneToOne: false
+            referencedRelation: "trip_stops"
             referencedColumns: ["id"]
           },
           {
@@ -12087,6 +12139,7 @@ export type Database = {
           driver_fare_display: string
           driver_final_response_timeout_seconds: number
           enable_logging: boolean
+          enable_stop_waiting_charge: boolean
           fairness_boost_score: number
           fairness_idle_minutes: number
           fare_negotiation_enabled: boolean
