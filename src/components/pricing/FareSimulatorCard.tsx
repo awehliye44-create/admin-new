@@ -34,15 +34,28 @@ interface FareSettings {
 
 const KM_PER_MILE = 1.609344;
 
-function tieredCharge(distInUnit: number, bands: DistanceBand[]): number {
-  let charge = 0;
+interface BandSegment {
+  from: number;
+  to: number | null;
+  span: number;
+  rate_pence: number;
+  charge_pence: number;
+}
+
+function tieredBreakdown(distInUnit: number, bands: DistanceBand[]): { total: number; segments: BandSegment[] } {
   const sorted = [...bands].sort((a, b) => (a.from ?? 0) - (b.from ?? 0));
+  const segments: BandSegment[] = [];
+  let total = 0;
   for (const b of sorted) {
     const upper = b.to == null ? Infinity : b.to;
     const span = Math.max(0, Math.min(distInUnit, upper) - (b.from ?? 0));
-    if (span > 0) charge += span * (b.rate_pence ?? 0);
+    if (span > 0) {
+      const charge = Math.round(span * (b.rate_pence ?? 0));
+      total += charge;
+      segments.push({ from: b.from ?? 0, to: b.to, span, rate_pence: b.rate_pence ?? 0, charge_pence: charge });
+    }
   }
-  return Math.round(charge);
+  return { total, segments };
 }
 
 interface FareSimulatorCardProps {
