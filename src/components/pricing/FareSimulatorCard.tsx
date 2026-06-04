@@ -34,15 +34,28 @@ interface FareSettings {
 
 const KM_PER_MILE = 1.609344;
 
-function tieredCharge(distInUnit: number, bands: DistanceBand[]): number {
-  let charge = 0;
+interface BandSegment {
+  from: number;
+  to: number | null;
+  span: number;
+  rate_pence: number;
+  charge_pence: number;
+}
+
+function tieredBreakdown(distInUnit: number, bands: DistanceBand[]): { total: number; segments: BandSegment[] } {
   const sorted = [...bands].sort((a, b) => (a.from ?? 0) - (b.from ?? 0));
+  const segments: BandSegment[] = [];
+  let total = 0;
   for (const b of sorted) {
     const upper = b.to == null ? Infinity : b.to;
     const span = Math.max(0, Math.min(distInUnit, upper) - (b.from ?? 0));
-    if (span > 0) charge += span * (b.rate_pence ?? 0);
+    if (span > 0) {
+      const charge = Math.round(span * (b.rate_pence ?? 0));
+      total += charge;
+      segments.push({ from: b.from ?? 0, to: b.to, span, rate_pence: b.rate_pence ?? 0, charge_pence: charge });
+    }
   }
-  return Math.round(charge);
+  return { total, segments };
 }
 
 interface FareSimulatorCardProps {
@@ -75,8 +88,9 @@ export function FareSimulatorCard({ settings, currencySymbol, distanceUnit }: Fa
   // Compute fare
   const base = settings.base_fare_pence;
   const bands = settings.distance_pricing_bands ?? [];
-  const distCharge = bands.length > 0
-    ? tieredCharge(distKm, bands) // distKm here is in user's unit
+  const bandResult = bands.length > 0 ? tieredBreakdown(distKm, bands) : null;
+  const distCharge = bandResult
+    ? bandResult.total
     : Math.round(distKm * settings.per_km_rate_pence);
   const timeCharge = Math.round(durMin * settings.per_min_rate_pence);
   const booking = settings.booking_fee_pence;
@@ -150,9 +164,23 @@ export function FareSimulatorCard({ settings, currencySymbol, distanceUnit }: Fa
                 <span className="font-mono">{fmt(base)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Distance ({distKm} {unitShort})</span>
+                <span className="text-muted-foreground">
+                  Distance ({distKm} {unitShort}){bandResult ? ' — banded' : ` @ ${fmt(settings.per_km_rate_pence)}/${unitShort}`}
+                </span>
                 <span className="font-mono">{fmt(distCharge)}</span>
               </div>
+              {bandResult && bandResult.segments.length > 0 && (
+                <div className="ml-3 pl-2 border-l border-border space-y-1">
+                  {bandResult.segments.map((seg, i) => (
+                    <div key={i} className="flex justify-between text-xs text-muted-foreground">
+                      <span>
+                        Band {seg.from}–{seg.to == null ? '∞' : seg.to} {unitShort}: {seg.span.toFixed(2)} {unitShort} × {fmt(seg.rate_pence)}/{unitShort}
+                      </span>
+                      <span className="font-mono">{fmt(seg.charge_pence)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Time ({durMin} min)</span>
                 <span className="font-mono">{fmt(timeCharge)}</span>
