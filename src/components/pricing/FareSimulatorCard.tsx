@@ -164,9 +164,23 @@ export function FareSimulatorCard({ settings, currencySymbol, distanceUnit }: Fa
                 <span className="font-mono">{fmt(base)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Distance ({distKm} {unitShort})</span>
+                <span className="text-muted-foreground">
+                  Distance ({distKm} {unitShort}){bandResult ? ' — banded' : ` @ ${fmt(settings.per_km_rate_pence)}/${unitShort}`}
+                </span>
                 <span className="font-mono">{fmt(distCharge)}</span>
               </div>
+              {bandResult && bandResult.segments.length > 0 && (
+                <div className="ml-3 pl-2 border-l border-border space-y-1">
+                  {bandResult.segments.map((seg, i) => (
+                    <div key={i} className="flex justify-between text-xs text-muted-foreground">
+                      <span>
+                        Band {seg.from}–{seg.to == null ? '∞' : seg.to} {unitShort}: {seg.span.toFixed(2)} {unitShort} × {fmt(seg.rate_pence)}/{unitShort}
+                      </span>
+                      <span className="font-mono">{fmt(seg.charge_pence)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Time ({durMin} min)</span>
                 <span className="font-mono">{fmt(timeCharge)}</span>
