@@ -44,9 +44,27 @@ export function DistanceBandsEditor({
             Set different rates for different distance ranges. The correct rate is applied based on trip distance. Leave empty to use the flat per-{unitLong} rate.
           </p>
         </div>
-        <Button size="sm" variant="outline" onClick={add} type="button">
-          <Plus className="h-3.5 w-3.5 mr-1" /> Add Band
-        </Button>
+        <div className="flex items-center gap-2">
+          {bands.length === 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              type="button"
+              onClick={() => onChange([
+                { from: 0,  to: 2,    rate_pence: 200 },
+                { from: 2,  to: 5,    rate_pence: 180 },
+                { from: 5,  to: 10,   rate_pence: 150 },
+                { from: 10, to: 20,   rate_pence: 130 },
+                { from: 20, to: null, rate_pence: 110 },
+              ])}
+            >
+              Load example bands
+            </Button>
+          )}
+          <Button size="sm" variant="outline" onClick={add} type="button">
+            <Plus className="h-3.5 w-3.5 mr-1" /> Add Band
+          </Button>
+        </div>
       </div>
 
       {bands.length === 0 ? (
