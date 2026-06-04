@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { Calculator, RotateCcw } from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Calculator, RotateCcw, AlertCircle } from 'lucide-react';
 
 interface DistanceBand {
   from: number;
@@ -73,8 +74,13 @@ export function FareSimulatorCard({ settings, currencySymbol, distanceUnit }: Fa
   const [stops, setStops] = useState(0);
   const [showResult, setShowResult] = useState(false);
 
+  const resultRef = useRef<HTMLDivElement>(null);
+
   const calculate = () => {
     setShowResult(true);
+    requestAnimationFrame(() => {
+      resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
   };
 
   const reset = () => {
@@ -156,34 +162,94 @@ export function FareSimulatorCard({ settings, currencySymbol, distanceUnit }: Fa
         </div>
 
         {showResult && (
-          <>
+          <div ref={resultRef} className="space-y-4 pt-2">
             <Separator />
+
+            {/* Distance Band Breakdown */}
+            <div className="rounded-lg border border-primary/30 bg-primary/[0.03] p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wide text-primary">
+                  Distance Band Breakdown
+                </span>
+                <span className="text-xs text-muted-foreground">{distKm} {unitShort} total</span>
+              </div>
+              {bandResult && bandResult.segments.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="h-8 text-xs">Band</TableHead>
+                      <TableHead className="h-8 text-xs">Distance Used</TableHead>
+                      <TableHead className="h-8 text-xs">Rate</TableHead>
+                      <TableHead className="h-8 text-xs text-right">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {bandResult.segments.map((seg, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="py-1.5 text-xs">
+                          {seg.from}–{seg.to == null ? '∞' : seg.to} {unitShort}
+                        </TableCell>
+                        <TableCell className="py-1.5 text-xs font-mono">
+                          {seg.span.toFixed(2)} {unitShort}
+                        </TableCell>
+                        <TableCell className="py-1.5 text-xs font-mono">
+                          {fmt(seg.rate_pence)}/{unitShort}
+                        </TableCell>
+                        <TableCell className="py-1.5 text-xs font-mono text-right">
+                          {fmt(seg.charge_pence)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow>
+                      <TableCell colSpan={3} className="py-1.5 text-xs font-semibold">
+                        Distance Total
+                      </TableCell>
+                      <TableCell className="py-1.5 text-xs font-mono font-semibold text-right">
+                        {fmt(distCharge)}
+                      </TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              ) : (
+                <div className="flex items-start gap-2 text-xs text-muted-foreground p-2">
+                  <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
+                  <span>
+                    No distance bands configured. Using flat per-{unitShort} rate{' '}
+                    <span className="font-mono">{fmt(settings.per_km_rate_pence)}/{unitShort}</span>
+                    {' '}× {distKm} {unitShort} = <span className="font-mono">{fmt(distCharge)}</span>.
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Fare Breakdown */}
             <div className="space-y-1.5 text-sm">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                Fare Breakdown
+              </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Base fare</span>
                 <span className="font-mono">{fmt(base)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">
-                  Distance ({distKm} {unitShort}){bandResult ? ' — banded' : ` @ ${fmt(settings.per_km_rate_pence)}/${unitShort}`}
+                  Distance band fare ({distKm} {unitShort})
                 </span>
                 <span className="font-mono">{fmt(distCharge)}</span>
               </div>
-              {bandResult && bandResult.segments.length > 0 && (
-                <div className="ml-3 pl-2 border-l border-border space-y-1">
-                  {bandResult.segments.map((seg, i) => (
-                    <div key={i} className="flex justify-between text-xs text-muted-foreground">
-                      <span>
-                        Band {seg.from}–{seg.to == null ? '∞' : seg.to} {unitShort}: {seg.span.toFixed(2)} {unitShort} × {fmt(seg.rate_pence)}/{unitShort}
-                      </span>
-                      <span className="font-mono">{fmt(seg.charge_pence)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Time ({durMin} min)</span>
+                <span className="text-muted-foreground">Time fare ({durMin} min)</span>
                 <span className="font-mono">{fmt(timeCharge)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">
+                  Waiting charge ({billableWait} billable min)
+                </span>
+                <span className="font-mono">{fmt(waitingCharge)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Extra stops ({stops})</span>
+                <span className="font-mono">{fmt(stopCharge)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Booking fee</span>
@@ -196,29 +262,12 @@ export function FareSimulatorCard({ settings, currencySymbol, distanceUnit }: Fa
                 </div>
               )}
               <Separator />
-              <div className="flex justify-between font-medium">
-                <span>Quoted Fare</span>
-                <span className="font-mono">{fmt(quotedFare)}</span>
-              </div>
-              {waitingCharge > 0 && (
-                <div className="flex justify-between text-amber-600">
-                  <span>Waiting ({billableWait} min)</span>
-                  <span className="font-mono">+{fmt(waitingCharge)}</span>
-                </div>
-              )}
-              {stopCharge > 0 && (
-                <div className="flex justify-between text-amber-600">
-                  <span>Stop fee ({stops}×)</span>
-                  <span className="font-mono">+{fmt(stopCharge)}</span>
-                </div>
-              )}
-              <Separator />
-              <div className="flex justify-between font-bold text-base">
-                <span>Final Fare</span>
+              <div className="flex justify-between font-bold text-base pt-1">
+                <span>Total Fare</span>
                 <span className="font-mono text-primary">{fmt(finalFare)}</span>
               </div>
             </div>
-          </>
+          </div>
         )}
       </CardContent>
     </Card>
