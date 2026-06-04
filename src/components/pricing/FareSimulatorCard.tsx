@@ -74,8 +74,13 @@ export function FareSimulatorCard({ settings, currencySymbol, distanceUnit }: Fa
   const [stops, setStops] = useState(0);
   const [showResult, setShowResult] = useState(false);
 
+  const resultRef = useRef<HTMLDivElement>(null);
+
   const calculate = () => {
     setShowResult(true);
+    requestAnimationFrame(() => {
+      resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
   };
 
   const reset = () => {
