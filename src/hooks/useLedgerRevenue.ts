@@ -63,10 +63,12 @@ function netOf(r: Pick<TripRow, 'onecab_net_pence' | 'commission_pence' | 'strip
 }
 
 async function fetchTrips(from: Date | null, to: Date | null, saId: string | null): Promise<TripRow[]> {
+  // Include trips that are financially countable by outcome OR by terminal status
+  // (legacy rows may have financial_outcome=NULL but status='completed'/'no_show').
   let q = supabase
     .from('trips')
-    .select('completed_at, service_area_id, commission_pence, stripe_processing_fee_pence, onecab_net_pence')
-    .in('financial_outcome', COUNTABLE_OUTCOMES)
+    .select('completed_at, service_area_id, commission_pence, stripe_processing_fee_pence, onecab_net_pence, financial_outcome, status')
+    .or(`financial_outcome.in.(${COUNTABLE_OUTCOMES.join(',')}),status.in.(completed,no_show)`)
     .not('completed_at', 'is', null);
   if (from) q = q.gte('completed_at', from.toISOString());
   if (to) q = q.lte('completed_at', to.toISOString());
