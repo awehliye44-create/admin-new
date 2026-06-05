@@ -10029,6 +10029,7 @@ export type Database = {
           negotiation_locked_until: string | null
           negotiation_owner_driver_id: string | null
           negotiation_status: string | null
+          no_show_by: string | null
           no_show_charge_pence: number | null
           offer_currency: string | null
           offer_discount_pence: number
@@ -10238,6 +10239,7 @@ export type Database = {
           negotiation_locked_until?: string | null
           negotiation_owner_driver_id?: string | null
           negotiation_status?: string | null
+          no_show_by?: string | null
           no_show_charge_pence?: number | null
           offer_currency?: string | null
           offer_discount_pence?: number
@@ -10447,6 +10449,7 @@ export type Database = {
           negotiation_locked_until?: string | null
           negotiation_owner_driver_id?: string | null
           negotiation_status?: string | null
+          no_show_by?: string | null
           no_show_charge_pence?: number | null
           offer_currency?: string | null
           offer_discount_pence?: number
@@ -11327,6 +11330,10 @@ export type Database = {
       admin_driver_online_snapshot: {
         Row: {
           app_state: string | null
+          availability_exclusion_reason: string | null
+          availability_fleet_state: string | null
+          available_for_customer_request: boolean | null
+          available_for_dispatch: boolean | null
           current_trip_id: string | null
           customer_visible: boolean | null
           delivery_channel: string | null
@@ -12465,6 +12472,27 @@ export type Database = {
         Args: { p_driver_id: string; p_offer_id: string }
         Returns: Json
       }
+      driver_availability_ssot: {
+        Args: {
+          p_driver_id: string
+          p_max_heartbeat_age_seconds?: number
+          p_max_location_age_seconds?: number
+          p_max_realtime_age_seconds?: number
+          p_require_push_token?: boolean
+        }
+        Returns: {
+          available_for_customer_request: boolean
+          available_for_dispatch: boolean
+          dispatchable_reason: string
+          driver_id: string
+          effective_online_reason: string
+          exclusion_reason: string
+          fleet_state: string
+          freshness_reason: string
+          heartbeat_age_seconds: number
+          location_age_seconds: number
+        }[]
+      }
       driver_can_view_trip_via_offer: {
         Args: { _trip_id: string }
         Returns: boolean
@@ -12901,6 +12929,10 @@ export type Database = {
           customer_photos: string[]
           found_item_photos: string[]
         }[]
+      }
+      mark_driver_background_unavailable: {
+        Args: { p_driver_id: string }
+        Returns: undefined
       }
       maybe_advance_dispatch_after_offer_resolution: {
         Args: { p_resolved_driver_id?: string; p_trip_id: string }
