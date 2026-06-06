@@ -149,6 +149,72 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_credit_packages: {
+        Row: {
+          active: boolean
+          created_at: string
+          credits: number
+          currency: string
+          id: string
+          name: string
+          price: number
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          credits: number
+          currency?: string
+          id?: string
+          name: string
+          price: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          credits?: number
+          currency?: string
+          id?: string
+          name?: string
+          price?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ai_credit_settings: {
+        Row: {
+          ai_generation_enabled: boolean
+          credit_cost_per_image: number
+          credit_purchase_enabled: boolean
+          free_credits_for_new_merchants: number
+          id: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          ai_generation_enabled?: boolean
+          credit_cost_per_image?: number
+          credit_purchase_enabled?: boolean
+          free_credits_for_new_merchants?: number
+          id?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          ai_generation_enabled?: boolean
+          credit_cost_per_image?: number
+          credit_purchase_enabled?: boolean
+          free_credits_for_new_merchants?: number
+          id?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       alert_sound_mappings: {
         Row: {
           alert_sound_id: string
@@ -5533,6 +5599,67 @@ export type Database = {
           },
         ]
       }
+      merchant_ai_credit_history: {
+        Row: {
+          action_type: string
+          admin_user_id: string | null
+          balance_after: number
+          created_at: string
+          credits_changed: number
+          id: string
+          merchant_id: string
+          notes: string | null
+          package_id: string | null
+          stripe_payment_id: string | null
+        }
+        Insert: {
+          action_type: string
+          admin_user_id?: string | null
+          balance_after: number
+          created_at?: string
+          credits_changed: number
+          id?: string
+          merchant_id: string
+          notes?: string | null
+          package_id?: string | null
+          stripe_payment_id?: string | null
+        }
+        Update: {
+          action_type?: string
+          admin_user_id?: string | null
+          balance_after?: number
+          created_at?: string
+          credits_changed?: number
+          id?: string
+          merchant_id?: string
+          notes?: string | null
+          package_id?: string | null
+          stripe_payment_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "merchant_ai_credit_history_merchant_id_fkey"
+            columns: ["merchant_id"]
+            isOneToOne: false
+            referencedRelation: "merchants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "merchant_ai_credit_history_merchant_id_fkey"
+            columns: ["merchant_id"]
+            isOneToOne: false
+            referencedRelation: "merchants_public"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "merchant_ai_credit_history_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "ai_credit_packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       merchant_ai_credits: {
         Row: {
           credits_remaining: number
@@ -5764,6 +5891,7 @@ export type Database = {
           delivery_radius_km: number
           description: string | null
           email: string | null
+          free_ai_credits_granted: boolean
           id: string
           is_open: boolean
           logo_url: string | null
@@ -5791,6 +5919,7 @@ export type Database = {
           delivery_radius_km?: number
           description?: string | null
           email?: string | null
+          free_ai_credits_granted?: boolean
           id?: string
           is_open?: boolean
           logo_url?: string | null
@@ -5818,6 +5947,7 @@ export type Database = {
           delivery_radius_km?: number
           description?: string | null
           email?: string | null
+          free_ai_credits_granted?: boolean
           id?: string
           is_open?: boolean
           logo_url?: string | null
@@ -12242,6 +12372,10 @@ export type Database = {
         Returns: Json
       }
       ack_timeout_sweep: { Args: never; Returns: undefined }
+      adjust_merchant_credits: {
+        Args: { _delta: number; _merchant_id: string; _notes?: string }
+        Returns: Json
+      }
       admin_cancel_trip_negotiation: {
         Args: { p_reason?: string; p_trip_id: string }
         Returns: Json
@@ -12292,6 +12426,10 @@ export type Database = {
       approve_corporate_request: {
         Args: { p_request_id: string; p_reviewed_by?: string }
         Returns: string
+      }
+      approve_merchant_with_credits: {
+        Args: { _admin_notes?: string; _merchant_id: string }
+        Returns: Json
       }
       assert_payment_authorized: {
         Args: { _trip_id: string }
