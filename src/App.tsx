@@ -86,6 +86,7 @@ import MerchantApprovals from "./pages/MerchantApprovals";
 import MarketplaceSettings from "./pages/MarketplaceSettings";
 import MarketplaceSettlements from "./pages/MarketplaceSettlements";
 import MerchantApply from "./pages/MerchantApply";
+import AiImageCredits from "./pages/AiImageCredits";
 const queryClient = createAppQueryClient();
 
 const App = () => (
@@ -151,6 +152,7 @@ const App = () => (
               <Route path="merchant-approvals" element={<MerchantApprovals />} />
               <Route path="marketplace-settings" element={<MarketplaceSettings />} />
               <Route path="marketplace-settlements" element={<MarketplaceSettlements />} />
+              <Route path="ai-image-credits" element={<AiImageCredits />} />
               
               
               

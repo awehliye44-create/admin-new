@@ -98,12 +98,21 @@ export default function MerchantApprovals() {
   };
 
   const updateStatus = async (id: string, status: Status, extra: Partial<Merchant> = {}) => {
-    const { error } = await supabase
-      .from('merchants')
-      .update({ status: status as any, ...extra })
-      .eq('id', id);
-    if (error) return toast({ title: 'Failed', description: error.message, variant: 'destructive' });
-    toast({ title: 'Updated', description: `Merchant ${status}` });
+    if (status === 'approved') {
+      const { error } = await supabase.rpc('approve_merchant_with_credits' as any, {
+        _merchant_id: id,
+        _admin_notes: (extra as any).admin_notes ?? null,
+      });
+      if (error) return toast({ title: 'Failed', description: error.message, variant: 'destructive' });
+      toast({ title: 'Approved', description: 'Merchant approved and free AI credits granted if applicable' });
+    } else {
+      const { error } = await supabase
+        .from('merchants')
+        .update({ status: status as any, ...extra })
+        .eq('id', id);
+      if (error) return toast({ title: 'Failed', description: error.message, variant: 'destructive' });
+      toast({ title: 'Updated', description: `Merchant ${status}` });
+    }
     setViewing(null);
     load();
   };
