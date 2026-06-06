@@ -65,6 +65,7 @@ import {
   Gauge,
   Activity,
   Store,
+  Coins,
 } from 'lucide-react';
 import {
   Collapsible,
