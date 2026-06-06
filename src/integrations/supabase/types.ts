@@ -13330,6 +13330,7 @@ export type Database = {
         Args: { p_request_id: string; p_reviewed_by?: string }
         Returns: undefined
       }
+      sweep_stale_searching_trips: { Args: never; Returns: Json }
       sync_customer_phone_verification: {
         Args: { _user_id: string }
         Returns: undefined
