@@ -189,6 +189,7 @@ export type Database = {
         Row: {
           ai_generation_enabled: boolean
           credit_cost_per_image: number
+          credit_cost_per_regeneration: number
           credit_purchase_enabled: boolean
           free_credits_for_new_merchants: number
           id: boolean
@@ -198,6 +199,7 @@ export type Database = {
         Insert: {
           ai_generation_enabled?: boolean
           credit_cost_per_image?: number
+          credit_cost_per_regeneration?: number
           credit_purchase_enabled?: boolean
           free_credits_for_new_merchants?: number
           id?: boolean
@@ -207,6 +209,7 @@ export type Database = {
         Update: {
           ai_generation_enabled?: boolean
           credit_cost_per_image?: number
+          credit_cost_per_regeneration?: number
           credit_purchase_enabled?: boolean
           free_credits_for_new_merchants?: number
           id?: boolean
@@ -5882,6 +5885,7 @@ export type Database = {
         Row: {
           address: string | null
           admin_notes: string | null
+          ai_access_suspended: boolean
           banner_url: string | null
           business_name: string
           category: Database["public"]["Enums"]["merchant_category"]
@@ -5910,6 +5914,7 @@ export type Database = {
         Insert: {
           address?: string | null
           admin_notes?: string | null
+          ai_access_suspended?: boolean
           banner_url?: string | null
           business_name: string
           category: Database["public"]["Enums"]["merchant_category"]
@@ -5938,6 +5943,7 @@ export type Database = {
         Update: {
           address?: string | null
           admin_notes?: string | null
+          ai_access_suspended?: boolean
           banner_url?: string | null
           business_name?: string
           category?: Database["public"]["Enums"]["merchant_category"]
