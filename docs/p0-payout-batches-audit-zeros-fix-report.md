@@ -84,10 +84,32 @@ With **All Services**: financial stats remain **£0.00 / 0** (by design — no c
 
 1. ~~`supabase db push`~~ — **DONE**: `net_available_for_payout` + `reserved_cashout_pence` live on prod view
 2. ~~`supabase functions deploy admin-payout-batches`~~ — **DONE** (v169+)
-3. **Publish admin frontend (Lovable Share → Publish)** — **REQUIRED** — prod bundle still calls `admin-payout-batches` without `region_id` and reads `summary.availableForPayout || 0`
-4. Hard refresh admin panel (Cmd+Shift+R)
+3. ~~Admin RLS on `driver_early_cashouts`~~ — **DONE** (`Admins can view all driver early cashouts` policy live on prod)
+4. ~~`payout_method` column~~ — **DONE** on prod (`instant` / `standard`)
+5. **Publish admin frontend (Lovable Share → Publish)** — **REQUIRED** — prod bundle pre-dates Driver Early Cashouts section enhancements
+6. Hard refresh admin panel (Cmd+Shift+R)
 
 Automated Lovable publish via `LOVABLE_API_KEY` returned 401 Invalid token — use manual Publish in Lovable dashboard.
+
+### Lovable publish (manual)
+
+1. Open the admin project in [Lovable](https://lovable.dev) (linked to this repo)
+2. Click **Share** (top right) → **Publish**
+3. Wait for build to complete (~1–2 min)
+4. Hard refresh production admin URL (Cmd+Shift+R)
+
+No edge function deploy needed for early cashout list — admin reads `driver_early_cashouts` directly via RLS.
+
+## Expected UI after publish (Payout Batches & Audit)
+
+**Driver Early Cashouts** section is always visible (above Payout Batches), with status summary badges (processing / paid / failed).
+
+| Filter | Ahmed cashout `553cf554` |
+|--------|--------------------------|
+| **Milton Keynes (£)** | Ahmed Osman · **processing** · £8.27 requested · £0.50 fee · **£7.77 net to bank** · Standard · `po_1TffdpImYgLhqfX0coqg8arU` |
+| **All Services** | Same row + **Region: Uk1** column |
+
+**Driver Wallet:** drivers with in-flight cashouts show an amber **£X.XX processing** badge in the In-flight cashout column.
 
 ## £7.77 processing (Ahmed cashout 553cf554)
 

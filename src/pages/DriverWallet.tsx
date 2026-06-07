@@ -203,6 +203,7 @@ export default function DriverWallet() {
                       <TableHead className="text-right">Card Credits</TableHead>
                       <TableHead className="text-right">Cash Debt</TableHead>
                       <TableHead className="text-right">Wallet</TableHead>
+                      <TableHead className="text-right">In-flight cashout</TableHead>
                       <TableHead className="text-right">Trips</TableHead>
                       <TableHead></TableHead>
                     </TableRow>
@@ -210,7 +211,7 @@ export default function DriverWallet() {
                   <TableBody>
                     {filteredDrivers.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No drivers found</TableCell>
+                        <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">No drivers found</TableCell>
                       </TableRow>
                     ) : (
                       filteredDrivers.map(d => (
@@ -236,6 +237,15 @@ export default function DriverWallet() {
                           </TableCell>
                           <TableCell className={`text-right font-medium ${d.wallet_balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                             {dFmt(d, d.wallet_balance)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {d.reserved_cashout_pence > 0 ? (
+                              <Badge variant="outline" className="text-amber-600 border-amber-300">
+                                {dFmt(d, d.reserved_cashout_pence)} processing
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            )}
                           </TableCell>
                           <TableCell className="text-right">{d.completed_trips}</TableCell>
                           <TableCell className="text-right">
