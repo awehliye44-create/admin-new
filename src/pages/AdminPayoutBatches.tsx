@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,13 +8,13 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
-import { formatPence } from '@/hooks/useDriverWallet';
+import { formatPence, useDriverFinancialSummaries } from '@/hooks/useDriverWallet';
 import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
-import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
+import { getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 import { format } from 'date-fns';
 import { 
-  RefreshCw, CheckCircle2, Clock, XCircle, Eye, Calendar, Users,
-  DollarSign, Wallet, TrendingUp, AlertTriangle
+  RefreshCw, CheckCircle2, Clock, XCircle, Eye, Calendar,
+  DollarSign, Wallet, AlertTriangle
 } from 'lucide-react';
 
 interface PayoutItem {
@@ -45,49 +45,93 @@ interface PayoutBatch {
   items: PayoutItem[];
 }
 
-interface PayoutResponse {
-  batches: PayoutBatch[];
-  summary: {
-    totalBatches: number;
-    totalPaidOut: number;
-    totalPaidOutBatches: number;
-    pendingBatches: number;
-    failedBatches: number;
-    availableForPayout: number;
-    driversReadyForPayout: number;
-    currencyCode: string;
-  };
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
-
 export default function AdminPayoutBatches() {
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
 
-  const { data: responseData, isLoading, refetch } = useQuery<PayoutResponse>({
-    queryKey: ['admin-payout-batches'],
+  const { data: allDrivers = [], isLoading: isLoadingDrivers, refetch: refetchDrivers } = useDriverFinancialSummaries();
+
+  const { data: batches = [], isLoading: isLoadingBatches, refetch: refetchBatches, isError, error } = useQuery<PayoutBatch[]>({
+    queryKey: ['admin-payout-batches-list'],
     queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke('admin-payout-batches');
-      if (error) throw error;
-      return data;
+      const { data: batchRows, error: batchError } = await supabase
+        .from('payout_batches')
+        .select('id,kind,run_date,status,total_drivers,total_amount_pence,successful_payouts,failed_payouts,notes,created_at,completed_at')
+        .order('created_at', { ascending: false });
+
+      if (batchError) throw batchError;
+
+      const batchIds = (batchRows || []).map(b => b.id);
+      const { data: itemRows, error: itemError } = batchIds.length > 0
+        ? await supabase
+            .from('payout_items')
+            .select('id,batch_id,driver_id,amount_pence,status,stripe_transfer_id,stripe_payout_id,error_message,created_at,completed_at,drivers:driver_id(first_name,last_name)')
+            .in('batch_id', batchIds)
+        : { data: [], error: null };
+
+      if (itemError) throw itemError;
+
+      const itemsByBatch: Record<string, PayoutItem[]> = {};
+      itemRows?.forEach((item: any) => {
+        if (!itemsByBatch[item.batch_id]) itemsByBatch[item.batch_id] = [];
+        itemsByBatch[item.batch_id].push({
+          id: item.id,
+          driverId: item.driver_id,
+          driverName: item.drivers ? `${item.drivers.first_name} ${item.drivers.last_name}` : null,
+          amount: item.amount_pence,
+          status: item.status,
+          stripeTransferId: item.stripe_transfer_id,
+          stripePayoutId: item.stripe_payout_id,
+          errorMessage: item.error_message,
+          createdAt: item.created_at,
+          completedAt: item.completed_at,
+        });
+      });
+
+      return (batchRows || []).map(batch => ({
+        id: batch.id,
+        kind: batch.kind,
+        runDate: batch.run_date,
+        status: batch.status,
+        totalDrivers: batch.total_drivers,
+        totalAmount: batch.total_amount_pence,
+        successfulPayouts: batch.successful_payouts,
+        failedPayouts: batch.failed_payouts,
+        notes: batch.notes,
+        createdAt: batch.created_at,
+        completedAt: batch.completed_at,
+        items: itemsByBatch[batch.id] || [],
+      }));
     },
   });
 
-  // Use summary data from the edge function directly — no redundant driver fetch
-  const resolvedCurrency = serviceFilter.currencyCode || responseData?.summary?.currencyCode || '';
-  const isMixedCurrency = false; // Edge function returns a single dominant currency
+  const drivers = useMemo(() => {
+    if (!serviceFilter.regionId) return allDrivers;
+    return allDrivers.filter(d => d.region_id === serviceFilter.regionId);
+  }, [allDrivers, serviceFilter.regionId]);
 
-  const totalPaidOut = responseData?.summary?.totalPaidOut || 0;
-  const availableForPayout = responseData?.summary?.availableForPayout || 0;
-  const driversReadyForPayout = responseData?.summary?.driversReadyForPayout || 0;
+  const resolvedCurrency = serviceFilter.currencyCode || getSingleCurrency(drivers) || '';
+  const isMixedCurrency = !serviceFilter.currencyCode && !getSingleCurrency(drivers) && drivers.length > 0;
 
-  const batches = responseData?.batches || [];
-  const summary = responseData?.summary;
+  const totalPaidOut = drivers.reduce((s, d) => s + d.total_payouts_sent, 0);
+  const availableForPayout = drivers.reduce((s, d) => s + d.available_for_payout, 0);
+  const driversReadyForPayout = drivers.filter(d => d.available_for_payout > 0).length;
+
+  const summary = {
+    totalBatches: batches.length,
+    totalPaidOut,
+    pendingBatches: batches.filter(b => b.status === 'pending' || b.status === 'processing').length,
+    failedBatches: batches.filter(b => b.status === 'failed').length,
+  };
+
   const selectedBatch = batches.find(b => b.id === selectedBatchId);
   const batchItems = selectedBatch?.items || [];
+  const isLoading = isLoadingDrivers || isLoadingBatches;
+
+  const refetch = () => {
+    refetchDrivers();
+    refetchBatches();
+  };
 
   const getStatusBadge = (status: string) => {
     const config: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline', icon: React.ReactNode }> = {
@@ -125,6 +169,12 @@ export default function AdminPayoutBatches() {
       description="Unified payout reporting — totalPaidOut derived from driver_financial_summary"
     >
       <div className="space-y-6">
+        {isError && (
+          <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            Failed to load payout batches: {(error as Error)?.message || 'Unknown error'}
+          </div>
+        )}
+
         {/* Service Area Filter */}
         <div className="flex items-center gap-3">
           <ServiceAreaFinanceFilter value={serviceFilter} onChange={setServiceFilter} />
@@ -143,7 +193,7 @@ export default function AdminPayoutBatches() {
               <Calendar className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{summary?.totalBatches || 0}</div>
+              <div className="text-2xl font-bold">{summary.totalBatches}</div>
               <p className="text-xs text-muted-foreground">All time</p>
             </CardContent>
           </Card>
@@ -173,7 +223,7 @@ export default function AdminPayoutBatches() {
               <Clock className="h-4 w-4 text-amber-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-amber-500">{summary?.pendingBatches || 0}</div>
+              <div className="text-2xl font-bold text-amber-500">{summary.pendingBatches}</div>
               <p className="text-xs text-muted-foreground">In progress</p>
             </CardContent>
           </Card>
@@ -183,7 +233,7 @@ export default function AdminPayoutBatches() {
               <XCircle className="h-4 w-4 text-red-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-500">{summary?.failedBatches || 0}</div>
+              <div className="text-2xl font-bold text-red-500">{summary.failedBatches}</div>
               <p className="text-xs text-muted-foreground">Need attention</p>
             </CardContent>
           </Card>
