@@ -76,8 +76,14 @@ export default function AdminPayoutBatches() {
   const regionScope = serviceFilter.regionId ?? null;
   const hasRegionScope = !!regionScope;
 
-  const { data: drivers = [], isLoading: isLoadingDrivers, refetch: refetchDrivers } =
-    useDriverFinancialSummaries(regionScope, { enabled: hasRegionScope });
+  const { data: allDrivers = [], isLoading: isLoadingDrivers, refetch: refetchDrivers } =
+    useDriverFinancialSummaries();
+
+  // Match Driver Wallet / Settlements: fetch all, filter client-side by region_id
+  const drivers = useMemo(() => {
+    if (!regionScope) return [];
+    return allDrivers.filter(d => d.region_id === regionScope);
+  }, [allDrivers, regionScope]);
 
   const {
     data: edgeData,
