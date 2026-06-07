@@ -110,6 +110,29 @@ export default function AdminPayoutBatches() {
     return allDrivers.filter(d => d.region_id === serviceFilter.regionId);
   }, [allDrivers, serviceFilter.regionId]);
 
+  const filteredDriverIds = useMemo(
+    () => new Set(drivers.map(d => d.driver_id)),
+    [drivers],
+  );
+
+  const filteredBatches = useMemo(() => {
+    if (!serviceFilter.regionId) return batches;
+    return batches
+      .map(batch => {
+        const items = batch.items.filter(item => filteredDriverIds.has(item.driverId));
+        if (items.length === 0) return null;
+        return {
+          ...batch,
+          items,
+          totalDrivers: items.length,
+          totalAmount: items.reduce((sum, item) => sum + item.amount, 0),
+          successfulPayouts: items.filter(item => item.status === 'completed').length,
+          failedPayouts: items.filter(item => item.status === 'failed').length,
+        };
+      })
+      .filter((batch): batch is PayoutBatch => batch !== null);
+  }, [batches, serviceFilter.regionId, filteredDriverIds]);
+
   const resolvedCurrency = serviceFilter.currencyCode || getSingleCurrency(drivers) || '';
   const isMixedCurrency = !serviceFilter.currencyCode && !getSingleCurrency(drivers) && drivers.length > 0;
 
@@ -118,13 +141,13 @@ export default function AdminPayoutBatches() {
   const driversReadyForPayout = drivers.filter(d => d.available_for_payout > 0).length;
 
   const summary = {
-    totalBatches: batches.length,
+    totalBatches: filteredBatches.length,
     totalPaidOut,
-    pendingBatches: batches.filter(b => b.status === 'pending' || b.status === 'processing').length,
-    failedBatches: batches.filter(b => b.status === 'failed').length,
+    pendingBatches: filteredBatches.filter(b => b.status === 'pending' || b.status === 'processing').length,
+    failedBatches: filteredBatches.filter(b => b.status === 'failed').length,
   };
 
-  const selectedBatch = batches.find(b => b.id === selectedBatchId);
+  const selectedBatch = filteredBatches.find(b => b.id === selectedBatchId);
   const batchItems = selectedBatch?.items || [];
   const isLoading = isLoadingDrivers || isLoadingBatches;
 
@@ -260,12 +283,14 @@ export default function AdminPayoutBatches() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {batches.length === 0 ? (
+                {filteredBatches.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No payout batches yet</TableCell>
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      {serviceFilter.regionId ? 'No payout batches for this service area' : 'No payout batches yet'}
+                    </TableCell>
                   </TableRow>
                 ) : (
-                  batches.map((batch) => (
+                  filteredBatches.map((batch) => (
                     <TableRow key={batch.id}>
                       <TableCell className="font-medium">
                         {batch.runDate ? format(new Date(batch.runDate), 'dd MMM yyyy') : format(new Date(batch.createdAt), 'dd MMM yyyy')}

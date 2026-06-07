@@ -50,6 +50,7 @@ serve(async (req) => {
     const limit = parseInt(url.searchParams.get('limit') || '20');
     const kind = url.searchParams.get('kind');
     const status = url.searchParams.get('status');
+    const regionId = url.searchParams.get('region_id');
     const offset = (page - 1) * limit;
 
     // ── PARALLEL: Run all 3 queries simultaneously ──
@@ -62,11 +63,14 @@ serve(async (req) => {
     if (status) batchQuery = batchQuery.eq('status', status);
     batchQuery = batchQuery.range(offset, offset + limit - 1);
 
+    let financialQuery = supabase
+      .from('driver_financial_summary')
+      .select('driver_id, total_payouts_sent, available_for_payout, currency_code, region_id');
+    if (regionId) financialQuery = financialQuery.eq('region_id', regionId);
+
     const [batchResult, financialResult, summaryResult] = await Promise.all([
       batchQuery,
-      supabase
-        .from('driver_financial_summary')
-        .select('total_payouts_sent, available_for_payout, currency_code'),
+      financialQuery,
       supabase
         .from('payout_batches')
         .select('status, total_amount_pence'),
@@ -81,28 +85,46 @@ serve(async (req) => {
     const batchIds = batches.map(b => b.id);
     const { data: allItems } = batchIds.length > 0 ? await supabase
       .from('payout_items')
-      .select('id,batch_id,driver_id,amount_pence,status,stripe_transfer_id,stripe_payout_id,error_message,created_at,completed_at,drivers:driver_id(first_name,last_name)')
+      .select('id,batch_id,driver_id,amount_pence,status,stripe_transfer_id,stripe_payout_id,error_message,created_at,completed_at,drivers:driver_id(first_name,last_name,region_id)')
       .in('batch_id', batchIds) : { data: [] };
+
+    const filteredRegionDriverIds = regionId
+      ? new Set(
+          (financialResult.data || [])
+            .filter(d => d.region_id === regionId)
+            .map(d => d.driver_id),
+        )
+      : null;
 
     const itemsByBatch: Record<string, any[]> = {};
     allItems?.forEach((item: any) => {
+      if (filteredRegionDriverIds && !filteredRegionDriverIds.has(item.driver_id)) return;
       if (!itemsByBatch[item.batch_id]) itemsByBatch[item.batch_id] = [];
       itemsByBatch[item.batch_id].push(item);
     });
 
-    const transformedBatches = batches.map(batch => ({
+    const transformedBatches = batches.flatMap(batch => {
+      const batchItems = itemsByBatch[batch.id] || [];
+      if (regionId && batchItems.length === 0) return [];
+      return [{
       id: batch.id,
       kind: batch.kind,
       runDate: batch.run_date,
       status: batch.status,
-      totalDrivers: batch.total_drivers,
-      totalAmount: batch.total_amount_pence,
-      successfulPayouts: batch.successful_payouts,
-      failedPayouts: batch.failed_payouts,
+      totalDrivers: regionId ? batchItems.length : batch.total_drivers,
+      totalAmount: regionId
+        ? batchItems.reduce((sum: number, item: any) => sum + (item.amount_pence || 0), 0)
+        : batch.total_amount_pence,
+      successfulPayouts: regionId
+        ? batchItems.filter((item: any) => item.status === 'completed').length
+        : batch.successful_payouts,
+      failedPayouts: regionId
+        ? batchItems.filter((item: any) => item.status === 'failed').length
+        : batch.failed_payouts,
       notes: batch.notes,
       createdAt: batch.created_at,
       completedAt: batch.completed_at,
-      items: itemsByBatch[batch.id]?.map((item: any) => ({
+      items: batchItems.map((item: any) => ({
         id: item.id,
         driverId: item.driver_id,
         driverName: item.drivers ? `${item.drivers.first_name} ${item.drivers.last_name}` : null,
@@ -113,8 +135,9 @@ serve(async (req) => {
         errorMessage: item.error_message,
         createdAt: item.created_at,
         completedAt: item.completed_at,
-      })) || [],
-    }));
+      })),
+    }];
+    });
 
     // ── Stats from parallel results ──
     const financialRows = financialResult.data || [];
@@ -123,7 +146,9 @@ serve(async (req) => {
     const unifiedTotalPayouts = financialRows.reduce((s, d) => s + Number(d.total_payouts_sent || 0), 0);
     const unifiedAvailablePayout = financialRows.reduce((s, d) => s + Number(d.available_for_payout || 0), 0);
     const driversReadyForPayout = financialRows.filter(d => Number(d.available_for_payout || 0) > 0).length;
-    const dominantCurrency = financialRows.find(d => d.currency_code)?.currency_code || '';
+    const dominantCurrency = regionId
+      ? (financialRows.find(d => d.region_id === regionId)?.currency_code || '')
+      : (financialRows.find(d => d.currency_code)?.currency_code || '');
 
     const summary = {
       totalBatches: summaryData.length,
