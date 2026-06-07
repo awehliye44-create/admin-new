@@ -28,6 +28,7 @@ import {
 import { format, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { RiderDetailsDialog } from '@/components/riders/RiderDetailsDialog';
+import { formatAccountDisplayName, resolveCustomerDisplayStatus, type AccountDisplayStatus } from '@/lib/accountDisplayStatus';
 
 interface Rider {
   id: string;
@@ -40,12 +41,14 @@ interface Rider {
   updated_at: string;
   trip_count?: number;
   last_trip_at?: string | null;
-  rider_status: 'active' | 'disabled' | 'suspended' | 'deleted';
+  rider_status: 'active' | 'disabled' | 'suspended' | 'deleted' | 'pending_verification';
+  email_verified?: boolean;
+  phone_verified?: boolean;
   wallet_balance?: number;
   default_payment_method?: string | null;
 }
 
-type StatusFilter = 'all' | 'active' | 'disabled' | 'suspended' | 'deleted';
+type StatusFilter = 'all' | 'active' | 'disabled' | 'suspended' | 'deleted' | 'pending_verification';
 type ActionType = 'disable' | 'suspend' | 'enable' | 'delete';
 
 export default function Riders() {
@@ -66,7 +69,7 @@ export default function Riders() {
     queryFn: async () => {
       const { data: ridersData, error: ridersError } = await supabase
         .from('customers')
-        .select('id, user_id, customer_code, first_name, last_name, phone, created_at, updated_at, rider_status')
+        .select('id, user_id, customer_code, first_name, last_name, phone, created_at, updated_at, rider_status, email_verified, phone_verified')
         .order('created_at', { ascending: false });
 
       if (ridersError) throw ridersError;
@@ -194,23 +197,32 @@ export default function Riders() {
     return first + last || '?';
   };
 
-  const getFullName = (rider: Rider) => {
-    if (rider.first_name || rider.last_name) {
-      return `${rider.first_name || ''} ${rider.last_name || ''}`.trim();
-    }
-    return 'Unknown';
-  };
+  const getFullName = (rider: Rider) => formatAccountDisplayName(rider.first_name, rider.last_name);
 
-  const getStatusBadge = (status: string) => {
+  const getDisplayStatus = (rider: Rider): AccountDisplayStatus =>
+    resolveCustomerDisplayStatus({
+      firstName: rider.first_name,
+      lastName: rider.last_name,
+      riderStatus: rider.rider_status,
+      emailVerified: rider.email_verified,
+      phoneVerified: rider.phone_verified,
+    });
+
+  const getStatusBadge = (rider: Rider) => {
+    const status = getDisplayStatus(rider);
     switch (status) {
-      case 'active':
+      case 'ACTIVE':
         return <Badge className="bg-green-500/10 text-green-600 border-green-500/30">Active</Badge>;
-      case 'disabled':
+      case 'PENDING_VERIFICATION':
+        return <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/30">Pending Verification</Badge>;
+      case 'DISABLED':
         return <Badge className="bg-red-500/10 text-red-600 border-red-500/30">Disabled</Badge>;
-      case 'suspended':
+      case 'SUSPENDED':
         return <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/30">Suspended</Badge>;
-      case 'deleted':
+      case 'DELETED':
         return <Badge className="bg-muted text-muted-foreground border-muted">Deleted</Badge>;
+      case 'INVALID_ACCOUNT_DATA':
+        return <Badge className="bg-red-500/10 text-red-600 border-red-500/30">Invalid Account Data</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -222,13 +234,19 @@ export default function Riders() {
     const code = rider.customer_code?.toLowerCase() || '';
     const query = searchQuery.toLowerCase();
     const matchesSearch = fullName.includes(query) || phone.includes(query) || code.includes(query);
-    const matchesStatus = statusFilter === 'all' || rider.rider_status === statusFilter;
+    const displayStatus = getDisplayStatus(rider);
+    const matchesStatus = statusFilter === 'all'
+      || (statusFilter === 'pending_verification' && displayStatus === 'PENDING_VERIFICATION')
+      || (statusFilter === 'active' && displayStatus === 'ACTIVE')
+      || (statusFilter === 'disabled' && displayStatus === 'DISABLED')
+      || (statusFilter === 'suspended' && displayStatus === 'SUSPENDED')
+      || (statusFilter === 'deleted' && displayStatus === 'DELETED');
     return matchesSearch && matchesStatus;
   });
 
   const counts = {
     all: riders.length,
-    active: riders.filter(r => r.rider_status === 'active').length,
+    active: riders.filter(r => getDisplayStatus(r) === 'ACTIVE').length,
     disabled: riders.filter(r => r.rider_status === 'disabled').length,
     suspended: riders.filter(r => r.rider_status === 'suspended').length,
     deleted: riders.filter(r => r.rider_status === 'deleted').length,
@@ -398,7 +416,7 @@ export default function Riders() {
                     <TableCell>
                       <Badge variant="outline" className="font-mono text-xs">{rider.customer_code}</Badge>
                     </TableCell>
-                    <TableCell>{getStatusBadge(rider.rider_status)}</TableCell>
+                    <TableCell>{getStatusBadge(rider)}</TableCell>
                     <TableCell>
                       {rider.phone ? (
                         <div className="flex items-center gap-1">

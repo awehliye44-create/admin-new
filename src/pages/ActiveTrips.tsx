@@ -56,6 +56,8 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { getCurrencySymbol, getDistanceUnitShort, convertDistance } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
+import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
+import { filterAdminActiveTrips } from '@/lib/adminActiveTripFilter';
 
 interface Trip {
   id: string;
@@ -70,6 +72,7 @@ interface Trip {
   currency_code: string;
   created_at: string;
   started_at: string | null;
+  searching_expires_at: string | null;
   driver_id: string | null;
   // Fare Engine source-of-truth fields
   pricing_mode: string | null;
@@ -106,8 +109,19 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }>
   searching: { label: 'Searching', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: Search },
   offered: { label: 'Offered', color: 'bg-cyan-100 text-cyan-700 border-cyan-200', icon: Users },
   driver_assigned: { label: 'Driver Assigned', color: 'bg-teal-100 text-teal-700 border-teal-200', icon: Car },
+  confirmed: { label: 'Confirmed', color: 'bg-teal-100 text-teal-700 border-teal-200', icon: CheckCircle2 },
   accepted: { label: 'Accepted', color: 'bg-purple-100 text-purple-700 border-purple-200', icon: CheckCircle2 },
+  driver_en_route: { label: 'En Route', color: 'bg-violet-100 text-violet-700 border-violet-200', icon: Navigation },
+  en_route: { label: 'En Route', color: 'bg-violet-100 text-violet-700 border-violet-200', icon: Navigation },
+  en_route_to_pickup: { label: 'En Route', color: 'bg-violet-100 text-violet-700 border-violet-200', icon: Navigation },
+  enroute_to_pickup: { label: 'En Route', color: 'bg-violet-100 text-violet-700 border-violet-200', icon: Navigation },
+  driver_arriving: { label: 'Arriving', color: 'bg-violet-100 text-violet-700 border-violet-200', icon: Navigation },
   arrived: { label: 'Arrived', color: 'bg-indigo-100 text-indigo-700 border-indigo-200', icon: MapPin },
+  arrived_pickup: { label: 'At Pickup', color: 'bg-indigo-100 text-indigo-700 border-indigo-200', icon: MapPin },
+  arrived_at_pickup: { label: 'At Pickup', color: 'bg-indigo-100 text-indigo-700 border-indigo-200', icon: MapPin },
+  waiting: { label: 'Waiting', color: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: Clock },
+  pickup_waiting: { label: 'Waiting', color: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: Clock },
+  waiting_at_pickup: { label: 'Waiting', color: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: Clock },
   in_progress: { label: 'In Progress', color: 'bg-amber-100 text-amber-700 border-amber-200', icon: Car },
   started: { label: 'Started', color: 'bg-amber-100 text-amber-700 border-amber-200', icon: Play },
   on_trip: { label: 'On Trip', color: 'bg-orange-100 text-orange-700 border-orange-200', icon: Navigation },
@@ -147,7 +161,7 @@ export default function ActiveTrips() {
             driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone),
             service_area:service_areas!trips_service_area_id_fkey(region:regions(currency_code, distance_unit))
           `)
-          .in('status', ['pending', 'searching', 'offered', 'driver_assigned', 'accepted', 'arrived', 'in_progress', 'started', 'on_trip', 'ongoing'])
+          .in('status', [...ACTIVE_TRIP_DB_STATUSES])
           .order('created_at', { ascending: false }),
         supabase
           .from('drivers')
@@ -159,7 +173,7 @@ export default function ActiveTrips() {
       if (tripsRes.error) throw tripsRes.error;
       if (driversRes.error) throw driversRes.error;
 
-      setTrips(tripsRes.data || []);
+      setTrips(filterAdminActiveTrips(tripsRes.data || []));
       setAvailableDrivers(driversRes.data || []);
       setLastRefresh(new Date());
     } catch (err) {

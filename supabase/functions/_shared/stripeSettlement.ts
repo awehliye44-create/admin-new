@@ -200,7 +200,8 @@ export async function capturePaymentIntentWithSettlement({
     }
   }
 
-  if (!destinationAccountId && resolvedDriverAccountId && chargeId && driverTransferAmountPence > 0) {
+  // Post-capture fallback: platform-only or botched destination capture with no fee/transfer on charge.
+  if (!applicationFeeId && !transferId && resolvedDriverAccountId && chargeId && driverTransferAmountPence > 0) {
     const transfer = await stripe.transfers.create(
       {
         amount: driverTransferAmountPence,
@@ -274,8 +275,17 @@ export async function capturePaymentIntentWithSettlement({
       ? 'SEPARATE_CHARGE_TRANSFER_USED_NO_APPLICATION_FEE_OBJECT'
       : `SEPARATE_TRANSFER_MISMATCH expected=${driverTransferAmountPence} actual=${transferAmountPence ?? 'none'}`;
   } else {
-    settlementVerified = true;
-    settlementWarning = 'NO_DRIVER_CONNECT_ACCOUNT_PLATFORM_RETAINED_FULL_CHARGE_MANUAL_PAYOUT_REQUIRED';
+    settlementVerified = commissionPence === 0;
+    settlementWarning = commissionPence > 0
+      ? 'NO_DRIVER_CONNECT_ACCOUNT_PLATFORM_RETAINED_FULL_CHARGE_MANUAL_PAYOUT_REQUIRED'
+      : 'NO_DRIVER_CONNECT_ACCOUNT_NO_COMMISSION';
+  }
+
+  if (resolvedDriverAccountId && driverTransferAmountPence > 0 && !settlementVerified) {
+    throw new Error(
+      `STRIPE_SETTLEMENT_NOT_VERIFIED: trip=${tripId} pi=${paymentIntentId} mode=${settlementMode} ` +
+      `warning=${settlementWarning ?? 'none'}`,
+    );
   }
 
   console.log(
@@ -290,6 +300,241 @@ export async function capturePaymentIntentWithSettlement({
 
   return {
     capturedPaymentIntent,
+    chargeId,
+    capturedAmountPence,
+    stripeFeePence,
+    applicationFeeId,
+    applicationFeeAmountPence,
+    destinationAccountId,
+    transferId,
+    transferAmountPence,
+    effectiveDriverTransferAmountPence,
+    platformNetAmountPence,
+    transferReversalId,
+    applicationFeeBalanceTransactionId,
+    settlementMode,
+    settlementVerified,
+    settlementWarning,
+  };
+}
+
+export type TripSettlementColumnUpdate = {
+  stripe_charge_id: string | null;
+  stripe_application_fee_id: string | null;
+  stripe_application_fee_amount_pence: number | null;
+  stripe_destination_account_id: string | null;
+  stripe_transfer_id: string | null;
+  stripe_transfer_amount_pence: number | null;
+  stripe_settlement_verified: boolean;
+  stripe_settlement_warning: string | null;
+};
+
+export function tripSettlementColumnsFromResult(
+  settlement: Pick<
+    StripeSettlementResult,
+    | 'chargeId'
+    | 'applicationFeeId'
+    | 'applicationFeeAmountPence'
+    | 'destinationAccountId'
+    | 'transferId'
+    | 'transferAmountPence'
+    | 'settlementVerified'
+    | 'settlementWarning'
+  >,
+): TripSettlementColumnUpdate {
+  return {
+    stripe_charge_id: settlement.chargeId,
+    stripe_application_fee_id: settlement.applicationFeeId,
+    stripe_application_fee_amount_pence: settlement.applicationFeeAmountPence,
+    stripe_destination_account_id: settlement.destinationAccountId,
+    stripe_transfer_id: settlement.transferId,
+    stripe_transfer_amount_pence: settlement.transferAmountPence,
+    stripe_settlement_verified: settlement.settlementVerified,
+    stripe_settlement_warning: settlement.settlementWarning,
+  };
+}
+
+/**
+ * Recovery path when the PaymentIntent is already `succeeded` but the charge has
+ * no application_fee and no Connect transfer (legacy platform-only capture).
+ */
+export async function ensureStripeSettlementForCapturedPayment({
+  stripe,
+  supabase,
+  tripId,
+  driverId,
+  paymentIntentId,
+  commissionPence,
+  driverPayoutPence,
+  currencyCode,
+  driverStripeAccountId,
+  idempotencyKey,
+}: {
+  stripe: Stripe;
+  supabase?: SupabaseLike;
+  tripId: string;
+  driverId?: string | null;
+  paymentIntentId: string;
+  commissionPence: number;
+  driverPayoutPence: number;
+  currencyCode: string;
+  driverStripeAccountId?: string | null;
+  idempotencyKey: string;
+}): Promise<StripeSettlementResult> {
+  const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+  if (paymentIntent.status !== 'succeeded') {
+    throw new Error(`Cannot ensure settlement — PaymentIntent status is "${paymentIntent.status}"`);
+  }
+
+  const expectedDriverTransferAmountPence = Math.max(0, (paymentIntent.amount_received ?? paymentIntent.amount) - commissionPence);
+  const driverTransferAmountPence = expectedDriverTransferAmountPence;
+
+  let resolvedDriverAccountId = driverStripeAccountId ?? null;
+  if (!resolvedDriverAccountId && driverId && supabase) {
+    const { data: driver } = await supabase
+      .from('drivers')
+      .select('stripe_account_id')
+      .eq('id', driverId)
+      .maybeSingle();
+    resolvedDriverAccountId = driver?.stripe_account_id ?? null;
+  }
+
+  let destinationAccountId = asStripeId(paymentIntent.transfer_data?.destination) ?? resolvedDriverAccountId;
+  const chargeId = asStripeId(paymentIntent.latest_charge);
+  if (!chargeId) {
+    throw new Error(`Cannot ensure settlement — PaymentIntent ${paymentIntentId} has no charge`);
+  }
+
+  const charge = await stripe.charges.retrieve(chargeId, {
+    expand: ['balance_transaction', 'application_fee', 'transfer'],
+  });
+
+  let capturedAmountPence = charge.amount_captured ?? charge.amount;
+  let stripeFeePence = 0;
+  const balanceTransaction = charge.balance_transaction;
+  if (balanceTransaction && typeof balanceTransaction === 'object' && 'fee' in balanceTransaction) {
+    stripeFeePence = (balanceTransaction as Stripe.BalanceTransaction).fee ?? 0;
+  }
+
+  let applicationFeeId = asStripeId(charge.application_fee);
+  let applicationFeeAmountPence = asStripeAmount(charge.application_fee);
+  let transferId = asStripeId((charge as unknown as { transfer?: unknown }).transfer);
+  let transferAmountPence = asStripeAmount((charge as unknown as { transfer?: unknown }).transfer);
+  let effectiveDriverTransferAmountPence: number | null = null;
+  let transferReversalId: string | null = null;
+  let applicationFeeBalanceTransactionId: string | null = null;
+
+  if (applicationFeeId) {
+    try {
+      const applicationFee = await stripe.applicationFees.retrieve(applicationFeeId, { expand: ['balance_transaction'] });
+      applicationFeeAmountPence = applicationFee.amount ?? applicationFeeAmountPence;
+      applicationFeeBalanceTransactionId = asStripeId(applicationFee.balance_transaction);
+    } catch (error) {
+      console.warn(`[stripe-settlement-recovery] Could not retrieve application fee ${applicationFeeId}: ${(error as Error).message}`);
+    }
+  }
+
+  let settlementMode: StripeSettlementResult['settlementMode'] = destinationAccountId && applicationFeeId
+    ? 'destination_charge'
+    : transferId
+      ? 'separate_charge_transfer'
+      : resolvedDriverAccountId
+        ? 'separate_charge_transfer'
+        : 'platform_charge_only';
+
+  if (!applicationFeeId && !transferId && resolvedDriverAccountId && driverTransferAmountPence > 0) {
+    const transfer = await stripe.transfers.create(
+      {
+        amount: driverTransferAmountPence,
+        currency: currencyCode.toLowerCase(),
+        destination: resolvedDriverAccountId,
+        source_transaction: chargeId,
+        metadata: {
+          trip_id: tripId,
+          payment_intent_id: paymentIntentId,
+          settlement_mode: 'separate_charge_transfer',
+          settlement_recovery: 'post_capture_webhook_or_finalize',
+          commission_pence: String(commissionPence),
+        },
+      },
+      { idempotencyKey: `${idempotencyKey}_recovery_transfer` },
+    );
+
+    destinationAccountId = resolvedDriverAccountId;
+    transferId = transfer.id;
+    transferAmountPence = transfer.amount;
+    effectiveDriverTransferAmountPence = transfer.amount;
+    settlementMode = 'separate_charge_transfer';
+    console.warn(`[stripe-settlement-recovery] Created missing transfer ${transfer.id} for ${transfer.amount}p trip=${tripId}`);
+  }
+
+  if (settlementMode === 'destination_charge') {
+    effectiveDriverTransferAmountPence = Math.max(0, capturedAmountPence - (applicationFeeAmountPence ?? 0));
+
+    const missingCommissionPence = Math.max(0, commissionPence - (applicationFeeAmountPence ?? 0));
+    if (missingCommissionPence > 0 && transferId) {
+      const reversal = await stripe.transfers.createReversal(
+        transferId,
+        {
+          amount: missingCommissionPence,
+          metadata: {
+            trip_id: tripId,
+            payment_intent_id: paymentIntentId,
+            reason: 'recovery_missing_or_partial_application_fee',
+            expected_commission_pence: String(commissionPence),
+            existing_application_fee_pence: String(applicationFeeAmountPence ?? 0),
+          },
+        },
+        { idempotencyKey: `${idempotencyKey}_recovery_reversal` },
+      );
+      transferReversalId = reversal.id;
+      effectiveDriverTransferAmountPence = Math.max(0, effectiveDriverTransferAmountPence - reversal.amount);
+    }
+  } else if (settlementMode === 'separate_charge_transfer' && transferAmountPence != null) {
+    effectiveDriverTransferAmountPence = transferAmountPence;
+  }
+
+  const platformGrossRetainedPence = settlementMode === 'destination_charge'
+    ? ((applicationFeeAmountPence ?? 0) + (transferReversalId ? Math.max(0, commissionPence - (applicationFeeAmountPence ?? 0)) : 0))
+    : Math.max(0, capturedAmountPence - (transferAmountPence ?? 0));
+  const platformNetAmountPence = Math.max(0, platformGrossRetainedPence - stripeFeePence);
+
+  let settlementVerified = false;
+  let settlementWarning: string | null = null;
+
+  if (settlementMode === 'destination_charge') {
+    settlementVerified = applicationFeeAmountPence === commissionPence && !!applicationFeeId && !!destinationAccountId && effectiveDriverTransferAmountPence === driverTransferAmountPence;
+    if (!settlementVerified) {
+      settlementWarning = transferReversalId
+        ? `DESTINATION_CHARGE_APP_FEE_MISMATCH_RECOVERED_BY_TRANSFER_REVERSAL expected=${commissionPence} actual=${applicationFeeAmountPence ?? 'none'} reversal=${transferReversalId}`
+        : `DESTINATION_CHARGE_APP_FEE_MISMATCH expected=${commissionPence} actual=${applicationFeeAmountPence ?? 'none'} fee_id=${applicationFeeId ?? 'none'}`;
+    }
+  } else if (settlementMode === 'separate_charge_transfer') {
+    settlementVerified = transferAmountPence === driverTransferAmountPence && !!transferId && !!destinationAccountId;
+    settlementWarning = settlementVerified
+      ? 'SEPARATE_CHARGE_TRANSFER_USED_NO_APPLICATION_FEE_OBJECT'
+      : `SEPARATE_TRANSFER_MISMATCH expected=${driverTransferAmountPence} actual=${transferAmountPence ?? 'none'}`;
+  } else {
+    settlementVerified = commissionPence === 0;
+    settlementWarning = commissionPence > 0
+      ? 'NO_DRIVER_CONNECT_ACCOUNT_PLATFORM_RETAINED_FULL_CHARGE_MANUAL_PAYOUT_REQUIRED'
+      : 'NO_DRIVER_CONNECT_ACCOUNT_NO_COMMISSION';
+  }
+
+  if (resolvedDriverAccountId && driverTransferAmountPence > 0 && !settlementVerified) {
+    throw new Error(
+      `STRIPE_SETTLEMENT_RECOVERY_FAILED: trip=${tripId} pi=${paymentIntentId} mode=${settlementMode} ` +
+      `warning=${settlementWarning ?? 'none'}`,
+    );
+  }
+
+  console.log(
+    `[stripe-settlement-recovery] verified=${settlementVerified} mode=${settlementMode} trip=${tripId} ` +
+    `charge=${chargeId} transfer=${transferId ?? 'none'} app_fee=${applicationFeeId ?? 'none'}`,
+  );
+
+  return {
+    capturedPaymentIntent: paymentIntent,
     chargeId,
     capturedAmountPence,
     stripeFeePence,

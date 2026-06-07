@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Input } from '@/components/ui/input';
 import { MapPin, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { MAPBOX_TOKEN } from '@/lib/mapbox';
+import { useMapboxToken } from '@/hooks/useMapboxToken';
 
 interface PlaceResult {
   address: string;
@@ -59,6 +59,7 @@ export function PlacesAutocomplete({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const { token: mapboxToken, isReady: mapboxReady } = useMapboxToken();
 
   // Click outside to close suggestions
   useEffect(() => {
@@ -72,7 +73,7 @@ export function PlacesAutocomplete({
   }, []);
 
   const fetchSuggestions = useCallback(async (input: string) => {
-    if (!input.trim() || !MAPBOX_TOKEN) {
+    if (!input.trim() || !mapboxReady || !mapboxToken) {
       setSuggestions([]);
       setIsOpen(false);
       return;
@@ -87,7 +88,7 @@ export function PlacesAutocomplete({
     try {
       const proximity = userLocation || serviceAreaCenter;
       const params = new URLSearchParams({
-        access_token: MAPBOX_TOKEN,
+        access_token: mapboxToken,
         autocomplete: 'true',
         limit: '6',
       });
@@ -113,7 +114,7 @@ export function PlacesAutocomplete({
     } finally {
       setIsLoading(false);
     }
-  }, [userLocation, serviceAreaCenter, serviceAreaCountryCode]);
+  }, [userLocation, serviceAreaCenter, serviceAreaCountryCode, mapboxReady, mapboxToken]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;

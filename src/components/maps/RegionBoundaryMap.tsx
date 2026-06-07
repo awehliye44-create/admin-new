@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Trash2, Undo, MapPin } from 'lucide-react';
+import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { mapboxgl, MAPBOX_STYLE } from '@/lib/mapbox';
 
 interface LatLng {
@@ -50,6 +51,7 @@ export function RegionBoundaryMap({
   isEditable = true,
   height = '400px',
 }: RegionBoundaryMapProps) {
+  const { isReady: mapboxReady } = useMapboxToken();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
@@ -63,7 +65,7 @@ export function RegionBoundaryMap({
 
   // Init map
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
+    if (!mapboxReady || !containerRef.current || mapRef.current) return;
     const defaultCenter: [number, number] = [-0.7594, 52.0406];
     const center: [number, number] = boundary && boundary.length > 0
       ? [boundary[0].lng, boundary[0].lat]
@@ -110,7 +112,7 @@ export function RegionBoundaryMap({
       map.remove();
       mapRef.current = null;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mapboxReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync source data when points change
   useEffect(() => {

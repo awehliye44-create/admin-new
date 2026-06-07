@@ -73,6 +73,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DriverDetailsDialog } from '@/components/drivers/DriverDetailsDialog';
+import { formatAccountDisplayName, resolveDriverDisplayStatus } from '@/lib/accountDisplayStatus';
 
 interface Driver {
   id: string;
@@ -95,6 +96,8 @@ interface Driver {
   documents_approved?: boolean;
   category_id?: string | null;
   current_trip_id?: string | null;
+  email_verified?: boolean;
+  phone_verified?: boolean;
 }
 
 interface DriverCategory {
@@ -493,18 +496,21 @@ export default function Drivers() {
 
     setIsSavingEdit(true);
     try {
-      const { error } = await supabase
-        .from('drivers')
-        .update({
+      const { data, error } = await supabase.functions.invoke('admin-update-driver-contact', {
+        body: {
+          driver_id: editDriver.id,
           first_name: editDriver.first_name,
           last_name: editDriver.last_name,
           email: editDriver.email,
           phone: editDriver.phone,
           region_id: editDriver.region_id,
-        })
-        .eq('id', editDriver.id);
+        },
+      });
 
       if (error) throw error;
+
+      const result = data as { error?: string; auth_synced?: boolean; auth_sync_skipped_reason?: string | null } | null;
+      if (result?.error) throw new Error(result.error);
 
       setDrivers(prev => 
         prev.map(d => d.id === editDriver.id ? { ...d, ...editDriver } : d)
@@ -514,7 +520,13 @@ export default function Drivers() {
         setSelectedDriver(editDriver);
       }
       
-      toast.success('Driver updated successfully');
+      toast.success(
+        result?.auth_synced
+          ? 'Driver updated (auth email/phone synced)'
+          : result?.auth_sync_skipped_reason === 'auth_user_not_found'
+            ? 'Driver updated (no linked auth account to sync)'
+            : 'Driver updated successfully',
+      );
       setIsEditDialogOpen(false);
       setEditDriver(null);
     } catch (err: any) {
@@ -828,7 +840,7 @@ export default function Drivers() {
                         />
                         <div>
                           <div className="flex items-center gap-2">
-                            <p className="font-medium">{driver.first_name} {driver.last_name}</p>
+                            <p className="font-medium">{formatAccountDisplayName(driver.first_name, driver.last_name)}</p>
                             {driver.is_pet_friendly && (
                               <span title="Pet Friendly">
                                 <PawPrint className="h-3.5 w-3.5 text-yellow-600" />

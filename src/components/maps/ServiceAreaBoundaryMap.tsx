@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Trash2, Undo, MapPin, AlertTriangle, Check, Ruler } from 'lucide-react';
 import * as turf from '@turf/turf';
+import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { mapboxgl, MAPBOX_STYLE } from '@/lib/mapbox';
 
 interface LatLng { lat: number; lng: number }
@@ -48,6 +49,7 @@ export function ServiceAreaBoundaryMap({
   isEditable = true,
   height = '400px',
 }: ServiceAreaBoundaryMapProps) {
+  const { isReady: mapboxReady } = useMapboxToken();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
@@ -89,7 +91,7 @@ export function ServiceAreaBoundaryMap({
 
   // Init Mapbox
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
+    if (!mapboxReady || !containerRef.current || mapRef.current) return;
     const map = new mapboxgl.Map({
       container: containerRef.current,
       style: MAPBOX_STYLE,
@@ -136,7 +138,7 @@ export function ServiceAreaBoundaryMap({
       map.remove();
       mapRef.current = null;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mapboxReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Render region polygon + fit bounds
   useEffect(() => {

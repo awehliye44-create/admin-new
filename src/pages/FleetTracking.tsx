@@ -12,13 +12,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
 import { 
   MapPin, Loader2, Search, RefreshCw, Car, Users, Circle, 
   Navigation, Phone, Star, Clock, Wifi, WifiOff
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createCarMarkerElement, preloadMarkerImage } from '@/lib/mapMarkers';
-import { mapboxgl, MAPBOX_STYLE } from '@/lib/mapbox';
+import { useMapboxToken } from '@/hooks/useMapboxToken';
+import { mapboxgl } from '@/lib/mapbox';
+import { createMapboxMap } from '@/lib/mapboxMap';
 
 interface Driver {
   id: string;
@@ -27,6 +30,7 @@ interface Driver {
   phone: string;
   email: string;
   is_online: boolean;
+  driver_online_intent?: boolean;
   rating: number;
   total_trips: number;
   approval_status: string;
@@ -43,6 +47,16 @@ interface Driver {
     pickup_address: string;
     dropoff_address: string;
   } | null;
+  /** SSOT from admin_driver_online_snapshot */
+  fleet_state?: string | null;
+  available_for_customer_request?: boolean;
+  available_for_dispatch?: boolean;
+  availability_exclusion_reason?: string | null;
+  heartbeat_age_seconds?: number | null;
+  location_age_seconds?: number | null;
+  dispatchable_reason?: string | null;
+  effective_online_reason?: string | null;
+  platform?: string | null;
 }
 
 interface Region {
@@ -55,6 +69,35 @@ interface ServiceArea {
   id: string;
   name: string;
   region_id: string;
+}
+
+function fleetStatusLabel(driver: Driver): string {
+  if (driver.current_trip) return 'On Trip';
+  if (driver.available_for_dispatch) return 'Available';
+  if (driver.fleet_state === 'ONLINE_DEGRADED' || driver.driver_online_intent) {
+    return 'Online, not available';
+  }
+  if (driver.is_online) return 'Stale / not dispatchable';
+  return 'Offline';
+}
+
+function fleetStatusBadgeClass(driver: Driver): string {
+  if (driver.current_trip) return 'bg-amber-100 text-amber-700 border-amber-200';
+  if (driver.available_for_dispatch) return 'bg-green-100 text-green-700 border-green-200';
+  if (driver.driver_online_intent || driver.is_online) {
+    return 'bg-orange-100 text-orange-700 border-orange-200';
+  }
+  return 'bg-gray-100 text-gray-600 border-gray-200';
+}
+
+function isDispatchableOnline(driver: Driver): boolean {
+  return driver.available_for_dispatch === true && !driver.current_trip;
+}
+
+function isStaleOrUnavailable(driver: Driver): boolean {
+  return !driver.current_trip
+    && (driver.driver_online_intent === true || driver.is_online === true)
+    && driver.available_for_dispatch !== true;
 }
 
 
@@ -70,8 +113,11 @@ export default function FleetTracking() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
+  const [mapTileError, setMapTileError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState(new Date());
 
+  const { isReady: mapboxReady, error: mapboxError } = useMapboxToken();
+  const mapInitError = mapboxError ?? mapTileError;
   const mapRef = useRef<HTMLDivElement>(null);
   const mapboxMapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<Map<string, mapboxgl.Marker>>(new Map());
@@ -82,21 +128,48 @@ export default function FleetTracking() {
     preloadMarkerImage();
   }, []);
 
-  // Initialize Mapbox
+  // Initialize Mapbox — always resolve web token before constructing Map
   useEffect(() => {
     if (!mapRef.current || mapboxMapRef.current) return;
-    const map = new mapboxgl.Map({
-      container: mapRef.current,
-      style: MAPBOX_STYLE,
-      center: [-0.7594, 52.0406],
-      zoom: 13,
-    });
-    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
-    map.on('load', () => setIsMapLoaded(true));
-    mapboxMapRef.current = map;
+
+    let cancelled = false;
+    let detachResize: (() => void) | undefined;
+
+    void (async () => {
+      try {
+        const { map, detachResize: detach } = await createMapboxMap({
+          container: mapRef.current!,
+          center: [-0.7594, 52.0406],
+          zoom: 13,
+          onLoad: () => {
+            if (!cancelled) setIsMapLoaded(true);
+          },
+          onTileError: (msg) => {
+            if (!cancelled) setMapTileError(msg);
+          },
+        });
+        if (cancelled) {
+          map.remove();
+          detach();
+          return;
+        }
+        detachResize = detach;
+        map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
+        mapboxMapRef.current = map;
+      } catch (err) {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : 'Failed to initialize map';
+        console.error('[FleetTracking]', msg);
+        setMapTileError(msg);
+      }
+    })();
+
     return () => {
-      map.remove();
+      cancelled = true;
+      detachResize?.();
+      mapboxMapRef.current?.remove();
       mapboxMapRef.current = null;
+      setIsMapLoaded(false);
     };
   }, []);
 
@@ -106,13 +179,18 @@ export default function FleetTracking() {
       if (!isBackground) setIsLoading(true);
       
       // Fetch all data in parallel instead of sequentially
-      const [driversRes, regionsRes, serviceAreasRes, tripsRes] = await Promise.all([
+      const [driversRes, snapshotRes, regionsRes, serviceAreasRes, tripsRes] = await Promise.all([
         supabase
           .from('drivers')
           .select('*, region:regions(name)')
           .eq('approval_status', 'approved')
           .eq('documents_approved', true)
           .order('is_online', { ascending: false }),
+        supabase
+          .from('admin_driver_online_snapshot')
+          .select(
+            'id, fleet_state, available_for_customer_request, available_for_dispatch, availability_exclusion_reason, heartbeat_age_seconds, location_age_seconds, dispatchable_reason, effective_online_reason, platform, driver_online_intent, is_online, last_heartbeat_at, last_location_at',
+          ),
         supabase
           .from('regions')
           .select('id, name, geo_boundary')
@@ -125,11 +203,15 @@ export default function FleetTracking() {
         supabase
           .from('trips')
           .select('id, driver_id, status, pickup_address, dropoff_address')
-          .in('status', ['accepted', 'arrived', 'in_progress']),
+          .in('status', [...ACTIVE_TRIP_DB_STATUSES]),
       ]);
 
       if (driversRes.error) throw driversRes.error;
       if (regionsRes.error) throw regionsRes.error;
+
+      const snapshotById = new Map(
+        (snapshotRes.data ?? []).map((row: Record<string, unknown>) => [String(row.id), row]),
+      );
 
       const serviceAreasData: ServiceArea[] = (serviceAreasRes.data || []).map((sa: any) => ({
         id: sa.id as string,
@@ -141,7 +223,28 @@ export default function FleetTracking() {
       const activeTrips = tripsRes.data || [];
       const driversWithTrips = (driversRes.data || []).map(driver => {
         const currentTrip = activeTrips.find(t => t.driver_id === driver.id);
-        return { ...driver, current_trip: currentTrip || null };
+        const snap = snapshotById.get(driver.id) as Record<string, unknown> | undefined;
+        return {
+          ...driver,
+          current_trip: currentTrip || null,
+          fleet_state: typeof snap?.fleet_state === 'string' ? snap.fleet_state : null,
+          available_for_customer_request: snap?.available_for_customer_request === true,
+          available_for_dispatch: snap?.available_for_dispatch === true,
+          availability_exclusion_reason:
+            typeof snap?.availability_exclusion_reason === 'string'
+              ? snap.availability_exclusion_reason
+              : null,
+          heartbeat_age_seconds:
+            typeof snap?.heartbeat_age_seconds === 'number' ? snap.heartbeat_age_seconds : null,
+          location_age_seconds:
+            typeof snap?.location_age_seconds === 'number' ? snap.location_age_seconds : null,
+          dispatchable_reason:
+            typeof snap?.dispatchable_reason === 'string' ? snap.dispatchable_reason : null,
+          effective_online_reason:
+            typeof snap?.effective_online_reason === 'string' ? snap.effective_online_reason : null,
+          platform: typeof snap?.platform === 'string' ? snap.platform : null,
+          driver_online_intent: snap?.driver_online_intent === true || driver.driver_online_intent === true,
+        };
       });
 
       // Fetch driver service area assignments
@@ -290,9 +393,10 @@ export default function FleetTracking() {
         driverServiceAreasMap[driver.id]?.includes(serviceAreaFilter);
       const matchesStatus =
         statusFilter === 'all' ||
-        (statusFilter === 'online' && driver.is_online) ||
-        (statusFilter === 'offline' && !driver.is_online) ||
-        (statusFilter === 'on_trip' && driver.current_trip);
+        (statusFilter === 'online' && isDispatchableOnline(driver)) ||
+        (statusFilter === 'offline' && !driver.is_online && !driver.driver_online_intent) ||
+        (statusFilter === 'on_trip' && driver.current_trip) ||
+        (statusFilter === 'stale' && isStaleOrUnavailable(driver));
       return matchesSearch && matchesRegion && matchesServiceArea && matchesStatus;
     });
 
@@ -363,14 +467,16 @@ export default function FleetTracking() {
     const matchesServiceArea = serviceAreaFilter === 'all' || 
       (driverServiceAreasMap[driver.id]?.includes(serviceAreaFilter));
     const matchesStatus = statusFilter === 'all' || 
-      (statusFilter === 'online' && driver.is_online) ||
-      (statusFilter === 'offline' && !driver.is_online) ||
-      (statusFilter === 'on_trip' && driver.current_trip);
+      (statusFilter === 'online' && isDispatchableOnline(driver)) ||
+      (statusFilter === 'offline' && !driver.is_online && !driver.driver_online_intent) ||
+      (statusFilter === 'on_trip' && driver.current_trip) ||
+      (statusFilter === 'stale' && isStaleOrUnavailable(driver));
     return matchesSearch && matchesRegion && matchesServiceArea && matchesStatus;
   });
 
-  const onlineCount = drivers.filter(d => d.is_online).length;
-  const offlineCount = drivers.filter(d => !d.is_online).length;
+  const onlineCount = drivers.filter(isDispatchableOnline).length;
+  const staleCount = drivers.filter(isStaleOrUnavailable).length;
+  const offlineCount = drivers.filter(d => !d.is_online && !d.driver_online_intent && !d.current_trip).length;
   const onTripCount = drivers.filter(d => d.current_trip).length;
 
   return (
@@ -379,7 +485,7 @@ export default function FleetTracking() {
       description="Monitor your fleet in real-time"
     >
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
@@ -395,10 +501,21 @@ export default function FleetTracking() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Online</p>
+                <p className="text-sm text-muted-foreground">Dispatchable</p>
                 <p className="text-2xl font-bold text-green-600">{onlineCount}</p>
               </div>
               <Wifi className="h-8 w-8 text-green-500" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-orange-500/30 bg-orange-500/5">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Stale / N/A</p>
+                <p className="text-2xl font-bold text-orange-600">{staleCount}</p>
+              </div>
+              <Clock className="h-8 w-8 text-orange-500" />
             </div>
           </CardContent>
         </Card>
@@ -462,10 +579,30 @@ export default function FleetTracking() {
               </div>
             </CardHeader>
             <CardContent>
-              <div
-                ref={mapRef}
-                className="w-full h-[500px] rounded-lg border border-border overflow-hidden"
-              />
+              {mapInitError && (
+                <div
+                  role="alert"
+                  className="mb-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                >
+                  Map unavailable: {mapInitError}. Set VITE_MAPBOX_WEB_TOKEN in .env.local (restart dev server) or
+                  MAPBOX_WEB_TOKEN on Supabase for Lovable/production.
+                </div>
+              )}
+              <div className="relative w-full min-h-[500px] h-[calc(100vh-200px)] max-h-[720px] rounded-lg border border-border overflow-hidden">
+                <div ref={mapRef} className="absolute inset-0" />
+                {!mapboxReady && !mapInitError && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-muted/80 text-muted-foreground">
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Loading map token…
+                  </div>
+                )}
+                {mapboxReady && !isMapLoaded && !mapInitError && (
+                  <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-muted/50 text-muted-foreground">
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Loading map tiles…
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -526,7 +663,8 @@ export default function FleetTracking() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="online">Online</SelectItem>
+                    <SelectItem value="online">Dispatchable</SelectItem>
+                    <SelectItem value="stale">Stale / Not available</SelectItem>
                     <SelectItem value="on_trip">On Trip</SelectItem>
                     <SelectItem value="offline">Offline</SelectItem>
                   </SelectContent>
@@ -562,15 +700,9 @@ export default function FleetTracking() {
                             </span>
                             <Badge 
                               variant="outline" 
-                              className={
-                                !driver.is_online 
-                                  ? 'bg-gray-100 text-gray-600 border-gray-200'
-                                  : driver.current_trip 
-                                    ? 'bg-amber-100 text-amber-700 border-amber-200'
-                                    : 'bg-green-100 text-green-700 border-green-200'
-                              }
+                              className={fleetStatusBadgeClass(driver)}
                             >
-                              {!driver.is_online ? 'Offline' : driver.current_trip ? 'On Trip' : 'Available'}
+                              {fleetStatusLabel(driver)}
                             </Badge>
                           </div>
                           <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
@@ -582,7 +714,18 @@ export default function FleetTracking() {
                               <Star className="h-3 w-3 text-yellow-500" />
                               {driver.rating?.toFixed(1) || '5.0'}
                             </span>
+                            {driver.heartbeat_age_seconds != null && (
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                HB {driver.heartbeat_age_seconds}s
+                              </span>
+                            )}
                           </div>
+                          {driver.availability_exclusion_reason && !driver.available_for_dispatch && (
+                            <div className="mt-1 text-[10px] text-orange-700">
+                              {driver.availability_exclusion_reason}
+                            </div>
+                          )}
                           {driver.current_trip && (
                             <div className="mt-2 text-xs p-2 bg-amber-50 rounded border border-amber-100">
                               <div className="flex items-center gap-1 text-amber-700">

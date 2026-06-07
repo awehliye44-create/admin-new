@@ -8,6 +8,8 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { supabase } from '@/integrations/supabase/client';
+import { isActiveTripDbStatus } from '@/lib/activeTripStatuses';
+import { countAdminActiveTrips } from '@/lib/adminActiveTripFilter';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { useLedgerRevenue } from '@/hooks/useLedgerRevenue';
 import { formatPence } from '@/hooks/useDriverWallet';
@@ -45,7 +47,9 @@ import {
 } from "@/components/ui/select";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar } from 'recharts';
 import { preloadMarkerImage } from '@/lib/mapMarkers';
-import { mapboxgl, MAPBOX_STYLE } from '@/lib/mapbox';
+import { useMapboxToken } from '@/hooks/useMapboxToken';
+import { mapboxgl } from '@/lib/mapbox';
+import { createMapboxMap } from '@/lib/mapboxMap';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 
 interface Stats {
@@ -202,6 +206,9 @@ export default function Dashboard() {
   const [customDateTo, setCustomDateTo] = useState<Date | undefined>(undefined);
   // Map state
   const [isMapLoaded, setIsMapLoaded] = useState(false);
+  const [mapTileError, setMapTileError] = useState<string | null>(null);
+  const { isReady: mapboxReady, error: mapboxError } = useMapboxToken();
+  const mapInitError = mapboxError ?? mapTileError;
   const mapRef = useRef<HTMLDivElement>(null);
   const mapboxMapRef = useRef<mapboxgl.Map | null>(null);
 
@@ -210,20 +217,47 @@ export default function Dashboard() {
     preloadMarkerImage();
   }, []);
 
-  // Initialize Mapbox
+  // Initialize Mapbox — always resolve web token before constructing Map
   useEffect(() => {
     if (!mapRef.current || mapboxMapRef.current) return;
-    const map = new mapboxgl.Map({
-      container: mapRef.current,
-      style: MAPBOX_STYLE,
-      center: [-0.7594, 52.0406],
-      zoom: 12,
-    });
-    map.on('load', () => setIsMapLoaded(true));
-    mapboxMapRef.current = map;
+
+    let cancelled = false;
+    let detachResize: (() => void) | undefined;
+
+    void (async () => {
+      try {
+        const { map, detachResize: detach } = await createMapboxMap({
+          container: mapRef.current!,
+          center: [-0.7594, 52.0406],
+          zoom: 12,
+          onLoad: () => {
+            if (!cancelled) setIsMapLoaded(true);
+          },
+          onTileError: (msg) => {
+            if (!cancelled) setMapTileError(msg);
+          },
+        });
+        if (cancelled) {
+          map.remove();
+          detach();
+          return;
+        }
+        detachResize = detach;
+        mapboxMapRef.current = map;
+      } catch (err) {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : 'Failed to initialize map';
+        console.error('[Dashboard]', msg);
+        setMapTileError(msg);
+      }
+    })();
+
     return () => {
-      map.remove();
+      cancelled = true;
+      detachResize?.();
+      mapboxMapRef.current?.remove();
       mapboxMapRef.current = null;
+      setIsMapLoaded(false);
     };
   }, []);
 
@@ -298,7 +332,7 @@ export default function Dashboard() {
       const { startDate, endDate } = dateRange;
 
       let tripsQ = supabase.from('trips')
-        .select('id, status, financial_outcome, service_area_id')
+        .select('id, status, financial_outcome, service_area_id, searching_expires_at, created_at, driver_id')
         .gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString()).limit(10000);
 
       // Chart query range
@@ -340,7 +374,7 @@ export default function Dashboard() {
         inactiveDrivers: allDrivers.filter(d => d.approval_status === 'rejected').length,
         totalRiders: ridersR.count || 0,
         totalTrips: trips.length,
-        activeTrips: trips.filter(t => ['pending', 'accepted', 'arriving', 'in_progress'].includes(t.status || '')).length,
+        activeTrips: countAdminActiveTrips(trips.filter(t => isActiveTripDbStatus(t.status))),
         inProgressTrips: trips.filter(t => t.status === 'in_progress').length,
         completedTrips: trips.filter(t => t.status === 'completed').length,
         cancelledTrips: trips.filter(t => t.status === 'cancelled').length,
@@ -896,12 +930,24 @@ export default function Dashboard() {
                 </span>
               </div>
             </div>
-            <div 
-              ref={mapRef}
-              className="h-[300px] bg-muted rounded-lg overflow-hidden"
-            >
-              {!isMapLoaded && (
-                <div className="h-full flex items-center justify-center text-muted-foreground">
+            {mapInitError && (
+              <div
+                role="alert"
+                className="mb-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              >
+                Map unavailable: {mapInitError}. Set VITE_MAPBOX_WEB_TOKEN in .env.local (restart dev server) or
+                MAPBOX_WEB_TOKEN on Supabase for Lovable/production.
+              </div>
+            )}
+            <div className="relative min-h-[300px] h-[300px] rounded-lg overflow-hidden border border-border bg-muted">
+              <div ref={mapRef} className="absolute inset-0" />
+              {!mapboxReady && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center text-muted-foreground">
+                  Loading map token...
+                </div>
+              )}
+              {mapboxReady && !isMapLoaded && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center text-muted-foreground pointer-events-none">
                   Loading map...
                 </div>
               )}

@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Trash2, Undo, MapPin, Circle, Hexagon, Target, Check, AlertTriangle, Ruler } from 'lucide-react';
 import * as turf from '@turf/turf';
+import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { mapboxgl, MAPBOX_STYLE } from '@/lib/mapbox';
 
 interface LatLng { lat: number; lng: number }
@@ -52,6 +53,7 @@ export function ZoneBoundaryMap({
   onShapeTypeChange,
   height = '400px',
 }: ZoneBoundaryMapProps) {
+  const { isReady: mapboxReady } = useMapboxToken();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const centerMarkerRef = useRef<mapboxgl.Marker | null>(null);
@@ -107,7 +109,7 @@ export function ZoneBoundaryMap({
 
   // Init map
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
+    if (!mapboxReady || !containerRef.current || mapRef.current) return;
     const map = new mapboxgl.Map({
       container: containerRef.current,
       style: MAPBOX_STYLE,
@@ -152,7 +154,7 @@ export function ZoneBoundaryMap({
       map.remove();
       mapRef.current = null;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mapboxReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update fill color when color changes
   useEffect(() => {

@@ -130,3 +130,6 @@ verify_jwt = false
 
 [functions.admin-delete-account]
 verify_jwt = false
+
+[functions.admin-update-driver-contact]
+verify_jwt = false

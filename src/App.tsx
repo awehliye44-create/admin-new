@@ -20,6 +20,7 @@ import TripHistory from "./pages/TripHistory";
 import Drivers from "./pages/Drivers";
 import Vehicles from "./pages/Vehicles";
 import FleetTracking from "./pages/FleetTracking";
+import MapboxSmoke from "./pages/dev/MapboxSmoke";
 import Documents from "./pages/Documents";
 import DocumentManagement from "./pages/DocumentManagement";
 
@@ -105,7 +106,10 @@ const App = () => (
             <Route path="/auth/reset" element={<AuthReset />} />
             <Route path="/login" element={<Navigate to="/auth" replace />} />
             <Route path="/merchant-apply" element={<MerchantApply />} />
-            
+            {import.meta.env.DEV && (
+              <Route path="/__dev__/mapbox-smoke" element={<MapboxSmoke />} />
+            )}
+
             {/* Protected Admin Routes - wrapped in persistent shell */}
             <Route element={<ProtectedRoute><AdminShell /></ProtectedRoute>}>
               <Route index element={<Index />} />
