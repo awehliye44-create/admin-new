@@ -45,70 +45,61 @@ interface PayoutBatch {
   items: PayoutItem[];
 }
 
+interface PayoutSummary {
+  totalBatches: number;
+  totalPaidOut: number;
+  pendingBatches: number;
+  failedBatches: number;
+  availableForPayout: number;
+  driversReadyForPayout: number;
+  currencyCode: string;
+  regionId: string | null;
+}
+
+interface PayoutResponse {
+  batches: PayoutBatch[];
+  summary: PayoutSummary;
+}
+
+function buildPayoutBatchesPath(filter: ServiceAreaFinanceSelection): string {
+  const params = new URLSearchParams();
+  if (filter.regionId) params.set('region_id', filter.regionId);
+  else if (filter.serviceAreaId) params.set('service_area_id', filter.serviceAreaId);
+  const qs = params.toString();
+  return qs ? `admin-payout-batches?${qs}` : 'admin-payout-batches';
+}
+
 export default function AdminPayoutBatches() {
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
 
-  const { data: allDrivers = [], isLoading: isLoadingDrivers, refetch: refetchDrivers } = useDriverFinancialSummaries();
+  const regionScope = serviceFilter.regionId ?? null;
+  const hasRegionScope = !!regionScope;
 
-  const { data: batches = [], isLoading: isLoadingBatches, refetch: refetchBatches, isError, error } = useQuery<PayoutBatch[]>({
-    queryKey: ['admin-payout-batches-list'],
+  const { data: drivers = [], isLoading: isLoadingDrivers, refetch: refetchDrivers } =
+    useDriverFinancialSummaries(regionScope, { enabled: hasRegionScope });
+
+  const {
+    data: edgeData,
+    isLoading: isLoadingEdge,
+    refetch: refetchEdge,
+    isError,
+    error,
+  } = useQuery<PayoutResponse>({
+    queryKey: ['admin-payout-batches', regionScope, serviceFilter.serviceAreaId],
     queryFn: async () => {
-      const { data: batchRows, error: batchError } = await supabase
-        .from('payout_batches')
-        .select('id,kind,run_date,status,total_drivers,total_amount_pence,successful_payouts,failed_payouts,notes,created_at,completed_at')
-        .order('created_at', { ascending: false });
+      const headers: Record<string, string> = {};
+      if (serviceFilter.regionId) headers['x-region-id'] = serviceFilter.regionId;
+      else if (serviceFilter.serviceAreaId) headers['x-service-area-id'] = serviceFilter.serviceAreaId;
 
-      if (batchError) throw batchError;
-
-      const batchIds = (batchRows || []).map(b => b.id);
-      const { data: itemRows, error: itemError } = batchIds.length > 0
-        ? await supabase
-            .from('payout_items')
-            .select('id,batch_id,driver_id,amount_pence,status,stripe_transfer_id,stripe_payout_id,error_message,created_at,completed_at,drivers:driver_id(first_name,last_name)')
-            .in('batch_id', batchIds)
-        : { data: [], error: null };
-
-      if (itemError) throw itemError;
-
-      const itemsByBatch: Record<string, PayoutItem[]> = {};
-      itemRows?.forEach((item: any) => {
-        if (!itemsByBatch[item.batch_id]) itemsByBatch[item.batch_id] = [];
-        itemsByBatch[item.batch_id].push({
-          id: item.id,
-          driverId: item.driver_id,
-          driverName: item.drivers ? `${item.drivers.first_name} ${item.drivers.last_name}` : null,
-          amount: item.amount_pence,
-          status: item.status,
-          stripeTransferId: item.stripe_transfer_id,
-          stripePayoutId: item.stripe_payout_id,
-          errorMessage: item.error_message,
-          createdAt: item.created_at,
-          completedAt: item.completed_at,
-        });
-      });
-
-      return (batchRows || []).map(batch => ({
-        id: batch.id,
-        kind: batch.kind,
-        runDate: batch.run_date,
-        status: batch.status,
-        totalDrivers: batch.total_drivers,
-        totalAmount: batch.total_amount_pence,
-        successfulPayouts: batch.successful_payouts,
-        failedPayouts: batch.failed_payouts,
-        notes: batch.notes,
-        createdAt: batch.created_at,
-        completedAt: batch.completed_at,
-        items: itemsByBatch[batch.id] || [],
-      }));
+      const path = buildPayoutBatchesPath(serviceFilter);
+      const { data, error: fnError } = await supabase.functions.invoke(path, { method: 'GET', headers });
+      if (fnError) throw fnError;
+      return data as PayoutResponse;
     },
   });
 
-  const drivers = useMemo(() => {
-    if (!serviceFilter.regionId) return allDrivers;
-    return allDrivers.filter(d => d.region_id === serviceFilter.regionId);
-  }, [allDrivers, serviceFilter.regionId]);
+  const batches = edgeData?.batches ?? [];
 
   const filteredDriverIds = useMemo(
     () => new Set(drivers.map(d => d.driver_id)),
@@ -116,7 +107,7 @@ export default function AdminPayoutBatches() {
   );
 
   const filteredBatches = useMemo(() => {
-    if (!serviceFilter.regionId) return batches;
+    if (!regionScope) return batches;
     return batches
       .map(batch => {
         const items = batch.items.filter(item => filteredDriverIds.has(item.driverId));
@@ -131,14 +122,31 @@ export default function AdminPayoutBatches() {
         };
       })
       .filter((batch): batch is PayoutBatch => batch !== null);
-  }, [batches, serviceFilter.regionId, filteredDriverIds]);
+  }, [batches, regionScope, filteredDriverIds]);
 
-  const resolvedCurrency = serviceFilter.currencyCode || getSingleCurrency(drivers) || '';
-  const isMixedCurrency = !serviceFilter.currencyCode && !getSingleCurrency(drivers) && drivers.length > 0;
+  const resolvedCurrency = hasRegionScope
+    ? (serviceFilter.currencyCode ||
+      edgeData?.summary?.currencyCode ||
+      getSingleCurrency(drivers) ||
+      '')
+    : 'GBP';
 
-  const totalPaidOut = drivers.reduce((s, d) => s + d.total_payouts_sent, 0);
-  const availableForPayout = drivers.reduce((s, d) => s + d.available_for_payout, 0);
-  const driversReadyForPayout = drivers.filter(d => d.available_for_payout > 0).length;
+  const isMixedCurrency =
+    hasRegionScope &&
+    !serviceFilter.currencyCode &&
+    !getSingleCurrency(drivers) &&
+    drivers.length > 0;
+
+  // All Services → zero financial stats (no cross-region aggregation)
+  const totalPaidOut = hasRegionScope
+    ? drivers.reduce((s, d) => s + d.total_payouts_sent, 0)
+    : 0;
+  const availableForPayout = hasRegionScope
+    ? drivers.reduce((s, d) => s + d.available_for_payout, 0)
+    : 0;
+  const driversReadyForPayout = hasRegionScope
+    ? drivers.filter(d => d.available_for_payout > 0).length
+    : 0;
 
   const summary = {
     totalBatches: filteredBatches.length,
@@ -149,11 +157,16 @@ export default function AdminPayoutBatches() {
 
   const selectedBatch = filteredBatches.find(b => b.id === selectedBatchId);
   const batchItems = selectedBatch?.items || [];
-  const isLoading = isLoadingDrivers || isLoadingBatches;
+  const isLoading = isLoadingDrivers || isLoadingEdge;
 
   const refetch = () => {
     refetchDrivers();
-    refetchBatches();
+    refetchEdge();
+  };
+
+  const handleServiceFilterChange = (selection: ServiceAreaFinanceSelection) => {
+    setSelectedBatchId(null);
+    setServiceFilter(selection);
   };
 
   const getStatusBadge = (status: string) => {
@@ -198,9 +211,8 @@ export default function AdminPayoutBatches() {
           </div>
         )}
 
-        {/* Service Area Filter */}
         <div className="flex items-center gap-3">
-          <ServiceAreaFinanceFilter value={serviceFilter} onChange={setServiceFilter} />
+          <ServiceAreaFinanceFilter value={serviceFilter} onChange={handleServiceFilterChange} />
           {isMixedCurrency && (
             <Badge variant="outline" className="text-amber-600 border-amber-300">
               <AlertTriangle className="h-3 w-3 mr-1" /> Mixed currencies — select a service for totals
@@ -208,7 +220,6 @@ export default function AdminPayoutBatches() {
           )}
         </div>
 
-        {/* Stats */}
         <div className="grid gap-4 md:grid-cols-5">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -262,7 +273,6 @@ export default function AdminPayoutBatches() {
           </Card>
         </div>
 
-        {/* Batches Table */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Payout Batches</CardTitle>
@@ -286,7 +296,7 @@ export default function AdminPayoutBatches() {
                 {filteredBatches.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                      {serviceFilter.regionId ? 'No payout batches for this service area' : 'No payout batches yet'}
+                      {regionScope ? 'No payout batches for this service area' : 'No payout batches yet'}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -312,7 +322,6 @@ export default function AdminPayoutBatches() {
           </CardContent>
         </Card>
 
-        {/* Batch Detail Dialog */}
         <Dialog open={!!selectedBatchId} onOpenChange={() => setSelectedBatchId(null)}>
           <DialogContent className="max-w-2xl">
             <DialogHeader>

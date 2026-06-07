@@ -3,8 +3,25 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-region-id, x-service-area-id',
 };
+
+async function resolveRegionId(
+  supabase: ReturnType<typeof createClient>,
+  regionId: string | null,
+  serviceAreaId: string | null,
+): Promise<string | null> {
+  if (regionId) return regionId;
+  if (!serviceAreaId) return null;
+
+  const { data } = await supabase
+    .from('service_areas')
+    .select('region_id')
+    .eq('id', serviceAreaId)
+    .maybeSingle();
+
+  return data?.region_id ?? null;
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -31,7 +48,6 @@ serve(async (req) => {
       });
     }
 
-    // Check admin role via user_roles table (NOT profiles — prevents privilege escalation)
     const { data: roleData } = await supabase
       .from('user_roles')
       .select('role')
@@ -46,14 +62,68 @@ serve(async (req) => {
     }
 
     const url = new URL(req.url);
+    let bodyParams: Record<string, string> = {};
+    if (req.method === 'POST') {
+      try {
+        const body = await req.json();
+        if (body && typeof body === 'object') {
+          bodyParams = body as Record<string, string>;
+        }
+      } catch {
+        // ignore empty body
+      }
+    }
+
     const page = parseInt(url.searchParams.get('page') || '1');
     const limit = parseInt(url.searchParams.get('limit') || '20');
     const kind = url.searchParams.get('kind');
     const status = url.searchParams.get('status');
-    const regionId = url.searchParams.get('region_id');
+    const rawRegionId = url.searchParams.get('region_id')
+      || bodyParams.region_id
+      || req.headers.get('x-region-id');
+    const rawServiceAreaId = url.searchParams.get('service_area_id')
+      || bodyParams.service_area_id
+      || req.headers.get('x-service-area-id');
     const offset = (page - 1) * limit;
 
-    // ── PARALLEL: Run all 3 queries simultaneously ──
+    const scopeRequested = !!(rawRegionId || rawServiceAreaId);
+    const regionId = await resolveRegionId(supabase, rawRegionId, rawServiceAreaId);
+
+    // Caller scoped to a service area — never fall back to global totals on bad/missing region.
+    if (scopeRequested && !regionId) {
+      return new Response(JSON.stringify({
+        batches: [],
+        summary: {
+          totalBatches: 0,
+          totalPaidOut: 0,
+          totalPaidOutBatches: 0,
+          pendingBatches: 0,
+          failedBatches: 0,
+          availableForPayout: 0,
+          driversReadyForPayout: 0,
+          currencyCode: '',
+          regionId: null,
+        },
+        total: 0,
+        page: 1,
+        limit: 20,
+        totalPages: 0,
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Resolve currency from regions table when a region scope is active
+    let regionCurrency = '';
+    if (regionId) {
+      const { data: regionRow } = await supabase
+        .from('regions')
+        .select('currency_code')
+        .eq('id', regionId)
+        .maybeSingle();
+      regionCurrency = regionRow?.currency_code || '';
+    }
+
     let batchQuery = supabase
       .from('payout_batches')
       .select('id,kind,run_date,status,total_drivers,total_amount_pence,successful_payouts,failed_payouts,notes,created_at,completed_at', { count: 'exact' })
@@ -63,25 +133,25 @@ serve(async (req) => {
     if (status) batchQuery = batchQuery.eq('status', status);
     batchQuery = batchQuery.range(offset, offset + limit - 1);
 
-    let financialQuery = supabase
-      .from('driver_financial_summary')
-      .select('driver_id, total_payouts_sent, available_for_payout, currency_code, region_id');
-    if (regionId) financialQuery = financialQuery.eq('region_id', regionId);
+    const financialPromise = regionId
+      ? supabase
+          .from('driver_financial_summary')
+          .select('driver_id, total_payouts_sent, available_for_payout, currency_code, region_id')
+          .eq('region_id', regionId)
+      : Promise.resolve({ data: [] as Array<Record<string, unknown>>, error: null });
 
-    const [batchResult, financialResult, summaryResult] = await Promise.all([
+    const [batchResult, financialResult] = await Promise.all([
       batchQuery,
-      financialQuery,
-      supabase
-        .from('payout_batches')
-        .select('status, total_amount_pence'),
+      financialPromise,
     ]);
 
     if (batchResult.error) throw batchResult.error;
+    if (financialResult.error) throw financialResult.error;
 
     const batches = batchResult.data || [];
     const count = batchResult.count;
+    const financialRows = regionId ? (financialResult.data || []) : [];
 
-    // Get items for visible batches only (single query)
     const batchIds = batches.map(b => b.id);
     const { data: allItems } = batchIds.length > 0 ? await supabase
       .from('payout_items')
@@ -89,11 +159,7 @@ serve(async (req) => {
       .in('batch_id', batchIds) : { data: [] };
 
     const filteredRegionDriverIds = regionId
-      ? new Set(
-          (financialResult.data || [])
-            .filter(d => d.region_id === regionId)
-            .map(d => d.driver_id),
-        )
+      ? new Set(financialRows.map(d => d.driver_id))
       : null;
 
     const itemsByBatch: Record<string, any[]> = {};
@@ -107,68 +173,70 @@ serve(async (req) => {
       const batchItems = itemsByBatch[batch.id] || [];
       if (regionId && batchItems.length === 0) return [];
       return [{
-      id: batch.id,
-      kind: batch.kind,
-      runDate: batch.run_date,
-      status: batch.status,
-      totalDrivers: regionId ? batchItems.length : batch.total_drivers,
-      totalAmount: regionId
-        ? batchItems.reduce((sum: number, item: any) => sum + (item.amount_pence || 0), 0)
-        : batch.total_amount_pence,
-      successfulPayouts: regionId
-        ? batchItems.filter((item: any) => item.status === 'completed').length
-        : batch.successful_payouts,
-      failedPayouts: regionId
-        ? batchItems.filter((item: any) => item.status === 'failed').length
-        : batch.failed_payouts,
-      notes: batch.notes,
-      createdAt: batch.created_at,
-      completedAt: batch.completed_at,
-      items: batchItems.map((item: any) => ({
-        id: item.id,
-        driverId: item.driver_id,
-        driverName: item.drivers ? `${item.drivers.first_name} ${item.drivers.last_name}` : null,
-        amount: item.amount_pence,
-        status: item.status,
-        stripeTransferId: item.stripe_transfer_id,
-        stripePayoutId: item.stripe_payout_id,
-        errorMessage: item.error_message,
-        createdAt: item.created_at,
-        completedAt: item.completed_at,
-      })),
-    }];
+        id: batch.id,
+        kind: batch.kind,
+        runDate: batch.run_date,
+        status: batch.status,
+        totalDrivers: regionId ? batchItems.length : batch.total_drivers,
+        totalAmount: regionId
+          ? batchItems.reduce((sum: number, item: any) => sum + (item.amount_pence || 0), 0)
+          : batch.total_amount_pence,
+        successfulPayouts: regionId
+          ? batchItems.filter((item: any) => item.status === 'completed').length
+          : batch.successful_payouts,
+        failedPayouts: regionId
+          ? batchItems.filter((item: any) => item.status === 'failed').length
+          : batch.failed_payouts,
+        notes: batch.notes,
+        createdAt: batch.created_at,
+        completedAt: batch.completed_at,
+        items: batchItems.map((item: any) => ({
+          id: item.id,
+          driverId: item.driver_id,
+          driverName: item.drivers ? `${item.drivers.first_name} ${item.drivers.last_name}` : null,
+          amount: item.amount_pence,
+          status: item.status,
+          stripeTransferId: item.stripe_transfer_id,
+          stripePayoutId: item.stripe_payout_id,
+          errorMessage: item.error_message,
+          createdAt: item.created_at,
+          completedAt: item.completed_at,
+        })),
+      }];
     });
 
-    // ── Stats from parallel results ──
-    const financialRows = financialResult.data || [];
-    const summaryData = summaryResult.data || [];
-
-    const unifiedTotalPayouts = financialRows.reduce((s, d) => s + Number(d.total_payouts_sent || 0), 0);
-    const unifiedAvailablePayout = financialRows.reduce((s, d) => s + Number(d.available_for_payout || 0), 0);
-    const driversReadyForPayout = financialRows.filter(d => Number(d.available_for_payout || 0) > 0).length;
-    const dominantCurrency = regionId
-      ? (financialRows.find(d => d.region_id === regionId)?.currency_code || '')
-      : (financialRows.find(d => d.currency_code)?.currency_code || '');
+    const unifiedTotalPayouts = regionId
+      ? financialRows.reduce((s, d) => s + Number(d.total_payouts_sent || 0), 0)
+      : 0;
+    const unifiedAvailablePayout = regionId
+      ? financialRows.reduce((s, d) => s + Number(d.available_for_payout || 0), 0)
+      : 0;
+    const driversReadyForPayout = regionId
+      ? financialRows.filter(d => Number(d.available_for_payout || 0) > 0).length
+      : 0;
+    const dominantCurrency = regionId ? regionCurrency : '';
 
     const summary = {
-      totalBatches: summaryData.length,
+      totalBatches: regionId ? transformedBatches.length : (count || 0),
       totalPaidOut: unifiedTotalPayouts,
-      totalPaidOutBatches: summaryData.filter(b => b.status === 'completed')
-        .reduce((sum, b) => sum + (b.total_amount_pence || 0), 0),
-      pendingBatches: summaryData.filter(b => b.status === 'pending' || b.status === 'processing').length,
-      failedBatches: summaryData.filter(b => b.status === 'failed').length,
+      totalPaidOutBatches: transformedBatches
+        .filter(b => b.status === 'completed')
+        .reduce((sum, b) => sum + (b.totalAmount || 0), 0),
+      pendingBatches: transformedBatches.filter(b => b.status === 'pending' || b.status === 'processing').length,
+      failedBatches: transformedBatches.filter(b => b.status === 'failed').length,
       availableForPayout: unifiedAvailablePayout,
       driversReadyForPayout,
       currencyCode: dominantCurrency,
+      regionId: regionId || null,
     };
 
     return new Response(JSON.stringify({
       batches: transformedBatches,
       summary,
-      total: count || 0,
+      total: regionId ? transformedBatches.length : (count || 0),
       page,
       limit,
-      totalPages: Math.ceil((count || 0) / limit),
+      totalPages: Math.ceil((regionId ? transformedBatches.length : (count || 0)) / limit),
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

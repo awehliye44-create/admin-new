@@ -156,14 +156,27 @@ const mapSummary = (d: any): DriverFinancialSummary => ({
   amount_owed_to_onecab: Number(d.amount_owed_to_onecab) || 0,
 });
 
+const DRIVER_SUMMARY_COLUMNS =
+  'driver_id,first_name,last_name,email,phone,is_online,rating,approval_status,stripe_account_id,payouts_enabled,onboarding_complete,currency_code,region_id,gross_trip_total,completed_trips,card_net_credits,card_gross_total,card_commission_total,card_trip_count,cash_gross_total,cash_net_earnings,cash_commission_debits,cash_trip_count,company_commission_total,today_gross_earnings,today_cash_earnings,today_card_earnings,today_trip_count,adjustments_total,total_payouts_sent,total_fees,wallet_balance,available_for_payout,amount_owed_to_onecab';
+
 // Hook to fetch all driver financial summaries (admin view)
-export function useDriverFinancialSummaries() {
+export function useDriverFinancialSummaries(
+  regionId?: string | null,
+  options?: { enabled?: boolean },
+) {
   return useQuery({
-    queryKey: ['driver-financial-summaries'],
+    queryKey: ['driver-financial-summaries', regionId ?? 'all'],
+    enabled: options?.enabled ?? true,
     queryFn: async (): Promise<DriverFinancialSummary[]> => {
-      const { data, error } = await supabase
+      let query = supabase
         .from('driver_financial_summary')
-        .select('driver_id,first_name,last_name,email,phone,is_online,rating,approval_status,stripe_account_id,payouts_enabled,onboarding_complete,currency_code,region_id,gross_trip_total,completed_trips,card_net_credits,card_gross_total,card_commission_total,card_trip_count,cash_gross_total,cash_net_earnings,cash_commission_debits,cash_trip_count,company_commission_total,today_gross_earnings,today_cash_earnings,today_card_earnings,today_trip_count,adjustments_total,total_payouts_sent,total_fees,wallet_balance,available_for_payout,amount_owed_to_onecab');
+        .select(DRIVER_SUMMARY_COLUMNS);
+
+      if (regionId) {
+        query = query.eq('region_id', regionId);
+      }
+
+      const { data, error } = await query;
 
       if (error) {
         console.error('Error fetching driver financial summaries:', error);
