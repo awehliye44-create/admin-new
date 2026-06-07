@@ -47,6 +47,8 @@ import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis
 import { preloadMarkerImage } from '@/lib/mapMarkers';
 import { mapboxgl, MAPBOX_STYLE } from '@/lib/mapbox';
 import { getCurrencySymbol } from '@/lib/regionSettings';
+import { isActiveTripDbStatus } from '@/lib/activeTripStatuses';
+import { filterAdminActiveTrips } from '@/lib/adminActiveTripFilter';
 
 interface Stats {
   totalDrivers: number;
@@ -298,7 +300,7 @@ export default function Dashboard() {
       const { startDate, endDate } = dateRange;
 
       let tripsQ = supabase.from('trips')
-        .select('id, status, financial_outcome, service_area_id')
+        .select('id, status, financial_outcome, service_area_id, searching_expires_at, driver_id, created_at, trip_code')
         .gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString()).limit(10000);
 
       // Chart query range
@@ -340,8 +342,12 @@ export default function Dashboard() {
         inactiveDrivers: allDrivers.filter(d => d.approval_status === 'rejected').length,
         totalRiders: ridersR.count || 0,
         totalTrips: trips.length,
-        activeTrips: trips.filter(t => ['pending', 'accepted', 'arriving', 'in_progress'].includes(t.status || '')).length,
-        inProgressTrips: trips.filter(t => t.status === 'in_progress').length,
+        activeTrips: filterAdminActiveTrips(
+          trips.filter(t => isActiveTripDbStatus(t.status)),
+        ).length,
+        inProgressTrips: trips.filter(t =>
+          ['in_progress', 'started', 'on_trip', 'ongoing', 'trip_started'].includes(t.status || ''),
+        ).length,
         completedTrips: trips.filter(t => t.status === 'completed').length,
         cancelledTrips: trips.filter(t => t.status === 'cancelled').length,
       };

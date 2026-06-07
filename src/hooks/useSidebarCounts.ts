@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
+import { countAdminActiveTrips } from '@/lib/adminActiveTripFilter';
 
 export interface SidebarCounts {
   activeTrips: number;
@@ -65,11 +67,11 @@ export function useSidebarCounts() {
         pendingDriversResult,
         pendingVehicleChangesResult,
       ] = await Promise.all([
-        // Active trips (status is pending, accepted, arrived, in_progress)
+        // Active trips — SSOT status list + exclude stale unassigned searching
         supabase
           .from('trips')
-          .select('id', { count: 'exact', head: true })
-          .in('status', ['pending', 'accepted', 'arrived', 'in_progress', 'driver_assigned']),
+          .select('id, status, searching_expires_at, driver_id, created_at, trip_code')
+          .in('status', [...ACTIVE_TRIP_DB_STATUSES]),
         
         // Scheduled rides (is_scheduled = true and scheduled_at in future)
         supabase
@@ -126,7 +128,7 @@ export function useSidebarCounts() {
       }
 
       const newCounts: SidebarCounts = {
-        activeTrips: activeTripsResult.count || 0,
+        activeTrips: countAdminActiveTrips(activeTripsResult.data || []),
         scheduledRides: scheduledRidesResult.count || 0,
         pendingFeedback: pendingFeedbackResult.count || 0,
         pendingDocuments: pendingDocumentsResult.count || 0,

@@ -19,6 +19,7 @@ import {
 import { toast } from 'sonner';
 import { createCarMarkerElement, preloadMarkerImage } from '@/lib/mapMarkers';
 import { mapboxgl, MAPBOX_STYLE } from '@/lib/mapbox';
+import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
 
 interface Driver {
   id: string;
@@ -125,7 +126,7 @@ export default function FleetTracking() {
         supabase
           .from('trips')
           .select('id, driver_id, status, pickup_address, dropoff_address')
-          .in('status', ['accepted', 'arrived', 'in_progress']),
+          .in('status', [...ACTIVE_TRIP_DB_STATUSES]),
       ]);
 
       if (driversRes.error) throw driversRes.error;
