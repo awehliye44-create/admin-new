@@ -2,6 +2,11 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import { z } from "https://esm.sh/zod@3.23.8";
 import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
+import {
+  formatSettlementWarning,
+  getSettlementWarningSeverity,
+  isInformationalSettlementWarning,
+} from "../_shared/stripeSettlementWarnings.ts";
 
 const InputSchema = z.object({ trip_id: z.string().uuid() });
 
@@ -122,9 +127,19 @@ serve(async (req) => {
       stripe_settlement_verified = true;
       stripe_settlement_warning = 'SEPARATE_CHARGE_TRANSFER_USED_NO_APPLICATION_FEE_OBJECT';
     } else if (stripe_status === 'succeeded' && commission_pence > 0 && !stripe_application_fee_id && !stripe_transfer_id) {
-      stripe_settlement_verified = false;
-      stripe_settlement_warning = 'STRIPE_SETTLEMENT_NOT_VERIFIED_NO_APPLICATION_FEE_OR_TRANSFER';
+      if (!(trip.stripe_settlement_verified && isInformationalSettlementWarning(stripe_settlement_warning))) {
+        stripe_settlement_verified = false;
+        stripe_settlement_warning = 'STRIPE_SETTLEMENT_NOT_VERIFIED_NO_APPLICATION_FEE_OR_TRANSFER';
+      }
+    } else if (trip.stripe_settlement_verified && stripe_settlement_verified && isInformationalSettlementWarning(stripe_settlement_warning)) {
+      // Preserve backfilled verified trips with informational settlement notes.
+      stripe_settlement_verified = true;
     }
+
+    const stripe_settlement_warning_severity = getSettlementWarningSeverity(
+      stripe_settlement_verified,
+      stripe_settlement_warning,
+    );
 
     return jsonResponse({
       trip_id,
@@ -155,6 +170,8 @@ serve(async (req) => {
       stripe_transfer_amount_pence,
       stripe_settlement_verified,
       stripe_settlement_warning,
+      stripe_settlement_warning_severity,
+      stripe_settlement_warning_label: formatSettlementWarning(stripe_settlement_warning),
       customer_email,
       payment_created_at: payment_created,
       captured_at,

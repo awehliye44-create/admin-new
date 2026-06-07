@@ -47,6 +47,8 @@ interface PaymentState {
   stripe_transfer_amount_pence: number | null;
   stripe_settlement_verified: boolean;
   stripe_settlement_warning: string | null;
+  stripe_settlement_warning_severity?: 'info' | 'error' | null;
+  stripe_settlement_warning_label?: string | null;
   customer_email: string | null;
   payment_created_at: string | null;
   captured_at: string | null;
@@ -86,6 +88,47 @@ const ACTION_LABEL: Record<AuditEntry['action'], string> = {
   edit_fare: 'Edit fare',
   cancel: 'Hold released',
 };
+
+const INFORMATIONAL_SETTLEMENT_WARNINGS = new Set([
+  'SEPARATE_CHARGE_TRANSFER_USED_NO_APPLICATION_FEE_OBJECT',
+  'NO_DRIVER_CONNECT_ACCOUNT_PLATFORM_RETAINED_FULL_CHARGE_MANUAL_PAYOUT_REQUIRED',
+  'NO_DRIVER_CONNECT_ACCOUNT_PLATFORM_CHARGE_ONLY_UNTIL_MANUAL_PAYOUT',
+]);
+
+const SETTLEMENT_WARNING_LABELS: Record<string, string> = {
+  SEPARATE_CHARGE_TRANSFER_USED_NO_APPLICATION_FEE_OBJECT:
+    'Driver payout verified via separate Connect transfer (no application fee object on charge).',
+  NO_DRIVER_CONNECT_ACCOUNT_PLATFORM_RETAINED_FULL_CHARGE_MANUAL_PAYOUT_REQUIRED:
+    'No driver Connect account — platform retained the full charge; manual driver payout required.',
+  NO_DRIVER_CONNECT_ACCOUNT_PLATFORM_CHARGE_ONLY_UNTIL_MANUAL_PAYOUT:
+    'No driver Connect account at booking — platform charge only until manual payout.',
+};
+
+function settlementWarningSeverity(
+  verified: boolean,
+  warning: string | null,
+  apiSeverity?: 'info' | 'error' | null,
+): 'info' | 'error' | null {
+  if (!warning) return null;
+  if (apiSeverity) return apiSeverity;
+  if (verified && INFORMATIONAL_SETTLEMENT_WARNINGS.has(warning)) return 'info';
+  if (!verified || warning.startsWith('STRIPE_SETTLEMENT_NOT_VERIFIED')) return 'error';
+  if (
+    warning.startsWith('DESTINATION_CHARGE_APP_FEE_MISMATCH') ||
+    warning.startsWith('SEPARATE_TRANSFER_MISMATCH')
+  ) {
+    return 'error';
+  }
+  return verified ? 'info' : 'error';
+}
+
+function settlementWarningLabel(
+  warning: string | null,
+  apiLabel?: string | null,
+): string | null {
+  if (!warning) return null;
+  return apiLabel ?? SETTLEMENT_WARNING_LABELS[warning] ?? warning;
+}
 
 export function PaymentControlsCard({ tripId }: { tripId: string }) {
   const { isAdmin } = useAuth();
@@ -164,6 +207,16 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
   const hasCharge = !!state && state.captured_pence > 0;
   const refundable = state ? Math.max(0, state.captured_pence - state.refunded_pence) : 0;
   const isFullyRefunded = state ? state.captured_pence > 0 && refundable === 0 : false;
+  const settlementWarning = state
+    ? settlementWarningSeverity(
+        state.stripe_settlement_verified,
+        state.stripe_settlement_warning,
+        state.stripe_settlement_warning_severity,
+      )
+    : null;
+  const settlementWarningText = state
+    ? settlementWarningLabel(state.stripe_settlement_warning, state.stripe_settlement_warning_label)
+    : null;
 
   const openMode = (m: Mode) => {
     setMode(m);
@@ -256,7 +309,14 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
               {state.payment_intent_id && (
                 <code className="bg-muted px-2 py-0.5 rounded">{state.payment_intent_id}</code>
               )}
-              <Badge variant={state.stripe_settlement_verified ? 'default' : 'destructive'}>
+              <Badge
+                variant="outline"
+                className={
+                  state.stripe_settlement_verified
+                    ? 'bg-green-500/10 text-green-600 border-green-500/30'
+                    : 'bg-destructive/10 text-destructive border-destructive/40'
+                }
+              >
                 {state.stripe_settlement_verified ? 'Stripe settlement verified' : 'Stripe settlement not verified'}
               </Badge>
             </div>
@@ -296,7 +356,18 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
               {state.stripe_destination_account_id && <div className="flex justify-between gap-2"><span className="text-muted-foreground">Driver destination</span><code className="text-[10px] truncate">{state.stripe_destination_account_id}</code></div>}
               {state.stripe_transfer_id && <div className="flex justify-between gap-2"><span className="text-muted-foreground">Driver transfer</span><code className="text-[10px] truncate">{state.stripe_transfer_id}</code></div>}
               {state.stripe_transfer_amount_pence != null && <div className="flex justify-between"><span className="text-muted-foreground">Transfer amount</span><span>{formatPence(state.stripe_transfer_amount_pence, currency)}</span></div>}
-              {state.stripe_settlement_warning && <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-destructive">{state.stripe_settlement_warning}</div>}
+              {settlementWarningText && settlementWarning === 'error' && (
+                <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-destructive flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>{settlementWarningText}</span>
+                </div>
+              )}
+              {settlementWarningText && settlementWarning === 'info' && (
+                <div className="rounded border border-blue-500/30 bg-blue-500/5 p-2 text-muted-foreground flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-blue-500" />
+                  <span>{settlementWarningText}</span>
+                </div>
+              )}
               <Separator className="my-1" />
               {state.charge_id && <div className="flex justify-between gap-2"><span className="text-muted-foreground">Charge ID</span><code className="text-[10px] truncate">{state.charge_id}</code></div>}
               {state.customer_email && <div className="flex justify-between"><span className="text-muted-foreground">Customer email</span><span className="truncate">{state.customer_email}</span></div>}
