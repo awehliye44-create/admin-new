@@ -83,7 +83,7 @@ export default function DriverWallet() {
   return (
     <AdminLayout 
       title="Driver Wallet & Ledger" 
-      description="Unified financial view — wallet_balance = card_credits − cash_commission − payouts ± adjustments"
+      description="Unified financial view — wallet_balance is gross ledger balance; net_available_for_payout (driver app) deducts in-flight early cashouts"
     >
       <div className="space-y-6">
         {/* Service Area Filter */}
@@ -276,8 +276,13 @@ export default function DriverWallet() {
                     <p className={`text-lg font-bold ${selectedDriver.wallet_balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>{sFmt(selectedDriver.wallet_balance)}</p>
                   </CardContent></Card>
                   <Card><CardContent className="pt-4">
-                    <p className="text-xs text-muted-foreground">Available Payout</p>
-                    <p className="text-lg font-bold text-green-600">{sFmt(selectedDriver.available_for_payout)}</p>
+                    <p className="text-xs text-muted-foreground">Net Available (driver app)</p>
+                    <p className="text-lg font-bold text-green-600">{sFmt(selectedDriver.net_available_for_payout)}</p>
+                    {selectedDriver.reserved_cashout_pence > 0 && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {sFmt(selectedDriver.reserved_cashout_pence)} reserved in-flight
+                      </p>
+                    )}
                   </CardContent></Card>
                   <Card><CardContent className="pt-4">
                     <p className="text-xs text-muted-foreground">Owed to ONECAB</p>

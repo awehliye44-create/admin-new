@@ -80,9 +80,24 @@ With **All Services**: financial stats remain **£0.00 / 0** (by design — no c
 
 ---
 
-## Deploy checklist
+## Deploy checklist (2026-06-07 update)
 
-1. `supabase db push` — apply view migration on prod
-2. `supabase functions deploy admin-payout-batches` — optional; frontend is primary
-3. Publish admin frontend (Lovable) — **required** if prod bundle predates commits on `main`
+1. ~~`supabase db push`~~ — **DONE**: `net_available_for_payout` + `reserved_cashout_pence` live on prod view
+2. ~~`supabase functions deploy admin-payout-batches`~~ — **DONE** (v169+)
+3. **Publish admin frontend (Lovable Share → Publish)** — **REQUIRED** — prod bundle still calls `admin-payout-batches` without `region_id` and reads `summary.availableForPayout || 0`
 4. Hard refresh admin panel (Cmd+Shift+R)
+
+Automated Lovable publish via `LOVABLE_API_KEY` returned 401 Invalid token — use manual Publish in Lovable dashboard.
+
+## £7.77 processing (Ahmed cashout 553cf554)
+
+| Field | Value |
+|-------|-------|
+| Stripe payout `po_1TffdpImYgLhqfX0coqg8arU` | **status: pending** |
+| Payout method | **standard** (not instant) |
+| Amount | 777p (£7.77) |
+| Created | 2026-06-07 12:17 UTC |
+| Expected arrival | **2026-06-08** (standard UK bank payout) |
+| DB status | `processing` (correct — matches Stripe) |
+
+**Not a webhook bug.** Cashout at 12:17 ran before instant-payout fix (12:25); instant was unavailable so driver-early-cashout fell back to **standard** payout despite £0.50 express fee. UI "Processing" is accurate until Stripe marks payout paid; `driver-wallet-summary` syncs status on next wallet refresh.
