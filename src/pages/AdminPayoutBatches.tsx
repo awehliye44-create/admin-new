@@ -76,7 +76,7 @@ export default function AdminPayoutBatches() {
   const regionScope = serviceFilter.regionId ?? null;
   const hasRegionScope = !!regionScope;
 
-  const { data: allDrivers = [], isLoading: isLoadingDrivers, refetch: refetchDrivers } =
+  const { data: allDrivers = [], isLoading: isLoadingDrivers, isError: isDriversError, error: driversError, refetch: refetchDrivers } =
     useDriverFinancialSummaries();
 
   // Match Driver Wallet / Settlements: fetch all, filter client-side by region_id
@@ -93,6 +93,7 @@ export default function AdminPayoutBatches() {
     error,
   } = useQuery<PayoutResponse>({
     queryKey: ['admin-payout-batches', regionScope, serviceFilter.serviceAreaId],
+    enabled: hasRegionScope,
     queryFn: async () => {
       const headers: Record<string, string> = {};
       if (serviceFilter.regionId) headers['x-region-id'] = serviceFilter.regionId;
@@ -148,10 +149,10 @@ export default function AdminPayoutBatches() {
     ? drivers.reduce((s, d) => s + d.total_payouts_sent, 0)
     : 0;
   const availableForPayout = hasRegionScope
-    ? drivers.reduce((s, d) => s + d.available_for_payout, 0)
+    ? drivers.reduce((s, d) => s + d.net_available_for_payout, 0)
     : 0;
   const driversReadyForPayout = hasRegionScope
-    ? drivers.filter(d => d.available_for_payout > 0).length
+    ? drivers.filter(d => d.net_available_for_payout > 0).length
     : 0;
 
   const summary = {
@@ -163,7 +164,8 @@ export default function AdminPayoutBatches() {
 
   const selectedBatch = filteredBatches.find(b => b.id === selectedBatchId);
   const batchItems = selectedBatch?.items || [];
-  const isLoading = isLoadingDrivers || isLoadingEdge;
+  const isLoading = isLoadingDrivers;
+  const isLoadingBatches = hasRegionScope && isLoadingEdge;
 
   const refetch = () => {
     refetchDrivers();
@@ -208,9 +210,14 @@ export default function AdminPayoutBatches() {
   return (
     <AdminLayout 
       title="Payout Batches & Audit" 
-      description="Unified payout reporting — totalPaidOut derived from driver_financial_summary"
+      description="Unified payout reporting — Available for Payout uses net_available_for_payout (wallet minus in-flight early cashouts, same as driver app)"
     >
       <div className="space-y-6">
+        {isDriversError && (
+          <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            Failed to load driver balances: {(driversError as Error)?.message || 'Unknown error'}
+          </div>
+        )}
         {isError && (
           <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             Failed to load payout batches: {(error as Error)?.message || 'Unknown error'}
@@ -254,7 +261,7 @@ export default function AdminPayoutBatches() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-blue-500">{formatPence(availableForPayout, resolvedCurrency)}</div>
-              <p className="text-xs text-muted-foreground">{driversReadyForPayout} drivers ready</p>
+              <p className="text-xs text-muted-foreground">{driversReadyForPayout} drivers ready · after reserved cashouts</p>
             </CardContent>
           </Card>
           <Card>
@@ -285,6 +292,11 @@ export default function AdminPayoutBatches() {
             <Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
           </CardHeader>
           <CardContent className="p-0">
+            {isLoadingBatches ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -325,6 +337,7 @@ export default function AdminPayoutBatches() {
                 )}
               </TableBody>
             </Table>
+            )}
           </CardContent>
         </Card>
 

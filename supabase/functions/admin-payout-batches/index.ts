@@ -136,7 +136,7 @@ serve(async (req) => {
     const financialPromise = regionId
       ? supabase
           .from('driver_financial_summary')
-          .select('driver_id, total_payouts_sent, available_for_payout, currency_code, region_id')
+          .select('driver_id, total_payouts_sent, available_for_payout, net_available_for_payout, reserved_cashout_pence, currency_code, region_id')
           .eq('region_id', regionId)
       : Promise.resolve({ data: [] as Array<Record<string, unknown>>, error: null });
 
@@ -209,10 +209,10 @@ serve(async (req) => {
       ? financialRows.reduce((s, d) => s + Number(d.total_payouts_sent || 0), 0)
       : 0;
     const unifiedAvailablePayout = regionId
-      ? financialRows.reduce((s, d) => s + Number(d.available_for_payout || 0), 0)
+      ? financialRows.reduce((s, d) => s + Number((d.net_available_for_payout ?? d.available_for_payout) || 0), 0)
       : 0;
     const driversReadyForPayout = regionId
-      ? financialRows.filter(d => Number(d.available_for_payout || 0) > 0).length
+      ? financialRows.filter(d => Number((d.net_available_for_payout ?? d.available_for_payout) || 0) > 0).length
       : 0;
     const dominantCurrency = regionId ? regionCurrency : '';
 

@@ -44,6 +44,10 @@ export interface DriverFinancialSummary {
   // Wallet
   wallet_balance: number;
   available_for_payout: number;
+  /** Sum of pending/processing early-cashout requested amounts (matches driver-wallet-summary). */
+  reserved_cashout_pence: number;
+  /** wallet_balance minus reserved_cashout_pence — payout-ready amount shown in driver app. */
+  net_available_for_payout: number;
   amount_owed_to_onecab: number;
 }
 
@@ -153,11 +157,13 @@ const mapSummary = (d: any): DriverFinancialSummary => ({
   total_fees: Number(d.total_fees) || 0,
   wallet_balance: Number(d.wallet_balance) || 0,
   available_for_payout: Number(d.available_for_payout) || 0,
+  reserved_cashout_pence: Number(d.reserved_cashout_pence) || 0,
+  net_available_for_payout: Number(d.net_available_for_payout ?? d.available_for_payout) || 0,
   amount_owed_to_onecab: Number(d.amount_owed_to_onecab) || 0,
 });
 
 const DRIVER_SUMMARY_COLUMNS =
-  'driver_id,first_name,last_name,email,phone,is_online,rating,approval_status,stripe_account_id,payouts_enabled,onboarding_complete,currency_code,region_id,gross_trip_total,completed_trips,card_net_credits,card_gross_total,card_commission_total,card_trip_count,cash_gross_total,cash_net_earnings,cash_commission_debits,cash_trip_count,company_commission_total,today_gross_earnings,today_cash_earnings,today_card_earnings,today_trip_count,adjustments_total,total_payouts_sent,total_fees,wallet_balance,available_for_payout,amount_owed_to_onecab';
+  'driver_id,first_name,last_name,email,phone,is_online,rating,approval_status,stripe_account_id,payouts_enabled,onboarding_complete,currency_code,region_id,gross_trip_total,completed_trips,card_net_credits,card_gross_total,card_commission_total,card_trip_count,cash_gross_total,cash_net_earnings,cash_commission_debits,cash_trip_count,company_commission_total,today_gross_earnings,today_cash_earnings,today_card_earnings,today_trip_count,adjustments_total,total_payouts_sent,total_fees,wallet_balance,available_for_payout,reserved_cashout_pence,net_available_for_payout,amount_owed_to_onecab';
 
 // Hook to fetch all driver financial summaries (admin view)
 export function useDriverFinancialSummaries(
