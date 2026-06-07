@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -59,6 +60,22 @@ interface PayoutSummary {
 interface PayoutResponse {
   batches: PayoutBatch[];
   summary: PayoutSummary;
+}
+
+interface EarlyCashoutRow {
+  id: string;
+  driverId: string;
+  driverName: string | null;
+  requestedAmount: number;
+  driverReceives: number;
+  feeAmount: number;
+  status: string;
+  stripePayoutId: string | null;
+  stripeTransferId: string | null;
+  failureReason: string | null;
+  createdAt: string;
+  paidAt: string | null;
+  currency: string;
 }
 
 function buildPayoutBatchesPath(filter: ServiceAreaFinanceSelection): string {
@@ -155,6 +172,59 @@ async function fetchPayoutBatchesWithFallback(filter: ServiceAreaFinanceSelectio
   }
 }
 
+async function fetchEarlyCashoutsDirect(): Promise<EarlyCashoutRow[]> {
+  const { data, error } = await supabase
+    .from('driver_early_cashouts')
+    .select(`
+      id,
+      driver_id,
+      requested_cashout_pence,
+      driver_receives_pence,
+      early_cashout_fee_pence,
+      status,
+      stripe_payout_id,
+      stripe_transfer_id,
+      failure_reason,
+      created_at,
+      paid_at,
+      currency,
+      drivers:driver_id(first_name, last_name)
+    `)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+
+  return (data || []).map((row: {
+    id: string;
+    driver_id: string;
+    requested_cashout_pence: number;
+    driver_receives_pence: number;
+    early_cashout_fee_pence: number;
+    status: string;
+    stripe_payout_id: string | null;
+    stripe_transfer_id: string | null;
+    failure_reason: string | null;
+    created_at: string;
+    paid_at: string | null;
+    currency: string;
+    drivers: { first_name: string; last_name: string } | null;
+  }) => ({
+    id: row.id,
+    driverId: row.driver_id,
+    driverName: row.drivers ? `${row.drivers.first_name} ${row.drivers.last_name}` : null,
+    requestedAmount: row.requested_cashout_pence,
+    driverReceives: row.driver_receives_pence,
+    feeAmount: row.early_cashout_fee_pence,
+    status: row.status,
+    stripePayoutId: row.stripe_payout_id,
+    stripeTransferId: row.stripe_transfer_id,
+    failureReason: row.failure_reason,
+    createdAt: row.created_at,
+    paidAt: row.paid_at,
+    currency: row.currency,
+  }));
+}
+
 export default function AdminPayoutBatches() {
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
@@ -182,6 +252,17 @@ export default function AdminPayoutBatches() {
     queryFn: () => fetchPayoutBatchesWithFallback(serviceFilter),
   });
 
+  const {
+    data: earlyCashouts = [],
+    isLoading: isLoadingEarlyCashouts,
+    isError: isEarlyCashoutsError,
+    error: earlyCashoutsError,
+    refetch: refetchEarlyCashouts,
+  } = useQuery<EarlyCashoutRow[]>({
+    queryKey: ['admin-early-cashouts-list'],
+    queryFn: fetchEarlyCashoutsDirect,
+  });
+
   const filteredDriverIds = useMemo(
     () => new Set(drivers.map(d => d.driver_id)),
     [drivers],
@@ -204,6 +285,11 @@ export default function AdminPayoutBatches() {
       })
       .filter((batch): batch is PayoutBatch => batch !== null);
   }, [batches, regionScope, filteredDriverIds]);
+
+  const filteredEarlyCashouts = useMemo(() => {
+    if (!regionScope) return earlyCashouts;
+    return earlyCashouts.filter(c => filteredDriverIds.has(c.driverId));
+  }, [earlyCashouts, regionScope, filteredDriverIds]);
 
   const resolvedCurrency = hasRegionScope
     ? (serviceFilter.currencyCode ||
@@ -237,11 +323,12 @@ export default function AdminPayoutBatches() {
 
   const selectedBatch = filteredBatches.find(b => b.id === selectedBatchId);
   const batchItems = selectedBatch?.items || [];
-  const isLoading = isLoadingDrivers || isLoadingBatches;
+  const isLoading = isLoadingDrivers || isLoadingBatches || isLoadingEarlyCashouts;
 
   const refetch = () => {
     refetchDrivers();
     refetchBatches();
+    refetchEarlyCashouts();
   };
 
   const handleServiceFilterChange = (selection: ServiceAreaFinanceSelection) => {
@@ -293,6 +380,11 @@ export default function AdminPayoutBatches() {
         {isBatchesError && (
           <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             Failed to load payout batches: {(batchesError as Error)?.message || 'Unknown error'}
+          </div>
+        )}
+        {isEarlyCashoutsError && (
+          <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            Failed to load driver early cashouts: {(earlyCashoutsError as Error)?.message || 'Unknown error'}
           </div>
         )}
 
@@ -392,7 +484,23 @@ export default function AdminPayoutBatches() {
                 ) : filteredBatches.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                      {regionScope ? 'No payout batches for this service area' : 'No payout batches yet'}
+                      <div className="space-y-1">
+                        <p>
+                          {regionScope
+                            ? 'No weekly or admin payout batches for this service area'
+                            : 'No weekly or admin payout batches yet'}
+                        </p>
+                        {filteredEarlyCashouts.length > 0 ? (
+                          <p className="text-xs">
+                            Driver early cashouts are listed below — they are not stored as payout batches.
+                          </p>
+                        ) : regionScope ? (
+                          <p className="text-xs">
+                            Early cashouts and ledger payouts appear in{' '}
+                            <Link to="/driver-wallet" className="underline text-primary">Driver Wallet</Link>.
+                          </p>
+                        ) : null}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -418,6 +526,72 @@ export default function AdminPayoutBatches() {
             )}
           </CardContent>
         </Card>
+
+        {(hasRegionScope || filteredEarlyCashouts.length > 0) && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Driver Early Cashouts</CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Individual driver-initiated cashouts (separate from weekly/admin payout batch runs)
+                </p>
+              </div>
+              <Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
+            </CardHeader>
+            <CardContent className="p-0">
+              {isLoadingEarlyCashouts ? (
+                <div className="flex items-center justify-center py-12">
+                  <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Driver</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Requested</TableHead>
+                      <TableHead className="text-right">Fee</TableHead>
+                      <TableHead className="text-right">Driver receives</TableHead>
+                      <TableHead>Stripe payout</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {isEarlyCashoutsError ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                          Unable to load early cashouts — see error above
+                        </TableCell>
+                      </TableRow>
+                    ) : filteredEarlyCashouts.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                          {regionScope ? 'No early cashouts for this service area' : 'No early cashouts yet'}
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredEarlyCashouts.map((cashout) => (
+                        <TableRow key={cashout.id}>
+                          <TableCell className="font-medium">
+                            {format(new Date(cashout.createdAt), 'dd MMM yyyy HH:mm')}
+                          </TableCell>
+                          <TableCell>{cashout.driverName || cashout.driverId.substring(0, 8)}</TableCell>
+                          <TableCell>{getStatusBadge(cashout.status)}</TableCell>
+                          <TableCell className="text-right">{formatPence(cashout.requestedAmount, cashout.currency || resolvedCurrency)}</TableCell>
+                          <TableCell className="text-right text-orange-600">{formatPence(cashout.feeAmount, cashout.currency || resolvedCurrency)}</TableCell>
+                          <TableCell className="text-right font-medium text-green-600">{formatPence(cashout.driverReceives, cashout.currency || resolvedCurrency)}</TableCell>
+                          <TableCell className="text-xs font-mono">
+                            {cashout.stripePayoutId ? cashout.stripePayoutId.substring(0, 20) + '...' : '-'}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         <Dialog open={!!selectedBatchId} onOpenChange={() => setSelectedBatchId(null)}>
           <DialogContent className="max-w-2xl">
