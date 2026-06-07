@@ -69,6 +69,92 @@ function buildPayoutBatchesPath(filter: ServiceAreaFinanceSelection): string {
   return qs ? `admin-payout-batches?${qs}` : 'admin-payout-batches';
 }
 
+async function fetchPayoutBatchesDirect(): Promise<PayoutBatch[]> {
+  const { data: batchRows, error: batchError } = await supabase
+    .from('payout_batches')
+    .select('id,kind,run_date,status,total_drivers,total_amount_pence,successful_payouts,failed_payouts,notes,created_at,completed_at')
+    .order('created_at', { ascending: false });
+
+  if (batchError) throw batchError;
+
+  const batchIds = (batchRows || []).map(b => b.id);
+  const { data: itemRows, error: itemError } = batchIds.length > 0
+    ? await supabase
+        .from('payout_items')
+        .select('id,batch_id,driver_id,amount_pence,status,stripe_transfer_id,stripe_payout_id,error_message,created_at,completed_at,drivers:driver_id(first_name,last_name)')
+        .in('batch_id', batchIds)
+    : { data: [], error: null };
+
+  if (itemError) throw itemError;
+
+  const itemsByBatch: Record<string, PayoutItem[]> = {};
+  itemRows?.forEach((item: {
+    id: string;
+    batch_id: string;
+    driver_id: string;
+    amount_pence: number;
+    status: string;
+    stripe_transfer_id: string | null;
+    stripe_payout_id: string | null;
+    error_message: string | null;
+    created_at: string;
+    completed_at: string | null;
+    drivers: { first_name: string; last_name: string } | null;
+  }) => {
+    if (!itemsByBatch[item.batch_id]) itemsByBatch[item.batch_id] = [];
+    itemsByBatch[item.batch_id].push({
+      id: item.id,
+      driverId: item.driver_id,
+      driverName: item.drivers ? `${item.drivers.first_name} ${item.drivers.last_name}` : null,
+      amount: item.amount_pence,
+      status: item.status,
+      stripeTransferId: item.stripe_transfer_id,
+      stripePayoutId: item.stripe_payout_id,
+      errorMessage: item.error_message,
+      createdAt: item.created_at,
+      completedAt: item.completed_at,
+    });
+  });
+
+  return (batchRows || []).map(batch => ({
+    id: batch.id,
+    kind: batch.kind,
+    runDate: batch.run_date,
+    status: batch.status,
+    totalDrivers: batch.total_drivers,
+    totalAmount: batch.total_amount_pence,
+    successfulPayouts: batch.successful_payouts,
+    failedPayouts: batch.failed_payouts,
+    notes: batch.notes,
+    createdAt: batch.created_at,
+    completedAt: batch.completed_at,
+    items: itemsByBatch[batch.id] || [],
+  }));
+}
+
+async function fetchPayoutBatchesFromEdge(filter: ServiceAreaFinanceSelection): Promise<PayoutBatch[]> {
+  const headers: Record<string, string> = {};
+  if (filter.regionId) headers['x-region-id'] = filter.regionId;
+  else if (filter.serviceAreaId) headers['x-service-area-id'] = filter.serviceAreaId;
+
+  const path = buildPayoutBatchesPath(filter);
+  const { data, error: fnError } = await supabase.functions.invoke(path, { method: 'GET', headers });
+  if (fnError) throw fnError;
+  return (data as PayoutResponse)?.batches ?? [];
+}
+
+async function fetchPayoutBatchesWithFallback(filter: ServiceAreaFinanceSelection): Promise<PayoutBatch[]> {
+  try {
+    return await fetchPayoutBatchesDirect();
+  } catch (directError) {
+    try {
+      return await fetchPayoutBatchesFromEdge(filter);
+    } catch {
+      throw directError;
+    }
+  }
+}
+
 export default function AdminPayoutBatches() {
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
@@ -86,27 +172,15 @@ export default function AdminPayoutBatches() {
   }, [allDrivers, regionScope]);
 
   const {
-    data: edgeData,
-    isLoading: isLoadingEdge,
-    refetch: refetchEdge,
-    isError,
-    error,
-  } = useQuery<PayoutResponse>({
-    queryKey: ['admin-payout-batches', regionScope, serviceFilter.serviceAreaId],
-    enabled: hasRegionScope,
-    queryFn: async () => {
-      const headers: Record<string, string> = {};
-      if (serviceFilter.regionId) headers['x-region-id'] = serviceFilter.regionId;
-      else if (serviceFilter.serviceAreaId) headers['x-service-area-id'] = serviceFilter.serviceAreaId;
-
-      const path = buildPayoutBatchesPath(serviceFilter);
-      const { data, error: fnError } = await supabase.functions.invoke(path, { method: 'GET', headers });
-      if (fnError) throw fnError;
-      return data as PayoutResponse;
-    },
+    data: batches = [],
+    isLoading: isLoadingBatches,
+    refetch: refetchBatches,
+    isError: isBatchesError,
+    error: batchesError,
+  } = useQuery<PayoutBatch[]>({
+    queryKey: ['admin-payout-batches-list', regionScope, serviceFilter.serviceAreaId],
+    queryFn: () => fetchPayoutBatchesWithFallback(serviceFilter),
   });
-
-  const batches = edgeData?.batches ?? [];
 
   const filteredDriverIds = useMemo(
     () => new Set(drivers.map(d => d.driver_id)),
@@ -133,7 +207,6 @@ export default function AdminPayoutBatches() {
 
   const resolvedCurrency = hasRegionScope
     ? (serviceFilter.currencyCode ||
-      edgeData?.summary?.currencyCode ||
       getSingleCurrency(drivers) ||
       '')
     : 'GBP';
@@ -164,12 +237,11 @@ export default function AdminPayoutBatches() {
 
   const selectedBatch = filteredBatches.find(b => b.id === selectedBatchId);
   const batchItems = selectedBatch?.items || [];
-  const isLoading = isLoadingDrivers;
-  const isLoadingBatches = hasRegionScope && isLoadingEdge;
+  const isLoading = isLoadingDrivers || isLoadingBatches;
 
   const refetch = () => {
     refetchDrivers();
-    refetchEdge();
+    refetchBatches();
   };
 
   const handleServiceFilterChange = (selection: ServiceAreaFinanceSelection) => {
@@ -218,9 +290,9 @@ export default function AdminPayoutBatches() {
             Failed to load driver balances: {(driversError as Error)?.message || 'Unknown error'}
           </div>
         )}
-        {isError && (
+        {isBatchesError && (
           <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            Failed to load payout batches: {(error as Error)?.message || 'Unknown error'}
+            Failed to load payout batches: {(batchesError as Error)?.message || 'Unknown error'}
           </div>
         )}
 
@@ -311,7 +383,13 @@ export default function AdminPayoutBatches() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredBatches.length === 0 ? (
+                {isBatchesError ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      Unable to load payout batches — see error above
+                    </TableCell>
+                  </TableRow>
+                ) : filteredBatches.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                       {regionScope ? 'No payout batches for this service area' : 'No payout batches yet'}
