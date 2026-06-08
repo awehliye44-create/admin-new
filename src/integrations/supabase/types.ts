@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_email_verifications: {
+        Row: {
+          app_type: string
+          created_at: string
+          email: string
+          expires_at: string
+          id: string
+          token_hash: string
+          user_id: string
+          verified_at: string | null
+        }
+        Insert: {
+          app_type: string
+          created_at?: string
+          email: string
+          expires_at: string
+          id?: string
+          token_hash: string
+          user_id: string
+          verified_at?: string | null
+        }
+        Update: {
+          app_type?: string
+          created_at?: string
+          email?: string
+          expires_at?: string
+          id?: string
+          token_hash?: string
+          user_id?: string
+          verified_at?: string | null
+        }
+        Relationships: []
+      }
       account_suspensions: {
         Row: {
           created_at: string
@@ -1884,6 +1917,8 @@ export type Database = {
           created_at: string
           customer_code: string
           deleted_at: string | null
+          email_verified: boolean
+          email_verified_at: string | null
           first_name: string
           id: string
           last_name: string
@@ -1900,6 +1935,8 @@ export type Database = {
           created_at?: string
           customer_code: string
           deleted_at?: string | null
+          email_verified?: boolean
+          email_verified_at?: string | null
           first_name: string
           id?: string
           last_name: string
@@ -1916,6 +1953,8 @@ export type Database = {
           created_at?: string
           customer_code?: string
           deleted_at?: string | null
+          email_verified?: boolean
+          email_verified_at?: string | null
           first_name?: string
           id?: string
           last_name?: string
@@ -3038,6 +3077,7 @@ export type Database = {
           ledger_fee_id: string | null
           onecab_cashout_fee_pence: number
           paid_at: string | null
+          payout_method: string | null
           requested_cashout_pence: number
           status: string
           stripe_payout_id: string | null
@@ -3058,6 +3098,7 @@ export type Database = {
           ledger_fee_id?: string | null
           onecab_cashout_fee_pence: number
           paid_at?: string | null
+          payout_method?: string | null
           requested_cashout_pence: number
           status?: string
           stripe_payout_id?: string | null
@@ -3078,6 +3119,7 @@ export type Database = {
           ledger_fee_id?: string | null
           onecab_cashout_fee_pence?: number
           paid_at?: string | null
+          payout_method?: string | null
           requested_cashout_pence?: number
           status?: string
           stripe_payout_id?: string | null
@@ -4208,6 +4250,8 @@ export type Database = {
           driver_online_intent: boolean
           driver_status: Database["public"]["Enums"]["driver_status"]
           email: string
+          email_verified: boolean
+          email_verified_at: string | null
           first_name: string
           heading: number | null
           id: string
@@ -4255,6 +4299,8 @@ export type Database = {
           driver_online_intent?: boolean
           driver_status?: Database["public"]["Enums"]["driver_status"]
           email: string
+          email_verified?: boolean
+          email_verified_at?: string | null
           first_name: string
           heading?: number | null
           id?: string
@@ -4302,6 +4348,8 @@ export type Database = {
           driver_online_intent?: boolean
           driver_status?: Database["public"]["Enums"]["driver_status"]
           email?: string
+          email_verified?: boolean
+          email_verified_at?: string | null
           first_name?: string
           heading?: number | null
           id?: string
@@ -10242,6 +10290,7 @@ export type Database = {
           surge_multiplier: number | null
           tip_amount_pence: number
           tip_pence: number | null
+          tip_window_closed_at: string | null
           tip_window_expires_at: string | null
           total_stops: number | null
           total_waiting_charge_pence: number
@@ -10452,6 +10501,7 @@ export type Database = {
           surge_multiplier?: number | null
           tip_amount_pence?: number
           tip_pence?: number | null
+          tip_window_closed_at?: string | null
           tip_window_expires_at?: string | null
           total_stops?: number | null
           total_waiting_charge_pence?: number
@@ -10662,6 +10712,7 @@ export type Database = {
           surge_multiplier?: number | null
           tip_amount_pence?: number
           tip_pence?: number | null
+          tip_window_closed_at?: string | null
           tip_window_expires_at?: string | null
           total_stops?: number | null
           total_waiting_charge_pence?: number
@@ -12214,11 +12265,13 @@ export type Database = {
           gross_trip_total: number | null
           is_online: boolean | null
           last_name: string | null
+          net_available_for_payout: number | null
           onboarding_complete: boolean | null
           payouts_enabled: boolean | null
           phone: string | null
           rating: number | null
           region_id: string | null
+          reserved_cashout_pence: number | null
           stripe_account_id: string | null
           today_card_earnings: number | null
           today_cash_earnings: number | null
@@ -12506,6 +12559,10 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
       }
+      cleanup_unverified_accounts: {
+        Args: { _older_than?: string }
+        Returns: Json
+      }
       compute_dispatch_score:
         | {
             Args: {
@@ -12729,6 +12786,10 @@ export type Database = {
       expire_trip_when_search_exhausted: {
         Args: { p_trip_id: string }
         Returns: boolean
+      }
+      finalize_customer_onboarding: {
+        Args: { _user_id: string }
+        Returns: string
       }
       finalize_negotiated_fare: {
         Args: {
@@ -13073,6 +13134,10 @@ export type Database = {
           customer_photos: string[]
           found_item_photos: string[]
         }[]
+      }
+      mark_account_email_verified: {
+        Args: { _app_type: string; _user_id: string }
+        Returns: undefined
       }
       mark_driver_background_unavailable: {
         Args: { p_driver_id: string }
