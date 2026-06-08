@@ -1,6 +1,7 @@
 /**
  * Card-trip capture confirmation — payments table + trips fields as SSOT.
- * Expected customer total = ride fare + tip; captured = sum of payment intents.
+ * Expected customer total = settlement fare + tip; captured = sum of payment intents.
+ * Settlement fare uses final_fare_pence (includes waiting/modification pass-through).
  */
 
 export type CaptureStatusKind =
@@ -25,6 +26,7 @@ export interface TripCaptureFields {
   payment_captured_pence?: number | null;
   payment_tip_pence?: number | null;
   payment_count?: number;
+  has_shortfall_payment_intent?: boolean;
   fare_breakdown?: Record<string, unknown> | null;
 }
 
@@ -58,7 +60,7 @@ export function getTripTipPence(trip: TripCaptureFields): number {
   return 0;
 }
 
-/** Ride fare in pence (excludes tip). */
+/** Display ride fare in pence (excludes tip; may exclude waiting pass-through). */
 export function getTripFarePence(trip: TripCaptureFields): number {
   if (trip.final_customer_fare_pence != null && trip.final_customer_fare_pence > 0) {
     return trip.final_customer_fare_pence;
@@ -69,6 +71,14 @@ export function getTripFarePence(trip: TripCaptureFields): number {
   const tip = getTripTipPence(trip);
   if (captured != null && captured > tip) return captured - tip;
   return 0;
+}
+
+/** Settlement ride fare in pence (excludes tip; includes waiting/modification charges). */
+export function getTripSettlementFarePence(trip: TripCaptureFields): number {
+  if (trip.final_fare_pence != null && trip.final_fare_pence > 0) {
+    return trip.final_fare_pence;
+  }
+  return getTripFarePence(trip);
 }
 
 /** Sum of payments.captured_amount_pence, falling back to trips.capture_amount_pence. */
@@ -83,10 +93,18 @@ export function getCapturedTotalPence(trip: TripCaptureFields): number | null {
 }
 
 export function getExpectedCustomerTotalPence(trip: TripCaptureFields): number | null {
-  const fare = getTripFarePence(trip);
+  const fare = getTripSettlementFarePence(trip);
   const tip = getTripTipPence(trip);
   if (fare <= 0 && tip <= 0) return null;
   return fare + tip;
+}
+
+/** Count Stripe payment intents (payments rows + shortfall PI stored in metadata). */
+export function getTripPaymentIntentCount(
+  paymentCount: number,
+  hasShortfallPaymentIntent = false,
+): number {
+  return paymentCount + (hasShortfallPaymentIntent ? 1 : 0);
 }
 
 function baseStatus(
@@ -97,7 +115,11 @@ function baseStatus(
   const tipPence = getTripTipPence(trip);
   const capturedTotalPence = getCapturedTotalPence(trip);
   const expectedTotalPence = getExpectedCustomerTotalPence(trip);
-  const paymentCount = trip.payment_count ?? (capturedTotalPence != null && capturedTotalPence > 0 ? 1 : 0);
+  const paymentCount =
+    getTripPaymentIntentCount(
+      trip.payment_count ?? (capturedTotalPence != null && capturedTotalPence > 0 ? 1 : 0),
+      trip.has_shortfall_payment_intent === true,
+    );
   const diffPence =
     expectedTotalPence != null && capturedTotalPence != null
       ? capturedTotalPence - expectedTotalPence
@@ -143,7 +165,10 @@ export function getTripCaptureStatus(trip: TripCaptureFields): TripCaptureStatus
 
   const capturedTotal = getCapturedTotalPence(trip);
   const expectedTotal = getExpectedCustomerTotalPence(trip);
-  const paymentCount = trip.payment_count ?? (capturedTotal != null && capturedTotal > 0 ? 1 : 0);
+  const paymentCount = getTripPaymentIntentCount(
+    trip.payment_count ?? (capturedTotal != null && capturedTotal > 0 ? 1 : 0),
+    trip.has_shortfall_payment_intent === true,
+  );
 
   if (capturedTotal == null || capturedTotal <= 0) {
     if (paymentStatus === 'pending_capture' || paymentStatus === 'pending') {
@@ -182,13 +207,13 @@ export function getTripCaptureStatus(trip: TripCaptureFields): TripCaptureStatus
       label: split ? 'Captured (split) ✓' : 'Captured ✓',
       shortLabel: split ? 'Captured (split) ✓' : 'Captured ✓',
       tooltip: split
-        ? `${paymentCount} payment intents; ${fmt(capturedTotal)} captured matches fare ${fmt(getTripFarePence(trip))} + tip ${fmt(getTripTipPence(trip))}`
+        ? `${paymentCount} payment intents; ${fmt(capturedTotal)} captured matches fare ${fmt(getTripSettlementFarePence(trip))} + tip ${fmt(getTripTipPence(trip))}`
         : `Captured ${fmt(capturedTotal)} matches customer total (fare + tip)`,
     });
   }
 
   const fmt = (p: number) => (p / 100).toFixed(2);
-  const fare = getTripFarePence(trip);
+  const fare = getTripSettlementFarePence(trip);
   const tip = getTripTipPence(trip);
   return baseStatus(trip, {
     kind: 'capture_mismatch',

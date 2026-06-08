@@ -193,6 +193,7 @@ interface CompletedTrip {
   payment_commission_pct?: number | null;
   payment_tip_pence?: number | null;
   payment_count?: number;
+  has_shortfall_payment_intent?: boolean;
 }
 
 export default function TripHistory() {
@@ -326,6 +327,7 @@ export default function TripHistory() {
         commission_pct: number | null;
         tip: number | null;
         count: number;
+        hasShortfallPi: boolean;
       }> = {};
       if (tripIds.length > 0) {
         const { data: paymentsData } = await supabase
@@ -337,6 +339,7 @@ export default function TripHistory() {
           for (const p of paymentsData as any[]) {
             const meta = p.metadata as Record<string, unknown> | null;
             const tipFromMeta = meta?.tip_pence != null ? Number(meta.tip_pence) : null;
+            const hasShortfallPi = typeof meta?.shortfall_pi_id === 'string' && meta.shortfall_pi_id.length > 0;
             const rowCaptured = p.captured_amount_pence ?? 0;
             const existing = paymentsMap[p.trip_id];
             if (!existing) {
@@ -347,10 +350,12 @@ export default function TripHistory() {
                 commission_pct: p.commission_pct ?? null,
                 tip: Number.isFinite(tipFromMeta) && tipFromMeta! > 0 ? tipFromMeta : null,
                 count: 1,
+                hasShortfallPi,
               };
             } else {
               existing.captured += rowCaptured;
               existing.count += 1;
+              existing.hasShortfallPi = existing.hasShortfallPi || hasShortfallPi;
             }
           }
         }
@@ -367,6 +372,7 @@ export default function TripHistory() {
           payment_commission_pct: pay?.commission_pct ?? null,
           payment_tip_pence: pay?.tip ?? null,
           payment_count: pay?.count ?? 0,
+          has_shortfall_payment_intent: pay?.hasShortfallPi ?? false,
         };
       }) as CompletedTrip[];
     },

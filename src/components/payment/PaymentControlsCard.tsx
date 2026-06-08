@@ -177,10 +177,14 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
       const payments = paymentsRes.data ?? [];
       let capturedSum = 0;
       let tipFromMeta: number | null = null;
+      let hasShortfallPi = false;
       for (const p of payments) {
         capturedSum += p.captured_amount_pence ?? 0;
+        const meta = p.metadata as Record<string, unknown> | null;
+        if (!hasShortfallPi && typeof meta?.shortfall_pi_id === 'string' && meta.shortfall_pi_id.length > 0) {
+          hasShortfallPi = true;
+        }
         if (tipFromMeta == null) {
-          const meta = p.metadata as Record<string, unknown> | null;
           const t = meta?.tip_pence != null ? Number(meta.tip_pence) : null;
           if (Number.isFinite(t) && t! > 0) tipFromMeta = t;
         }
@@ -190,6 +194,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
         payment_captured_pence: capturedSum > 0 ? capturedSum : null,
         payment_tip_pence: tipFromMeta,
         payment_count: payments.length,
+        has_shortfall_payment_intent: hasShortfallPi,
       };
     },
   });
