@@ -401,6 +401,8 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
 
   return (
     <div className="space-y-6">
+      {/* Vehicle Type Selector — render even if no settings selected yet */}
+    <div className="space-y-6">
       {/* Vehicle Type Selector */}
       <Card>
         <CardHeader className="pb-3">
