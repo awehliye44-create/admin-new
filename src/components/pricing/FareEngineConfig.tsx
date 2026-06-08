@@ -282,7 +282,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
     if (!settings) return;
     setIsSaving(true);
     try {
-      const vehicleTypeId = selectedVehicleTypeId === '__default__' ? null : selectedVehicleTypeId;
+      const vehicleTypeId = selectedVehicleTypeId || null;
       const payload = {
         pricing_mode: settings.pricing_mode,
         currency_code: currencyCode,
