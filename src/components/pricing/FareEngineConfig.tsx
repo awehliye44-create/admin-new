@@ -779,6 +779,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
           </Card>
         </div>
       </div>
+      </>)}
     </div>
   );
 }
