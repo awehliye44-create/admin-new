@@ -3,7 +3,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Trash2, Undo, MapPin, AlertTriangle, Check, Ruler } from 'lucide-react';
 import * as turf from '@turf/turf';
-import { mapboxgl, MAPBOX_STYLE } from '@/lib/mapbox';
+import { mapboxgl } from '@/lib/mapbox';
+import { createMapboxMap } from '@/lib/mapboxMap';
+import { useMapboxToken } from '@/hooks/useMapboxToken';
 
 interface LatLng { lat: number; lng: number }
 interface GeoJSONPoly { type: string; coordinates: number[][][] }
@@ -50,7 +52,10 @@ export function ServiceAreaBoundaryMap({
 }: ServiceAreaBoundaryMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
+  const { isReady: mapboxReady, error: mapboxError } = useMapboxToken();
   const [isMapLoaded, setIsMapLoaded] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
+  const mapInitError = mapboxError ?? mapError;
   const [points, setPoints] = useState<LatLng[]>([]);
   const [isDrawing, setIsDrawing] = useState(true);
   const [validationWarning, setValidationWarning] = useState<string | null>(null);
@@ -87,56 +92,82 @@ export function ServiceAreaBoundaryMap({
     return [-0.1278, 51.5074];
   }, [regionBoundary]);
 
-  // Init Mapbox
+  // Init Mapbox after web token resolves
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
-    const map = new mapboxgl.Map({
-      container: containerRef.current,
-      style: MAPBOX_STYLE,
-      center: getMapCenter(),
-      zoom: 11,
-    });
-    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-left');
-    map.addControl(new mapboxgl.FullscreenControl(), 'top-right');
+    if (!mapboxReady || !containerRef.current || mapRef.current) return;
 
-    map.on('load', () => {
-      map.addSource(REGION_SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-      map.addLayer({ id: REGION_FILL, type: 'fill', source: REGION_SRC, paint: { 'fill-color': '#6B7280', 'fill-opacity': 0.05 } });
-      map.addLayer({ id: REGION_LINE, type: 'line', source: REGION_SRC, paint: { 'line-color': '#6B7280', 'line-width': 2, 'line-dasharray': [4, 2] } });
+    let cancelled = false;
+    let detachResize: (() => void) | undefined;
 
-      map.addSource(SA_SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-      map.addLayer({ id: SA_FILL, type: 'fill', source: SA_SRC, paint: { 'fill-color': '#10b981', 'fill-opacity': 0.2 } });
-      map.addLayer({ id: SA_LINE, type: 'line', source: SA_SRC, paint: { 'line-color': '#10b981', 'line-width': 2 } });
+    void (async () => {
+      try {
+        const { map, detachResize: detach } = await createMapboxMap({
+          container: containerRef.current!,
+          center: getMapCenter(),
+          zoom: 11,
+          onLoad: (m) => {
+            if (cancelled) return;
+            m.addSource(REGION_SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            m.addLayer({ id: REGION_FILL, type: 'fill', source: REGION_SRC, paint: { 'fill-color': '#6B7280', 'fill-opacity': 0.05 } });
+            m.addLayer({ id: REGION_LINE, type: 'line', source: REGION_SRC, paint: { 'line-color': '#6B7280', 'line-width': 2, 'line-dasharray': [4, 2] } });
 
-      map.addSource(PTS_SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-      map.addLayer({
-        id: PTS_LAYER, type: 'circle', source: PTS_SRC,
-        paint: {
-          'circle-radius': 9,
-          'circle-color': ['case', ['==', ['get', 'inside'], false], '#ef4444', '#10b981'],
-          'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2,
-        },
-      });
-      map.addLayer({
-        id: PTS_LABELS, type: 'symbol', source: PTS_SRC,
-        layout: { 'text-field': ['get', 'index'], 'text-size': 11, 'text-allow-overlap': true },
-        paint: { 'text-color': '#ffffff' },
-      });
+            m.addSource(SA_SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            m.addLayer({ id: SA_FILL, type: 'fill', source: SA_SRC, paint: { 'fill-color': '#10b981', 'fill-opacity': 0.2 } });
+            m.addLayer({ id: SA_LINE, type: 'line', source: SA_SRC, paint: { 'line-color': '#10b981', 'line-width': 2 } });
 
-      setIsMapLoaded(true);
-    });
+            m.addSource(PTS_SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            m.addLayer({
+              id: PTS_LAYER, type: 'circle', source: PTS_SRC,
+              paint: {
+                'circle-radius': 9,
+                'circle-color': ['case', ['==', ['get', 'inside'], false], '#ef4444', '#10b981'],
+                'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2,
+              },
+            });
+            m.addLayer({
+              id: PTS_LABELS, type: 'symbol', source: PTS_SRC,
+              layout: { 'text-field': ['get', 'index'], 'text-size': 11, 'text-allow-overlap': true },
+              paint: { 'text-color': '#ffffff' },
+            });
 
-    map.on('click', (e) => {
-      if (!isDrawingRef.current) return;
-      setPoints((prev) => [...prev, { lat: e.lngLat.lat, lng: e.lngLat.lng }]);
-    });
+            setIsMapLoaded(true);
+          },
+          onTileError: (msg) => {
+            if (!cancelled) {
+              setMapError(msg);
+              setIsMapLoaded(true);
+            }
+          },
+        });
+        if (cancelled) {
+          map.remove();
+          detach();
+          return;
+        }
+        map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-left');
+        map.addControl(new mapboxgl.FullscreenControl(), 'top-right');
+        map.on('click', (e) => {
+          if (!isDrawingRef.current) return;
+          setPoints((prev) => [...prev, { lat: e.lngLat.lat, lng: e.lngLat.lng }]);
+        });
+        detachResize = detach;
+        mapRef.current = map;
+      } catch (err) {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : 'Failed to initialize map';
+        setMapError(msg);
+        setIsMapLoaded(true);
+      }
+    })();
 
-    mapRef.current = map;
     return () => {
-      map.remove();
+      cancelled = true;
+      detachResize?.();
+      mapRef.current?.remove();
       mapRef.current = null;
+      setIsMapLoaded(false);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mapboxReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Render region polygon + fit bounds
   useEffect(() => {
@@ -248,7 +279,13 @@ export function ServiceAreaBoundaryMap({
         </div>
       )}
 
-      <div ref={containerRef} style={{ height, width: '100%' }} className="rounded-lg border border-border overflow-hidden" />
+      <div ref={containerRef} style={{ height, width: '100%' }} className="rounded-lg border border-border overflow-hidden relative">
+        {mapInitError && (
+          <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm text-muted-foreground bg-muted">
+            Map unavailable: {mapInitError}. Set VITE_MAPBOX_WEB_TOKEN in Lovable or MAPBOX_WEB_TOKEN on Supabase.
+          </div>
+        )}
+      </div>
 
       {validationWarning && (
         <div className="flex items-center gap-2 text-amber-600 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 rounded-md text-sm">

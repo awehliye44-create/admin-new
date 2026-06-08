@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Trash2, Undo, MapPin } from 'lucide-react';
-import { mapboxgl, MAPBOX_STYLE } from '@/lib/mapbox';
+import { mapboxgl } from '@/lib/mapbox';
+import { createMapboxMap } from '@/lib/mapboxMap';
+import { useMapboxToken } from '@/hooks/useMapboxToken';
 
 interface LatLng {
   lat: number;
@@ -52,7 +54,10 @@ export function RegionBoundaryMap({
 }: RegionBoundaryMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
+  const { isReady: mapboxReady, error: mapboxError } = useMapboxToken();
   const [isMapLoaded, setIsMapLoaded] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
+  const mapInitError = mapboxError ?? mapError;
   const [points, setPoints] = useState<LatLng[]>(boundary || []);
   const [isDrawing, setIsDrawing] = useState(!boundary || boundary.length === 0);
 
@@ -61,56 +66,81 @@ export function RegionBoundaryMap({
     isDrawingRef.current = isDrawing;
   }, [isDrawing]);
 
-  // Init map
+  // Init map after web token resolves
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
+    if (!mapboxReady || !containerRef.current || mapRef.current) return;
+
+    let cancelled = false;
+    let detachResize: (() => void) | undefined;
+
     const defaultCenter: [number, number] = [-0.7594, 52.0406];
     const center: [number, number] = boundary && boundary.length > 0
       ? [boundary[0].lng, boundary[0].lat]
       : defaultCenter;
 
-    const map = new mapboxgl.Map({
-      container: containerRef.current,
-      style: MAPBOX_STYLE,
-      center,
-      zoom: 11,
-    });
-    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-left');
-    map.addControl(new mapboxgl.FullscreenControl(), 'top-right');
-
-    map.on('load', () => {
-      map.addSource(FILL_SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-      map.addLayer({ id: FILL_LAYER, type: 'fill', source: FILL_SRC, paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.2 } });
-      map.addLayer({ id: LINE_LAYER, type: 'line', source: FILL_SRC, paint: { 'line-color': '#3b82f6', 'line-width': 2 } });
-      map.addSource(POINTS_SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-      map.addLayer({
-        id: POINTS_LAYER,
-        type: 'circle',
-        source: POINTS_SRC,
-        paint: { 'circle-radius': 8, 'circle-color': '#3b82f6', 'circle-stroke-color': '#1d4ed8', 'circle-stroke-width': 2 },
-      });
-      map.addLayer({
-        id: POINTS_LABELS,
-        type: 'symbol',
-        source: POINTS_SRC,
-        layout: { 'text-field': ['get', 'index'], 'text-size': 11, 'text-allow-overlap': true },
-        paint: { 'text-color': '#ffffff' },
-      });
-      setIsMapLoaded(true);
-    });
-
-    map.on('click', (e) => {
-      if (!isDrawingRef.current) return;
-      setPoints((prev) => [...prev, { lat: e.lngLat.lat, lng: e.lngLat.lng }]);
-    });
-
-    mapRef.current = map;
+    void (async () => {
+      try {
+        const { map, detachResize: detach } = await createMapboxMap({
+          container: containerRef.current!,
+          center,
+          zoom: 11,
+          onLoad: (m) => {
+            if (cancelled) return;
+            m.addSource(FILL_SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            m.addLayer({ id: FILL_LAYER, type: 'fill', source: FILL_SRC, paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.2 } });
+            m.addLayer({ id: LINE_LAYER, type: 'line', source: FILL_SRC, paint: { 'line-color': '#3b82f6', 'line-width': 2 } });
+            m.addSource(POINTS_SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            m.addLayer({
+              id: POINTS_LAYER,
+              type: 'circle',
+              source: POINTS_SRC,
+              paint: { 'circle-radius': 8, 'circle-color': '#3b82f6', 'circle-stroke-color': '#1d4ed8', 'circle-stroke-width': 2 },
+            });
+            m.addLayer({
+              id: POINTS_LABELS,
+              type: 'symbol',
+              source: POINTS_SRC,
+              layout: { 'text-field': ['get', 'index'], 'text-size': 11, 'text-allow-overlap': true },
+              paint: { 'text-color': '#ffffff' },
+            });
+            setIsMapLoaded(true);
+          },
+          onTileError: (msg) => {
+            if (!cancelled) {
+              setMapError(msg);
+              setIsMapLoaded(true);
+            }
+          },
+        });
+        if (cancelled) {
+          map.remove();
+          detach();
+          return;
+        }
+        map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-left');
+        map.addControl(new mapboxgl.FullscreenControl(), 'top-right');
+        map.on('click', (e) => {
+          if (!isDrawingRef.current) return;
+          setPoints((prev) => [...prev, { lat: e.lngLat.lat, lng: e.lngLat.lng }]);
+        });
+        detachResize = detach;
+        mapRef.current = map;
+      } catch (err) {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : 'Failed to initialize map';
+        setMapError(msg);
+        setIsMapLoaded(true);
+      }
+    })();
 
     return () => {
-      map.remove();
+      cancelled = true;
+      detachResize?.();
+      mapRef.current?.remove();
       mapRef.current = null;
+      setIsMapLoaded(false);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mapboxReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync source data when points change
   useEffect(() => {
@@ -140,7 +170,13 @@ export function RegionBoundaryMap({
 
   return (
     <div className="space-y-3">
-      <div ref={containerRef} style={{ height, width: '100%' }} className="rounded-lg border border-border overflow-hidden" />
+      <div ref={containerRef} style={{ height, width: '100%' }} className="rounded-lg border border-border overflow-hidden relative">
+        {mapInitError && (
+          <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm text-muted-foreground bg-muted">
+            Map unavailable: {mapInitError}. Set VITE_MAPBOX_WEB_TOKEN in Lovable or MAPBOX_WEB_TOKEN on Supabase.
+          </div>
+        )}
+      </div>
       {isEditable && (
         <div className="flex items-center justify-between gap-2 p-3 bg-muted/50 rounded-lg">
           <div className="text-sm text-muted-foreground">
