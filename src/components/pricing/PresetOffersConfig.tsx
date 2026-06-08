@@ -375,12 +375,12 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="multiplier">Multiplier (e.g. 0.85x, 1.0x, 1.2x)</SelectItem>
+                    <SelectItem value="multiplier">Percentage (% of fare)</SelectItem>
                     <SelectItem value="fixed">Fixed Amount (pence)</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Multiplier applies to calculated fare; Fixed sets exact amounts
+                  Percentage scales the calculated fare by the entered percent; Fixed sets exact amounts
                 </p>
               </div>
 
