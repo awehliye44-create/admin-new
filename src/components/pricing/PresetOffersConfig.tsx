@@ -61,10 +61,10 @@ const DAY_LABELS = [
 
 const DEFAULT_OFFERS: PresetOffer[] = [
   {
-    offer_key: 'cheaper',
-    label: 'Cheaper',
-    description: 'Save money with a lower fare',
-    multiplier: 0.85,
+    offer_key: 'offer_1',
+    label: 'Offer 1',
+    description: '',
+    multiplier: 1.0,
     fixed_amount_pence: 0,
     icon: 'tag',
     color: '#22C55E',
@@ -72,9 +72,9 @@ const DEFAULT_OFFERS: PresetOffer[] = [
     is_active: true,
   },
   {
-    offer_key: 'recommended',
-    label: 'Recommended',
-    description: 'Best balance of price and speed',
+    offer_key: 'offer_2',
+    label: 'Offer 2',
+    description: '',
     multiplier: 1.0,
     fixed_amount_pence: 0,
     icon: 'sparkles',
@@ -83,10 +83,10 @@ const DEFAULT_OFFERS: PresetOffer[] = [
     is_active: true,
   },
   {
-    offer_key: 'faster',
-    label: 'Faster',
-    description: 'Priority pickup, higher fare',
-    multiplier: 1.2,
+    offer_key: 'offer_3',
+    label: 'Offer 3',
+    description: '',
+    multiplier: 1.0,
     fixed_amount_pence: 0,
     icon: 'zap',
     color: '#F59E0B',
@@ -98,11 +98,11 @@ const DEFAULT_OFFERS: PresetOffer[] = [
 const DEFAULT_CONFIG: PresetConfig = {
   is_enabled: false,
   price_mode: 'multiplier',
-  default_selected_offer_id: 'recommended',
+  default_selected_offer_id: 'offer_2',
   countdown_enabled: false,
   countdown_seconds: 30,
   countdown_auto_select: false,
-  countdown_auto_select_offer_id: 'recommended',
+  countdown_auto_select_offer_id: 'offer_2',
   schedule: {
     enabled: false,
     days: [1, 2, 3, 4, 5, 6, 7],
@@ -375,12 +375,12 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="multiplier">Multiplier (e.g. 0.85x, 1.0x, 1.2x)</SelectItem>
+                    <SelectItem value="multiplier">Percentage (% of fare)</SelectItem>
                     <SelectItem value="fixed">Fixed Amount (pence)</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Multiplier applies to calculated fare; Fixed sets exact amounts
+                  Percentage scales the calculated fare by the entered percent; Fixed sets exact amounts
                 </p>
               </div>
 
@@ -621,19 +621,18 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
                     </div>
                     {config.price_mode === 'multiplier' ? (
                       <div className="space-y-1">
-                        <Label className="text-xs">Multiplier</Label>
+                        <Label className="text-xs">Percentage (%)</Label>
                         <Input
                           type="number"
-                          step="0.01"
-                          min="0.01"
-                          value={offer.multiplier}
-                          onChange={(e) => updateOffer(index, 'multiplier', parseFloat(e.target.value) || 1)}
+                          step="1"
+                          min="0"
+                          value={Math.round((offer.multiplier ?? 0) * 100)}
+                          onChange={(e) => {
+                            const pct = parseFloat(e.target.value);
+                            updateOffer(index, 'multiplier', isNaN(pct) ? 0 : pct / 100);
+                          }}
+                          placeholder="100"
                         />
-                        <p className="text-xs text-muted-foreground">
-                          {offer.multiplier < 1 ? `${((1 - offer.multiplier) * 100).toFixed(0)}% discount` :
-                           offer.multiplier > 1 ? `${((offer.multiplier - 1) * 100).toFixed(0)}% surcharge` :
-                           'Standard fare'}
-                        </p>
                       </div>
                     ) : (
                       <div className="space-y-1">

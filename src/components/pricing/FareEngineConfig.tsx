@@ -122,7 +122,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
 
   // Vehicle type selector
   const [assignedVehicleTypes, setAssignedVehicleTypes] = useState<VehicleType[]>([]);
-  const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState<string>('__default__');
+  const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState<string>('');
   const [configuredVtIds, setConfiguredVtIds] = useState<Set<string>>(new Set());
 
   // Stop Waiting & Get Paid (from stop_waiting_settings)
@@ -151,6 +151,11 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
 
   // Fetch fare settings when vehicle type changes
   useEffect(() => {
+    if (!selectedVehicleTypeId) {
+      setSettings(null);
+      setIsLoading(false);
+      return;
+    }
     fetchSettings();
   }, [serviceAreaId, selectedVehicleTypeId]);
 
@@ -161,6 +166,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
       .eq('service_area_id', serviceAreaId)
       .eq('is_enabled', true);
 
+    let vtList: VehicleType[] = [];
     if (assignments && assignments.length > 0) {
       const vtIds = assignments.map((a: any) => a.vehicle_type_id);
       const { data: vtData } = await supabase
@@ -169,10 +175,14 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
         .in('id', vtIds)
         .eq('is_active', true)
         .order('name');
-      setAssignedVehicleTypes(vtData || []);
-    } else {
-      setAssignedVehicleTypes([]);
+      vtList = vtData || [];
     }
+    setAssignedVehicleTypes(vtList);
+    // Auto-select first vehicle type if none selected (or current selection no longer valid)
+    setSelectedVehicleTypeId(prev => {
+      if (prev && vtList.some(v => v.id === prev)) return prev;
+      return vtList[0]?.id ?? '';
+    });
 
     // Check which vehicle types already have fare configs
     const { data: configs } = await supabase
@@ -183,14 +193,13 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
     const ids = new Set<string>();
     (configs || []).forEach((c: any) => {
       if (c.vehicle_type_id) ids.add(c.vehicle_type_id);
-      else ids.add('__default__');
     });
     setConfiguredVtIds(ids);
   };
 
   const fetchSettings = async () => {
     setIsLoading(true);
-    const vehicleTypeId = selectedVehicleTypeId === '__default__' ? null : selectedVehicleTypeId;
+    const vehicleTypeId = selectedVehicleTypeId || null;
 
     let query = supabase
       .from('fare_pricing_settings')
@@ -277,7 +286,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
     if (!settings) return;
     setIsSaving(true);
     try {
-      const vehicleTypeId = selectedVehicleTypeId === '__default__' ? null : selectedVehicleTypeId;
+      const vehicleTypeId = selectedVehicleTypeId || null;
       const payload = {
         pricing_mode: settings.pricing_mode,
         currency_code: currencyCode,
@@ -370,9 +379,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
         return next;
       });
 
-      const vtName = selectedVehicleTypeId === '__default__' 
-        ? 'Default' 
-        : assignedVehicleTypes.find(v => v.id === selectedVehicleTypeId)?.name || 'Vehicle';
+      const vtName = assignedVehicleTypes.find(v => v.id === selectedVehicleTypeId)?.name || 'Vehicle';
       toast.success(`Fare settings saved for ${vtName}`);
     } catch (err) {
       console.error('Error saving fare settings:', err);
@@ -390,8 +397,6 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
     );
   }
 
-  if (!settings) return null;
-
   return (
     <div className="space-y-6">
       {/* Vehicle Type Selector */}
@@ -402,39 +407,11 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
             Vehicle Type Pricing
           </CardTitle>
           <CardDescription>
-            Select a vehicle type to configure its fare settings. Types without pricing will fall back to the area-wide default.
+            Select a vehicle type to configure its fare settings.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-            {/* Default / Area-wide card */}
-            <button
-              type="button"
-              onClick={() => setSelectedVehicleTypeId('__default__')}
-              className={`relative flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all text-center cursor-pointer
-                ${selectedVehicleTypeId === '__default__'
-                  ? 'border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20'
-                  : 'border-border hover:border-primary/40 hover:bg-accent/50'
-                }`}
-            >
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                selectedVehicleTypeId === '__default__' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
-              }`}>
-                <Settings2 className="h-5 w-5" />
-              </div>
-              <span className="text-sm font-medium leading-tight">Default</span>
-              <span className="text-[10px] text-muted-foreground leading-tight">Area-wide</span>
-              {configuredVtIds.has('__default__') ? (
-                <span className="absolute top-1.5 right-1.5">
-                  <CheckCircle2 className="h-4 w-4 text-green-500" />
-                </span>
-              ) : (
-                <span className="absolute top-1.5 right-1.5">
-                  <AlertCircle className="h-4 w-4 text-muted-foreground/40" />
-                </span>
-              )}
-            </button>
-
             {/* Vehicle type cards */}
             {assignedVehicleTypes.map(vt => {
               const isSelected = selectedVehicleTypeId === vt.id;
@@ -481,13 +458,13 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
           {assignedVehicleTypes.length > 0 && (
             <div className="flex items-center gap-4 mt-4 pt-3 border-t text-xs text-muted-foreground">
               <span className="flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-green-500" /> Configured</span>
-              <span className="flex items-center gap-1"><AlertCircle className="h-3 w-3 text-amber-400" /> Uses default</span>
-              <span className="flex items-center gap-1"><AlertCircle className="h-3 w-3 text-muted-foreground/40" /> Not set</span>
+              <span className="flex items-center gap-1"><AlertCircle className="h-3 w-3 text-amber-400" /> Not set</span>
             </div>
           )}
         </CardContent>
       </Card>
 
+      {settings && (<>
       {hasChanges && (
         <div className="flex justify-end">
           <Button onClick={handleSave} disabled={isSaving}>
@@ -731,9 +708,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Vehicle Type</span>
                 <Badge variant="outline">
-                  {selectedVehicleTypeId === '__default__' 
-                    ? 'Default' 
-                    : assignedVehicleTypes.find(v => v.id === selectedVehicleTypeId)?.name || 'Unknown'}
+                  {assignedVehicleTypes.find(v => v.id === selectedVehicleTypeId)?.name || '—'}
                 </Badge>
               </div>
               <div className="flex justify-between">
@@ -804,6 +779,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
           </Card>
         </div>
       </div>
+      </>)}
     </div>
   );
 }
