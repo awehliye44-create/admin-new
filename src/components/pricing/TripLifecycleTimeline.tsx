@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import {
   Clock, UserX, Timer, MapPin,
-  AlertTriangle, Banknote, Info
+  AlertTriangle, Banknote, Info, Ban
 } from 'lucide-react';
 
 interface TripLifecycleTimelineProps {
@@ -20,6 +20,10 @@ interface TripLifecycleTimelineProps {
   lateCancelFeePence: number;
   cancellationApplyAfterArrivalOnly: boolean;
   noShowApplyAfterArrivalOnly: boolean;
+  arrivalCancellationEnabled: boolean;
+  arrivalCancellationFeePence: number;
+  arrivalCancellationApplyAfterFreeWaitingExpired: boolean;
+  arrivalCancellationAfterArrivalOnly: boolean;
   recalculateOnWaiting: boolean;
   currencySymbol: string;
   onUpdate: (key: string, value: number | boolean) => void;
@@ -42,6 +46,10 @@ export function TripLifecycleTimeline({
   lateCancelThresholdMinutes,
   lateCancelFeePence,
   noShowApplyAfterArrivalOnly,
+  arrivalCancellationEnabled,
+  arrivalCancellationFeePence,
+  arrivalCancellationApplyAfterFreeWaitingExpired,
+  arrivalCancellationAfterArrivalOnly,
   recalculateOnWaiting,
   currencySymbol,
   onUpdate,
@@ -261,8 +269,55 @@ export function TripLifecycleTimeline({
           })}
         </div>
 
-        {/* Late Passenger Cancellation */}
+        {/* Arrival Cancellation Fee */}
         <div className="mt-6 pt-4 border-t">
+          <div className={`p-4 rounded-lg border ${arrivalCancellationEnabled ? 'bg-rose-500/5 border-rose-500/20' : 'bg-muted/30 border-border'}`}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Ban className={`h-4 w-4 ${arrivalCancellationEnabled ? 'text-rose-600' : 'text-muted-foreground'}`} />
+                <Label className="text-sm font-semibold">Arrival Cancellation Fee</Label>
+                <Badge variant={arrivalCancellationEnabled ? 'default' : 'secondary'} className="text-[10px] px-1.5 py-0">
+                  Customer cancels after driver arrival
+                </Badge>
+              </div>
+              <Switch
+                checked={arrivalCancellationEnabled}
+                onCheckedChange={(v) => onUpdate('arrival_cancellation_enabled', v)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground mb-3">
+              Fee when the customer cancels after the driver has arrived and free pickup waiting has expired — before a no-show is recorded. Not the same as the no-show fee or late passenger cancellation.
+            </p>
+            {arrivalCancellationEnabled && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-end gap-3">
+                  <PenceInput value={arrivalCancellationFeePence} field="arrival_cancellation_fee_pence" label="Fee Amount" />
+                </div>
+                <ToggleRow
+                  checked={arrivalCancellationApplyAfterFreeWaitingExpired}
+                  field="arrival_cancellation_apply_after_free_waiting_expired"
+                  label="Apply After Free Pickup Waiting Expired"
+                  description="Charge only once free pickup waiting time has ended"
+                />
+                <ToggleRow
+                  checked={arrivalCancellationAfterArrivalOnly}
+                  field="arrival_cancellation_after_arrival_only"
+                  label="After Arrival Only"
+                  description="Only apply when driver has arrived at pickup"
+                />
+                <div className="flex items-center gap-2 text-xs">
+                  <AlertTriangle className="h-3.5 w-3.5 text-rose-600 shrink-0" />
+                  <span className="text-muted-foreground">
+                    Does not apply if the trip has started, a no-show was recorded, or late scheduled cancellation already covers the fee.
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Late Passenger Cancellation */}
+        <div className="mt-4 pt-4 border-t">
           <div className={`p-4 rounded-lg border ${lateCancelEnabled ? 'bg-orange-500/5 border-orange-500/20' : 'bg-muted/30 border-border'}`}>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">

@@ -57,6 +57,14 @@ interface CancelledTrip {
   special_instructions: string | null;
   driver_id: string | null;
   service_area_id: string | null;
+  arrived_at: string | null;
+  pickup_waiting_started_at: string | null;
+  cancelled_at: string | null;
+  cancellation_reason: string | null;
+  arrival_cancellation_applied: boolean | null;
+  arrival_cancellation_fee: number | null;
+  arrival_cancellation_applied_at: string | null;
+  arrival_cancellation_reason: string | null;
   driver?: {
     id: string;
     first_name: string;
@@ -120,10 +128,12 @@ export default function MissedCancelled() {
           id, trip_number, trip_code, status, passenger_name, passenger_phone,
           pickup_address, dropoff_address, estimated_fare, fare, currency_code,
           created_at, completed_at, special_instructions, driver_id, service_area_id,
+          arrived_at, pickup_waiting_started_at, cancelled_at, cancellation_reason,
+          arrival_cancellation_applied, arrival_cancellation_fee, arrival_cancellation_applied_at, arrival_cancellation_reason,
           driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, region_id),
           service_area:service_areas!trips_service_area_id_fkey(id, name, region_id, region:regions(currency_code))
         `)
-        .in('status', ['cancelled', 'no_show', 'missed', 'expired'])
+        .in('status', ['cancelled', 'customer_cancelled', 'no_show', 'missed', 'expired'])
         .gte('created_at', start.toISOString())
         .lte('created_at', end.toISOString())
         .order('created_at', { ascending: false });
@@ -508,6 +518,64 @@ export default function MissedCancelled() {
                   <p className="text-sm bg-muted p-2 rounded">
                     {selectedTrip.special_instructions}
                   </p>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">Trip Timeline</Label>
+                <div className="bg-muted/50 rounded-lg p-3 space-y-2 text-sm">
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Created</span>
+                    <span>{format(new Date(selectedTrip.created_at), 'PPp')}</span>
+                  </div>
+                  {selectedTrip.pickup_waiting_started_at && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-muted-foreground">Pickup waiting started</span>
+                      <span>{format(new Date(selectedTrip.pickup_waiting_started_at), 'PPp')}</span>
+                    </div>
+                  )}
+                  {selectedTrip.arrived_at && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-muted-foreground">Driver arrived</span>
+                      <span>{format(new Date(selectedTrip.arrived_at), 'PPp')}</span>
+                    </div>
+                  )}
+                  {selectedTrip.cancelled_at && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-muted-foreground">Cancelled</span>
+                      <span>{format(new Date(selectedTrip.cancelled_at), 'PPp')}</span>
+                    </div>
+                  )}
+                  {selectedTrip.arrival_cancellation_applied && (
+                    <div className="flex justify-between gap-3 text-rose-700 dark:text-rose-400 font-medium">
+                      <span>Arrival cancellation fee applied</span>
+                      <span>
+                        {getCurrencySymbol(resolveTripCurrency(selectedTrip))}
+                        {((selectedTrip.arrival_cancellation_fee ?? 0) / 100).toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                  {selectedTrip.arrival_cancellation_applied_at && (
+                    <div className="flex justify-between gap-3 text-xs text-muted-foreground">
+                      <span>Fee applied at</span>
+                      <span>{format(new Date(selectedTrip.arrival_cancellation_applied_at), 'PPp')}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {selectedTrip.arrival_cancellation_applied && (
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground">Fee Breakdown</Label>
+                  <div className="bg-rose-500/5 border border-rose-500/20 rounded-lg p-3">
+                    <div className="flex justify-between text-sm font-medium">
+                      <span>Arrival Cancellation Fee</span>
+                      <span>
+                        {getCurrencySymbol(resolveTripCurrency(selectedTrip))}
+                        {((selectedTrip.arrival_cancellation_fee ?? 0) / 100).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

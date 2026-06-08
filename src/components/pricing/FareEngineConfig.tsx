@@ -66,6 +66,11 @@ interface FarePricingSettings {
   no_show_wait_time_minutes: number;
   no_show_fee_pence: number;
   no_show_apply_after_arrival_only: boolean;
+  // Arrival Cancellation
+  arrival_cancellation_enabled: boolean;
+  arrival_cancellation_fee_pence: number;
+  arrival_cancellation_apply_after_free_waiting_expired: boolean;
+  arrival_cancellation_after_arrival_only: boolean;
 }
 
 const DEFAULT_SETTINGS: Omit<FarePricingSettings, 'service_area_id'> = {
@@ -98,6 +103,10 @@ const DEFAULT_SETTINGS: Omit<FarePricingSettings, 'service_area_id'> = {
   no_show_wait_time_minutes: 5,
   no_show_fee_pence: 500,
   no_show_apply_after_arrival_only: true,
+  arrival_cancellation_enabled: true,
+  arrival_cancellation_fee_pence: 400,
+  arrival_cancellation_apply_after_free_waiting_expired: true,
+  arrival_cancellation_after_arrival_only: true,
 };
 
 interface VehicleType {
@@ -215,7 +224,18 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
     const { data } = await query.maybeSingle();
 
     if (data) {
-      setSettings(data as unknown as FarePricingSettings);
+      setSettings({
+        ...DEFAULT_SETTINGS,
+        ...(data as unknown as FarePricingSettings),
+        service_area_id: serviceAreaId,
+        vehicle_type_id: vehicleTypeId,
+        arrival_cancellation_enabled: (data as any).arrival_cancellation_enabled ?? true,
+        arrival_cancellation_fee_pence: (data as any).arrival_cancellation_fee_pence ?? 400,
+        arrival_cancellation_apply_after_free_waiting_expired:
+          (data as any).arrival_cancellation_apply_after_free_waiting_expired ?? true,
+        arrival_cancellation_after_arrival_only:
+          (data as any).arrival_cancellation_after_arrival_only ?? true,
+      });
     } else {
       setSettings({
         ...DEFAULT_SETTINGS,
@@ -317,6 +337,10 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
         no_show_wait_time_minutes: settings.no_show_wait_time_minutes,
         no_show_fee_pence: settings.no_show_fee_pence,
         no_show_apply_after_arrival_only: settings.no_show_apply_after_arrival_only,
+        arrival_cancellation_enabled: settings.arrival_cancellation_enabled,
+        arrival_cancellation_fee_pence: settings.arrival_cancellation_fee_pence,
+        arrival_cancellation_apply_after_free_waiting_expired: settings.arrival_cancellation_apply_after_free_waiting_expired,
+        arrival_cancellation_after_arrival_only: settings.arrival_cancellation_after_arrival_only,
       };
 
       if (settings.id) {
@@ -367,6 +391,38 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
             .from('stop_waiting_settings')
             .insert(stopPayload);
         }
+
+        // Keep dispatch_settings in sync — stop-workflow reads both tables every check.
+        const dispatchRadiusPayload = {
+          stop_radius_enabled: stopWaiting.stopRadiusEnabled,
+          stop_radius_meters: stopWaiting.stopRadiusMeters,
+          stop_waiting_charge_interval_seconds: stopWaiting.stopWaitingChargeIntervalSeconds,
+          stop_waiting_grace_period_seconds: stopWaiting.stopWaitingGracePeriodSeconds,
+          stop_waiting_rate_pence_per_minute: stopWaiting.stopWaitingRatePencePerMinute,
+          stop_waiting_max_minutes: stopWaiting.stopWaitingMaxMinutes,
+          updated_at: new Date().toISOString(),
+        };
+        const { data: dispatchExisting } = await supabase
+          .from('dispatch_settings')
+          .select('id')
+          .eq('service_area_id', serviceAreaId)
+          .maybeSingle();
+        if (dispatchExisting?.id) {
+          await supabase
+            .from('dispatch_settings')
+            .update(dispatchRadiusPayload)
+            .eq('service_area_id', serviceAreaId);
+        } else {
+          await supabase
+            .from('dispatch_settings')
+            .insert({ service_area_id: serviceAreaId, ...dispatchRadiusPayload });
+        }
+        console.log('WAITING_RADIUS_CACHE_INVALIDATED', {
+          service_area_id: serviceAreaId,
+          stop_radius_meters: stopWaiting.stopRadiusMeters,
+          source: 'admin_fare_engine_save',
+        });
+
         setStopWaitingHasChanges(false);
       }
 
@@ -589,6 +645,10 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
             lateCancelFeePence={settings.late_cancel_fee_pence}
             cancellationApplyAfterArrivalOnly={settings.cancellation_apply_after_arrival_only}
             noShowApplyAfterArrivalOnly={settings.no_show_apply_after_arrival_only}
+            arrivalCancellationEnabled={settings.arrival_cancellation_enabled}
+            arrivalCancellationFeePence={settings.arrival_cancellation_fee_pence}
+            arrivalCancellationApplyAfterFreeWaitingExpired={settings.arrival_cancellation_apply_after_free_waiting_expired}
+            arrivalCancellationAfterArrivalOnly={settings.arrival_cancellation_after_arrival_only}
             recalculateOnWaiting={settings.recalculate_on_waiting}
             currencySymbol={symbol}
             onUpdate={(key, value) => updateField(key as keyof FarePricingSettings, value as never)}
