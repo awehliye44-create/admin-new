@@ -66,7 +66,10 @@ interface DispatchSettings {
   stackedMaxDetourMinutes: number;
   stackedOfferWindowMinutes: number;
   stackedSameDirectionOnly: boolean;
-
+  allowAirportStacking: boolean;
+  allowScheduledStacking: boolean;
+  allowStackingDuringPickupWaiting: boolean;
+  allowStackingDuringStopWaiting: boolean;
 
   // Scheduled Rides (policy layer)
   scheduledRidesEnabled: boolean;
@@ -114,6 +117,10 @@ const defaultSettings: DispatchSettings = {
   stackedMaxDetourMinutes: 10,
   stackedOfferWindowMinutes: 5,
   stackedSameDirectionOnly: true,
+  allowAirportStacking: false,
+  allowScheduledStacking: false,
+  allowStackingDuringPickupWaiting: false,
+  allowStackingDuringStopWaiting: false,
 
   scheduledRidesEnabled: true,
   minAdvanceTimeMinutes: 15,
@@ -158,6 +165,10 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   stackedMaxDetourMinutes: Number(data.stacked_max_detour_minutes ?? defaultSettings.stackedMaxDetourMinutes),
   stackedOfferWindowMinutes: Number(data.stacked_offer_window_minutes ?? defaultSettings.stackedOfferWindowMinutes),
   stackedSameDirectionOnly: (data.stacked_same_direction_only as boolean) ?? true,
+  allowAirportStacking: Boolean(data.allow_airport_stacking),
+  allowScheduledStacking: Boolean(data.allow_scheduled_stacking),
+  allowStackingDuringPickupWaiting: Boolean(data.allow_stacking_during_pickup_waiting),
+  allowStackingDuringStopWaiting: Boolean(data.allow_stacking_during_stop_waiting),
 
   scheduledRidesEnabled: (data.scheduled_rides_enabled as boolean) ?? defaultSettings.scheduledRidesEnabled,
   minAdvanceTimeMinutes: (data.min_advance_time_minutes as number) ?? defaultSettings.minAdvanceTimeMinutes,
@@ -202,6 +213,10 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
   stacked_max_detour_minutes: settings.stackedMaxDetourMinutes,
   stacked_offer_window_minutes: settings.stackedOfferWindowMinutes,
   stacked_same_direction_only: !!settings.stackedSameDirectionOnly,
+  allow_airport_stacking: !!settings.allowAirportStacking,
+  allow_scheduled_stacking: !!settings.allowScheduledStacking,
+  allow_stacking_during_pickup_waiting: !!settings.allowStackingDuringPickupWaiting,
+  allow_stacking_during_stop_waiting: !!settings.allowStackingDuringStopWaiting,
 
   scheduled_rides_enabled: settings.scheduledRidesEnabled,
   min_advance_time_minutes: settings.minAdvanceTimeMinutes,
@@ -799,6 +814,44 @@ export default function AutoDispatchRules() {
                       onChange={(e) => updateSetting('stackedMaxDetourMinutes', parseInt(e.target.value) || 10)}
                       disabled={isLoading || !settings.stackedRidesEnabled} />
                     <p className="text-xs text-muted-foreground">Maximum detour (active drop → new pickup) at the active trip's speed</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="flex items-center justify-between p-3 border rounded-lg">
+                    <div>
+                      <p className="text-sm font-medium">Allow Airport Stacking</p>
+                      <p className="text-xs text-muted-foreground">Permit stacked offers on airport trips (default off)</p>
+                    </div>
+                    <Switch checked={settings.allowAirportStacking}
+                      onCheckedChange={(checked) => updateSetting('allowAirportStacking', checked)}
+                      disabled={isLoading || !settings.stackedRidesEnabled} />
+                  </div>
+                  <div className="flex items-center justify-between p-3 border rounded-lg">
+                    <div>
+                      <p className="text-sm font-medium">Allow Scheduled Stacking</p>
+                      <p className="text-xs text-muted-foreground">Permit stacked offers on prebook/scheduled trips (default off)</p>
+                    </div>
+                    <Switch checked={settings.allowScheduledStacking}
+                      onCheckedChange={(checked) => updateSetting('allowScheduledStacking', checked)}
+                      disabled={isLoading || !settings.stackedRidesEnabled} />
+                  </div>
+                  <div className="flex items-center justify-between p-3 border rounded-lg">
+                    <div>
+                      <p className="text-sm font-medium">Stack During Pickup Waiting</p>
+                      <p className="text-xs text-muted-foreground">Offer stacked rides while driver waits at pickup (default off)</p>
+                    </div>
+                    <Switch checked={settings.allowStackingDuringPickupWaiting}
+                      onCheckedChange={(checked) => updateSetting('allowStackingDuringPickupWaiting', checked)}
+                      disabled={isLoading || !settings.stackedRidesEnabled} />
+                  </div>
+                  <div className="flex items-center justify-between p-3 border rounded-lg">
+                    <div>
+                      <p className="text-sm font-medium">Stack During Stop Waiting</p>
+                      <p className="text-xs text-muted-foreground">Offer stacked rides during multi-stop paid waiting (default off)</p>
+                    </div>
+                    <Switch checked={settings.allowStackingDuringStopWaiting}
+                      onCheckedChange={(checked) => updateSetting('allowStackingDuringStopWaiting', checked)}
+                      disabled={isLoading || !settings.stackedRidesEnabled} />
                   </div>
                 </div>
               </TabsContent>
