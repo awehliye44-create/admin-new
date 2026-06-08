@@ -464,6 +464,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
         </CardContent>
       </Card>
 
+      {settings && (<>
       {hasChanges && (
         <div className="flex justify-end">
           <Button onClick={handleSave} disabled={isSaving}>
