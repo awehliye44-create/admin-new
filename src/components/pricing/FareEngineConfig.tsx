@@ -189,14 +189,13 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
     const ids = new Set<string>();
     (configs || []).forEach((c: any) => {
       if (c.vehicle_type_id) ids.add(c.vehicle_type_id);
-      else ids.add('__default__');
     });
     setConfiguredVtIds(ids);
   };
 
   const fetchSettings = async () => {
     setIsLoading(true);
-    const vehicleTypeId = selectedVehicleTypeId === '__default__' ? null : selectedVehicleTypeId;
+    const vehicleTypeId = selectedVehicleTypeId || null;
 
     let query = supabase
       .from('fare_pricing_settings')
