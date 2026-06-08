@@ -903,27 +903,27 @@ export default function AutoDispatchRules() {
                       onChange={(e) => updateSetting('scheduledResponseWindowMinutes', Math.max(1, Math.min(60, parseInt(e.target.value) || 10)))}
                       disabled={isLoading || !settings.scheduledRidesEnabled || !settings.enableScheduledToUrgentConversion}
                     />
-                    <p className="text-xs text-muted-foreground">If no driver accepts within this window, convert to urgent. Default: 10</p>
+                    <p className="text-xs text-muted-foreground">Unaccepted rides: convert to urgent if no driver accepts within this window after broadcast. Default: 10</p>
                   </div>
                   <div className="space-y-2">
-                    <Label>Urgent Dispatch Trigger Before Pickup (minutes)</Label>
+                    <Label>Urgent Trigger Before Pickup (minutes)</Label>
                     <Input
                       type="number" min="1" max="30"
                       value={settings.urgentDispatchTriggerMinutesBeforePickup}
                       onChange={(e) => updateSetting('urgentDispatchTriggerMinutesBeforePickup', Math.max(1, Math.min(30, parseInt(e.target.value) || 5)))}
                       disabled={isLoading || !settings.scheduledRidesEnabled || !settings.enableScheduledToUrgentConversion}
                     />
-                    <p className="text-xs text-muted-foreground">Convert to urgent when current time reaches pickup_time minus this value. Default: 5</p>
+                    <p className="text-xs text-muted-foreground">Accepted rides: send activation card at pickup minus this value. Unaccepted rides: convert to urgent at the same cutoff. Default: 5</p>
                   </div>
                   <div className="space-y-2">
-                    <Label>Locked Driver Response Time (minutes)</Label>
+                    <Label>Confirmed Driver Response Time (minutes)</Label>
                     <Input
                       type="number" min="1" max="15"
                       value={settings.lockedDriverResponseMinutes}
                       onChange={(e) => updateSetting('lockedDriverResponseMinutes', Math.max(1, Math.min(15, parseInt(e.target.value) || 3)))}
                       disabled={isLoading || !settings.scheduledRidesEnabled}
                     />
-                    <p className="text-xs text-muted-foreground">Time the locked (accepted) driver has to confirm before reassignment. Default: 3</p>
+                    <p className="text-xs text-muted-foreground">After activation, the confirmed driver must accept the urgent card within this time before fallback dispatch. Default: 3</p>
                   </div>
                   <div className="space-y-2">
                     <Label>Scheduled Urgent Card Label</Label>
@@ -941,7 +941,7 @@ export default function AutoDispatchRules() {
                   <Info className="h-4 w-4 text-amber-600 mt-0.5" />
                   <div className="text-sm text-amber-700 dark:text-amber-400 space-y-1">
                     <p className="font-medium">Scheduled → Urgent Workflow</p>
-                    <p>Before acceptance: job stays in the Scheduled Jobs banner. Conversion triggers (whichever first): response window expires OR pickup time minus trigger minutes is reached. After conversion: normal ride alert with per-wave broadcasting. After acceptance: driver becomes locked, broadcast stops.</p>
+                    <p>Before acceptance: job stays in the Scheduled Jobs banner. After a driver accepts (confirmed_driver_id set), activation fires at pickup minus trigger minutes — single urgent card to that driver only, no broadcast. If they miss the response window, fallback dispatch starts. Unaccepted rides convert to urgent when the response window expires OR pickup minus trigger minutes is reached (whichever first).</p>
                   </div>
                 </div>
               </TabsContent>
