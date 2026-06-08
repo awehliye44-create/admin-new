@@ -206,10 +206,20 @@ export default function TripHistory() {
   const [mapTileError, setMapTileError] = useState<string | null>(null);
   const { isReady: mapboxReady, error: mapboxError } = useMapboxToken();
   const mapInitError = mapboxError ?? mapTileError;
-  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const [mapContainerEl, setMapContainerEl] = useState<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
   const routeSourceIdRef = useRef<string>('trip-history-route');
+  const tripStopsRef = useRef(tripStops);
+  const selectedTripRef = useRef(selectedTrip);
+
+  useEffect(() => {
+    tripStopsRef.current = tripStops;
+  }, [tripStops]);
+
+  useEffect(() => {
+    selectedTripRef.current = selectedTrip;
+  }, [selectedTrip]);
 
   const queryClient = useQueryClient();
 
@@ -422,9 +432,98 @@ export default function TripHistory() {
     }
   };
 
-  // Initialize route map when trip detail dialog opens (after layout + token ready)
+  const drawTripRouteOnMap = useCallback((map: mapboxgl.Map) => {
+    const trip = selectedTripRef.current;
+    const stops = tripStopsRef.current;
+    if (!trip) return;
+
+    markersRef.current.forEach((m) => m.remove());
+    markersRef.current = [];
+
+    const bounds = new mapboxgl.LngLatBounds();
+    const path: [number, number][] = [];
+
+    const addCircleMarker = (lng: number, lat: number, color: string, title: string, label?: string) => {
+      const el = document.createElement('div');
+      el.style.width = '20px'; el.style.height = '20px'; el.style.borderRadius = '50%';
+      el.style.background = color; el.style.border = '2px solid #ffffff';
+      el.style.boxShadow = '0 1px 4px rgba(0,0,0,0.4)';
+      el.style.display = 'flex'; el.style.alignItems = 'center'; el.style.justifyContent = 'center';
+      el.style.color = '#fff'; el.style.fontSize = '11px'; el.style.fontWeight = 'bold';
+      if (label) el.textContent = label;
+      el.title = title;
+      const marker = new mapboxgl.Marker({ element: el }).setLngLat([lng, lat]).addTo(map);
+      markersRef.current.push(marker);
+    };
+
+    if (trip.pickup_latitude && trip.pickup_longitude) {
+      addCircleMarker(trip.pickup_longitude, trip.pickup_latitude, '#22c55e', 'Pickup');
+      path.push([trip.pickup_longitude, trip.pickup_latitude]);
+      bounds.extend([trip.pickup_longitude, trip.pickup_latitude]);
+    }
+
+    stops
+      .filter((s) => s.type !== 'pickup' && s.type !== 'dropoff' && s.lat && s.lng)
+      .forEach((stop, idx) => {
+        addCircleMarker(stop.lng!, stop.lat!, '#3b82f6', `Stop ${idx + 1}`, String(idx + 1));
+        path.push([stop.lng!, stop.lat!]);
+        bounds.extend([stop.lng!, stop.lat!]);
+      });
+
+    if (trip.dropoff_latitude && trip.dropoff_longitude) {
+      addCircleMarker(trip.dropoff_longitude, trip.dropoff_latitude, '#ef4444', 'Dropoff');
+      path.push([trip.dropoff_longitude, trip.dropoff_latitude]);
+      bounds.extend([trip.dropoff_longitude, trip.dropoff_latitude]);
+    }
+
+    if (trip.driver_location_lat && trip.driver_location_lng) {
+      const dLat = trip.driver_location_lat;
+      const dLng = trip.driver_location_lng;
+      const dropL = trip.dropoff_latitude;
+      const dropG = trip.dropoff_longitude;
+      let show = true;
+      if (dropL && dropG) {
+        const dist = haversineDistance(dLat, dLng, dropL, dropG);
+        if (dist < 0.1) show = false;
+      }
+      if (show) {
+        addCircleMarker(dLng, dLat, '#f59e0b', 'Driver Completion Location');
+        bounds.extend([dLng, dLat]);
+      }
+    }
+
+    const srcId = routeSourceIdRef.current;
+    const layerId = `${srcId}-layer`;
+    const lineData: GeoJSON.Feature<GeoJSON.LineString> = {
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'LineString', coordinates: path },
+    };
+    const existing = map.getSource(srcId) as mapboxgl.GeoJSONSource | undefined;
+    if (existing) {
+      existing.setData(
+        path.length >= 2
+          ? lineData
+          : ({ type: 'FeatureCollection', features: [] } as unknown as GeoJSON.Feature<GeoJSON.LineString>),
+      );
+    } else if (path.length >= 2) {
+      map.addSource(srcId, { type: 'geojson', data: lineData });
+      map.addLayer({
+        id: layerId,
+        type: 'line',
+        source: srcId,
+        paint: { 'line-color': '#6366f1', 'line-width': 4, 'line-opacity': 0.8 },
+      });
+    }
+
+    if (path.length > 0 && !bounds.isEmpty()) {
+      map.fitBounds(bounds, { padding: 50, animate: false });
+    }
+  }, []);
+
+  // Initialize route map when dialog container mounts (Radix Dialog mounts after isViewOpen)
   useEffect(() => {
-    if (!mapboxReady || !isViewOpen || !selectedTrip || !mapContainerRef.current) return;
+    if (!mapboxReady || !isViewOpen || !selectedTrip || !mapContainerEl) return;
 
     let cancelled = false;
     let detachResize: (() => void) | undefined;
@@ -433,13 +532,13 @@ export default function TripHistory() {
     setIsMapLoaded(false);
 
     const initTimer = window.setTimeout(() => {
-      if (cancelled || !mapContainerRef.current) return;
+      if (cancelled || !mapContainerEl) return;
 
       void (async () => {
         try {
           const center = getTripMapCenter(selectedTrip);
           const { map, detachResize: detach } = await createMapboxMap({
-            container: mapContainerRef.current!,
+            container: mapContainerEl,
             center,
             zoom: 13,
             onLoad: (m) => {
@@ -448,8 +547,22 @@ export default function TripHistory() {
                 scheduleDialogMapResize(m);
               }
             },
+            onIdle: (m) => {
+              if (!cancelled) drawTripRouteOnMap(m);
+            },
             onTileError: (msg) => {
-              if (!cancelled) setMapTileError(msg);
+              if (!cancelled) {
+                setMapTileError(msg);
+                setIsMapLoaded(true);
+              }
+            },
+            onLoadTimeout: () => {
+              if (!cancelled) {
+                setMapTileError(
+                  'Map tiles did not load in time. Confirm VITE_MAPBOX_WEB_TOKEN in Lovable and allow adminonecab.net on the Mapbox token.',
+                );
+                setIsMapLoaded(true);
+              }
             },
           });
           if (cancelled) {
@@ -466,6 +579,7 @@ export default function TripHistory() {
           const msg = err instanceof Error ? err.message : 'Failed to initialize map';
           console.error('[TripHistory] route map', msg);
           setMapTileError(msg);
+          setIsMapLoaded(true);
         }
       })();
     }, 150);
@@ -480,96 +594,15 @@ export default function TripHistory() {
       mapRef.current = null;
       setIsMapLoaded(false);
     };
-  }, [mapboxReady, isViewOpen, selectedTrip?.id]);
+  }, [mapboxReady, isViewOpen, selectedTrip?.id, mapContainerEl, drawTripRouteOnMap]);
 
-  // Update markers when trip or stops change
+  // Redraw markers/route when trip stops arrive after map is ready
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !selectedTrip) return;
-
-    const addRouteWhenReady = () => {
-      // Clear existing markers
-      markersRef.current.forEach((m) => m.remove());
-      markersRef.current = [];
-
-      const bounds = new mapboxgl.LngLatBounds();
-      const path: [number, number][] = [];
-
-      const addCircleMarker = (lng: number, lat: number, color: string, title: string, label?: string) => {
-        const el = document.createElement('div');
-        el.style.width = '20px'; el.style.height = '20px'; el.style.borderRadius = '50%';
-        el.style.background = color; el.style.border = '2px solid #ffffff';
-        el.style.boxShadow = '0 1px 4px rgba(0,0,0,0.4)';
-        el.style.display = 'flex'; el.style.alignItems = 'center'; el.style.justifyContent = 'center';
-        el.style.color = '#fff'; el.style.fontSize = '11px'; el.style.fontWeight = 'bold';
-        if (label) el.textContent = label;
-        el.title = title;
-        const marker = new mapboxgl.Marker({ element: el }).setLngLat([lng, lat]).addTo(map);
-        markersRef.current.push(marker);
-      };
-
-      if (selectedTrip.pickup_latitude && selectedTrip.pickup_longitude) {
-        addCircleMarker(selectedTrip.pickup_longitude, selectedTrip.pickup_latitude, '#22c55e', 'Pickup');
-        path.push([selectedTrip.pickup_longitude, selectedTrip.pickup_latitude]);
-        bounds.extend([selectedTrip.pickup_longitude, selectedTrip.pickup_latitude]);
-      }
-
-      tripStops
-        .filter((s) => s.type !== 'pickup' && s.type !== 'dropoff' && s.lat && s.lng)
-        .forEach((stop, idx) => {
-          addCircleMarker(stop.lng!, stop.lat!, '#3b82f6', `Stop ${idx + 1}`, String(idx + 1));
-          path.push([stop.lng!, stop.lat!]);
-          bounds.extend([stop.lng!, stop.lat!]);
-        });
-
-      if (selectedTrip.dropoff_latitude && selectedTrip.dropoff_longitude) {
-        addCircleMarker(selectedTrip.dropoff_longitude, selectedTrip.dropoff_latitude, '#ef4444', 'Dropoff');
-        path.push([selectedTrip.dropoff_longitude, selectedTrip.dropoff_latitude]);
-        bounds.extend([selectedTrip.dropoff_longitude, selectedTrip.dropoff_latitude]);
-      }
-
-      if (selectedTrip.driver_location_lat && selectedTrip.driver_location_lng) {
-        const dLat = selectedTrip.driver_location_lat, dLng = selectedTrip.driver_location_lng;
-        const dropL = selectedTrip.dropoff_latitude, dropG = selectedTrip.dropoff_longitude;
-        let show = true;
-        if (dropL && dropG) {
-          const dist = haversineDistance(dLat, dLng, dropL, dropG);
-          if (dist < 0.1) show = false;
-        }
-        if (show) {
-          addCircleMarker(dLng, dLat, '#f59e0b', 'Driver Completion Location');
-          bounds.extend([dLng, dLat]);
-        }
-      }
-
-      // Draw route polyline as a line layer
-      const srcId = routeSourceIdRef.current;
-      const layerId = `${srcId}-layer`;
-      const lineData: GeoJSON.Feature<GeoJSON.LineString> = {
-        type: 'Feature', properties: {},
-        geometry: { type: 'LineString', coordinates: path },
-      };
-      const existing = map.getSource(srcId) as mapboxgl.GeoJSONSource | undefined;
-      if (existing) {
-        existing.setData(path.length >= 2
-          ? lineData
-          : { type: 'FeatureCollection', features: [] } as unknown as GeoJSON.Feature<GeoJSON.LineString>);
-      } else if (path.length >= 2) {
-        map.addSource(srcId, { type: 'geojson', data: lineData });
-        map.addLayer({
-          id: layerId, type: 'line', source: srcId,
-          paint: { 'line-color': '#6366f1', 'line-width': 4, 'line-opacity': 0.8 },
-        });
-      }
-
-      if (path.length > 0 && !bounds.isEmpty()) {
-        map.fitBounds(bounds, { padding: 50, animate: false });
-      }
-    };
-
-    if (map.isStyleLoaded()) addRouteWhenReady();
-    else map.once('load', addRouteWhenReady);
-  }, [selectedTrip, tripStops]);
+    if (!map || !isMapLoaded || !selectedTrip) return;
+    if (map.isStyleLoaded()) drawTripRouteOnMap(map);
+    else map.once('load', () => drawTripRouteOnMap(map));
+  }, [selectedTrip, tripStops, isMapLoaded, drawTripRouteOnMap]);
 
   const formatDuration = (minutes: number | null) => {
     if (!minutes) return 'N/A';
@@ -1690,7 +1723,7 @@ export default function TripHistory() {
                     className="relative w-full min-h-[300px] h-[400px] rounded-lg border border-border overflow-hidden bg-muted"
                     data-testid="trip-history-route-map"
                   >
-                    <div ref={mapContainerRef} className="absolute inset-0" />
+                    <div ref={setMapContainerEl} className="absolute inset-0" />
                     {isViewOpen && !mapboxReady && !mapInitError && (
                       <div className="absolute inset-0 z-10 flex items-center justify-center bg-muted/80 text-muted-foreground">
                         <Loader2 className="mr-2 h-5 w-5 animate-spin" />

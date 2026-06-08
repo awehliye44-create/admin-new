@@ -1,12 +1,50 @@
 import { mapboxgl, MAPBOX_STYLE, resolveMapboxToken } from '@/lib/mapbox';
 
+const TILE_403_MESSAGE =
+  'Mapbox tile access denied (403). Add VITE_MAPBOX_WEB_TOKEN in Lovable (or MAPBOX_WEB_TOKEN on Supabase) and allow this admin URL in the Mapbox token URL restrictions.';
+
+const DEFAULT_LOAD_TIMEOUT_MS = 15_000;
+
 export interface CreateMapboxMapOptions {
   container: HTMLElement;
   style?: string;
   center?: [number, number];
   zoom?: number;
+  loadTimeoutMs?: number;
   onLoad?: (map: mapboxgl.Map) => void;
+  onIdle?: (map: mapboxgl.Map) => void;
   onTileError?: (message: string) => void;
+  onLoadTimeout?: () => void;
+}
+
+/** Probe style + vector tile access before/at map init (403 often has no GL error.message). */
+export async function probeMapboxTileAccess(token: string): Promise<string | null> {
+  if (!token.startsWith('pk.')) {
+    return 'Mapbox web token missing or invalid (expected pk.*).';
+  }
+
+  const styleUrl = `https://api.mapbox.com/styles/v1/mapbox/streets-v12?access_token=${encodeURIComponent(token)}`;
+  const tileUrl = `https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/0/0/0.vector.pbf?access_token=${encodeURIComponent(token)}`;
+
+  try {
+    const [styleRes, tileRes] = await Promise.all([
+      fetch(styleUrl),
+      fetch(tileUrl),
+    ]);
+    if (styleRes.status === 403 || tileRes.status === 403) {
+      return TILE_403_MESSAGE;
+    }
+    if (!styleRes.ok) {
+      return `Mapbox style request failed (HTTP ${styleRes.status}). Check VITE_MAPBOX_WEB_TOKEN and URL restrictions on adminonecab.net.`;
+    }
+    if (!tileRes.ok) {
+      return `Mapbox tile request failed (HTTP ${tileRes.status}). Check VITE_MAPBOX_WEB_TOKEN and URL restrictions on adminonecab.net.`;
+    }
+  } catch {
+    /* Network flake — let GL try; timeout/error handlers will surface persistent failures. */
+  }
+
+  return null;
 }
 
 /**
@@ -24,6 +62,11 @@ export async function createMapboxMap(options: CreateMapboxMapOptions): Promise<
     );
   }
 
+  const probeError = await probeMapboxTileAccess(token);
+  if (probeError) {
+    options.onTileError?.(probeError);
+  }
+
   mapboxgl.accessToken = token;
 
   const map = new mapboxgl.Map({
@@ -33,6 +76,19 @@ export async function createMapboxMap(options: CreateMapboxMapOptions): Promise<
     zoom: options.zoom ?? 13,
   });
 
+  let loadSettled = false;
+  const settleLoad = () => {
+    if (loadSettled) return;
+    loadSettled = true;
+    window.clearTimeout(loadTimeoutId);
+  };
+
+  const loadTimeoutId = window.setTimeout(() => {
+    if (loadSettled) return;
+    loadSettled = true;
+    options.onLoadTimeout?.();
+  }, options.loadTimeoutMs ?? DEFAULT_LOAD_TIMEOUT_MS);
+
   const onWindowResize = () => {
     try {
       map.resize();
@@ -41,30 +97,31 @@ export async function createMapboxMap(options: CreateMapboxMapOptions): Promise<
     }
   };
 
-  map.on('load', () => {
-    map.resize();
-    options.onLoad?.(map);
-    // Detect silent vector-tile 403 (gray map + logo) when GL does not emit error.message
-    const probeToken = mapboxgl.accessToken || '';
-    if (probeToken.startsWith('pk.')) {
-      void fetch(
-        `https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/0/0/0.vector.pbf?access_token=${encodeURIComponent(probeToken)}`,
-      )
-        .then((res) => {
-          if (res.status === 403) {
-            options.onTileError?.(
-              'Mapbox tile access denied (403). Use a URL-restricted web token (VITE_MAPBOX_WEB_TOKEN), not the native app token.',
-            );
+  const resizeObserver =
+    typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(() => {
+          try {
+            map.resize();
+          } catch {
+            /* map may be removed */
           }
         })
-        .catch(() => undefined);
-    }
+      : null;
+  resizeObserver?.observe(options.container);
+
+  map.on('load', () => {
+    settleLoad();
+    map.resize();
+    options.onLoad?.(map);
+  });
+
+  map.once('idle', () => {
+    options.onIdle?.(map);
   });
 
   map.on('error', (e) => {
     const msg = e.error?.message;
     if (!msg) {
-      // Source-only events (e.g. composite) are often non-fatal; ignore without an Error message.
       return;
     }
     const lower = msg.toLowerCase();
@@ -78,9 +135,8 @@ export async function createMapboxMap(options: CreateMapboxMapOptions): Promise<
       lower.includes('load failed');
     if (isAuthOrTileFailure) {
       console.error('[mapbox] tile/style error:', msg);
-      const userMsg = lower.includes('403') || lower.includes('forbidden')
-        ? 'Mapbox tile access denied (403). Use a URL-restricted web token (VITE_MAPBOX_WEB_TOKEN), not the native app token.'
-        : msg;
+      const userMsg =
+        lower.includes('403') || lower.includes('forbidden') ? TILE_403_MESSAGE : msg;
       options.onTileError?.(userMsg);
     } else {
       console.warn('[mapbox] map warning:', msg);
@@ -91,6 +147,10 @@ export async function createMapboxMap(options: CreateMapboxMapOptions): Promise<
 
   return {
     map,
-    detachResize: () => window.removeEventListener('resize', onWindowResize),
+    detachResize: () => {
+      window.clearTimeout(loadTimeoutId);
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', onWindowResize);
+    },
   };
 }
