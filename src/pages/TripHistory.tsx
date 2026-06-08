@@ -46,7 +46,30 @@ import { getCurrencySymbol, formatDistance as formatDistanceUtil, getDistanceUni
 import { PaymentControlsCard } from '@/components/payment/PaymentControlsCard';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
-import { mapboxgl, MAPBOX_STYLE } from '@/lib/mapbox';
+import { useMapboxToken } from '@/hooks/useMapboxToken';
+import { mapboxgl } from '@/lib/mapbox';
+import { createMapboxMap } from '@/lib/mapboxMap';
+
+function getTripMapCenter(trip: CompletedTrip): [number, number] {
+  const lng = trip.pickup_longitude ?? trip.dropoff_longitude ?? -0.7594;
+  const lat = trip.pickup_latitude ?? trip.dropoff_latitude ?? 52.0406;
+  return [lng, lat];
+}
+
+function scheduleDialogMapResize(map: mapboxgl.Map): void {
+  const doResize = () => {
+    try {
+      map.resize();
+    } catch {
+      /* map may be removed */
+    }
+  };
+  requestAnimationFrame(() => {
+    doResize();
+    window.setTimeout(doResize, 100);
+    window.setTimeout(doResize, 350);
+  });
+}
 
 interface TripStop {
   id: string;
@@ -179,6 +202,10 @@ export default function TripHistory() {
   const [selectedServiceArea, setSelectedServiceArea] = useState<ServiceArea | null>(null);
 
   // Map state
+  const [isMapLoaded, setIsMapLoaded] = useState(false);
+  const [mapTileError, setMapTileError] = useState<string | null>(null);
+  const { isReady: mapboxReady, error: mapboxError } = useMapboxToken();
+  const mapInitError = mapboxError ?? mapTileError;
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
@@ -395,34 +422,65 @@ export default function TripHistory() {
     }
   };
 
-  // Initialize map when dialog opens with a trip
+  // Initialize route map when trip detail dialog opens (after layout + token ready)
   useEffect(() => {
-    if (!isViewOpen || !selectedTrip || !mapContainerRef.current) return;
+    if (!mapboxReady || !isViewOpen || !selectedTrip || !mapContainerRef.current) return;
 
-    const initTimer = setTimeout(() => {
-      if (!mapContainerRef.current) return;
-      const center: [number, number] = [
-        selectedTrip.dropoff_longitude || selectedTrip.pickup_longitude || -0.1278,
-        selectedTrip.pickup_latitude || 51.5074,
-      ];
-      const map = new mapboxgl.Map({
-        container: mapContainerRef.current,
-        style: MAPBOX_STYLE,
-        center,
-        zoom: 13,
-      });
-      map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
-      mapRef.current = map;
-    }, 100);
+    let cancelled = false;
+    let detachResize: (() => void) | undefined;
+
+    setMapTileError(null);
+    setIsMapLoaded(false);
+
+    const initTimer = window.setTimeout(() => {
+      if (cancelled || !mapContainerRef.current) return;
+
+      void (async () => {
+        try {
+          const center = getTripMapCenter(selectedTrip);
+          const { map, detachResize: detach } = await createMapboxMap({
+            container: mapContainerRef.current!,
+            center,
+            zoom: 13,
+            onLoad: (m) => {
+              if (!cancelled) {
+                setIsMapLoaded(true);
+                scheduleDialogMapResize(m);
+              }
+            },
+            onTileError: (msg) => {
+              if (!cancelled) setMapTileError(msg);
+            },
+          });
+          if (cancelled) {
+            map.remove();
+            detach();
+            return;
+          }
+          detachResize = detach;
+          map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
+          mapRef.current = map;
+          scheduleDialogMapResize(map);
+        } catch (err) {
+          if (cancelled) return;
+          const msg = err instanceof Error ? err.message : 'Failed to initialize map';
+          console.error('[TripHistory] route map', msg);
+          setMapTileError(msg);
+        }
+      })();
+    }, 150);
 
     return () => {
-      clearTimeout(initTimer);
+      cancelled = true;
+      window.clearTimeout(initTimer);
+      detachResize?.();
       markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
       mapRef.current?.remove();
       mapRef.current = null;
+      setIsMapLoaded(false);
     };
-  }, [isViewOpen, selectedTrip]);
+  }, [mapboxReady, isViewOpen, selectedTrip?.id]);
 
   // Update markers when trip or stops change
   useEffect(() => {
@@ -1619,11 +1677,33 @@ export default function TripHistory() {
                     <MapPin className="h-4 w-4" />
                     Route Map
                   </h4>
+                  {mapInitError && (
+                    <div
+                      role="alert"
+                      className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                    >
+                      Map unavailable: {mapInitError}. Set VITE_MAPBOX_WEB_TOKEN in .env.local (restart dev server) or
+                      MAPBOX_WEB_TOKEN on Supabase for Lovable/production.
+                    </div>
+                  )}
                   <div
-                    ref={mapContainerRef}
-                    className="h-[400px] lg:h-full min-h-[400px] rounded-lg border bg-muted"
-                  />
-
+                    className="relative w-full min-h-[300px] h-[400px] rounded-lg border border-border overflow-hidden bg-muted"
+                    data-testid="trip-history-route-map"
+                  >
+                    <div ref={mapContainerRef} className="absolute inset-0" />
+                    {isViewOpen && !mapboxReady && !mapInitError && (
+                      <div className="absolute inset-0 z-10 flex items-center justify-center bg-muted/80 text-muted-foreground">
+                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                        Loading map token…
+                      </div>
+                    )}
+                    {isViewOpen && mapboxReady && !isMapLoaded && !mapInitError && (
+                      <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-muted/50 text-muted-foreground">
+                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                        Loading map tiles…
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
