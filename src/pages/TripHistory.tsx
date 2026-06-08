@@ -79,11 +79,16 @@ interface Region {
   distance_unit: string;
 }
 
+/** Terminal trips shown in history — aligned with useLedgerRevenue / admin-payments-summary. */
+const HISTORY_FINANCIAL_OUTCOMES = ['COMPLETED', 'NO_SHOW'] as const;
+const HISTORY_STATUSES = ['completed', 'no_show'] as const;
+
 interface CompletedTrip {
   id: string;
   trip_code: string | null;
   trip_number: string | null;
   status: string | null;
+  financial_outcome: string | null;
   passenger_name: string | null;
   passenger_phone: string | null;
   pickup_address: string;
@@ -128,6 +133,8 @@ interface CompletedTrip {
   total_waiting_charge_pence: number | null;
   waiting_minutes: number | null;
   fare_breakdown: Record<string, unknown> | null;
+  tip_pence: number | null;
+  tip_amount_pence: number | null;
   driver?: {
     id: string;
     first_name: string;
@@ -138,6 +145,7 @@ interface CompletedTrip {
   } | null;
   /** Joined from service_areas → regions for currency resolution */
   service_area_join?: {
+    region_id?: string | null;
     region?: {
       currency_code: string;
       distance_unit: string;
@@ -150,6 +158,7 @@ interface CompletedTrip {
   payment_authorized_pence?: number | null;
   payment_commission_pence?: number | null;
   payment_commission_pct?: number | null;
+  payment_tip_pence?: number | null;
 }
 
 export default function TripHistory() {
@@ -212,14 +221,14 @@ export default function TripHistory() {
 
   // React Query for trip data
   const { data: trips = [], isLoading } = useQuery({
-    queryKey: ['trip-history', dateFilter],
+    queryKey: ['trip-history', dateFilter, selectedRegionId, selectedServiceAreaId],
     queryFn: async () => {
       const { start, end } = getDateRange();
       
       const { data: tripsData, error: tripsError } = await supabase
         .from('trips')
         .select(`
-          id, trip_code, trip_number, status, passenger_name, passenger_phone,
+          id, trip_code, trip_number, status, financial_outcome, passenger_name, passenger_phone,
           pickup_address, pickup_latitude, pickup_longitude, dropoff_address, dropoff_latitude, dropoff_longitude,
           estimated_fare, fare, gross_fare_pence, commission_pence, driver_net_pence, final_fare_pence,
           stripe_processing_fee_pence, onecab_net_pence,
@@ -228,12 +237,15 @@ export default function TripHistory() {
           driver_location_lat, driver_location_lng, stripe_payment_intent_id, stacked_trip_id,
           pricing_mode, fare_locked, vehicle_type_id, vehicle_type, service_area_id, fare_engine_config_id,
           waiting_charge_pence, pickup_waiting_charge_pence, total_waiting_charge_pence, waiting_minutes, fare_breakdown,
+          tip_pence, tip_amount_pence,
           driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, driver_code, region_id),
-          service_area_join:service_areas!trips_service_area_id_fkey(region:regions(currency_code, distance_unit))
+          service_area_join:service_areas!trips_service_area_id_fkey(region_id, region:regions(currency_code, distance_unit))
         `)
-        .eq('status', 'completed')
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString())
+        // Match useLedgerRevenue: financially terminal by outcome OR legacy status snapshot.
+        .or(`financial_outcome.in.(${HISTORY_FINANCIAL_OUTCOMES.join(',')}),status.in.(${HISTORY_STATUSES.join(',')})`)
+        .not('completed_at', 'is', null)
+        .gte('completed_at', start.toISOString())
+        .lte('completed_at', end.toISOString())
         .order('completed_at', { ascending: false });
 
       if (tripsError) throw tripsError;
@@ -263,22 +275,26 @@ export default function TripHistory() {
         authorized: number | null;
         commission: number | null;
         commission_pct: number | null;
+        tip: number | null;
       }> = {};
       if (tripIds.length > 0) {
         const { data: paymentsData } = await supabase
           .from('payments')
-          .select('trip_id, amount_pence, captured_amount_pence, commission_amount_pence, commission_pct, status, updated_at')
+          .select('trip_id, amount_pence, captured_amount_pence, commission_amount_pence, commission_pct, status, updated_at, metadata')
           .in('trip_id', tripIds)
           .order('updated_at', { ascending: false });
         if (paymentsData) {
           for (const p of paymentsData as any[]) {
             // Keep latest (first due to desc order) per trip
             if (paymentsMap[p.trip_id]) continue;
+            const meta = p.metadata as Record<string, unknown> | null;
+            const tipFromMeta = meta?.tip_pence != null ? Number(meta.tip_pence) : null;
             paymentsMap[p.trip_id] = {
               captured: p.captured_amount_pence ?? null,
               authorized: p.amount_pence ?? null,
               commission: p.commission_amount_pence ?? null,
               commission_pct: p.commission_pct ?? null,
+              tip: Number.isFinite(tipFromMeta) && tipFromMeta! > 0 ? tipFromMeta : null,
             };
           }
         }
@@ -293,6 +309,7 @@ export default function TripHistory() {
           payment_authorized_pence: pay?.authorized ?? null,
           payment_commission_pence: pay?.commission ?? null,
           payment_commission_pct: pay?.commission_pct ?? null,
+          payment_tip_pence: pay?.tip ?? null,
         };
       }) as CompletedTrip[];
     },
@@ -632,15 +649,21 @@ export default function TripHistory() {
       trip.driver?.first_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       trip.driver?.last_name?.toLowerCase().includes(searchQuery.toLowerCase());
     
-    // Region filter
+    // Region filter — trip service area (SSOT) with driver region fallback
     if (selectedRegionId !== 'all') {
-      if (!trip.driver?.region_id || trip.driver.region_id !== selectedRegionId) {
+      const tripRegionId =
+        trip.service_area_join?.region_id
+        ?? serviceAreas.find(sa => sa.id === trip.service_area_id)?.region_id
+        ?? trip.driver?.region_id
+        ?? null;
+      if (tripRegionId !== selectedRegionId) {
         return false;
       }
     }
 
-    // Service area filter (check driver's service area assignments if needed)
-    // For now, we filter by region only since trips don't store service_area_id directly
+    if (selectedServiceAreaId !== 'all' && trip.service_area_id !== selectedServiceAreaId) {
+      return false;
+    }
     
     return matchesSearch;
   });
@@ -683,6 +706,16 @@ export default function TripHistory() {
     return Math.max(0, fare - commission);
   };
 
+  /** Tip in pence — trip fields first, then payments.metadata.tip_pence, then fare_breakdown. */
+  const getEffectiveTipPence = (trip: CompletedTrip): number => {
+    if (trip.tip_pence != null && trip.tip_pence > 0) return trip.tip_pence;
+    if (trip.tip_amount_pence != null && trip.tip_amount_pence > 0) return trip.tip_amount_pence;
+    if (trip.payment_tip_pence != null && trip.payment_tip_pence > 0) return trip.payment_tip_pence;
+    const fb = trip.fare_breakdown as Record<string, number> | null;
+    if (fb?.tip_pence != null && fb.tip_pence > 0) return fb.tip_pence;
+    return 0;
+  };
+
   // Consistency check — flags card trips where Final Fare differs from Stripe captured amount.
   // Returns null when there is no mismatch (or when settlement data is unavailable).
   const getFareCapturedMismatch = (trip: CompletedTrip): {
@@ -718,7 +751,7 @@ export default function TripHistory() {
   return (
     <AdminLayout 
       title="Trip History" 
-      description="View all completed trips with route and fare details"
+      description="View completed and no-show trips with route and fare details"
     >
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -785,7 +818,7 @@ export default function TripHistory() {
               Completed Trips
             </CardTitle>
             <CardDescription className="flex items-center gap-2 flex-wrap">
-              All completed rides with route and payment details
+              Finished rides (completed / no-show) by completion date — commission &amp; Stripe fee are in trip details
               {activeRegion && (
                 <Badge variant="outline" className="ml-2 text-xs">
                   {activeRegion.name} • {getActiveCurrencySymbol()} • {getActiveDistanceUnit()}
@@ -953,6 +986,11 @@ export default function TripHistory() {
                           Net: {getCurrencySymbol(resolveTripCurrency(trip))}{((getEffectiveDriverNetPence(trip) || 0) / 100).toFixed(2)}
                         </div>
                       )}
+                      {getEffectiveTipPence(trip) > 0 && (
+                        <div className="text-[10px] text-emerald-600 mt-0.5">
+                          Tip: {getCurrencySymbol(resolveTripCurrency(trip))}{(getEffectiveTipPence(trip) / 100).toFixed(2)}
+                        </div>
+                      )}
                       {(() => {
                         const mismatch = getFareCapturedMismatch(trip);
                         if (!mismatch) return null;
@@ -1039,9 +1077,13 @@ export default function TripHistory() {
             <div className="space-y-4">
               {/* Status Badges Row */}
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                <Badge variant="outline" className={
+                  selectedTrip.status === 'no_show'
+                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                    : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                }>
                   <CheckCircle className="h-3 w-3 mr-1" />
-                  Completed
+                  {selectedTrip.status === 'no_show' ? 'No Show' : 'Completed'}
                 </Badge>
                 {/* Pricing Mode Badge */}
                 {selectedTrip.pricing_mode && (
@@ -1466,6 +1508,16 @@ export default function TripHistory() {
                                     <span>{fmt(effectiveDriverNet)}</span>
                                   </div>
                                 )}
+                                {(() => {
+                                  const tipPence = getEffectiveTipPence(selectedTrip);
+                                  if (tipPence <= 0) return null;
+                                  return (
+                                    <div className="flex justify-between text-sm">
+                                      <span className="text-muted-foreground">Driver Tip</span>
+                                      <span className="text-emerald-600">{fmt(tipPence)}</span>
+                                    </div>
+                                  );
+                                })()}
                               </>
                             );
                           })()}
