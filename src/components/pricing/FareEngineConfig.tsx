@@ -376,9 +376,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
         return next;
       });
 
-      const vtName = selectedVehicleTypeId === '__default__' 
-        ? 'Default' 
-        : assignedVehicleTypes.find(v => v.id === selectedVehicleTypeId)?.name || 'Vehicle';
+      const vtName = assignedVehicleTypes.find(v => v.id === selectedVehicleTypeId)?.name || 'Vehicle';
       toast.success(`Fare settings saved for ${vtName}`);
     } catch (err) {
       console.error('Error saving fare settings:', err);
