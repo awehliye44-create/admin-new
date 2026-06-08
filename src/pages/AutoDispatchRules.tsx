@@ -72,7 +72,6 @@ interface DispatchSettings {
   scheduledRidesEnabled: boolean;
   minAdvanceTimeMinutes: number;
   maxAdvanceDays: number;
-  waitingTimeGracePeriodMinutes: number;
   scheduledRideIncentivesEnabled: boolean;
   scheduledResponseWindowMinutes: number;
   urgentDispatchTriggerMinutesBeforePickup: number;
@@ -119,7 +118,6 @@ const defaultSettings: DispatchSettings = {
   scheduledRidesEnabled: true,
   minAdvanceTimeMinutes: 15,
   maxAdvanceDays: 30,
-  waitingTimeGracePeriodMinutes: 5,
   scheduledRideIncentivesEnabled: false,
   scheduledResponseWindowMinutes: 10,
   urgentDispatchTriggerMinutesBeforePickup: 5,
@@ -164,7 +162,6 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   scheduledRidesEnabled: (data.scheduled_rides_enabled as boolean) ?? defaultSettings.scheduledRidesEnabled,
   minAdvanceTimeMinutes: (data.min_advance_time_minutes as number) ?? defaultSettings.minAdvanceTimeMinutes,
   maxAdvanceDays: (data.max_advance_days as number) ?? defaultSettings.maxAdvanceDays,
-  waitingTimeGracePeriodMinutes: (data.waiting_time_grace_period_minutes as number) ?? defaultSettings.waitingTimeGracePeriodMinutes,
   scheduledRideIncentivesEnabled: (data.scheduled_ride_incentives_enabled as boolean) ?? defaultSettings.scheduledRideIncentivesEnabled,
   scheduledResponseWindowMinutes: (data.scheduled_response_window_minutes as number) ?? defaultSettings.scheduledResponseWindowMinutes,
   urgentDispatchTriggerMinutesBeforePickup: (data.urgent_dispatch_trigger_minutes_before_pickup as number) ?? defaultSettings.urgentDispatchTriggerMinutesBeforePickup,
@@ -209,7 +206,6 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
   scheduled_rides_enabled: settings.scheduledRidesEnabled,
   min_advance_time_minutes: settings.minAdvanceTimeMinutes,
   max_advance_days: settings.maxAdvanceDays,
-  waiting_time_grace_period_minutes: settings.waitingTimeGracePeriodMinutes,
   scheduled_ride_incentives_enabled: settings.scheduledRideIncentivesEnabled,
   scheduled_response_window_minutes: settings.scheduledResponseWindowMinutes,
   urgent_dispatch_trigger_minutes_before_pickup: settings.urgentDispatchTriggerMinutesBeforePickup,
@@ -855,13 +851,12 @@ export default function AutoDispatchRules() {
                       disabled={isLoading || !settings.scheduledRidesEnabled} />
                     <p className="text-xs text-muted-foreground">How far in advance rides can be booked</p>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Waiting Time Grace Period (minutes)</Label>
-                    <Input type="number" min="0" max="30" value={settings.waitingTimeGracePeriodMinutes}
-                      onChange={(e) => updateSetting('waitingTimeGracePeriodMinutes', parseInt(e.target.value) || 5)}
-                      disabled={isLoading || !settings.scheduledRidesEnabled} />
-                    <p className="text-xs text-muted-foreground">Free waiting time before charges apply</p>
-                  </div>
+                </div>
+                <div className="flex items-start gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                  <Info className="h-4 w-4 text-blue-600 mt-0.5" />
+                  <p className="text-sm text-blue-700 dark:text-blue-400">
+                    Pickup free waiting is configured under Service Area Pricing → Trip Lifecycle → Free Pickup Waiting Time.
+                  </p>
                 </div>
                 <div className="flex items-center justify-between p-4 border rounded-lg">
                   <div>
