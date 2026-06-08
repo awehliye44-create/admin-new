@@ -23,6 +23,7 @@ import {
   getTripCaptureStatus,
   getTripTipPence,
   isCardTrip,
+  summarizeTripPayments,
   type TripCaptureFields,
 } from '@/lib/tripCaptureStatus';
 
@@ -165,36 +166,25 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
       const [tripRes, paymentsRes] = await Promise.all([
         supabase
           .from('trips')
-          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, tip_pence, tip_amount_pence, fare_breakdown')
+          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee')
           .eq('id', tripId)
           .single(),
         supabase
           .from('payments')
-          .select('captured_amount_pence, metadata')
+          .select('captured_amount_pence, amount_pence, status, fee_type, metadata')
           .eq('trip_id', tripId),
       ]);
       if (tripRes.error) throw tripRes.error;
       const payments = paymentsRes.data ?? [];
-      let capturedSum = 0;
-      let tipFromMeta: number | null = null;
-      let hasShortfallPi = false;
-      for (const p of payments) {
-        capturedSum += p.captured_amount_pence ?? 0;
-        const meta = p.metadata as Record<string, unknown> | null;
-        if (!hasShortfallPi && typeof meta?.shortfall_pi_id === 'string' && meta.shortfall_pi_id.length > 0) {
-          hasShortfallPi = true;
-        }
-        if (tipFromMeta == null) {
-          const t = meta?.tip_pence != null ? Number(meta.tip_pence) : null;
-          if (Number.isFinite(t) && t! > 0) tipFromMeta = t;
-        }
-      }
+      const summary = summarizeTripPayments(payments);
       return {
         ...(tripRes.data as TripCaptureFields),
-        payment_captured_pence: capturedSum > 0 ? capturedSum : null,
-        payment_tip_pence: tipFromMeta,
-        payment_count: payments.length,
-        has_shortfall_payment_intent: hasShortfallPi,
+        payment_captured_pence: summary.capturedTotalPence,
+        payment_tip_pence: summary.tipFromMeta,
+        payment_count: summary.paymentCount,
+        has_shortfall_payment_intent: summary.hasShortfallPaymentIntent,
+        payment_lifecycle_fees_pence: summary.lifecycleFeesPence,
+        payment_metadata_lifecycle_fees_pence: summary.metadataLifecycleFeesPence,
       };
     },
   });
@@ -366,14 +356,19 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
                 </div>
                 {captureStatus.expectedTotalPence != null && captureStatus.capturedTotalPence != null && (
                   <div className="mt-1 text-muted-foreground">
-                    Expected {formatPence(captureStatus.expectedTotalPence, currency)} (fare + tip)
+                    Settlement {formatPence(captureStatus.expectedTotalPence, currency)} (final_fare + tip + fees)
                     {' · '}
                     Captured {formatPence(captureStatus.capturedTotalPence, currency)}
                     {captureStatus.paymentCount > 1 ? ` across ${captureStatus.paymentCount} PIs` : ''}
                   </div>
                 )}
-                {captureStatus.tooltip && captureStatus.kind === 'capture_mismatch' && (
-                  <div className="mt-1">{captureStatus.tooltip}</div>
+                {captureStatus.tooltip && (
+                  <div className="mt-1 text-muted-foreground">{captureStatus.tooltip}</div>
+                )}
+                {captureStatus.kind === 'captured_split' && (
+                  <div className="mt-1 text-muted-foreground">
+                    Split capture: primary PI plus shortfall PI (auth cap) — combined total is settlement source of truth.
+                  </div>
                 )}
               </div>
             )}

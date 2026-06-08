@@ -52,6 +52,7 @@ import {
   getTripFarePence,
   getTripTipPence,
   isCardTrip,
+  summarizeTripPayments,
 } from '@/lib/tripCaptureStatus';
 import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 import { useMapboxToken } from '@/hooks/useMapboxToken';
@@ -194,6 +195,10 @@ interface CompletedTrip {
   payment_tip_pence?: number | null;
   payment_count?: number;
   has_shortfall_payment_intent?: boolean;
+  payment_lifecycle_fees_pence?: number | null;
+  payment_metadata_lifecycle_fees_pence?: number | null;
+  arrival_cancellation_applied?: boolean | null;
+  arrival_cancellation_fee?: number | null;
 }
 
 export default function TripHistory() {
@@ -288,6 +293,7 @@ export default function TripHistory() {
           pricing_mode, fare_locked, vehicle_type_id, vehicle_type, service_area_id, fare_engine_config_id,
           waiting_charge_pence, pickup_waiting_charge_pence, total_waiting_charge_pence, waiting_minutes, fare_breakdown,
           tip_pence, tip_amount_pence,
+          arrival_cancellation_applied, arrival_cancellation_fee,
           driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, driver_code, region_id),
           service_area_join:service_areas!trips_service_area_id_fkey(region_id, region:regions(currency_code, distance_unit))
         `)
@@ -328,19 +334,19 @@ export default function TripHistory() {
         tip: number | null;
         count: number;
         hasShortfallPi: boolean;
+        lifecycleFees: number;
+        metadataLifecycleFees: number;
       }> = {};
       if (tripIds.length > 0) {
         const { data: paymentsData } = await supabase
           .from('payments')
-          .select('trip_id, amount_pence, captured_amount_pence, commission_amount_pence, commission_pct, status, updated_at, metadata')
+          .select('trip_id, amount_pence, captured_amount_pence, commission_amount_pence, commission_pct, status, fee_type, updated_at, metadata')
           .in('trip_id', tripIds)
           .order('updated_at', { ascending: false });
         if (paymentsData) {
           for (const p of paymentsData as any[]) {
-            const meta = p.metadata as Record<string, unknown> | null;
-            const tipFromMeta = meta?.tip_pence != null ? Number(meta.tip_pence) : null;
-            const hasShortfallPi = typeof meta?.shortfall_pi_id === 'string' && meta.shortfall_pi_id.length > 0;
-            const rowCaptured = p.captured_amount_pence ?? 0;
+            const summary = summarizeTripPayments([p]);
+            const rowCaptured = summary.capturedTotalPence ?? 0;
             const existing = paymentsMap[p.trip_id];
             if (!existing) {
               paymentsMap[p.trip_id] = {
@@ -348,14 +354,21 @@ export default function TripHistory() {
                 authorized: p.amount_pence ?? null,
                 commission: p.commission_amount_pence ?? null,
                 commission_pct: p.commission_pct ?? null,
-                tip: Number.isFinite(tipFromMeta) && tipFromMeta! > 0 ? tipFromMeta : null,
+                tip: summary.tipFromMeta,
                 count: 1,
-                hasShortfallPi,
+                hasShortfallPi: summary.hasShortfallPaymentIntent,
+                lifecycleFees: summary.lifecycleFeesPence,
+                metadataLifecycleFees: summary.metadataLifecycleFeesPence,
               };
             } else {
               existing.captured += rowCaptured;
               existing.count += 1;
-              existing.hasShortfallPi = existing.hasShortfallPi || hasShortfallPi;
+              existing.hasShortfallPi = existing.hasShortfallPi || summary.hasShortfallPaymentIntent;
+              existing.lifecycleFees += summary.lifecycleFeesPence;
+              existing.metadataLifecycleFees += summary.metadataLifecycleFeesPence;
+              if (existing.tip == null && summary.tipFromMeta != null) {
+                existing.tip = summary.tipFromMeta;
+              }
             }
           }
         }
@@ -373,6 +386,8 @@ export default function TripHistory() {
           payment_tip_pence: pay?.tip ?? null,
           payment_count: pay?.count ?? 0,
           has_shortfall_payment_intent: pay?.hasShortfallPi ?? false,
+          payment_lifecycle_fees_pence: pay?.lifecycleFees ?? 0,
+          payment_metadata_lifecycle_fees_pence: pay?.metadataLifecycleFees ?? 0,
         };
       }) as CompletedTrip[];
     },
@@ -1460,20 +1475,23 @@ export default function TripHistory() {
                         {isMismatch ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
                         <AlertTitle>{captureStatus.label}</AlertTitle>
                         <AlertDescription className="text-xs space-y-1 mt-1">
-                          <div>Customer total (fare + tip): <span className="font-medium">{fmtP(captureStatus.expectedTotalPence ?? 0)}</span></div>
+                          <div>Settlement total (fare + tip + fees): <span className="font-medium">{fmtP(captureStatus.expectedTotalPence ?? 0)}</span></div>
                           <div>Captured (Stripe{captureStatus.paymentCount > 1 ? `, ${captureStatus.paymentCount} PIs` : ''}): <span className="font-medium">{fmtP(captureStatus.capturedTotalPence ?? 0)}</span></div>
                           {isMismatch && captureStatus.diffPence != null && (
                             <div>Difference: <span className="font-medium">{captureStatus.diffPence > 0 ? '+' : ''}{fmtP(captureStatus.diffPence)}</span></div>
                           )}
                           {isMismatch && (
                             <div className="pt-1 text-amber-800 dark:text-amber-200">
-                              Payments table total is settlement source of truth. Review trip fare fields or outstanding payment intents.
+                              Stripe captured less than the settlement total. Compare payments rows against final_fare_pence (includes waiting) plus tip and any lifecycle fees.
                             </div>
                           )}
                           {isOk && captureStatus.kind === 'captured_split' && (
                             <div className="pt-1 text-green-800 dark:text-green-200">
-                              Multiple payment intents; combined capture matches customer total.
+                              Split capture: primary PI plus a shortfall PI (auth cap) were charged separately; combined total matches settlement fare + tip.
                             </div>
+                          )}
+                          {isOk && captureStatus.tooltip && (
+                            <div className="pt-1 text-green-800 dark:text-green-200">{captureStatus.tooltip}</div>
                           )}
                         </AlertDescription>
                       </Alert>
