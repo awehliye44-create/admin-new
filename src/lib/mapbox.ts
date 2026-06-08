@@ -36,6 +36,59 @@ function applyToken(token: string): string {
   return token;
 }
 
+const MAPBOX_TOKEN_MISSING_MSG =
+  'Mapbox web token missing. Set VITE_MAPBOX_WEB_TOKEN locally or MAPBOX_WEB_TOKEN on Supabase.';
+
+/** Public edge fn (verify_jwt=false): direct fetch avoids SDK "Failed to send a request" flakes. */
+async function fetchMapboxTokenFromEdge(): Promise<string> {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+  const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+
+  if (supabaseUrl && anonKey) {
+    try {
+      const response = await fetch(`${supabaseUrl}/functions/v1/get-mapbox-token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: anonKey,
+          Authorization: `Bearer ${anonKey}`,
+        },
+        body: JSON.stringify({ platform: 'web' }),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        token?: string;
+        error?: string;
+        message?: string;
+      } | null;
+      if (response.ok) {
+        const token = payload?.token?.trim();
+        if (token?.startsWith('pk.')) return token;
+      } else {
+        const detail =
+          payload?.error?.trim() ||
+          payload?.message?.trim() ||
+          `get-mapbox-token failed (HTTP ${response.status})`;
+        console.warn('[mapbox] direct edge fetch:', detail);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'direct fetch failed';
+      console.warn('[mapbox] direct edge fetch threw:', msg);
+    }
+  }
+
+  const { data, error } = await supabase.functions.invoke('get-mapbox-token', {
+    body: { platform: 'web' },
+  });
+  if (error) {
+    throw new Error(error.message || 'Failed to fetch Mapbox token');
+  }
+  const token = (data as { token?: string } | null)?.token?.trim();
+  if (!token?.startsWith('pk.')) {
+    throw new Error(MAPBOX_TOKEN_MISSING_MSG);
+  }
+  return token;
+}
+
 export function getCachedMapboxToken(): string | null {
   return cachedToken;
 }
@@ -77,18 +130,7 @@ export async function resolveMapboxToken(): Promise<string> {
   if (inflight) return inflight;
 
   inflight = (async () => {
-    const { data, error } = await supabase.functions.invoke('get-mapbox-token', {
-      body: { platform: 'web' },
-    });
-    if (error) {
-      throw new Error(error.message || 'Failed to fetch Mapbox token');
-    }
-    const token = (data as { token?: string } | null)?.token?.trim();
-    if (!token?.startsWith('pk.')) {
-      throw new Error(
-        'Mapbox web token missing. Set VITE_MAPBOX_WEB_TOKEN locally or MAPBOX_WEB_TOKEN on Supabase.',
-      );
-    }
+    const token = await fetchMapboxTokenFromEdge();
     return applyToken(token);
   })().finally(() => {
     inflight = null;
