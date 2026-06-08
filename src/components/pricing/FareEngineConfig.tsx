@@ -705,9 +705,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Vehicle Type</span>
                 <Badge variant="outline">
-                  {selectedVehicleTypeId === '__default__' 
-                    ? 'Default' 
-                    : assignedVehicleTypes.find(v => v.id === selectedVehicleTypeId)?.name || 'Unknown'}
+                  {assignedVehicleTypes.find(v => v.id === selectedVehicleTypeId)?.name || '—'}
                 </Badge>
               </div>
               <div className="flex justify-between">
