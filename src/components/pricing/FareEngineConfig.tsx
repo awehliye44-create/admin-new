@@ -151,7 +151,11 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
 
   // Fetch fare settings when vehicle type changes
   useEffect(() => {
-    if (!selectedVehicleTypeId) return;
+    if (!selectedVehicleTypeId) {
+      setSettings(null);
+      setIsLoading(false);
+      return;
+    }
     fetchSettings();
   }, [serviceAreaId, selectedVehicleTypeId]);
 
