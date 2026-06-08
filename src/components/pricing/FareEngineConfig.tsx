@@ -139,7 +139,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
     stopRadiusEnabled: false,
     stopRadiusMeters: 100,
     stopWaitingChargeIntervalSeconds: 10,
-    stopWaitingGracePeriodSeconds: 0,
+    stopWaitingGracePeriodMinutes: 1,
     stopWaitingRatePencePerMinute: 30,
     stopWaitingMaxMinutes: null as number | null,
   });
@@ -260,7 +260,10 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
         stopRadiusEnabled: (data as any).stop_radius_enabled ?? false,
         stopRadiusMeters: (data as any).stop_radius_meters ?? 100,
         stopWaitingChargeIntervalSeconds: (data as any).stop_waiting_charge_interval_seconds ?? 10,
-        stopWaitingGracePeriodSeconds: (data as any).stop_waiting_grace_period_seconds ?? 0,
+        stopWaitingGracePeriodMinutes:
+          typeof (data as any).stop_waiting_grace_period_seconds === 'number'
+            ? (data as any).stop_waiting_grace_period_seconds / 60
+            : 1,
         stopWaitingRatePencePerMinute: (data as any).stop_waiting_rate_pence_per_minute ?? 30,
         stopWaitingMaxMinutes: (data as any).stop_waiting_max_minutes ?? null,
       });
@@ -370,7 +373,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
           stop_radius_enabled: stopWaiting.stopRadiusEnabled,
           stop_radius_meters: stopWaiting.stopRadiusMeters,
           stop_waiting_charge_interval_seconds: stopWaiting.stopWaitingChargeIntervalSeconds,
-          stop_waiting_grace_period_seconds: stopWaiting.stopWaitingGracePeriodSeconds,
+          stop_waiting_grace_period_seconds: Math.round(stopWaiting.stopWaitingGracePeriodMinutes * 60),
           stop_waiting_rate_pence_per_minute: stopWaiting.stopWaitingRatePencePerMinute,
           stop_waiting_max_minutes: stopWaiting.stopWaitingMaxMinutes,
         };
@@ -397,7 +400,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
           stop_radius_enabled: stopWaiting.stopRadiusEnabled,
           stop_radius_meters: stopWaiting.stopRadiusMeters,
           stop_waiting_charge_interval_seconds: stopWaiting.stopWaitingChargeIntervalSeconds,
-          stop_waiting_grace_period_seconds: stopWaiting.stopWaitingGracePeriodSeconds,
+          stop_waiting_grace_period_seconds: Math.round(stopWaiting.stopWaitingGracePeriodMinutes * 60),
           stop_waiting_rate_pence_per_minute: stopWaiting.stopWaitingRatePencePerMinute,
           stop_waiting_max_minutes: stopWaiting.stopWaitingMaxMinutes,
           updated_at: new Date().toISOString(),
@@ -655,7 +658,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
             stopRadiusEnabled={stopWaiting.stopRadiusEnabled}
             stopRadiusMeters={stopWaiting.stopRadiusMeters}
             stopWaitingChargeIntervalSeconds={stopWaiting.stopWaitingChargeIntervalSeconds}
-            stopWaitingGracePeriodSeconds={stopWaiting.stopWaitingGracePeriodSeconds}
+            stopWaitingGracePeriodMinutes={stopWaiting.stopWaitingGracePeriodMinutes}
             stopWaitingRatePencePerMinute={stopWaiting.stopWaitingRatePencePerMinute}
             stopWaitingMaxMinutes={stopWaiting.stopWaitingMaxMinutes}
             onStopWaitingUpdate={updateStopWaitingField}

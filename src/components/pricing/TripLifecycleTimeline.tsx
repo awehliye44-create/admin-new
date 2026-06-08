@@ -31,7 +31,7 @@ interface TripLifecycleTimelineProps {
   stopRadiusEnabled: boolean;
   stopRadiusMeters: number;
   stopWaitingChargeIntervalSeconds: number;
-  stopWaitingGracePeriodSeconds: number;
+  stopWaitingGracePeriodMinutes: number;
   stopWaitingRatePencePerMinute: number;
   stopWaitingMaxMinutes: number | null;
   onStopWaitingUpdate: (key: string, value: number | boolean | null) => void;
@@ -55,7 +55,7 @@ export function TripLifecycleTimeline({
   onUpdate,
   stopRadiusMeters,
   stopWaitingChargeIntervalSeconds,
-  stopWaitingGracePeriodSeconds,
+  stopWaitingGracePeriodMinutes,
   stopWaitingRatePencePerMinute,
   onStopWaitingUpdate,
 }: TripLifecycleTimelineProps) {
@@ -86,7 +86,7 @@ export function TripLifecycleTimeline({
     </div>
   );
 
-  const NumberInput = ({ value, field, label, unit, onFieldUpdate, min = 0 }: { value: number; field: string; label: string; unit: string; onFieldUpdate?: (key: string, value: number | boolean | null) => void; min?: number }) => (
+  const NumberInput = ({ value, field, label, unit, onFieldUpdate, min = 0, step }: { value: number; field: string; label: string; unit: string; onFieldUpdate?: (key: string, value: number | boolean | null) => void; min?: number; step?: number }) => (
     <div className="space-y-1">
       <Label className="text-xs font-medium">
         {label} <span className="text-destructive">*</span>
@@ -95,9 +95,15 @@ export function TripLifecycleTimeline({
         <Input
           type="number"
           min={min}
+          step={step}
           placeholder="0"
           value={numToDisplay(value)}
-          onChange={(e) => (onFieldUpdate || onUpdate)(field, parseInt(e.target.value) || 0)}
+          onChange={(e) => {
+            const parsed = step != null && step < 1
+              ? parseFloat(e.target.value)
+              : parseInt(e.target.value, 10);
+            (onFieldUpdate || onUpdate)(field, Number.isFinite(parsed) ? parsed : 0);
+          }}
           className={`h-8 text-sm w-24 pr-10 ${isEmpty(value) ? 'border-destructive/50' : ''}`}
         />
         <span className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground text-[10px]">{unit}</span>
@@ -175,7 +181,7 @@ export function TripLifecycleTimeline({
           </div>
 
           <div className="flex flex-wrap items-end gap-3">
-            <NumberInput value={stopWaitingGracePeriodSeconds} field="stopWaitingGracePeriodSeconds" label="Free Stop Waiting Time" unit="sec" onFieldUpdate={onStopWaitingUpdate} />
+            <NumberInput value={stopWaitingGracePeriodMinutes} field="stopWaitingGracePeriodMinutes" label="Free Stop Waiting Time" unit="min" onFieldUpdate={onStopWaitingUpdate} min={0} step={0.5} />
             <PenceInput value={stopWaitingRatePencePerMinute} field="stopWaitingRatePencePerMinute" label="Stop Waiting Rate (per min)" onFieldUpdate={onStopWaitingUpdate} />
           </div>
 
