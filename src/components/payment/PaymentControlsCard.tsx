@@ -17,6 +17,14 @@ import {
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { useAuth } from '@/hooks/useAuth';
+import {
+  captureStatusColorClass,
+  getCapturedTotalPence,
+  getTripCaptureStatus,
+  getTripTipPence,
+  isCardTrip,
+  type TripCaptureFields,
+} from '@/lib/tripCaptureStatus';
 
 interface PaymentState {
   trip_id: string;
@@ -150,6 +158,42 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
     },
   });
 
+  const captureContextQuery = useQuery<TripCaptureFields & { payment_count: number }>({
+    queryKey: ['admin-payment-capture-context', tripId],
+    enabled: !!tripId && isAdmin,
+    queryFn: async () => {
+      const [tripRes, paymentsRes] = await Promise.all([
+        supabase
+          .from('trips')
+          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, tip_pence, tip_amount_pence, fare_breakdown')
+          .eq('id', tripId)
+          .single(),
+        supabase
+          .from('payments')
+          .select('captured_amount_pence, metadata')
+          .eq('trip_id', tripId),
+      ]);
+      if (tripRes.error) throw tripRes.error;
+      const payments = paymentsRes.data ?? [];
+      let capturedSum = 0;
+      let tipFromMeta: number | null = null;
+      for (const p of payments) {
+        capturedSum += p.captured_amount_pence ?? 0;
+        if (tipFromMeta == null) {
+          const meta = p.metadata as Record<string, unknown> | null;
+          const t = meta?.tip_pence != null ? Number(meta.tip_pence) : null;
+          if (Number.isFinite(t) && t! > 0) tipFromMeta = t;
+        }
+      }
+      return {
+        ...(tripRes.data as TripCaptureFields),
+        payment_captured_pence: capturedSum > 0 ? capturedSum : null,
+        payment_tip_pence: tipFromMeta,
+        payment_count: payments.length,
+      };
+    },
+  });
+
   const auditQuery = useQuery<AuditEntry[]>({
     queryKey: ['admin-payment-audit', tripId],
     enabled: !!tripId && isAdmin && auditOpen,
@@ -166,6 +210,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['admin-payment-state', tripId] });
+    queryClient.invalidateQueries({ queryKey: ['admin-payment-capture-context', tripId] });
     queryClient.invalidateQueries({ queryKey: ['admin-payment-audit', tripId] });
     queryClient.invalidateQueries({ queryKey: ['admin-payment-detail', tripId] });
     queryClient.invalidateQueries({ queryKey: ['admin-payments-list'] });
@@ -201,6 +246,8 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
   if (!isAdmin) return null;
 
   const state = stateQuery.data;
+  const captureContext = captureContextQuery.data;
+  const captureStatus = captureContext ? getTripCaptureStatus(captureContext) : null;
   const currency = state?.stripe_currency || 'GBP';
   const isUncaptured = state?.stripe_status === 'requires_capture';
   const isCancelled = state?.stripe_status === 'canceled';
@@ -298,6 +345,34 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
           </div>
         ) : state ? (
           <>
+            {/* Capture confirmation — payments SSOT vs fare + tip */}
+            {captureStatus && isCardTrip(captureContext!) && (
+              <div
+                className={`rounded-md border px-3 py-2 text-xs ${
+                  captureStatus.kind === 'capture_mismatch'
+                    ? 'border-amber-400 bg-amber-500/10 text-amber-800'
+                    : captureStatus.kind === 'captured' || captureStatus.kind === 'captured_split'
+                      ? 'border-green-500/40 bg-green-500/10 text-green-800'
+                      : 'border-muted bg-muted/30 text-muted-foreground'
+                }`}
+              >
+                <div className={`font-medium ${captureStatusColorClass(captureStatus.kind)}`}>
+                  {captureStatus.label}
+                </div>
+                {captureStatus.expectedTotalPence != null && captureStatus.capturedTotalPence != null && (
+                  <div className="mt-1 text-muted-foreground">
+                    Expected {formatPence(captureStatus.expectedTotalPence, currency)} (fare + tip)
+                    {' · '}
+                    Captured {formatPence(captureStatus.capturedTotalPence, currency)}
+                    {captureStatus.paymentCount > 1 ? ` across ${captureStatus.paymentCount} PIs` : ''}
+                  </div>
+                )}
+                {captureStatus.tooltip && captureStatus.kind === 'capture_mismatch' && (
+                  <div className="mt-1">{captureStatus.tooltip}</div>
+                )}
+              </div>
+            )}
+
             {/* Status row */}
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <Badge variant="outline">PI: {state.stripe_status || state.payment_status || '—'}</Badge>
@@ -328,8 +403,20 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
                 <div className="font-semibold">{formatPence(state.authorized_pence, currency)}</div>
               </div>
               <div className="rounded-md border p-2">
-                <div className="text-xs text-muted-foreground">Captured</div>
+                <div className="text-xs text-muted-foreground">Captured (primary PI)</div>
                 <div className="font-semibold">{formatPence(state.captured_pence, currency)}</div>
+                {captureContext && (() => {
+                  const paymentsTotal = getCapturedTotalPence(captureContext);
+                  if (paymentsTotal != null && paymentsTotal !== state.captured_pence) {
+                    return (
+                      <div className="text-[10px] text-muted-foreground mt-0.5">
+                        All PIs: {formatPence(paymentsTotal, currency)}
+                        {getTripTipPence(captureContext) > 0 && ` incl. tip`}
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
               <div className="rounded-md border p-2">
                 <div className="text-xs text-muted-foreground">Refunded</div>

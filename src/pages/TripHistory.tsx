@@ -45,6 +45,14 @@ import { toast } from 'sonner';
 import { getCurrencySymbol, formatDistance as formatDistanceUtil, getDistanceUnitShort } from '@/lib/regionSettings';
 import { PaymentControlsCard } from '@/components/payment/PaymentControlsCard';
 import { getTripDisplayId } from '@/lib/tripUtils';
+import {
+  captureStatusColorClass,
+  getCapturedTotalPence,
+  getTripCaptureStatus,
+  getTripFarePence,
+  getTripTipPence,
+  isCardTrip,
+} from '@/lib/tripCaptureStatus';
 import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { mapboxgl } from '@/lib/mapbox';
@@ -126,6 +134,8 @@ interface CompletedTrip {
   commission_pence: number | null;
   driver_net_pence: number | null;
   final_fare_pence: number | null;
+  final_customer_fare_pence: number | null;
+  capture_amount_pence: number | null;
   stripe_processing_fee_pence: number | null;
   onecab_net_pence: number | null;
   payment_status: string | null;
@@ -182,6 +192,7 @@ interface CompletedTrip {
   payment_commission_pence?: number | null;
   payment_commission_pct?: number | null;
   payment_tip_pence?: number | null;
+  payment_count?: number;
 }
 
 export default function TripHistory() {
@@ -268,6 +279,7 @@ export default function TripHistory() {
           id, trip_code, trip_number, status, financial_outcome, passenger_name, passenger_phone,
           pickup_address, pickup_latitude, pickup_longitude, dropoff_address, dropoff_latitude, dropoff_longitude,
           estimated_fare, fare, gross_fare_pence, commission_pence, driver_net_pence, final_fare_pence,
+          final_customer_fare_pence, capture_amount_pence,
           stripe_processing_fee_pence, onecab_net_pence,
           payment_status, payment_method, currency_code, estimated_distance_km, estimated_duration_minutes,
           total_stops, created_at, started_at, completed_at, surge_multiplier, driver_id,
@@ -308,11 +320,12 @@ export default function TripHistory() {
 
       // Fetch payments — captured_amount_pence is the settlement source of truth for card trips
       let paymentsMap: Record<string, {
-        captured: number | null;
+        captured: number;
         authorized: number | null;
         commission: number | null;
         commission_pct: number | null;
         tip: number | null;
+        count: number;
       }> = {};
       if (tripIds.length > 0) {
         const { data: paymentsData } = await supabase
@@ -322,17 +335,23 @@ export default function TripHistory() {
           .order('updated_at', { ascending: false });
         if (paymentsData) {
           for (const p of paymentsData as any[]) {
-            // Keep latest (first due to desc order) per trip
-            if (paymentsMap[p.trip_id]) continue;
             const meta = p.metadata as Record<string, unknown> | null;
             const tipFromMeta = meta?.tip_pence != null ? Number(meta.tip_pence) : null;
-            paymentsMap[p.trip_id] = {
-              captured: p.captured_amount_pence ?? null,
-              authorized: p.amount_pence ?? null,
-              commission: p.commission_amount_pence ?? null,
-              commission_pct: p.commission_pct ?? null,
-              tip: Number.isFinite(tipFromMeta) && tipFromMeta! > 0 ? tipFromMeta : null,
-            };
+            const rowCaptured = p.captured_amount_pence ?? 0;
+            const existing = paymentsMap[p.trip_id];
+            if (!existing) {
+              paymentsMap[p.trip_id] = {
+                captured: rowCaptured,
+                authorized: p.amount_pence ?? null,
+                commission: p.commission_amount_pence ?? null,
+                commission_pct: p.commission_pct ?? null,
+                tip: Number.isFinite(tipFromMeta) && tipFromMeta! > 0 ? tipFromMeta : null,
+                count: 1,
+              };
+            } else {
+              existing.captured += rowCaptured;
+              existing.count += 1;
+            }
           }
         }
       }
@@ -342,11 +361,12 @@ export default function TripHistory() {
         return {
           ...trip,
           trip_stops: stopsMap[trip.id] || [],
-          payment_captured_pence: pay?.captured ?? null,
+          payment_captured_pence: pay && pay.captured > 0 ? pay.captured : null,
           payment_authorized_pence: pay?.authorized ?? null,
           payment_commission_pence: pay?.commission ?? null,
           payment_commission_pct: pay?.commission_pct ?? null,
           payment_tip_pence: pay?.tip ?? null,
+          payment_count: pay?.count ?? 0,
         };
       }) as CompletedTrip[];
     },
@@ -759,19 +779,10 @@ export default function TripHistory() {
     return matchesSearch;
   });
 
-  // Card payment methods that settle through Stripe — captured amount is settlement truth
-  const isCardTrip = (trip: CompletedTrip): boolean => {
-    const m = (trip.payment_method || '').toLowerCase();
-    return m === 'card' || m === 'apple_pay' || m === 'google_pay';
-  };
-
-  // Settlement-truth fare in pence: for card trips with a captured amount, use captured; else fall back to fare engine values
+  // Ride fare in pence (excludes tip) — fare + tip compared separately for capture confirmation
   const getEffectiveFarePence = (trip: CompletedTrip): number => {
-    if (isCardTrip(trip) && trip.payment_captured_pence != null && trip.payment_captured_pence > 0) {
-      return trip.payment_captured_pence;
-    }
-    if (trip.final_fare_pence != null && trip.final_fare_pence > 0) return trip.final_fare_pence;
-    if (trip.gross_fare_pence != null && trip.gross_fare_pence > 0) return trip.gross_fare_pence;
+    const fare = getTripFarePence(trip);
+    if (fare > 0) return fare;
     if (trip.fare != null && trip.fare > 0) return Math.round(trip.fare * 100);
     return 0;
   };
@@ -797,38 +808,20 @@ export default function TripHistory() {
     return Math.max(0, fare - commission);
   };
 
-  /** Tip in pence — trip fields first, then payments.metadata.tip_pence, then fare_breakdown. */
-  const getEffectiveTipPence = (trip: CompletedTrip): number => {
-    if (trip.tip_pence != null && trip.tip_pence > 0) return trip.tip_pence;
-    if (trip.tip_amount_pence != null && trip.tip_amount_pence > 0) return trip.tip_amount_pence;
-    if (trip.payment_tip_pence != null && trip.payment_tip_pence > 0) return trip.payment_tip_pence;
-    const fb = trip.fare_breakdown as Record<string, number> | null;
-    if (fb?.tip_pence != null && fb.tip_pence > 0) return fb.tip_pence;
-    return 0;
-  };
+  const getEffectiveTipPence = (trip: CompletedTrip): number => getTripTipPence(trip);
 
-  // Consistency check — flags card trips where Final Fare differs from Stripe captured amount.
-  // Returns null when there is no mismatch (or when settlement data is unavailable).
-  const getFareCapturedMismatch = (trip: CompletedTrip): {
-    capturedPence: number;
-    finalFarePence: number;
-    diffPence: number;
-  } | null => {
-    if (!isCardTrip(trip)) return null;
-    const captured = trip.payment_captured_pence;
-    if (captured == null || captured <= 0) return null;
-    const finalFare = trip.final_fare_pence ?? trip.gross_fare_pence ?? null;
-    if (finalFare == null) return null;
-    const diff = finalFare - captured;
-    if (diff === 0) return null;
-    return { capturedPence: captured, finalFarePence: finalFare, diffPence: diff };
-  };
-
-  // Helper to get fare in pounds — uses settlement truth for card trips
+  // Helper to get fare in pounds (ride fare only, excludes tip)
   const getTripFarePounds = (trip: CompletedTrip): number => getEffectiveFarePence(trip) / 100;
 
+  // Customer total for revenue — captured sum for card trips, else fare + tip
+  const getTripCustomerTotalPence = (trip: CompletedTrip): number => {
+    const captured = getCapturedTotalPence(trip);
+    if (isCardTrip(trip) && captured != null && captured > 0) return captured;
+    return getEffectiveFarePence(trip) + getEffectiveTipPence(trip);
+  };
+
   // Stats based on filtered trips
-  const totalRevenue = filteredTrips.reduce((sum, t) => sum + getTripFarePounds(t), 0);
+  const totalRevenue = filteredTrips.reduce((sum, t) => sum + getTripCustomerTotalPence(t) / 100, 0);
   const avgFare = filteredTrips.length > 0 ? totalRevenue / filteredTrips.length : 0;
   const multiStopTrips = filteredTrips.filter(t => isMultiStopTrip(t)).length;
 
@@ -864,7 +857,7 @@ export default function TripHistory() {
                 <p className="text-sm text-muted-foreground">Total Revenue</p>
                 {isMixedCurrency ? (
                   <CurrencyGroupedStats
-                    items={filteredTrips.map(t => ({ currency_code: resolveTripCurrency(t) || '???', amount: Math.round(getTripFarePounds(t) * 100) }))}
+                    items={filteredTrips.map(t => ({ currency_code: resolveTripCurrency(t) || '???', amount: getTripCustomerTotalPence(t) }))}
                     className="text-lg font-bold text-green-600"
                   />
                 ) : (
@@ -1082,31 +1075,6 @@ export default function TripHistory() {
                           Tip: {getCurrencySymbol(resolveTripCurrency(trip))}{(getEffectiveTipPence(trip) / 100).toFixed(2)}
                         </div>
                       )}
-                      {(() => {
-                        const mismatch = getFareCapturedMismatch(trip);
-                        if (!mismatch) return null;
-                        const sym = getCurrencySymbol(resolveTripCurrency(trip));
-                        return (
-                          <TooltipProvider delayDuration={150}>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Badge
-                                  variant="outline"
-                                  className="mt-1 text-[10px] border-amber-400 bg-amber-500/10 text-amber-700 gap-1"
-                                >
-                                  <AlertTriangle className="h-3 w-3" />
-                                  Fare ≠ Captured
-                                </Badge>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="text-xs">
-                                <div>Final fare: {sym}{(mismatch.finalFarePence / 100).toFixed(2)}</div>
-                                <div>Captured: {sym}{(mismatch.capturedPence / 100).toFixed(2)}</div>
-                                <div>Diff: {mismatch.diffPence > 0 ? '+' : ''}{sym}{(mismatch.diffPence / 100).toFixed(2)}</div>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        );
-                      })()}
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-0.5">
@@ -1116,19 +1084,26 @@ export default function TripHistory() {
                             : trip.payment_method === 'card' ? '💳 Card'
                             : trip.payment_method || 'Unknown'}
                         </Badge>
-                        {trip.payment_status && (
-                          <span className={`text-[10px] ${
-                            trip.payment_status === 'captured' || trip.payment_status === 'collected_cash' 
-                              ? 'text-green-600' 
-                              : trip.payment_status === 'pending' 
-                                ? 'text-amber-600' 
-                                : 'text-muted-foreground'
-                          }`}>
-                            {trip.payment_status === 'captured' ? '✓ Paid' 
-                              : trip.payment_status === 'collected_cash' ? '✓ Cash collected'
-                              : trip.payment_status}
-                          </span>
-                        )}
+                        {(() => {
+                          const captureStatus = getTripCaptureStatus(trip);
+                          if (!captureStatus.shortLabel || captureStatus.shortLabel === '—') return null;
+                          const content = (
+                            <span className={`text-[10px] ${captureStatusColorClass(captureStatus.kind)}`}>
+                              {captureStatus.shortLabel}
+                            </span>
+                          );
+                          if (!captureStatus.tooltip) return content;
+                          return (
+                            <TooltipProvider delayDuration={150}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>{content}</TooltipTrigger>
+                                <TooltipContent side="top" className="text-xs max-w-xs">
+                                  {captureStatus.tooltip}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          );
+                        })()}
                       </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
@@ -1458,23 +1433,42 @@ export default function TripHistory() {
                     </div>
                   </div>
 
-                  {/* Consistency check: Final Fare vs Stripe captured amount */}
+                  {/* Card capture confirmation — fare + tip vs sum of payment intents */}
                   {(() => {
-                    const mismatch = getFareCapturedMismatch(selectedTrip);
-                    if (!mismatch) return null;
+                    const captureStatus = getTripCaptureStatus(selectedTrip);
+                    if (!isCardTrip(selectedTrip)) return null;
                     const cs = getCurrencySymbol(resolveTripCurrency(selectedTrip));
                     const fmtP = (p: number) => `${cs}${(p / 100).toFixed(2)}`;
+                    const isOk = captureStatus.kind === 'captured' || captureStatus.kind === 'captured_split';
+                    const isMismatch = captureStatus.kind === 'capture_mismatch';
+                    if (!isOk && !isMismatch) return null;
                     return (
-                      <Alert variant="destructive" className="border-amber-400 bg-amber-500/10 text-amber-900 dark:text-amber-100 [&>svg]:text-amber-600">
-                        <AlertTriangle className="h-4 w-4" />
-                        <AlertTitle>Final Fare ≠ Captured amount</AlertTitle>
+                      <Alert
+                        variant={isMismatch ? 'destructive' : 'default'}
+                        className={
+                          isMismatch
+                            ? 'border-amber-400 bg-amber-500/10 text-amber-900 dark:text-amber-100 [&>svg]:text-amber-600'
+                            : 'border-green-400 bg-green-500/10 text-green-900 dark:text-green-100 [&>svg]:text-green-600'
+                        }
+                      >
+                        {isMismatch ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
+                        <AlertTitle>{captureStatus.label}</AlertTitle>
                         <AlertDescription className="text-xs space-y-1 mt-1">
-                          <div>Final Fare (DB): <span className="font-medium">{fmtP(mismatch.finalFarePence)}</span></div>
-                          <div>Captured (Stripe): <span className="font-medium">{fmtP(mismatch.capturedPence)}</span></div>
-                          <div>Difference: <span className="font-medium">{mismatch.diffPence > 0 ? '+' : ''}{fmtP(mismatch.diffPence)}</span></div>
-                          <div className="pt-1 text-amber-800 dark:text-amber-200">
-                            Captured amount is the settlement source of truth. Final Fare in the database may be stale — review and reconcile.
-                          </div>
+                          <div>Customer total (fare + tip): <span className="font-medium">{fmtP(captureStatus.expectedTotalPence ?? 0)}</span></div>
+                          <div>Captured (Stripe{captureStatus.paymentCount > 1 ? `, ${captureStatus.paymentCount} PIs` : ''}): <span className="font-medium">{fmtP(captureStatus.capturedTotalPence ?? 0)}</span></div>
+                          {isMismatch && captureStatus.diffPence != null && (
+                            <div>Difference: <span className="font-medium">{captureStatus.diffPence > 0 ? '+' : ''}{fmtP(captureStatus.diffPence)}</span></div>
+                          )}
+                          {isMismatch && (
+                            <div className="pt-1 text-amber-800 dark:text-amber-200">
+                              Payments table total is settlement source of truth. Review trip fare fields or outstanding payment intents.
+                            </div>
+                          )}
+                          {isOk && captureStatus.kind === 'captured_split' && (
+                            <div className="pt-1 text-green-800 dark:text-green-200">
+                              Multiple payment intents; combined capture matches customer total.
+                            </div>
+                          )}
                         </AlertDescription>
                       </Alert>
                     );
@@ -1544,7 +1538,7 @@ export default function TripHistory() {
 
                           {(() => {
                             const isCard = isCardTrip(selectedTrip);
-                            const captured = selectedTrip.payment_captured_pence;
+                            const captured = getCapturedTotalPence(selectedTrip);
                             const authorized = selectedTrip.payment_authorized_pence;
                             const useSettlement = isCard && captured != null && captured > 0;
                             const grossDiffers = useSettlement && selectedTrip.gross_fare_pence != null && selectedTrip.gross_fare_pence !== captured;
@@ -1643,9 +1637,23 @@ export default function TripHistory() {
                             </>
                           )}
                           <div className="flex justify-between text-sm">
-                            <span className="text-muted-foreground">Payment Status</span>
-                            <Badge variant="outline" className="text-xs">
-                              {selectedTrip.payment_status || 'unknown'}
+                            <span className="text-muted-foreground">Capture Status</span>
+                            <Badge
+                              variant="outline"
+                              className={`text-xs ${
+                                (() => {
+                                  const k = getTripCaptureStatus(selectedTrip).kind;
+                                  if (k === 'captured' || k === 'captured_split' || k === 'cash_collected') {
+                                    return 'bg-green-500/10 text-green-700 border-green-500/30';
+                                  }
+                                  if (k === 'capture_mismatch' || k === 'pending_capture') {
+                                    return 'bg-amber-500/10 text-amber-700 border-amber-500/30';
+                                  }
+                                  return '';
+                                })()
+                              }`}
+                            >
+                              {getTripCaptureStatus(selectedTrip).shortLabel}
                             </Badge>
                           </div>
                           <Separator />
