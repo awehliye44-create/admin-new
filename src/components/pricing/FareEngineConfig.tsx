@@ -162,6 +162,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
       .eq('service_area_id', serviceAreaId)
       .eq('is_enabled', true);
 
+    let vtList: VehicleType[] = [];
     if (assignments && assignments.length > 0) {
       const vtIds = assignments.map((a: any) => a.vehicle_type_id);
       const { data: vtData } = await supabase
@@ -170,10 +171,14 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
         .in('id', vtIds)
         .eq('is_active', true)
         .order('name');
-      setAssignedVehicleTypes(vtData || []);
-    } else {
-      setAssignedVehicleTypes([]);
+      vtList = vtData || [];
     }
+    setAssignedVehicleTypes(vtList);
+    // Auto-select first vehicle type if none selected (or current selection no longer valid)
+    setSelectedVehicleTypeId(prev => {
+      if (prev && vtList.some(v => v.id === prev)) return prev;
+      return vtList[0]?.id ?? '';
+    });
 
     // Check which vehicle types already have fare configs
     const { data: configs } = await supabase
