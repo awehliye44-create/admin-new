@@ -105,29 +105,15 @@ export async function capturePaymentIntentWithSettlement({
     throw new Error(`STRIPE_DESTINATION_MISMATCH: PaymentIntent destination ${destinationAccountId} does not match driver account ${resolvedDriverAccountId}`);
   }
 
+  // Platform preauth PIs are created without transfer_data.destination (driver unknown at
+  // booking). Stripe API 2025-08-27.basil rejects transfer_data[destination] on both PI
+  // update and capture for those intents — destination charges must be set at PI create.
+  // Use separate charge + post-capture transfer when the PI has no destination yet.
   if (!destinationAccountId && resolvedDriverAccountId) {
-    try {
-      paymentIntent = await stripe.paymentIntents.update(
-        paymentIntentId,
-        {
-          transfer_data: { destination: resolvedDriverAccountId },
-          ...(commissionPence > 0 ? { application_fee_amount: commissionPence } : {}),
-          metadata: {
-            ...paymentIntent.metadata,
-            trip_id: tripId,
-            connect_flow: 'destination_charge',
-            settlement_normalized_before_capture: 'true',
-            commission_pence: String(commissionPence),
-            expected_driver_transfer_amount_pence: String(driverTransferAmountPence),
-          },
-        },
-        { idempotencyKey: `${idempotencyKey}_connect_destination_normalize` },
-      );
-      destinationAccountId = asStripeId(paymentIntent.transfer_data?.destination);
-      console.log(`[stripe-settlement] Normalized PI ${paymentIntentId} to destination charge destination=${destinationAccountId ?? 'none'} application_fee_amount=${commissionPence}`);
-    } catch (error) {
-      console.error(`[stripe-settlement] Could not normalize PI ${paymentIntentId} to destination charge; falling back to separate charge + transfer: ${(error as Error).message}`);
-    }
+    console.log(
+      `[stripe-settlement] PI ${paymentIntentId} has no Connect destination; ` +
+      `will capture on platform and transfer ${driverTransferAmountPence}p to ${resolvedDriverAccountId}`,
+    );
   }
 
   const captureParams: Stripe.PaymentIntentCaptureParams = {
@@ -143,6 +129,8 @@ export async function capturePaymentIntentWithSettlement({
     },
   };
 
+  // application_fee_amount on capture only works for destination charges where the PI
+  // already has transfer_data.destination from create — never pass transfer_data here.
   if (destinationAccountId && commissionPence > 0) {
     captureParams.application_fee_amount = commissionPence;
   }
