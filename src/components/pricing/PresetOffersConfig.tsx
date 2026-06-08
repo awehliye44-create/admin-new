@@ -621,19 +621,18 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
                     </div>
                     {config.price_mode === 'multiplier' ? (
                       <div className="space-y-1">
-                        <Label className="text-xs">Multiplier</Label>
+                        <Label className="text-xs">Percentage (%)</Label>
                         <Input
                           type="number"
-                          step="0.01"
-                          min="0.01"
-                          value={offer.multiplier}
-                          onChange={(e) => updateOffer(index, 'multiplier', parseFloat(e.target.value) || 1)}
+                          step="1"
+                          min="0"
+                          value={Math.round((offer.multiplier ?? 0) * 100)}
+                          onChange={(e) => {
+                            const pct = parseFloat(e.target.value);
+                            updateOffer(index, 'multiplier', isNaN(pct) ? 0 : pct / 100);
+                          }}
+                          placeholder="100"
                         />
-                        <p className="text-xs text-muted-foreground">
-                          {offer.multiplier < 1 ? `${((1 - offer.multiplier) * 100).toFixed(0)}% discount` :
-                           offer.multiplier > 1 ? `${((offer.multiplier - 1) * 100).toFixed(0)}% surcharge` :
-                           'Standard fare'}
-                        </p>
                       </div>
                     ) : (
                       <div className="space-y-1">
