@@ -45,7 +45,9 @@ import {
 } from "@/components/ui/select";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar } from 'recharts';
 import { preloadMarkerImage } from '@/lib/mapMarkers';
-import { mapboxgl, MAPBOX_STYLE } from '@/lib/mapbox';
+import { mapboxgl } from '@/lib/mapbox';
+import { createMapboxMap } from '@/lib/mapboxMap';
+import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { isActiveTripDbStatus } from '@/lib/activeTripStatuses';
 import { filterAdminActiveTrips } from '@/lib/adminActiveTripFilter';
@@ -203,7 +205,10 @@ export default function Dashboard() {
   const [customDateFrom, setCustomDateFrom] = useState<Date | undefined>(undefined);
   const [customDateTo, setCustomDateTo] = useState<Date | undefined>(undefined);
   // Map state
+  const { isReady: mapboxReady, error: mapboxError } = useMapboxToken();
   const [isMapLoaded, setIsMapLoaded] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
+  const mapInitError = mapboxError ?? mapError;
   const mapRef = useRef<HTMLDivElement>(null);
   const mapboxMapRef = useRef<mapboxgl.Map | null>(null);
 
@@ -212,22 +217,53 @@ export default function Dashboard() {
     preloadMarkerImage();
   }, []);
 
-  // Initialize Mapbox
+  // Initialize Mapbox after web token resolves (env or get-mapbox-token)
   useEffect(() => {
-    if (!mapRef.current || mapboxMapRef.current) return;
-    const map = new mapboxgl.Map({
-      container: mapRef.current,
-      style: MAPBOX_STYLE,
-      center: [-0.7594, 52.0406],
-      zoom: 12,
-    });
-    map.on('load', () => setIsMapLoaded(true));
-    mapboxMapRef.current = map;
+    if (!mapboxReady || !mapRef.current || mapboxMapRef.current) return;
+
+    let cancelled = false;
+    let detachResize: (() => void) | undefined;
+
+    void (async () => {
+      try {
+        const { map, detachResize: detach } = await createMapboxMap({
+          container: mapRef.current!,
+          center: [-0.7594, 52.0406],
+          zoom: 12,
+          onLoad: () => {
+            if (!cancelled) setIsMapLoaded(true);
+          },
+          onTileError: (msg) => {
+            if (!cancelled) {
+              setMapError(msg);
+              setIsMapLoaded(true);
+            }
+          },
+        });
+        if (cancelled) {
+          map.remove();
+          detach();
+          return;
+        }
+        detachResize = detach;
+        mapboxMapRef.current = map;
+      } catch (err) {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : 'Failed to initialize map';
+        console.error('[Dashboard] map init', msg);
+        setMapError(msg);
+        setIsMapLoaded(true);
+      }
+    })();
+
     return () => {
-      map.remove();
+      cancelled = true;
+      detachResize?.();
+      mapboxMapRef.current?.remove();
       mapboxMapRef.current = null;
+      setIsMapLoaded(false);
     };
-  }, []);
+  }, [mapboxReady]);
 
   // Fetch service areas — use shared cached hook
   const { data: sharedServiceAreas } = useServiceAreas({ activeOnly: true });
@@ -902,12 +938,17 @@ export default function Dashboard() {
                 </span>
               </div>
             </div>
-            <div 
+            <div
               ref={mapRef}
-              className="h-[300px] bg-muted rounded-lg overflow-hidden"
+              className="h-[300px] bg-muted rounded-lg overflow-hidden relative"
             >
-              {!isMapLoaded && (
-                <div className="h-full flex items-center justify-center text-muted-foreground">
+              {mapInitError && (
+                <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm text-muted-foreground">
+                  Map unavailable: {mapInitError}. Set VITE_MAPBOX_WEB_TOKEN in Lovable or MAPBOX_WEB_TOKEN on Supabase.
+                </div>
+              )}
+              {!mapInitError && !isMapLoaded && (
+                <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
                   Loading map...
                 </div>
               )}

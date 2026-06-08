@@ -18,7 +18,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createCarMarkerElement, preloadMarkerImage } from '@/lib/mapMarkers';
-import { mapboxgl, MAPBOX_STYLE } from '@/lib/mapbox';
+import { mapboxgl } from '@/lib/mapbox';
+import { createMapboxMap } from '@/lib/mapboxMap';
+import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
 
 interface Driver {
@@ -70,7 +72,10 @@ export default function FleetTracking() {
   const [serviceAreaFilter, setServiceAreaFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
+  const { isReady: mapboxReady, error: mapboxError } = useMapboxToken();
   const [isMapLoaded, setIsMapLoaded] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
+  const mapInitError = mapboxError ?? mapError;
   const [lastRefresh, setLastRefresh] = useState(new Date());
 
   const mapRef = useRef<HTMLDivElement>(null);
@@ -83,23 +88,54 @@ export default function FleetTracking() {
     preloadMarkerImage();
   }, []);
 
-  // Initialize Mapbox
+  // Initialize Mapbox after web token resolves (env or get-mapbox-token)
   useEffect(() => {
-    if (!mapRef.current || mapboxMapRef.current) return;
-    const map = new mapboxgl.Map({
-      container: mapRef.current,
-      style: MAPBOX_STYLE,
-      center: [-0.7594, 52.0406],
-      zoom: 13,
-    });
-    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
-    map.on('load', () => setIsMapLoaded(true));
-    mapboxMapRef.current = map;
+    if (!mapboxReady || !mapRef.current || mapboxMapRef.current) return;
+
+    let cancelled = false;
+    let detachResize: (() => void) | undefined;
+
+    void (async () => {
+      try {
+        const { map, detachResize: detach } = await createMapboxMap({
+          container: mapRef.current!,
+          center: [-0.7594, 52.0406],
+          zoom: 13,
+          onLoad: () => {
+            if (!cancelled) setIsMapLoaded(true);
+          },
+          onTileError: (msg) => {
+            if (!cancelled) {
+              setMapError(msg);
+              setIsMapLoaded(true);
+            }
+          },
+        });
+        if (cancelled) {
+          map.remove();
+          detach();
+          return;
+        }
+        map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
+        detachResize = detach;
+        mapboxMapRef.current = map;
+      } catch (err) {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : 'Failed to initialize map';
+        console.error('[FleetTracking] map init', msg);
+        setMapError(msg);
+        setIsMapLoaded(true);
+      }
+    })();
+
     return () => {
-      map.remove();
+      cancelled = true;
+      detachResize?.();
+      mapboxMapRef.current?.remove();
       mapboxMapRef.current = null;
+      setIsMapLoaded(false);
     };
-  }, []);
+  }, [mapboxReady]);
 
   // Fetch data
   const fetchData = useCallback(async (isBackground = false) => {
@@ -465,8 +501,20 @@ export default function FleetTracking() {
             <CardContent>
               <div
                 ref={mapRef}
-                className="w-full h-[500px] rounded-lg border border-border overflow-hidden"
-              />
+                className="w-full h-[500px] rounded-lg border border-border overflow-hidden relative"
+              >
+                {mapInitError && (
+                  <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm text-muted-foreground">
+                    Map unavailable: {mapInitError}. Set VITE_MAPBOX_WEB_TOKEN in Lovable or MAPBOX_WEB_TOKEN on Supabase.
+                  </div>
+                )}
+                {!mapInitError && !isMapLoaded && (
+                  <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
+                    <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                    Loading map...
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
         </div>
