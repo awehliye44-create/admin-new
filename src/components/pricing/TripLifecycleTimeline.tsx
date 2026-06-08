@@ -4,6 +4,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Clock, UserX, Timer, MapPin,
   AlertTriangle, Banknote, Info, Ban
 } from 'lucide-react';
@@ -18,6 +25,11 @@ interface TripLifecycleTimelineProps {
   lateCancelEnabled: boolean;
   lateCancelThresholdMinutes: number;
   lateCancelFeePence: number;
+  lateCancelAirportProtectionEnabled: boolean;
+  lateCancelAirportFareThresholdPence: number;
+  lateCancelAirportFeeType: string;
+  lateCancelAirportFeePercentage: number;
+  lateCancelAirportProtectionTrigger: string;
   cancellationApplyAfterArrivalOnly: boolean;
   noShowApplyAfterArrivalOnly: boolean;
   arrivalCancellationEnabled: boolean;
@@ -26,7 +38,7 @@ interface TripLifecycleTimelineProps {
   arrivalCancellationAfterArrivalOnly: boolean;
   recalculateOnWaiting: boolean;
   currencySymbol: string;
-  onUpdate: (key: string, value: number | boolean) => void;
+  onUpdate: (key: string, value: number | boolean | string) => void;
   // Stop Waiting & Get Paid (from stop_waiting_settings)
   stopRadiusEnabled: boolean;
   stopRadiusMeters: number;
@@ -45,6 +57,11 @@ export function TripLifecycleTimeline({
   lateCancelEnabled,
   lateCancelThresholdMinutes,
   lateCancelFeePence,
+  lateCancelAirportProtectionEnabled,
+  lateCancelAirportFareThresholdPence,
+  lateCancelAirportFeeType,
+  lateCancelAirportFeePercentage,
+  lateCancelAirportProtectionTrigger,
   noShowApplyAfterArrivalOnly,
   arrivalCancellationEnabled,
   arrivalCancellationFeePence,
@@ -346,6 +363,64 @@ export function TripLifecycleTimeline({
                 <div className="flex flex-wrap items-end gap-3">
                   <NumberInput value={lateCancelThresholdMinutes} field="late_cancel_threshold_minutes" label="Cancellation Threshold Before Pickup" unit="min" />
                   <PenceInput value={lateCancelFeePence} field="late_cancel_fee_pence" label="Late Cancellation Fee" />
+                </div>
+                <div className="mt-4 pt-3 border-t border-orange-500/20 space-y-3">
+                  <ToggleRow
+                    checked={lateCancelAirportProtectionEnabled}
+                    field="late_cancel_airport_protection_enabled"
+                    label="Airport Protection Enabled"
+                    description="Higher percentage fee for airport or long-distance prebooks after driver starts journey"
+                  />
+                  {lateCancelAirportProtectionEnabled && (
+                    <>
+                      <div className="flex flex-wrap items-end gap-3">
+                        <PenceInput
+                          value={lateCancelAirportFareThresholdPence}
+                          field="late_cancel_airport_fare_threshold_pence"
+                          label="Airport Fare Threshold"
+                        />
+                        <div className="space-y-1">
+                          <Label className="text-xs font-medium">Airport Fee Type</Label>
+                          <Select
+                            value={lateCancelAirportFeeType}
+                            onValueChange={(v) => onUpdate('late_cancel_airport_fee_type', v)}
+                          >
+                            <SelectTrigger className="h-8 w-36 text-sm">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="PERCENTAGE">Percentage</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <NumberInput
+                          value={lateCancelAirportFeePercentage}
+                          field="late_cancel_airport_fee_percentage"
+                          label="Airport Percentage"
+                          unit="%"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs font-medium">Protection Trigger</Label>
+                        <Select
+                          value={lateCancelAirportProtectionTrigger}
+                          onValueChange={(v) => onUpdate('late_cancel_airport_protection_trigger', v)}
+                        >
+                          <SelectTrigger className="h-8 w-full max-w-md text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="AFTER_DRIVER_STARTED_JOURNEY">
+                              After driver started journey to pickup
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[10px] text-muted-foreground">
+                          Applies when estimated fare ≥ threshold or trip is flagged as airport.
+                        </p>
+                      </div>
+                    </>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 text-xs">
                   <AlertTriangle className="h-3.5 w-3.5 text-orange-600 shrink-0" />

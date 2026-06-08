@@ -62,6 +62,11 @@ interface FarePricingSettings {
   late_cancel_enabled: boolean;
   late_cancel_threshold_minutes: number;
   late_cancel_fee_pence: number;
+  late_cancel_airport_protection_enabled: boolean;
+  late_cancel_airport_fare_threshold_pence: number;
+  late_cancel_airport_fee_type: string;
+  late_cancel_airport_fee_percentage: number;
+  late_cancel_airport_protection_trigger: string;
   // No-Show
   no_show_wait_time_minutes: number;
   no_show_fee_pence: number;
@@ -97,9 +102,14 @@ const DEFAULT_SETTINGS: Omit<FarePricingSettings, 'service_area_id'> = {
   cancellation_grace_period_minutes: 3,
   cancellation_fee_pence: 0,
   cancellation_apply_after_arrival_only: true,
-  late_cancel_enabled: false,
+  late_cancel_enabled: true,
   late_cancel_threshold_minutes: 30,
   late_cancel_fee_pence: 500,
+  late_cancel_airport_protection_enabled: true,
+  late_cancel_airport_fare_threshold_pence: 5000,
+  late_cancel_airport_fee_type: 'PERCENTAGE',
+  late_cancel_airport_fee_percentage: 50,
+  late_cancel_airport_protection_trigger: 'AFTER_DRIVER_STARTED_JOURNEY',
   no_show_wait_time_minutes: 5,
   no_show_fee_pence: 500,
   no_show_apply_after_arrival_only: true,
@@ -235,6 +245,16 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
           (data as any).arrival_cancellation_apply_after_free_waiting_expired ?? true,
         arrival_cancellation_after_arrival_only:
           (data as any).arrival_cancellation_after_arrival_only ?? true,
+        late_cancel_airport_protection_enabled:
+          (data as any).late_cancel_airport_protection_enabled ?? true,
+        late_cancel_airport_fare_threshold_pence:
+          (data as any).late_cancel_airport_fare_threshold_pence ?? 5000,
+        late_cancel_airport_fee_type:
+          (data as any).late_cancel_airport_fee_type ?? 'PERCENTAGE',
+        late_cancel_airport_fee_percentage:
+          (data as any).late_cancel_airport_fee_percentage ?? 50,
+        late_cancel_airport_protection_trigger:
+          (data as any).late_cancel_airport_protection_trigger ?? 'AFTER_DRIVER_STARTED_JOURNEY',
       });
     } else {
       setSettings({
@@ -337,6 +357,11 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
         late_cancel_enabled: settings.late_cancel_enabled,
         late_cancel_threshold_minutes: settings.late_cancel_threshold_minutes,
         late_cancel_fee_pence: settings.late_cancel_fee_pence,
+        late_cancel_airport_protection_enabled: settings.late_cancel_airport_protection_enabled,
+        late_cancel_airport_fare_threshold_pence: settings.late_cancel_airport_fare_threshold_pence,
+        late_cancel_airport_fee_type: settings.late_cancel_airport_fee_type,
+        late_cancel_airport_fee_percentage: settings.late_cancel_airport_fee_percentage,
+        late_cancel_airport_protection_trigger: settings.late_cancel_airport_protection_trigger,
         no_show_wait_time_minutes: settings.no_show_wait_time_minutes,
         no_show_fee_pence: settings.no_show_fee_pence,
         no_show_apply_after_arrival_only: settings.no_show_apply_after_arrival_only,
@@ -646,6 +671,11 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
             lateCancelEnabled={settings.late_cancel_enabled}
             lateCancelThresholdMinutes={settings.late_cancel_threshold_minutes}
             lateCancelFeePence={settings.late_cancel_fee_pence}
+            lateCancelAirportProtectionEnabled={settings.late_cancel_airport_protection_enabled}
+            lateCancelAirportFareThresholdPence={settings.late_cancel_airport_fare_threshold_pence}
+            lateCancelAirportFeeType={settings.late_cancel_airport_fee_type}
+            lateCancelAirportFeePercentage={settings.late_cancel_airport_fee_percentage}
+            lateCancelAirportProtectionTrigger={settings.late_cancel_airport_protection_trigger}
             cancellationApplyAfterArrivalOnly={settings.cancellation_apply_after_arrival_only}
             noShowApplyAfterArrivalOnly={settings.no_show_apply_after_arrival_only}
             arrivalCancellationEnabled={settings.arrival_cancellation_enabled}
@@ -827,6 +857,22 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
                     <span className="text-muted-foreground">Late Fee</span>
                     <span className="font-mono">{symbol}{(settings.late_cancel_fee_pence / 100).toFixed(2)}</span>
                   </div>
+                  {settings.late_cancel_airport_protection_enabled && (
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Airport Protection</span>
+                        <Badge variant="outline" className="text-[10px]">On</Badge>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Airport Threshold</span>
+                        <span className="font-mono">{symbol}{(settings.late_cancel_airport_fare_threshold_pence / 100).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Airport Fee</span>
+                        <span>{settings.late_cancel_airport_fee_percentage}%</span>
+                      </div>
+                    </>
+                  )}
                 </>
               )}
               <Separator />
