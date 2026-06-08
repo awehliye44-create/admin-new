@@ -397,11 +397,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
     );
   }
 
-  if (!settings) return null;
-
   return (
-    <div className="space-y-6">
-      {/* Vehicle Type Selector — render even if no settings selected yet */}
     <div className="space-y-6">
       {/* Vehicle Type Selector */}
       <Card>
