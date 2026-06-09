@@ -195,6 +195,81 @@ export function FareSimulatorCard({ settings, currencySymbol, distanceUnit }: Fa
         <CardDescription className="text-xs">Test fare calculations with current settings</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        {/* Route-based inputs (Mapbox) */}
+        <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <Route className="h-3.5 w-3.5 text-primary" />
+            Route (Mapbox)
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Pickup</Label>
+            <Input
+              placeholder="e.g. Milton Keynes Central Station"
+              value={pickup}
+              onChange={(e) => setPickup(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Dropoff</Label>
+            <Input
+              placeholder="e.g. Bletchley Park"
+              value={dropoff}
+              onChange={(e) => setDropoff(e.target.value)}
+            />
+          </div>
+
+          <Collapsible open={stopsOpen} onOpenChange={setStopsOpen}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="w-full justify-between h-8 px-2">
+                <span className="text-xs flex items-center gap-1.5">
+                  <MapPin className="h-3 w-3" />
+                  Stops {stopAddresses.length > 0 && `(${stopAddresses.length})`}
+                </span>
+                <ChevronDown className={`h-3 w-3 transition-transform ${stopsOpen ? 'rotate-180' : ''}`} />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-2 pt-2">
+              {stopAddresses.map((s, i) => (
+                <div key={i} className="flex gap-1">
+                  <Input
+                    placeholder={`Stop ${i + 1}`}
+                    value={s}
+                    onChange={(e) => {
+                      const next = [...stopAddresses];
+                      next[i] = e.target.value;
+                      setStopAddresses(next);
+                    }}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setStopAddresses(stopAddresses.filter((_, idx) => idx !== i))}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => setStopAddresses([...stopAddresses, ''])}
+              >
+                <Plus className="h-3 w-3 mr-1" /> Add Stop
+              </Button>
+            </CollapsibleContent>
+          </Collapsible>
+
+          <Button size="sm" variant="secondary" className="w-full" onClick={calculateRoute} disabled={routeLoading}>
+            {routeLoading ? (
+              <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Calculating route…</>
+            ) : (
+              <><Route className="h-3 w-3 mr-1" /> Calculate Route from Mapbox</>
+            )}
+          </Button>
+        </div>
+
+
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <Label className="text-xs">Distance ({unitShort})</Label>
