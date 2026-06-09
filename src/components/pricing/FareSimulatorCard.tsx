@@ -5,7 +5,35 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Calculator, RotateCcw, AlertCircle } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Calculator, RotateCcw, AlertCircle, MapPin, Plus, Trash2, ChevronDown, Route, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
+
+const SIMULATOR_MAPBOX_TOKEN =
+  'pk.eyJ1Ijoib25lY2FiMjAyNSIsImEiOiJjbWczcno5MnIwa3dmMnBxeXltZ3IzdjNkIn0.uLHBCoqnrHCt1lsIYKz3gw';
+
+async function geocode(query: string): Promise<[number, number]> {
+  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
+    query,
+  )}.json?limit=1&access_token=${SIMULATOR_MAPBOX_TOKEN}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Geocoding failed for "${query}"`);
+  const data = await res.json();
+  const f = data?.features?.[0];
+  if (!f?.center) throw new Error(`No results for "${query}"`);
+  return f.center as [number, number]; // [lng, lat]
+}
+
+async function directions(points: [number, number][]): Promise<{ km: number; min: number }> {
+  const coords = points.map((p) => `${p[0]},${p[1]}`).join(';');
+  const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?overview=false&access_token=${SIMULATOR_MAPBOX_TOKEN}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Directions failed (HTTP ${res.status})`);
+  const data = await res.json();
+  const r = data?.routes?.[0];
+  if (!r) throw new Error('No route found');
+  return { km: r.distance / 1000, min: r.duration / 60 };
+}
 
 interface DistanceBand {
   from: number;
