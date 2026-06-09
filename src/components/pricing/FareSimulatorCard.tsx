@@ -102,6 +102,12 @@ export function FareSimulatorCard({ settings, currencySymbol, distanceUnit }: Fa
   const [stops, setStops] = useState(0);
   const [showResult, setShowResult] = useState(false);
 
+  const [pickup, setPickup] = useState('');
+  const [dropoff, setDropoff] = useState('');
+  const [stopAddresses, setStopAddresses] = useState<string[]>([]);
+  const [stopsOpen, setStopsOpen] = useState(false);
+  const [routeLoading, setRouteLoading] = useState(false);
+
   const resultRef = useRef<HTMLDivElement>(null);
 
   const calculate = () => {
@@ -116,8 +122,36 @@ export function FareSimulatorCard({ settings, currencySymbol, distanceUnit }: Fa
     setDurMin(15);
     setWaitMin(0);
     setStops(0);
+    setPickup('');
+    setDropoff('');
+    setStopAddresses([]);
     setShowResult(false);
   };
+
+  const calculateRoute = async () => {
+    if (!pickup.trim() || !dropoff.trim()) {
+      toast.error('Enter pickup and dropoff addresses');
+      return;
+    }
+    setRouteLoading(true);
+    try {
+      const validStops = stopAddresses.map((s) => s.trim()).filter(Boolean);
+      const addresses = [pickup.trim(), ...validStops, dropoff.trim()];
+      const coords: [number, number][] = [];
+      for (const a of addresses) coords.push(await geocode(a));
+      const { km, min } = await directions(coords);
+      const displayDist = isMiles ? km / KM_PER_MILE : km;
+      setDistKm(Math.round(displayDist * 100) / 100);
+      setDurMin(Math.round(min));
+      setStops(validStops.length);
+      toast.success(`Route: ${displayDist.toFixed(2)} ${unitShort}, ${Math.round(min)} min`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to calculate route');
+    } finally {
+      setRouteLoading(false);
+    }
+  };
+
 
   // Compute fare
   const base = settings.base_fare_pence;
