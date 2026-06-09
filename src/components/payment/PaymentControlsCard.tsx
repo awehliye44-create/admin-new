@@ -175,7 +175,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
           .eq('trip_id', tripId),
       ]);
       if (tripRes.error) throw tripRes.error;
-      const payments = paymentsRes.data ?? [];
+      const payments = (paymentsRes.data ?? []) as unknown as Parameters<typeof summarizeTripPayments>[0];
       const summary = summarizeTripPayments(payments);
       return {
         ...(tripRes.data as TripCaptureFields),
