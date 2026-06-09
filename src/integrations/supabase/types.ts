@@ -4520,6 +4520,10 @@ export type Database = {
       fare_pricing_settings: {
         Row: {
           airport_charge_pence: number
+          arrival_cancellation_after_arrival_only: boolean
+          arrival_cancellation_apply_after_free_waiting_expired: boolean
+          arrival_cancellation_enabled: boolean
+          arrival_cancellation_fee_pence: number
           base_fare_pence: number
           booking_fee_pence: number
           cancellation_apply_after_arrival_only: boolean
@@ -4533,6 +4537,11 @@ export type Database = {
           extra_stop_flat_fee_pence: number
           free_waiting_minutes: number
           id: string
+          late_cancel_airport_fare_threshold_pence: number
+          late_cancel_airport_fee_percentage: number
+          late_cancel_airport_fee_type: string
+          late_cancel_airport_protection_enabled: boolean
+          late_cancel_airport_protection_trigger: string
           late_cancel_enabled: boolean
           late_cancel_fee_pence: number
           late_cancel_threshold_minutes: number
@@ -4562,6 +4571,10 @@ export type Database = {
         }
         Insert: {
           airport_charge_pence?: number
+          arrival_cancellation_after_arrival_only?: boolean
+          arrival_cancellation_apply_after_free_waiting_expired?: boolean
+          arrival_cancellation_enabled?: boolean
+          arrival_cancellation_fee_pence?: number
           base_fare_pence?: number
           booking_fee_pence?: number
           cancellation_apply_after_arrival_only?: boolean
@@ -4575,6 +4588,11 @@ export type Database = {
           extra_stop_flat_fee_pence?: number
           free_waiting_minutes?: number
           id?: string
+          late_cancel_airport_fare_threshold_pence?: number
+          late_cancel_airport_fee_percentage?: number
+          late_cancel_airport_fee_type?: string
+          late_cancel_airport_protection_enabled?: boolean
+          late_cancel_airport_protection_trigger?: string
           late_cancel_enabled?: boolean
           late_cancel_fee_pence?: number
           late_cancel_threshold_minutes?: number
@@ -4604,6 +4622,10 @@ export type Database = {
         }
         Update: {
           airport_charge_pence?: number
+          arrival_cancellation_after_arrival_only?: boolean
+          arrival_cancellation_apply_after_free_waiting_expired?: boolean
+          arrival_cancellation_enabled?: boolean
+          arrival_cancellation_fee_pence?: number
           base_fare_pence?: number
           booking_fee_pence?: number
           cancellation_apply_after_arrival_only?: boolean
@@ -4617,6 +4639,11 @@ export type Database = {
           extra_stop_flat_fee_pence?: number
           free_waiting_minutes?: number
           id?: string
+          late_cancel_airport_fare_threshold_pence?: number
+          late_cancel_airport_fee_percentage?: number
+          late_cancel_airport_fee_type?: string
+          late_cancel_airport_protection_enabled?: boolean
+          late_cancel_airport_protection_trigger?: string
           late_cancel_enabled?: boolean
           late_cancel_fee_pence?: number
           late_cancel_threshold_minutes?: number
@@ -4760,8 +4787,12 @@ export type Database = {
       }
       global_dispatch_settings: {
         Row: {
+          allow_airport_stacking: boolean
           allow_new_ride_while_driver_active: boolean
           allow_same_direction_only: boolean
+          allow_scheduled_stacking: boolean
+          allow_stacking_during_pickup_waiting: boolean
+          allow_stacking_during_stop_waiting: boolean
           block_multiple_active_rides: boolean
           cancel_protection: boolean
           created_at: string
@@ -4811,8 +4842,12 @@ export type Database = {
           wave3_size: number
         }
         Insert: {
+          allow_airport_stacking?: boolean
           allow_new_ride_while_driver_active?: boolean
           allow_same_direction_only?: boolean
+          allow_scheduled_stacking?: boolean
+          allow_stacking_during_pickup_waiting?: boolean
+          allow_stacking_during_stop_waiting?: boolean
           block_multiple_active_rides?: boolean
           cancel_protection?: boolean
           created_at?: string
@@ -4862,8 +4897,12 @@ export type Database = {
           wave3_size?: number
         }
         Update: {
+          allow_airport_stacking?: boolean
           allow_new_ride_while_driver_active?: boolean
           allow_same_direction_only?: boolean
+          allow_scheduled_stacking?: boolean
+          allow_stacking_during_pickup_waiting?: boolean
+          allow_stacking_during_stop_waiting?: boolean
           block_multiple_active_rides?: boolean
           cancel_protection?: boolean
           created_at?: string
@@ -10102,6 +10141,10 @@ export type Database = {
           airport_charge_pence: number
           applied_offer_code: string | null
           applied_offer_id: string | null
+          arrival_cancellation_applied: boolean
+          arrival_cancellation_applied_at: string | null
+          arrival_cancellation_fee: number | null
+          arrival_cancellation_reason: string | null
           arrived_at: string | null
           assigned_at: string | null
           authorised_amount_pence: number | null
@@ -10166,6 +10209,7 @@ export type Database = {
           driver_passenger_rating_skipped: boolean | null
           driver_passenger_rating_submitted: boolean | null
           driver_payment_confirmed_at: string | null
+          driver_started_journey_to_pickup_at: string | null
           driver_tier_commission_percent: number | null
           driver_total_earnings_pence: number | null
           dropoff_address: string
@@ -10313,6 +10357,10 @@ export type Database = {
           airport_charge_pence?: number
           applied_offer_code?: string | null
           applied_offer_id?: string | null
+          arrival_cancellation_applied?: boolean
+          arrival_cancellation_applied_at?: string | null
+          arrival_cancellation_fee?: number | null
+          arrival_cancellation_reason?: string | null
           arrived_at?: string | null
           assigned_at?: string | null
           authorised_amount_pence?: number | null
@@ -10377,6 +10425,7 @@ export type Database = {
           driver_passenger_rating_skipped?: boolean | null
           driver_passenger_rating_submitted?: boolean | null
           driver_payment_confirmed_at?: string | null
+          driver_started_journey_to_pickup_at?: string | null
           driver_tier_commission_percent?: number | null
           driver_total_earnings_pence?: number | null
           dropoff_address: string
@@ -10524,6 +10573,10 @@ export type Database = {
           airport_charge_pence?: number
           applied_offer_code?: string | null
           applied_offer_id?: string | null
+          arrival_cancellation_applied?: boolean
+          arrival_cancellation_applied_at?: string | null
+          arrival_cancellation_fee?: number | null
+          arrival_cancellation_reason?: string | null
           arrived_at?: string | null
           assigned_at?: string | null
           authorised_amount_pence?: number | null
@@ -10588,6 +10641,7 @@ export type Database = {
           driver_passenger_rating_skipped?: boolean | null
           driver_passenger_rating_submitted?: boolean | null
           driver_payment_confirmed_at?: string | null
+          driver_started_journey_to_pickup_at?: string | null
           driver_tier_commission_percent?: number | null
           driver_total_earnings_pence?: number | null
           dropoff_address?: string
@@ -12790,6 +12844,10 @@ export type Database = {
       finalize_customer_onboarding: {
         Args: { _user_id: string }
         Returns: string
+      }
+      finalize_driver_early_cashout_paid: {
+        Args: { p_cashout_id: string }
+        Returns: Json
       }
       finalize_negotiated_fare: {
         Args: {
