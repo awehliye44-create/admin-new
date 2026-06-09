@@ -5,7 +5,35 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Calculator, RotateCcw, AlertCircle } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Calculator, RotateCcw, AlertCircle, MapPin, Plus, Trash2, ChevronDown, Route, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
+
+const SIMULATOR_MAPBOX_TOKEN =
+  'pk.eyJ1Ijoib25lY2FiMjAyNSIsImEiOiJjbWczcno5MnIwa3dmMnBxeXltZ3IzdjNkIn0.uLHBCoqnrHCt1lsIYKz3gw';
+
+async function geocode(query: string): Promise<[number, number]> {
+  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
+    query,
+  )}.json?limit=1&access_token=${SIMULATOR_MAPBOX_TOKEN}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Geocoding failed for "${query}"`);
+  const data = await res.json();
+  const f = data?.features?.[0];
+  if (!f?.center) throw new Error(`No results for "${query}"`);
+  return f.center as [number, number]; // [lng, lat]
+}
+
+async function directions(points: [number, number][]): Promise<{ km: number; min: number }> {
+  const coords = points.map((p) => `${p[0]},${p[1]}`).join(';');
+  const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?overview=false&access_token=${SIMULATOR_MAPBOX_TOKEN}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Directions failed (HTTP ${res.status})`);
+  const data = await res.json();
+  const r = data?.routes?.[0];
+  if (!r) throw new Error('No route found');
+  return { km: r.distance / 1000, min: r.duration / 60 };
+}
 
 interface DistanceBand {
   from: number;
@@ -74,6 +102,12 @@ export function FareSimulatorCard({ settings, currencySymbol, distanceUnit }: Fa
   const [stops, setStops] = useState(0);
   const [showResult, setShowResult] = useState(false);
 
+  const [pickup, setPickup] = useState('');
+  const [dropoff, setDropoff] = useState('');
+  const [stopAddresses, setStopAddresses] = useState<string[]>([]);
+  const [stopsOpen, setStopsOpen] = useState(false);
+  const [routeLoading, setRouteLoading] = useState(false);
+
   const resultRef = useRef<HTMLDivElement>(null);
 
   const calculate = () => {
@@ -88,8 +122,36 @@ export function FareSimulatorCard({ settings, currencySymbol, distanceUnit }: Fa
     setDurMin(15);
     setWaitMin(0);
     setStops(0);
+    setPickup('');
+    setDropoff('');
+    setStopAddresses([]);
     setShowResult(false);
   };
+
+  const calculateRoute = async () => {
+    if (!pickup.trim() || !dropoff.trim()) {
+      toast.error('Enter pickup and dropoff addresses');
+      return;
+    }
+    setRouteLoading(true);
+    try {
+      const validStops = stopAddresses.map((s) => s.trim()).filter(Boolean);
+      const addresses = [pickup.trim(), ...validStops, dropoff.trim()];
+      const coords: [number, number][] = [];
+      for (const a of addresses) coords.push(await geocode(a));
+      const { km, min } = await directions(coords);
+      const displayDist = isMiles ? km / KM_PER_MILE : km;
+      setDistKm(Math.round(displayDist * 100) / 100);
+      setDurMin(Math.round(min));
+      setStops(validStops.length);
+      toast.success(`Route: ${displayDist.toFixed(2)} ${unitShort}, ${Math.round(min)} min`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to calculate route');
+    } finally {
+      setRouteLoading(false);
+    }
+  };
+
 
   // Compute fare
   const base = settings.base_fare_pence;
@@ -133,6 +195,81 @@ export function FareSimulatorCard({ settings, currencySymbol, distanceUnit }: Fa
         <CardDescription className="text-xs">Test fare calculations with current settings</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        {/* Route-based inputs (Mapbox) */}
+        <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <Route className="h-3.5 w-3.5 text-primary" />
+            Route (Mapbox)
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Pickup</Label>
+            <Input
+              placeholder="e.g. Milton Keynes Central Station"
+              value={pickup}
+              onChange={(e) => setPickup(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Dropoff</Label>
+            <Input
+              placeholder="e.g. Bletchley Park"
+              value={dropoff}
+              onChange={(e) => setDropoff(e.target.value)}
+            />
+          </div>
+
+          <Collapsible open={stopsOpen} onOpenChange={setStopsOpen}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="w-full justify-between h-8 px-2">
+                <span className="text-xs flex items-center gap-1.5">
+                  <MapPin className="h-3 w-3" />
+                  Stops {stopAddresses.length > 0 && `(${stopAddresses.length})`}
+                </span>
+                <ChevronDown className={`h-3 w-3 transition-transform ${stopsOpen ? 'rotate-180' : ''}`} />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-2 pt-2">
+              {stopAddresses.map((s, i) => (
+                <div key={i} className="flex gap-1">
+                  <Input
+                    placeholder={`Stop ${i + 1}`}
+                    value={s}
+                    onChange={(e) => {
+                      const next = [...stopAddresses];
+                      next[i] = e.target.value;
+                      setStopAddresses(next);
+                    }}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setStopAddresses(stopAddresses.filter((_, idx) => idx !== i))}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => setStopAddresses([...stopAddresses, ''])}
+              >
+                <Plus className="h-3 w-3 mr-1" /> Add Stop
+              </Button>
+            </CollapsibleContent>
+          </Collapsible>
+
+          <Button size="sm" variant="secondary" className="w-full" onClick={calculateRoute} disabled={routeLoading}>
+            {routeLoading ? (
+              <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Calculating route…</>
+            ) : (
+              <><Route className="h-3 w-3 mr-1" /> Calculate Route from Mapbox</>
+            )}
+          </Button>
+        </div>
+
+
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <Label className="text-xs">Distance ({unitShort})</Label>
