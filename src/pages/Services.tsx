@@ -906,7 +906,12 @@ export default function Services() {
                     maxLength={5}
                     className="uppercase"
                   />
-                  <p className="text-xs text-muted-foreground">Used for trip numbers (e.g., NYC0001)</p>
+                  <p className="text-xs text-muted-foreground">
+                    Trip IDs start with this code (e.g., {formData.code ? `${formData.code}-260609-XXX` : 'MK-260609-XXX'})
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Driver IDs start with this code (e.g., {formData.code ? `${formData.code}001` : 'MK001'})
+                  </p>
                 </div>
               </div>
 
