@@ -480,6 +480,72 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
               </div>
             </div>
 
+            {/* Extra-payment summary (with legacy fallbacks) */}
+            <div
+              className={`rounded-md border p-3 text-xs space-y-2 ${
+                paymentFullyPaid
+                  ? 'border-green-500/40 bg-green-500/5'
+                  : extraDuePence > 0
+                    ? 'border-amber-400 bg-amber-500/10'
+                    : 'bg-muted/30'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-medium">Extra payment reconciliation</span>
+                {paymentFullyPaid ? (
+                  <Badge variant="outline" className="bg-green-500/10 text-green-700 border-green-500/30">
+                    Fully paid / Captured
+                  </Badge>
+                ) : extraDuePence > 0 ? (
+                  <Badge variant="outline" className="bg-amber-500/10 text-amber-700 border-amber-500/40">
+                    Partially paid
+                  </Badge>
+                ) : (
+                  <Badge variant="outline">No fare recorded</Badge>
+                )}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-1">
+                <div className="flex justify-between"><span className="text-muted-foreground">Final fare</span><span>{formatPence(finalFarePence, currency)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Authorised hold</span><span>{formatPence(authorisedPence, currency)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Captured</span><span>{formatPence(capturedPence, currency)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Released buffer</span><span>{formatPence(releasedBufferPence, currency)}</span></div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Extra amount due</span>
+                  <span className={extraDuePence > 0 ? 'text-amber-700 font-semibold' : ''}>{formatPence(extraDuePence, currency)}</span>
+                </div>
+              </div>
+              {isLegacyTrip && (
+                <div className="text-[11px] text-muted-foreground italic">
+                  Legacy reconciled from Stripe capture — final fare derived from captured amount.
+                </div>
+              )}
+              {isLegacyIncomplete && (
+                <div className="text-[11px] text-amber-700 italic">
+                  Legacy trip — payment data incomplete. Manual admin confirmation required before any extra charge.
+                </div>
+              )}
+              {isHistoricalShortfall && (
+                <div className="rounded border border-amber-400 bg-amber-500/10 p-2 text-amber-800 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>Historical shortfall detected — final fare exceeds captured amount and authorised buffer is exhausted. No automatic charge will be made.</span>
+                </div>
+              )}
+              {extraDuePence > 0 && !isLegacyIncomplete && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Button size="sm" onClick={openExtraPayment} disabled={actionMutation.isPending}>
+                    <PlusCircle className="h-4 w-4 mr-1" /> Request extra payment
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={openWaive} disabled={actionMutation.isPending}>
+                    <MinusCircle className="h-4 w-4 mr-1" /> Waive extra amount
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={openInternalAdjustment} disabled={actionMutation.isPending}>
+                    <FileEdit className="h-4 w-4 mr-1" /> Mark as internal adjustment
+                  </Button>
+                </div>
+              )}
+            </div>
+
+
             {/* Detailed breakdown */}
             <div className="rounded-md border bg-muted/30 p-3 text-xs space-y-1.5">
               <div className="flex justify-between"><span className="text-muted-foreground">Final fare</span><span>{formatPence(state.final_fare_pence, currency)}</span></div>
