@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import {
   ChevronDown, RefreshCw, Banknote, Undo2, Pencil, ShieldCheck, AlertTriangle, XCircle, ArrowDownToLine,
+  PlusCircle, MinusCircle, FileEdit,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
