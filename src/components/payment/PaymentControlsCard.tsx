@@ -172,18 +172,14 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
           .single(),
         supabase
           .from('payments')
-          .select('captured_amount_pence, amount_pence, authorised_amount_pence, status, fee_type, metadata')
+          .select('captured_amount_pence, amount_pence, status, fee_type, metadata')
           .eq('trip_id', tripId),
       ]);
       if (tripRes.error) throw tripRes.error;
       const payments = (paymentsRes.data ?? []) as unknown as Parameters<typeof summarizeTripPayments>[0];
       const summary = summarizeTripPayments(payments);
-      const paymentAuthorised = (paymentsRes.data ?? [])
-        .reduce((acc: number, p: { authorised_amount_pence?: number | null }) =>
-          acc + (p.authorised_amount_pence ?? 0), 0);
       return {
         ...(tripRes.data as TripCaptureFields & { authorised_amount_pence?: number | null; estimated_fare_pence?: number | null }),
-        payment_authorised_pence: paymentAuthorised,
         payment_captured_pence: summary.capturedTotalPence,
         payment_tip_pence: summary.tipFromMeta,
         payment_count: summary.paymentCount,
