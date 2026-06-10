@@ -261,6 +261,41 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
     ? settlementWarningLabel(state.stripe_settlement_warning, state.stripe_settlement_warning_label)
     : null;
 
+  // ---- Extra-payment derivation (with legacy/past-trip fallbacks) ----
+  const ctx = captureContext as (TripCaptureFields & {
+    authorised_amount_pence?: number | null;
+    estimated_fare_pence?: number | null;
+  }) | undefined;
+  const authorisedPence = Math.max(
+    0,
+    state?.authorized_pence ?? ctx?.authorised_amount_pence ?? 0,
+  );
+  const capturedPence = Math.max(
+    0,
+    state?.captured_pence ?? ctx?.capture_amount_pence ?? getCapturedTotalPence(ctx ?? {}) ?? 0,
+  );
+  const finalFarePence = Math.max(
+    0,
+    ctx?.final_fare_pence
+      || state?.final_fare_pence
+      || ctx?.capture_amount_pence
+      || capturedPence
+      || ctx?.estimated_fare_pence
+      || 0,
+  );
+  const extraDuePence = Math.max(0, finalFarePence - capturedPence);
+  const releasedBufferPence = Math.max(0, authorisedPence - capturedPence);
+  const paymentFullyPaid = capturedPence >= finalFarePence && finalFarePence > 0;
+  const isLegacyTrip = !!ctx
+    && (ctx.final_fare_pence == null || ctx.final_fare_pence === 0)
+    && capturedPence > 0;
+  const isLegacyIncomplete = !!ctx
+    && (ctx.final_fare_pence == null || ctx.final_fare_pence === 0)
+    && capturedPence === 0
+    && authorisedPence === 0;
+  const isHistoricalShortfall = !!ctx && extraDuePence > 0 && capturedPence > 0
+    && authorisedPence > 0 && releasedBufferPence === 0;
+
   const openMode = (m: Mode) => {
     setMode(m);
     setReason('');
@@ -270,6 +305,22 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
     else if (m === 'partial_refund') setAmountInput('');
     else if (m === 'edit') setAmountInput((state.final_fare_pence / 100).toFixed(2));
     else setAmountInput('');
+  };
+
+  const openExtraPayment = () => {
+    setMode('edit');
+    setReason('');
+    setAmountInput((finalFarePence / 100).toFixed(2));
+  };
+  const openWaive = () => {
+    setMode('edit');
+    setReason('Waive extra amount — set fare to captured total. ');
+    setAmountInput((capturedPence / 100).toFixed(2));
+  };
+  const openInternalAdjustment = () => {
+    setMode('edit');
+    setReason('Internal adjustment — ');
+    setAmountInput((finalFarePence / 100).toFixed(2));
   };
 
   const submit = () => {
