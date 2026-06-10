@@ -12661,10 +12661,6 @@ export type Database = {
       current_customer_id: { Args: never; Returns: string }
       current_driver_id: { Args: never; Returns: string }
       current_driver_profile_id: { Args: never; Returns: string }
-      customer_counter_ride_offer: {
-        Args: { p_offer_id: string; p_selected_fare_pence: number }
-        Returns: Json
-      }
       decline_ride_offer:
         | { Args: { p_driver_id: string; p_offer_id: string }; Returns: Json }
         | {
@@ -13507,6 +13503,10 @@ export type Database = {
       resolve_driver_tier_commission_percent: {
         Args: { p_driver_id: string }
         Returns: number
+      }
+      resolve_negotiation_rebroadcast_fare: {
+        Args: { p_trip_id: string }
+        Returns: Json
       }
       resolve_trip_service_area_from_pickup: {
         Args: {
