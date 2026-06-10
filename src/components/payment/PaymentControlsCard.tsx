@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import {
   ChevronDown, RefreshCw, Banknote, Undo2, Pencil, ShieldCheck, AlertTriangle, XCircle, ArrowDownToLine,
+  PlusCircle, MinusCircle, FileEdit,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -166,7 +167,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
       const [tripRes, paymentsRes] = await Promise.all([
         supabase
           .from('trips')
-          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee')
+          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, authorised_amount_pence, estimated_fare_pence, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee')
           .eq('id', tripId)
           .single(),
         supabase
@@ -178,7 +179,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
       const payments = (paymentsRes.data ?? []) as unknown as Parameters<typeof summarizeTripPayments>[0];
       const summary = summarizeTripPayments(payments);
       return {
-        ...(tripRes.data as TripCaptureFields),
+        ...(tripRes.data as TripCaptureFields & { authorised_amount_pence?: number | null; estimated_fare_pence?: number | null }),
         payment_captured_pence: summary.capturedTotalPence,
         payment_tip_pence: summary.tipFromMeta,
         payment_count: summary.paymentCount,
@@ -260,6 +261,41 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
     ? settlementWarningLabel(state.stripe_settlement_warning, state.stripe_settlement_warning_label)
     : null;
 
+  // ---- Extra-payment derivation (with legacy/past-trip fallbacks) ----
+  const ctx = captureContext as (TripCaptureFields & {
+    authorised_amount_pence?: number | null;
+    estimated_fare_pence?: number | null;
+  }) | undefined;
+  const authorisedPence = Math.max(
+    0,
+    state?.authorized_pence ?? ctx?.authorised_amount_pence ?? 0,
+  );
+  const capturedPence = Math.max(
+    0,
+    state?.captured_pence ?? ctx?.capture_amount_pence ?? getCapturedTotalPence(ctx ?? {}) ?? 0,
+  );
+  const finalFarePence = Math.max(
+    0,
+    ctx?.final_fare_pence
+      || state?.final_fare_pence
+      || ctx?.capture_amount_pence
+      || capturedPence
+      || ctx?.estimated_fare_pence
+      || 0,
+  );
+  const extraDuePence = Math.max(0, finalFarePence - capturedPence);
+  const releasedBufferPence = Math.max(0, authorisedPence - capturedPence);
+  const paymentFullyPaid = capturedPence >= finalFarePence && finalFarePence > 0;
+  const isLegacyTrip = !!ctx
+    && (ctx.final_fare_pence == null || ctx.final_fare_pence === 0)
+    && capturedPence > 0;
+  const isLegacyIncomplete = !!ctx
+    && (ctx.final_fare_pence == null || ctx.final_fare_pence === 0)
+    && capturedPence === 0
+    && authorisedPence === 0;
+  const isHistoricalShortfall = !!ctx && extraDuePence > 0 && capturedPence > 0
+    && authorisedPence > 0 && releasedBufferPence === 0;
+
   const openMode = (m: Mode) => {
     setMode(m);
     setReason('');
@@ -269,6 +305,22 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
     else if (m === 'partial_refund') setAmountInput('');
     else if (m === 'edit') setAmountInput((state.final_fare_pence / 100).toFixed(2));
     else setAmountInput('');
+  };
+
+  const openExtraPayment = () => {
+    setMode('edit');
+    setReason('');
+    setAmountInput((finalFarePence / 100).toFixed(2));
+  };
+  const openWaive = () => {
+    setMode('edit');
+    setReason('Waive extra amount — set fare to captured total. ');
+    setAmountInput((capturedPence / 100).toFixed(2));
+  };
+  const openInternalAdjustment = () => {
+    setMode('edit');
+    setReason('Internal adjustment — ');
+    setAmountInput((finalFarePence / 100).toFixed(2));
   };
 
   const submit = () => {
@@ -427,6 +479,72 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
                 <div className="font-semibold">{formatPence(state.refundable_pence, currency)}</div>
               </div>
             </div>
+
+            {/* Extra-payment summary (with legacy fallbacks) */}
+            <div
+              className={`rounded-md border p-3 text-xs space-y-2 ${
+                paymentFullyPaid
+                  ? 'border-green-500/40 bg-green-500/5'
+                  : extraDuePence > 0
+                    ? 'border-amber-400 bg-amber-500/10'
+                    : 'bg-muted/30'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-medium">Extra payment reconciliation</span>
+                {paymentFullyPaid ? (
+                  <Badge variant="outline" className="bg-green-500/10 text-green-700 border-green-500/30">
+                    Fully paid / Captured
+                  </Badge>
+                ) : extraDuePence > 0 ? (
+                  <Badge variant="outline" className="bg-amber-500/10 text-amber-700 border-amber-500/40">
+                    Partially paid
+                  </Badge>
+                ) : (
+                  <Badge variant="outline">No fare recorded</Badge>
+                )}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-1">
+                <div className="flex justify-between"><span className="text-muted-foreground">Final fare</span><span>{formatPence(finalFarePence, currency)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Authorised hold</span><span>{formatPence(authorisedPence, currency)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Captured</span><span>{formatPence(capturedPence, currency)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Released buffer</span><span>{formatPence(releasedBufferPence, currency)}</span></div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Extra amount due</span>
+                  <span className={extraDuePence > 0 ? 'text-amber-700 font-semibold' : ''}>{formatPence(extraDuePence, currency)}</span>
+                </div>
+              </div>
+              {isLegacyTrip && (
+                <div className="text-[11px] text-muted-foreground italic">
+                  Legacy reconciled from Stripe capture — final fare derived from captured amount.
+                </div>
+              )}
+              {isLegacyIncomplete && (
+                <div className="text-[11px] text-amber-700 italic">
+                  Legacy trip — payment data incomplete. Manual admin confirmation required before any extra charge.
+                </div>
+              )}
+              {isHistoricalShortfall && (
+                <div className="rounded border border-amber-400 bg-amber-500/10 p-2 text-amber-800 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>Historical shortfall detected — final fare exceeds captured amount and authorised buffer is exhausted. No automatic charge will be made.</span>
+                </div>
+              )}
+              {extraDuePence > 0 && !isLegacyIncomplete && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Button size="sm" onClick={openExtraPayment} disabled={actionMutation.isPending}>
+                    <PlusCircle className="h-4 w-4 mr-1" /> Request extra payment
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={openWaive} disabled={actionMutation.isPending}>
+                    <MinusCircle className="h-4 w-4 mr-1" /> Waive extra amount
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={openInternalAdjustment} disabled={actionMutation.isPending}>
+                    <FileEdit className="h-4 w-4 mr-1" /> Mark as internal adjustment
+                  </Button>
+                </div>
+              )}
+            </div>
+
 
             {/* Detailed breakdown */}
             <div className="rounded-md border bg-muted/30 p-3 text-xs space-y-1.5">
