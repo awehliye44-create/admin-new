@@ -167,19 +167,23 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
       const [tripRes, paymentsRes] = await Promise.all([
         supabase
           .from('trips')
-          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee')
+          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, authorised_amount_pence, estimated_fare_pence, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee')
           .eq('id', tripId)
           .single(),
         supabase
           .from('payments')
-          .select('captured_amount_pence, amount_pence, status, fee_type, metadata')
+          .select('captured_amount_pence, amount_pence, authorised_amount_pence, status, fee_type, metadata')
           .eq('trip_id', tripId),
       ]);
       if (tripRes.error) throw tripRes.error;
       const payments = (paymentsRes.data ?? []) as unknown as Parameters<typeof summarizeTripPayments>[0];
       const summary = summarizeTripPayments(payments);
+      const paymentAuthorised = (paymentsRes.data ?? [])
+        .reduce((acc: number, p: { authorised_amount_pence?: number | null }) =>
+          acc + (p.authorised_amount_pence ?? 0), 0);
       return {
-        ...(tripRes.data as TripCaptureFields),
+        ...(tripRes.data as TripCaptureFields & { authorised_amount_pence?: number | null; estimated_fare_pence?: number | null }),
+        payment_authorised_pence: paymentAuthorised,
         payment_captured_pence: summary.capturedTotalPence,
         payment_tip_pence: summary.tipFromMeta,
         payment_count: summary.paymentCount,
