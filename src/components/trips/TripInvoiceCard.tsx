@@ -24,6 +24,28 @@ export interface TripInvoiceFields {
   invoice_regenerated_at: string | null;
 }
 
+type InvoiceAction = 'download' | 'view' | 'resend_email' | 'regenerate';
+
+interface InvoiceActionResult {
+  success?: boolean;
+  ok?: boolean;
+  error?: string;
+  message?: string;
+  pdfUrl?: string;
+  pdf_url?: string;
+  htmlUrl?: string;
+  html_url?: string;
+  invoiceNo?: string;
+  invoice_no?: string;
+  invoice_pdf_url?: string;
+  invoiceGeneratedAt?: string;
+  invoice_generated_at?: string;
+  invoiceEmailStatus?: string;
+  invoice_email_status?: string;
+  invoiceEmailSentAt?: string;
+  invoice_email_sent_at?: string;
+}
+
 function getInvoiceStatusLabel(trip: TripInvoiceFields): { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' } {
   if (trip.invoice_pdf_error || trip.invoice_email_status === 'failed') {
     return { label: 'Failed', variant: 'destructive' };
@@ -49,13 +71,32 @@ function formatTotalPaid(pence: number | null | undefined): string {
   return `£${(pence / 100).toFixed(2)}`;
 }
 
-async function invokeInvoiceAction(tripId: string, action: 'auto' | 'regenerate' | 'resend' | 'generate_only', getUrls = false) {
+const INVOICE_ACTION_FAILED = 'Invoice action failed. Please try again or check invoice settings.';
+
+async function invokeInvoiceAction(tripId: string, action: InvoiceAction): Promise<InvoiceActionResult> {
   const { data, error } = await supabase.functions.invoke('trip-invoice-process', {
-    body: { trip_id: tripId, action, get_urls: getUrls },
+    body: { bookingId: tripId, trip_id: tripId, action },
   });
-  if (error) throw error;
-  if (data?.error && !data?.ok) throw new Error(data.error);
-  return data;
+
+  if (error) {
+    const ctx = (error as { context?: Response })?.context;
+    if (ctx) {
+      try {
+        const payload = await ctx.json();
+        if (payload?.error) throw new Error(payload.error);
+      } catch {
+        // ignore parse errors
+      }
+    }
+    throw new Error(error.message || INVOICE_ACTION_FAILED);
+  }
+
+  const result = (data ?? {}) as InvoiceActionResult;
+  if (result.success === false || (result.ok === false && result.error)) {
+    throw new Error(result.error || INVOICE_ACTION_FAILED);
+  }
+
+  return result;
 }
 
 interface TripInvoiceCardProps {
@@ -68,51 +109,23 @@ export function TripInvoiceCard({ trip, onUpdated, compact = false }: TripInvoic
   const [loading, setLoading] = useState<string | null>(null);
   const status = getInvoiceStatusLabel(trip);
 
-  const runAction = async (key: string, action: 'regenerate' | 'resend' | 'generate_only') => {
+  const runAction = async (key: string, action: InvoiceAction, onSuccess?: (result: InvoiceActionResult) => void) => {
     setLoading(key);
     try {
       const result = await invokeInvoiceAction(trip.id, action);
-      toast.success(result?.message ?? 'Invoice action completed');
+      onSuccess?.(result);
+      toast.success(result.message ?? 'Invoice action completed');
       onUpdated?.();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Invoice action failed');
+      toast.error(err instanceof Error ? err.message : INVOICE_ACTION_FAILED);
     } finally {
       setLoading(null);
     }
   };
 
-  const handleDownload = async () => {
-    setLoading('download');
-    try {
-      if (trip.invoice_pdf_url) {
-        window.open(trip.invoice_pdf_url, '_blank', 'noopener,noreferrer');
-        return;
-      }
-      const result = await invokeInvoiceAction(trip.id, 'auto', true);
-      if (result?.pdf_url) {
-        window.open(result.pdf_url, '_blank', 'noopener,noreferrer');
-      } else {
-        throw new Error('Invoice PDF not available');
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Download failed');
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  const handleView = async () => {
-    setLoading('view');
-    try {
-      const result = await invokeInvoiceAction(trip.id, 'auto', true);
-      const url = result?.html_url ?? result?.pdf_url ?? trip.invoice_pdf_url;
-      if (!url) throw new Error('Invoice not available');
-      window.open(url, '_blank', 'noopener,noreferrer');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'View failed');
-    } finally {
-      setLoading(null);
-    }
+  const openUrl = (url?: string | null) => {
+    if (!url) throw new Error(INVOICE_ACTION_FAILED);
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   if (compact) {
@@ -180,15 +193,25 @@ export function TripInvoiceCard({ trip, onUpdated, compact = false }: TripInvoic
       <Separator />
 
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" onClick={handleDownload} disabled={!!loading}>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => runAction('download', 'download', (r) => openUrl(r.pdfUrl ?? r.pdf_url ?? r.invoice_pdf_url))}
+          disabled={!!loading}
+        >
           {loading === 'download' ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Download className="h-4 w-4 mr-1" />}
           Download Invoice
         </Button>
-        <Button size="sm" variant="outline" onClick={handleView} disabled={!!loading}>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => runAction('view', 'view', (r) => openUrl(r.htmlUrl ?? r.html_url ?? r.pdfUrl ?? r.pdf_url))}
+          disabled={!!loading}
+        >
           {loading === 'view' ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ExternalLink className="h-4 w-4 mr-1" />}
           View Invoice
         </Button>
-        <Button size="sm" variant="outline" onClick={() => runAction('resend', 'resend')} disabled={!!loading}>
+        <Button size="sm" variant="outline" onClick={() => runAction('resend', 'resend_email')} disabled={!!loading}>
           {loading === 'resend' ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Mail className="h-4 w-4 mr-1" />}
           Resend Email
         </Button>
