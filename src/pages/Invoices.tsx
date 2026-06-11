@@ -21,12 +21,20 @@ import {
 } from "lucide-react";
 
 const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-  draft: { label: "Draft", variant: "secondary" },
-  finalized: { label: "Finalized", variant: "outline" },
+  draft: { label: "Pending", variant: "secondary" },
+  finalized: { label: "Pending", variant: "secondary" },
   sent: { label: "Sent", variant: "default" },
-  viewed: { label: "Viewed", variant: "default" },
+  viewed: { label: "Paid", variant: "default" },
+  paid: { label: "Paid", variant: "default" },
   cancelled: { label: "Cancelled", variant: "destructive" },
 };
+
+async function invokeDriverInvoice(body: Record<string, unknown>) {
+  const { data, error } = await supabase.functions.invoke("admin-driver-invoice", { body });
+  if (error) throw error;
+  if (data?.error && data?.ok === false) throw new Error(data.error);
+  return data;
+}
 
 interface Invoice {
   id: string;
@@ -47,6 +55,14 @@ interface Invoice {
   late_cancel_trips: number;
   status: string;
   pdf_storage_path: string | null;
+  invoice_pdf_url: string | null;
+  invoice_generated_at: string | null;
+  invoice_email_sent: boolean | null;
+  invoice_email_sent_at: string | null;
+  invoice_email_status: string | null;
+  invoice_email_error: string | null;
+  card_trips: number | null;
+  cash_trips: number | null;
   created_at: string;
   sent_at: string | null;
   viewed_at: string | null;
@@ -65,7 +81,10 @@ export default function Invoices() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [regionFilter, setRegionFilter] = useState("all");
   const [serviceAreaFilter, setServiceAreaFilter] = useState("all");
+  const [monthFilter, setMonthFilter] = useState("all");
+  const [driverFilter, setDriverFilter] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null);
   const [previewItems, setPreviewItems] = useState<any[]>([]);
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -98,16 +117,28 @@ export default function Invoices() {
   });
 
   const filteredInvoices = useMemo(() => {
-    if (!searchTerm) return invoices;
+    let list = invoices;
+    if (monthFilter !== "all") {
+      list = list.filter((inv) => inv.period_start?.startsWith(monthFilter));
+    }
+    if (driverFilter.trim()) {
+      const term = driverFilter.toLowerCase();
+      list = list.filter((inv) =>
+        inv.drivers?.first_name?.toLowerCase().includes(term) ||
+        inv.drivers?.last_name?.toLowerCase().includes(term) ||
+        inv.drivers?.driver_code?.toLowerCase().includes(term)
+      );
+    }
+    if (!searchTerm) return list;
     const term = searchTerm.toLowerCase();
-    return invoices.filter(
+    return list.filter(
       (inv) =>
         inv.invoice_number.toLowerCase().includes(term) ||
         inv.drivers?.first_name?.toLowerCase().includes(term) ||
         inv.drivers?.last_name?.toLowerCase().includes(term) ||
         inv.drivers?.driver_code?.toLowerCase().includes(term)
     );
-  }, [invoices, searchTerm]);
+  }, [invoices, searchTerm, monthFilter, driverFilter]);
 
   // Group totals by currency to prevent mixed-currency aggregation
   const currencyGroupedTotals = useMemo(() => {
@@ -123,120 +154,48 @@ export default function Invoices() {
     return groups;
   }, [invoices]);
 
-  // Generate single invoice
   const generateMutation = useMutation({
     mutationFn: async (params: { driverId: string; periodStart: string; periodEnd: string; regionId: string; serviceAreaId?: string }) => {
-      const region = regions.find(r => r.id === params.regionId);
-      if (!region?.currency_code) throw new Error("Region has no currency configured");
-
-      // Fetch driver financial data from driver_wallet_ledger (SSOT)
-      const { data: ledgerData, error: ledgerError } = await supabase
-        .from("driver_wallet_ledger")
-        .select("type, amount_pence, currency, description, related_trip_id")
-        .eq("driver_id", params.driverId)
-        .eq("currency", region.currency_code)
-        .gte("created_at", params.periodStart)
-        .lte("created_at", params.periodEnd + "T23:59:59Z");
-
-      if (ledgerError) throw ledgerError;
-
-      // Aggregate by entry type
-      let grossEarnings = 0, commission = 0, bonuses = 0, penalties = 0, adjustments = 0, cashCollected = 0;
-      let completedTrips = new Set<string>(), noShowTrips = 0, lateCancelTrips = 0;
-
-      for (const entry of ledgerData || []) {
-        const amt = entry.amount_pence || 0;
-        switch (entry.type) {
-          case "TRIP_EARNING_NET":
-            grossEarnings += amt;
-            if (entry.related_trip_id) completedTrips.add(entry.related_trip_id);
-            break;
-          case "PLATFORM_COMMISSION":
-            commission += Math.abs(amt);
-            break;
-          case "BONUS":
-            bonuses += amt;
-            break;
-          case "ADJUSTMENT": case "REFUND_DEBIT":
-            adjustments += amt;
-            break;
-          case "CASH_COMMISSION_DEBT":
-            cashCollected += Math.abs(amt);
-            break;
-          case "CASH_TRIP_EARNING":
-            // Cash gross — count as a completed trip
-            if (entry.related_trip_id) completedTrips.add(entry.related_trip_id);
-            break;
-          case "TIP_CREDIT": case "DRIVER_TIP_CREDIT":
-            grossEarnings += amt;
-            break;
-        }
-      }
-
-      const netEarnings = grossEarnings - commission + bonuses - penalties + adjustments - cashCollected;
-
-      const { data: invNum } = await supabase.rpc("generate_invoice_number");
-      const invoiceNumber = invNum || `INV-${Date.now()}`;
-
-      const { data: template } = await supabase
-        .from("invoice_templates")
-        .select("id")
-        .eq("is_default", true)
-        .single();
-
-      const { data: invoice, error: insertError } = await supabase
-        .from("invoices")
-        .insert({
-          invoice_number: invoiceNumber,
-          driver_id: params.driverId,
-          template_id: template?.id || null,
-          period_start: params.periodStart,
-          period_end: params.periodEnd,
-          region_id: params.regionId,
-          service_area_id: params.serviceAreaId && params.serviceAreaId !== "all" ? params.serviceAreaId : null,
-          currency_code: region.currency_code,
-          gross_earnings_pence: grossEarnings,
-          commission_pence: commission,
-          bonuses_pence: bonuses,
-          penalties_pence: penalties,
-          adjustments_pence: adjustments,
-          cash_collected_pence: cashCollected,
-          net_earnings_pence: netEarnings,
-          completed_trips: completedTrips.size,
-          no_show_trips: noShowTrips,
-          late_cancel_trips: lateCancelTrips,
-          status: "draft",
-        })
-        .select()
-        .single();
-
-      if (insertError) throw insertError;
-
-      const items = [
-        { invoice_id: invoice.id, item_type: "trip_earnings", description: `Completed trip earnings (${completedTrips.size} trips)`, amount_pence: grossEarnings, sort_order: 1 },
-        { invoice_id: invoice.id, item_type: "commission", description: "Platform commission", amount_pence: -commission, sort_order: 2 },
-      ];
-      if (bonuses > 0) items.push({ invoice_id: invoice.id, item_type: "bonus", description: "Bonuses & incentives", amount_pence: bonuses, sort_order: 3 });
-      if (penalties > 0) items.push({ invoice_id: invoice.id, item_type: "penalty", description: "Penalties & deductions", amount_pence: -penalties, sort_order: 4 });
-      if (adjustments !== 0) items.push({ invoice_id: invoice.id, item_type: "adjustment", description: "Manual adjustments", amount_pence: adjustments, sort_order: 5 });
-      if (cashCollected > 0) items.push({ invoice_id: invoice.id, item_type: "cash_collected", description: "Cash collected (offset)", amount_pence: -cashCollected, sort_order: 6 });
-      if (noShowTrips > 0) items.push({ invoice_id: invoice.id, item_type: "no_show", description: `No-show charges (${noShowTrips})`, amount_pence: 0, sort_order: 7 });
-      if (lateCancelTrips > 0) items.push({ invoice_id: invoice.id, item_type: "late_cancel", description: `Late cancellation charges (${lateCancelTrips})`, amount_pence: 0, sort_order: 8 });
-
-      await supabase.from("invoice_items").insert(items);
-      return invoice;
+      return invokeDriverInvoice({
+        action: "generate",
+        driver_id: params.driverId,
+        period_start: params.periodStart,
+        period_end: params.periodEnd,
+        region_id: params.regionId,
+        service_area_id: params.serviceAreaId && params.serviceAreaId !== "all" ? params.serviceAreaId : null,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       setGenerateOpen(false);
       setSelectedDriverId(null);
       setGenDriverSearch("");
-      toast({ title: "Invoice generated", description: "Draft invoice created successfully" });
+      toast({ title: "Invoice generated", description: "PDF created and ready to send" });
     },
     onError: (err: any) => {
       toast({ title: "Error generating invoice", description: err.message, variant: "destructive" });
     },
   });
+
+  const runInvoiceAction = async (invoiceId: string, action: "send" | "resend" | "regenerate" | "download" | "view") => {
+    setActionLoading(`${action}-${invoiceId}`);
+    try {
+      if (action === "download" || action === "view") {
+        const data = await invokeDriverInvoice({ get_urls: true, invoice_id: invoiceId });
+        const url = action === "view" ? (data.html_url ?? data.pdf_url) : data.pdf_url;
+        if (!url) throw new Error("Invoice file not available");
+        window.open(url, "_blank", "noopener,noreferrer");
+        return;
+      }
+      await invokeDriverInvoice({ action, invoice_id: invoiceId });
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      toast({ title: action === "resend" ? "Invoice resent" : action === "send" ? "Invoice sent" : "Invoice regenerated" });
+    } catch (err: any) {
+      toast({ title: "Action failed", description: err.message, variant: "destructive" });
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   // Search drivers for generation
   const { data: driverResults = [] } = useQuery({
@@ -263,19 +222,13 @@ export default function Invoices() {
     setPreviewItems(data || []);
   };
 
-  const sendMutation = useMutation({
-    mutationFn: async (invoiceId: string) => {
-      const { error } = await supabase
-        .from("invoices")
-        .update({ status: "sent", sent_at: new Date().toISOString(), finalized_at: new Date().toISOString() })
-        .eq("id", invoiceId);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["invoices"] });
-      toast({ title: "Invoice sent" });
-    },
-  });
+  const monthOptions = useMemo(() => {
+    const months = new Set<string>();
+    for (const inv of invoices) {
+      if (inv.period_start) months.add(inv.period_start.slice(0, 7));
+    }
+    return Array.from(months).sort().reverse();
+  }, [invoices]);
 
   const fmtMoney = (pence: number, currency: string) => formatCurrency(pence / 100, currency);
 
@@ -336,16 +289,33 @@ export default function Invoices() {
             </SelectContent>
           </Select>
         )}
+        <Select value={monthFilter} onValueChange={setMonthFilter}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="All months" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Months</SelectItem>
+            {monthOptions.map((m) => (
+              <SelectItem key={m} value={m}>{format(new Date(`${m}-01`), "MMMM yyyy")}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Input
+          className="w-44"
+          placeholder="Filter by driver…"
+          value={driverFilter}
+          onChange={(e) => setDriverFilter(e.target.value)}
+        />
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-36">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="draft">Draft</SelectItem>
-            <SelectItem value="finalized">Finalized</SelectItem>
+            <SelectItem value="draft">Pending</SelectItem>
+            <SelectItem value="finalized">Pending</SelectItem>
             <SelectItem value="sent">Sent</SelectItem>
-            <SelectItem value="viewed">Viewed</SelectItem>
+            <SelectItem value="viewed">Paid</SelectItem>
             <SelectItem value="cancelled">Cancelled</SelectItem>
           </SelectContent>
         </Select>
@@ -383,18 +353,19 @@ export default function Invoices() {
                 <TableHead>Invoice #</TableHead>
                 <TableHead>Driver</TableHead>
                 <TableHead>Region</TableHead>
-                <TableHead>Period</TableHead>
+                <TableHead>Invoice Month</TableHead>
                 <TableHead>Trips</TableHead>
                 <TableHead className="text-right">Net Earnings</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Generated</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
               ) : filteredInvoices.length === 0 ? (
-                <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No invoices found</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">No invoices found</TableCell></TableRow>
               ) : (
                 filteredInvoices.map((inv) => {
                   const sc = STATUS_CONFIG[inv.status] || STATUS_CONFIG.draft;
@@ -416,7 +387,7 @@ export default function Invoices() {
                         </div>
                       </TableCell>
                       <TableCell className="text-sm">
-                        {format(new Date(inv.period_start), "dd MMM")} – {format(new Date(inv.period_end), "dd MMM yyyy")}
+                        {format(new Date(inv.period_start), "MMMM yyyy")}
                       </TableCell>
                       <TableCell>{inv.completed_trips + inv.no_show_trips + inv.late_cancel_trips}</TableCell>
                       <TableCell className="text-right font-medium">
@@ -424,15 +395,34 @@ export default function Invoices() {
                       </TableCell>
                       <TableCell>
                         <Badge variant={sc.variant}>{sc.label}</Badge>
+                        {inv.invoice_email_status === "failed" && (
+                          <p className="text-[10px] text-destructive mt-0.5">Email failed</p>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {inv.invoice_generated_at
+                          ? format(new Date(inv.invoice_generated_at), "dd MMM yyyy HH:mm")
+                          : "—"}
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex gap-1 justify-end">
-                          <Button variant="ghost" size="sm" onClick={() => openPreview(inv)}>
+                        <div className="flex gap-1 justify-end flex-wrap">
+                          <Button variant="ghost" size="sm" title="View" onClick={() => runInvoiceAction(inv.id, "view")} disabled={!!actionLoading}>
                             <Eye className="h-3.5 w-3.5" />
                           </Button>
-                          {inv.status === "draft" && (
-                            <Button variant="ghost" size="sm" onClick={() => sendMutation.mutate(inv.id)}>
-                              <Send className="h-3.5 w-3.5" />
+                          <Button variant="ghost" size="sm" title="Download PDF" onClick={() => runInvoiceAction(inv.id, "download")} disabled={!!actionLoading}>
+                            <Download className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="sm" title="Details" onClick={() => openPreview(inv)}>
+                            <FileText className="h-3.5 w-3.5" />
+                          </Button>
+                          {!inv.invoice_email_sent && (
+                            <Button variant="ghost" size="sm" title="Send Email" onClick={() => runInvoiceAction(inv.id, "send")} disabled={!!actionLoading}>
+                              <Mail className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          {inv.invoice_email_sent && (
+                            <Button variant="ghost" size="sm" title="Resend Email" onClick={() => runInvoiceAction(inv.id, "resend")} disabled={!!actionLoading}>
+                              <RefreshCw className="h-3.5 w-3.5" />
                             </Button>
                           )}
                         </div>
@@ -639,10 +629,23 @@ export default function Invoices() {
                   </div>
                 </div>
 
-                <div className="flex justify-end gap-2">
-                  {previewInvoice.status === "draft" && (
-                    <Button onClick={() => { sendMutation.mutate(previewInvoice.id); setPreviewInvoice(null); }}>
-                      <Send className="h-4 w-4 mr-2" /> Send Statement
+                <div className="flex justify-end gap-2 flex-wrap">
+                  <Button variant="outline" onClick={() => runInvoiceAction(previewInvoice.id, "view")}>
+                    <Eye className="h-4 w-4 mr-2" /> View Invoice
+                  </Button>
+                  <Button variant="outline" onClick={() => runInvoiceAction(previewInvoice.id, "download")}>
+                    <Download className="h-4 w-4 mr-2" /> Download PDF
+                  </Button>
+                  <Button variant="secondary" onClick={() => runInvoiceAction(previewInvoice.id, "regenerate")}>
+                    <RefreshCw className="h-4 w-4 mr-2" /> Regenerate
+                  </Button>
+                  {!previewInvoice.invoice_email_sent ? (
+                    <Button onClick={() => { runInvoiceAction(previewInvoice.id, "send"); setPreviewInvoice(null); }}>
+                      <Send className="h-4 w-4 mr-2" /> Send Email
+                    </Button>
+                  ) : (
+                    <Button onClick={() => { runInvoiceAction(previewInvoice.id, "resend"); setPreviewInvoice(null); }}>
+                      <Mail className="h-4 w-4 mr-2" /> Resend Email
                     </Button>
                   )}
                 </div>

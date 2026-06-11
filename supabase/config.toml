@@ -28,6 +28,9 @@ verify_jwt = false
 [functions.trip-invoice-process]
 verify_jwt = false
 
+[functions.admin-driver-invoice]
+verify_jwt = false
+
 [functions.admin-payments-summary]
 verify_jwt = false
 
