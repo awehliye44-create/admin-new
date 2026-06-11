@@ -44,6 +44,7 @@ import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
 import { getCurrencySymbol, formatDistance as formatDistanceUtil, getDistanceUnitShort } from '@/lib/regionSettings';
 import { PaymentControlsCard } from '@/components/payment/PaymentControlsCard';
+import { TripInvoiceCard, TripInvoiceStatusBadge } from '@/components/trips/TripInvoiceCard';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import {
   captureStatusColorClass,
@@ -199,6 +200,16 @@ interface CompletedTrip {
   payment_metadata_lifecycle_fees_pence?: number | null;
   arrival_cancellation_applied?: boolean | null;
   arrival_cancellation_fee?: number | null;
+  invoice_no: string | null;
+  invoice_pdf_url: string | null;
+  invoice_generated_at: string | null;
+  invoice_email_sent: boolean | null;
+  invoice_email_sent_at: string | null;
+  invoice_email_status: string | null;
+  invoice_email_error: string | null;
+  invoice_pdf_error: string | null;
+  invoice_total_paid_pence: number | null;
+  invoice_regenerated_at: string | null;
 }
 
 export default function TripHistory() {
@@ -294,6 +305,9 @@ export default function TripHistory() {
           waiting_charge_pence, pickup_waiting_charge_pence, total_waiting_charge_pence, waiting_minutes, fare_breakdown,
           tip_pence, tip_amount_pence,
           arrival_cancellation_applied, arrival_cancellation_fee,
+          invoice_no, invoice_pdf_url, invoice_generated_at, invoice_email_sent,
+          invoice_email_sent_at, invoice_email_status, invoice_email_error,
+          invoice_pdf_error, invoice_total_paid_pence, invoice_regenerated_at,
           driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, driver_code, region_id),
           service_area_join:service_areas!trips_service_area_id_fkey(region_id, region:regions(currency_code, distance_unit))
         `)
@@ -1016,6 +1030,7 @@ export default function TripHistory() {
                   <TableHead>Distance</TableHead>
                   <TableHead>Fare</TableHead>
                   <TableHead>Payment</TableHead>
+                  <TableHead>Invoice</TableHead>
                   <TableHead>Completed</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -1126,6 +1141,9 @@ export default function TripHistory() {
                           );
                         })()}
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <TripInvoiceStatusBadge trip={trip} />
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {trip.completed_at 
@@ -1771,6 +1789,27 @@ export default function TripHistory() {
                   </div>
                 </div>
               </div>
+
+              {selectedTrip.id && (
+                <TripInvoiceCard
+                  trip={selectedTrip}
+                  onUpdated={async () => {
+                    fetchData();
+                    const { data } = await supabase
+                      .from('trips')
+                      .select(`
+                        invoice_no, invoice_pdf_url, invoice_generated_at, invoice_email_sent,
+                        invoice_email_sent_at, invoice_email_status, invoice_email_error,
+                        invoice_pdf_error, invoice_total_paid_pence, invoice_regenerated_at
+                      `)
+                      .eq('id', selectedTrip.id)
+                      .single();
+                    if (data) {
+                      setSelectedTrip((prev) => (prev ? { ...prev, ...data } : prev));
+                    }
+                  }}
+                />
+              )}
 
               {/* Admin Payment Controls — Capture, Cancel, Refund, Edit + full payment logs */}
               {selectedTrip.id && <PaymentControlsCard tripId={selectedTrip.id} />}

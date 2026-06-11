@@ -25,6 +25,9 @@ verify_jwt = false
 [functions.resolve-zones]
 verify_jwt = false
 
+[functions.trip-invoice-process]
+verify_jwt = false
+
 [functions.admin-payments-summary]
 verify_jwt = false
 
