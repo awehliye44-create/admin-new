@@ -31,15 +31,22 @@ const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secon
 
 async function invokeDriverInvoice(body: Record<string, unknown>) {
   const { data, error } = await supabase.functions.invoke("admin-driver-invoice", { body });
-  if (error) throw error;
-  if (data?.error && data?.ok === false) throw new Error(data.error);
+  if (error) {
+    throw new Error(error.message || "Edge function call failed");
+  }
+  if (!data) {
+    throw new Error("Empty response from invoice service");
+  }
+  if (data.success === false) {
+    throw new Error(data.error || "Invoice action failed");
+  }
   return data;
 }
 
 interface Invoice {
   id: string;
   invoice_number: string;
-  driver_id: string;
+  driver_id: string | null;
   period_start: string;
   period_end: string;
   currency_code: string;
@@ -177,21 +184,41 @@ export default function Invoices() {
     },
   });
 
-  const runInvoiceAction = async (invoiceId: string, action: "send" | "resend" | "regenerate" | "download" | "view") => {
-    setActionLoading(`${action}-${invoiceId}`);
+  const runInvoiceAction = async (
+    inv: Invoice,
+    action: "send_email" | "resend_email" | "regenerate" | "download" | "view",
+  ) => {
+    setActionLoading(`${action}-${inv.id}`);
     try {
+      const data = await invokeDriverInvoice({
+        action,
+        invoice_id: inv.id,
+      });
+
       if (action === "download" || action === "view") {
-        const data = await invokeDriverInvoice({ get_urls: true, invoice_id: invoiceId });
-        const url = action === "view" ? (data.html_url ?? data.pdf_url) : data.pdf_url;
-        if (!url) throw new Error("Invoice file not available");
+        const url = data.pdfUrl ?? data.pdf_url ?? inv.invoice_pdf_url;
+        if (!url) throw new Error(data.error || "Invoice file not available");
         window.open(url, "_blank", "noopener,noreferrer");
-        return;
+        toast({
+          title: action === "download" ? "Invoice downloaded successfully" : "Invoice opened",
+        });
+      } else if (action === "regenerate") {
+        toast({ title: "Invoice PDF generated successfully" });
+      } else if (action === "send_email" || action === "resend_email") {
+        toast({ title: "Invoice email sent successfully" });
       }
-      await invokeDriverInvoice({ action, invoice_id: invoiceId });
+
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
-      toast({ title: action === "resend" ? "Invoice resent" : action === "send" ? "Invoice sent" : "Invoice regenerated" });
-    } catch (err: any) {
-      toast({ title: "Action failed", description: err.message, variant: "destructive" });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      const title = action === "send_email" || action === "resend_email"
+        ? "Invoice email failed"
+        : "Invoice action failed";
+      toast({
+        title,
+        description: message,
+        variant: "destructive",
+      });
     } finally {
       setActionLoading(null);
     }
@@ -406,22 +433,22 @@ export default function Invoices() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex gap-1 justify-end flex-wrap">
-                          <Button variant="ghost" size="sm" title="View" onClick={() => runInvoiceAction(inv.id, "view")} disabled={!!actionLoading}>
+                          <Button variant="ghost" size="sm" title="View" onClick={() => runInvoiceAction(inv, "view")} disabled={!!actionLoading}>
                             <Eye className="h-3.5 w-3.5" />
                           </Button>
-                          <Button variant="ghost" size="sm" title="Download PDF" onClick={() => runInvoiceAction(inv.id, "download")} disabled={!!actionLoading}>
+                          <Button variant="ghost" size="sm" title="Download PDF" onClick={() => runInvoiceAction(inv, "download")} disabled={!!actionLoading}>
                             <Download className="h-3.5 w-3.5" />
                           </Button>
                           <Button variant="ghost" size="sm" title="Details" onClick={() => openPreview(inv)}>
                             <FileText className="h-3.5 w-3.5" />
                           </Button>
                           {!inv.invoice_email_sent && (
-                            <Button variant="ghost" size="sm" title="Send Email" onClick={() => runInvoiceAction(inv.id, "send")} disabled={!!actionLoading}>
+                            <Button variant="ghost" size="sm" title="Send Email" onClick={() => runInvoiceAction(inv, "send_email")} disabled={!!actionLoading}>
                               <Mail className="h-3.5 w-3.5" />
                             </Button>
                           )}
                           {inv.invoice_email_sent && (
-                            <Button variant="ghost" size="sm" title="Resend Email" onClick={() => runInvoiceAction(inv.id, "resend")} disabled={!!actionLoading}>
+                            <Button variant="ghost" size="sm" title="Resend Email" onClick={() => runInvoiceAction(inv, "resend_email")} disabled={!!actionLoading}>
                               <RefreshCw className="h-3.5 w-3.5" />
                             </Button>
                           )}
@@ -630,21 +657,21 @@ export default function Invoices() {
                 </div>
 
                 <div className="flex justify-end gap-2 flex-wrap">
-                  <Button variant="outline" onClick={() => runInvoiceAction(previewInvoice.id, "view")}>
+                  <Button variant="outline" onClick={() => runInvoiceAction(previewInvoice, "view")}>
                     <Eye className="h-4 w-4 mr-2" /> View Invoice
                   </Button>
-                  <Button variant="outline" onClick={() => runInvoiceAction(previewInvoice.id, "download")}>
+                  <Button variant="outline" onClick={() => runInvoiceAction(previewInvoice, "download")}>
                     <Download className="h-4 w-4 mr-2" /> Download PDF
                   </Button>
-                  <Button variant="secondary" onClick={() => runInvoiceAction(previewInvoice.id, "regenerate")}>
+                  <Button variant="secondary" onClick={() => runInvoiceAction(previewInvoice, "regenerate")}>
                     <RefreshCw className="h-4 w-4 mr-2" /> Regenerate
                   </Button>
                   {!previewInvoice.invoice_email_sent ? (
-                    <Button onClick={() => { runInvoiceAction(previewInvoice.id, "send"); setPreviewInvoice(null); }}>
+                    <Button onClick={() => { runInvoiceAction(previewInvoice, "send_email"); setPreviewInvoice(null); }}>
                       <Send className="h-4 w-4 mr-2" /> Send Email
                     </Button>
                   ) : (
-                    <Button onClick={() => { runInvoiceAction(previewInvoice.id, "resend"); setPreviewInvoice(null); }}>
+                    <Button onClick={() => { runInvoiceAction(previewInvoice, "resend_email"); setPreviewInvoice(null); }}>
                       <Mail className="h-4 w-4 mr-2" /> Resend Email
                     </Button>
                   )}

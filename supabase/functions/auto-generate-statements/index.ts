@@ -15,8 +15,6 @@ Deno.serve(async (req) => {
   if (gate) return gate;
 
   try {
-
-  try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
@@ -245,6 +243,20 @@ Deno.serve(async (req) => {
               if (cashCollected > 0) items.push({ invoice_id: inv.id, item_type: "cash_collected", description: "Cash collected (offset)", amount_pence: -cashCollected, sort_order: 6 });
 
               await supabase.from("invoice_items").insert(items);
+
+              try {
+                const { generateDriverInvoicePdfOnly } = await import("../_shared/driverInvoiceService.ts");
+                const pdfResult = await generateDriverInvoicePdfOnly(supabase, inv.id);
+                if (!pdfResult.ok) {
+                  console.warn("[auto-generate-statements] pdf_generation_failed", {
+                    invoiceId: inv.id,
+                    error: pdfResult.error,
+                  });
+                }
+              } catch (pdfErr) {
+                console.warn("[auto-generate-statements] pdf_generation_error", pdfErr);
+              }
+
               runTotal += netEarnings;
               runInvoiceCount++;
             }

@@ -44,17 +44,28 @@ interface InvoiceActionResult {
   invoice_email_status?: string;
   invoiceEmailSentAt?: string;
   invoice_email_sent_at?: string;
+  stage?: string;
+}
+
+function hasSuccessfulInvoicePdf(trip: TripInvoiceFields): boolean {
+  return Boolean(trip.invoice_generated_at || trip.invoice_pdf_url);
 }
 
 function getInvoiceStatusLabel(trip: TripInvoiceFields): { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' } {
-  if (trip.invoice_pdf_error || trip.invoice_email_status === 'failed') {
-    return { label: 'Failed', variant: 'destructive' };
-  }
-  if (trip.invoice_email_sent) {
+  const pdfReady = hasSuccessfulInvoicePdf(trip);
+  const emailSent = Boolean(trip.invoice_email_sent || trip.invoice_email_status === 'sent');
+
+  if (emailSent && pdfReady) {
     return { label: 'Sent', variant: 'default' };
   }
-  if (trip.invoice_generated_at) {
-    return { label: 'Generated', variant: 'secondary' };
+  if (trip.invoice_pdf_error && !pdfReady) {
+    return { label: 'Failed', variant: 'destructive' };
+  }
+  if (pdfReady && trip.invoice_email_status === 'failed') {
+    return { label: 'PDF Ready / Email Failed', variant: 'destructive' };
+  }
+  if (pdfReady) {
+    return { label: emailSent ? 'Sent' : 'Generated', variant: emailSent ? 'default' : 'secondary' };
   }
   return { label: 'Pending', variant: 'outline' };
 }
@@ -114,10 +125,19 @@ export function TripInvoiceCard({ trip, onUpdated, compact = false }: TripInvoic
     try {
       const result = await invokeInvoiceAction(trip.id, action);
       onSuccess?.(result);
-      toast.success(result.message ?? 'Invoice action completed');
+      if (action === 'download') {
+        toast.success('Invoice downloaded successfully');
+      } else if (action === 'regenerate') {
+        toast.success('Invoice PDF generated successfully');
+      } else if (action === 'resend_email') {
+        toast.success('Invoice email sent successfully');
+      } else {
+        toast.success(result.message ?? 'Invoice action completed');
+      }
       onUpdated?.();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : INVOICE_ACTION_FAILED);
+      const message = err instanceof Error ? err.message : INVOICE_ACTION_FAILED;
+      toast.error(`Invoice action failed: ${message}`);
     } finally {
       setLoading(null);
     }
@@ -183,9 +203,14 @@ export function TripInvoiceCard({ trip, onUpdated, compact = false }: TripInvoic
             <p className="font-mono text-xs break-all text-muted-foreground">{trip.invoice_pdf_url}</p>
           </div>
         )}
-        {(trip.invoice_pdf_error || trip.invoice_email_error) && (
+        {trip.invoice_pdf_error && !hasSuccessfulInvoicePdf(trip) && (
           <div className="col-span-2 text-destructive text-xs">
-            {trip.invoice_pdf_error || trip.invoice_email_error}
+            PDF error: {trip.invoice_pdf_error}
+          </div>
+        )}
+        {trip.invoice_email_error && (
+          <div className="col-span-2 text-destructive text-xs">
+            Email error: {trip.invoice_email_error}
           </div>
         )}
       </div>
@@ -196,7 +221,7 @@ export function TripInvoiceCard({ trip, onUpdated, compact = false }: TripInvoic
         <Button
           size="sm"
           variant="outline"
-          onClick={() => runAction('download', 'download', (r) => openUrl(r.pdfUrl ?? r.pdf_url ?? r.invoice_pdf_url))}
+          onClick={() => runAction('download', 'download', (r) => openUrl(r.pdfUrl ?? r.pdf_url ?? r.invoice_pdf_url ?? trip.invoice_pdf_url))}
           disabled={!!loading}
         >
           {loading === 'download' ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Download className="h-4 w-4 mr-1" />}
@@ -205,7 +230,7 @@ export function TripInvoiceCard({ trip, onUpdated, compact = false }: TripInvoic
         <Button
           size="sm"
           variant="outline"
-          onClick={() => runAction('view', 'view', (r) => openUrl(r.htmlUrl ?? r.html_url ?? r.pdfUrl ?? r.pdf_url))}
+          onClick={() => runAction('view', 'view', (r) => openUrl(r.pdfUrl ?? r.pdf_url ?? trip.invoice_pdf_url))}
           disabled={!!loading}
         >
           {loading === 'view' ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ExternalLink className="h-4 w-4 mr-1" />}

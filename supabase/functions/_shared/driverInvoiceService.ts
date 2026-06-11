@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { fetchCompanyBranding } from "./companyBranding.ts";
+import { fetchCompanyBranding, formatCompanyAddress } from "./companyBranding.ts";
 import {
   aggregateDriverInvoice,
   buildInvoiceItems,
@@ -10,12 +10,287 @@ import {
   buildDriverInvoiceHtml,
   type DriverInvoiceRenderData,
 } from "./driverInvoiceHtml.ts";
-import { buildDriverInvoicePdf } from "./driverInvoicePdf.ts";
-import { sendResendEmail } from "./resendMail.ts";
+import { buildDriverInvoicePdf, isBrandedDriverInvoicePdf } from "./driverInvoicePdf.ts";
+import { prepareDriverInvoiceHtmlForPdf } from "./driverInvoiceHtml.ts";
+import { formatResendFromAddress, sendResendEmail } from "./resendMail.ts";
 
 const BUCKET = "driver-invoices";
+const LEGACY_BUCKET = "driver-statement-pdfs";
 
-export type DriverInvoiceAction = "generate" | "regenerate" | "send" | "resend" | "preview";
+export type DriverInvoiceAction =
+  | "generate"
+  | "regenerate"
+  | "view"
+  | "download"
+  | "send_email"
+  | "resend_email"
+  | "send"
+  | "resend"
+  | "preview";
+
+export interface DriverInvoiceResponse {
+  success: boolean;
+  ok?: boolean;
+  error?: string;
+  invoiceNo?: string;
+  invoice_id?: string;
+  pdfUrl?: string;
+  pdf_url?: string;
+  html_url?: string;
+  emailStatus?: string | null;
+  message?: string;
+  stage?: "pdf_generation" | "email_sending" | "validation" | "unknown";
+}
+
+function log(step: string, details: Record<string, unknown> = {}) {
+  console.log("[DRIVER_INVOICE]", JSON.stringify({ step, ...details }));
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: unknown): value is string {
+  return typeof value === "string" && UUID_RE.test(value);
+}
+
+function invoiceStoragePath(driverId: string, invoiceNo: string): string {
+  return `invoices/drivers/${driverId}/${invoiceNo}.pdf`;
+}
+
+function resolvePdfStoragePath(invoice: Record<string, unknown>, driverId: string | null): string {
+  const invoiceNo = invoice.invoice_number as string;
+  const invoiceId = invoice.id as string;
+  if (driverId) return invoiceStoragePath(driverId, invoiceNo);
+  return `invoices/by-id/${invoiceId}/${invoiceNo}.pdf`;
+}
+
+function extractDriverIdFromStoragePath(path: string | null | undefined): string | null {
+  if (!path) return null;
+  const segments = path.split("/").filter(Boolean);
+  for (const segment of segments) {
+    if (isValidUuid(segment)) return segment;
+  }
+  return null;
+}
+
+async function resolveDriverIdForInvoice(
+  supabase: SupabaseClient,
+  invoice: Record<string, unknown>,
+): Promise<string | null> {
+  if (isValidUuid(invoice.driver_id)) {
+    return invoice.driver_id as string;
+  }
+
+  const fromPath = extractDriverIdFromStoragePath(invoice.pdf_storage_path as string | null);
+  if (fromPath) return fromPath;
+
+  const invoiceId = invoice.id as string;
+  if (invoiceId) {
+    const { data: inbox } = await supabase
+      .from("driver_inbox_messages")
+      .select("driver_id")
+      .contains("metadata", { invoice_id: invoiceId })
+      .not("driver_id", "is", null)
+      .limit(1)
+      .maybeSingle();
+    if (isValidUuid(inbox?.driver_id)) return inbox!.driver_id as string;
+
+    const { data: delivery } = await supabase
+      .from("invoice_pdf_delivery_logs")
+      .select("driver_id")
+      .eq("invoice_id", invoiceId)
+      .not("driver_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (isValidUuid(delivery?.driver_id)) return delivery!.driver_id as string;
+  }
+
+  if (invoice.region_id && invoice.period_start && invoice.period_end) {
+    const { data: statement } = await supabase
+      .from("driver_statements")
+      .select("driver_id")
+      .eq("region_id", invoice.region_id as string)
+      .eq("period_start", invoice.period_start as string)
+      .eq("period_end", invoice.period_end as string)
+      .eq("net_earnings_pence", Number(invoice.net_earnings_pence ?? 0))
+      .not("driver_id", "is", null)
+      .limit(1)
+      .maybeSingle();
+    if (isValidUuid(statement?.driver_id)) return statement!.driver_id as string;
+
+    const { data: ledgerRows } = await supabase
+      .from("driver_wallet_ledger")
+      .select("driver_id")
+      .eq("region_id", invoice.region_id as string)
+      .gte("created_at", `${invoice.period_start as string}T00:00:00Z`)
+      .lte("created_at", `${invoice.period_end as string}T23:59:59Z`)
+      .not("driver_id", "is", null);
+    const uniqueDrivers = [...new Set((ledgerRows ?? []).map((row) => row.driver_id).filter(isValidUuid))];
+    if (uniqueDrivers.length === 1) return uniqueDrivers[0];
+  }
+
+  return null;
+}
+
+async function hydrateInvoiceDriverId(
+  supabase: SupabaseClient,
+  invoice: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (isValidUuid(invoice.driver_id)) return invoice;
+
+  const resolved = await resolveDriverIdForInvoice(supabase, invoice);
+  if (!resolved) return invoice;
+
+  log("driver_id_recovered", { invoiceId: invoice.id, driverId: resolved });
+  const { data: updated } = await supabase
+    .from("invoices")
+    .update({ driver_id: resolved })
+    .eq("id", invoice.id as string)
+    .select("*")
+    .maybeSingle();
+
+  return updated ?? { ...invoice, driver_id: resolved };
+}
+
+function isModernBrandedPdfPath(path: string): boolean {
+  return path.startsWith("invoices/drivers/") || path.startsWith("invoices/by-id/");
+}
+
+function candidatePdfLocations(invoice: Record<string, unknown>): Array<{ bucket: string; path: string }> {
+  const driverId = isValidUuid(invoice.driver_id) ? (invoice.driver_id as string) : null;
+  const invoiceId = invoice.id as string;
+  const invoiceNo = invoice.invoice_number as string;
+  const stored = invoice.pdf_storage_path as string | null;
+  const modern: Array<{ bucket: string; path: string }> = [];
+  const legacy: Array<{ bucket: string; path: string }> = [];
+
+  const canonicalPath = resolvePdfStoragePath(invoice, driverId);
+  modern.push({ bucket: BUCKET, path: canonicalPath });
+
+  if (stored && stored !== canonicalPath) {
+    if (isModernBrandedPdfPath(stored)) {
+      modern.unshift({ bucket: BUCKET, path: stored });
+    } else {
+      legacy.push({ bucket: LEGACY_BUCKET, path: stored });
+      legacy.push({ bucket: BUCKET, path: stored });
+    }
+  }
+
+  if (driverId) {
+    legacy.push({ bucket: LEGACY_BUCKET, path: `${driverId}/${invoiceId}.pdf` });
+    legacy.push({ bucket: LEGACY_BUCKET, path: `${driverId}/${invoiceId}/ONECAB_Driver_Invoice_${invoiceNo}.pdf` });
+    legacy.push({ bucket: BUCKET, path: `${driverId}/${invoiceId}/ONECAB_Driver_Invoice_${invoiceNo}.pdf` });
+  }
+
+  const seen = new Set<string>();
+  return [...modern, ...legacy].filter(({ bucket, path }) => {
+    if (!path) return false;
+    const key = `${bucket}:${path}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function existingPdfNeedsRegeneration(
+  supabase: SupabaseClient,
+  location: { bucket: string; path: string },
+): Promise<boolean> {
+  if (location.bucket === LEGACY_BUCKET) return true;
+  if (!isModernBrandedPdfPath(location.path)) return true;
+
+  const { data, error } = await supabase.storage.from(location.bucket).download(location.path);
+  if (error || !data) return true;
+
+  const bytes = new Uint8Array(await data.arrayBuffer());
+  return !isBrandedDriverInvoicePdf(bytes);
+}
+
+async function findExistingPdfLocation(
+  supabase: SupabaseClient,
+  invoice: Record<string, unknown>,
+  options: { allowLegacy?: boolean } = {},
+): Promise<{ bucket: string; path: string } | null> {
+  for (const location of candidatePdfLocations(invoice)) {
+    if (!options.allowLegacy && location.bucket === LEGACY_BUCKET) continue;
+
+    const { data, error } = await supabase.storage.from(location.bucket).download(location.path);
+    if (error || !data) continue;
+
+    const bytes = new Uint8Array(await data.arrayBuffer());
+    if (!isBrandedDriverInvoicePdf(bytes)) continue;
+
+    return location;
+  }
+  return null;
+}
+
+async function downloadInvoicePdfBytes(
+  supabase: SupabaseClient,
+  invoice: Record<string, unknown>,
+): Promise<{ bytes: Uint8Array; bucket: string; path: string }> {
+  const existing = await findExistingPdfLocation(supabase, invoice);
+  if (existing) {
+    const { data, error } = await supabase.storage.from(existing.bucket).download(existing.path);
+    if (!error && data) {
+      return {
+        bytes: new Uint8Array(await data.arrayBuffer()),
+        bucket: existing.bucket,
+        path: existing.path,
+      };
+    }
+  }
+
+  const generated = await generatePdfForInvoice(supabase, invoice);
+  const { data, error } = await supabase.storage.from(BUCKET).download(generated.pdfPath);
+  if (error || !data) {
+    throw new Error(error?.message ?? "PDF download failed after generation");
+  }
+
+  return {
+    bytes: new Uint8Array(await data.arrayBuffer()),
+    bucket: BUCKET,
+    path: generated.pdfPath,
+  };
+}
+
+async function insertDeliveryLog(
+  supabase: SupabaseClient,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const { error } = await supabase.from("invoice_delivery_logs").insert(payload);
+  if (error) {
+    console.warn("[DRIVER_INVOICE] delivery_log_failed", error.message);
+  }
+}
+
+function normalizeAction(action: string): DriverInvoiceAction {
+  if (action === "send") return "send_email";
+  if (action === "resend") return "resend_email";
+  return action as DriverInvoiceAction;
+}
+
+function nextMonthStart(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m, 1));
+  return d.toISOString().slice(0, 10);
+}
+
+function toResponse(
+  invoice: Record<string, unknown>,
+  extra: Partial<DriverInvoiceResponse> = {},
+): DriverInvoiceResponse {
+  return {
+    success: extra.success ?? true,
+    ok: extra.success !== false,
+    invoiceNo: (invoice.invoice_number as string) ?? extra.invoiceNo,
+    invoice_id: (invoice.id as string) ?? extra.invoice_id,
+    pdfUrl: extra.pdfUrl ?? extra.pdf_url ?? (invoice.invoice_pdf_url as string | undefined),
+    pdf_url: extra.pdf_url ?? extra.pdfUrl ?? (invoice.invoice_pdf_url as string | undefined),
+    emailStatus: (invoice.invoice_email_status as string | null) ?? extra.emailStatus,
+    ...extra,
+  };
+}
 
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
@@ -56,22 +331,13 @@ function buildRenderData(
     { description: "Completed Cash Trip Earnings", trips: Number(invoice.cash_trips ?? 0), amountPence: Number(invoice.cash_trip_earnings_pence ?? 0) },
     { description: "Airport Fee Earnings", trips: 0, amountPence: Number(invoice.airport_fee_earnings_pence ?? 0) },
     { description: "Extra Charge Earnings", trips: 0, amountPence: Number(invoice.extra_charge_earnings_pence ?? 0) },
+    { description: "Bonuses", trips: 0, amountPence: Number(invoice.bonuses_pence ?? 0) },
+    { description: "Adjustments", trips: 0, amountPence: Number(invoice.adjustments_pence ?? 0) },
+    { description: "Platform Commission", trips: 0, amountPence: Number(invoice.commission_pence ?? 0), isDeduction: true },
+    { description: "Cash Collected (Offset)", trips: 0, amountPence: Number(invoice.cash_collected_pence ?? 0), isDeduction: true },
   ];
-  if (Number(invoice.bonuses_pence ?? 0) > 0) {
-    summaryRows.push({ description: "Bonuses", trips: 0, amountPence: Number(invoice.bonuses_pence) });
-  }
-  if (Number(invoice.adjustments_pence ?? 0) !== 0) {
-    summaryRows.push({ description: "Adjustments", trips: 0, amountPence: Number(invoice.adjustments_pence) });
-  }
-  if (Number(invoice.commission_pence ?? 0) > 0) {
-    summaryRows.push({ description: "Platform Commission", trips: 0, amountPence: Number(invoice.commission_pence), isDeduction: true });
-  }
-  if (Number(invoice.cash_collected_pence ?? 0) > 0) {
-    summaryRows.push({ description: "Cash Collected (Offset)", trips: 0, amountPence: Number(invoice.cash_collected_pence), isDeduction: true });
-  }
 
   const branding = companyBranding.branding;
-  if (template?.logo_url) branding.logoUrl = template.logo_url as string;
 
   return {
     invoiceNo: invoice.invoice_number as string,
@@ -101,7 +367,10 @@ function buildRenderData(
       email: companyBranding.company.email || (template?.company_email as string) || "",
       phone: companyBranding.company.phone || (template?.company_phone as string) || "",
       website: companyBranding.company.website || (template?.company_website as string) || "",
-      address: companyBranding.company.address || (template?.company_address as string) || "",
+      address: formatCompanyAddress({
+        ...companyBranding.company,
+        address: companyBranding.company.address || (template?.company_address as string) || "",
+      }) || companyBranding.company.address || (template?.company_address as string) || "",
       legalName: companyBranding.company.legalName,
       city: companyBranding.company.city,
       state: companyBranding.company.state,
@@ -117,37 +386,50 @@ async function generatePdfForInvoice(
   supabase: SupabaseClient,
   invoice: Record<string, unknown>,
 ): Promise<{ pdfPath: string; pdfUrl: string; html: string }> {
-  const { data: driver } = await supabase
-    .from("drivers")
-    .select("id, first_name, last_name, driver_code, email")
-    .eq("id", invoice.driver_id)
-    .single();
+  const hydrated = await hydrateInvoiceDriverId(supabase, invoice);
+  const driverId = isValidUuid(hydrated.driver_id) ? (hydrated.driver_id as string) : null;
+
+  const { data: driver } = driverId
+    ? await supabase
+      .from("drivers")
+      .select("id, first_name, last_name, driver_code, email")
+      .eq("id", driverId)
+      .maybeSingle()
+    : { data: null };
 
   const { data: region } = await supabase
     .from("regions")
     .select("name")
-    .eq("id", invoice.region_id)
+    .eq("id", hydrated.region_id)
     .maybeSingle();
 
   const companyBranding = await fetchCompanyBranding(supabase);
   const template = await loadTemplate(supabase);
-  const renderData = buildRenderData(invoice, driver ?? {}, region, companyBranding, template);
-  const html = buildDriverInvoiceHtml(renderData);
+  const renderData = buildRenderData(hydrated, driver ?? {}, region, companyBranding, template);
+  const html = await prepareDriverInvoiceHtmlForPdf(renderData);
   const pdfBytes = await buildDriverInvoicePdf(renderData);
-  const fileName = `ONECAB_Driver_Invoice_${invoice.invoice_number}.pdf`;
-  const storagePath = `${invoice.driver_id}/${invoice.id}/${fileName}`;
+  const storagePath = resolvePdfStoragePath(hydrated, driverId);
+  log("pdf_generation_started", {
+    driverId,
+    invoiceNo: invoice.invoice_number,
+    storagePath,
+  });
 
   const { error: uploadErr } = await supabase.storage.from(BUCKET).upload(storagePath, pdfBytes, {
     contentType: "application/pdf",
     upsert: true,
   });
   if (uploadErr) throw new Error(`PDF upload failed: ${uploadErr.message}`);
+  log("pdf_uploaded", { storagePath, driverId: invoice.driver_id, invoiceNo: invoice.invoice_number });
 
-  await supabase.storage.from(BUCKET).upload(
+  const { error: htmlUploadErr } = await supabase.storage.from(BUCKET).upload(
     storagePath.replace(/\.pdf$/, ".html"),
     new TextEncoder().encode(html),
     { contentType: "text/html", upsert: true },
-  ).catch(() => undefined);
+  );
+  if (htmlUploadErr) {
+    console.warn("[DRIVER_INVOICE] html_upload_failed", htmlUploadErr.message);
+  }
 
   const { data: signed } = await supabase.storage.from(BUCKET).createSignedUrl(storagePath, 60 * 60 * 24 * 365);
   if (!signed?.signedUrl) throw new Error("Failed to create signed URL");
@@ -166,6 +448,10 @@ export async function generateDriverInvoice(
     regenerateInvoiceId?: string;
   },
 ): Promise<{ ok: boolean; invoice_id?: string; error?: string }> {
+  if (!isValidUuid(params.driverId)) {
+    return { ok: false, error: "Invoice is missing a valid driver. Cannot regenerate without a linked driver." };
+  }
+
   const { data: region } = await supabase.from("regions").select("currency_code, name").eq("id", params.regionId).single();
   if (!region?.currency_code) return { ok: false, error: "Region has no currency" };
 
@@ -296,29 +582,56 @@ export async function sendDriverInvoiceEmail(
   if (!invoice) return { ok: false, error: "Invoice not found" };
   if (invoice.invoice_email_sent && !forceResend) return { ok: true };
 
+  const hydrated = await hydrateInvoiceDriverId(supabase, invoice);
+  const driverId = hydrated.driver_id as string | undefined;
+  if (!isValidUuid(driverId)) {
+    await supabase.from("invoices").update({
+      invoice_email_sent: false,
+      invoice_email_status: "failed",
+      invoice_email_error: "Invoice has no linked driver",
+    }).eq("id", invoiceId);
+    return { ok: false, error: "Invoice has no linked driver" };
+  }
+
   const { data: driver } = await supabase
     .from("drivers")
     .select("first_name, last_name, email, driver_code")
-    .eq("id", invoice.driver_id)
-    .single();
+    .eq("id", driverId)
+    .maybeSingle();
   if (!driver?.email) {
-    await supabase.from("invoices").update({ invoice_email_status: "failed", invoice_email_error: "Driver email not found" }).eq("id", invoiceId);
+    await supabase.from("invoices").update({
+      invoice_email_sent: false,
+      invoice_email_status: "failed",
+      invoice_email_error: "Driver email not found",
+    }).eq("id", invoiceId);
     return { ok: false, error: "Driver email not found" };
   }
 
-  let pdfPath = invoice.pdf_storage_path as string | null;
-  if (!pdfPath) {
-    const gen = await generatePdfForInvoice(supabase, invoice);
-    pdfPath = gen.pdfPath;
+  let pdfPath = hydrated.pdf_storage_path as string | null;
+  let pdfBytes: Uint8Array;
+  try {
+    const downloaded = await downloadInvoicePdfBytes(supabase, hydrated);
+    pdfBytes = downloaded.bytes;
+    pdfPath = downloaded.path;
+    if (invoice.pdf_storage_path !== downloaded.path || !invoice.invoice_generated_at) {
+      const { data: signed } = await supabase.storage
+        .from(downloaded.bucket)
+        .createSignedUrl(downloaded.path, 60 * 60 * 24 * 365);
+      await supabase.from("invoices").update({
+        pdf_storage_path: downloaded.path,
+        invoice_pdf_url: signed?.signedUrl ?? invoice.invoice_pdf_url,
+        invoice_generated_at: invoice.invoice_generated_at ?? new Date().toISOString(),
+      }).eq("id", invoiceId);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     await supabase.from("invoices").update({
-      pdf_storage_path: gen.pdfPath,
-      invoice_pdf_url: gen.pdfUrl,
-      invoice_generated_at: new Date().toISOString(),
+      invoice_email_sent: false,
+      invoice_email_status: "failed",
+      invoice_email_error: message,
     }).eq("id", invoiceId);
+    return { ok: false, error: message };
   }
-
-  const { data: fileData, error: dlErr } = await supabase.storage.from(BUCKET).download(pdfPath!);
-  if (dlErr || !fileData) return { ok: false, error: dlErr?.message ?? "PDF download failed" };
 
   const companyBranding = await fetchCompanyBranding(supabase);
   const template = await loadTemplate(supabase);
@@ -343,12 +656,19 @@ export async function sendDriverInvoiceEmail(
   const subject = (template?.email_subject as string || email.subject)
     .replace(/\{\{invoiceNo\}\}/g, invoice.invoice_number);
 
-  const pdfBytes = new Uint8Array(await fileData.arrayBuffer());
+  const fromAddress = formatResendFromAddress(
+    companyBranding.company.name || companyBranding.company.legalName,
+    companyBranding.company.email,
+  );
+
+  log("email_sending_started", { invoiceId, to: driver.email, invoiceNo: invoice.invoice_number });
   const sendResult = await sendResendEmail({
     to: driver.email,
     subject,
     html: email.html,
     text: email.text,
+    from: fromAddress,
+    replyTo: companyBranding.company.email || undefined,
     attachments: [{
       filename: `ONECAB_Driver_Invoice_${invoice.invoice_number}.pdf`,
       content: bytesToBase64(pdfBytes),
@@ -358,16 +678,18 @@ export async function sendDriverInvoiceEmail(
 
   const now = new Date().toISOString();
   if (!sendResult.ok) {
+    log("email_failed", { invoiceId, error: sendResult.message });
     await supabase.from("invoices").update({
+      invoice_email_sent: false,
       invoice_email_status: "failed",
       invoice_email_error: sendResult.message,
     }).eq("id", invoiceId);
-    await supabase.from("invoice_delivery_logs").insert({
+    await insertDeliveryLog(supabase, {
       invoice_id: invoiceId,
       sent_to_email: driver.email,
       delivery_status: "failed",
       error_message: sendResult.message,
-    }).catch(() => undefined);
+    });
     return { ok: false, error: sendResult.message };
   }
 
@@ -380,13 +702,14 @@ export async function sendDriverInvoiceEmail(
     invoice_email_error: null,
   }).eq("id", invoiceId);
 
-  await supabase.from("invoice_delivery_logs").insert({
+  await insertDeliveryLog(supabase, {
     invoice_id: invoiceId,
     sent_to_email: driver.email,
     delivery_status: "sent",
     sent_at: now,
-  }).catch(() => undefined);
+  });
 
+  log("email_sent", { invoiceId, invoiceNo: invoice.invoice_number, to: driver.email });
   return { ok: true };
 }
 
@@ -397,26 +720,352 @@ export async function previewDriverInvoiceHtml(
   const { data: invoice } = await supabase.from("invoices").select("*").eq("id", invoiceId).single();
   if (!invoice) return { error: "Invoice not found" };
 
-  const { data: driver } = await supabase.from("drivers").select("*").eq("id", invoice.driver_id).single();
+  const hydrated = await hydrateInvoiceDriverId(supabase, invoice);
+  const driverId = hydrated.driver_id as string | undefined;
+  const { data: driver } = isValidUuid(driverId)
+    ? await supabase.from("drivers").select("*").eq("id", driverId).maybeSingle()
+    : { data: null };
   const { data: region } = await supabase.from("regions").select("name").eq("id", invoice.region_id).maybeSingle();
   const companyBranding = await fetchCompanyBranding(supabase);
   const template = await loadTemplate(supabase);
-  return { html: buildDriverInvoiceHtml(buildRenderData(invoice, driver ?? {}, region, companyBranding, template)) };
+  return { html: buildDriverInvoiceHtml(buildRenderData(hydrated, driver ?? {}, region, companyBranding, template)) };
+}
+
+async function getSignedUrls(
+  supabase: SupabaseClient,
+  storagePath: string,
+  bucket = BUCKET,
+  options: { invoiceNo?: string; mode?: "view" | "download" } = {},
+): Promise<{ pdf_url?: string }> {
+  const invoiceNo = options.invoiceNo ?? storagePath.replace(/.*\//, "").replace(/\.pdf$/, "");
+  const signedOptions = options.mode === "download"
+    ? { download: `ONECAB_Driver_Invoice_${invoiceNo}.pdf` }
+    : undefined;
+
+  const { data: pdfSigned, error: pdfErr } = await supabase.storage
+    .from(bucket)
+    .createSignedUrl(storagePath, 60 * 60, signedOptions);
+
+  if (pdfErr) {
+    log("signed_url_failed", { storagePath, bucket, error: pdfErr.message });
+  }
+
+  return { pdf_url: pdfSigned?.signedUrl };
+}
+
+async function resolveInvoice(
+  supabase: SupabaseClient,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown> | null> {
+  const invoiceId = (body.invoice_id ?? body.invoiceId) as string | undefined;
+  if (invoiceId) {
+    const { data } = await supabase.from("invoices").select("*").eq("id", invoiceId).maybeSingle();
+    return data;
+  }
+
+  const driverId = (body.driverId ?? body.driver_id) as string | undefined;
+  const invoiceMonth = (body.invoiceMonth ?? body.invoice_month) as string | undefined;
+  if (!isValidUuid(driverId) || !invoiceMonth) return null;
+
+  const monthStart = `${invoiceMonth}-01`;
+  const monthEnd = nextMonthStart(invoiceMonth);
+  const { data } = await supabase
+    .from("invoices")
+    .select("*")
+    .eq("driver_id", driverId)
+    .gte("period_start", monthStart)
+    .lt("period_start", monthEnd)
+    .not("status", "eq", "cancelled")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return data;
+}
+
+export async function generateDriverInvoicePdfOnly(
+  supabase: SupabaseClient,
+  invoiceId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const { data: invoice } = await supabase.from("invoices").select("*").eq("id", invoiceId).single();
+  if (!invoice) return { ok: false, error: "Invoice not found" };
+
+  try {
+    const { pdfPath, pdfUrl } = await generatePdfForInvoice(supabase, invoice);
+    const now = new Date().toISOString();
+    await supabase.from("invoices").update({
+      pdf_storage_path: pdfPath,
+      invoice_pdf_url: pdfUrl,
+      invoice_generated_at: now,
+      invoice_pdf_error: null,
+      finalized_at: invoice.finalized_at ?? now,
+      status: invoice.status === "draft" ? "finalized" : invoice.status,
+    }).eq("id", invoiceId);
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await supabase.from("invoices").update({ invoice_pdf_error: message }).eq("id", invoiceId);
+    return { ok: false, error: message };
+  }
+}
+
+async function ensurePdf(
+  supabase: SupabaseClient,
+  invoice: Record<string, unknown>,
+  regenerate: boolean,
+): Promise<Record<string, unknown> & { _pdf_bucket?: string }> {
+  if (!regenerate) {
+    const existing = await findExistingPdfLocation(supabase, invoice);
+    if (existing) {
+      const needsRefresh = await existingPdfNeedsRegeneration(supabase, existing);
+      if (!needsRefresh) {
+        const urls = await getSignedUrls(supabase, existing.path, existing.bucket, {
+          invoiceNo: invoice.invoice_number as string,
+          mode: "view",
+        });
+        log("invoice_found", {
+          invoiceId: invoice.id,
+          driverId: invoice.driver_id,
+          invoiceNo: invoice.invoice_number,
+          pdfExists: true,
+          bucket: existing.bucket,
+          path: existing.path,
+        });
+        return {
+          ...invoice,
+          pdf_storage_path: existing.path,
+          invoice_pdf_url: urls.pdf_url ?? invoice.invoice_pdf_url,
+          _pdf_bucket: existing.bucket,
+        };
+      }
+      log("pdf_regeneration_required", {
+        invoiceId: invoice.id,
+        reason: "stale_or_unbranded_pdf",
+        path: existing.path,
+        bucket: existing.bucket,
+      });
+    }
+  }
+
+  log("pdf_generation_started", {
+    invoiceId: invoice.id,
+    driverId: invoice.driver_id,
+    invoiceNo: invoice.invoice_number,
+    regenerate,
+  });
+
+  const { pdfPath, pdfUrl } = await generatePdfForInvoice(supabase, invoice);
+  const now = new Date().toISOString();
+  const { data: updated } = await supabase
+    .from("invoices")
+    .update({
+      pdf_storage_path: pdfPath,
+      invoice_pdf_url: pdfUrl,
+      invoice_generated_at: now,
+      invoice_pdf_error: null,
+      finalized_at: invoice.finalized_at ?? now,
+      status: invoice.status === "draft" ? "finalized" : invoice.status,
+    })
+    .eq("id", invoice.id)
+    .select("*")
+    .single();
+
+  log("invoice_updated", {
+    invoiceId: invoice.id,
+    pdfPath,
+    invoiceNo: invoice.invoice_number,
+  });
+
+  return {
+    ...(updated ?? { ...invoice, pdf_storage_path: pdfPath, invoice_pdf_url: pdfUrl, invoice_generated_at: now }),
+    _pdf_bucket: BUCKET,
+  };
+}
+
+export async function handleDriverInvoiceAction(
+  supabase: SupabaseClient,
+  body: Record<string, unknown>,
+  rawAction: DriverInvoiceAction = "generate",
+): Promise<DriverInvoiceResponse> {
+  const action = normalizeAction(rawAction);
+  const driverId = (body.driverId ?? body.driver_id) as string | undefined;
+  const invoiceMonth = (body.invoiceMonth ?? body.invoice_month) as string | undefined;
+
+  log("received", { action: rawAction, normalized: action, driverId, invoiceMonth, invoice_id: body.invoice_id });
+
+  if (action === "generate") {
+    if (!body.driver_id && !body.driverId) {
+      return { success: false, ok: false, error: "Missing driverId" };
+    }
+    if (!body.period_start || !body.period_end) {
+      return { success: false, ok: false, error: "Missing invoice period (period_start / period_end)" };
+    }
+    if (!body.region_id) {
+      return { success: false, ok: false, error: "Missing region_id" };
+    }
+
+    const result = await generateDriverInvoice(supabase, {
+      driverId: (body.driver_id ?? body.driverId) as string,
+      periodStart: body.period_start as string,
+      periodEnd: body.period_end as string,
+      regionId: body.region_id as string,
+      serviceAreaId: body.service_area_id as string | null | undefined,
+    });
+
+    if (!result.ok) {
+      log("generate_failed", { error: result.error, driverId: body.driver_id ?? body.driverId });
+      return { success: false, ok: false, error: result.error, invoice_id: result.invoice_id };
+    }
+
+    const invoice = await supabase.from("invoices").select("*").eq("id", result.invoice_id!).single();
+    if (invoice.error || !invoice.data) {
+      return { success: false, ok: false, error: "Invoice created but not found" };
+    }
+
+    log("invoice_created", { invoiceId: result.invoice_id, invoiceNo: invoice.data.invoice_number });
+    return toResponse(invoice.data, {
+      success: true,
+      message: "Invoice PDF generated successfully",
+      pdfUrl: invoice.data.invoice_pdf_url as string,
+      pdf_url: invoice.data.invoice_pdf_url as string,
+    });
+  }
+
+  const resolved = await resolveInvoice(supabase, body);
+  if (!resolved) {
+    const missing: string[] = [];
+    if (!body.invoice_id && !body.invoiceId) missing.push("invoice_id or driverId+invoiceMonth");
+    log("invoice_not_found", { driverId, invoiceMonth, missing });
+    return {
+      success: false,
+      ok: false,
+      error: `Invoice not found — provide ${missing.join(" and ") || "invoice_id or driverId+invoiceMonth"}`,
+    };
+  }
+
+  const invoice = await hydrateInvoiceDriverId(supabase, resolved);
+
+  log("invoice_found", {
+    invoiceId: invoice.id,
+    driverId: invoice.driver_id,
+    invoiceNo: invoice.invoice_number,
+  });
+
+  try {
+    if (action === "regenerate") {
+      const aggRegion = invoice.region_id as string;
+      const regenDriverId = invoice.driver_id as string;
+      let updated = invoice;
+
+      if (isValidUuid(regenDriverId)) {
+        const regen = await generateDriverInvoice(supabase, {
+          driverId: regenDriverId,
+          periodStart: invoice.period_start as string,
+          periodEnd: invoice.period_end as string,
+          regionId: aggRegion,
+          serviceAreaId: invoice.service_area_id as string | null,
+          regenerateInvoiceId: invoice.id as string,
+        });
+        if (!regen.ok) {
+          return { success: false, ok: false, error: regen.error, invoice_id: invoice.id as string };
+        }
+        const refreshed = await supabase.from("invoices").select("*").eq("id", invoice.id).single();
+        updated = refreshed.data ?? invoice;
+      } else {
+        log("regenerate_pdf_only", { invoiceId: invoice.id, reason: "missing_driver_id" });
+      }
+
+      const withPdf = await ensurePdf(supabase, updated, true);
+      const storagePath = withPdf.pdf_storage_path as string | undefined;
+      const bucket = (withPdf as { _pdf_bucket?: string })._pdf_bucket ?? BUCKET;
+      const urls = storagePath
+        ? await getSignedUrls(supabase, storagePath, bucket, {
+          invoiceNo: withPdf.invoice_number as string,
+          mode: "view",
+        })
+        : {};
+      return toResponse(withPdf, {
+        success: true,
+        message: "Invoice PDF regenerated",
+        pdfUrl: urls.pdf_url ?? (withPdf.invoice_pdf_url as string),
+        pdf_url: urls.pdf_url,
+      });
+    }
+
+    if (action === "download" || action === "view") {
+      const updated = await ensurePdf(supabase, invoice, false);
+      const storagePath = updated.pdf_storage_path as string;
+      if (!storagePath) {
+        return {
+          success: false,
+          ok: false,
+          stage: "pdf_generation",
+          error: "Failed to generate invoice PDF",
+          invoice_id: invoice.id as string,
+        };
+      }
+      const bucket = (updated as { _pdf_bucket?: string })._pdf_bucket ?? BUCKET;
+      const urls = await getSignedUrls(supabase, storagePath, bucket, {
+        invoiceNo: updated.invoice_number as string,
+        mode: action === "download" ? "download" : "view",
+      });
+      const pdfUrl = urls.pdf_url ?? (updated.invoice_pdf_url as string);
+      if (!pdfUrl) {
+        return {
+          success: false,
+          ok: false,
+          stage: "pdf_generation",
+          error: "Invoice PDF URL could not be created",
+          invoice_id: invoice.id as string,
+        };
+      }
+      return toResponse(updated, {
+        success: true,
+        pdfUrl,
+        pdf_url: pdfUrl,
+        message: action === "download" ? "Invoice PDF ready" : "Invoice ready to view",
+      });
+    }
+
+    if (action === "send_email" || action === "resend_email") {
+      log("email_sending_started", { invoiceId: invoice.id, action });
+      await ensurePdf(supabase, invoice, false);
+      const emailResult = await sendDriverInvoiceEmail(
+        supabase,
+        invoice.id as string,
+        action === "resend_email",
+      );
+      if (!emailResult.ok) {
+        log("email_failed", { invoiceId: invoice.id, error: emailResult.error });
+        return {
+          success: false,
+          ok: false,
+          stage: "email_sending",
+          error: emailResult.error ?? "Email send failed",
+          invoice_id: invoice.id as string,
+          invoiceNo: invoice.invoice_number as string,
+        };
+      }
+      log("email_sent", { invoiceId: invoice.id, invoiceNo: invoice.invoice_number });
+      const { data: refreshed } = await supabase.from("invoices").select("*").eq("id", invoice.id).single();
+      return toResponse(refreshed ?? invoice, {
+        success: true,
+        emailStatus: "sent",
+        message: "Invoice email sent successfully",
+      });
+    }
+
+    return { success: false, ok: false, error: `Unsupported action: ${action}` };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log("action_error", { action, invoiceId: invoice.id, error: message });
+    return { success: false, ok: false, error: message, invoice_id: invoice.id as string };
+  }
 }
 
 export async function getDriverInvoiceUrls(
   supabase: SupabaseClient,
   invoiceId: string,
-): Promise<{ pdf_url?: string; html_url?: string; error?: string }> {
-  const { data: invoice } = await supabase.from("invoices").select("pdf_storage_path, invoice_pdf_url").eq("id", invoiceId).single();
-  if (!invoice?.pdf_storage_path && !invoice?.invoice_pdf_url) return { error: "PDF not generated" };
-
-  if (invoice.pdf_storage_path) {
-    const { data: pdfSigned } = await supabase.storage.from(BUCKET).createSignedUrl(invoice.pdf_storage_path, 3600);
-    const htmlPath = invoice.pdf_storage_path.replace(/\.pdf$/, ".html");
-    const { data: htmlSigned } = await supabase.storage.from(BUCKET).createSignedUrl(htmlPath, 3600);
-    return { pdf_url: pdfSigned?.signedUrl ?? invoice.invoice_pdf_url ?? undefined, html_url: htmlSigned?.signedUrl };
-  }
-
-  return { pdf_url: invoice.invoice_pdf_url ?? undefined };
+): Promise<DriverInvoiceResponse> {
+  return handleDriverInvoiceAction(supabase, { invoice_id: invoiceId }, "download");
 }

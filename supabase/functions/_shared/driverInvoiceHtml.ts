@@ -1,10 +1,5 @@
+import { ONECAB } from "./driverInvoiceBrand.ts";
 import type { CompanyInfo, BrandingSettings } from "./companyBranding.ts";
-
-const GOLD = "#F4B400";
-const GOLD_LIGHT = "#FFF8E1";
-const BLACK = "#111111";
-const RED = "#DC2626";
-const MUTED = "#666666";
 
 export interface DriverInvoiceRenderData {
   invoiceNo: string;
@@ -33,130 +28,338 @@ export interface DriverInvoiceRenderData {
   footerText?: string;
 }
 
+export interface DisplaySummaryRow {
+  description: string;
+  trips: number;
+  amountPence: number;
+  isDeduction?: boolean;
+  isPositive?: boolean;
+}
+
+export function buildDisplaySummaryRows(data: DriverInvoiceRenderData): DisplaySummaryRow[] {
+  const amountFor = (description: string) =>
+    data.summaryRows.find((row) => row.description === description)?.amountPence ?? 0;
+
+  return [
+    {
+      description: "Completed Card Trip Earnings",
+      trips: data.cardTrips,
+      amountPence: amountFor("Completed Card Trip Earnings"),
+      isPositive: true,
+    },
+    {
+      description: "Completed Cash Trip Earnings",
+      trips: data.cashTrips,
+      amountPence: amountFor("Completed Cash Trip Earnings"),
+      isPositive: true,
+    },
+    {
+      description: "Airport Fee Earnings",
+      trips: 0,
+      amountPence: data.airportFeeEarningsPence,
+      isPositive: data.airportFeeEarningsPence > 0,
+    },
+    {
+      description: "Extra Charge Earnings",
+      trips: 0,
+      amountPence: data.extraChargeEarningsPence,
+      isPositive: data.extraChargeEarningsPence > 0,
+    },
+    {
+      description: "Bonuses",
+      trips: 0,
+      amountPence: data.bonusesPence,
+      isPositive: data.bonusesPence > 0,
+    },
+    {
+      description: "Adjustments",
+      trips: 0,
+      amountPence: data.adjustmentsPence,
+      isPositive: data.adjustmentsPence > 0,
+    },
+    {
+      description: "Platform Commission",
+      trips: 0,
+      amountPence: data.platformCommissionPence,
+      isDeduction: true,
+    },
+    {
+      description: "Cash Collected (Offset)",
+      trips: 0,
+      amountPence: data.cashCollectedOffsetPence,
+      isDeduction: true,
+    },
+  ];
+}
+
 function money(pence: number, currency: string): string {
   const sym = currency === "GBP" ? "£" : currency === "USD" ? "$" : `${currency} `;
-  return `${sym}${(pence / 100).toFixed(2)}`;
+  return `${sym}${(Math.abs(pence) / 100).toFixed(2)}`;
 }
 
 function esc(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function amountClass(row: { isDeduction?: boolean; isPositive?: boolean; amountPence: number }): string {
+  if (row.isDeduction && row.amountPence !== 0) return "amount deduction";
+  if (row.isPositive && row.amountPence > 0) return "amount positive";
+  return "amount";
+}
+
+function formatAmount(row: { isDeduction?: boolean; amountPence: number }, currency: string): string {
+  const prefix = row.isDeduction && row.amountPence !== 0 ? "−" : "";
+  return `${prefix}${money(row.amountPence, currency)}`;
+}
+
+function currencySymbol(currency: string): string {
+  return currency === "GBP" ? "£" : currency === "USD" ? "$" : currency;
 }
 
 export function buildDriverInvoiceHtml(data: DriverInvoiceRenderData): string {
-  const companyLines = [
-    data.company.phone ? `Phone: ${esc(data.company.phone)}` : "",
-    data.company.email ? `Email: ${esc(data.company.email)}` : "",
-    data.company.website ? `Website: ${esc(data.company.website)}` : "",
-    data.company.address ? `Address: ${esc(data.company.address)}` : "",
-  ].filter(Boolean);
-
   const logoBlock = data.branding.logoUrl
-    ? `<img src="${esc(data.branding.logoUrl)}" alt="ONECAB" class="logo-img" />`
+    ? `<img src="${esc(data.branding.logoUrl)}" alt="${esc(data.company.name || "ONECAB")}" class="logo-img" />`
     : `<div class="logo-text"><span class="one">ONE</span><span class="cab">CAB</span></div>`;
 
-  const tableRows = data.summaryRows.map((row) => `
+  const tagline = esc(data.branding.tagline || "One App. Every Journey.");
+  const companyName = esc(data.company.legalName || data.company.name || "ONECAB");
+  const invoiceTitle = esc(data.invoiceTitle || "Driver Earnings Statement");
+  const companyAddress = data.company.address ? esc(data.company.address) : "";
+
+  const rows = buildDisplaySummaryRows(data).map((row) => `
     <tr>
-      <td>${esc(row.description)}</td>
-      <td class="center">${row.trips || "—"}</td>
-      <td class="right ${row.isDeduction ? "deduction" : ""}">${row.isDeduction ? "−" : ""}${money(Math.abs(row.amountPence), data.currency)}</td>
+      <td class="col-desc">${esc(row.description)}</td>
+      <td class="col-trips">${row.trips > 0 ? row.trips : "—"}</td>
+      <td class="${amountClass(row)}">${formatAmount(row, data.currency)}</td>
     </tr>
   `).join("");
 
   return `<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"/><title>${esc(data.invoiceTitle)} ${esc(data.invoiceNo)}</title>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Helvetica Neue',Arial,sans-serif;background:#fff;color:${BLACK};font-size:12px;line-height:1.45}
-  .page{max-width:820px;margin:0 auto;padding:32px 36px 40px}
-  .header{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}
-  .logo-img{max-height:52px;max-width:200px}
-  .logo-text{font-size:34px;font-weight:800}.logo-text .one{color:${BLACK}}.logo-text .cab{color:${GOLD}}
-  .tagline{margin-top:6px;font-size:10px;font-weight:700;letter-spacing:1.2px}
-  .invoice-title{text-align:right}.invoice-title h1{font-size:36px;font-weight:800}
-  .invoice-badge{display:inline-block;margin-top:8px;padding:8px 18px;background:${GOLD};border-radius:999px;font-weight:700}
-  .company-meta{margin-top:14px;text-align:right;font-size:11px;color:${MUTED}}
-  .divider{height:2px;background:${GOLD};margin:22px 0 24px;border:none}
-  .cols{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-  .section-title{font-size:11px;font-weight:800;margin-bottom:10px}
-  .details p{margin-bottom:5px}.details strong{display:inline-block;min-width:130px}
-  table{width:100%;border-collapse:collapse;margin-top:24px}
-  thead tr{background:${BLACK};color:${GOLD}}
-  thead th{padding:11px 10px;font-size:10px;font-weight:800;text-align:left}
-  thead th.center{text-align:center} thead th.right{text-align:right}
-  tbody td{padding:12px 10px;border-bottom:1px dotted #ddd;font-size:11px}
-  .center{text-align:center}.right{text-align:right;font-weight:600}
-  .deduction{color:${RED}}
-  .summary{margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:20px}
-  .summary-box{background:#fafafa;border-radius:8px;padding:14px}
-  .summary-box h3{font-size:11px;font-weight:800;margin-bottom:10px}
-  .summary-row{display:flex;justify-content:space-between;padding:4px 0;font-size:11px}
-  .summary-row.deduction{color:${RED}}
-  .net-box{margin-top:20px;background:${GOLD_LIGHT};border-radius:12px;padding:18px 20px;display:flex;justify-content:space-between;align-items:center}
-  .net-box span:first-child{font-size:14px;font-weight:800}
-  .net-box span:last-child{font-size:22px;font-weight:800}
-  .footer{margin-top:36px;display:flex;gap:12px;align-items:flex-start}
-  .footer h4{font-size:12px;font-weight:800;margin-bottom:4px}
-  .footer p{color:${MUTED};font-size:11px}
-</style></head><body><div class="page">
-  <div class="header">
-    <div>${logoBlock}<div class="tagline">ONE APP. <span style="color:${GOLD}">EVERY JOURNEY.</span></div></div>
-    <div class="invoice-title">
-      <h1>${esc(data.invoiceTitle.toUpperCase())}</h1>
-      <div class="invoice-badge">#${esc(data.invoiceNo)}</div>
-      <div class="company-meta">${companyLines.map((l) => `<div>${l}</div>`).join("")}</div>
-    </div>
-  </div>
-  <hr class="divider"/>
-  <div class="cols">
-    <div>
-      <div class="section-title">DRIVER</div>
-      <div class="details">
-        <p><strong>Driver Name:</strong> ${esc(data.driverName)}</p>
-        <p><strong>Driver ID:</strong> ${esc(data.driverId)}</p>
-        <p><strong>Region:</strong> ${esc(data.regionName)}</p>
-        <p><strong>Currency:</strong> ${esc(data.currency)}</p>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${companyName} — ${invoiceTitle} ${esc(data.invoiceNo)}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      background: ${ONECAB.white};
+      color: ${ONECAB.darkText};
+      font-size: 12px;
+      line-height: 1.5;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .page { max-width: 820px; margin: 0 auto; padding: 28px 36px 40px; background: ${ONECAB.white}; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
+    .brand-block { display: flex; flex-direction: column; gap: 6px; }
+    .logo-img { max-height: 56px; max-width: 220px; object-fit: contain; }
+    .logo-text { font-size: 34px; font-weight: 800; letter-spacing: -1px; line-height: 1; }
+    .logo-text .one { color: ${ONECAB.black}; }
+    .logo-text .cab { color: ${ONECAB.gold}; }
+    .company-name { font-size: 15px; font-weight: 800; color: ${ONECAB.black}; letter-spacing: 0.2px; }
+    .company-tagline { font-size: 11px; font-weight: 700; color: ${ONECAB.gold}; letter-spacing: 0.8px; text-transform: uppercase; }
+    .header-right { text-align: right; }
+    .doc-title { font-size: 22px; font-weight: 800; color: ${ONECAB.black}; letter-spacing: 0.2px; }
+    .badges { margin-top: 12px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+    .badge {
+      display: inline-block;
+      padding: 7px 16px;
+      background: ${ONECAB.gold};
+      color: ${ONECAB.black};
+      border-radius: 999px;
+      font-weight: 700;
+      font-size: 12px;
+    }
+    .gold-line { height: 3px; background: ${ONECAB.gold}; margin: 22px 0 24px; border: none; }
+    .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .card {
+      background: ${ONECAB.white};
+      border: 1px solid ${ONECAB.lightBorder};
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .card-title {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: ${ONECAB.black};
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .icon-dot {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: ${ONECAB.gold};
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      flex-shrink: 0;
+      color: ${ONECAB.black};
+    }
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 6px 0;
+      border-bottom: 1px solid ${ONECAB.lightBorder};
+      font-size: 11px;
+    }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-row span:first-child { color: ${ONECAB.mutedText}; }
+    .detail-row span:last-child { color: ${ONECAB.darkText}; font-weight: 600; text-align: right; }
+    table { width: 100%; border-collapse: collapse; margin-top: 28px; }
+    thead tr { background: ${ONECAB.black}; color: ${ONECAB.gold}; }
+    thead th {
+      padding: 12px 14px;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      text-align: left;
+      text-transform: uppercase;
+    }
+    thead th.center { text-align: center; }
+    thead th.right { text-align: right; }
+    tbody td {
+      padding: 12px 14px;
+      border-bottom: 1px solid ${ONECAB.lightBorder};
+      font-size: 11px;
+      color: ${ONECAB.darkText};
+      vertical-align: top;
+    }
+    .col-trips { text-align: center; width: 80px; }
+    .amount { text-align: right; font-weight: 700; color: ${ONECAB.darkText}; }
+    .amount.positive { color: ${ONECAB.positiveGreen}; }
+    .amount.deduction { color: ${ONECAB.deductionRed}; }
+    .net-box {
+      margin-top: 24px;
+      margin-left: auto;
+      width: min(100%, 380px);
+      background: ${ONECAB.goldLight};
+      border: 2px solid ${ONECAB.gold};
+      border-top: 3px solid ${ONECAB.gold};
+      border-radius: 12px;
+      padding: 20px 22px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+    }
+    .net-label {
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      color: ${ONECAB.black};
+    }
+    .net-amount {
+      font-size: 26px;
+      font-weight: 800;
+      color: ${ONECAB.black};
+      white-space: nowrap;
+    }
+    .footer {
+      margin-top: 36px;
+      padding-top: 20px;
+      border-top: 2px solid ${ONECAB.gold};
+      text-align: center;
+    }
+    .footer h4 {
+      font-size: 16px;
+      font-weight: 800;
+      color: ${ONECAB.black};
+      margin-bottom: 4px;
+    }
+    .footer .tagline {
+      font-size: 11px;
+      font-weight: 700;
+      color: ${ONECAB.gold};
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .footer p { color: ${ONECAB.mutedText}; font-size: 11px; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <div class="brand-block">
+        ${logoBlock}
+        <div class="company-name">${companyName}</div>
+        <div class="company-tagline">${tagline}</div>
+      </div>
+      <div class="header-right">
+        <div class="doc-title">${invoiceTitle}</div>
+        <div class="badges">
+          <span class="badge">#${esc(data.invoiceNo)}</span>
+          <span class="badge">${esc(data.invoiceStatus)}</span>
+        </div>
       </div>
     </div>
-    <div>
-      <div class="section-title">STATEMENT DETAILS</div>
-      <div class="details">
-        <p><strong>Invoice No.:</strong> ${esc(data.invoiceNo)}</p>
-        <p><strong>Invoice Period:</strong> ${esc(data.invoicePeriod)}</p>
-        <p><strong>Status:</strong> ${esc(data.invoiceStatus)}</p>
-        <p><strong>Generated:</strong> ${esc(data.generatedDate)}</p>
+
+    <hr class="gold-line" />
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-title"><span class="icon-dot">👤</span> Driver Details</div>
+        <div class="detail-row"><span>Invoice Number</span><span>${esc(data.invoiceNo)}</span></div>
+        <div class="detail-row"><span>Driver Name</span><span>${esc(data.driverName)}</span></div>
+        <div class="detail-row"><span>Driver ID</span><span>${esc(data.driverId)}</span></div>
+        <div class="detail-row"><span>Region</span><span>${esc(data.regionName)}</span></div>
+        <div class="detail-row"><span>Currency</span><span>${esc(data.currency)}</span></div>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="icon-dot">📄</span> Invoice Details</div>
+        <div class="detail-row"><span>Invoice Period</span><span>${esc(data.invoicePeriod)}</span></div>
+        <div class="detail-row"><span>Generated Date</span><span>${esc(data.generatedDate)}</span></div>
+        <div class="detail-row"><span>Statement Type</span><span>${invoiceTitle}</span></div>
+        <div class="detail-row"><span>Total Trips</span><span>${data.totalTrips}</span></div>
+        <div class="detail-row"><span>Card Trips</span><span>${data.cardTrips}</span></div>
+        <div class="detail-row"><span>Cash Trips</span><span>${data.cashTrips}</span></div>
       </div>
     </div>
-  </div>
-  <table>
-    <thead><tr><th>DESCRIPTION</th><th class="center">TRIPS</th><th class="right">AMOUNT</th></tr></thead>
-    <tbody>${tableRows}</tbody>
-  </table>
-  <div class="summary">
-    <div class="summary-box">
-      <h3>TRIP SUMMARY</h3>
-      <div class="summary-row"><span>Total Trips</span><span>${data.totalTrips}</span></div>
-      <div class="summary-row"><span>Cash Trips</span><span>${data.cashTrips}</span></div>
-      <div class="summary-row"><span>Card Trips</span><span>${data.cardTrips}</span></div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Description</th>
+          <th class="center">Trips</th>
+          <th class="right">Amount (${esc(currencySymbol(data.currency))})</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
+
+    <div class="net-box">
+      <div class="net-label">Net Driver Earnings</div>
+      <div class="net-amount">${money(data.netDriverEarningsPence, data.currency)}</div>
     </div>
-    <div class="summary-box">
-      <h3>EARNINGS SUMMARY</h3>
-      <div class="summary-row"><span>Gross Earnings</span><span>${money(data.grossEarningsPence, data.currency)}</span></div>
-      <div class="summary-row"><span>Airport Fee Earnings</span><span>${money(data.airportFeeEarningsPence, data.currency)}</span></div>
-      <div class="summary-row"><span>Extra Charge Earnings</span><span>${money(data.extraChargeEarningsPence, data.currency)}</span></div>
-      <div class="summary-row"><span>Bonuses</span><span>${money(data.bonusesPence, data.currency)}</span></div>
-      <div class="summary-row"><span>Adjustments</span><span>${money(data.adjustmentsPence, data.currency)}</span></div>
-      <div class="summary-row deduction"><span>Platform Commission</span><span>−${money(data.platformCommissionPence, data.currency)}</span></div>
-      <div class="summary-row deduction"><span>Cash Collected (Offset)</span><span>−${money(data.cashCollectedOffsetPence, data.currency)}</span></div>
+
+    <div class="footer">
+      <h4>${companyName}</h4>
+      <div class="tagline">${tagline}</div>
+      ${companyAddress ? `<p>${companyAddress}</p>` : ""}
+      ${data.company.website ? `<p>${esc(data.company.website)}</p>` : ""}
+      ${data.company.phone ? `<p>${esc(data.company.phone)}</p>` : ""}
+      ${data.company.email ? `<p>${esc(data.company.email)}</p>` : ""}
+      ${data.footerText ? `<p style="margin-top:10px;">${esc(data.footerText)}</p>` : ""}
     </div>
   </div>
-  <div class="net-box"><span>NET DRIVER EARNINGS</span><span>${money(data.netDriverEarningsPence, data.currency)}</span></div>
-  <div class="footer">
-    <div>
-      <h4>THANK YOU FOR DRIVING WITH ONECAB!</h4>
-      <p>${esc(data.footerText || "If you have any questions regarding your earnings, please contact our support team.")}</p>
-    </div>
-  </div>
-</div></body></html>`;
+</body>
+</html>`;
 }
 
 export function buildDriverInvoiceEmail(args: {
@@ -212,4 +415,32 @@ Website: {{companyWebsite}}`)
     html,
     text,
   };
+}
+
+async function fetchAsDataUri(url: string): Promise<string | null> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    const base64 = btoa(binary);
+    const contentType = response.headers.get("content-type")
+      || (url.toLowerCase().includes(".png") ? "image/png" : "image/jpeg");
+    return `data:${contentType};base64,${base64}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Inline remote assets so HTML→PDF renderers can embed logos reliably. */
+export async function prepareDriverInvoiceHtmlForPdf(data: DriverInvoiceRenderData): Promise<string> {
+  let html = buildDriverInvoiceHtml(data);
+  const logoUrl = data.branding.logoUrl?.trim();
+  if (!logoUrl || logoUrl.startsWith("data:")) return html;
+
+  const dataUri = await fetchAsDataUri(logoUrl);
+  if (!dataUri) return html;
+
+  return html.split(logoUrl).join(dataUri);
 }

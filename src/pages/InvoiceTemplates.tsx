@@ -65,7 +65,6 @@ const EMPTY_TEMPLATE: Partial<InvoiceTemplate> = {
   name: "Driver Monthly Invoice",
   template_type: "driver_monthly",
   is_default: true,
-  logo_url: "",
   company_name: "ONECAB",
   company_address: "",
   company_email: "",
@@ -99,7 +98,6 @@ async function loadCompanyFromSettings() {
     company_email: company.email || "",
     company_phone: company.phone || "",
     company_website: company.website || "",
-    logo_url: branding.logoUrl || "",
   };
 }
 
@@ -125,7 +123,12 @@ export default function InvoiceTemplates() {
 
   const saveMutation = useMutation({
     mutationFn: async (values: Partial<InvoiceTemplate>) => {
-      const payload = { ...values, template_type: "driver_monthly", updated_at: new Date().toISOString() };
+      const payload = {
+        ...values,
+        logo_url: null,
+        template_type: "driver_monthly",
+        updated_at: new Date().toISOString(),
+      };
       if (editing) {
         const { error } = await supabase.from("invoice_templates").update(payload).eq("id", editing.id);
         if (error) throw error;
@@ -167,13 +170,20 @@ export default function InvoiceTemplates() {
   });
 
   const previewMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (source?: Partial<InvoiceTemplate>) => {
+      const t = source ?? form;
       const { data, error } = await supabase.functions.invoke("admin-driver-invoice", {
         body: {
           action: "preview",
           sample: true,
-          invoice_title: form.invoice_title,
-          footer_text: form.footer_text || form.notes_footer,
+          invoice_title: t.invoice_title,
+          footer_text: t.footer_text || t.notes_footer,
+          notes_footer: t.notes_footer,
+          company_name: t.company_name,
+          company_address: t.company_address,
+          company_email: t.company_email,
+          company_phone: t.company_phone,
+          company_website: t.company_website,
         },
       });
       if (error) throw error;
@@ -194,7 +204,6 @@ export default function InvoiceTemplates() {
       name: t.name,
       is_default: t.is_default,
       template_type: t.template_type || "driver_monthly",
-      logo_url: t.logo_url || "",
       company_name: t.company_name,
       company_address: t.company_address || "",
       company_email: t.company_email || "",
@@ -241,13 +250,15 @@ export default function InvoiceTemplates() {
               Driver Monthly Invoice Template
               {driverTemplate.is_default && <Badge variant="secondary">Default</Badge>}
             </CardTitle>
-            <CardDescription>Company details are refreshed from General &amp; Branding when invoices are generated and emailed.</CardDescription>
+            <CardDescription>
+              Logo and company details are loaded from General &amp; Branding when invoices are generated, regenerated, and emailed.
+            </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={() => openEdit(driverTemplate)}>
               <Pencil className="h-3 w-3 mr-1" /> Edit Template
             </Button>
-            <Button variant="outline" size="sm" onClick={() => previewMutation.mutate()} disabled={previewMutation.isPending}>
+            <Button variant="outline" size="sm" onClick={() => previewMutation.mutate(driverTemplate)} disabled={previewMutation.isPending}>
               <Eye className="h-3 w-3 mr-1" /> PDF Preview
             </Button>
           </CardContent>
@@ -326,7 +337,9 @@ export default function InvoiceTemplates() {
                   <RefreshCw className="h-3 w-3 mr-1" /> Sync from General &amp; Branding
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">Invoices always use the latest General &amp; Branding company details at generation/email time. These fields are fallbacks for the template editor.</p>
+              <p className="text-xs text-muted-foreground">
+                The ONECAB logo always comes from General &amp; Branding. Company fields below are template fallbacks; live invoices use the latest General &amp; Branding settings at PDF generation and email time.
+              </p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Company Name</Label>
@@ -348,10 +361,6 @@ export default function InvoiceTemplates() {
               <div>
                 <Label>Address</Label>
                 <Textarea value={form.company_address || ""} onChange={(e) => setForm({ ...form, company_address: e.target.value })} rows={2} />
-              </div>
-              <div>
-                <Label>ONECAB Logo URL</Label>
-                <Input value={form.logo_url || ""} onChange={(e) => setForm({ ...form, logo_url: e.target.value })} placeholder="Uses branding logo from General Settings when empty" />
               </div>
             </div>
 
