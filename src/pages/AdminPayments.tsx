@@ -22,6 +22,8 @@ import {
   Banknote, Smartphone
 } from 'lucide-react';
 import { PaymentControlsCard } from '@/components/payment/PaymentControlsCard';
+import { FinanceTotalsCards } from '@/components/finance/FinanceTotalsCards';
+import { useAdminFinanceSummary } from '@/hooks/useAdminFinanceSummary';
 
 interface PaymentSummary {
   totalGrossFares: number;
@@ -123,6 +125,7 @@ export default function AdminPayments() {
   const [methodFilter, setMethodFilter] = useState<string>('all');
   const [viewingTripId, setViewingTripId] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const { data: financeSummary, isLoading: isLoadingFinance, error: financeError, refetch: refetchFinance } = useAdminFinanceSummary();
 
   // Fetch summary from edge function (uses driver_financial_summary view)
   const { data: summary, isLoading: isLoadingSummary, refetch: refetchSummary } = useQuery<PaymentSummary>({
@@ -222,7 +225,7 @@ export default function AdminPayments() {
     onError: (error: Error) => toast.error(`Failed to confirm: ${error.message}`),
   });
 
-  const handleRefresh = () => { refetchSummary(); refetchList(); };
+  const handleRefresh = () => { refetchSummary(); refetchList(); refetchFinance(); };
 
   const filteredTransactions = transactions.filter(tx => {
     const matchesTab = activeTab === 'all' || tx.type === activeTab;
@@ -274,66 +277,12 @@ export default function AdminPayments() {
   return (
     <AdminLayout 
       title="Payments & Transactions" 
-      description="Unified financial reporting — all stats derived from driver_financial_summary"
+      description="Canonical finance reporting — ONECAB commission read from driver_wallet_ledger; Stripe platform balance shown separately and never used as commission."
     >
       <div className="space-y-6">
-        {/* Stats — all from unified driver_financial_summary */}
-        <div className="grid gap-4 md:grid-cols-5">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Gross Trip Fares</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{formatPence(summary?.totalGrossFares || 0)}</div>
-              <p className="text-xs text-muted-foreground">
-                Card: {formatPence(summary?.totalCardGross || 0)} · Cash: {formatPence(summary?.totalCashGross || 0)}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Platform Commission</CardTitle>
-              <TrendingUp className="h-4 w-4 text-green-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-500">{formatPence(summary?.totalCommission || 0)}</div>
-              <p className="text-xs text-muted-foreground">ONECAB revenue</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Driver Wallet Balance</CardTitle>
-              <Wallet className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className={`text-2xl font-bold ${(summary?.totalWalletBalance || 0) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                {formatPence(summary?.totalWalletBalance || 0)}
-              </div>
-              <p className="text-xs text-muted-foreground">Payouts sent: {formatPence(summary?.totalPayoutsSent || 0)}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending Capture</CardTitle>
-              <Clock className="h-4 w-4 text-amber-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-amber-500">{formatPence(summary?.pendingAmount || 0)}</div>
-              <p className="text-xs text-muted-foreground">Awaiting capture</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Today</CardTitle>
-              <CreditCard className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{formatPence(summary?.todayGrossEarnings || 0)}</div>
-              <p className="text-xs text-muted-foreground">{summary?.todayTransactions || 0} trips today</p>
-            </CardContent>
-          </Card>
-        </div>
+        {/* Canonical finance cards — definitions §1–§9. ONECAB commission ≠ Stripe balance. */}
+        <FinanceTotalsCards data={financeSummary} isLoading={isLoadingFinance} error={financeError as Error | null} />
+
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <div className="flex flex-col sm:flex-row justify-between gap-4">
