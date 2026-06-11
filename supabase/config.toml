@@ -55,6 +55,12 @@ verify_jwt = false
 [functions.admin-finance-reconciliation]
 verify_jwt = false
 
+[functions.admin-finance-summary]
+verify_jwt = false
+
+[functions.admin-payment-providers]
+verify_jwt = false
+
 [functions.handle-cash-trip-commission]
 verify_jwt = false
 
