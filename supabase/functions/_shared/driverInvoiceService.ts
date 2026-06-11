@@ -298,8 +298,17 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-function formatPeriod(start: string, end: string): string {
-  return `${start} – ${end}`;
+function safeText(value: unknown, fallback = "—"): string {
+  if (value == null) return fallback;
+  const text = String(value).trim();
+  return text || fallback;
+}
+
+function formatPeriod(start: unknown, end: unknown): string {
+  const startText = safeText(start, "");
+  const endText = safeText(end, "");
+  if (!startText || !endText) return "—";
+  return `${startText} – ${endText}`;
 }
 
 function statusLabel(status: string): string {
@@ -340,11 +349,11 @@ function buildRenderData(
   const branding = companyBranding.branding;
 
   return {
-    invoiceNo: invoice.invoice_number as string,
-    invoiceTitle: (template?.invoice_title as string) || "Driver Earnings Statement",
-    driverName: `${driver.first_name ?? ""} ${driver.last_name ?? ""}`.trim(),
-    driverId: (driver.driver_code as string) || (driver.id as string),
-    regionName: (region?.name as string) || "—",
+    invoiceNo: safeText(invoice.invoice_number, "INVOICE"),
+    invoiceTitle: safeText(template?.invoice_title, "Driver Earnings Statement"),
+    driverName: safeText(`${driver.first_name ?? ""} ${driver.last_name ?? ""}`.trim(), "Driver"),
+    driverId: safeText(driver.driver_code ?? driver.id ?? invoice.driver_id, "—"),
+    regionName: safeText(region?.name, "—"),
     currency,
     invoicePeriod: formatPeriod(invoice.period_start as string, invoice.period_end as string),
     invoiceStatus: statusLabel(invoice.status as string),
@@ -653,8 +662,12 @@ export async function sendDriverInvoiceEmail(
     emailBodyTemplate: template?.email_body as string | undefined,
   });
 
-  const subject = (template?.email_subject as string || email.subject)
-    .replace(/\{\{invoiceNo\}\}/g, invoice.invoice_number);
+  const subjectTemplate = safeText(
+    template?.email_subject ?? email.subject,
+    `Your ONECAB Monthly Earnings Statement - ${safeText(invoice.invoice_number, "INVOICE")}`,
+  );
+  const subject = subjectTemplate
+    .replace(/\{\{invoiceNo\}\}/g, safeText(invoice.invoice_number, "INVOICE"));
 
   const fromAddress = formatResendFromAddress(
     companyBranding.company.name || companyBranding.company.legalName,
@@ -670,8 +683,9 @@ export async function sendDriverInvoiceEmail(
     from: fromAddress,
     replyTo: companyBranding.company.email || undefined,
     attachments: [{
-      filename: `ONECAB_Driver_Invoice_${invoice.invoice_number}.pdf`,
+      filename: `ONECAB_Driver_Invoice_${safeText(invoice.invoice_number, "INVOICE")}.pdf`,
       content: bytesToBase64(pdfBytes),
+      contentType: "application/pdf",
     }],
     tag: "driver_monthly_invoice",
   });
@@ -733,10 +747,11 @@ export async function previewDriverInvoiceHtml(
 
 async function getSignedUrls(
   supabase: SupabaseClient,
-  storagePath: string,
+  storagePath: string | null | undefined,
   bucket = BUCKET,
   options: { invoiceNo?: string; mode?: "view" | "download" } = {},
 ): Promise<{ pdf_url?: string }> {
+  if (!storagePath) return {};
   const invoiceNo = options.invoiceNo ?? storagePath.replace(/.*\//, "").replace(/\.pdf$/, "");
   const signedOptions = options.mode === "download"
     ? { download: `ONECAB_Driver_Invoice_${invoiceNo}.pdf` }

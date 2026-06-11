@@ -29,16 +29,30 @@ const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secon
   cancelled: { label: "Cancelled", variant: "destructive" },
 };
 
+async function readFunctionError(error: unknown): Promise<string> {
+  const asAny = error as { message?: string; context?: unknown };
+  if (asAny?.context instanceof Response) {
+    try {
+      const payload = await asAny.context.clone().json() as { error?: string; message?: string };
+      if (payload?.error) return payload.error;
+      if (payload?.message) return payload.message;
+    } catch {
+      /* ignore parse failures */
+    }
+  }
+  return asAny?.message || "Edge function call failed";
+}
+
 async function invokeDriverInvoice(body: Record<string, unknown>) {
   const { data, error } = await supabase.functions.invoke("admin-driver-invoice", { body });
   if (error) {
-    throw new Error(error.message || "Edge function call failed");
+    throw new Error(await readFunctionError(error));
   }
   if (!data) {
     throw new Error("Empty response from invoice service");
   }
-  if (data.success === false) {
-    throw new Error(data.error || "Invoice action failed");
+  if (data.success === false || data.ok === false) {
+    throw new Error(data.error || data.message || "Invoice action failed");
   }
   return data;
 }

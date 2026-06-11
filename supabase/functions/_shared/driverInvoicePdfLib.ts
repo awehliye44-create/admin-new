@@ -18,6 +18,12 @@ function formatAmount(
   return `${prefix}${money(row.amountPence, currency)}`;
 }
 
+function asPdfText(value: unknown, fallback = "—"): string {
+  if (value == null) return fallback;
+  const text = String(value).trim();
+  return text || fallback;
+}
+
 function drawText(
   page: PDFPage,
   font: PDFFont,
@@ -182,20 +188,20 @@ export async function renderDriverInvoicePdfLib(data: DriverInvoiceRenderData): 
   const cardWidth = (contentWidth - 16) / 2;
   const cardTop = y;
   const leftBottom = drawDetailCard(page, font, fontBold, "DRIVER DETAILS", [
-    ["Invoice Number", data.invoiceNo],
-    ["Driver Name", data.driverName],
-    ["Driver ID", data.driverId],
-    ["Region", data.regionName],
-    ["Currency", data.currency],
+    ["Invoice Number", asPdfText(data.invoiceNo)],
+    ["Driver Name", asPdfText(data.driverName, "Driver")],
+    ["Driver ID", asPdfText(data.driverId)],
+    ["Region", asPdfText(data.regionName)],
+    ["Currency", asPdfText(data.currency, "GBP")],
   ], left, cardTop, cardWidth);
 
   const rightBottom = drawDetailCard(page, font, fontBold, "INVOICE DETAILS", [
-    ["Invoice Period", data.invoicePeriod],
-    ["Generated Date", data.generatedDate],
-    ["Statement Type", invoiceTitle],
-    ["Total Trips", String(data.totalTrips)],
-    ["Card Trips", String(data.cardTrips)],
-    ["Cash Trips", String(data.cashTrips)],
+    ["Invoice Period", asPdfText(data.invoicePeriod)],
+    ["Generated Date", asPdfText(data.generatedDate)],
+    ["Statement Type", asPdfText(invoiceTitle)],
+    ["Total Trips", String(data.totalTrips ?? 0)],
+    ["Card Trips", String(data.cardTrips ?? 0)],
+    ["Cash Trips", String(data.cashTrips ?? 0)],
   ], left + cardWidth + 16, cardTop, cardWidth);
 
   y = Math.min(leftBottom, rightBottom) - 24;

@@ -97,8 +97,8 @@ function money(pence: number, currency: string): string {
   return `${sym}${(Math.abs(pence) / 100).toFixed(2)}`;
 }
 
-function esc(s: string): string {
-  return s
+function esc(s: string | null | undefined): string {
+  return String(s ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -398,16 +398,16 @@ One App. Every Journey.
 Phone: {{companyPhone}}
 Email: {{companyEmail}}
 Website: {{companyWebsite}}`)
-    .replace(/\{\{driverName\}\}/g, args.driverName)
-    .replace(/\{\{invoiceNo\}\}/g, args.invoiceNo)
-    .replace(/\{\{invoicePeriod\}\}/g, args.invoicePeriod)
-    .replace(/\{\{totalTrips\}\}/g, String(args.totalTrips))
-    .replace(/\{\{netDriverEarnings\}\}/g, args.netDriverEarnings)
-    .replace(/\{\{companyName\}\}/g, args.companyName)
-    .replace(/\{\{companyAddress\}\}/g, args.companyAddress)
-    .replace(/\{\{companyPhone\}\}/g, args.companyPhone)
-    .replace(/\{\{companyEmail\}\}/g, args.companyEmail)
-    .replace(/\{\{companyWebsite\}\}/g, args.companyWebsite);
+    .replace(/\{\{driverName\}\}/g, String(args.driverName ?? ""))
+    .replace(/\{\{invoiceNo\}\}/g, String(args.invoiceNo ?? ""))
+    .replace(/\{\{invoicePeriod\}\}/g, String(args.invoicePeriod ?? ""))
+    .replace(/\{\{totalTrips\}\}/g, String(args.totalTrips ?? 0))
+    .replace(/\{\{netDriverEarnings\}\}/g, String(args.netDriverEarnings ?? ""))
+    .replace(/\{\{companyName\}\}/g, String(args.companyName ?? ""))
+    .replace(/\{\{companyAddress\}\}/g, String(args.companyAddress ?? ""))
+    .replace(/\{\{companyPhone\}\}/g, String(args.companyPhone ?? ""))
+    .replace(/\{\{companyEmail\}\}/g, String(args.companyEmail ?? ""))
+    .replace(/\{\{companyWebsite\}\}/g, String(args.companyWebsite ?? ""));
 
   const html = text.split("\n").map((line) => `<p>${esc(line)}</p>`).join("");
   return {
