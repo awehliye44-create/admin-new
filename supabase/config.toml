@@ -49,6 +49,12 @@ verify_jwt = false
 [functions.admin-payout-batches]
 verify_jwt = false
 
+[functions.admin-finance-settlement-summary]
+verify_jwt = false
+
+[functions.admin-finance-reconciliation]
+verify_jwt = false
+
 [functions.handle-cash-trip-commission]
 verify_jwt = false
 
