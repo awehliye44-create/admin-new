@@ -59,6 +59,7 @@ import InvoiceTemplates from "./pages/InvoiceTemplates";
 import StatementRuns from "./pages/StatementRuns";
 import GeneralSettings from "./pages/GeneralSettings";
 import Integrations from "./pages/Integrations";
+import PaymentProviders from "./pages/PaymentProviders";
 import Webhooks from "./pages/Webhooks";
 
 import RolesPermissions from "./pages/RolesPermissions";
@@ -199,6 +200,7 @@ const App = () => (
               {/* Settings */}
               <Route path="general-settings" element={<GeneralSettings />} />
               <Route path="integrations" element={<Integrations />} />
+              <Route path="payment-providers" element={<PaymentProviders />} />
               <Route path="webhooks" element={<Webhooks />} />
               
               <Route path="roles" element={<RolesPermissions />} />
