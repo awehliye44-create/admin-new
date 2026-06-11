@@ -180,6 +180,7 @@ Deno.serve(async (req) => {
             const completedTrips = new Set<string>();
             let noShowTrips = 0, lateCancelTrips = 0;
 
+            // Ledger amounts originate from tripSettlement SSOT at trip complete / webhook / cash paths.
             for (const e of entries || []) {
               const amt = e.amount_pence || 0;
               switch (e.type) {

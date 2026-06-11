@@ -26,6 +26,7 @@ import {
 } from '@/hooks/useDriverWallet';
 import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
+import { FinanceSettlementOverview } from '@/components/finance/FinanceSettlementOverview';
 import { 
   Search, Download, DollarSign, TrendingUp, Eye, RefreshCw, User, Car,
   Banknote, Wallet, CheckCircle2, AlertTriangle, CreditCard, Plus, Minus,
@@ -95,7 +96,11 @@ export default function AdminDriverSettlements() {
       queryClient.invalidateQueries({ queryKey: ['driver-financial-summaries'] });
       queryClient.invalidateQueries({ queryKey: ['driver-financial-summary', selectedDriverId] });
     },
-    onError: (error: Error) => toast.error(`Payout failed: ${error.message}`),
+    onError: (error: Error) => {
+      const ctx = (error as Error & { context?: { body?: { diagnoses?: string[]; message?: string } } }).context?.body;
+      const detail = ctx?.diagnoses?.[0] || ctx?.message;
+      toast.error(detail ? `Payout failed: ${detail}` : `Payout failed: ${error.message}`);
+    },
   });
 
   const handleAddAdjustment = () => {
@@ -148,6 +153,8 @@ export default function AdminDriverSettlements() {
             </Badge>
           )}
         </div>
+
+        <FinanceSettlementOverview filter={serviceFilter} />
 
         {/* Stats */}
         <div className="grid gap-4 md:grid-cols-4">

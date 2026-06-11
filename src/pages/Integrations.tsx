@@ -17,8 +17,9 @@ import { useToast } from "@/hooks/use-toast";
 import { 
   Plus, Edit, Trash2, Search, Key, Globe, Zap, Copy, Eye, EyeOff, 
   RefreshCw, CheckCircle, XCircle, AlertTriangle, ExternalLink, 
-  Code, Shield, Clock, Activity, Settings2, Link2, Unlink
+  Code, Shield, Clock, Activity, Settings2, Link2, Unlink, CreditCard
 } from "lucide-react";
+import { PaymentProvidersSection } from "@/components/integrations/PaymentProvidersSection";
 import { format } from "date-fns";
 
 interface Integration {
@@ -51,7 +52,6 @@ interface ApiKey {
 }
 
 const INTEGRATION_PROVIDERS = [
-  { value: 'stripe', label: 'Stripe', icon: '💳', description: 'Payment processing' },
   { value: 'twilio', label: 'Twilio', icon: '📱', description: 'SMS & Voice' },
   { value: 'sendgrid', label: 'SendGrid', icon: '📧', description: 'Email delivery' },
   { value: 'mapbox', label: 'Mapbox', icon: '🗺️', description: 'Maps & Geocoding' },
@@ -77,7 +77,7 @@ const PERMISSION_OPTIONS = [
 export default function Integrations() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState("integrations");
+  const [activeTab, setActiveTab] = useState("payment-providers");
   const [isIntegrationDialogOpen, setIsIntegrationDialogOpen] = useState(false);
   const [isApiKeyDialogOpen, setIsApiKeyDialogOpen] = useState(false);
   const [editingIntegration, setEditingIntegration] = useState<Integration | null>(null);
@@ -402,6 +402,10 @@ export default function Integrations() {
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
+            <TabsTrigger value="payment-providers" className="gap-2">
+              <CreditCard className="h-4 w-4" />
+              Payment Providers
+            </TabsTrigger>
             <TabsTrigger value="integrations" className="gap-2">
               <Zap className="h-4 w-4" />
               Integrations
@@ -415,6 +419,10 @@ export default function Integrations() {
               API Docs
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="payment-providers" className="space-y-4">
+            <PaymentProvidersSection />
+          </TabsContent>
 
           {/* Integrations Tab */}
           <TabsContent value="integrations" className="space-y-4">

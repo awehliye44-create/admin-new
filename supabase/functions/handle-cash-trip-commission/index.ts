@@ -68,7 +68,7 @@ serve(async (req) => {
     // === Fetch and validate trip ===
     const { data: trip, error: tripError } = await supabase
       .from('trips')
-      .select('id, driver_id, payment_method, status, completed_at, gross_fare_pence, extras_pence, tip_pence, commission_pence, driver_net_pence, payment_status')
+      .select('id, driver_id, payment_method, status, completed_at, gross_fare_pence, final_fare_pence, airport_charge_pence, other_pass_through_charges_pence, extras_pence, tip_pence, commission_pence, driver_net_pence, payment_status')
       .eq('id', trip_id)
       .maybeSingle();
 
@@ -125,26 +125,35 @@ serve(async (req) => {
       }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // === Calculate fare and commission ===
-    const grossFarePence = trip.gross_fare_pence || 0;
+    // === Calculate fare and commission (tripSettlement SSOT) ===
+    const finalFarePence = trip.final_fare_pence || trip.gross_fare_pence || 0;
     const tipPence = trip.tip_pence || 0;
-    const totalGrossPence = grossFarePence + tipPence;
+    const airportPence = trip.airport_charge_pence || 0;
+    const passThroughPence = trip.other_pass_through_charges_pence || 0;
 
-    if (grossFarePence <= 0) {
+    if (finalFarePence <= 0) {
       return new Response(
         JSON.stringify({ error: 'Trip has no fare amount' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const { commission_pct: commissionPct, commission_pence: commissionPence } = await calculateCommission(supabase, trip.driver_id, grossFarePence);
+    const {
+      commission_pct: commissionPct,
+      commission_pence: commissionPence,
+      commissionable_fare_pence: commissionableFarePence,
+    } = await calculateCommission(supabase, trip.driver_id, finalFarePence, {
+      airport_charge_pence: airportPence,
+      other_pass_through_charges_pence: passThroughPence,
+      tips_pence: tipPence,
+    });
     const accounting = buildTripAccounting({
-      commissionableSubtotalPence: grossFarePence,
+      commissionableSubtotalPence: commissionableFarePence,
       commissionPence,
       tipAmountPence: tipPence,
     });
     const accountingError = validateTripAccounting({
-      commissionableSubtotalPence: grossFarePence,
+      commissionableSubtotalPence: commissionableFarePence,
       commissionPence,
       tipAmountPence: tipPence,
       driverNetBeforeTipPence: accounting.driverNetBeforeTipPence,
@@ -162,7 +171,7 @@ serve(async (req) => {
     const driverNetPence = accounting.driverNetBeforeTipPence;
     const driverTotalEarningsPence = accounting.driverTotalEarningsPence;
 
-    console.log(`[cash-commission] Gross: ${grossFarePence}p, Tip: ${tipPence}p, Commission: ${commissionPence}p, Net: ${driverNetPence}p, DriverTotal: ${driverTotalEarningsPence}p, Currency: ${currency_code}`);
+    console.log(`[cash-commission] Final: ${finalFarePence}p, Tip: ${tipPence}p, Commission: ${commissionPence}p, Net: ${driverNetPence}p, DriverTotal: ${driverTotalEarningsPence}p, Currency: ${currency_code}`);
 
     // === Get wallet balance before ===
     const { data: walletBefore } = await supabase
@@ -172,7 +181,9 @@ serve(async (req) => {
 
     // === Update trip with financial fields ===
     await supabase.from('trips').update({
-      gross_fare_pence: grossFarePence,
+      final_fare_pence: finalFarePence,
+      gross_fare_pence: commissionableFarePence,
+      commissionable_fare_pence: commissionableFarePence,
       commission_pence: commissionPence,
       commission_pct: commissionPct, // Tier snapshot — LOCKED
       driver_net_pence: driverNetPence,

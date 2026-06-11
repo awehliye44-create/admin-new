@@ -11,6 +11,7 @@ import { useQuery } from '@tanstack/react-query';
 import { formatPence, useDriverFinancialSummaries } from '@/hooks/useDriverWallet';
 import { useRegionsMap } from '@/hooks/useRegions';
 import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
+import { FinanceSettlementOverview } from '@/components/finance/FinanceSettlementOverview';
 import { getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 import { format } from 'date-fns';
 import { 
@@ -425,6 +426,8 @@ export default function AdminPayoutBatches() {
             </Badge>
           )}
         </div>
+
+        <FinanceSettlementOverview filter={serviceFilter} />
 
         <div className="grid gap-4 md:grid-cols-5">
           <Card>

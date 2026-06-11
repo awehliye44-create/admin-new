@@ -139,3 +139,6 @@ verify_jwt = false
 
 [functions.get-mapbox-token]
 verify_jwt = false
+
+[functions.admin-payment-providers]
+verify_jwt = false

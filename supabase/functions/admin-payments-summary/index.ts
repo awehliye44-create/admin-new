@@ -101,7 +101,7 @@ serve(async (req) => {
     const response = {
       // Unified financial summary (100% from driver_wallet_ledger via driver_financial_summary)
       totalGrossFares,
-      totalCommission,       // Platform commission (ONECAB revenue)
+      totalCommission,       // Ledger PLATFORM_COMMISSION sum — must match sum(trips.commission_pence), NOT Stripe balance
       totalDriverNet,        // Card net credits to drivers
       totalCashCommission,   // Cash commission owed by drivers
       totalPayoutsSent,
@@ -109,8 +109,9 @@ serve(async (req) => {
       totalCardGross,
       totalCashGross,
 
-      // Legacy field (maps to totalCommission for backwards compat)
+      // Legacy field — calculated commission only, NOT customer revenue or Stripe cash
       totalRevenue: totalCommission,
+      accountingNote: "totalCommission is ledger-derived ONECAB gross commission. Do not confuse with Stripe platform balance or customer revenue.",
 
       // Trip-level stats
       totalTransactions: totalTrips,

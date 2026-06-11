@@ -1,7 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveCurrencyFromDriver } from "../_shared/regionCurrency.ts";
+import {
+  buildInsufficientFundsDiagnosis,
+  computeSafePayoutAmount,
+  parseInsufficientFundsReason,
+} from "../_shared/financeSettlementSummary.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
+
+const MIN_PAYOUT_PENCE = 100;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -93,19 +100,65 @@ serve(async (req) => {
       .not('type', 'in', '("PLATFORM_COMMISSION","CASH_TRIP_EARNING")');
 
     const available = ledgerEntries?.reduce((sum, e) => sum + (e.amount_pence || 0), 0) || 0;
-    const payoutAmount = amount_pence || available;
+    const requestedPayout = amount_pence || available;
 
-    console.log(`[payout] Driver ${driver_id}: wallet balance = ${available}p, requested payout = ${payoutAmount}p, currency: ${currency_code}`);
+    console.log(`[payout] Driver ${driver_id}: wallet balance = ${available}p, requested payout = ${requestedPayout}p, currency: ${currency_code}`);
 
-    if (payoutAmount <= 0) {
+    if (requestedPayout <= 0) {
       return new Response(JSON.stringify({ error: 'No funds available for payout', available_pence: available }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    if (payoutAmount > available) {
-      return new Response(JSON.stringify({ error: 'Payout amount exceeds available balance', available_pence: available, requested_pence: payoutAmount }), {
+    if (requestedPayout > available) {
+      return new Response(JSON.stringify({ error: 'Payout amount exceeds available balance', available_pence: available, requested_pence: requestedPayout }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    let stripeAvailablePence = 0;
+    let stripePendingPence = 0;
+    if (!stripeSecretKey) {
+      return new Response(JSON.stringify({ error: 'Stripe not configured', error_code: 'STRIPE_NOT_CONFIGURED' }), {
+        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const stripe = new Stripe(stripeSecretKey, { apiVersion: '2023-10-16' });
+    const balance = await stripe.balance.retrieve();
+    const currencyLower = currency_code.toLowerCase();
+    stripeAvailablePence = balance.available.find((b) => b.currency === currencyLower)?.amount ?? 0;
+    stripePendingPence = balance.pending.find((b) => b.currency === currencyLower)?.amount ?? 0;
+
+    const safe = computeSafePayoutAmount({
+      driverAvailablePence: requestedPayout,
+      stripeAvailablePence,
+      minimumPayoutPence: MIN_PAYOUT_PENCE,
+    });
+    const payoutAmount = safe.payout_amount_pence;
+
+    if (payoutAmount < MIN_PAYOUT_PENCE) {
+      const diagnoses = buildInsufficientFundsDiagnosis({
+        failureReason: 'insufficient funds',
+        requestedPayoutPence: requestedPayout,
+        stripeAvailablePence,
+        stripePendingPence,
+        calculatedOnecabNetPence: 0,
+        driverPendingSettlementPence: 0,
+      });
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'INSUFFICIENT_STRIPE_BALANCE',
+        message: 'Stripe available balance was lower than requested driver payout.',
+        available_pence: available,
+        requested_pence: requestedPayout,
+        stripe_available_balance_pence: stripeAvailablePence,
+        stripe_pending_balance_pence: stripePendingPence,
+        payout_amount_pence: 0,
+        waiting_for_stripe_funds: true,
+        diagnoses,
+      }), {
+        status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
@@ -155,7 +208,6 @@ serve(async (req) => {
     // === Stripe transfer ===
     if (stripeSecretKey) {
       try {
-        const stripe = new Stripe(stripeSecretKey, { apiVersion: '2023-10-16' });
         const idempotencyKey = `payout_${payoutItem.id}`;
 
         // Transfer from platform to connected account
@@ -191,6 +243,9 @@ serve(async (req) => {
       } catch (stripeErr) {
         console.error('[payout] Stripe error:', stripeErr);
         stripeError = (stripeErr as Error).message;
+        if (parseInsufficientFundsReason(stripeError)) {
+          stripeError = 'Stripe available balance was lower than requested driver payout.';
+        }
       }
     }
 
@@ -241,12 +296,17 @@ serve(async (req) => {
         batchId: batch.id,
         payoutItemId: payoutItem.id,
         amount: payoutAmount,
+        requested_pence: requestedPayout,
+        partial_payout: safe.partial,
         wallet_balance_before: available,
         wallet_balance_after: newBalance,
+        stripe_available_balance_pence: stripeAvailablePence,
+        stripe_pending_balance_pence: stripePendingPence,
         stripeTransferId,
         stripePayoutId,
         ledgerEntryId: ledgerEntry?.id,
         currency_code,
+        waiting_for_stripe_funds: safe.waiting_for_stripe_funds && safe.partial,
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -264,15 +324,29 @@ serve(async (req) => {
         completed_at: new Date().toISOString(),
       }).eq('id', batch.id);
 
+      const diagnoses = buildInsufficientFundsDiagnosis({
+        failureReason: stripeError,
+        requestedPayoutPence: payoutAmount,
+        stripeAvailablePence,
+        stripePendingPence,
+        calculatedOnecabNetPence: 0,
+        driverPendingSettlementPence: 0,
+      });
+
       return new Response(JSON.stringify({
         success: false,
         batchId: batch.id,
         payoutItemId: payoutItem.id,
         amount: payoutAmount,
+        requested_pence: requestedPayout,
         wallet_balance_before: available,
-        wallet_balance_after: available, // Unchanged — no debit on failure
+        wallet_balance_after: available,
+        stripe_available_balance_pence: stripeAvailablePence,
+        stripe_pending_balance_pence: stripePendingPence,
         currency_code,
         error: stripeError,
+        diagnoses,
+        waiting_for_stripe_funds: stripeAvailablePence < requestedPayout,
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });

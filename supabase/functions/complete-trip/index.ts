@@ -125,14 +125,21 @@ serve(async (req) => {
 
     // === Commission from shared utility (single source of truth) ===
     // Tier commission % is snapshotted here and LOCKED on the trip — never recalculated after settlement
-    const { commission_pct: commissionPercentage, commission_pence: platform_commission, driver_net_pence: driverNetFromCommission } = await calculateCommission(supabase, driver_id, commissionable_subtotal);
+    const {
+      commission_pct: commissionPercentage,
+      commission_pence: platform_commission,
+      driver_net_pence: driverNetFromCommission,
+      commissionable_fare_pence: commissionableFarePence,
+    } = await calculateCommission(supabase, driver_id, commissionable_subtotal, {
+      tips_pence: tip_amount_pence,
+    });
     const accounting = buildTripAccounting({
-      commissionableSubtotalPence: commissionable_subtotal,
+      commissionableSubtotalPence: commissionableFarePence,
       commissionPence: platform_commission,
       tipAmountPence: tip_amount_pence,
     });
     const accountingError = validateTripAccounting({
-      commissionableSubtotalPence: commissionable_subtotal,
+      commissionableSubtotalPence: commissionableFarePence,
       commissionPence: platform_commission,
       tipAmountPence: tip_amount_pence,
       driverNetBeforeTipPence: driverNetFromCommission,
@@ -158,7 +165,9 @@ serve(async (req) => {
       financial_outcome: 'COMPLETED',
       completed_at: new Date().toISOString(),
       fare: final_trip_total / 100,
-      gross_fare_pence: commissionable_subtotal,
+      final_fare_pence: commissionable_subtotal,
+      gross_fare_pence: commissionableFarePence,
+      commissionable_fare_pence: commissionableFarePence,
       commission_pence: platform_commission,
       commission_pct: commissionPercentage, // Tier snapshot — LOCKED at settlement
       driver_net_pence: driver_net_before_tip,

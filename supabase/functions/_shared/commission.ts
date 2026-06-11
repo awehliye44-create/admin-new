@@ -1,35 +1,14 @@
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { calculateTripSettlement } from "./tripSettlement.ts";
 
 /**
- * ╔══════════════════════════════════════════════════════════════════╗
- * ║  LOCKED MODULE — Commission Calculation                        ║
- * ║                                                                ║
- * ║  This is the SINGLE source of truth for commission logic.      ║
- * ║  Protected by: src/test/commission.test.ts (12 tests)          ║
- * ║                                                                ║
- * ║  Rules:                                                        ║
- * ║  1. Commission % comes ONLY from driver_categories table       ║
- * ║  2. Bronze tier is the fallback for unassigned drivers          ║
- * ║  3. Formula: round(gross * pct / 100)                          ║
- * ║  4. commission + driver_net = gross (conservation law)          ║
- * ║  5. driver_wallet_ledger is the financial source of truth      ║
- * ║     (NOT the trips table or the deprecated driver_ledger)      ║
- * ║                                                                ║
- * ║  DO NOT hardcode rates. DO NOT bypass this module.             ║
- * ╚══════════════════════════════════════════════════════════════════╝
- *
- * Get the commission percentage for a driver.
- *
- * 1. If the driver has a category_id → use that category's commission_pct.
- * 2. If category_id is NULL → fall back to the Bronze tier commission.
- *
- * Commission always comes from the driver_categories table — never hardcoded.
+ * Commission tier resolution + settlement via tripSettlement SSOT.
  */
+
 export async function getDriverCommissionPct(
   supabase: SupabaseClient,
   driverId: string,
 ): Promise<number> {
-  // 1. Check driver's assigned category
   const { data: driver } = await supabase
     .from('drivers')
     .select('category_id')
@@ -48,7 +27,6 @@ export async function getDriverCommissionPct(
     }
   }
 
-  // 2. Fallback: use Bronze tier commission (lowest priority tier)
   const { data: bronze } = await supabase
     .from('driver_categories')
     .select('commission_pct')
@@ -60,7 +38,6 @@ export async function getDriverCommissionPct(
     return bronze.commission_pct;
   }
 
-  // 3. Ultimate fallback: use the tier with the highest priority number (lowest rank)
   const { data: lowestTier } = await supabase
     .from('driver_categories')
     .select('commission_pct')
@@ -72,38 +49,47 @@ export async function getDriverCommissionPct(
     return lowestTier.commission_pct;
   }
 
-  // Should never reach here if driver_categories table has data
   throw new Error('No driver categories found in database — cannot determine commission rate');
 }
 
-/**
- * Commission calculation result.
- */
 export interface CommissionResult {
   commission_pct: number;
   commission_pence: number;
   driver_net_pence: number;
+  driver_total_earnings_pence: number;
+  commissionable_fare_pence: number;
 }
 
+export type CalculateCommissionOptions = {
+  airport_charge_pence?: number;
+  other_pass_through_charges_pence?: number;
+  tips_pence?: number;
+};
+
 /**
- * Calculate commission from a gross fare using the driver's tier rate.
- *
- * Formula:
- *   commission_pence = round(gross_fare_pence * commission_pct / 100)
- *   driver_net_pence = gross_fare_pence - commission_pence
- *
- * @param supabase  Supabase client (service role)
- * @param driverId  Driver UUID
- * @param grossFarePence  The commissionable gross fare in pence (tip excluded)
+ * Settlement via calculateTripSettlement SSOT.
+ * @param finalFarePence Customer final fare in pence (tip excluded).
  */
 export async function calculateCommission(
   supabase: SupabaseClient,
   driverId: string,
-  grossFarePence: number,
+  finalFarePence: number,
+  options?: CalculateCommissionOptions,
 ): Promise<CommissionResult> {
   const commission_pct = await getDriverCommissionPct(supabase, driverId);
-  const commission_pence = Math.round(grossFarePence * commission_pct / 100);
-  const driver_net_pence = grossFarePence - commission_pence;
+  const settlement = calculateTripSettlement({
+    final_fare_pence: finalFarePence,
+    airport_charge_pence: options?.airport_charge_pence ?? 0,
+    other_pass_through_charges_pence: options?.other_pass_through_charges_pence ?? 0,
+    tips_pence: options?.tips_pence ?? 0,
+    driver_tier_commission_percent: commission_pct,
+  });
 
-  return { commission_pct, commission_pence, driver_net_pence };
+  return {
+    commission_pct: settlement.tier_percent_used,
+    commission_pence: settlement.commission_pence,
+    driver_net_pence: settlement.driver_net_pence,
+    driver_total_earnings_pence: settlement.driver_total_earnings_pence,
+    commissionable_fare_pence: settlement.commissionable_fare_pence,
+  };
 }
