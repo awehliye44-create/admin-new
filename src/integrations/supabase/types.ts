@@ -10286,6 +10286,8 @@ export type Database = {
           pickup_waiting_started_at: string | null
           pickup_zone_id: string | null
           platform_commission_amount: number | null
+          platform_gross_revenue_pence: number | null
+          platform_net_revenue_pence: number | null
           pre_assigned_driver_id: string | null
           preauth_buffer_pence: number
           pricing_mode: string | null
@@ -10306,6 +10308,7 @@ export type Database = {
           sequence_no: number | null
           service_area_code: string | null
           service_area_id: string | null
+          settlement_formula_version: string | null
           special_instructions: string | null
           stacked_trip_id: string | null
           started_at: string | null
@@ -10502,6 +10505,8 @@ export type Database = {
           pickup_waiting_started_at?: string | null
           pickup_zone_id?: string | null
           platform_commission_amount?: number | null
+          platform_gross_revenue_pence?: number | null
+          platform_net_revenue_pence?: number | null
           pre_assigned_driver_id?: string | null
           preauth_buffer_pence?: number
           pricing_mode?: string | null
@@ -10522,6 +10527,7 @@ export type Database = {
           sequence_no?: number | null
           service_area_code?: string | null
           service_area_id?: string | null
+          settlement_formula_version?: string | null
           special_instructions?: string | null
           stacked_trip_id?: string | null
           started_at?: string | null
@@ -10718,6 +10724,8 @@ export type Database = {
           pickup_waiting_started_at?: string | null
           pickup_zone_id?: string | null
           platform_commission_amount?: number | null
+          platform_gross_revenue_pence?: number | null
+          platform_net_revenue_pence?: number | null
           pre_assigned_driver_id?: string | null
           preauth_buffer_pence?: number
           pricing_mode?: string | null
@@ -10738,6 +10746,7 @@ export type Database = {
           sequence_no?: number | null
           service_area_code?: string | null
           service_area_id?: string | null
+          settlement_formula_version?: string | null
           special_instructions?: string | null
           stacked_trip_id?: string | null
           started_at?: string | null
@@ -12615,6 +12624,16 @@ export type Database = {
       }
       cleanup_unverified_accounts: {
         Args: { _older_than?: string }
+        Returns: Json
+      }
+      commit_negotiation_fare: {
+        Args: {
+          p_committed_fare_pence: number
+          p_driver_id?: string
+          p_fare_source: string
+          p_ride_offer_id?: string
+          p_trip_id: string
+        }
         Returns: Json
       }
       compute_dispatch_score:
