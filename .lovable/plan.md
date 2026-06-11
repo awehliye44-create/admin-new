@@ -1,59 +1,115 @@
-# Merchant Management — Implementation Plan
+# Finance Accounting Separation — ONECAB Commission vs Stripe Platform Balance
 
-Build a single new admin page `/merchants` that controls the ONECAB Delivery marketplace. Reuses existing booking, payment, wallet, commission, dispatch, tracking, and notification systems — no parallel infrastructure.
+## Problem
+The admin panel (and downstream driver app surfaces) currently conflates **Stripe platform balance / unallocated cash** with **ONECAB commission earned**. This produces wrong totals on:
+- Admin Payments / Payout Batches / Driver Settlements / Disputes & Adjustments
+- Driver Wallet & Ledger
+- Driver app lifetime / today / wallet / pending / available
+- Customer-side fare summaries that read from the same hooks
 
-## 1. Database (one migration)
+Root cause: several admin views derive ONECAB commission as `stripe_available_balance − driver_payable` instead of summing `driver_wallet_ledger.PLATFORM_COMMISSION` (the locked SOT per `mem://finance/unified-financial-source-of-truth`).
 
-New tables (all in `public`, with GRANTs + RLS, admin-only writes via `has_role(auth.uid(),'admin')`, authenticated read where needed):
+## Strict definitions (the only formulas that may be used)
 
-- `merchant_categories` — enum-like reference: `food | grocery | retail | pharmacy | parcel`. Seeded. Global ON/OFF flag (`enabled boolean`) drives the "Merchant Type Controls" section. Customer app reads this.
-- `service_area_merchant_settings` — `(service_area_id, category)` unique. `delivery_enabled boolean`, `enabled boolean`. Drives per-service-area visibility.
-- `merchants` — business_name, category, service_area_id, owner_name, phone, email, address, city, postcode, description, logo_url, banner_url, opening_hours (jsonb), is_open, prep_time_minutes, delivery_radius_km, min_order_amount, commission_pct (nullable override; default uses global 15%), status (`pending|approved|rejected|suspended|closed`), created_at.
-- `merchant_products` — merchant_id, category_section, name, description, price, image_url, image_source (`uploaded|ai_generated`), image_approved, availability, plus type-specific jsonb `attributes` (unit/weight, stock, prescription_required, parcel size, add-ons).
-- `merchant_product_categories` — merchant_id, name, sort_order.
-- `merchant_ai_credits` — merchant_id, credits_remaining, updated_at.
-- `merchant_ai_generations` — merchant_id, prompt, image_url, status, created_at (history).
+| Metric | Formula | Source |
+|---|---|---|
+| Total customer revenue | `Σ payments.captured_amount_pence` (status = captured/succeeded) | `payments` |
+| ONECAB gross commission | `Σ driver_wallet_ledger.amount_pence WHERE type='PLATFORM_COMMISSION'` | ledger SOT |
+| Stripe processing fees | `Σ trips.stripe_processing_fee_pence` | trips |
+| ONECAB net commission | gross commission − Stripe fees | derived |
+| Driver net earnings | `Σ ledger(NET_FARE + TIP + AIRPORT + PASS_THROUGH)` | ledger SOT |
+| Stripe platform balance | live `balances.available + balances.pending` from Stripe API | edge fn |
+| Driver payout liability | `Σ driver_wallets.balance_pence` (positive only) | wallets |
+| Driver available payout | `Σ driver_financial_summary.net_available_for_payout` | view |
+| Driver pending payout | captured driver earnings not yet Stripe-available | derived |
 
-Storage buckets: `merchant-logos` (public), `merchant-banners` (public), `merchant-products` (public).
+Commission is **never** calculated as `stripe_balance − driver_payable`.
 
-Orders tab is a **view**, not a new table — selects from existing `trips` where `booking_type='delivery'` joined by `merchant_id`.
+## Backend changes
 
-## 2. Edge functions
+### 1. New edge function `admin-finance-summary`
+Returns one canonical object per region (or All Services grouped by currency):
+```ts
+{
+  currency_code,
+  totals: {
+    customer_revenue_pence,       // payments.captured_amount_pence
+    onecab_gross_commission_pence,// ledger PLATFORM_COMMISSION
+    stripe_fees_pence,            // trips.stripe_processing_fee_pence
+    onecab_net_commission_pence,  // derived
+    driver_net_earnings_pence,    // ledger NET_FARE+TIP+AIRPORT+PASS_THROUGH
+    driver_payout_liability_pence,// Σ driver_wallets.balance > 0
+    driver_available_payout_pence,// Σ net_available_for_payout
+    driver_pending_payout_pence,
+  },
+  stripe_platform_balance: { available_pence, pending_pence, source: 'stripe_api'|'unavailable' },
+  commission_status: 'stripe_confirmed'|'stripe_paid_out'|'calculated_pending'|'legacy_fallback',
+  validation_warnings: string[]   // e.g. "Commission exceeds tier cap"
+}
+```
+Implementation reuses `_shared/commission.ts` for the tier-cap validation and the existing Stripe client for balance + payouts.
 
-- `generate-merchant-image` — calls Lovable AI Gateway image model, decrements `merchant_ai_credits`, writes to storage, inserts history row. Admin-only.
-- (Reuse existing `accept-trip`, payment, wallet, commission flows. No new dispatch/payment code.)
+### 2. Validation rule (server-side, inside the function)
+```
+if onecab_gross_commission > commissionable_revenue × max_driver_tier_pct
+  → push warning "Commission exceeds allowed tier cap — calculation mismatch."
+```
 
-## 3. Frontend
+### 3. Commission status resolution
+- If `processed_stripe_events` has a recent `balance.available` event covering the period → `stripe_confirmed`
+- If a Stripe payout to the ONECAB platform bank exists → `stripe_paid_out`
+- Else if ledger has `PLATFORM_COMMISSION` rows → `calculated_pending`
+- Else → `legacy_fallback`
 
-**Sidebar:** Add "Merchant Management" item in `AdminSidebar.tsx` under an appropriate section (Operations or new "Marketplace" group).
+No migrations required — all numbers come from existing tables (`driver_wallet_ledger`, `payments`, `trips`, `driver_wallets`, `driver_financial_summary`).
 
-**Route:** `/merchants` in `App.tsx` → `src/pages/MerchantManagement.tsx`.
+## Frontend changes
 
-**Page sections (single page, tabbed):**
-1. Overview cards — counts + revenue aggregates from `merchants` and delivery `trips`.
-2. Global Merchant Type Controls — 5 switches bound to `merchant_categories.enabled`.
-3. Per-Service-Area Controls — service area selector + 6 switches (delivery + 5 categories) bound to `service_area_merchant_settings`.
-4. Merchant table — filters by service area / type / status, columns per spec, row actions (View/Edit/Approve/Reject/Suspend/Delete).
-5. "Add Merchant" dialog with full form + logo/banner upload.
+### `src/hooks/useAdminFinanceSummary.ts` (new)
+Wrap the edge function with React Query (5-min stale, per centralized caching memory).
 
-**Merchant detail** (`/merchants/:id`) — tabs: Overview, Orders, Menu/Products, Opening Hours, Payments, AI Images, Settings. Type-aware product editor (restaurant/grocery/retail/pharmacy/parcel forms share one component with conditional fields). AI Images tab shows credits, Generate button, history grid with approve/reject.
+### `src/components/finance/FinanceTotalsCards.tsx` (new, reusable)
+Renders the 9 required cards in order:
+1. Total customer revenue
+2. ONECAB gross commission
+3. Stripe processing fees
+4. ONECAB net after Stripe fees
+5. Stripe platform balance — **labelled "Platform balance — not commission"**, distinct slate styling, info tooltip
+6. Driver payout liability
+7. Driver available payout
+8. Driver pending payout
+9. ONECAB commission payout status (badge: confirmed / paid / calculated / legacy + fallback chip when not Stripe-confirmed)
 
-**Customer-app visibility:** Document that customer app must filter categories by `merchant_categories.enabled = true AND service_area_merchant_settings.enabled = true` for the active service area. No customer-app code lives in this admin repo, so this is enforced by the data layer + RLS (read policies expose only enabled rows to `anon`).
+Mixed-currency safe via existing `CurrencyGroupedStats`.
 
-## 4. Reuse, not rebuild
+### Pages updated to consume the new hook (remove any local commission math)
+- `src/pages/AdminPayments.tsx`
+- `src/pages/AdminPayoutBatches.tsx`
+- `src/pages/AdminDriverSettlements.tsx`
+- `src/pages/DriverWallet.tsx` (admin view — show Gross fares / Card credits / Driver net / Cash debt / Wallet balance / Pending / Available / Paid out / In-flight cashout)
+- `src/pages/Disputes.tsx` summary header
 
-- Commission: read global 15% from existing service-area pricing; `merchants.commission_pct` is an optional override only.
-- Orders tab: query existing `trips` table filtered by `booking_type='delivery'` and `merchant_id`.
-- Payments/Wallet/Dispatch/Tracking/Notifications: untouched — delivery trips flow through the same pipelines as ride trips.
+### Driver app surfaces (driver-app project, mirrored via existing `driver-wallet-summary` edge fn)
+- Confirm the function returns `lifetime_earnings`, `today_earnings`, `wallet_balance`, `pending_payout`, `available_payout`, `cash_debt_pence` — already implemented per memory; only add a guard so it **never** falls back to `stripe_available_balance` if the ledger query fails (throw structured `error_code: WALLET_LEDGER_UNAVAILABLE` instead, per the No-Silent-Failures policy).
 
-## Technical notes
+### Tests
+- Extend `src/test/tripAccounting.test.ts` with a regression case asserting `commission ≠ stripe_balance − driver_payable`.
+- New `src/test/financeSummary.test.ts` covering the 4 commission_status branches and the tier-cap warning.
 
-- All UI uses existing shadcn primitives + semantic tokens (gold/navy theme).
-- RLS: admin full access; `anon` SELECT only on `merchant_categories`, `service_area_merchant_settings`, approved/open `merchants`, and available `merchant_products` (so customer app can read).
-- File uploads go through Supabase Storage with per-bucket public read + admin write policies.
-- AI image generation uses `LOVABLE_API_KEY` via edge function — never from client.
-- Type-aware product schema kept flexible via `attributes jsonb` to avoid 5 separate tables.
+## Out of scope (kept untouched)
+- Existing `record-financial-outcome`, commission writes, ledger schema — these are correct; only the **reporting layer** is being fixed.
+- Customer fare engine.
 
-## Scope confirmation needed
+## Risks / fallbacks
+- If Stripe API is unreachable: `stripe_platform_balance.source = 'unavailable'`, card shows "—" with a warning chip; commission status falls back to `calculated_pending` so admins still see a number.
+- All historical trips with missing `commission_pence` get a fallback chip on the row and use `commissionable_fare × tier_pct` per `_shared/commission.ts`.
 
-This is a large build (~1 migration, 1 edge function, 3 storage buckets, 1 list page, 1 detail page with 7 tabs, ~10+ components). I'll execute it as one coherent change once you approve. Reply "go" to proceed, or tell me which sections to trim/defer.
+## Deliverables
+1. `supabase/functions/admin-finance-summary/index.ts`
+2. `src/hooks/useAdminFinanceSummary.ts`
+3. `src/components/finance/FinanceTotalsCards.tsx`
+4. Edits to the 5 admin pages above
+5. Driver-wallet-summary guard tweak
+6. 2 test files
+
+Estimated diff: ~900 lines across ~10 files, no DB migration.
