@@ -48,6 +48,7 @@ import ComplaintsDashboard from "./pages/ComplaintsDashboard";
 import Tickets from "./pages/Tickets";
 import SupportCategories from "./pages/SupportCategories";
 import AdminPayments from "./pages/AdminPayments";
+import FinancialReconciliation from "./pages/FinancialReconciliation";
 import AdminDriverSettlements from "./pages/AdminDriverSettlements";
 import DriverWallet from "./pages/DriverWallet";
 import AdminPayoutBatches from "./pages/AdminPayoutBatches";
@@ -179,6 +180,7 @@ const App = () => (
               
               {/* Finance & Payouts */}
               <Route path="payments" element={<AdminPayments />} />
+              <Route path="financial-reconciliation" element={<FinancialReconciliation />} />
               <Route path="admin-settlements" element={<AdminDriverSettlements />} />
               <Route path="driver-wallet" element={<DriverWallet />} />
               <Route path="payout-batches" element={<AdminPayoutBatches />} />
