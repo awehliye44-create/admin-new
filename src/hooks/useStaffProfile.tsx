@@ -53,6 +53,16 @@ const ROLE_PREFIXES: Record<StaffRole, string> = {
 
 export { ROLE_LABELS, ROLE_PREFIXES };
 
+/** Route/sidebar slugs that differ from role_page_permissions slugs */
+const ROUTE_PERMISSION_ALIASES: Record<string, string[]> = {
+  payments: ['payments', 'admin-payments'],
+  'financial-reconciliation': [
+    'financial-reconciliation',
+    'admin-settlements',
+    'admin-payments',
+  ],
+};
+
 export function StaffProfileProvider({ children }: { children: ReactNode }) {
   const { user, isAuthReady } = useAuth();
   const [staffProfile, setStaffProfile] = useState<StaffProfile | null>(null);
@@ -146,7 +156,8 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
       if (!staffProfile) return true; // No restrictions if no staff system set up
       // Profile page always accessible
       if (pageSlug === 'profile') return true;
-      return allowedPages.has(pageSlug);
+      const slugsToCheck = ROUTE_PERMISSION_ALIASES[pageSlug] ?? [pageSlug];
+      return slugsToCheck.some((slug) => allowedPages.has(slug));
     },
     [staffProfile, allowedPages, isStaffLoading]
   );
