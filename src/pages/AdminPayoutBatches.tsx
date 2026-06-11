@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
+import { FinanceTotalsCards } from '@/components/finance/FinanceTotalsCards';
+import { useAdminFinanceSummary } from '@/hooks/useAdminFinanceSummary';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -240,6 +242,7 @@ export default function AdminPayoutBatches() {
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
 
   const regionScope = serviceFilter.regionId ?? null;
+  const { data: financeSummary, isLoading: isLoadingFinance, error: financeError } = useAdminFinanceSummary(regionScope);
   const hasRegionScope = !!regionScope;
 
   const { data: allDrivers = [], isLoading: isLoadingDrivers, isError: isDriversError, error: driversError, refetch: refetchDrivers } =
@@ -425,6 +428,14 @@ export default function AdminPayoutBatches() {
             </Badge>
           )}
         </div>
+
+        {/* Canonical finance cards — ONECAB commission separated from Stripe platform balance */}
+        <FinanceTotalsCards
+          data={financeSummary}
+          isLoading={isLoadingFinance}
+          error={financeError as Error | null}
+        />
+
 
         <div className="grid gap-4 md:grid-cols-5">
           <Card>
