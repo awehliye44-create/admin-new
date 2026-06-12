@@ -120,9 +120,6 @@ serve(async (req) => {
       return errorResponse("Forbidden: caller not authorised to cancel this trip", 403);
     }
 
-      return errorResponse("Trip not found", 404);
-    }
-
     const terminalStatuses = ["completed", "cancelled", "no_show"];
     if (terminalStatuses.includes(trip.status)) {
       return errorResponse(`Trip already in terminal status: ${trip.status}`, 400);

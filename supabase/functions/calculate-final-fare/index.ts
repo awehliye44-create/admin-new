@@ -2,12 +2,13 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { FareEngine, type FarePricingSettings } from "../_shared/fareEngine.ts";
 import { authenticateDriver } from "../_shared/driverAuth.ts";
 
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
+
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -50,8 +51,6 @@ const corsHeaders = {
         JSON.stringify({ error: "Forbidden: trip not assigned to caller" }),
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
-    }
-
     }
 
     // Fetch fare pricing settings

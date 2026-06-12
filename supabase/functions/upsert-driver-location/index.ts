@@ -45,6 +45,8 @@ function encodeGeohash(lat: number, lng: number, precision = 6): string {
   }
   return geohash;
 }
+
+serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -74,9 +76,6 @@ function encodeGeohash(lat: number, lng: number, precision = 6): string {
     // Validate required fields
     if (typeof lat !== "number" || typeof lng !== "number") {
       return errorResponse("Missing lat or lng", 400);
-    }
-
-      return errorResponse("Missing driver_id, lat, or lng", 400);
     }
 
     if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {

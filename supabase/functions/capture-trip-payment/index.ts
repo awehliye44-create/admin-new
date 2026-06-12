@@ -12,13 +12,12 @@ const corsHeaders = {
 };
 
 /**
- * capture-trip-payment
- * 
+ * capture-trip-payment (LEGACY — prefer finalize-trip-and-capture on drive-hub-buddy)
+ *
  * Uses Stripe Connect DESTINATION CHARGES.
  * Currency is passed from complete-trip (already resolved from Region).
- * No hardcoded currency — currency_code is REQUIRED.
- * 
- * All financial entries go to driver_wallet_ledger (single source of truth).
+ * All financial entries go to driver_wallet_ledger.
+ */
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -26,9 +25,6 @@ serve(async (req) => {
 
   const gate = assertServiceRole(req);
   if (gate) return gate;
-
-  try {
-    const body = await req.json();
 
   try {
     const body = await req.json();
