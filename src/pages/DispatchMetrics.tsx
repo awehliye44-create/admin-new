@@ -120,11 +120,16 @@ function pushHealth(
   const eligible = Math.max(data.push_enqueued - (data.push_skip_no_token ?? 0), 0);
   if (eligible === 0) return "unknown";
 
-  if (data.push_success_rate == null && data.push_failed === 0) {
-    if (socketHealth === "healthy" && (deliveryHealthState === "healthy" || deliveryHealthState === "warning")) {
+  if (data.push_failed === 0 && socketHealth === "healthy") {
+    if (data.push_success_rate == null) {
+      return deliveryHealthState === "healthy" || deliveryHealthState === "warning" ? "warning" : "unknown";
+    }
+    if (
+      (data.push_success_rate ?? 0) < 95
+      && (deliveryHealthState === "healthy" || deliveryHealthState === "warning")
+    ) {
       return "warning";
     }
-    return "unknown";
   }
 
   return deliveryHealth(data.push_success_rate ?? null);
