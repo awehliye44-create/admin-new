@@ -87,17 +87,56 @@ function deliveryHealth(v: number | null): Health {
   if (v >= 95) return "warning";
   return "critical";
 }
+/** End-to-end ACK rate, softened when realtime/socket path is clearly healthy. */
+function deliveryReliabilityHealth(ack: number | null, socket: number | null): Health {
+  if (ack == null) return "unknown";
+  const socketOk = socket != null && socket >= 98;
+  if (socketOk && ack >= 98) return "healthy";
+  if (socketOk && ack >= 82) return "warning";
+  if (socketOk && ack >= 70) return "warning";
+  return deliveryHealth(ack);
+}
 function acceptanceHealth(v: number | null): Health {
   if (v == null) return "unknown";
   if (v >= 70) return "healthy";
   if (v >= 40) return "warning";
   return "critical";
 }
+/** Driver business metric — not a delivery outage when offers are reaching drivers. */
+function driverAcceptanceHealth(
+  acceptance: number | null,
+  socket: number | null,
+  ack: number | null,
+): Health {
+  if (acceptance == null) return "unknown";
+  const deliveryPathOk = (socket ?? 0) >= 98 && (ack ?? 0) >= 82;
+  if (deliveryPathOk) {
+    if (acceptance >= 50) return "healthy";
+    if (acceptance >= 20) return "warning";
+    return "warning";
+  }
+  return acceptanceHealth(acceptance);
+}
 function timeoutHealth(v: number | null): Health {
   if (v == null) return "unknown";
   if (v < 15) return "healthy";
-  if (v <= 30) return "warning";
+  if (v <= 35) return "warning";
   return "critical";
+}
+/** Expiry rate is often correlated with low acceptance, not broken delivery. */
+function driverTimeoutHealth(
+  timeout: number | null,
+  socket: number | null,
+  ack: number | null,
+): Health {
+  if (timeout == null) return "unknown";
+  const deliveryPathOk = (socket ?? 0) >= 98 && (ack ?? 0) >= 82;
+  if (deliveryPathOk) {
+    if (timeout < 20) return "healthy";
+    if (timeout <= 45) return "warning";
+    return "warning";
+  }
+  return timeoutHealth(timeout);
 }
 function fallbackHealth(v: number | null): Health {
   if (v == null) return "unknown";
@@ -235,14 +274,28 @@ export default function DispatchMetrics() {
 
   const filteredServiceAreas = regionId === "all" ? serviceAreas : serviceAreas.filter((s) => s.region_id === regionId);
 
-  // Derived health states
-  const hDelivery = deliveryHealth(data?.ack_success_rate ?? null);
+  // Derived health states (composite rules avoid false Critical when socket delivery is healthy)
   const hSocket = deliveryHealth(data?.socket_success_rate ?? null);
-  const hAcceptance = acceptanceHealth(data?.acceptance_rate ?? null);
-  const hTimeout = timeoutHealth(data?.timeout_rate ?? null);
+  const hDelivery = deliveryReliabilityHealth(data?.ack_success_rate ?? null, data?.socket_success_rate ?? null);
+  const hAcceptance = driverAcceptanceHealth(
+    data?.acceptance_rate ?? null,
+    data?.socket_success_rate ?? null,
+    data?.ack_success_rate ?? null,
+  );
+  const hTimeout = driverTimeoutHealth(
+    data?.timeout_rate ?? null,
+    data?.socket_success_rate ?? null,
+    data?.ack_success_rate ?? null,
+  );
   const hFallback = fallbackHealth(data?.fallback_rate ?? null);
   const hNoEligible = noEligibleHealth(data?.no_eligible_rate ?? null);
   const hPush = pushHealth(data, hSocket, hDelivery);
+
+  const technicalDeliveryOk =
+    hSocket !== "critical"
+    && hSocket !== "unknown"
+    && (data?.socket_success_rate ?? 0) >= 98
+    && (data?.ack_success_rate ?? 0) >= 82;
 
   // Operational hints
   const hints: string[] = [];
@@ -262,13 +315,29 @@ export default function DispatchMetrics() {
     if ((hFallback === "warning" || hFallback === "critical") && hSocket === "healthy") {
       hints.push("Pending-offers poll runs on app resume and is normal when the driver already received the offer via socket.");
     }
-    if (hDelivery === "healthy" && (hAcceptance === "warning" || hAcceptance === "critical") && (hTimeout === "warning" || hTimeout === "critical")) {
-      hints.push("Drivers are receiving offers correctly but are not accepting them.");
+    if (technicalDeliveryOk && (hAcceptance === "warning" || hTimeout === "warning")) {
+      hints.push("Drivers are receiving offers correctly but are not accepting them quickly — this is a driver/market signal, not a broken dispatch pipeline.");
     }
   }
 
   return (
     <AdminLayout title="Dispatch Metrics" description="Real-time booking delivery health from booking_delivery_log and ride_offers.">
+      {technicalDeliveryOk && (hAcceptance === "warning" || hTimeout === "warning") && (
+        <Card className="mb-6 border-emerald-500/30 bg-emerald-500/5">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-2 text-sm">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-medium text-foreground">Technical delivery is healthy</p>
+                <p className="text-muted-foreground mt-1">
+                  Socket/realtime is reaching drivers ({clampPct(data?.socket_success_rate)}% socket, {clampPct(data?.ack_success_rate)}% ACK).
+                  Amber cards below reflect driver response (accept/timeout), not failed notifications.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
       {/* Filters */}
       <Card className="mb-6">
         <CardContent className="pt-6 grid gap-4 md:grid-cols-5">
@@ -368,7 +437,7 @@ export default function DispatchMetrics() {
           sub={data ? `${Math.min(data.received, data.offered)} received / ${data.offered} offered` : undefined}
           health={hDelivery}
           helpText={HEALTH_TEXT.delivery[hDelivery]}
-          why="Distinct offers with booking_received (or equivalent ACK) / distinct offers with booking_sent. Healthy ≥ 98%, Warning 95–97.9%, Critical < 95%."
+          why="Distinct offers with booking_received (or equivalent ACK) / distinct offers with booking_sent. Critical only when socket delivery is also degraded; otherwise Warning if socket ≥ 98% and ACK ≥ 82%."
           loading={isLoading}
         />
         <HealthCard
@@ -388,7 +457,7 @@ export default function DispatchMetrics() {
           sub={data ? `${data.accepted_offers} accepted / ${data.total_offers} offers` : undefined}
           health={hAcceptance}
           helpText={HEALTH_TEXT.acceptance[hAcceptance]}
-          why="Accepted offers / total offers in ride_offers. Healthy ≥ 70%, Warning 40–69%, Critical < 40%."
+          why="Accepted offers / total offers. When socket delivery is healthy, low acceptance is Warning (driver/market), not Critical — drivers are seeing offers but choosing not to accept."
           loading={isLoading}
         />
         <HealthCard
@@ -398,7 +467,7 @@ export default function DispatchMetrics() {
           sub={data ? `${data.expired_offers} expired / ${data.total_offers} offers` : undefined}
           health={hTimeout}
           helpText={HEALTH_TEXT.timeout[hTimeout]}
-          why="Expired offers (status='expired' or revoked_reason='ack_timeout') / total offers. Healthy < 15%, Warning 15–30%, Critical > 30%."
+          why="Expired offers / total offers. When delivery path is healthy, elevated timeouts are Warning (slow driver response), not Critical. Critical only if delivery is also degraded."
           loading={isLoading}
         />
         <HealthCard
