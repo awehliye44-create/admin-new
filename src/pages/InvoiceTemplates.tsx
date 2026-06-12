@@ -391,7 +391,7 @@ export default function InvoiceTemplates() {
                 <Label>Set as default template</Label>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={() => previewMutation.mutate()} disabled={previewMutation.isPending}>
+                <Button variant="outline" onClick={() => previewMutation.mutate(form)} disabled={previewMutation.isPending}>
                   <Eye className="h-4 w-4 mr-2" /> Preview
                 </Button>
                 <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
