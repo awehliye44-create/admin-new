@@ -71,13 +71,13 @@ export function FinanceReconciliationTotalsCards({
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">ONECAB Net Commission</CardTitle>
+            <CardTitle className="text-sm font-medium">Net Platform Revenue</CardTitle>
             <TrendingUp className="h-4 w-4 text-emerald-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-emerald-500">{fmt(FinanceSSOT.onecabNetCommission(summary), cc)}</div>
+            <div className="text-2xl font-bold text-emerald-500">{fmt(FinanceSSOT.netPlatformRevenue(summary), cc)}</div>
             <p className="text-xs text-muted-foreground">
-              Gross {fmt(FinanceSSOT.onecabGrossCommission(summary), cc)} − fees {fmt(FinanceSSOT.providerProcessingFee(summary), cc)}
+              Earned {fmt(FinanceSSOT.totalCommissionEarned(summary), cc)} − Stripe {fmt(FinanceSSOT.providerProcessingFee(summary), cc)}
             </p>
           </CardContent>
         </Card>

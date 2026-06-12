@@ -6,7 +6,9 @@ import {
   computePaymentMethodLedgerMetrics,
   computeSSOTMetrics,
   driverRemainingLiabilityPence,
+  netPlatformRevenuePence,
   sumCustomerRevenuePence,
+  totalCommissionEarnedPence,
 } from "./financialReconciliationSSOT.ts";
 
 Deno.test("customer revenue prefers payments over trips", () => {
@@ -124,4 +126,45 @@ Deno.test("mixed card+cash balances separately — no false mismatch from mixing
   assertEquals(ledger.card_customer_revenue_pence, 5783);
   assertEquals(ledger.card_driver_payable_pence, 4916);
   assertEquals(ledger.onecab_card_commission_pence, 867);
+});
+
+Deno.test("total commission and net platform revenue — card + cash, Stripe fees card only", () => {
+  const cardCommission = 72;
+  const cashCommission = 222;
+  const stripeFees = 27;
+  assertEquals(totalCommissionEarnedPence(cardCommission, cashCommission), 294);
+  assertEquals(netPlatformRevenuePence(294, stripeFees), 267);
+
+  const m = computeSSOTMetrics({
+    payments: [{ trip_id: "c1", captured_amount_pence: 480, status: "captured" }],
+    trips: [
+      {
+        id: "c1",
+        payment_method: "card",
+        commissionable_fare_pence: 480,
+        capture_amount_pence: 480,
+        commission_pence: 72,
+        driver_net_pence: 408,
+        stripe_processing_fee_pence: 27,
+      },
+      {
+        id: "cash1",
+        payment_method: "CASH",
+        commissionable_fare_pence: 1481,
+        commission_pence: 222,
+        driver_net_pence: 1259,
+        stripe_processing_fee_pence: 99,
+      },
+    ] as import("./financialReconciliationSSOT.ts").TripSSOTRow[],
+    ledger: [],
+    providerAvailableBalancePence: 0,
+    providerPendingBalancePence: 0,
+  });
+
+  assertEquals(m.ledger_split.onecab_card_commission_pence, 72);
+  assertEquals(m.ledger_split.onecab_cash_commission_receivable_pence, 222);
+  assertEquals(m.ledger_split.stripe_processing_fees_pence, 27);
+  assertEquals(m.total_commission_earned_pence, 294);
+  assertEquals(m.net_platform_revenue_pence, 267);
+  assertEquals(m.onecab_card_net_commission_pence, 45);
 });

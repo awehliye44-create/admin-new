@@ -81,6 +81,9 @@ async function fetchSummaryFallback(
       onecab_cash_commission_receivable_pence: 0,
       onecab_gross_commission_pence: commission,
       provider_processing_fee_pence: 0,
+      onecab_card_net_commission_pence: commission,
+      total_commission_earned_pence: commission,
+      net_platform_revenue_pence: commission,
       onecab_net_commission_pence: commission,
       onecab_bank_payout_pence: 0,
       onecab_commission_status: 'calculated_only',
@@ -194,6 +197,9 @@ async function fetchLedgerFallback(
       onecab_cash_commission_receivable_pence: 0,
       onecab_gross_commission_pence: 0,
       provider_processing_fee_pence: 0,
+      onecab_card_net_commission_pence: 0,
+      total_commission_earned_pence: 0,
+      net_platform_revenue_pence: 0,
       onecab_net_commission_pence: 0,
       onecab_bank_payout_pence: 0,
       onecab_commission_status: 'calculated_only',
@@ -323,15 +329,25 @@ export const FinanceSSOT = {
   onecabCardCommission: (s: FinanceReconciliationSummary) => s.onecab_money.onecab_card_commission_pence,
   onecabCashCommissionReceivable: (s: FinanceReconciliationSummary) => s.onecab_money.onecab_cash_commission_receivable_pence,
   onecabGrossCommission: (s: FinanceReconciliationSummary) => s.onecab_money.onecab_gross_commission_pence,
+  onecabCardNetCommission: (s: FinanceReconciliationSummary) =>
+    s.onecab_money.onecab_card_net_commission_pence
+    ?? Math.max(0, s.onecab_money.onecab_card_commission_pence - s.onecab_money.provider_processing_fee_pence),
+  totalCommissionEarned: (s: FinanceReconciliationSummary) =>
+    s.onecab_money.total_commission_earned_pence
+    ?? (s.onecab_money.onecab_card_commission_pence + s.onecab_money.onecab_cash_commission_receivable_pence),
   providerProcessingFee: (s: FinanceReconciliationSummary) => s.onecab_money.provider_processing_fee_pence,
-  onecabNetCommission: (s: FinanceReconciliationSummary) => s.onecab_money.onecab_net_commission_pence,
+  netPlatformRevenue: (s: FinanceReconciliationSummary) =>
+    s.onecab_money.net_platform_revenue_pence ?? s.onecab_money.onecab_net_commission_pence,
+  onecabNetCommission: (s: FinanceReconciliationSummary) =>
+    s.onecab_money.net_platform_revenue_pence ?? s.onecab_money.onecab_net_commission_pence,
   driverPaidOut: (s: FinanceReconciliationSummary) => s.driver_money.driver_paid_out_pence,
   driverRemainingLiability: (s: FinanceReconciliationSummary) => s.driver_money.driver_payout_liability_pence,
   driverAvailableNow: (s: FinanceReconciliationSummary) => s.driver_money.driver_available_payout_pence,
   driverPendingPayout: (s: FinanceReconciliationSummary) => s.driver_money.driver_pending_payout_pence,
   providerAvailableBalance: (s: FinanceReconciliationSummary) => s.provider_money.provider_available_balance_pence,
   providerPendingBalance: (s: FinanceReconciliationSummary) => s.provider_money.provider_pending_balance_pence,
-  reconciliationStatus: (s: FinanceReconciliationSummary) => s.reconciliation_check.status,
+  reconciliationStatus: (s: FinanceReconciliationSummary) =>
+    s.reconciliation_check?.status ?? 'BALANCED',
   reconciliationVariance: (s: FinanceReconciliationSummary) =>
     s.reconciliation_check.variance_pence ?? s.reconciliation_check.delta_pence,
 };

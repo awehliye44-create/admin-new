@@ -7,6 +7,7 @@ import {
   buildFinanceReconciliationSummary,
   classifyOnecabSettlementStatus,
   COUNTABLE_FINANCIAL_OUTCOMES,
+  buildTripFinancialAuditContext,
   mapTripToFinancialAuditRow,
   sumCommissionableFromTrips,
   sumTripFinanceMetrics,
@@ -141,7 +142,13 @@ serve(async (req) => {
         payment_method,
         payment_status,
         financial_outcome,
+        stripe_payment_intent_id,
+        stripe_charge_id,
+        provider_status,
+        driver_id,
         stripe_settlement_verified,
+        stripe_settlement_warning,
+        refunded_at,
         driver_tier_commission_percent,
         commission_pct,
         completed_at,
@@ -178,7 +185,7 @@ serve(async (req) => {
 
     let ledgerQuery = supabase
       .from("driver_wallet_ledger")
-      .select("type, amount_pence, driver_id")
+      .select("type, amount_pence, driver_id, related_trip_id")
       .gte("created_at", periodFrom)
       .lte("created_at", periodTo);
 
@@ -222,15 +229,63 @@ serve(async (req) => {
     const commissionableRevenue = sumCommissionableFromTrips(tripRows);
 
     const tripIds = tripRows.map((t) => t.id);
-    let paymentRows: Array<{ captured_amount_pence: number | null; status: string | null; trip_id: string | null }> = [];
+    let paymentRows: Array<{
+      captured_amount_pence: number | null;
+      status: string | null;
+      trip_id: string | null;
+      provider_status: string | null;
+      stripe_payment_intent_id: string | null;
+      provider_available_on: string | null;
+    }> = [];
+    let auditPayoutItems: Array<{
+      trip_id: string | null;
+      status: string;
+      driver_amount_pence?: number | null;
+      amount_pence?: number | null;
+      batch_id?: string | null;
+    }> = [];
+    let auditLedgerRows: Array<{
+      related_trip_id: string | null;
+      type: string;
+      amount_pence: number;
+      stripe_payout_id?: string | null;
+      stripe_transfer_id?: string | null;
+    }> = [];
+
     if (tripIds.length > 0) {
-      const { data: payments, error: payErr } = await supabase
-        .from("payments")
-        .select("captured_amount_pence, status, trip_id")
-        .in("trip_id", tripIds);
-      if (payErr) throw payErr;
-      paymentRows = payments || [];
+      const [paymentsRes, payoutItemsRes, tripLedgerRes] = await Promise.all([
+        supabase
+          .from("payments")
+          .select("captured_amount_pence, status, trip_id, provider_status, stripe_payment_intent_id, provider_available_on")
+          .in("trip_id", tripIds),
+        supabase
+          .from("payout_items")
+          .select("trip_id, status, driver_amount_pence, amount_pence, batch_id")
+          .in("trip_id", tripIds),
+        supabase
+          .from("driver_wallet_ledger")
+          .select("related_trip_id, type, amount_pence, stripe_payout_id, stripe_transfer_id")
+          .in("related_trip_id", tripIds),
+      ]);
+      if (paymentsRes.error) throw paymentsRes.error;
+      if (payoutItemsRes.error) throw payoutItemsRes.error;
+      if (tripLedgerRes.error) throw tripLedgerRes.error;
+      paymentRows = paymentsRes.data || [];
+      auditPayoutItems = payoutItemsRes.data || [];
+      auditLedgerRows = (tripLedgerRes.data || []).map((row) => ({
+        related_trip_id: row.related_trip_id ?? null,
+        type: row.type,
+        amount_pence: row.amount_pence,
+        stripe_payout_id: row.stripe_payout_id ?? null,
+        stripe_transfer_id: row.stripe_transfer_id ?? null,
+      }));
     }
+
+    const auditContext = buildTripFinancialAuditContext({
+      payments: paymentRows,
+      payoutItems: auditPayoutItems,
+      ledgerRows: auditLedgerRows,
+    });
 
     const financialRows = financialResult.data || [];
     const walletBalance = financialRows.reduce((s, d) => s + Number(d.wallet_balance || 0), 0);
@@ -309,7 +364,7 @@ serve(async (req) => {
     });
 
     const settlementStatus = classifyOnecabSettlementStatus({
-      calculatedOnecabNetPence: ssotMetrics.onecab_net_commission_pence,
+      calculatedOnecabNetPence: ssotMetrics.onecab_card_net_commission_pence,
       verifiedOnecabNetPence: finance.verified_onecab_net_pence,
       stripeAvailablePence,
       stripePendingPence,
@@ -326,11 +381,13 @@ serve(async (req) => {
       settlementStatusLabel: settlementStatusLabel(settlementStatus),
       providerHealthStatus: providerHealth,
       lastWebhookReceivedAt: lastWebhookAt,
-      onecabBankPayoutPence: settlementStatus === "paid_to_onecab_bank" ? ssotMetrics.onecab_net_commission_pence : 0,
+      onecabBankPayoutPence: settlementStatus === "paid_to_onecab_bank" ? ssotMetrics.net_platform_revenue_pence : 0,
       dataSourceBadge: "LIVE",
     });
 
-    const trip_financial_audit = tripRows.map(mapTripToFinancialAuditRow);
+    const trip_financial_audit = tripRows.map((row) =>
+      mapTripToFinancialAuditRow(row, auditContext)
+    );
 
     return new Response(JSON.stringify({
       period: { from: periodFrom, to: periodTo },
@@ -348,7 +405,10 @@ serve(async (req) => {
           cash_collected_by_driver: "sum(cash trip fare) — not ONECAB Stripe revenue",
           onecab_card_commission: "sum(card trip commission_pence)",
           onecab_cash_commission_receivable: "sum(cash trip commission_pence) — owed by driver",
-          onecab_net_commission: "onecab_card_commission - stripe_processing_fees (card only)",
+          onecab_card_net_commission: "onecab_card_commission - stripe_processing_fees (card trips only)",
+          total_commission_earned: "onecab_card_commission + onecab_cash_commission_receivable",
+          net_platform_revenue: "total_commission_earned - stripe_processing_fees (card only; cash fee = 0)",
+          cash_stripe_fees: "always 0 — cash trips have no Stripe processing fee",
           driver_payout_liability: "card_driver_payable - driver_paid_out + adjustments (excludes cash driver_net)",
           driver_wallet: "card: +driver_net+tips; cash: -commission (fare already with driver)",
           card_reconciliation:

@@ -52,6 +52,9 @@ export interface FinanceReconciliationSummary {
     onecab_cash_commission_receivable_pence: number;
     onecab_gross_commission_pence: number;
     provider_processing_fee_pence: number;
+    onecab_card_net_commission_pence: number;
+    total_commission_earned_pence: number;
+    net_platform_revenue_pence: number;
     onecab_net_commission_pence: number;
     onecab_bank_payout_pence: number;
     onecab_commission_status: OnecabSettlementStatus;
@@ -96,6 +99,11 @@ export interface FinanceReconciliationSummary {
   };
 }
 
+export interface TripAuditStatusBadge {
+  label: string;
+  tone: 'green' | 'yellow' | 'blue' | 'orange' | 'gray' | 'red';
+}
+
 export interface TripFinancialAuditRow {
   trip_id: string;
   trip_code: string | null;
@@ -110,9 +118,15 @@ export interface TripFinancialAuditRow {
   onecab_gross_commission_pence: number;
   processing_fee_pence: number;
   onecab_net_pence: number;
-  driver_payout_status: string;
-  onecab_commission_status: string;
-  provider_status: string;
+  driver_payout: TripAuditStatusBadge;
+  onecab_commission: TripAuditStatusBadge;
+  provider: TripAuditStatusBadge;
+  /** @deprecated Use driver_payout.label */
+  driver_payout_status?: string;
+  /** @deprecated Use onecab_commission.label */
+  onecab_commission_status?: string;
+  /** @deprecated Use provider.label */
+  provider_status?: string;
 }
 
 export interface FinanceReconciliationResponse {
@@ -144,9 +158,9 @@ export function toSettlementOverviewResponse(data: FinanceReconciliationResponse
       driver_net_earnings_pence: s.driver_money.card_driver_payable_pence,
     },
     onecab_commission_summary: {
-      onecab_gross_commission_pence: s.onecab_money.onecab_gross_commission_pence,
+      onecab_gross_commission_pence: s.onecab_money.total_commission_earned_pence ?? s.onecab_money.onecab_gross_commission_pence,
       stripe_fee_pence: s.onecab_money.provider_processing_fee_pence,
-      onecab_net_pence: s.onecab_money.onecab_net_commission_pence,
+      onecab_net_pence: s.onecab_money.net_platform_revenue_pence ?? s.onecab_money.onecab_net_commission_pence,
       max_commission_at_15_percent_pence: Math.round(s.customer_revenue.commissionable_revenue_pence * 0.15),
       commission_exceeds_cap:
         s.onecab_money.onecab_gross_commission_pence >
@@ -179,7 +193,8 @@ export function toSettlementOverviewResponse(data: FinanceReconciliationResponse
     },
     reconciliation: {
       stripe_available_balance_pence: s.provider_money.provider_available_balance_pence,
-      calculated_onecab_net_pence: s.onecab_money.onecab_net_commission_pence,
+      calculated_onecab_net_pence: s.onecab_money.onecab_card_net_commission_pence
+        ?? Math.max(0, s.onecab_money.onecab_card_commission_pence - s.onecab_money.provider_processing_fee_pence),
       available_driver_payable_pence: s.driver_money.driver_payout_liability_pence,
       pending_transfers_pence: s.driver_money.in_flight_cashout_pence,
       unallocated_platform_cash_pence:

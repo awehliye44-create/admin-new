@@ -16,9 +16,10 @@ const BADGE_HINTS: Record<FinanceDataSourceBadge, string> = {
 };
 
 export function FinanceSSOTBadge({ badge }: { badge: FinanceDataSourceBadge }) {
+  const safe = badge in BADGE_STYLES ? badge : 'RECONSTRUCTED';
   return (
-    <Badge variant="outline" className={BADGE_STYLES[badge]} title={BADGE_HINTS[badge]}>
-      {badge}
+    <Badge variant="outline" className={BADGE_STYLES[safe]} title={BADGE_HINTS[safe]}>
+      {safe}
     </Badge>
   );
 }

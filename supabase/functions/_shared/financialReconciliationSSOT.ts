@@ -155,12 +155,39 @@ export function sumOnecabGrossCommissionPence(trips: TripSSOTRow[]): number {
   return trips.reduce((s, t) => s + Math.max(0, t.commission_pence ?? 0), 0);
 }
 
-/** 6. Provider processing fees — confirmed trip fees */
+/** 6. Provider processing fees — card trips only (cash has no Stripe fee). */
 export function sumProviderProcessingFeesPence(trips: TripSSOTRow[]): number {
-  return trips.reduce((s, t) => s + Math.max(0, t.stripe_processing_fee_pence ?? 0), 0);
+  return trips.reduce((s, t) => {
+    if (isCashTrip(t)) return s;
+    return s + Math.max(0, t.stripe_processing_fee_pence ?? 0);
+  }, 0);
 }
 
-/** 7. ONECAB net commission */
+/** 7. ONECAB card net commission — card commission minus Stripe fees only. */
+export function onecabCardNetCommissionPence(
+  cardCommission: number,
+  stripeFeesCardOnly: number,
+): number {
+  return Math.max(0, cardCommission - Math.max(0, stripeFeesCardOnly));
+}
+
+/** Total ONECAB commission earned — card + cash receivable. */
+export function totalCommissionEarnedPence(
+  cardCommission: number,
+  cashCommissionReceivable: number,
+): number {
+  return Math.max(0, cardCommission) + Math.max(0, cashCommissionReceivable);
+}
+
+/** Net platform revenue — total commission earned minus card Stripe fees only. */
+export function netPlatformRevenuePence(
+  totalCommissionEarned: number,
+  stripeFeesCardOnly: number,
+): number {
+  return Math.max(0, totalCommissionEarned - Math.max(0, stripeFeesCardOnly));
+}
+
+/** @deprecated use onecabCardNetCommissionPence or netPlatformRevenuePence */
 export function onecabNetCommissionPence(gross: number, providerFees: number): number {
   return Math.max(0, gross - providerFees);
 }
@@ -540,6 +567,10 @@ export type SSOTComputedMetrics = {
   driver_net_earnings_pence: number;
   onecab_gross_commission_pence: number;
   provider_processing_fee_pence: number;
+  onecab_card_net_commission_pence: number;
+  total_commission_earned_pence: number;
+  net_platform_revenue_pence: number;
+  /** Alias of net_platform_revenue_pence for legacy consumers */
   onecab_net_commission_pence: number;
   driver_paid_out_pence: number;
   tips_pence: number;
@@ -570,7 +601,15 @@ export function computeSSOTMetrics(args: {
   const driverNet = sumDriverNetEarningsPence(args.trips);
   const onecabGross = sumOnecabGrossCommissionPence(args.trips);
   const providerFees = ledgerSplit.stripe_processing_fees_pence;
-  const onecabNet = ledgerSplit.onecab_card_net_commission_pence;
+  const onecabCardNet = ledgerSplit.onecab_card_net_commission_pence;
+  const totalCommissionEarned = totalCommissionEarnedPence(
+    ledgerSplit.onecab_card_commission_pence,
+    ledgerSplit.onecab_cash_commission_receivable_pence,
+  );
+  const netPlatformRevenue = netPlatformRevenuePence(
+    totalCommissionEarned,
+    providerFees,
+  );
   const paidOut = sumDriverPaidOutPence(args.ledger);
   const adjustments = sumAdjustmentsPence(args.ledger);
   const tips = sumTipsPence(args.trips);
@@ -598,7 +637,10 @@ export function computeSSOTMetrics(args: {
     driver_net_earnings_pence: driverNet,
     onecab_gross_commission_pence: onecabGross,
     provider_processing_fee_pence: providerFees,
-    onecab_net_commission_pence: onecabNet,
+    onecab_card_net_commission_pence: onecabCardNet,
+    total_commission_earned_pence: totalCommissionEarned,
+    net_platform_revenue_pence: netPlatformRevenue,
+    onecab_net_commission_pence: netPlatformRevenue,
     driver_paid_out_pence: paidOut,
     tips_pence: tips,
     adjustments_pence: adjustments,
