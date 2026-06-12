@@ -1,9 +1,22 @@
 /**
  * ONECAB commission vs driver payout visibility — shared types + helpers.
  *
- * CRITICAL: ONECAB gross commission = sum(trips.commission_pence) only.
+ * CRITICAL: Financial Reconciliation SSOT owns all finance calculations.
+ * See financialReconciliationSSOT.ts for canonical formulas.
+ *
+ * ONECAB gross commission = sum(trips.commission_pence) only.
  * Never use Stripe available balance, captured revenue, or driver payable as commission.
  */
+
+import {
+  buildReconciliationCheck,
+  buildTripEarningsReconciliationCheck,
+  type FinanceDataSourceBadge,
+  type SSOTComputedMetrics,
+  SSOT_VERSION,
+} from "./financialReconciliationSSOT.ts";
+
+export { SSOT_VERSION, type FinanceDataSourceBadge };
 
 export type OnecabSettlementStatus =
   | "calculated_only"
@@ -324,14 +337,23 @@ export type FinanceReconciliationSummary = {
   };
   reconciliation_check: {
     net_customer_revenue_pence: number;
+    driver_paid_out_pence: number;
+    driver_remaining_liability_pence: number;
     driver_net_earnings_pence: number;
     onecab_gross_commission_pence: number;
+    onecab_net_commission_pence: number;
     provider_processing_fee_pence: number;
     adjustments_pence: number;
     expected_sum_pence: number;
+    variance_pence: number;
     delta_pence: number;
     balanced: boolean;
-    status: "balanced" | "reconciliation_error";
+    status: "BALANCED" | "RECONCILIATION_MISMATCH" | "balanced" | "reconciliation_error";
+  };
+  ssot: {
+    version: string;
+    data_source_badge: FinanceDataSourceBadge;
+    customer_revenue_source: string;
   };
 };
 
@@ -381,92 +403,96 @@ export function commissionableRevenueFromCaptured(args: {
   );
 }
 
+/** Assemble SSOT reconciliation payload from canonical metrics. */
 export function buildFinanceReconciliationSummary(args: {
-  tripMetrics: ReturnType<typeof sumTripFinanceMetrics>;
-  refundedAmountPence: number;
+  ssot: SSOTComputedMetrics;
   commissionableRevenuePence: number;
   driverWalletBalancePence: number;
-  driverSettledEligiblePence: number;
-  driverPaidOutPence: number;
   inFlightCashoutPence: number;
-  pendingTransfersPence: number;
-  stripeAvailablePence: number;
-  stripePendingPence: number;
   settlementStatus: OnecabSettlementStatus;
   settlementStatusLabel: string;
   providerHealthStatus: FinanceReconciliationSummary["provider_money"]["provider_health_status"];
   lastWebhookReceivedAt: string | null;
-  adjustmentsPence?: number;
   onecabBankPayoutPence?: number;
   tolerancePence?: number;
+  dataSourceBadge?: FinanceDataSourceBadge;
+  /** When true, BALANCED status uses trip-earnings split (correct for date-filtered reports). */
+  periodScoped?: boolean;
 }): FinanceReconciliationSummary {
-  const adjustments = args.adjustmentsPence ?? 0;
-  const netCustomerRevenue = Math.max(0, args.tripMetrics.total_customer_revenue_pence - args.refundedAmountPence);
+  const m = args.ssot;
+  const driverAvailablePayout = Math.max(0, m.driver_available_now_pence - args.inFlightCashoutPence);
 
-  const driverAvailableRaw = Math.min(
-    Math.max(0, args.driverSettledEligiblePence),
-    Math.max(0, args.stripeAvailablePence),
-  );
-  const driverAvailablePayout = Math.max(0, driverAvailableRaw - args.inFlightCashoutPence);
+  const cashReconciliation = buildReconciliationCheck({
+    netCustomerRevenuePence: m.net_customer_revenue_pence,
+    driverPaidOutPence: m.driver_paid_out_pence,
+    driverRemainingLiabilityPence: m.driver_remaining_liability_pence,
+    onecabNetCommissionPence: m.onecab_net_commission_pence,
+    providerProcessingFeePence: m.provider_processing_fee_pence,
+    adjustmentsPence: m.adjustments_pence,
+    tolerancePence: args.tolerancePence,
+  });
 
-  const driverPendingPayout = Math.max(
-    0,
-    args.driverWalletBalancePence -
-      driverAvailablePayout -
-      args.driverPaidOutPence -
-      args.inFlightCashoutPence,
-  );
+  const tripReconciliation = buildTripEarningsReconciliationCheck({
+    netCustomerRevenuePence: m.net_customer_revenue_pence,
+    driverNetEarningsPence: m.driver_net_earnings_pence,
+    onecabGrossCommissionPence: m.onecab_gross_commission_pence,
+    tipsPence: m.tips_pence,
+    tolerancePence: args.tolerancePence,
+  });
 
-  const expectedSum =
-    args.tripMetrics.driver_net_earnings_pence +
-    args.tripMetrics.onecab_gross_commission_pence +
-    adjustments;
-  const delta = netCustomerRevenue - expectedSum;
-  const tolerance = args.tolerancePence ?? 100;
-  const balanced = Math.abs(delta) <= tolerance;
+  const reconciliation = args.periodScoped !== false ? tripReconciliation : cashReconciliation;
 
   return {
     customer_revenue: {
-      total_customer_revenue_pence: args.tripMetrics.total_customer_revenue_pence,
-      refunded_amount_pence: args.refundedAmountPence,
-      net_customer_revenue_pence: netCustomerRevenue,
+      total_customer_revenue_pence: m.total_customer_revenue_pence,
+      refunded_amount_pence: m.refunded_amount_pence,
+      net_customer_revenue_pence: m.net_customer_revenue_pence,
       commissionable_revenue_pence: args.commissionableRevenuePence,
     },
     driver_money: {
-      driver_gross_earnings_pence: args.tripMetrics.driver_gross_earnings_pence,
-      driver_net_earnings_pence: args.tripMetrics.driver_net_earnings_pence,
+      driver_gross_earnings_pence: m.driver_gross_earnings_pence,
+      driver_net_earnings_pence: m.driver_net_earnings_pence,
       driver_wallet_balance_pence: args.driverWalletBalancePence,
       driver_available_payout_pence: driverAvailablePayout,
-      driver_pending_payout_pence: driverPendingPayout,
-      driver_paid_out_pence: args.driverPaidOutPence,
-      driver_payout_liability_pence: args.driverSettledEligiblePence,
+      driver_pending_payout_pence: m.driver_pending_payout_pence,
+      driver_paid_out_pence: m.driver_paid_out_pence,
+      driver_payout_liability_pence: m.driver_remaining_liability_pence,
       in_flight_cashout_pence: args.inFlightCashoutPence,
     },
     onecab_money: {
-      onecab_gross_commission_pence: args.tripMetrics.onecab_gross_commission_pence,
-      provider_processing_fee_pence: args.tripMetrics.stripe_fee_pence,
-      onecab_net_commission_pence: args.tripMetrics.onecab_net_pence,
+      onecab_gross_commission_pence: m.onecab_gross_commission_pence,
+      provider_processing_fee_pence: m.provider_processing_fee_pence,
+      onecab_net_commission_pence: m.onecab_net_commission_pence,
       onecab_bank_payout_pence: args.onecabBankPayoutPence ?? 0,
       onecab_commission_status: args.settlementStatus,
       onecab_commission_status_label: args.settlementStatusLabel,
     },
     provider_money: {
       provider_name: "Stripe",
-      provider_available_balance_pence: args.stripeAvailablePence,
-      provider_pending_balance_pence: args.stripePendingPence,
+      provider_available_balance_pence: m.provider_available_balance_pence,
+      provider_pending_balance_pence: m.provider_pending_balance_pence,
       provider_health_status: args.providerHealthStatus,
       last_webhook_received_at: args.lastWebhookReceivedAt,
     },
     reconciliation_check: {
-      net_customer_revenue_pence: netCustomerRevenue,
-      driver_net_earnings_pence: args.tripMetrics.driver_net_earnings_pence,
-      onecab_gross_commission_pence: args.tripMetrics.onecab_gross_commission_pence,
-      provider_processing_fee_pence: args.tripMetrics.stripe_fee_pence,
-      adjustments_pence: adjustments,
-      expected_sum_pence: expectedSum,
-      delta_pence: delta,
-      balanced,
-      status: balanced ? "balanced" : "reconciliation_error",
+      net_customer_revenue_pence: reconciliation.net_customer_revenue_pence,
+      driver_paid_out_pence: m.driver_paid_out_pence,
+      driver_remaining_liability_pence: m.driver_remaining_liability_pence,
+      driver_net_earnings_pence: m.driver_net_earnings_pence,
+      onecab_gross_commission_pence: m.onecab_gross_commission_pence,
+      onecab_net_commission_pence: m.onecab_net_commission_pence,
+      provider_processing_fee_pence: m.provider_processing_fee_pence,
+      adjustments_pence: m.adjustments_pence,
+      expected_sum_pence: reconciliation.expected_sum_pence,
+      variance_pence: reconciliation.variance_pence,
+      delta_pence: reconciliation.delta_pence,
+      balanced: reconciliation.balanced,
+      status: reconciliation.status,
+    },
+    ssot: {
+      version: SSOT_VERSION,
+      data_source_badge: args.dataSourceBadge ?? "LIVE",
+      customer_revenue_source: m.customer_revenue_source,
     },
   };
 }

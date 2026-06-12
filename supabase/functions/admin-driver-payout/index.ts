@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveCurrencyFromDriver } from "../_shared/regionCurrency.ts";
+import { finalizePayoutAfterProviderSuccess } from "../_shared/payoutLedgerSync.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 
 const corsHeaders = {
@@ -10,10 +11,9 @@ const corsHeaders = {
 
 /**
  * admin-driver-payout
- * 
+ *
  * Pays out from the driver's wallet balance to their Stripe connected account.
- * Currency is resolved from the driver's Region (single source of truth).
- * All financial entries use driver_wallet_ledger exclusively.
+ * Completion requires: provider transfer succeeds → ledger debit → wallet recalc.
  */
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -26,7 +26,6 @@ serve(async (req) => {
     const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // === Auth: verify admin ===
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -42,7 +41,6 @@ serve(async (req) => {
       });
     }
 
-    // Check admin role via user_roles table (NOT profiles — prevents privilege escalation)
     const { data: roleData } = await supabase
       .from('user_roles').select('role')
       .eq('user_id', user.id).eq('role', 'admin').maybeSingle();
@@ -53,7 +51,24 @@ serve(async (req) => {
       });
     }
 
-    const { driver_id, amount_pence, kind = 'MANUAL_ADMIN' } = await req.json();
+    const body = await req.json();
+    const { driver_id, amount_pence, kind = 'MANUAL_ADMIN', payout_item_id } = body;
+
+    // Retry ledger sync for existing payout item (provider already paid)
+    if (payout_item_id) {
+      const { data: syncResult, error: syncError } = await supabase.rpc(
+        'sync_payout_item_ledger_debit',
+        { p_payout_item_id: payout_item_id },
+      );
+      if (syncError) throw syncError;
+      return new Response(JSON.stringify({
+        success: (syncResult as { success?: boolean })?.success ?? false,
+        retry: true,
+        result: syncResult,
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     if (!driver_id) {
       return new Response(JSON.stringify({ error: 'driver_id is required' }), {
@@ -61,7 +76,6 @@ serve(async (req) => {
       });
     }
 
-    // === Resolve currency from Region (single source of truth) ===
     let currency_code: string;
     try {
       const regionCurrency = await resolveCurrencyFromDriver(supabase, driver_id);
@@ -73,7 +87,6 @@ serve(async (req) => {
       });
     }
 
-    // === Get driver info ===
     const { data: driver, error: driverError } = await supabase
       .from('drivers')
       .select('id, first_name, last_name, stripe_account_id, payouts_enabled')
@@ -85,7 +98,6 @@ serve(async (req) => {
       });
     }
 
-    // === Calculate wallet balance from driver_wallet_ledger (source of truth) ===
     const { data: ledgerEntries } = await supabase
       .from('driver_wallet_ledger')
       .select('amount_pence')
@@ -121,7 +133,6 @@ serve(async (req) => {
       });
     }
 
-    // === Create payout batch ===
     const { data: batch, error: batchError } = await supabase
       .from('payout_batches')
       .insert({
@@ -135,7 +146,6 @@ serve(async (req) => {
 
     if (batchError) throw batchError;
 
-    // === Create payout item ===
     const { data: payoutItem, error: itemError } = await supabase
       .from('payout_items')
       .insert({
@@ -152,13 +162,11 @@ serve(async (req) => {
     let stripePayoutId: string | null = null;
     let stripeError: string | null = null;
 
-    // === Stripe transfer ===
     if (stripeSecretKey) {
       try {
         const stripe = new Stripe(stripeSecretKey, { apiVersion: '2023-10-16' });
         const idempotencyKey = `payout_${payoutItem.id}`;
 
-        // Transfer from platform to connected account
         const transfer = await stripe.transfers.create({
           amount: payoutAmount,
           currency: currency_code.toLowerCase(),
@@ -174,7 +182,6 @@ serve(async (req) => {
         stripeTransferId = transfer.id;
         console.log(`[payout] Transfer created: ${transfer.id}`);
 
-        // Trigger payout to bank
         try {
           const payout = await stripe.payouts.create({
             amount: payoutAmount,
@@ -192,69 +199,15 @@ serve(async (req) => {
         console.error('[payout] Stripe error:', stripeErr);
         stripeError = (stripeErr as Error).message;
       }
+    } else {
+      stripeError = 'STRIPE_SECRET_KEY not configured';
     }
 
-    // === Create ledger entry for payout (debit from wallet) ===
-    // CRITICAL: Only create debit if Stripe transfer succeeded — prevents phantom deductions
-    if (!stripeError) {
-      const ledgerType = kind === 'EARLY_CASHOUT' ? 'EARLY_CASHOUT' : 'PAYOUT';
-
-      const { data: ledgerEntry, error: ledgerError } = await supabase
-        .from('driver_wallet_ledger')
-        .insert({
-          driver_id,
-          type: ledgerType,
-          amount_pence: -payoutAmount,
-          currency: currency_code,
-          description: `${kind} payout`,
-          stripe_transfer_id: stripeTransferId,
-          stripe_payout_id: stripePayoutId,
-        })
-        .select().single();
-
-      if (ledgerError) {
-        console.error('[payout] Ledger error:', ledgerError);
-      }
-
-      // Calculate new balance
-      const newBalance = available - payoutAmount;
-
-      // === Update payout item ===
-      await supabase.from('payout_items').update({
-        status: 'completed',
-        stripe_transfer_id: stripeTransferId,
-        stripe_payout_id: stripePayoutId,
-        ledger_entry_id: ledgerEntry?.id,
-        completed_at: new Date().toISOString(),
-      }).eq('id', payoutItem.id);
-
-      // === Update batch ===
-      await supabase.from('payout_batches').update({
-        status: 'completed',
-        successful_payouts: 1,
-        failed_payouts: 0,
-        completed_at: new Date().toISOString(),
-      }).eq('id', batch.id);
-
-      return new Response(JSON.stringify({
-        success: true,
-        batchId: batch.id,
-        payoutItemId: payoutItem.id,
-        amount: payoutAmount,
-        wallet_balance_before: available,
-        wallet_balance_after: newBalance,
-        stripeTransferId,
-        stripePayoutId,
-        ledgerEntryId: ledgerEntry?.id,
-        currency_code,
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    } else {
-      // Stripe failed — do NOT create ledger entry, mark payout as failed
+    if (stripeError) {
       await supabase.from('payout_items').update({
         status: 'failed',
         error_message: stripeError,
+        updated_at: new Date().toISOString(),
       }).eq('id', payoutItem.id);
 
       await supabase.from('payout_batches').update({
@@ -262,6 +215,7 @@ serve(async (req) => {
         successful_payouts: 0,
         failed_payouts: 1,
         completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       }).eq('id', batch.id);
 
       return new Response(JSON.stringify({
@@ -270,13 +224,65 @@ serve(async (req) => {
         payoutItemId: payoutItem.id,
         amount: payoutAmount,
         wallet_balance_before: available,
-        wallet_balance_after: available, // Unchanged — no debit on failure
+        wallet_balance_after: available,
         currency_code,
         error: stripeError,
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    const finalize = await finalizePayoutAfterProviderSuccess({
+      supabase,
+      payoutItemId: payoutItem.id,
+      batchId: batch.id,
+      driverId: driver_id,
+      payoutAmount,
+      currencyCode: currency_code,
+      batchKind: kind,
+      stripeTransferId,
+      stripePayoutId,
+      walletBalanceBefore: available,
+    });
+
+    if (!finalize.success) {
+      console.error('[payout] CRITICAL: Provider payout succeeded but ledger sync failed', finalize);
+      return new Response(JSON.stringify({
+        success: false,
+        critical: true,
+        alert: 'Provider payout completed but driver ledger was not fully debited. Retry ledger sync.',
+        batchId: batch.id,
+        payoutItemId: payoutItem.id,
+        amount: payoutAmount,
+        status: finalize.status,
+        wallet_balance_before: available,
+        wallet_balance_after: finalize.walletBalanceAfter,
+        stripeTransferId,
+        stripePayoutId,
+        ledgerEntryId: finalize.ledgerEntryId,
+        currency_code,
+        error: finalize.error,
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    return new Response(JSON.stringify({
+      success: true,
+      batchId: batch.id,
+      payoutItemId: payoutItem.id,
+      amount: payoutAmount,
+      wallet_balance_before: available,
+      wallet_balance_after: finalize.walletBalanceAfter,
+      stripeTransferId,
+      stripePayoutId,
+      ledgerEntryId: finalize.ledgerEntryId,
+      walletRecalculated: finalize.walletRecalculated,
+      currency_code,
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
 
   } catch (error) {
     console.error('[payout] Error:', error);

@@ -9,7 +9,9 @@ import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatPence } from '@/hooks/useDriverWallet';
-import { useFinanceReconciliation } from '@/hooks/useFinanceReconciliation';
+import { FinanceSSOT, useFinancialReconciliationSSOT } from '@/hooks/useFinancialReconciliationSSOT';
+import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
+import { useFinanceBackendAudit } from '@/hooks/useFinanceBackendAudit';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import {
   AlertTriangle,
@@ -59,22 +61,41 @@ export default function FinancialReconciliation() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
-  const { data, isLoading, error, refetch, isFetching } = useFinanceReconciliation({
+  const ssot = useFinancialReconciliationSSOT({
+    filter,
+    from: from || undefined,
+    to: to || undefined,
+  });
+  const { isLoading, error, refetch, isFetching } = ssot;
+  const data = ssot.response;
+
+  const {
+    data: backendAuditData,
+    isLoading: backendAuditLoading,
+    error: backendAuditError,
+  } = useFinanceBackendAudit({
     filter,
     from: from || undefined,
     to: to || undefined,
   });
 
-  const summary = data?.finance_reconciliation_summary;
-  const ccy = data?.currency_code ?? filter.currencyCode ?? 'GBP';
+  const summary = ssot.summary;
+  const ccy = ssot.currencyCode || filter.currencyCode || 'GBP';
   const auditRows = data?.trip_financial_audit ?? [];
+  const backendAudit = backendAuditData?.finance_backend_audit_v1;
 
   const reconciliationChip = useMemo(() => {
     if (!summary) return null;
-    return summary.reconciliation_check.balanced ? 'Balanced' : 'Reconciliation Error';
+    const status = FinanceSSOT.reconciliationStatus(summary);
+    if (status === 'RECONCILIATION_MISMATCH' || status === 'reconciliation_error') {
+      return 'RECONCILIATION_MISMATCH';
+    }
+    return 'BALANCED';
   }, [summary]);
 
-  if (isLoading && !data) {
+  const ssotBadge = ssot.badge;
+
+  if (isLoading && !summary) {
     return (
       <AdminLayout title="Financial Reconciliation">
         <div className="py-12 text-center text-muted-foreground">Loading finance reconciliation…</div>
@@ -114,11 +135,14 @@ export default function FinancialReconciliation() {
               Single source of truth for ONECAB finance. ONECAB commission = sum(trip commission_pence) — never
               Stripe balance minus driver payable.
             </p>
-            {reconciliationChip && (
-              <Badge variant={statusChipVariant(reconciliationChip)} className="mt-2">
-                {reconciliationChip}
-              </Badge>
-            )}
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              <FinanceSSOTBadge badge={ssotBadge} />
+              {reconciliationChip && (
+                <Badge variant={statusChipVariant(reconciliationChip)}>
+                  {reconciliationChip}
+                </Badge>
+              )}
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <ServiceAreaFinanceFilter value={filter} onChange={setFilter} />
@@ -131,21 +155,40 @@ export default function FinancialReconciliation() {
           </div>
         </div>
 
-        {!check.balanced && (
+        {ssotBadge !== 'LIVE' && (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>Reconciliation Error</AlertTitle>
+            <AlertTitle>Live reconciliation unavailable</AlertTitle>
             <AlertDescription>
-              Net customer revenue {formatPence(check.net_customer_revenue_pence, ccy)} ≠ driver net{' '}
-              {formatPence(check.driver_net_earnings_pence, ccy)} + ONECAB gross{' '}
-              {formatPence(check.onecab_gross_commission_pence, ccy)} + adjustments{' '}
-              {formatPence(check.adjustments_pence, ccy)}. Processing fees are included in ONECAB gross
-              commission. Delta {formatPence(check.delta_pence, ccy)}.
+              Showing {ssotBadge} fallback data. All admin finance surfaces should use this page when LIVE — other
+              pages may show incomplete totals until live reconciliation is restored.
             </AlertDescription>
           </Alert>
         )}
 
-        {data.meta.stripe_balance_error && (
+        {!check.balanced && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>RECONCILIATION_MISMATCH</AlertTitle>
+            <AlertDescription className="space-y-2">
+              <p>
+                Trip earnings in this period do not split cleanly: net customer revenue{' '}
+                {formatPence(check.net_customer_revenue_pence, ccy)} ≠ driver net{' '}
+                {formatPence(check.driver_net_earnings_pence, ccy)} + ONECAB gross commission{' '}
+                {formatPence(check.onecab_gross_commission_pence, ccy)} + tips (pass-through). Delta{' '}
+                {formatPence(check.delta_pence, ccy)}.
+              </p>
+              <p className="text-xs opacity-90">
+                Driver paid out ({formatPence(check.driver_paid_out_pence ?? 0, ccy)}) and adjustments (
+                {formatPence(check.adjustments_pence, ccy)}) are ledger cash events in the same date window — they
+                often include payouts for trips completed earlier, so they are shown separately and not added into
+                this trip split check.
+              </p>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {data?.meta?.stripe_balance_error && (
           <Alert>
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Provider balance unavailable</AlertTitle>
@@ -231,6 +274,176 @@ export default function FinancialReconciliation() {
             </div>
           </CardContent>
         </Card>
+
+        {backendAudit && (
+          <>
+            <Card className="border-amber-500/40">
+              <CardHeader>
+                <CardTitle className="text-base">finance_backend_audit_v1</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Backend money audit — answers what came in, what was paid out, what remains, and who owns it.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {backendAudit.reconciliation.reconciliation_status === 'MISMATCH' && (
+                  <Alert variant="destructive">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Reconciliation MISMATCH</AlertTitle>
+                    <AlertDescription>
+                      Difference {formatPence(backendAudit.reconciliation.reconciliation_difference_pence, ccy)} —
+                      {backendAudit.answered_questions.K_wallet_vs_payout_diagnosis}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                <div>
+                  <h3 className="text-sm font-semibold mb-2">INCOMING MONEY</h3>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <MetricCard title="Customer Captured" value={backendAudit.incoming_money.customer_captured_total_pence} ccy={ccy} />
+                    <MetricCard title="Customer Refunded" value={backendAudit.incoming_money.customer_refunded_total_pence} ccy={ccy} />
+                    <MetricCard title="Net Customer Money In" value={backendAudit.incoming_money.net_customer_money_in_pence} ccy={ccy} />
+                    <MetricCard title="Provider Available" value={backendAudit.incoming_money.provider_available_balance_pence} ccy={ccy} />
+                    <MetricCard title="Provider Pending" value={backendAudit.incoming_money.provider_pending_balance_pence} ccy={ccy} />
+                    <MetricCard title="Provider Payouts to ONECAB Bank" value={backendAudit.incoming_money.provider_payouts_to_onecab_bank_pence} ccy={ccy} />
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold mb-2">PAID OUT</h3>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <MetricCard title="Driver Paid Out Total" value={backendAudit.paid_out.driver_paid_out_total_pence} ccy={ccy} />
+                    <MetricCard title="Weekly Payouts Paid" value={backendAudit.paid_out.driver_weekly_payouts_paid_pence} ccy={ccy} />
+                    <MetricCard title="Early Cashouts Paid" value={backendAudit.paid_out.driver_early_cashouts_paid_pence} ccy={ccy} />
+                    <MetricCard title="Failed Payouts" value={backendAudit.paid_out.failed_payouts_pence} ccy={ccy} />
+                    <MetricCard title="ONECAB Paid to Bank" value={backendAudit.paid_out.onecab_paid_to_bank_pence} ccy={ccy} />
+                    <MetricCard title="Provider Fees Paid" value={backendAudit.paid_out.provider_fees_paid_pence} ccy={ccy} />
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold mb-2">REMAINING MONEY</h3>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <MetricCard title="Driver Remaining Liability" value={backendAudit.remaining_money.driver_remaining_liability_pence} ccy={ccy} />
+                    <MetricCard title="Driver Available Now" value={backendAudit.remaining_money.driver_available_now_pence} ccy={ccy} subtitle="min(liability, provider available)" />
+                    <MetricCard title="Driver Pending Settlement" value={backendAudit.remaining_money.driver_pending_settlement_pence} ccy={ccy} />
+                    <MetricCard title="ONECAB Remaining Commission" value={backendAudit.remaining_money.onecab_remaining_commission_pence} ccy={ccy} />
+                    <MetricCard title="Provider Available" value={backendAudit.remaining_money.provider_available_balance_pence} ccy={ccy} />
+                    <MetricCard title="Reconciliation Difference" value={backendAudit.remaining_money.reconciliation_difference_pence} ccy={ccy} />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="text-sm font-semibold">Critical checks</h3>
+                  {backendAudit.critical_checks.map((check) => (
+                    <div key={check.id} className="flex items-start gap-2 text-sm">
+                      <Badge variant={check.passed ? 'default' : 'destructive'}>{check.passed ? 'PASS' : 'FAIL'}</Badge>
+                      <span>{check.detail}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {backendAudit.wallet_integrity.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <h3 className="text-sm font-semibold mb-2">Wallet integrity (why balance may still show after payout)</h3>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Driver</TableHead>
+                          <TableHead className="text-right">Wallet</TableHead>
+                          <TableHead className="text-right">Ledger sum</TableHead>
+                          <TableHead className="text-right">Missing ledger payout</TableHead>
+                          <TableHead>Explanation</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {backendAudit.wallet_integrity.map((row) => (
+                          <TableRow key={row.driver_id}>
+                            <TableCell>{row.driver_name ?? row.driver_id.slice(0, 8)}</TableCell>
+                            <TableCell className="text-right">{formatPence(row.wallet_balance_pence, ccy)}</TableCell>
+                            <TableCell className="text-right">{formatPence(row.ledger_sum_pence, ccy)}</TableCell>
+                            <TableCell className="text-right">{formatPence(row.completed_payouts_without_ledger_pence, ccy)}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground max-w-md">{row.explanation ?? '—'}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+
+                <div className="overflow-x-auto">
+                  <h3 className="text-sm font-semibold mb-2">Payout audit rows</h3>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Payout</TableHead>
+                        <TableHead>Driver</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Sent to bank</TableHead>
+                        <TableHead>Provider payout ID</TableHead>
+                        <TableHead>Ledger debit</TableHead>
+                        <TableHead>Reconciliation</TableHead>
+                        <TableHead>Paid at</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {backendAudit.payout_rows.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={9} className="text-center text-muted-foreground py-6">No payouts in period</TableCell>
+                        </TableRow>
+                      ) : (
+                        backendAudit.payout_rows.map((row) => {
+                          const sentToBank = !!(row.provider_reference);
+                          const ledgerOk = row.ledger_entry_created;
+                          const critical = sentToBank && !ledgerOk;
+                          return (
+                          <TableRow key={`${row.payout_source}-${row.payout_id}`} className={critical ? 'bg-destructive/5' : undefined}>
+                            <TableCell className="font-mono text-xs">{row.payout_id.slice(0, 8)}…</TableCell>
+                            <TableCell className="font-mono text-xs">{row.driver_id.slice(0, 8)}…</TableCell>
+                            <TableCell className="text-right">{formatPence(row.amount_pence, ccy)}</TableCell>
+                            <TableCell>{row.status}</TableCell>
+                            <TableCell>{sentToBank ? 'Yes' : 'No'}</TableCell>
+                            <TableCell className="text-xs font-mono">{row.provider_reference?.slice(0, 16) ?? '—'}</TableCell>
+                            <TableCell>
+                              <Badge variant={ledgerOk ? 'default' : 'destructive'}>
+                                {ledgerOk ? 'Yes' : 'No'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-xs max-w-[180px]">
+                              {critical ? (
+                                <span className="text-destructive font-semibold">
+                                  CRITICAL: Provider payout completed but driver ledger was not debited.
+                                </span>
+                              ) : ledgerOk ? (
+                                <span className="text-muted-foreground">Balanced</span>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-xs whitespace-nowrap">
+                              {row.paid_at ? format(new Date(row.paid_at), 'dd MMM HH:mm') : '—'}
+                            </TableCell>
+                          </TableRow>
+                        );})
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
+
+        {backendAuditLoading && !backendAudit && (
+          <p className="text-sm text-muted-foreground">Loading finance_backend_audit_v1…</p>
+        )}
+
+        {backendAuditError && (
+          <Alert variant="destructive">
+            <AlertTitle>Backend audit unavailable</AlertTitle>
+            <AlertDescription>{(backendAuditError as Error).message}</AlertDescription>
+          </Alert>
+        )}
 
         <Card>
           <CardHeader>

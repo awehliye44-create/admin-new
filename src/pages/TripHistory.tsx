@@ -112,7 +112,7 @@ interface Region {
   distance_unit: string;
 }
 
-/** Terminal trips shown in history — aligned with useLedgerRevenue / admin-payments-summary. */
+/** Terminal trips shown in history — aligned with Financial Reconciliation SSOT trip filters. */
 const HISTORY_FINANCIAL_OUTCOMES = ['COMPLETED', 'NO_SHOW'] as const;
 const HISTORY_STATUSES = ['completed', 'no_show'] as const;
 

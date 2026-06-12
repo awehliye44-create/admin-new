@@ -3,7 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { formatPence } from '@/hooks/useDriverWallet';
-import { toSettlementOverviewResponse, useFinanceReconciliation } from '@/hooks/useFinanceReconciliation';
+import { toSettlementOverviewResponse } from '@/hooks/useFinanceReconciliation';
+import { useFinancialReconciliationSSOT } from '@/hooks/useFinancialReconciliationSSOT';
+import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
 import { AlertTriangle, Banknote, Building2, CreditCard, Users, Wallet } from 'lucide-react';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 
@@ -80,11 +82,12 @@ function settlementBadgeVariant(status: OnecabSettlementStatus): 'default' | 'se
 }
 
 export function FinanceSettlementOverview({ filter }: { filter?: ServiceAreaFinanceSelection }) {
-  const { data: reconciliationData, isLoading, error, refetch, isFetching } = useFinanceReconciliation({ filter });
+  const ssot = useFinancialReconciliationSSOT({ filter });
+  const { isLoading, error, isFetching } = ssot;
 
   const data = useMemo(
-    () => (reconciliationData ? toSettlementOverviewResponse(reconciliationData) : undefined),
-    [reconciliationData],
+    () => (ssot.response ? toSettlementOverviewResponse(ssot.response) : undefined),
+    [ssot.response],
   );
 
   if (isLoading && !data) {
@@ -104,7 +107,21 @@ export function FinanceSettlementOverview({ filter }: { filter?: ServiceAreaFina
     );
   }
 
-  if (!data) return null;
+  if (!data) {
+    return (
+      <Alert>
+        <AlertTitle>Financial Reconciliation SSOT required</AlertTitle>
+        <AlertDescription>
+          Live reconciliation data is unavailable. Open Financial Reconciliation or select a service area with LIVE data.
+          {ssot.badge !== 'LIVE' && (
+            <span className="block mt-1">
+              Current source: <FinanceSSOTBadge badge={ssot.badge} />
+            </span>
+          )}
+        </AlertDescription>
+      </Alert>
+    );
+  }
 
   const ccy = data.currency_code;
   const revenue = data.customer_revenue_summary;
@@ -119,15 +136,18 @@ export function FinanceSettlementOverview({ filter }: { filter?: ServiceAreaFina
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h3 className="text-lg font-semibold">Commission vs payout (trip-derived accounting)</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-semibold">Commission vs payout (Financial Reconciliation SSOT)</h3>
+            <FinanceSSOTBadge badge={ssot.badge} />
+          </div>
           <p className="text-sm text-muted-foreground">
-            ONECAB commission = 15% of commissionable revenue (includes Stripe fee). Stripe balance is platform cash, not commission.
+            ONECAB commission from trip reconciliation — never Stripe balance minus driver payable.
           </p>
         </div>
         <button
           type="button"
           className="text-sm text-primary underline-offset-4 hover:underline"
-          onClick={() => refetch()}
+          onClick={() => ssot.refetch()}
           disabled={isFetching}
         >
           {isFetching ? 'Refreshing…' : 'Refresh'}

@@ -29,8 +29,11 @@ interface DispatchMetricsResult {
   offered: number;
   received: number;
   ack_success_rate: number | null;
+  socket_delivered: number;
+  socket_success_rate: number | null;
   push_enqueued: number;
   push_sent: number;
+  push_failed: number;
   push_success_rate: number | null;
   avg_accept_seconds: number;
   total_offers: number;
@@ -40,6 +43,7 @@ interface DispatchMetricsResult {
   acceptance_rate: number | null;
   expired_offers: number;
   timeout_rate: number | null;
+  fallback_offers: number;
   fallback_rate: number | null;
   trips_evaluated: number;
   trips_no_eligible: number;
@@ -51,8 +55,8 @@ interface DispatchMetricsResult {
     phase: string; failure_reason: string; created_at: string; last_event_at: string;
   }>;
   debug?: {
-    duplicate_ack_count: number; duplicate_push_count: number;
-    retry_delivery_count: number; pending_offer_recovery_count: number;
+    retry_delivery_count: number;
+    metrics_basis: string;
   };
 }
 
@@ -124,9 +128,15 @@ const HEALTH_TEXT: Record<string, Record<Health, string>> = {
     unknown: "No offers in this window.",
   },
   fallback: {
-    healthy: "Realtime delivery is stable. Fallback rarely needed.",
-    warning: "Fallback recovery is assisting some deliveries. Monitor realtime reliability.",
-    critical: "Primary realtime delivery may be unstable. Pending-offers fallback is heavily relied upon.",
+    healthy: "Most offers reach drivers without pending-offers poll recovery.",
+    warning: "A meaningful share of offers needed pending-offers recovery at least once.",
+    critical: "Many offers required pending-offers recovery — check realtime/socket health and push delivery.",
+    unknown: "No offer activity in this window.",
+  },
+  socket: {
+    healthy: "Realtime socket delivery is reaching drivers for nearly all offers.",
+    warning: "Some offers did not log socket delivery.",
+    critical: "Socket delivery is missing for many offers — check driver presence and realtime channels.",
     unknown: "No offer activity in this window.",
   },
   noEligible: {
@@ -194,10 +204,12 @@ export default function DispatchMetrics() {
 
   // Derived health states
   const hDelivery = deliveryHealth(data?.ack_success_rate ?? null);
+  const hSocket = deliveryHealth(data?.socket_success_rate ?? null);
   const hAcceptance = acceptanceHealth(data?.acceptance_rate ?? null);
   const hTimeout = timeoutHealth(data?.timeout_rate ?? null);
   const hFallback = fallbackHealth(data?.fallback_rate ?? null);
   const hNoEligible = noEligibleHealth(data?.no_eligible_rate ?? null);
+  const hPush = deliveryHealth(data?.push_success_rate ?? null);
 
   // Operational hints
   const hints: string[] = [];
@@ -205,8 +217,11 @@ export default function DispatchMetrics() {
     if (hDelivery === "healthy" && (hAcceptance === "warning" || hAcceptance === "critical")) {
       hints.push("Technical delivery is healthy. This is likely a market/pricing/driver preference issue rather than a notification problem.");
     }
-    if (hDelivery === "healthy" && (hFallback === "warning" || hFallback === "critical")) {
-      hints.push("Drivers still receive rides because fallback recovery is compensating for realtime instability.");
+    if (hSocket === "healthy" && hPush === "critical") {
+      hints.push("Socket/realtime delivery is healthy but push notifications are failing — drivers may still see offers in-app.");
+    }
+    if ((hFallback === "warning" || hFallback === "critical") && hSocket === "healthy") {
+      hints.push("Pending-offers recovery is used for some offers even though socket delivery looks healthy — often app resume/poll, not a broken socket.");
     }
     if (hDelivery === "healthy" && (hAcceptance === "warning" || hAcceptance === "critical") && (hTimeout === "warning" || hTimeout === "critical")) {
       hints.push("Drivers are receiving offers correctly but are not accepting them.");
@@ -314,7 +329,17 @@ export default function DispatchMetrics() {
           sub={data ? `${Math.min(data.received, data.offered)} received / ${data.offered} offered` : undefined}
           health={hDelivery}
           helpText={HEALTH_TEXT.delivery[hDelivery]}
-          why="Calculated from booking_delivery_log: unique offers reaching 'booking_received' / unique 'booking_sent'. Healthy ≥ 98%, Warning 95–97.9%, Critical < 95%."
+          why="Distinct offers with booking_received (or equivalent ACK) / distinct offers with booking_sent. Healthy ≥ 98%, Warning 95–97.9%, Critical < 95%."
+          loading={isLoading}
+        />
+        <HealthCard
+          title="Socket Delivery"
+          icon={<Activity className="h-4 w-4 text-primary" />}
+          value={data?.socket_success_rate != null ? `${clampPct(data.socket_success_rate)}%` : "—"}
+          sub={data ? `${data.socket_delivered} socket / ${data.offered} offered` : undefined}
+          health={hSocket}
+          helpText={HEALTH_TEXT.socket[hSocket]}
+          why="Distinct offers with socket_sent / distinct offers with booking_sent."
           loading={isLoading}
         />
         <HealthCard
@@ -341,10 +366,10 @@ export default function DispatchMetrics() {
           title="Fallback Recovery"
           icon={<RefreshCw className="h-4 w-4 text-primary" />}
           value={data?.fallback_rate != null ? `${clampPct(data.fallback_rate)}%` : "—"}
-          sub={data ? `${data.debug?.pending_offer_recovery_count ?? 0} fallbacks / ${data.offered} offered` : undefined}
+          sub={data ? `${data.fallback_offers ?? 0} offers recovered / ${data.offered} offered` : undefined}
           health={hFallback}
           helpText={HEALTH_TEXT.fallback[hFallback]}
-          why="pending_offers_fallback events / offered. Healthy < 5%, Warning 5–15%, Critical > 15%."
+          why="Distinct offers that used pending_offers_fallback at least once / distinct offers sent. Healthy < 5%, Warning 5–15%, Critical > 15%."
           loading={isLoading}
         />
         <HealthCard
@@ -361,22 +386,25 @@ export default function DispatchMetrics() {
           title="Push Delivery"
           icon={<Send className="h-4 w-4 text-primary" />}
           value={data?.push_success_rate != null ? `${clampPct(data.push_success_rate)}%` : "—"}
-          sub={data ? `${Math.min(data.push_sent, data.push_enqueued)} sent / ${data.push_enqueued} enqueued` : undefined}
-          health={deliveryHealth(data?.push_success_rate ?? null)}
-          helpText="Push notification provider deliverability. Low values indicate FCM/APNs token or provider issues."
-          why="push_sent / push_enqueued from booking_delivery_log. Same thresholds as delivery reliability."
+          sub={data
+            ? `${data.push_sent} sent · ${data.push_failed} failed · ${data.push_enqueued} enqueued`
+            : undefined}
+          health={hPush}
+          helpText="FCM/APNs deliverability per distinct offer. Failed count excludes offers that later succeeded."
+          why="push_sent / push_enqueued (distinct offers). Same thresholds as delivery reliability."
           loading={isLoading}
         />
       </div>
 
       {data?.debug && (
         <Card className="mb-6">
-          <CardHeader><CardTitle className="text-lg">Dedupe Diagnostics</CardTitle></CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-4">
-            <DebugStat label="Duplicate ACK events" value={data.debug.duplicate_ack_count} />
-            <DebugStat label="Duplicate push events" value={data.debug.duplicate_push_count} />
-            <DebugStat label="Retry / reassigned deliveries" value={data.debug.retry_delivery_count} />
-            <DebugStat label="Pending-offer recoveries" value={data.debug.pending_offer_recovery_count} />
+          <CardHeader><CardTitle className="text-lg">Delivery Diagnostics</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <DebugStat label="Distinct offers reassigned or retried" value={data.debug.retry_delivery_count} />
+            <p className="text-xs text-muted-foreground">
+              Headline rates use one count per offer per phase ({data.debug.metrics_basis}). Duplicate delivery
+              log rows are suppressed when offers are ACKed, recovered, or pushed more than once.
+            </p>
           </CardContent>
         </Card>
       )}

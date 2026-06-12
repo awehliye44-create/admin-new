@@ -362,59 +362,118 @@ export function buildDriverInvoiceHtml(data: DriverInvoiceRenderData): string {
 </html>`;
 }
 
+const DRIVER_EMAIL = {
+  black: "#0B0F14",
+  yellow: "#FFD400",
+  white: "#FFFFFF",
+  bodyBg: "#F4F4F5",
+  muted: "#6B7280",
+  supportPhone: "01908 831211",
+  supportEmail: "info@onecab.net",
+  supportWebsite: "www.onecab.net",
+} as const;
+
 export function buildDriverInvoiceEmail(args: {
   driverName: string;
   invoiceNo: string;
   invoicePeriod: string;
-  totalTrips: number;
-  netDriverEarnings: string;
-  companyName: string;
-  companyAddress: string;
-  companyPhone: string;
-  companyEmail: string;
-  companyWebsite: string;
-  emailBodyTemplate?: string;
+  companyPhone?: string;
+  companyEmail?: string;
+  companyWebsite?: string;
+  logoUrl?: string;
 }): { subject: string; html: string; text: string } {
-  const text = (args.emailBodyTemplate || `Dear {{driverName}},
+  const driverName = esc(args.driverName || "Driver");
+  const invoiceNo = esc(args.invoiceNo || "—");
+  const invoicePeriod = esc(args.invoicePeriod || "—");
+  const phone = esc(args.companyPhone?.trim() || DRIVER_EMAIL.supportPhone);
+  const email = esc(args.companyEmail?.trim() || DRIVER_EMAIL.supportEmail);
+  const website = esc(
+    (args.companyWebsite?.trim() || DRIVER_EMAIL.supportWebsite).replace(/^https?:\/\//i, ""),
+  );
+  const logoUrl = args.logoUrl?.trim();
+  const subject = `Your ONECAB Driver Statement - ${args.invoiceNo || "Statement"}`;
 
-Thank you for driving with ONECAB.
+  const text = `ONECAB — Driver Statement
 
-Your monthly earnings statement for {{invoicePeriod}} has been generated and is attached as a PDF.
+Dear ${args.driverName || "Driver"},
 
-Invoice Number: {{invoiceNo}}
-Total Trips: {{totalTrips}}
-Net Driver Earnings: {{netDriverEarnings}}
+Your ONECAB driver statement is ready.
 
-Please review the attached statement for your records.
+Statement No: ${args.invoiceNo || "—"}
+Period: ${args.invoicePeriod || "—"}
 
-If you have any questions regarding your earnings, please contact the ONECAB support team.
+Please find your detailed statement attached as a PDF.
 
-Kind regards,
-ONECAB Team
+If you have any questions, contact ONECAB Support.
+
+---
+ONECAB
 One App. Every Journey.
+${args.companyEmail?.trim() || DRIVER_EMAIL.supportEmail}
+${args.companyPhone?.trim() || DRIVER_EMAIL.supportPhone}
+${(args.companyWebsite?.trim() || DRIVER_EMAIL.supportWebsite).replace(/^https?:\/\//i, "")}`;
 
-{{companyName}}
-{{companyAddress}}
-Phone: {{companyPhone}}
-Email: {{companyEmail}}
-Website: {{companyWebsite}}`)
-    .replace(/\{\{driverName\}\}/g, String(args.driverName ?? ""))
-    .replace(/\{\{invoiceNo\}\}/g, String(args.invoiceNo ?? ""))
-    .replace(/\{\{invoicePeriod\}\}/g, String(args.invoicePeriod ?? ""))
-    .replace(/\{\{totalTrips\}\}/g, String(args.totalTrips ?? 0))
-    .replace(/\{\{netDriverEarnings\}\}/g, String(args.netDriverEarnings ?? ""))
-    .replace(/\{\{companyName\}\}/g, String(args.companyName ?? ""))
-    .replace(/\{\{companyAddress\}\}/g, String(args.companyAddress ?? ""))
-    .replace(/\{\{companyPhone\}\}/g, String(args.companyPhone ?? ""))
-    .replace(/\{\{companyEmail\}\}/g, String(args.companyEmail ?? ""))
-    .replace(/\{\{companyWebsite\}\}/g, String(args.companyWebsite ?? ""));
+  const logoBlock = logoUrl
+    ? `<img src="${esc(logoUrl)}" alt="ONECAB" width="140" style="display:block;max-width:140px;height:auto;border:0;" />`
+    : `<div style="font-size:28px;font-weight:700;color:${DRIVER_EMAIL.white};letter-spacing:2px;line-height:1;">ONECAB</div>`;
 
-  const html = text.split("\n").map((line) => `<p>${esc(line)}</p>`).join("");
-  return {
-    subject: `Your ONECAB Monthly Earnings Statement - ${args.invoiceNo}`,
-    html,
-    text,
-  };
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <title>${subject}</title>
+</head>
+<body style="margin:0;padding:0;background-color:${DRIVER_EMAIL.bodyBg};font-family:Arial,Helvetica,sans-serif;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:${DRIVER_EMAIL.bodyBg};margin:0;padding:24px 12px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:600px;background-color:${DRIVER_EMAIL.white};border-radius:8px;overflow:hidden;">
+          <tr>
+            <td style="background-color:${DRIVER_EMAIL.black};padding:28px 32px 20px;text-align:left;">
+              ${logoBlock}
+              <div style="margin-top:14px;font-size:13px;font-weight:600;color:${DRIVER_EMAIL.yellow};letter-spacing:1.5px;text-transform:uppercase;">Driver Statement</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="height:4px;background-color:${DRIVER_EMAIL.yellow};font-size:0;line-height:0;">&nbsp;</td>
+          </tr>
+          <tr>
+            <td style="padding:32px 32px 8px;color:#111827;font-size:16px;line-height:1.6;">
+              <p style="margin:0 0 16px;">Dear ${driverName},</p>
+              <p style="margin:0 0 20px;">Your ONECAB driver statement is ready.</p>
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 24px;background-color:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;">
+                <tr>
+                  <td style="padding:16px 20px;font-size:14px;line-height:1.7;color:#374151;">
+                    <strong style="color:#111827;">Statement No:</strong> ${invoiceNo}<br />
+                    <strong style="color:#111827;">Period:</strong> ${invoicePeriod}
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:0 0 16px;">Please find your detailed statement attached as a PDF.</p>
+              <p style="margin:0;color:${DRIVER_EMAIL.muted};font-size:14px;">If you have any questions, contact ONECAB Support.</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:${DRIVER_EMAIL.black};padding:24px 32px;text-align:center;color:${DRIVER_EMAIL.white};font-size:13px;line-height:1.8;">
+              <div style="font-size:16px;font-weight:700;letter-spacing:1px;">ONECAB</div>
+              <div style="margin-top:4px;color:${DRIVER_EMAIL.yellow};font-size:12px;letter-spacing:0.5px;">One App. Every Journey.</div>
+              <div style="margin-top:14px;font-size:13px;line-height:1.9;">
+                <a href="mailto:${email}" style="color:${DRIVER_EMAIL.white};text-decoration:none;">${email}</a><br />
+                <span style="color:${DRIVER_EMAIL.white};">${phone}</span><br />
+                <a href="https://${website}" style="color:${DRIVER_EMAIL.white};text-decoration:none;">${website}</a>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  return { subject, html, text };
 }
 
 async function fetchAsDataUri(url: string): Promise<string | null> {

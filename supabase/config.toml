@@ -61,6 +61,12 @@ verify_jwt = false
 [functions.admin-finance-reconciliation]
 verify_jwt = false
 
+[functions.finance-backend-audit-v1]
+verify_jwt = false
+
+[functions.admin-sync-payout-ledger]
+verify_jwt = false
+
 [functions.admin-finance-summary]
 verify_jwt = false
 

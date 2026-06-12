@@ -19,6 +19,9 @@ import {
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
+import { FinanceReconciliationTotalsCards } from '@/components/finance/FinanceReconciliationTotalsCards';
+import { FinanceSSOT, useFinancialReconciliationSSOT } from '@/hooks/useFinancialReconciliationSSOT';
+import { DriverSSOTPayoutPanel } from '@/components/finance/DriverSSOTPayoutPanel';
 import { 
   Search, Wallet, TrendingDown, Eye, RefreshCw, AlertTriangle, CheckCircle2, User, Banknote, CreditCard, ArrowUpRight, ArrowDownRight
 } from 'lucide-react';
@@ -30,6 +33,7 @@ export default function DriverWallet() {
   const [selectedDriver, setSelectedDriver] = useState<DriverFinancialSummary | null>(null);
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
 
+  const financeSSOT = useFinancialReconciliationSSOT({ filter: serviceFilter });
   const { data: allDrivers = [], isLoading, refetch } = useDriverFinancialSummaries();
   const { data: ledgerEntries = [], isLoading: isLoadingLedger } = useDriverLedger(selectedDriver?.driver_id || null);
 
@@ -57,8 +61,13 @@ export default function DriverWallet() {
   const resolvedCurrency = serviceFilter.currencyCode || getSingleCurrency(drivers) || '';
   const isMixedCurrency = !serviceFilter.currencyCode && !getSingleCurrency(drivers) && drivers.length > 0;
 
-  const totalWalletBalance = drivers.reduce((sum, d) => sum + d.wallet_balance, 0);
-  const totalCommissionOwed = drivers.reduce((sum, d) => sum + d.amount_owed_to_onecab, 0);
+  const ssotSummary = financeSSOT.summary;
+  const totalWalletBalance = ssotSummary
+    ? FinanceSSOT.driverRemainingLiability(ssotSummary)
+    : drivers.reduce((sum, d) => sum + d.wallet_balance, 0);
+  const totalCommissionOwed = ssotSummary
+    ? FinanceSSOT.onecabNetCommission(ssotSummary)
+    : drivers.reduce((sum, d) => sum + d.amount_owed_to_onecab, 0);
   const totalCardCredits = drivers.reduce((sum, d) => sum + d.card_net_credits, 0);
   const driversInDebt = drivers.filter(d => d.wallet_balance < 0).length;
   const driversWithBalance = drivers.filter(d => d.wallet_balance > 0).length;
@@ -83,9 +92,11 @@ export default function DriverWallet() {
   return (
     <AdminLayout 
       title="Driver Wallet & Ledger" 
-      description="Unified financial view — wallet_balance is gross ledger balance; net_available_for_payout (driver app) deducts in-flight early cashouts"
+      description="Financial Reconciliation SSOT — official liability, commission, and payout totals"
     >
       <div className="space-y-6">
+        <FinanceReconciliationTotalsCards ssot={financeSSOT} />
+
         {/* Service Area Filter */}
         <div className="flex items-center gap-3">
           <ServiceAreaFinanceFilter value={serviceFilter} onChange={setServiceFilter} />
@@ -100,38 +111,32 @@ export default function DriverWallet() {
         <div className="grid gap-4 md:grid-cols-5">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Net Wallet Balance</CardTitle>
+              <CardTitle className="text-sm font-medium">Remaining Liability</CardTitle>
               <Wallet className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               {isMixedCurrency ? (
-                <CurrencyGroupedStats
-                  items={drivers.map(d => ({ currency_code: d.currency_code, amount: d.wallet_balance }))}
-                  className="text-lg font-bold"
-                />
+                <p className="text-sm text-muted-foreground">Select a service area for SSOT liability totals</p>
               ) : (
                 <div className={`text-2xl font-bold ${totalWalletBalance >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                   {formatPence(totalWalletBalance, resolvedCurrency)}
                 </div>
               )}
-              <p className="text-xs text-muted-foreground">All drivers combined</p>
+              <p className="text-xs text-muted-foreground">Financial Reconciliation SSOT — amount ONECAB still owes drivers</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Commission Owed</CardTitle>
+              <CardTitle className="text-sm font-medium">ONECAB Net Commission</CardTitle>
               <TrendingDown className="h-4 w-4 text-red-500" />
             </CardHeader>
             <CardContent>
               {isMixedCurrency ? (
-                <CurrencyGroupedStats
-                  items={drivers.map(d => ({ currency_code: d.currency_code, amount: d.amount_owed_to_onecab }))}
-                  className="text-lg font-bold text-red-500"
-                />
+                <p className="text-sm text-muted-foreground">Select a service area for SSOT commission totals</p>
               ) : (
                 <div className="text-2xl font-bold text-red-500">{formatPence(totalCommissionOwed, resolvedCurrency)}</div>
               )}
-              <p className="text-xs text-muted-foreground">Cash trip commission debt</p>
+              <p className="text-xs text-muted-foreground">Financial Reconciliation SSOT — after provider fees</p>
             </CardContent>
           </Card>
           <Card>
@@ -286,19 +291,21 @@ export default function DriverWallet() {
                     <p className={`text-lg font-bold ${selectedDriver.wallet_balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>{sFmt(selectedDriver.wallet_balance)}</p>
                   </CardContent></Card>
                   <Card><CardContent className="pt-4">
-                    <p className="text-xs text-muted-foreground">Net Available (driver app)</p>
-                    <p className="text-lg font-bold text-green-600">{sFmt(selectedDriver.net_available_for_payout)}</p>
-                    {selectedDriver.reserved_cashout_pence > 0 && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {sFmt(selectedDriver.reserved_cashout_pence)} reserved in-flight
-                      </p>
-                    )}
+                    <p className="text-xs text-muted-foreground">Wallet (informational)</p>
+                    <p className="text-lg font-bold text-muted-foreground">{sFmt(selectedDriver.wallet_balance)}</p>
                   </CardContent></Card>
                   <Card><CardContent className="pt-4">
                     <p className="text-xs text-muted-foreground">Owed to ONECAB</p>
                     <p className={`text-lg font-bold ${selectedDriver.amount_owed_to_onecab > 0 ? 'text-red-600' : 'text-muted-foreground'}`}>{sFmt(selectedDriver.amount_owed_to_onecab)}</p>
                   </CardContent></Card>
                 </div>
+
+                <DriverSSOTPayoutPanel
+                  driverId={selectedDriver.driver_id}
+                  currencyCode={selectedDriver.currency_code}
+                  filter={serviceFilter}
+                  compact
+                />
 
                 <Card>
                   <CardContent className="pt-4 space-y-2">

@@ -42,6 +42,7 @@ import {
   FileText, Clock, AlertOctagon, FileWarning, Eye, Ban, Power, Trash2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { formatDriverAddressFull, formatCountryWithFlag } from '@/lib/driverAddress';
 
 interface Driver {
   id: string;
@@ -59,6 +60,11 @@ interface Driver {
   profile_photo_url: string | null;
   created_at: string;
   region_id: string;
+  residential_address?: string | null;
+  postcode?: string | null;
+  city?: string | null;
+  country?: string | null;
+  country_code?: string | null;
   is_pet_friendly?: boolean;
   stripe_account_id?: string | null;
   payouts_enabled?: boolean;
@@ -681,6 +687,26 @@ export function DriverDetailsDialog({
                       <p className="text-sm font-medium">{driver.phone}</p>
                     </div>
                   </div>
+                  <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg md:col-span-2">
+                    <MapPin className="h-5 w-5 text-muted-foreground" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Residential Address</p>
+                      <p className={`text-sm font-medium ${formatDriverAddressFull(driver) === 'Address missing' ? 'italic text-muted-foreground' : ''}`}>
+                        {formatDriverAddressFull(driver)}
+                      </p>
+                    </div>
+                  </div>
+                  {driver.country && (
+                    <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                      <MapPin className="h-5 w-5 text-muted-foreground" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Country</p>
+                        <p className="text-sm font-medium">
+                          {formatCountryWithFlag(driver.country, driver.country_code)}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                   <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
                     <MapPin className="h-5 w-5 text-muted-foreground" />
                     <div>

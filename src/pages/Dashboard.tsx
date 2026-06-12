@@ -9,7 +9,8 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { supabase } from '@/integrations/supabase/client';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
-import { useLedgerRevenue } from '@/hooks/useLedgerRevenue';
+import { useFinanceReconciliationRevenue } from '@/hooks/useFinanceReconciliationRevenue';
+import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
 import { formatPence } from '@/hooks/useDriverWallet';
 import { 
   Car, 
@@ -289,8 +290,8 @@ export default function Dashboard() {
     return { startDate, endDate, previousStartDate, previousEndDate };
   }, [period, customDateFrom, customDateTo]);
 
-  // ─── Ledger-based revenue (SSOT: driver_wallet_ledger PLATFORM_COMMISSION) ───
-  const { data: revenueData, isLoading: revenueLoading } = useLedgerRevenue({
+  // ─── ONECAB net commission — Financial Reconciliation SSOT only ───
+  const { data: revenueData, isLoading: revenueLoading } = useFinanceReconciliationRevenue({
     period,
     serviceAreaId: selectedServiceArea === 'all' ? null : selectedServiceArea,
     customFrom: customDateFrom,
@@ -592,18 +593,21 @@ export default function Dashboard() {
       </div>
 
       {/* Context label */}
-      <div className="mb-4 text-sm text-muted-foreground">
-        {selectedServiceArea === 'all'
-          ? 'Showing commission breakdown across all service areas'
-          : `Showing financial data for ${selectedArea?.name || 'selected service area'}`}
+      <div className="mb-4 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+        <span>
+          {selectedServiceArea === 'all'
+            ? 'ONECAB net commission by service area (Financial Reconciliation SSOT)'
+            : `ONECAB net commission for ${selectedArea?.name || 'selected service area'}`}
+        </span>
+        <FinanceSSOTBadge badge="LIVE" />
       </div>
 
-      {/* Revenue Cards — only shown when a specific service area is selected (avoids mixed-currency aggregation) */}
+      {/* ONECAB net commission — specific service area only (avoids mixed-currency aggregation) */}
       {selectedServiceArea !== 'all' && (
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Today Revenue</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Today Net Commission</CardTitle>
             <CircleDollarSign className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
@@ -616,7 +620,7 @@ export default function Dashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Weekly Revenue</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Weekly Net Commission</CardTitle>
             <TrendingUp className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
@@ -629,7 +633,7 @@ export default function Dashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Monthly Revenue</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Monthly Net Commission</CardTitle>
             <BarChart3 className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
@@ -643,7 +647,7 @@ export default function Dashboard() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              {period === 'custom' ? 'Custom Range' : 'All-Time Revenue'}
+              {period === 'custom' ? 'Custom Range' : 'All-Time Net Commission'}
             </CardTitle>
             <CalendarIcon className="h-4 w-4 text-primary" />
           </CardHeader>
@@ -668,8 +672,10 @@ export default function Dashboard() {
         <Card className="mb-6">
           <CardHeader className="flex flex-row items-center gap-2">
             <TrendingUp className="h-5 w-5 text-primary" />
-            <CardTitle>Platform Revenue Over Time</CardTitle>
-            <span className="text-xs text-muted-foreground ml-auto">Source: driver_wallet_ledger (COMPANY_COMMISSION)</span>
+            <CardTitle>ONECAB Net Commission Over Time</CardTitle>
+            <span className="text-xs text-muted-foreground ml-auto flex items-center gap-1">
+              Financial Reconciliation SSOT <FinanceSSOTBadge badge="LIVE" />
+            </span>
           </CardHeader>
           <CardContent>
             <div className="h-[250px]">
@@ -677,7 +683,7 @@ export default function Dashboard() {
                 <LineChart data={revenueData!.chartData.map(d => ({ ...d, revenue: d.revenue / 100 }))}>
                   <XAxis dataKey="label" axisLine={false} tickLine={false} fontSize={12} />
                   <YAxis axisLine={false} tickLine={false} fontSize={12} tickFormatter={(v) => `${currencySymbol}${v}`} />
-                  <Tooltip formatter={(value: number) => [`${currencySymbol}${value.toFixed(2)}`, 'Revenue']} />
+                  <Tooltip formatter={(value: number) => [`${currencySymbol}${value.toFixed(2)}`, 'Net commission']} />
                   <Line type="monotone" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} />
                 </LineChart>
               </ResponsiveContainer>
@@ -686,12 +692,15 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* Revenue by Service Area — from ledger */}
+      {/* ONECAB net commission by service area — Financial Reconciliation SSOT */}
       {selectedServiceArea === 'all' && (revenueData?.serviceAreaBreakdown?.length || 0) > 0 && (
         <Card className="mb-6">
           <CardHeader className="flex flex-row items-center gap-2">
             <MapPin className="h-5 w-5 text-primary" />
-            <CardTitle>Commission by Service Area</CardTitle>
+            <CardTitle>Net Commission by Service Area</CardTitle>
+            <span className="text-xs text-muted-foreground ml-auto flex items-center gap-1">
+              Financial Reconciliation SSOT <FinanceSSOTBadge badge="LIVE" />
+            </span>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { AdminLayout } from '@/components/layout/AdminLayout';
@@ -6,44 +6,39 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import {
-  CreditCard, Search, Download, DollarSign, TrendingUp, Eye, RefreshCw,
+  CreditCard, Search, Download, Eye, RefreshCw,
   ArrowUpRight, ArrowDownLeft, Wallet, Clock, CheckCircle2, XCircle,
-  Banknote, Smartphone
+  Banknote, Smartphone, CalendarIcon,
 } from 'lucide-react';
 import { PaymentControlsCard } from '@/components/payment/PaymentControlsCard';
-import { FinanceTotalsCards } from '@/components/finance/FinanceTotalsCards';
-import { useAdminFinanceSummary } from '@/hooks/useAdminFinanceSummary';
-
-interface PaymentSummary {
-  totalGrossFares: number;
-  totalCommission: number;
-  totalDriverNet: number;
-  totalCashCommission: number;
-  totalPayoutsSent: number;
-  totalWalletBalance: number;
-  totalCardGross: number;
-  totalCashGross: number;
-  totalRevenue: number;
-  totalTransactions: number;
-  pendingAmount: number;
-  todayTransactions: number;
-  todayGrossEarnings: number;
-  completedTrips: number;
-  refundedTrips: number;
-  totalRefunds: number;
-  paymentMethods: Record<string, number>;
-}
+import { FinanceReconciliationTotalsCards } from '@/components/finance/FinanceReconciliationTotalsCards';
+import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
+import {
+  DEFAULT_SERVICE_AREA_SELECTION,
+  ServiceAreaFinanceFilter,
+  type ServiceAreaFinanceSelection,
+} from '@/components/finance/ServiceAreaFinanceFilter';
+import { useFinancialReconciliationSSOT } from '@/hooks/useFinancialReconciliationSSOT';
+import {
+  financePeriodLabel,
+  resolveFinancePeriodRange,
+  type FinancePeriod,
+} from '@/lib/financePeriodRange';
+import { cn } from '@/lib/utils';
 
 interface PaymentTransaction {
   id: string;
@@ -120,36 +115,59 @@ const formatPence = (pence: number, currencyCode?: string): string => {
 export default function AdminPayments() {
   usePageLoadTelemetry('PaymentsPage');
   const [activeTab, setActiveTab] = useState('all');
+  const [period, setPeriod] = useState<FinancePeriod>('daily');
+  const [customDateFrom, setCustomDateFrom] = useState<Date | undefined>(undefined);
+  const [customDateTo, setCustomDateTo] = useState<Date | undefined>(undefined);
+  const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [methodFilter, setMethodFilter] = useState<string>('all');
   const [viewingTripId, setViewingTripId] = useState<string | null>(null);
   const queryClient = useQueryClient();
-  const { data: financeSummary, isLoading: isLoadingFinance, error: financeError, refetch: refetchFinance } = useAdminFinanceSummary();
 
-  // Fetch summary from edge function (uses driver_financial_summary view)
-  const { data: summary, isLoading: isLoadingSummary, refetch: refetchSummary } = useQuery<PaymentSummary>({
-    queryKey: ['admin-payments-summary'],
-    queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke('admin-payments-summary', {
-        method: 'GET',
-      });
-      if (error) throw error;
-      return data;
-    },
+  const { startDate, endDate } = useMemo(
+    () => resolveFinancePeriodRange(period, customDateFrom, customDateTo),
+    [period, customDateFrom, customDateTo],
+  );
+  const periodFrom = startDate.toISOString();
+  const periodTo = endDate.toISOString();
+  const periodLabel = financePeriodLabel(period, startDate, endDate);
+
+  const financeSSOT = useFinancialReconciliationSSOT({
+    filter: serviceFilter,
+    from: periodFrom,
+    to: periodTo,
   });
+  const activeCurrency = serviceFilter.currencyCode || financeSSOT.currencyCode || 'gbp';
 
-  // Fetch transactions from edge function
+  // Fetch transactions — same service area + completed_at window as SSOT totals
   const { data: transactions = [], isLoading: isLoadingList, refetch: refetchList } = useQuery<PaymentTransaction[]>({
-    queryKey: ['admin-payments-list', statusFilter, methodFilter, searchTerm],
+    queryKey: [
+      'admin-payments-list',
+      statusFilter,
+      methodFilter,
+      searchTerm,
+      activeTab,
+      periodFrom,
+      periodTo,
+      serviceFilter.serviceAreaId,
+      serviceFilter.regionId,
+    ],
     queryFn: async () => {
       const params = new URLSearchParams();
+      params.set('from', periodFrom);
+      params.set('to', periodTo);
+      params.set('limit', '500');
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (methodFilter !== 'all') params.set('method', methodFilter);
       if (searchTerm) params.set('search', searchTerm);
+      if (activeTab === 'payment' || activeTab === 'refund') params.set('type', activeTab);
+      if (serviceFilter.serviceAreaId) params.set('service_area_id', serviceFilter.serviceAreaId);
+      if (serviceFilter.regionId) params.set('region_id', serviceFilter.regionId);
 
-      const path = params.toString() ? `admin-payments-list?${params.toString()}` : 'admin-payments-list';
-      const { data, error } = await supabase.functions.invoke(path, { method: 'GET' });
+      const { data, error } = await supabase.functions.invoke(`admin-payments-list?${params.toString()}`, {
+        method: 'GET',
+      });
       if (error) throw error;
       return data.transactions || [];
     },
@@ -220,17 +238,13 @@ export default function AdminPayments() {
       toast.success(`Payment ${data.newStatus || 'confirmed'} successfully`);
       queryClient.invalidateQueries({ queryKey: ['admin-payment-detail', viewingTripId] });
       queryClient.invalidateQueries({ queryKey: ['admin-payments-list'] });
-      queryClient.invalidateQueries({ queryKey: ['admin-payments-summary'] });
     },
     onError: (error: Error) => toast.error(`Failed to confirm: ${error.message}`),
   });
 
-  const handleRefresh = () => { refetchSummary(); refetchList(); refetchFinance(); };
+  const handleRefresh = () => { refetchList(); financeSSOT.refetch(); };
 
-  const filteredTransactions = transactions.filter(tx => {
-    const matchesTab = activeTab === 'all' || tx.type === activeTab;
-    return matchesTab;
-  });
+  const filteredTransactions = transactions;
 
   const getStatusBadge = (status: string) => {
     const config: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline', icon: React.ReactNode, label: string }> = {
@@ -262,7 +276,7 @@ export default function AdminPayments() {
     return methods[method?.toLowerCase()] || method || 'Unknown';
   };
 
-  const isLoading = isLoadingSummary || isLoadingList;
+  const isLoading = isLoadingList;
 
   if (isLoading && transactions.length === 0) {
     return (
@@ -277,12 +291,80 @@ export default function AdminPayments() {
   return (
     <AdminLayout 
       title="Payments & Transactions" 
-      description="Canonical finance reporting — ONECAB commission read from driver_wallet_ledger; Stripe platform balance shown separately and never used as commission."
+      description="Financial Reconciliation SSOT — official revenue, commission, liability, and provider balances. Trip list is operational detail only."
     >
       <div className="space-y-6">
-        {/* Canonical finance cards — definitions §1–§9. ONECAB commission ≠ Stripe balance. */}
-        <FinanceTotalsCards data={financeSummary} isLoading={isLoadingFinance} error={financeError as Error | null} />
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Filters</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="space-y-2">
+              <Label>Service area</Label>
+              <ServiceAreaFinanceFilter value={serviceFilter} onChange={setServiceFilter} className="w-full" />
+            </div>
+            <div className="space-y-2">
+              <Label>Period</Label>
+              <Select value={period} onValueChange={(v) => setPeriod(v as FinancePeriod)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="daily">Today</SelectItem>
+                  <SelectItem value="weekly">This week</SelectItem>
+                  <SelectItem value="monthly">This month</SelectItem>
+                  <SelectItem value="custom">Custom range</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {period === 'custom' && (
+              <div className="space-y-2 lg:col-span-2">
+                <Label>Custom dates</Label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className={cn('justify-start text-left font-normal', !customDateFrom && 'text-muted-foreground')}>
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {customDateFrom ? format(customDateFrom, 'MMM d, yyyy') : 'From'}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar mode="single" selected={customDateFrom} onSelect={setCustomDateFrom} initialFocus />
+                    </PopoverContent>
+                  </Popover>
+                  <span className="text-muted-foreground text-sm">to</span>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className={cn('justify-start text-left font-normal', !customDateTo && 'text-muted-foreground')}>
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {customDateTo ? format(customDateTo, 'MMM d, yyyy') : 'To'}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={customDateTo}
+                        onSelect={setCustomDateTo}
+                        disabled={(date) => (customDateFrom ? date < customDateFrom : false) || date > new Date()}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+            )}
+          </CardContent>
+          <CardContent className="pt-0 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            <span>{periodLabel}</span>
+            <span>·</span>
+            <span>{serviceFilter.serviceAreaId ? 'Selected service area' : 'All service areas'}</span>
+            <FinanceSSOTBadge badge={financeSSOT.badge} />
+            <Button variant="ghost" size="sm" className="ml-auto h-8" onClick={handleRefresh} disabled={financeSSOT.isFetching}>
+              <RefreshCw className={cn('h-4 w-4 mr-1', financeSSOT.isFetching && 'animate-spin')} />
+              Refresh
+            </Button>
+          </CardContent>
+        </Card>
 
+        <FinanceReconciliationTotalsCards ssot={financeSSOT} />
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <div className="flex flex-col sm:flex-row justify-between gap-4">
@@ -340,7 +422,7 @@ export default function AdminPayments() {
                       <TableHead className="text-right">Driver Net</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Method</TableHead>
-                      <TableHead>Date</TableHead>
+                      <TableHead>Completed</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -367,9 +449,9 @@ export default function AdminPayments() {
                               <p className="text-xs text-muted-foreground">{tx.customer} {tx.driver && `• ${tx.driver}`}</p>
                             </div>
                           </TableCell>
-                          <TableCell className="text-right font-medium">{formatPence(tx.amount || 0)}</TableCell>
-                          <TableCell className="text-right text-blue-600">{formatPence(tx.commission || 0)}</TableCell>
-                          <TableCell className="text-right text-green-600">{formatPence(tx.driverNet || 0)}</TableCell>
+                          <TableCell className="text-right font-medium">{formatPence(tx.amount || 0, activeCurrency)}</TableCell>
+                          <TableCell className="text-right text-blue-600">{formatPence(tx.commission || 0, activeCurrency)}</TableCell>
+                          <TableCell className="text-right text-green-600">{formatPence(tx.driverNet || 0, activeCurrency)}</TableCell>
                           <TableCell>{getStatusBadge(tx.status)}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
@@ -378,7 +460,11 @@ export default function AdminPayments() {
                             </div>
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">
-                            {tx.date ? format(new Date(tx.date), 'dd MMM yyyy') : '-'}
+                            {tx.completedAt
+                              ? format(new Date(tx.completedAt), 'dd MMM yyyy HH:mm')
+                              : tx.date
+                                ? format(new Date(tx.date), 'dd MMM yyyy')
+                                : '-'}
                           </TableCell>
                           <TableCell className="text-right">
                             <Button variant="ghost" size="sm" onClick={() => setViewingTripId(tx.id)}><Eye className="h-4 w-4" /></Button>

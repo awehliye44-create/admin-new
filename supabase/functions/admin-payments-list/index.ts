@@ -57,8 +57,10 @@ serve(async (req) => {
     const method = url.searchParams.get('method');
     const type = url.searchParams.get('type'); // 'payment', 'refund', or null for all
     const search = url.searchParams.get('search');
-    const startDate = url.searchParams.get('startDate');
-    const endDate = url.searchParams.get('endDate');
+    const startDate = url.searchParams.get('from') || url.searchParams.get('startDate');
+    const endDate = url.searchParams.get('to') || url.searchParams.get('endDate');
+    const serviceAreaId = url.searchParams.get('service_area_id');
+    const regionId = url.searchParams.get('region_id');
 
     const offset = (page - 1) * limit;
 
@@ -96,7 +98,7 @@ serve(async (req) => {
         )
       `, { count: 'exact' })
       .not('payment_method', 'is', null)
-      .order('created_at', { ascending: false });
+      .order('completed_at', { ascending: false, nullsFirst: false });
 
     // Apply filters
     if (status) {
@@ -107,18 +109,29 @@ serve(async (req) => {
       query = query.eq('payment_method', method.toLowerCase());
     }
 
+    if (serviceAreaId) {
+      query = query.eq('service_area_id', serviceAreaId);
+    }
+
+    if (regionId) {
+      query = query.eq('region_id', regionId);
+    }
+
     if (type === 'refund') {
       query = query.gt('refund_amount_pence', 0);
     } else if (type === 'payment') {
       query = query.or('refund_amount_pence.is.null,refund_amount_pence.eq.0');
     }
 
-    if (startDate) {
-      query = query.gte('created_at', startDate);
-    }
-
-    if (endDate) {
-      query = query.lte('created_at', endDate);
+    // Align trip list with Financial Reconciliation SSOT (completed_at window).
+    if (startDate || endDate) {
+      query = query.not('completed_at', 'is', null);
+      if (startDate) {
+        query = query.gte('completed_at', startDate);
+      }
+      if (endDate) {
+        query = query.lte('completed_at', endDate);
+      }
     }
 
     if (search) {

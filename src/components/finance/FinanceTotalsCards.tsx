@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { getCurrencySymbol } from '@/lib/regionSettings';
+/** @deprecated Use `FinanceReconciliationTotalsCards` with `useFinancialReconciliationSSOT`. */
 import type { AdminFinanceSummary, CommissionStatus, FinanceCurrencyGroup } from '@/hooks/useAdminFinanceSummary';
 
 function fmt(pence: number, cc: string): string {
@@ -100,7 +101,7 @@ function GroupBlock({
         <CardStat
           title="ONECAB gross commission"
           value={fmt(t.onecab_gross_commission_pence, cc)}
-          sub="From driver_wallet_ledger"
+          sub="Deprecated — use Financial Reconciliation SSOT"
           icon={<TrendingUp className="h-4 w-4" />}
           tone="positive"
         />

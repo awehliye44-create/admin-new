@@ -26,6 +26,10 @@ import {
 } from '@/hooks/useDriverWallet';
 import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
+import { FinanceReconciliationTotalsCards } from '@/components/finance/FinanceReconciliationTotalsCards';
+import { FinanceSSOT, useFinancialReconciliationSSOT } from '@/hooks/useFinancialReconciliationSSOT';
+import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
+import { DriverSSOTPayoutPanel, useDriverSSOTPayoutGate } from '@/components/finance/DriverSSOTPayoutPanel';
 import { 
   Search, Download, DollarSign, TrendingUp, Eye, RefreshCw, User, Car,
   Banknote, Wallet, CheckCircle2, AlertTriangle, CreditCard, Plus, Minus,
@@ -43,9 +47,11 @@ export default function AdminDriverSettlements() {
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
   
   const queryClient = useQueryClient();
+  const financeSSOT = useFinancialReconciliationSSOT({ filter: serviceFilter });
 
   const { data: allDrivers = [], isLoading, refetch } = useDriverFinancialSummaries();
   const { data: selectedDriverDetail } = useDriverFinancialSummary(selectedDriverId);
+  const driverPayoutGate = useDriverSSOTPayoutGate(selectedDriverId, serviceFilter);
   const { data: ledgerEntries = [], isLoading: isLoadingLedger } = useDriverLedger(selectedDriverId);
 
   // Filter by region when a service area is selected
@@ -76,6 +82,8 @@ export default function AdminDriverSettlements() {
       queryClient.invalidateQueries({ queryKey: ['driver-financial-summaries'] });
       queryClient.invalidateQueries({ queryKey: ['driver-financial-summary', selectedDriverId] });
       queryClient.invalidateQueries({ queryKey: ['driver-ledger', selectedDriverId] });
+      queryClient.invalidateQueries({ queryKey: ['per-driver-finance-ssot', selectedDriverId] });
+      financeSSOT.refetch();
     },
     onError: (error: Error) => toast.error(`Adjustment failed: ${error.message}`),
   });
@@ -94,6 +102,9 @@ export default function AdminDriverSettlements() {
       toast.success('Payout initiated successfully');
       queryClient.invalidateQueries({ queryKey: ['driver-financial-summaries'] });
       queryClient.invalidateQueries({ queryKey: ['driver-financial-summary', selectedDriverId] });
+      queryClient.invalidateQueries({ queryKey: ['per-driver-finance-ssot', selectedDriverId] });
+      driverPayoutGate.refetch();
+      financeSSOT.refetch();
     },
     onError: (error: Error) => toast.error(`Payout failed: ${error.message}`),
   });
@@ -118,8 +129,12 @@ export default function AdminDriverSettlements() {
   });
 
   // Stats
-  const totalGross = drivers.reduce((s, d) => s + d.gross_trip_total, 0);
-  const totalCommission = drivers.reduce((s, d) => s + d.company_commission_total, 0);
+  const totalGross = financeSSOT.summary
+    ? FinanceSSOT.driverGrossEarnings(financeSSOT.summary)
+    : 0;
+  const totalCommission = financeSSOT.summary
+    ? FinanceSSOT.onecabNetCommission(financeSSOT.summary)
+    : 0;
   const driversWithEarnings = drivers.filter(d => d.available_for_payout > 0).length;
   const onlineDrivers = drivers.filter(d => d.is_online).length;
 
@@ -136,9 +151,11 @@ export default function AdminDriverSettlements() {
   return (
     <AdminLayout 
       title="Driver Settlements" 
-      description="Unified financial view — all numbers derived from driver_financial_summary"
+      description="Financial Reconciliation SSOT — official commission, liability, and payout values"
     >
       <div className="space-y-6">
+        <FinanceReconciliationTotalsCards ssot={financeSSOT} />
+
         {/* Service Area Filter */}
         <div className="flex items-center gap-3">
           <ServiceAreaFinanceFilter value={serviceFilter} onChange={setServiceFilter} />
@@ -158,11 +175,13 @@ export default function AdminDriverSettlements() {
             </CardHeader>
             <CardContent>
               {isMixedCurrency ? (
-                <CurrencyGroupedStats items={drivers.map(d => ({ currency_code: d.currency_code, amount: d.gross_trip_total }))} className="text-lg font-bold text-green-500" />
+                <p className="text-sm text-muted-foreground">Select a service area for SSOT gross earnings</p>
               ) : (
                 <div className="text-2xl font-bold text-green-500">{formatPence(totalGross, resolvedCurrency)}</div>
               )}
-              <p className="text-xs text-muted-foreground flex items-center gap-1"><TrendingUp className="h-3 w-3 text-green-500" /> All completed trips</p>
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <TrendingUp className="h-3 w-3 text-green-500" /> Financial Reconciliation SSOT
+              </p>
             </CardContent>
           </Card>
           <Card>
@@ -172,11 +191,13 @@ export default function AdminDriverSettlements() {
             </CardHeader>
             <CardContent>
               {isMixedCurrency ? (
-                <CurrencyGroupedStats items={drivers.map(d => ({ currency_code: d.currency_code, amount: d.company_commission_total }))} className="text-lg font-bold text-blue-500" />
+                <p className="text-sm text-muted-foreground">Select a service area for SSOT commission totals</p>
               ) : (
                 <div className="text-2xl font-bold text-blue-500">{formatPence(totalCommission, resolvedCurrency)}</div>
               )}
-              <p className="text-xs text-muted-foreground">Total earned by ONECAB</p>
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                ONECAB net commission <FinanceSSOTBadge badge={financeSSOT.badge} />
+              </p>
             </CardContent>
           </Card>
           <Card>
@@ -291,9 +312,16 @@ export default function AdminDriverSettlements() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Gross Fares</p><p className="text-lg font-bold">{formatPence(selectedDriverDetail.gross_trip_total, selectedDriverDetail.currency_code)}</p></CardContent></Card>
                   <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Commission</p><p className="text-lg font-bold text-blue-600">{formatPence(selectedDriverDetail.company_commission_total, selectedDriverDetail.currency_code)}</p></CardContent></Card>
-                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Wallet Balance</p><p className={`text-lg font-bold ${selectedDriverDetail.wallet_balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatPence(selectedDriverDetail.wallet_balance, selectedDriverDetail.currency_code)}</p></CardContent></Card>
-                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Available Payout</p><p className="text-lg font-bold text-green-600">{formatPence(selectedDriverDetail.available_for_payout, selectedDriverDetail.currency_code)}</p></CardContent></Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Wallet (informational)</p><p className={`text-lg font-bold text-muted-foreground ${selectedDriverDetail.wallet_balance >= 0 ? '' : 'text-red-600'}`}>{formatPence(selectedDriverDetail.wallet_balance, selectedDriverDetail.currency_code)}</p></CardContent></Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">SSOT Available</p><p className="text-lg font-bold text-green-600">{formatPence(driverPayoutGate.payoutAmountPence, selectedDriverDetail.currency_code)}</p></CardContent></Card>
                 </div>
+
+                <DriverSSOTPayoutPanel
+                  driverId={selectedDriverId}
+                  currencyCode={selectedDriverDetail.currency_code}
+                  filter={serviceFilter}
+                  compact
+                />
 
                 <Card>
                   <CardContent className="pt-4 space-y-2 text-sm">
@@ -350,9 +378,14 @@ export default function AdminDriverSettlements() {
               <Button variant="outline" size="sm" onClick={() => { setAdjustmentType('add'); setShowAdjustmentDialog(true); }}>
                 <Plus className="h-4 w-4 mr-1" /> Adjustment
               </Button>
-              {selectedDriverDetail && selectedDriverDetail.available_for_payout > 0 && (
-                <Button size="sm" onClick={() => selectedDriverId && payoutMutation.mutate(selectedDriverId)} disabled={payoutMutation.isPending}>
-                   <Wallet className="h-4 w-4 mr-1" /> Payout {formatPence(selectedDriverDetail.available_for_payout, selectedDriverDetail.currency_code)}
+              {selectedDriverDetail && driverPayoutGate.canPayout && (
+                <Button
+                  size="sm"
+                  onClick={() => selectedDriverId && payoutMutation.mutate(selectedDriverId)}
+                  disabled={payoutMutation.isPending || driverPayoutGate.isLoading}
+                >
+                  <Wallet className="h-4 w-4 mr-1" />
+                  Payout {formatPence(driverPayoutGate.payoutAmountPence, selectedDriverDetail.currency_code)}
                 </Button>
               )}
               <Button variant="outline" onClick={() => setSelectedDriverId(null)}>Close</Button>

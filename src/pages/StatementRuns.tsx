@@ -152,12 +152,24 @@ export default function StatementRuns() {
         const { data: invNum } = await supabase.rpc("generate_invoice_number");
         const invoiceNumber = invNum || `INV-${Date.now()}-${invoiceCount}`;
 
+        const { data: driverRow } = await supabase
+          .from("drivers")
+          .select("first_name, last_name, driver_code, email")
+          .eq("id", driverId)
+          .maybeSingle();
+        const driverDisplayName = driverRow
+          ? `${driverRow.first_name ?? ""} ${driverRow.last_name ?? ""}`.trim()
+          : "";
+
         const { data: inv } = await supabase
           .from("invoices")
           .insert({
             invoice_number: invoiceNumber,
             statement_run_id: run.id,
             driver_id: driverId,
+            driver_display_name: driverDisplayName || null,
+            driver_display_code: driverRow?.driver_code ?? null,
+            driver_display_email: driverRow?.email ?? null,
             template_id: template?.id || null,
             period_start: periodStart,
             period_end: periodEnd,

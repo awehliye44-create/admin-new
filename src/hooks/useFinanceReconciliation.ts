@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import type { FinanceSettlementSummaryResponse } from '@/components/finance/FinanceSettlementOverview';
+import { invokeFinanceReconciliation } from '@/hooks/financeReconciliationApi';
 
 export type OnecabSettlementStatus =
   | 'calculated_only'
@@ -10,7 +10,11 @@ export type OnecabSettlementStatus =
   | 'paid_to_onecab_bank'
   | 'reconciled';
 
-export type ReconciliationStatus = 'balanced' | 'reconciliation_error';
+export type ReconciliationStatus =
+  | 'BALANCED'
+  | 'RECONCILIATION_MISMATCH'
+  | 'balanced'
+  | 'reconciliation_error';
 
 export interface FinanceReconciliationSummary {
   customer_revenue: {
@@ -46,14 +50,23 @@ export interface FinanceReconciliationSummary {
   };
   reconciliation_check: {
     net_customer_revenue_pence: number;
+    driver_paid_out_pence?: number;
+    driver_remaining_liability_pence?: number;
     driver_net_earnings_pence: number;
     onecab_gross_commission_pence: number;
+    onecab_net_commission_pence?: number;
     provider_processing_fee_pence: number;
     adjustments_pence: number;
     expected_sum_pence: number;
+    variance_pence?: number;
     delta_pence: number;
     balanced: boolean;
     status: ReconciliationStatus;
+  };
+  ssot?: {
+    version: string;
+    data_source_badge: 'LIVE' | 'SUMMARY' | 'LEDGER' | 'RECONSTRUCTED';
+    customer_revenue_source: string;
   };
 }
 
@@ -86,16 +99,6 @@ export interface FinanceReconciliationResponse {
     stripe_balance_error: string | null;
     accounting_rules: Record<string, string>;
   };
-}
-
-function buildReconciliationPath(filter?: ServiceAreaFinanceSelection, from?: string, to?: string): string {
-  const params = new URLSearchParams();
-  if (filter?.regionId) params.set('region_id', filter.regionId);
-  else if (filter?.serviceAreaId) params.set('service_area_id', filter.serviceAreaId);
-  if (from) params.set('from', from);
-  if (to) params.set('to', to);
-  const qs = params.toString();
-  return qs ? `admin-finance-reconciliation?${qs}` : 'admin-finance-reconciliation';
 }
 
 /** Map SSOT reconciliation payload to legacy settlement overview shape (embedded widgets). */
@@ -158,7 +161,7 @@ export function toSettlementOverviewResponse(data: FinanceReconciliationResponse
         s.driver_money.in_flight_cashout_pence,
       reserves_or_adjustments_pence: check.delta_pence,
       reconciles: check.balanced,
-      mismatch_warning: check.balanced ? null : 'Reconciliation Error — customer revenue does not match trip split.',
+      mismatch_warning: check.balanced ? null : `RECONCILIATION_MISMATCH — variance ${check.variance_pence ?? check.delta_pence}p`,
     },
     insufficient_funds_insight: null,
   };
@@ -173,12 +176,7 @@ export function useFinanceReconciliation(args?: {
   const { filter, from, to, enabled = true } = args ?? {};
   return useQuery<FinanceReconciliationResponse>({
     queryKey: ['finance-reconciliation-summary', filter?.regionId, filter?.serviceAreaId, from, to],
-    queryFn: async () => {
-      const path = buildReconciliationPath(filter, from, to);
-      const { data, error } = await supabase.functions.invoke(path, { method: 'GET' });
-      if (error) throw error;
-      return data as FinanceReconciliationResponse;
-    },
+    queryFn: () => invokeFinanceReconciliation(filter, from, to),
     enabled,
     staleTime: 30_000,
     refetchInterval: 60_000,

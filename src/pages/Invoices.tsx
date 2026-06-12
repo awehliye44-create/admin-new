@@ -43,6 +43,20 @@ async function readFunctionError(error: unknown): Promise<string> {
   return asAny?.message || "Edge function call failed";
 }
 
+function invoiceDriverName(inv: Invoice): string {
+  const joined = inv.drivers
+    ? `${inv.drivers.first_name ?? ""} ${inv.drivers.last_name ?? ""}`.trim()
+    : "";
+  if (joined) return joined;
+  if (inv.driver_display_name?.trim()) return inv.driver_display_name.trim();
+  if (inv.driver_id) return `Driver ${inv.driver_id.slice(0, 8)}…`;
+  return "Unknown driver";
+}
+
+function invoiceDriverCode(inv: Invoice): string | null {
+  return inv.drivers?.driver_code ?? inv.driver_display_code ?? null;
+}
+
 async function invokeDriverInvoice(body: Record<string, unknown>) {
   const { data, error } = await supabase.functions.invoke("admin-driver-invoice", { body });
   if (error) {
@@ -91,6 +105,8 @@ interface Invoice {
   service_area_id: string | null;
   statement_run_id: string | null;
   drivers?: { first_name: string; last_name: string; driver_code: string } | null;
+  driver_display_name?: string | null;
+  driver_display_code?: string | null;
   regions?: { name: string; currency_code: string } | null;
   service_areas?: { name: string } | null;
 }
@@ -144,20 +160,19 @@ export default function Invoices() {
     }
     if (driverFilter.trim()) {
       const term = driverFilter.toLowerCase();
-      list = list.filter((inv) =>
-        inv.drivers?.first_name?.toLowerCase().includes(term) ||
-        inv.drivers?.last_name?.toLowerCase().includes(term) ||
-        inv.drivers?.driver_code?.toLowerCase().includes(term)
-      );
+      list = list.filter((inv) => {
+        const name = invoiceDriverName(inv).toLowerCase();
+        const code = invoiceDriverCode(inv)?.toLowerCase() ?? "";
+        return name.includes(term) || code.includes(term);
+      });
     }
     if (!searchTerm) return list;
     const term = searchTerm.toLowerCase();
     return list.filter(
       (inv) =>
         inv.invoice_number.toLowerCase().includes(term) ||
-        inv.drivers?.first_name?.toLowerCase().includes(term) ||
-        inv.drivers?.last_name?.toLowerCase().includes(term) ||
-        inv.drivers?.driver_code?.toLowerCase().includes(term)
+        invoiceDriverName(inv).toLowerCase().includes(term) ||
+        (invoiceDriverCode(inv)?.toLowerCase().includes(term) ?? false)
     );
   }, [invoices, searchTerm, monthFilter, driverFilter]);
 
@@ -415,8 +430,10 @@ export default function Invoices() {
                       <TableCell className="font-mono text-sm">{inv.invoice_number}</TableCell>
                       <TableCell>
                         <div>
-                          <span className="font-medium">{inv.drivers?.first_name} {inv.drivers?.last_name}</span>
-                          <span className="text-xs text-muted-foreground ml-2">{inv.drivers?.driver_code}</span>
+                          <span className="font-medium">{invoiceDriverName(inv)}</span>
+                          {invoiceDriverCode(inv) && (
+                            <span className="text-xs text-muted-foreground ml-2">{invoiceDriverCode(inv)}</span>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -611,8 +628,10 @@ export default function Invoices() {
                 <div className="grid grid-cols-3 gap-4 text-sm">
                   <div>
                     <p className="text-muted-foreground">Driver</p>
-                    <p className="font-medium">{previewInvoice.drivers?.first_name} {previewInvoice.drivers?.last_name}</p>
-                    <p className="text-xs text-muted-foreground">{previewInvoice.drivers?.driver_code}</p>
+                    <p className="font-medium">{invoiceDriverName(previewInvoice)}</p>
+                    {invoiceDriverCode(previewInvoice) && (
+                      <p className="text-xs text-muted-foreground">{invoiceDriverCode(previewInvoice)}</p>
+                    )}
                   </div>
                   <div>
                     <p className="text-muted-foreground">Region</p>

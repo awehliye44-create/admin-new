@@ -141,6 +141,17 @@ async function hydrateInvoiceDriverId(
   const resolved = await resolveDriverIdForInvoice(supabase, invoice);
   if (!resolved) return invoice;
 
+  const { data: driverExists } = await supabase
+    .from("drivers")
+    .select("id")
+    .eq("id", resolved)
+    .maybeSingle();
+
+  if (!driverExists) {
+    log("driver_id_unresolved_missing_row", { invoiceId: invoice.id, driverId: resolved });
+    return { ...invoice, driver_id: resolved };
+  }
+
   log("driver_id_recovered", { invoiceId: invoice.id, driverId: resolved });
   const { data: updated } = await supabase
     .from("invoices")
@@ -150,6 +161,254 @@ async function hydrateInvoiceDriverId(
     .maybeSingle();
 
   return updated ?? { ...invoice, driver_id: resolved };
+}
+
+function formatDriverDisplayName(
+  driver: Record<string, unknown>,
+  profileFullName?: string | null,
+): string {
+  const fromDriver = `${driver.first_name ?? ""} ${driver.last_name ?? ""}`.trim();
+  if (fromDriver) return fromDriver;
+  const fromProfile = profileFullName?.trim();
+  if (fromProfile) return fromProfile;
+  if (driver.driver_code) return String(driver.driver_code);
+  if (driver.id) return `Driver ${String(driver.id).slice(0, 8)}`;
+  return "Driver";
+}
+
+async function loadDriverForInvoice(
+  supabase: SupabaseClient,
+  invoice: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const hydrated = await hydrateInvoiceDriverId(supabase, invoice);
+  let driverId = isValidUuid(hydrated.driver_id) ? (hydrated.driver_id as string) : null;
+  if (!driverId) {
+    driverId = await resolveDriverIdForInvoice(supabase, hydrated);
+  }
+  if (!driverId) {
+    const snapshotName = safeText(invoice.driver_display_name as string | undefined, "");
+    if (snapshotName) {
+      return {
+        driver_code: invoice.driver_display_code,
+        first_name: snapshotName,
+        last_name: "",
+      };
+    }
+    return {};
+  }
+
+  const { data: driver } = await supabase
+    .from("drivers")
+    .select("id, user_id, first_name, last_name, driver_code, email")
+    .eq("id", driverId)
+    .maybeSingle();
+  if (!driver) {
+    const snapshotEmail = safeText(hydrated.driver_display_email as string | undefined, "");
+    return {
+      id: driverId,
+      email: snapshotEmail || undefined,
+      first_name: hydrated.driver_display_name,
+      driver_code: hydrated.driver_display_code,
+    };
+  }
+
+  const fromDriver = `${driver.first_name ?? ""} ${driver.last_name ?? ""}`.trim();
+  if (fromDriver) return driver;
+
+  if (driver.user_id) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("user_id", driver.user_id)
+      .maybeSingle();
+    const fullName = profile?.full_name?.trim();
+    if (fullName) {
+      const [firstName, ...rest] = fullName.split(/\s+/);
+      return {
+        ...driver,
+        first_name: firstName,
+        last_name: rest.join(" "),
+      };
+    }
+  }
+
+  return driver;
+}
+
+async function persistDriverDisplayFields(
+  supabase: SupabaseClient,
+  invoice: Record<string, unknown>,
+  driver: Record<string, unknown>,
+): Promise<void> {
+  const invoiceId = invoice.id as string | undefined;
+  if (!invoiceId) return;
+
+  const displayName = (() => {
+    const fromDriver = formatDriverDisplayName(driver);
+    if (fromDriver !== "Driver") return fromDriver;
+    return safeText(invoice.driver_display_name as string | undefined, "");
+  })();
+  const displayCode = driver.driver_code
+    ? String(driver.driver_code)
+    : safeText(invoice.driver_display_code as string | undefined, "") || null;
+  if (!displayName && !displayCode) return;
+
+  const displayEmail = await resolveDriverRecipientEmail(supabase, driver, invoice);
+
+  await supabase
+    .from("invoices")
+    .update({
+      driver_display_name: displayName || null,
+      driver_display_code: displayCode,
+      driver_display_email: displayEmail,
+    })
+    .eq("id", invoiceId);
+}
+
+async function resolveDriverRecipientEmail(
+  supabase: SupabaseClient,
+  driver: Record<string, unknown>,
+  invoice?: Record<string, unknown>,
+): Promise<string | null> {
+  const direct = safeText(driver.email as string | undefined, "");
+  if (direct) return direct;
+
+  const snapshot = safeText(invoice?.driver_display_email as string | undefined, "");
+  if (snapshot) return snapshot;
+
+  const userId = driver.user_id as string | undefined;
+  if (userId) {
+    const { data, error } = await supabase.auth.admin.getUserById(userId);
+    if (!error && data?.user?.email) return data.user.email;
+  }
+
+  return null;
+}
+
+async function snapshotDriverFieldsForInsert(
+  supabase: SupabaseClient,
+  driverId: string,
+): Promise<{
+  driver_display_name: string | null;
+  driver_display_code: string | null;
+  driver_display_email: string | null;
+}> {
+  const { data: driver } = await supabase
+    .from("drivers")
+    .select("first_name, last_name, driver_code, email, user_id")
+    .eq("id", driverId)
+    .maybeSingle();
+
+  if (!driver) {
+    return { driver_display_name: null, driver_display_code: null, driver_display_email: null };
+  }
+
+  let displayName = `${driver.first_name ?? ""} ${driver.last_name ?? ""}`.trim();
+  if (!displayName && driver.user_id) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("user_id", driver.user_id)
+      .maybeSingle();
+    displayName = profile?.full_name?.trim() || "";
+  }
+
+  const displayEmail = await resolveDriverRecipientEmail(supabase, driver);
+
+  return {
+    driver_display_name: displayName || null,
+    driver_display_code: driver.driver_code ?? null,
+    driver_display_email: displayEmail,
+  };
+}
+
+async function relinkOrphanInvoiceDriver(
+  supabase: SupabaseClient,
+  invoice: Record<string, unknown>,
+  overrideDriverId?: string | null,
+): Promise<Record<string, unknown>> {
+  const hydrated = await hydrateInvoiceDriverId(supabase, invoice);
+  const resolvedId = isValidUuid(hydrated.driver_id)
+    ? (hydrated.driver_id as string)
+    : await resolveDriverIdForInvoice(supabase, hydrated);
+
+  if (isValidUuid(resolvedId)) {
+    const { data: existingDriver } = await supabase
+      .from("drivers")
+      .select("id")
+      .eq("id", resolvedId)
+      .maybeSingle();
+    if (existingDriver) return hydrated;
+  }
+
+  let replacementId = isValidUuid(overrideDriverId) ? overrideDriverId : null;
+  if (!replacementId && invoice.region_id) {
+    const { data: regionDrivers } = await supabase
+      .from("drivers")
+      .select("id")
+      .eq("region_id", invoice.region_id as string)
+      .eq("driver_status", "active");
+    if ((regionDrivers ?? []).length === 1) {
+      replacementId = regionDrivers![0].id as string;
+    }
+  }
+
+  if (!replacementId) return hydrated;
+
+  const snapshot = await snapshotDriverFieldsForInsert(supabase, replacementId);
+  const { data: periodConflict } = await supabase
+    .from("invoices")
+    .select("id")
+    .eq("driver_id", replacementId)
+    .eq("region_id", invoice.region_id as string)
+    .eq("period_start", invoice.period_start as string)
+    .eq("period_end", invoice.period_end as string)
+    .neq("id", invoice.id as string)
+    .not("status", "eq", "cancelled")
+    .maybeSingle();
+
+  if (periodConflict) {
+    log("invoice_driver_snapshot_only", {
+      invoiceId: invoice.id,
+      replacementDriverId: replacementId,
+      reason: "driver_period_conflict",
+    });
+    const { data: snapshotted } = await supabase
+      .from("invoices")
+      .update({
+        driver_display_name: snapshot.driver_display_name,
+        driver_display_code: snapshot.driver_display_code,
+        driver_display_email: snapshot.driver_display_email,
+      })
+      .eq("id", invoice.id as string)
+      .select("*")
+      .maybeSingle();
+    return {
+      ...(snapshotted ?? hydrated),
+      driver_id: replacementId,
+      ...snapshot,
+    };
+  }
+
+  log("invoice_driver_relinked", {
+    invoiceId: invoice.id,
+    previousDriverId: resolvedId,
+    replacementDriverId: replacementId,
+  });
+
+  const { data: updated } = await supabase
+    .from("invoices")
+    .update({
+      driver_id: replacementId,
+      driver_display_name: snapshot.driver_display_name,
+      driver_display_code: snapshot.driver_display_code,
+      driver_display_email: snapshot.driver_display_email,
+    })
+    .eq("id", invoice.id as string)
+    .select("*")
+    .maybeSingle();
+
+  return updated ?? { ...hydrated, driver_id: replacementId, ...snapshot };
 }
 
 function isModernBrandedPdfPath(path: string): boolean {
@@ -351,8 +610,15 @@ function buildRenderData(
   return {
     invoiceNo: safeText(invoice.invoice_number, "INVOICE"),
     invoiceTitle: safeText(template?.invoice_title, "Driver Earnings Statement"),
-    driverName: safeText(`${driver.first_name ?? ""} ${driver.last_name ?? ""}`.trim(), "Driver"),
-    driverId: safeText(driver.driver_code ?? driver.id ?? invoice.driver_id, "—"),
+    driverName: (() => {
+      const fromDriver = formatDriverDisplayName(driver);
+      if (fromDriver !== "Driver") return fromDriver;
+      return safeText(invoice.driver_display_name as string | undefined, "Driver");
+    })(),
+    driverId: safeText(
+      driver.driver_code ?? invoice.driver_display_code ?? driver.id ?? invoice.driver_id,
+      "—",
+    ),
     regionName: safeText(region?.name, "—"),
     currency,
     invoicePeriod: formatPeriod(invoice.period_start as string, invoice.period_end as string),
@@ -397,14 +663,8 @@ async function generatePdfForInvoice(
 ): Promise<{ pdfPath: string; pdfUrl: string; html: string }> {
   const hydrated = await hydrateInvoiceDriverId(supabase, invoice);
   const driverId = isValidUuid(hydrated.driver_id) ? (hydrated.driver_id as string) : null;
-
-  const { data: driver } = driverId
-    ? await supabase
-      .from("drivers")
-      .select("id, first_name, last_name, driver_code, email")
-      .eq("id", driverId)
-      .maybeSingle()
-    : { data: null };
+  const driver = await loadDriverForInvoice(supabase, hydrated);
+  await persistDriverDisplayFields(supabase, hydrated, driver);
 
   const { data: region } = await supabase
     .from("regions")
@@ -496,11 +756,15 @@ export async function generateDriverInvoice(
   } else {
     const { data: invNum } = await supabase.rpc("generate_invoice_number");
     invoiceNumber = invNum || `INV-${Date.now()}`;
+    const driverSnapshot = await snapshotDriverFieldsForInsert(supabase, params.driverId);
     const { data: created, error: insertErr } = await supabase
       .from("invoices")
       .insert({
         invoice_number: invoiceNumber,
         driver_id: params.driverId,
+        driver_display_name: driverSnapshot.driver_display_name,
+        driver_display_code: driverSnapshot.driver_display_code,
+        driver_display_email: driverSnapshot.driver_display_email,
         template_id: template?.id ?? null,
         period_start: params.periodStart,
         period_end: params.periodEnd,
@@ -586,34 +850,32 @@ export async function sendDriverInvoiceEmail(
   supabase: SupabaseClient,
   invoiceId: string,
   forceResend: boolean,
+  options: { overrideDriverId?: string } = {},
 ): Promise<{ ok: boolean; error?: string }> {
   const { data: invoice } = await supabase.from("invoices").select("*").eq("id", invoiceId).single();
   if (!invoice) return { ok: false, error: "Invoice not found" };
   if (invoice.invoice_email_sent && !forceResend) return { ok: true };
 
-  const hydrated = await hydrateInvoiceDriverId(supabase, invoice);
-  const driverId = hydrated.driver_id as string | undefined;
-  if (!isValidUuid(driverId)) {
-    await supabase.from("invoices").update({
-      invoice_email_sent: false,
-      invoice_email_status: "failed",
-      invoice_email_error: "Invoice has no linked driver",
-    }).eq("id", invoiceId);
-    return { ok: false, error: "Invoice has no linked driver" };
-  }
+  const relinked = await relinkOrphanInvoiceDriver(
+    supabase,
+    invoice,
+    options.overrideDriverId ?? null,
+  );
+  const hydrated = await hydrateInvoiceDriverId(supabase, relinked);
+  const driver = await loadDriverForInvoice(supabase, hydrated);
+  await persistDriverDisplayFields(supabase, hydrated, driver);
 
-  const { data: driver } = await supabase
-    .from("drivers")
-    .select("first_name, last_name, email, driver_code")
-    .eq("id", driverId)
-    .maybeSingle();
-  if (!driver?.email) {
+  const recipientEmail = await resolveDriverRecipientEmail(supabase, driver, hydrated);
+  if (!recipientEmail) {
+    const message = isValidUuid(hydrated.driver_id)
+      ? "Driver email not found. Update the driver profile email or regenerate this invoice for an active driver."
+      : "Invoice has no linked driver. Regenerate the statement for an active driver before sending email.";
     await supabase.from("invoices").update({
       invoice_email_sent: false,
       invoice_email_status: "failed",
-      invoice_email_error: "Driver email not found",
+      invoice_email_error: message,
     }).eq("id", invoiceId);
-    return { ok: false, error: "Driver email not found" };
+    return { ok: false, error: message };
   }
 
   let pdfPath = hydrated.pdf_storage_path as string | null;
@@ -644,39 +906,34 @@ export async function sendDriverInvoiceEmail(
 
   const companyBranding = await fetchCompanyBranding(supabase);
   const template = await loadTemplate(supabase);
-  const currency = invoice.currency_code || "GBP";
-  const sym = currency === "GBP" ? "£" : "$";
-  const netDisplay = `${sym}${(Number(invoice.net_earnings_pence) / 100).toFixed(2)}`;
 
   const email = buildDriverInvoiceEmail({
-    driverName: `${driver.first_name} ${driver.last_name}`.trim(),
+    driverName: formatDriverDisplayName(driver, hydrated.driver_display_name as string | undefined),
     invoiceNo: invoice.invoice_number,
     invoicePeriod: formatPeriod(invoice.period_start, invoice.period_end),
-    totalTrips: Number(invoice.completed_trips ?? 0),
-    netDriverEarnings: netDisplay,
-    companyName: companyBranding.company.name,
-    companyAddress: companyBranding.company.address,
     companyPhone: companyBranding.company.phone,
     companyEmail: companyBranding.company.email,
     companyWebsite: companyBranding.company.website,
-    emailBodyTemplate: template?.email_body as string | undefined,
+    logoUrl: companyBranding.branding.logoUrl,
   });
 
+  const invoiceNo = safeText(invoice.invoice_number, "INVOICE");
   const subjectTemplate = safeText(
     template?.email_subject ?? email.subject,
-    `Your ONECAB Monthly Earnings Statement - ${safeText(invoice.invoice_number, "INVOICE")}`,
+    `Your ONECAB Driver Statement - ${invoiceNo}`,
   );
   const subject = subjectTemplate
-    .replace(/\{\{invoiceNo\}\}/g, safeText(invoice.invoice_number, "INVOICE"));
+    .replace(/\{\{invoiceNo\}\}/g, invoiceNo)
+    .replace(/\{\{invoice_number\}\}/g, invoiceNo);
 
   const fromAddress = formatResendFromAddress(
     companyBranding.company.name || companyBranding.company.legalName,
     companyBranding.company.email,
   );
 
-  log("email_sending_started", { invoiceId, to: driver.email, invoiceNo: invoice.invoice_number });
+  log("email_sending_started", { invoiceId, to: recipientEmail, invoiceNo: invoice.invoice_number });
   const sendResult = await sendResendEmail({
-    to: driver.email,
+    to: recipientEmail,
     subject,
     html: email.html,
     text: email.text,
@@ -700,7 +957,7 @@ export async function sendDriverInvoiceEmail(
     }).eq("id", invoiceId);
     await insertDeliveryLog(supabase, {
       invoice_id: invoiceId,
-      sent_to_email: driver.email,
+      sent_to_email: recipientEmail,
       delivery_status: "failed",
       error_message: sendResult.message,
     });
@@ -718,12 +975,12 @@ export async function sendDriverInvoiceEmail(
 
   await insertDeliveryLog(supabase, {
     invoice_id: invoiceId,
-    sent_to_email: driver.email,
+    sent_to_email: recipientEmail,
     delivery_status: "sent",
     sent_at: now,
   });
 
-  log("email_sent", { invoiceId, invoiceNo: invoice.invoice_number, to: driver.email });
+  log("email_sent", { invoiceId, invoiceNo: invoice.invoice_number, to: recipientEmail });
   return { ok: true };
 }
 
@@ -735,10 +992,7 @@ export async function previewDriverInvoiceHtml(
   if (!invoice) return { error: "Invoice not found" };
 
   const hydrated = await hydrateInvoiceDriverId(supabase, invoice);
-  const driverId = hydrated.driver_id as string | undefined;
-  const { data: driver } = isValidUuid(driverId)
-    ? await supabase.from("drivers").select("*").eq("id", driverId).maybeSingle()
-    : { data: null };
+  const driver = await loadDriverForInvoice(supabase, hydrated);
   const { data: region } = await supabase.from("regions").select("name").eq("id", invoice.region_id).maybeSingle();
   const companyBranding = await fetchCompanyBranding(supabase);
   const template = await loadTemplate(supabase);
@@ -1045,10 +1299,16 @@ export async function handleDriverInvoiceAction(
     if (action === "send_email" || action === "resend_email") {
       log("email_sending_started", { invoiceId: invoice.id, action });
       await ensurePdf(supabase, invoice, false);
+      const relinkedForSend = await relinkOrphanInvoiceDriver(
+        supabase,
+        invoice,
+        (body.driver_id ?? body.driverId) as string | undefined,
+      );
       const emailResult = await sendDriverInvoiceEmail(
         supabase,
-        invoice.id as string,
+        relinkedForSend.id as string,
         action === "resend_email",
+        { overrideDriverId: (body.driver_id ?? body.driverId) as string | undefined },
       );
       if (!emailResult.ok) {
         log("email_failed", { invoiceId: invoice.id, error: emailResult.error });

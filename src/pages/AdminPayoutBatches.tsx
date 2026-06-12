@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
-import { FinanceTotalsCards } from '@/components/finance/FinanceTotalsCards';
-import { useAdminFinanceSummary } from '@/hooks/useAdminFinanceSummary';
+import { FinanceReconciliationTotalsCards } from '@/components/finance/FinanceReconciliationTotalsCards';
+import { FinanceSSOT, useFinancialReconciliationSSOT } from '@/hooks/useFinancialReconciliationSSOT';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -29,8 +29,55 @@ interface PayoutItem {
   errorMessage: string | null;
   stripeTransferId: string | null;
   stripePayoutId: string | null;
+  ledgerEntryId: string | null;
+  walletRecalculatedAt: string | null;
+  ledgerSyncError: string | null;
   createdAt: string;
   completedAt: string | null;
+}
+
+function payoutSentToBank(item: PayoutItem): boolean {
+  return !!(item.stripeTransferId || item.stripePayoutId);
+}
+
+function ledgerDebitCreated(item: PayoutItem): boolean {
+  return !!item.ledgerEntryId;
+}
+
+function walletRecalculated(item: PayoutItem): boolean {
+  return !!item.walletRecalculatedAt;
+}
+
+function payoutReconciliationStatus(item: PayoutItem): {
+  label: string;
+  critical: boolean;
+  detail: string;
+} {
+  const sent = payoutSentToBank(item);
+  const ledger = ledgerDebitCreated(item);
+  const recalc = walletRecalculated(item);
+
+  if (sent && !ledger) {
+    return {
+      label: 'CRITICAL',
+      critical: true,
+      detail: 'Provider payout completed but driver ledger was not debited.',
+    };
+  }
+  if (item.status === 'ledger_sync_failed') {
+    return {
+      label: 'Ledger sync failed',
+      critical: true,
+      detail: item.ledgerSyncError ?? item.errorMessage ?? 'Retry ledger sync required.',
+    };
+  }
+  if (item.status === 'completed' && ledger && recalc) {
+    return { label: 'Balanced', critical: false, detail: 'Payout sent, ledger debited, wallet recalculated.' };
+  }
+  if (item.status === 'failed' && !sent) {
+    return { label: 'Failed (no debit)', critical: false, detail: 'Provider payout failed — wallet unchanged.' };
+  }
+  return { label: item.status, critical: false, detail: '—' };
 }
 
 interface PayoutBatch {
@@ -107,7 +154,7 @@ async function fetchPayoutBatchesDirect(): Promise<PayoutBatch[]> {
   const { data: itemRows, error: itemError } = batchIds.length > 0
     ? await supabase
         .from('payout_items')
-        .select('id,batch_id,driver_id,amount_pence,status,stripe_transfer_id,stripe_payout_id,error_message,created_at,completed_at,drivers:driver_id(first_name,last_name)')
+        .select('id,batch_id,driver_id,amount_pence,status,stripe_transfer_id,stripe_payout_id,ledger_entry_id,wallet_recalculated_at,ledger_sync_error,error_message,created_at,completed_at,drivers:driver_id(first_name,last_name)')
         .in('batch_id', batchIds)
     : { data: [], error: null };
 
@@ -122,6 +169,9 @@ async function fetchPayoutBatchesDirect(): Promise<PayoutBatch[]> {
     status: string;
     stripe_transfer_id: string | null;
     stripe_payout_id: string | null;
+    ledger_entry_id: string | null;
+    wallet_recalculated_at: string | null;
+    ledger_sync_error: string | null;
     error_message: string | null;
     created_at: string;
     completed_at: string | null;
@@ -136,6 +186,9 @@ async function fetchPayoutBatchesDirect(): Promise<PayoutBatch[]> {
       status: item.status,
       stripeTransferId: item.stripe_transfer_id,
       stripePayoutId: item.stripe_payout_id,
+      ledgerEntryId: item.ledger_entry_id,
+      walletRecalculatedAt: item.wallet_recalculated_at,
+      ledgerSyncError: item.ledger_sync_error,
       errorMessage: item.error_message,
       createdAt: item.created_at,
       completedAt: item.completed_at,
@@ -242,7 +295,7 @@ export default function AdminPayoutBatches() {
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
 
   const regionScope = serviceFilter.regionId ?? null;
-  const { data: financeSummary, isLoading: isLoadingFinance, error: financeError } = useAdminFinanceSummary(regionScope);
+  const financeSSOT = useFinancialReconciliationSSOT({ filter: serviceFilter });
   const hasRegionScope = !!regionScope;
 
   const { data: allDrivers = [], isLoading: isLoadingDrivers, isError: isDriversError, error: driversError, refetch: refetchDrivers } =
@@ -334,12 +387,13 @@ export default function AdminPayoutBatches() {
     !getSingleCurrency(drivers) &&
     drivers.length > 0;
 
-  // All Services → zero financial stats (no cross-region aggregation)
-  const totalPaidOut = hasRegionScope
-    ? drivers.reduce((s, d) => s + d.total_payouts_sent, 0)
+  // SSOT totals — never aggregate commission/liability locally
+  const ssotSummary = financeSSOT.summary;
+  const totalPaidOut = hasRegionScope && ssotSummary
+    ? FinanceSSOT.driverPaidOut(ssotSummary)
     : 0;
-  const availableForPayout = hasRegionScope
-    ? drivers.reduce((s, d) => s + d.net_available_for_payout, 0)
+  const availableForPayout = hasRegionScope && ssotSummary
+    ? FinanceSSOT.driverAvailableNow(ssotSummary)
     : 0;
   const driversReadyForPayout = hasRegionScope
     ? drivers.filter(d => d.net_available_for_payout > 0).length
@@ -368,12 +422,24 @@ export default function AdminPayoutBatches() {
     setServiceFilter(selection);
   };
 
+  const handleRetryLedgerSync = async (payoutItemId: string) => {
+    const { data, error } = await supabase.functions.invoke('admin-sync-payout-ledger', {
+      body: { payout_item_id: payoutItemId },
+    });
+    if (error) throw error;
+    if (!(data as { ok?: boolean })?.ok) {
+      throw new Error((data as { error?: string })?.error ?? 'Ledger sync failed');
+    }
+    refetchBatches();
+  };
+
   const getStatusBadge = (status: string) => {
     const config: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline', icon: React.ReactNode }> = {
       completed: { variant: 'default', icon: <CheckCircle2 className="h-3 w-3 mr-1" /> },
       pending: { variant: 'secondary', icon: <Clock className="h-3 w-3 mr-1" /> },
       processing: { variant: 'outline', icon: <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> },
       failed: { variant: 'destructive', icon: <XCircle className="h-3 w-3 mr-1" /> },
+      ledger_sync_failed: { variant: 'destructive', icon: <AlertTriangle className="h-3 w-3 mr-1" /> },
     };
     const { variant, icon } = config[status] || { variant: 'outline' as const, icon: null };
     return <Badge variant={variant} className="flex items-center w-fit">{icon}{status}</Badge>;
@@ -401,7 +467,7 @@ export default function AdminPayoutBatches() {
   return (
     <AdminLayout 
       title="Payout Batches & Audit" 
-      description="Unified payout reporting — Available for Payout uses net_available_for_payout (wallet minus in-flight early cashouts, same as driver app)"
+      description="Financial Reconciliation SSOT — platform totals and per-driver payout values from reconciliation"
     >
       <div className="space-y-6">
         {isDriversError && (
@@ -430,11 +496,7 @@ export default function AdminPayoutBatches() {
         </div>
 
         {/* Canonical finance cards — ONECAB commission separated from Stripe platform balance */}
-        <FinanceTotalsCards
-          data={financeSummary}
-          isLoading={isLoadingFinance}
-          error={financeError as Error | null}
-        />
+        <FinanceReconciliationTotalsCards ssot={financeSSOT} />
 
 
         <div className="grid gap-4 md:grid-cols-5">
@@ -702,20 +764,48 @@ export default function AdminPayoutBatches() {
                             <TableHead>Driver</TableHead>
                             <TableHead className="text-right">Amount</TableHead>
                             <TableHead>Status</TableHead>
-                            <TableHead>Stripe Transfer</TableHead>
-                            <TableHead>Error</TableHead>
+                            <TableHead>Sent to bank</TableHead>
+                            <TableHead>Provider payout ID</TableHead>
+                            <TableHead>Ledger debit</TableHead>
+                            <TableHead>Wallet recalc</TableHead>
+                            <TableHead>Reconciliation</TableHead>
+                            <TableHead>Actions</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {batchItems.map((item) => (
-                            <TableRow key={item.id}>
+                          {batchItems.map((item) => {
+                            const recon = payoutReconciliationStatus(item);
+                            return (
+                            <TableRow key={item.id} className={recon.critical ? 'bg-destructive/5' : undefined}>
                               <TableCell className="font-medium">{item.driverName || item.driverId?.substring(0, 8)}</TableCell>
                               <TableCell className="text-right text-green-600">{formatPence(item.amount || 0, resolvedCurrency)}</TableCell>
                               <TableCell>{getStatusBadge(item.status)}</TableCell>
-                              <TableCell className="text-xs font-mono">{item.stripeTransferId ? item.stripeTransferId.substring(0, 16) + '...' : '-'}</TableCell>
-                              <TableCell className="text-xs text-red-600 max-w-[150px] truncate">{item.errorMessage || '-'}</TableCell>
+                              <TableCell>{payoutSentToBank(item) ? 'Yes' : 'No'}</TableCell>
+                              <TableCell className="text-xs font-mono max-w-[120px] truncate" title={item.stripePayoutId ?? item.stripeTransferId ?? undefined}>
+                                {item.stripePayoutId ?? item.stripeTransferId ?? '—'}
+                              </TableCell>
+                              <TableCell>{ledgerDebitCreated(item) ? 'Yes' : 'No'}</TableCell>
+                              <TableCell>{walletRecalculated(item) ? 'Yes' : 'No'}</TableCell>
+                              <TableCell className="text-xs max-w-[200px]">
+                                {recon.critical ? (
+                                  <span className="text-destructive font-semibold">CRITICAL: {recon.detail}</span>
+                                ) : (
+                                  <span className="text-muted-foreground">{recon.label}</span>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {(item.status === 'ledger_sync_failed' || (payoutSentToBank(item) && !ledgerDebitCreated(item))) && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleRetryLedgerSync(item.id).catch((e) => alert((e as Error).message))}
+                                  >
+                                    Retry ledger
+                                  </Button>
+                                )}
+                              </TableCell>
                             </TableRow>
-                          ))}
+                          );})}
                         </TableBody>
                       </Table>
                     )}

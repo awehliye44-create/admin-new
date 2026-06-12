@@ -73,6 +73,14 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DriverDetailsDialog } from '@/components/drivers/DriverDetailsDialog';
+import { CountrySelectorField } from '@/components/CountrySelectorField';
+import { findCountryByName } from '@/lib/countryCodes';
+import {
+  driverHasCompleteAddress,
+  formatDriverAddressCompact,
+  formatCountryWithFlag,
+  validateDriverAddressFields,
+} from '@/lib/driverAddress';
 
 interface Driver {
   id: string;
@@ -90,6 +98,11 @@ interface Driver {
   profile_photo_url: string | null;
   created_at: string;
   region_id: string;
+  residential_address?: string | null;
+  postcode?: string | null;
+  city?: string | null;
+  country?: string | null;
+  country_code?: string | null;
   service_area_id?: string | null;
   is_pet_friendly?: boolean;
   documents_approved?: boolean;
@@ -260,6 +273,15 @@ export default function Drivers() {
   }, []);
 
   const updateDriverApprovalStatus = async (driverId: string, newStatus: string) => {
+    if (newStatus === 'approved') {
+      const driver = drivers.find((d) => d.id === driverId);
+      if (!driverHasCompleteAddress(driver)) {
+        console.info('ADMIN_DRIVER_ADDRESS_MISSING_APPROVAL_BLOCKED', JSON.stringify({ driver_id: driverId }));
+        toast.error('Cannot approve driver until residential address is complete.');
+        return;
+      }
+    }
+
     setIsUpdating(driverId);
     try {
       const { error } = await supabase
@@ -427,6 +449,7 @@ export default function Drivers() {
   };
 
   const openDriverDetails = (driver: Driver) => {
+    console.info('ADMIN_DRIVER_ADDRESS_VIEWED', JSON.stringify({ driver_id: driver.id, phase: 'details_dialog' }));
     setSelectedDriver(driver);
     setIsDetailsOpen(true);
   };
@@ -479,7 +502,12 @@ export default function Drivers() {
 
   // Edit driver functions
   const openEditDialog = (driver: Driver) => {
-    setEditDriver({ ...driver });
+    console.info('ADMIN_DRIVER_ADDRESS_VIEWED', JSON.stringify({ driver_id: driver.id }));
+    const resolvedCode =
+      driver.country_code?.trim().toUpperCase() ||
+      findCountryByName(driver.country ?? '')?.label ||
+      '';
+    setEditDriver({ ...driver, country_code: resolvedCode || driver.country_code });
     setIsEditDialogOpen(true);
   };
 
@@ -491,8 +519,38 @@ export default function Drivers() {
       return;
     }
 
+    const addressValidation = validateDriverAddressFields({
+      residentialAddress: editDriver.residential_address ?? '',
+      postcode: editDriver.postcode ?? '',
+      city: editDriver.city ?? '',
+      country: editDriver.country ?? '',
+      countryCode: editDriver.country_code ?? '',
+    });
+
+    if (editDriver.approval_status === 'approved' && !addressValidation.ok) {
+      console.info('ADMIN_DRIVER_ADDRESS_MISSING_APPROVAL_BLOCKED', JSON.stringify({ driver_id: editDriver.id, phase: 'save_edit' }));
+      toast.error('Complete residential address before approving this driver.');
+      return;
+    }
+
     setIsSavingEdit(true);
     try {
+      const addressUpdate = addressValidation.ok
+        ? {
+            residential_address: addressValidation.normalized.residentialAddress,
+            postcode: addressValidation.normalized.postcode,
+            city: addressValidation.normalized.city,
+            country: addressValidation.normalized.country,
+            country_code: addressValidation.normalized.countryCode,
+          }
+        : {
+            residential_address: editDriver.residential_address?.trim() || null,
+            postcode: editDriver.postcode?.trim() || null,
+            city: editDriver.city?.trim() || null,
+            country: editDriver.country?.trim() || null,
+            country_code: editDriver.country_code?.trim().toUpperCase() || null,
+          };
+
       const { error } = await supabase
         .from('drivers')
         .update({
@@ -501,19 +559,23 @@ export default function Drivers() {
           email: editDriver.email,
           phone: editDriver.phone,
           region_id: editDriver.region_id,
+          approval_status: editDriver.approval_status,
+          ...addressUpdate,
         })
         .eq('id', editDriver.id);
 
       if (error) throw error;
 
-      setDrivers(prev => 
-        prev.map(d => d.id === editDriver.id ? { ...d, ...editDriver } : d)
+      const updatedDriver = { ...editDriver, ...addressUpdate };
+      setDrivers(prev =>
+        prev.map(d => d.id === editDriver.id ? { ...d, ...updatedDriver } : d)
       );
-      
+
       if (selectedDriver?.id === editDriver.id) {
-        setSelectedDriver(editDriver);
+        setSelectedDriver(updatedDriver);
       }
-      
+
+      console.info('ADMIN_DRIVER_ADDRESS_UPDATED', JSON.stringify({ driver_id: editDriver.id }));
       toast.success('Driver updated successfully');
       setIsEditDialogOpen(false);
       setEditDriver(null);
@@ -800,6 +862,7 @@ export default function Drivers() {
                   <TableHead>Driver ID</TableHead>
                   <TableHead>Driver</TableHead>
                   <TableHead>Contact</TableHead>
+                  <TableHead>Address</TableHead>
                   <TableHead>Region</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Docs</TableHead>
@@ -845,6 +908,18 @@ export default function Drivers() {
                       <div>
                         <p className="text-sm">{driver.email}</p>
                         <p className="text-sm text-muted-foreground">{driver.phone}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="max-w-[220px]">
+                        <p className={`text-sm ${driverHasCompleteAddress(driver) ? '' : 'text-muted-foreground italic'}`}>
+                          {formatDriverAddressCompact(driver)}
+                        </p>
+                        {driver.country && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {formatCountryWithFlag(driver.country, driver.country_code)}
+                          </p>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -1055,7 +1130,7 @@ export default function Drivers() {
         setIsEditDialogOpen(open);
         if (!open) setEditDriver(null);
       }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Pencil className="h-5 w-5" />
@@ -1107,6 +1182,48 @@ export default function Drivers() {
                 />
               </div>
               
+              <div className="space-y-2">
+                <Label htmlFor="edit_residential_address">Residential Address</Label>
+                <Input
+                  id="edit_residential_address"
+                  value={editDriver.residential_address ?? ''}
+                  onChange={(e) => setEditDriver(prev => prev ? { ...prev, residential_address: e.target.value } : null)}
+                  placeholder="123 High Street"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit_postcode">Postcode</Label>
+                  <Input
+                    id="edit_postcode"
+                    value={editDriver.postcode ?? ''}
+                    onChange={(e) => setEditDriver(prev => prev ? { ...prev, postcode: e.target.value } : null)}
+                    placeholder="MK1 1AA"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit_city">City</Label>
+                  <Input
+                    id="edit_city"
+                    value={editDriver.city ?? ''}
+                    onChange={(e) => setEditDriver(prev => prev ? { ...prev, city: e.target.value } : null)}
+                    placeholder="Milton Keynes"
+                  />
+                </div>
+              </div>
+
+              <CountrySelectorField
+                countryCode={editDriver.country_code ?? ''}
+                countryName={editDriver.country ?? ''}
+                onSelect={(iso, name) =>
+                  setEditDriver((prev) =>
+                    prev ? { ...prev, country_code: iso, country: name } : null,
+                  )
+                }
+                label="Country"
+              />
+
               <div className="space-y-2">
                 <Label htmlFor="edit_region">Region</Label>
                 <Select

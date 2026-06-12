@@ -35,9 +35,8 @@ export interface AdminFinanceSummary {
 }
 
 /**
- * Canonical admin finance summary.
- * ONECAB commission is read from `driver_wallet_ledger.PLATFORM_COMMISSION`
- * and is NEVER derived from Stripe platform balance.
+ * @deprecated Use `useFinancialReconciliationSSOT` — Financial Reconciliation is the SSOT.
+ * This hook reads legacy `admin-finance-summary` (ledger aggregates) and must not be used for reporting.
  */
 export function useAdminFinanceSummary(regionId?: string | null) {
   return useQuery<AdminFinanceSummary>({

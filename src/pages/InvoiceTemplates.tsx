@@ -39,27 +39,14 @@ interface InvoiceTemplate {
 
 const DEFAULT_EMAIL_BODY = `Dear {{driverName}},
 
-Thank you for driving with ONECAB.
+Your ONECAB driver statement is ready.
 
-Your monthly earnings statement for {{invoicePeriod}} has been generated and is attached as a PDF.
+Statement No: {{invoiceNo}}
+Period: {{invoicePeriod}}
 
-Invoice Number: {{invoiceNo}}
-Total Trips: {{totalTrips}}
-Net Driver Earnings: {{netDriverEarnings}}
+Please find your detailed statement attached as a PDF.
 
-Please review the attached statement for your records.
-
-If you have any questions regarding your earnings, please contact the ONECAB support team.
-
-Kind regards,
-ONECAB Team
-One App. Every Journey.
-
-{{companyName}}
-{{companyAddress}}
-Phone: {{companyPhone}}
-Email: {{companyEmail}}
-Website: {{companyWebsite}}`;
+If you have any questions, contact ONECAB Support.`;
 
 const EMPTY_TEMPLATE: Partial<InvoiceTemplate> = {
   name: "Driver Monthly Invoice",
@@ -76,7 +63,7 @@ const EMPTY_TEMPLATE: Partial<InvoiceTemplate> = {
   due_date_label: "Statement Period",
   notes_footer: "",
   footer_text: "If you have any questions regarding your earnings, please contact our support team.",
-  email_subject: "Your ONECAB Monthly Earnings Statement - {{invoiceNo}}",
+  email_subject: "Your ONECAB Driver Statement - {{invoiceNo}}",
   email_body: DEFAULT_EMAIL_BODY,
   auto_email_enabled: false,
 };
@@ -126,6 +113,7 @@ export default function InvoiceTemplates() {
       const payload = {
         ...values,
         logo_url: null,
+        email_body: DEFAULT_EMAIL_BODY,
         template_type: "driver_monthly",
         updated_at: new Date().toISOString(),
       };
@@ -372,7 +360,15 @@ export default function InvoiceTemplates() {
               </div>
               <div>
                 <Label>Email Body</Label>
-                <Textarea value={form.email_body || ""} onChange={(e) => setForm({ ...form, email_body: e.target.value })} rows={12} className="font-mono text-xs" />
+                <p className="text-xs text-muted-foreground mb-2">
+                  Statement emails use a fixed ONECAB branded layout. Amounts are only shown in the PDF attachment.
+                </p>
+                <Textarea
+                  value={DEFAULT_EMAIL_BODY}
+                  readOnly
+                  rows={8}
+                  className="font-mono text-xs bg-muted"
+                />
               </div>
               <div className="flex items-center gap-2">
                 <Switch checked={form.auto_email_enabled || false} onCheckedChange={(v) => setForm({ ...form, auto_email_enabled: v })} />
