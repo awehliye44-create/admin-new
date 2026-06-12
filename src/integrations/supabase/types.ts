@@ -3340,6 +3340,21 @@ export type Database = {
           },
         ]
       }
+      driver_invoice_monthly_sequences: {
+        Row: {
+          invoice_month: string
+          last_seq: number
+        }
+        Insert: {
+          invoice_month: string
+          last_seq?: number
+        }
+        Update: {
+          invoice_month?: string
+          last_seq?: number
+        }
+        Relationships: []
+      }
       driver_ledger: {
         Row: {
           amount_pence: number
@@ -4239,6 +4254,8 @@ export type Database = {
           business_website_url: string | null
           category_id: string | null
           charges_enabled: boolean | null
+          city: string | null
+          country: string | null
           created_at: string
           current_lat: number | null
           current_lng: number | null
@@ -4268,11 +4285,13 @@ export type Database = {
           phone: string
           phone_verified: boolean
           phone_verified_at: string | null
+          postcode: string | null
           profile_photo_url: string | null
           rating: number | null
           rating_count: number
           rating_sum: number
           region_id: string
+          residential_address: string | null
           service_area_id: string | null
           speed: number | null
           stripe_account_id: string | null
@@ -4288,6 +4307,8 @@ export type Database = {
           business_website_url?: string | null
           category_id?: string | null
           charges_enabled?: boolean | null
+          city?: string | null
+          country?: string | null
           created_at?: string
           current_lat?: number | null
           current_lng?: number | null
@@ -4317,11 +4338,13 @@ export type Database = {
           phone: string
           phone_verified?: boolean
           phone_verified_at?: string | null
+          postcode?: string | null
           profile_photo_url?: string | null
           rating?: number | null
           rating_count?: number
           rating_sum?: number
           region_id: string
+          residential_address?: string | null
           service_area_id?: string | null
           speed?: number | null
           stripe_account_id?: string | null
@@ -4337,6 +4360,8 @@ export type Database = {
           business_website_url?: string | null
           category_id?: string | null
           charges_enabled?: boolean | null
+          city?: string | null
+          country?: string | null
           created_at?: string
           current_lat?: number | null
           current_lng?: number | null
@@ -4366,11 +4391,13 @@ export type Database = {
           phone?: string
           phone_verified?: boolean
           phone_verified_at?: string | null
+          postcode?: string | null
           profile_photo_url?: string | null
           rating?: number | null
           rating_count?: number
           rating_sum?: number
           region_id?: string
+          residential_address?: string | null
           service_area_id?: string | null
           speed?: number | null
           stripe_account_id?: string | null
@@ -5163,14 +5190,19 @@ export type Database = {
       }
       invoice_templates: {
         Row: {
+          auto_email_enabled: boolean
           company_address: string | null
           company_email: string | null
           company_name: string
           company_phone: string | null
           company_registration: string | null
+          company_website: string | null
           created_at: string
           created_by: string | null
           due_date_label: string | null
+          email_body: string | null
+          email_subject: string | null
+          footer_text: string | null
           id: string
           invoice_title: string
           is_default: boolean
@@ -5179,17 +5211,23 @@ export type Database = {
           notes_footer: string | null
           payment_terms: string | null
           table_columns: Json
+          template_type: string
           updated_at: string
         }
         Insert: {
+          auto_email_enabled?: boolean
           company_address?: string | null
           company_email?: string | null
           company_name?: string
           company_phone?: string | null
           company_registration?: string | null
+          company_website?: string | null
           created_at?: string
           created_by?: string | null
           due_date_label?: string | null
+          email_body?: string | null
+          email_subject?: string | null
+          footer_text?: string | null
           id?: string
           invoice_title?: string
           is_default?: boolean
@@ -5198,17 +5236,23 @@ export type Database = {
           notes_footer?: string | null
           payment_terms?: string | null
           table_columns?: Json
+          template_type?: string
           updated_at?: string
         }
         Update: {
+          auto_email_enabled?: boolean
           company_address?: string | null
           company_email?: string | null
           company_name?: string
           company_phone?: string | null
           company_registration?: string | null
+          company_website?: string | null
           created_at?: string
           created_by?: string | null
           due_date_label?: string | null
+          email_body?: string | null
+          email_subject?: string | null
+          footer_text?: string | null
           id?: string
           invoice_title?: string
           is_default?: boolean
@@ -5217,6 +5261,7 @@ export type Database = {
           notes_footer?: string | null
           payment_terms?: string | null
           table_columns?: Json
+          template_type?: string
           updated_at?: string
         }
         Relationships: []
@@ -5224,17 +5269,32 @@ export type Database = {
       invoices: {
         Row: {
           adjustments_pence: number
+          airport_fee_earnings_pence: number
           bonuses_pence: number
+          card_trip_earnings_pence: number
+          card_trips: number
           cash_collected_pence: number
+          cash_trip_earnings_pence: number
+          cash_trips: number
           commission_pence: number
           completed_trips: number
           created_at: string
           currency_code: string
+          driver_display_code: string | null
+          driver_display_email: string | null
+          driver_display_name: string | null
           driver_id: string | null
+          extra_charge_earnings_pence: number
           finalized_at: string | null
           gross_earnings_pence: number
           id: string
+          invoice_email_error: string | null
+          invoice_email_sent: boolean
+          invoice_email_sent_at: string | null
+          invoice_email_status: string | null
+          invoice_generated_at: string | null
           invoice_number: string
+          invoice_pdf_url: string | null
           late_cancel_trips: number
           net_earnings_pence: number
           no_show_trips: number
@@ -5254,17 +5314,32 @@ export type Database = {
         }
         Insert: {
           adjustments_pence?: number
+          airport_fee_earnings_pence?: number
           bonuses_pence?: number
+          card_trip_earnings_pence?: number
+          card_trips?: number
           cash_collected_pence?: number
+          cash_trip_earnings_pence?: number
+          cash_trips?: number
           commission_pence?: number
           completed_trips?: number
           created_at?: string
           currency_code: string
+          driver_display_code?: string | null
+          driver_display_email?: string | null
+          driver_display_name?: string | null
           driver_id?: string | null
+          extra_charge_earnings_pence?: number
           finalized_at?: string | null
           gross_earnings_pence?: number
           id?: string
+          invoice_email_error?: string | null
+          invoice_email_sent?: boolean
+          invoice_email_sent_at?: string | null
+          invoice_email_status?: string | null
+          invoice_generated_at?: string | null
           invoice_number: string
+          invoice_pdf_url?: string | null
           late_cancel_trips?: number
           net_earnings_pence?: number
           no_show_trips?: number
@@ -5284,17 +5359,32 @@ export type Database = {
         }
         Update: {
           adjustments_pence?: number
+          airport_fee_earnings_pence?: number
           bonuses_pence?: number
+          card_trip_earnings_pence?: number
+          card_trips?: number
           cash_collected_pence?: number
+          cash_trip_earnings_pence?: number
+          cash_trips?: number
           commission_pence?: number
           completed_trips?: number
           created_at?: string
           currency_code?: string
+          driver_display_code?: string | null
+          driver_display_email?: string | null
+          driver_display_name?: string | null
           driver_id?: string | null
+          extra_charge_earnings_pence?: number
           finalized_at?: string | null
           gross_earnings_pence?: number
           id?: string
+          invoice_email_error?: string | null
+          invoice_email_sent?: boolean
+          invoice_email_sent_at?: string | null
+          invoice_email_status?: string | null
+          invoice_generated_at?: string | null
           invoice_number?: string
+          invoice_pdf_url?: string | null
           late_cancel_trips?: number
           net_earnings_pence?: number
           no_show_trips?: number
@@ -7031,6 +7121,126 @@ export type Database = {
           },
         ]
       }
+      payment_provider_configs: {
+        Row: {
+          apple_pay_enabled: boolean | null
+          connect_enabled: boolean | null
+          created_at: string
+          display_name: string
+          environment: string
+          google_pay_enabled: boolean | null
+          id: string
+          is_enabled: boolean
+          is_primary: boolean
+          last_connection_test_at: string | null
+          last_connection_test_status: string | null
+          last_error_message: string | null
+          provider: string
+          status: string
+          updated_at: string
+          webhook_endpoint_url: string | null
+        }
+        Insert: {
+          apple_pay_enabled?: boolean | null
+          connect_enabled?: boolean | null
+          created_at?: string
+          display_name: string
+          environment?: string
+          google_pay_enabled?: boolean | null
+          id?: string
+          is_enabled?: boolean
+          is_primary?: boolean
+          last_connection_test_at?: string | null
+          last_connection_test_status?: string | null
+          last_error_message?: string | null
+          provider: string
+          status?: string
+          updated_at?: string
+          webhook_endpoint_url?: string | null
+        }
+        Update: {
+          apple_pay_enabled?: boolean | null
+          connect_enabled?: boolean | null
+          created_at?: string
+          display_name?: string
+          environment?: string
+          google_pay_enabled?: boolean | null
+          id?: string
+          is_enabled?: boolean
+          is_primary?: boolean
+          last_connection_test_at?: string | null
+          last_connection_test_status?: string | null
+          last_error_message?: string | null
+          provider?: string
+          status?: string
+          updated_at?: string
+          webhook_endpoint_url?: string | null
+        }
+        Relationships: []
+      }
+      payment_provider_secret_metadata: {
+        Row: {
+          environment: string
+          id: string
+          is_configured: boolean
+          last_updated: string | null
+          masked_value: string | null
+          provider: string
+          secret_name: string
+          updated_by: string | null
+        }
+        Insert: {
+          environment: string
+          id?: string
+          is_configured?: boolean
+          last_updated?: string | null
+          masked_value?: string | null
+          provider: string
+          secret_name: string
+          updated_by?: string | null
+        }
+        Update: {
+          environment?: string
+          id?: string
+          is_configured?: boolean
+          last_updated?: string | null
+          masked_value?: string | null
+          provider?: string
+          secret_name?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      payment_provider_vault: {
+        Row: {
+          environment: string
+          id: string
+          provider: string
+          secret_name: string
+          secret_value: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          environment: string
+          id?: string
+          provider: string
+          secret_name: string
+          secret_value: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          environment?: string
+          id?: string
+          provider?: string
+          secret_name?: string
+          secret_value?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       payments: {
         Row: {
           amount_pence: number
@@ -7049,6 +7259,15 @@ export type Database = {
           last_error: string | null
           metadata: Json | null
           net_platform_amount_pence: number | null
+          payment_provider: string | null
+          provider_available_on: string | null
+          provider_charge_id: string | null
+          provider_fee_pence: number | null
+          provider_payment_id: string | null
+          provider_payout_id: string | null
+          provider_status: string | null
+          provider_transfer_id: string | null
+          provider_webhook_event_id: string | null
           status: string
           stripe_application_fee_amount: number | null
           stripe_fee_pence: number | null
@@ -7073,6 +7292,15 @@ export type Database = {
           last_error?: string | null
           metadata?: Json | null
           net_platform_amount_pence?: number | null
+          payment_provider?: string | null
+          provider_available_on?: string | null
+          provider_charge_id?: string | null
+          provider_fee_pence?: number | null
+          provider_payment_id?: string | null
+          provider_payout_id?: string | null
+          provider_status?: string | null
+          provider_transfer_id?: string | null
+          provider_webhook_event_id?: string | null
           status?: string
           stripe_application_fee_amount?: number | null
           stripe_fee_pence?: number | null
@@ -7097,6 +7325,15 @@ export type Database = {
           last_error?: string | null
           metadata?: Json | null
           net_platform_amount_pence?: number | null
+          payment_provider?: string | null
+          provider_available_on?: string | null
+          provider_charge_id?: string | null
+          provider_fee_pence?: number | null
+          provider_payment_id?: string | null
+          provider_payout_id?: string | null
+          provider_status?: string | null
+          provider_transfer_id?: string | null
+          provider_webhook_event_id?: string | null
           status?: string
           stripe_application_fee_amount?: number | null
           stripe_fee_pence?: number | null
@@ -7159,6 +7396,81 @@ export type Database = {
             columns: ["trip_id"]
             isOneToOne: false
             referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payout_audit_log: {
+        Row: {
+          created_at: string
+          driver_id: string | null
+          event_type: string
+          id: string
+          metadata: Json
+          payout_type: string
+          provider_balance_pence: number | null
+          provider_error_code: string | null
+          provider_error_message: string | null
+          requested_amount_pence: number | null
+        }
+        Insert: {
+          created_at?: string
+          driver_id?: string | null
+          event_type: string
+          id?: string
+          metadata?: Json
+          payout_type?: string
+          provider_balance_pence?: number | null
+          provider_error_code?: string | null
+          provider_error_message?: string | null
+          requested_amount_pence?: number | null
+        }
+        Update: {
+          created_at?: string
+          driver_id?: string | null
+          event_type?: string
+          id?: string
+          metadata?: Json
+          payout_type?: string
+          provider_balance_pence?: number | null
+          provider_error_code?: string | null
+          provider_error_message?: string | null
+          requested_amount_pence?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payout_audit_log_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_audit_log_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "payout_audit_log_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "payout_audit_log_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "payout_audit_log_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
         ]
@@ -7226,12 +7538,14 @@ export type Database = {
           gross_amount_pence: number | null
           id: string
           ledger_entry_id: string | null
+          ledger_sync_error: string | null
           payment_id: string | null
           status: string
           stripe_payout_id: string | null
           stripe_transfer_id: string | null
           trip_id: string | null
           updated_at: string
+          wallet_recalculated_at: string | null
         }
         Insert: {
           amount_pence: number
@@ -7247,12 +7561,14 @@ export type Database = {
           gross_amount_pence?: number | null
           id?: string
           ledger_entry_id?: string | null
+          ledger_sync_error?: string | null
           payment_id?: string | null
           status?: string
           stripe_payout_id?: string | null
           stripe_transfer_id?: string | null
           trip_id?: string | null
           updated_at?: string
+          wallet_recalculated_at?: string | null
         }
         Update: {
           amount_pence?: number
@@ -7268,12 +7584,14 @@ export type Database = {
           gross_amount_pence?: number | null
           id?: string
           ledger_entry_id?: string | null
+          ledger_sync_error?: string | null
           payment_id?: string | null
           status?: string
           stripe_payout_id?: string | null
           stripe_transfer_id?: string | null
           trip_id?: string | null
           updated_at?: string
+          wallet_recalculated_at?: string | null
         }
         Relationships: [
           {
@@ -9796,6 +10114,73 @@ export type Database = {
           },
         ]
       }
+      trip_invoice_daily_sequences: {
+        Row: {
+          invoice_date: string
+          last_seq: number
+        }
+        Insert: {
+          invoice_date: string
+          last_seq?: number
+        }
+        Update: {
+          invoice_date?: string
+          last_seq?: number
+        }
+        Relationships: []
+      }
+      trip_invoice_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: string
+          message: string | null
+          metadata: Json | null
+          status: string | null
+          trip_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: string
+          message?: string | null
+          metadata?: Json | null
+          status?: string | null
+          trip_id: string
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          message?: string | null
+          metadata?: Json | null
+          status?: string | null
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trip_invoice_events_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_invoice_events_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_invoice_events_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trip_messages: {
         Row: {
           created_at: string
@@ -10238,6 +10623,17 @@ export type Database = {
           grace_period_expired_at: string | null
           gross_fare_pence: number | null
           id: string
+          invoice_email_error: string | null
+          invoice_email_sent: boolean
+          invoice_email_sent_at: string | null
+          invoice_email_status: string | null
+          invoice_generated_at: string | null
+          invoice_no: string | null
+          invoice_pdf_error: string | null
+          invoice_pdf_path: string | null
+          invoice_pdf_url: string | null
+          invoice_regenerated_at: string | null
+          invoice_total_paid_pence: number | null
           is_scheduled: boolean | null
           job_type: string | null
           last_broadcast_at: string | null
@@ -10274,6 +10670,7 @@ export type Database = {
           passenger_phone: string | null
           payment_intent_version: number | null
           payment_method: string | null
+          payment_provider: string | null
           payment_state: Database["public"]["Enums"]["trip_payment_state"]
           payment_status: string | null
           payment_type: string | null
@@ -10292,6 +10689,14 @@ export type Database = {
           preauth_buffer_pence: number
           pricing_mode: string | null
           pricing_version: string | null
+          provider_available_on: string | null
+          provider_charge_id: string | null
+          provider_fee_pence: number | null
+          provider_payment_id: string | null
+          provider_payout_id: string | null
+          provider_status: string | null
+          provider_transfer_id: string | null
+          provider_webhook_event_id: string | null
           qr_session_id: string | null
           quoted_fare_pence: number | null
           refund_amount_pence: number | null
@@ -10457,6 +10862,17 @@ export type Database = {
           grace_period_expired_at?: string | null
           gross_fare_pence?: number | null
           id?: string
+          invoice_email_error?: string | null
+          invoice_email_sent?: boolean
+          invoice_email_sent_at?: string | null
+          invoice_email_status?: string | null
+          invoice_generated_at?: string | null
+          invoice_no?: string | null
+          invoice_pdf_error?: string | null
+          invoice_pdf_path?: string | null
+          invoice_pdf_url?: string | null
+          invoice_regenerated_at?: string | null
+          invoice_total_paid_pence?: number | null
           is_scheduled?: boolean | null
           job_type?: string | null
           last_broadcast_at?: string | null
@@ -10493,6 +10909,7 @@ export type Database = {
           passenger_phone?: string | null
           payment_intent_version?: number | null
           payment_method?: string | null
+          payment_provider?: string | null
           payment_state?: Database["public"]["Enums"]["trip_payment_state"]
           payment_status?: string | null
           payment_type?: string | null
@@ -10511,6 +10928,14 @@ export type Database = {
           preauth_buffer_pence?: number
           pricing_mode?: string | null
           pricing_version?: string | null
+          provider_available_on?: string | null
+          provider_charge_id?: string | null
+          provider_fee_pence?: number | null
+          provider_payment_id?: string | null
+          provider_payout_id?: string | null
+          provider_status?: string | null
+          provider_transfer_id?: string | null
+          provider_webhook_event_id?: string | null
           qr_session_id?: string | null
           quoted_fare_pence?: number | null
           refund_amount_pence?: number | null
@@ -10676,6 +11101,17 @@ export type Database = {
           grace_period_expired_at?: string | null
           gross_fare_pence?: number | null
           id?: string
+          invoice_email_error?: string | null
+          invoice_email_sent?: boolean
+          invoice_email_sent_at?: string | null
+          invoice_email_status?: string | null
+          invoice_generated_at?: string | null
+          invoice_no?: string | null
+          invoice_pdf_error?: string | null
+          invoice_pdf_path?: string | null
+          invoice_pdf_url?: string | null
+          invoice_regenerated_at?: string | null
+          invoice_total_paid_pence?: number | null
           is_scheduled?: boolean | null
           job_type?: string | null
           last_broadcast_at?: string | null
@@ -10712,6 +11148,7 @@ export type Database = {
           passenger_phone?: string | null
           payment_intent_version?: number | null
           payment_method?: string | null
+          payment_provider?: string | null
           payment_state?: Database["public"]["Enums"]["trip_payment_state"]
           payment_status?: string | null
           payment_type?: string | null
@@ -10730,6 +11167,14 @@ export type Database = {
           preauth_buffer_pence?: number
           pricing_mode?: string | null
           pricing_version?: string | null
+          provider_available_on?: string | null
+          provider_charge_id?: string | null
+          provider_fee_pence?: number | null
+          provider_payment_id?: string | null
+          provider_payout_id?: string | null
+          provider_status?: string | null
+          provider_transfer_id?: string | null
+          provider_webhook_event_id?: string | null
           qr_session_id?: string | null
           quoted_fare_pence?: number | null
           refund_amount_pence?: number | null
@@ -13051,6 +13496,10 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      get_driver_feedback_analytics: {
+        Args: { p_driver_id: string }
+        Returns: Json
+      }
       get_driver_ledger_aggregates: {
         Args: { p_driver_id: string }
         Returns: {
@@ -13125,6 +13574,19 @@ export type Database = {
       haversine_meters: {
         Args: { lat1: number; lat2: number; lon1: number; lon2: number }
         Returns: number
+      }
+      insert_payout_ledger_debit_if_missing: {
+        Args: {
+          p_amount_pence: number
+          p_currency: string
+          p_description: string
+          p_driver_id: string
+          p_ledger_type: string
+          p_paid_at?: string
+          p_stripe_payout_id: string
+          p_stripe_transfer_id: string
+        }
+        Returns: string
       }
       is_admin: { Args: never; Returns: boolean }
       is_customer: { Args: { _user_id: string }; Returns: boolean }
@@ -13224,6 +13686,7 @@ export type Database = {
         Args: { p_json: Json; p_offer_id: string }
         Returns: undefined
       }
+      next_trip_invoice_number: { Args: never; Returns: string }
       normalize_driver_offline_reason: {
         Args: { p_reason: string }
         Returns: string
@@ -13366,6 +13829,10 @@ export type Database = {
           speed: number
           updated_at: string
         }[]
+      }
+      payout_batch_kind_to_ledger_type: {
+        Args: { p_kind: string }
+        Returns: string
       }
       point_in_circle: {
         Args: {
@@ -13620,6 +14087,10 @@ export type Database = {
       sync_customer_phone_verification: {
         Args: { _user_id: string }
         Returns: undefined
+      }
+      sync_payout_item_ledger_debit: {
+        Args: { p_payout_item_id: string }
+        Returns: Json
       }
       tick_stop_waiting: { Args: { p_waiting_id: string }; Returns: Json }
       timeout_scheduled_offer: {
