@@ -151,3 +151,6 @@ verify_jwt = false
 
 [functions.get-mapbox-token]
 verify_jwt = false
+
+[functions.customer-counter-offer]
+verify_jwt = false
