@@ -6,19 +6,15 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   allocateProviderBalanceByLiability,
-  buildReconciliationCheck,
+  buildSplitReconciliationCheck,
   type FinanceDataSourceBadge,
-  netCustomerRevenuePence,
+  computePaymentMethodLedgerMetrics,
   perDriverAvailableNowPence,
   perDriverRemainingLiabilityPence,
   sumAdjustmentsPence,
   sumBankPayoutPaidOutPence,
-  sumCustomerRevenuePence,
   sumDriverGrossEarningsPence,
   sumDriverNetEarningsPence,
-  sumOnecabGrossCommissionPence,
-  sumProviderProcessingFeesPence,
-  sumRefundedPence,
   type LedgerSSOTRow,
   type PaymentCaptureRow,
   type TripSSOTRow,
@@ -118,12 +114,16 @@ export function computePerDriverSSOT(args: {
   const sourceTier = args.sourceTier ?? "LIVE";
   const driverGross = sumDriverGrossEarningsPence(args.trips);
   const driverNet = sumDriverNetEarningsPence(args.trips);
+  const ledgerSplit = computePaymentMethodLedgerMetrics({
+    trips: args.trips,
+    payments: args.payments,
+  });
   const bankPaidOut = sumBankPayoutPaidOutPence(args.ledger);
   const completedEarly = sumCompletedEarlyCashoutsPence(args.earlyCashouts);
   const inFlight = sumInFlightCashoutPence(args.earlyCashouts);
   const adjustments = sumAdjustmentsPence(args.ledger);
   const remaining = perDriverRemainingLiabilityPence({
-    driverNetEarningsPence: driverNet,
+    driverNetEarningsPence: ledgerSplit.card_driver_payable_pence,
     bankPaidOutPence: bankPaidOut,
     completedEarlyCashoutsPence: completedEarly,
     adjustmentsPence: adjustments,
@@ -136,20 +136,7 @@ export function computePerDriverSSOT(args: {
   });
   const pendingPayout = Math.max(0, remaining - availableNow);
 
-  const customerRev = sumCustomerRevenuePence({ payments: args.payments, trips: args.trips });
-  const refunded = sumRefundedPence(args.trips);
-  const netCustomer = netCustomerRevenuePence(customerRev.total_pence, refunded);
-  const onecabGross = sumOnecabGrossCommissionPence(args.trips);
-  const providerFees = sumProviderProcessingFeesPence(args.trips);
-  const onecabNet = Math.max(0, onecabGross - providerFees);
-  const reconciliation = buildReconciliationCheck({
-    netCustomerRevenuePence: netCustomer,
-    driverPaidOutPence: bankPaidOut + completedEarly,
-    driverRemainingLiabilityPence: remaining,
-    onecabNetCommissionPence: onecabNet,
-    providerProcessingFeePence: providerFees,
-    adjustmentsPence: adjustments,
-  });
+  const reconciliation = buildSplitReconciliationCheck({ ledger: ledgerSplit, tolerancePence: 100 });
 
   const payoutBlockedReasons = buildPayoutBlockedReasons({
     reconciliationStatus: reconciliation.status,

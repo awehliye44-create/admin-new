@@ -132,8 +132,8 @@ export default function FinancialReconciliation() {
               <h1 className="text-2xl font-bold">Financial Reconciliation</h1>
             </div>
             <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
-              Single source of truth for ONECAB finance. ONECAB commission = sum(trip commission_pence) — never
-              Stripe balance minus driver payable.
+              Accounting source of truth — card/Stripe revenue and cash collected by drivers are reconciled in
+              separate ledgers. Cash fare never increases Stripe revenue or card driver payout liability.
             </p>
             <div className="flex flex-wrap items-center gap-2 mt-2">
               <FinanceSSOTBadge badge={ssotBadge} />
@@ -171,18 +171,28 @@ export default function FinancialReconciliation() {
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>RECONCILIATION_MISMATCH</AlertTitle>
             <AlertDescription className="space-y-2">
-              <p>
-                Trip earnings in this period do not split cleanly: net customer revenue{' '}
-                {formatPence(check.net_customer_revenue_pence, ccy)} ≠ driver net{' '}
-                {formatPence(check.driver_net_earnings_pence, ccy)} + ONECAB gross commission{' '}
-                {formatPence(check.onecab_gross_commission_pence, ccy)} + tips (pass-through). Delta{' '}
-                {formatPence(check.delta_pence, ccy)}.
-              </p>
+              {!check.card_reconciliation.balanced && (
+                <p>
+                  <strong>Card ledger:</strong> card customer revenue{' '}
+                  {formatPence(check.card_reconciliation.card_customer_revenue_pence, ccy)} ≠ card driver payable{' '}
+                  {formatPence(check.card_reconciliation.card_driver_payable_pence, ccy)} + ONECAB card commission{' '}
+                  {formatPence(check.card_reconciliation.onecab_card_commission_pence, ccy)}. Delta{' '}
+                  {formatPence(check.card_reconciliation.delta_pence, ccy)}.
+                </p>
+              )}
+              {!check.cash_reconciliation.balanced && (
+                <p>
+                  <strong>Cash ledger:</strong> cash collected by driver{' '}
+                  {formatPence(check.cash_reconciliation.cash_collected_by_driver_pence, ccy)} ≠ cash driver already
+                  received {formatPence(check.cash_reconciliation.cash_driver_already_received_pence, ccy)} +
+                  ONECAB cash commission receivable{' '}
+                  {formatPence(check.cash_reconciliation.onecab_cash_commission_receivable_pence, ccy)}. Delta{' '}
+                  {formatPence(check.cash_reconciliation.delta_pence, ccy)}.
+                </p>
+              )}
               <p className="text-xs opacity-90">
-                Driver paid out ({formatPence(check.driver_paid_out_pence ?? 0, ccy)}) and adjustments (
-                {formatPence(check.adjustments_pence, ccy)}) are ledger cash events in the same date window — they
-                often include payouts for trips completed earlier, so they are shown separately and not added into
-                this trip split check.
+                Card and cash trips are checked separately. Cash fare is not ONECAB Stripe revenue and does not
+                increase driver payout liability.
               </p>
             </AlertDescription>
           </Alert>
@@ -203,10 +213,59 @@ export default function FinancialReconciliation() {
               Revenue
             </CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-3">
-            <MetricCard title="Total Customer Revenue" value={revenue.total_customer_revenue_pence} ccy={ccy} />
+          <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <MetricCard title="Card Customer Revenue" value={revenue.card_customer_revenue_pence} ccy={ccy} />
+            <MetricCard title="Cash Collected by Driver" value={revenue.cash_collected_by_driver_pence} ccy={ccy} />
             <MetricCard title="Refunded Amount" value={revenue.refunded_amount_pence} ccy={ccy} />
-            <MetricCard title="Net Customer Revenue" value={revenue.net_customer_revenue_pence} ccy={ccy} />
+            <MetricCard title="Net Card Revenue" value={revenue.net_card_revenue_pence} ccy={ccy} />
+          </CardContent>
+        </Card>
+
+        <Card className="border-blue-500/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CreditCard className="h-4 w-4 text-blue-500" />
+              A. Card / Stripe Reconciliation
+              <Badge variant={statusChipVariant(check.card_reconciliation.status)} className="ml-auto">
+                {check.card_reconciliation.status}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <MetricCard title="Card Customer Revenue" value={check.card_reconciliation.card_customer_revenue_pence} ccy={ccy} />
+            <MetricCard title="Card Driver Payable" value={check.card_reconciliation.card_driver_payable_pence} ccy={ccy} />
+            <MetricCard title="ONECAB Card Commission" value={check.card_reconciliation.onecab_card_commission_pence} ccy={ccy} />
+            <MetricCard title="Stripe Processing Fees" value={onecab.provider_processing_fee_pence} ccy={ccy} />
+            <MetricCard
+              title="ONECAB Card Net Commission"
+              value={onecab.onecab_net_commission_pence}
+              ccy={ccy}
+              subtitle="Card commission − Stripe fees"
+            />
+            <MetricCard title="Expected (driver + commission)" value={check.card_reconciliation.expected_sum_pence} ccy={ccy} />
+            <MetricCard title="Variance" value={check.card_reconciliation.variance_pence} ccy={ccy} />
+          </CardContent>
+        </Card>
+
+        <Card className="border-amber-500/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Banknote className="h-4 w-4 text-amber-500" />
+              B. Cash Reconciliation
+              <Badge variant={statusChipVariant(check.cash_reconciliation.status)} className="ml-auto">
+                {check.cash_reconciliation.status}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <MetricCard title="Cash Collected by Driver" value={check.cash_reconciliation.cash_collected_by_driver_pence} ccy={ccy} />
+            <MetricCard title="Cash Driver Already Received" value={check.cash_reconciliation.cash_driver_already_received_pence} ccy={ccy} />
+            <MetricCard title="ONECAB Cash Commission Receivable" value={check.cash_reconciliation.onecab_cash_commission_receivable_pence} ccy={ccy} />
+            <MetricCard title="Expected (driver + commission)" value={check.cash_reconciliation.expected_sum_pence} ccy={ccy} />
+            <MetricCard title="Variance" value={check.cash_reconciliation.variance_pence} ccy={ccy} />
+            <p className="text-xs text-muted-foreground sm:col-span-2">
+              Cash fare stays with the driver. ONECAB commission is receivable (debited from driver wallet), not Stripe revenue.
+            </p>
           </CardContent>
         </Card>
 
@@ -214,16 +273,18 @@ export default function FinancialReconciliation() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Users className="h-4 w-4" />
-              Driver
+              C. Driver Wallet Summary
             </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <MetricCard title="Driver Gross Earnings" value={driver.driver_gross_earnings_pence} ccy={ccy} />
-            <MetricCard title="Driver Net Earnings" value={driver.driver_net_earnings_pence} ccy={ccy} />
-            <MetricCard title="Driver Available Payout" value={driver.driver_available_payout_pence} ccy={ccy} />
+            <MetricCard title="Card Driver Payable" value={driver.card_driver_payable_pence} ccy={ccy} />
+            <MetricCard title="Cash Driver Already Received" value={driver.cash_driver_already_received_pence} ccy={ccy} />
+            <MetricCard title="Driver Available Payout" value={driver.driver_available_payout_pence} ccy={ccy} subtitle="Card earnings only" />
             <MetricCard title="Driver Pending Payout" value={driver.driver_pending_payout_pence} ccy={ccy} />
             <MetricCard title="Driver Paid Out" value={driver.driver_paid_out_pence} ccy={ccy} />
-            <MetricCard title="Driver Payout Liability" value={driver.driver_payout_liability_pence} ccy={ccy} />
+            <MetricCard title="Driver Payout Liability" value={driver.driver_payout_liability_pence} ccy={ccy} subtitle="Card payable − paid out" />
+            <MetricCard title="Owed to ONECAB (cash commission)" value={driver.onecab_cash_commission_owed_pence} ccy={ccy} />
+            <MetricCard title="Wallet Balance (net)" value={driver.driver_wallet_balance_pence} ccy={ccy} subtitle="After cash commission debits" />
           </CardContent>
         </Card>
 
@@ -235,9 +296,10 @@ export default function FinancialReconciliation() {
             </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <MetricCard title="ONECAB Gross Commission" value={onecab.onecab_gross_commission_pence} ccy={ccy} />
+            <MetricCard title="ONECAB Card Commission" value={onecab.onecab_card_commission_pence} ccy={ccy} />
+            <MetricCard title="ONECAB Cash Commission Receivable" value={onecab.onecab_cash_commission_receivable_pence} ccy={ccy} />
             <MetricCard title="Processing Fees" value={onecab.provider_processing_fee_pence} ccy={ccy} />
-            <MetricCard title="ONECAB Net Commission" value={onecab.onecab_net_commission_pence} ccy={ccy} />
+            <MetricCard title="ONECAB Net Commission" value={onecab.onecab_net_commission_pence} ccy={ccy} subtitle="Card commission − fees" />
             <MetricCard title="ONECAB Bank Payout" value={onecab.onecab_bank_payout_pence} ccy={ccy} />
             <div className="rounded-lg border bg-card p-3">
               <p className="text-xs text-muted-foreground">Commission Status</p>
@@ -458,6 +520,7 @@ export default function FinancialReconciliation() {
                 <TableRow>
                   <TableHead>Trip</TableHead>
                   <TableHead>Date</TableHead>
+                  <TableHead>Method</TableHead>
                   <TableHead>Driver</TableHead>
                   <TableHead className="text-right">Customer Paid</TableHead>
                   <TableHead className="text-right">Captured</TableHead>
@@ -475,7 +538,7 @@ export default function FinancialReconciliation() {
               <TableBody>
                 {auditRows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={14} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={15} className="text-center text-muted-foreground py-8">
                       No trips in selected period
                     </TableCell>
                   </TableRow>
@@ -487,6 +550,11 @@ export default function FinancialReconciliation() {
                       </TableCell>
                       <TableCell className="text-xs whitespace-nowrap">
                         {row.date ? format(new Date(row.date), 'dd MMM yyyy HH:mm') : '—'}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs uppercase">
+                          {row.payment_method ?? '—'}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-sm">{row.driver_name ?? '—'}</TableCell>
                       <TableCell className="text-right">{formatPence(row.customer_paid_pence, ccy)}</TableCell>

@@ -60,7 +60,36 @@ export type TripSSOTRow = {
   tip_amount_pence?: number | null;
   airport_charge_pence?: number | null;
   other_pass_through_charges_pence?: number | null;
+  payment_method?: string | null;
+  id?: string;
 };
+
+/** Fare = base_fare + extras (commissionable), excluding tips. */
+export function tripFarePence(row: TripSSOTRow): number {
+  return Math.max(
+    0,
+    row.commissionable_fare_pence ?? row.gross_fare_pence ?? row.final_fare_pence ?? 0,
+  );
+}
+
+export function tripTipsPence(row: TripSSOTRow): number {
+  return Math.max(0, row.tip_pence ?? row.tip_amount_pence ?? 0);
+}
+
+export function isCashTrip(row: TripSSOTRow): boolean {
+  return String(row.payment_method ?? "").toUpperCase() === "CASH";
+}
+
+export function tripDriverNetPence(row: TripSSOTRow): number {
+  if (row.driver_net_pence != null) return Math.max(0, row.driver_net_pence);
+  const fare = tripFarePence(row);
+  const commission = Math.max(0, row.commission_pence ?? 0);
+  return Math.max(0, fare - commission);
+}
+
+export function tripCommissionPence(row: TripSSOTRow): number {
+  return Math.max(0, row.commission_pence ?? 0);
+}
 
 export type LedgerSSOTRow = {
   type: string;
@@ -304,10 +333,179 @@ export function buildReconciliationCheck(args: {
   };
 }
 
+export type PaymentMethodLedgerMetrics = {
+  card_customer_revenue_pence: number;
+  card_refunded_pence: number;
+  net_card_revenue_pence: number;
+  card_driver_payable_pence: number;
+  onecab_card_commission_pence: number;
+  stripe_processing_fees_pence: number;
+  onecab_card_net_commission_pence: number;
+  cash_collected_by_driver_pence: number;
+  cash_driver_already_received_pence: number;
+  onecab_cash_commission_receivable_pence: number;
+  cash_tips_collected_by_driver_pence: number;
+  card_trip_count: number;
+  cash_trip_count: number;
+};
+
+function cardCustomerRevenueForTrip(
+  row: TripSSOTRow,
+  paymentByTripId: Map<string, PaymentCaptureRow>,
+): number {
+  const tips = tripTipsPence(row);
+  const payment = paymentByTripId.get(row.id ?? "");
+  if (payment && CAPTURED_PAYMENT_STATUSES.has(String(payment.status ?? "").toLowerCase())) {
+    return Math.max(0, payment.captured_amount_pence ?? 0);
+  }
+  const captured = Math.max(0, row.capture_amount_pence ?? 0);
+  if (captured > 0) return captured;
+  return tripFarePence(row) + tips;
+}
+
+/** Split trip economics by payment method — card Stripe ledger vs cash collected by driver. */
+export function computePaymentMethodLedgerMetrics(args: {
+  trips: TripSSOTRow[];
+  payments?: PaymentCaptureRow[];
+}): PaymentMethodLedgerMetrics {
+  const paymentByTripId = new Map<string, PaymentCaptureRow>();
+  for (const p of args.payments ?? []) {
+    if (p.trip_id) paymentByTripId.set(p.trip_id, p);
+  }
+
+  let cardCustomerRevenue = 0;
+  let cardRefunded = 0;
+  let cardDriverPayable = 0;
+  let onecabCardCommission = 0;
+  let stripeFees = 0;
+  let cashCollected = 0;
+  let cashDriverReceived = 0;
+  let onecabCashCommission = 0;
+  let cashTips = 0;
+  let cardTripCount = 0;
+  let cashTripCount = 0;
+
+  for (const row of args.trips) {
+    const fare = tripFarePence(row);
+    const tips = tripTipsPence(row);
+    const commission = tripCommissionPence(row);
+    const driverNet = tripDriverNetPence(row);
+    const refunded = Math.max(0, row.refund_amount_pence ?? 0);
+
+    if (isCashTrip(row)) {
+      cashTripCount += 1;
+      cashCollected += fare;
+      cashDriverReceived += driverNet;
+      onecabCashCommission += commission;
+      cashTips += tips;
+      continue;
+    }
+
+    cardTripCount += 1;
+    cardCustomerRevenue += cardCustomerRevenueForTrip(
+      row,
+      paymentByTripId,
+    );
+    cardRefunded += refunded;
+    cardDriverPayable += driverNet + tips;
+    onecabCardCommission += commission;
+    stripeFees += Math.max(0, row.stripe_processing_fee_pence ?? 0);
+  }
+
+  return {
+    card_customer_revenue_pence: cardCustomerRevenue,
+    card_refunded_pence: cardRefunded,
+    net_card_revenue_pence: Math.max(0, cardCustomerRevenue - cardRefunded),
+    card_driver_payable_pence: cardDriverPayable,
+    onecab_card_commission_pence: onecabCardCommission,
+    stripe_processing_fees_pence: stripeFees,
+    onecab_card_net_commission_pence: Math.max(0, onecabCardCommission - stripeFees),
+    cash_collected_by_driver_pence: cashCollected,
+    cash_driver_already_received_pence: cashDriverReceived,
+    onecab_cash_commission_receivable_pence: onecabCashCommission,
+    cash_tips_collected_by_driver_pence: cashTips,
+    card_trip_count: cardTripCount,
+    cash_trip_count: cashTripCount,
+  };
+}
+
+/** CARD: customer revenue = driver payable + ONECAB commission (card trips only). */
+export function buildCardReconciliationCheck(args: {
+  cardCustomerRevenuePence: number;
+  cardDriverPayablePence: number;
+  onecabCardCommissionPence: number;
+  tolerancePence?: number;
+}) {
+  const rhs = args.cardDriverPayablePence + args.onecabCardCommissionPence;
+  const variance = args.cardCustomerRevenuePence - rhs;
+  const tolerance = args.tolerancePence ?? 100;
+  const balanced = Math.abs(variance) <= tolerance;
+
+  return {
+    card_customer_revenue_pence: args.cardCustomerRevenuePence,
+    card_driver_payable_pence: args.cardDriverPayablePence,
+    onecab_card_commission_pence: args.onecabCardCommissionPence,
+    expected_sum_pence: rhs,
+    variance_pence: variance,
+    delta_pence: variance,
+    balanced,
+    status: balanced ? ("BALANCED" as const) : ("RECONCILIATION_MISMATCH" as const),
+  };
+}
+
+/** CASH: fare collected by driver = driver already received + ONECAB commission receivable. */
+export function buildCashReconciliationCheck(args: {
+  cashCollectedByDriverPence: number;
+  cashDriverAlreadyReceivedPence: number;
+  onecabCashCommissionReceivablePence: number;
+  tolerancePence?: number;
+}) {
+  const rhs = args.cashDriverAlreadyReceivedPence + args.onecabCashCommissionReceivablePence;
+  const variance = args.cashCollectedByDriverPence - rhs;
+  const tolerance = args.tolerancePence ?? 100;
+  const balanced = Math.abs(variance) <= tolerance;
+
+  return {
+    cash_collected_by_driver_pence: args.cashCollectedByDriverPence,
+    cash_driver_already_received_pence: args.cashDriverAlreadyReceivedPence,
+    onecab_cash_commission_receivable_pence: args.onecabCashCommissionReceivablePence,
+    expected_sum_pence: rhs,
+    variance_pence: variance,
+    delta_pence: variance,
+    balanced,
+    status: balanced ? ("BALANCED" as const) : ("RECONCILIATION_MISMATCH" as const),
+  };
+}
+
+export function buildSplitReconciliationCheck(args: {
+  ledger: PaymentMethodLedgerMetrics;
+  tolerancePence?: number;
+}) {
+  const card = buildCardReconciliationCheck({
+    cardCustomerRevenuePence: args.ledger.card_customer_revenue_pence,
+    cardDriverPayablePence: args.ledger.card_driver_payable_pence,
+    onecabCardCommissionPence: args.ledger.onecab_card_commission_pence,
+    tolerancePence: args.tolerancePence,
+  });
+  const cash = buildCashReconciliationCheck({
+    cashCollectedByDriverPence: args.ledger.cash_collected_by_driver_pence,
+    cashDriverAlreadyReceivedPence: args.ledger.cash_driver_already_received_pence,
+    onecabCashCommissionReceivablePence: args.ledger.onecab_cash_commission_receivable_pence,
+    tolerancePence: args.tolerancePence,
+  });
+  const balanced = card.balanced && cash.balanced;
+
+  return {
+    card_reconciliation: card,
+    cash_reconciliation: cash,
+    balanced,
+    status: balanced ? ("BALANCED" as const) : ("RECONCILIATION_MISMATCH" as const),
+  };
+}
+
 /**
  * Trip-earnings split for a bounded period.
- * Customer revenue from trips/payments should equal driver net + ONECAB gross commission.
- * Ledger payouts in the same window are cash timing — not part of this check.
+ * @deprecated Mixed card+cash check — use buildSplitReconciliationCheck instead.
  */
 export function buildTripEarningsReconciliationCheck(args: {
   netCustomerRevenuePence: number;
@@ -351,6 +549,7 @@ export type SSOTComputedMetrics = {
   driver_pending_payout_pence: number;
   provider_available_balance_pence: number;
   provider_pending_balance_pence: number;
+  ledger_split: PaymentMethodLedgerMetrics;
 };
 
 export function computeSSOTMetrics(args: {
@@ -360,19 +559,24 @@ export function computeSSOTMetrics(args: {
   providerAvailableBalancePence: number;
   providerPendingBalancePence: number;
 }): SSOTComputedMetrics {
+  const ledgerSplit = computePaymentMethodLedgerMetrics({
+    trips: args.trips,
+    payments: args.payments,
+  });
   const customerRev = sumCustomerRevenuePence({ payments: args.payments, trips: args.trips });
   const refunded = sumRefundedPence(args.trips);
   const netCustomer = netCustomerRevenuePence(customerRev.total_pence, refunded);
   const driverGross = sumDriverGrossEarningsPence(args.trips);
   const driverNet = sumDriverNetEarningsPence(args.trips);
   const onecabGross = sumOnecabGrossCommissionPence(args.trips);
-  const providerFees = sumProviderProcessingFeesPence(args.trips);
-  const onecabNet = onecabNetCommissionPence(onecabGross, providerFees);
+  const providerFees = ledgerSplit.stripe_processing_fees_pence;
+  const onecabNet = ledgerSplit.onecab_card_net_commission_pence;
   const paidOut = sumDriverPaidOutPence(args.ledger);
   const adjustments = sumAdjustmentsPence(args.ledger);
   const tips = sumTipsPence(args.trips);
+  /** Card driver payable only — cash driver_net is already in the driver's hand. */
   const remaining = driverRemainingLiabilityPence({
-    driverNetEarningsPence: driverNet,
+    driverNetEarningsPence: ledgerSplit.card_driver_payable_pence,
     driverPaidOutPence: paidOut,
     adjustmentsPence: adjustments,
   });
@@ -403,5 +607,6 @@ export function computeSSOTMetrics(args: {
     driver_pending_payout_pence: pendingPayout,
     provider_available_balance_pence: args.providerAvailableBalancePence,
     provider_pending_balance_pence: args.providerPendingBalancePence,
+    ledger_split: ledgerSplit,
   };
 }

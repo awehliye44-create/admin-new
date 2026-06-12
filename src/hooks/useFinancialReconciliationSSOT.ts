@@ -57,22 +57,28 @@ async function fetchSummaryFallback(
 
   return {
     customer_revenue: {
-      total_customer_revenue_pence: 0,
+      card_customer_revenue_pence: 0,
+      cash_collected_by_driver_pence: 0,
       refunded_amount_pence: 0,
+      net_card_revenue_pence: 0,
+      total_customer_revenue_pence: 0,
       net_customer_revenue_pence: 0,
       commissionable_revenue_pence: 0,
     },
     driver_money: {
-      driver_gross_earnings_pence: 0,
-      driver_net_earnings_pence: 0,
+      card_driver_payable_pence: 0,
+      cash_driver_already_received_pence: 0,
       driver_wallet_balance_pence: walletBalance,
       driver_available_payout_pence: available,
       driver_pending_payout_pence: Math.max(0, walletBalance - available - paidOut),
       driver_paid_out_pence: paidOut,
       driver_payout_liability_pence: available + reserved,
+      onecab_cash_commission_owed_pence: 0,
       in_flight_cashout_pence: reserved,
     },
     onecab_money: {
+      onecab_card_commission_pence: commission,
+      onecab_cash_commission_receivable_pence: 0,
       onecab_gross_commission_pence: commission,
       provider_processing_fee_pence: 0,
       onecab_net_commission_pence: commission,
@@ -87,21 +93,7 @@ async function fetchSummaryFallback(
       provider_health_status: 'unknown',
       last_webhook_received_at: null,
     },
-    reconciliation_check: {
-      net_customer_revenue_pence: 0,
-      driver_paid_out_pence: paidOut,
-      driver_remaining_liability_pence: available + reserved,
-      driver_net_earnings_pence: 0,
-      onecab_gross_commission_pence: commission,
-      onecab_net_commission_pence: commission,
-      provider_processing_fee_pence: 0,
-      adjustments_pence: 0,
-      expected_sum_pence: 0,
-      variance_pence: 0,
-      delta_pence: 0,
-      balanced: true,
-      status: 'BALANCED',
-    },
+    reconciliation_check: emptySplitReconciliationCheck(paidOut, available + reserved, commission),
     ssot: {
       version: 'financial_reconciliation_ssot_v1',
       data_source_badge: 'SUMMARY',
@@ -111,6 +103,31 @@ async function fetchSummaryFallback(
 }
 
 const PAYOUT_DEBIT_LEDGER_TYPES = ['PAYOUT', 'WEEKLY_PAYOUT', 'EARLY_CASHOUT', 'MANUAL_PAYOUT'] as const;
+
+function emptySplitReconciliationCheck(
+  paidOut: number,
+  liability: number,
+  commission: number,
+): FinanceReconciliationSummary['reconciliation_check'] {
+  const balanced = { expected_sum_pence: 0, variance_pence: 0, delta_pence: 0, balanced: true, status: 'BALANCED' as const };
+  return {
+    card_reconciliation: { ...balanced, card_customer_revenue_pence: 0, card_driver_payable_pence: 0, onecab_card_commission_pence: 0 },
+    cash_reconciliation: { ...balanced, cash_collected_by_driver_pence: 0, cash_driver_already_received_pence: 0, onecab_cash_commission_receivable_pence: 0 },
+    net_customer_revenue_pence: 0,
+    driver_paid_out_pence: paidOut,
+    driver_remaining_liability_pence: liability,
+    driver_net_earnings_pence: 0,
+    onecab_gross_commission_pence: commission,
+    onecab_net_commission_pence: commission,
+    provider_processing_fee_pence: 0,
+    adjustments_pence: 0,
+    expected_sum_pence: 0,
+    variance_pence: 0,
+    delta_pence: 0,
+    balanced: true,
+    status: 'BALANCED',
+  };
+}
 
 /** Fallback: aggregate driver_wallet_ledger when live reconciliation and summary view unavailable. */
 async function fetchLedgerFallback(
@@ -153,22 +170,28 @@ async function fetchLedgerFallback(
 
   return {
     customer_revenue: {
-      total_customer_revenue_pence: 0,
+      card_customer_revenue_pence: 0,
+      cash_collected_by_driver_pence: 0,
       refunded_amount_pence: 0,
+      net_card_revenue_pence: 0,
+      total_customer_revenue_pence: 0,
       net_customer_revenue_pence: 0,
       commissionable_revenue_pence: 0,
     },
     driver_money: {
-      driver_gross_earnings_pence: 0,
-      driver_net_earnings_pence: 0,
+      card_driver_payable_pence: 0,
+      cash_driver_already_received_pence: 0,
       driver_wallet_balance_pence: walletBalance,
       driver_available_payout_pence: Math.max(0, walletBalance),
       driver_pending_payout_pence: 0,
       driver_paid_out_pence: paidOut,
       driver_payout_liability_pence: Math.max(0, walletBalance),
+      onecab_cash_commission_owed_pence: 0,
       in_flight_cashout_pence: 0,
     },
     onecab_money: {
+      onecab_card_commission_pence: 0,
+      onecab_cash_commission_receivable_pence: 0,
       onecab_gross_commission_pence: 0,
       provider_processing_fee_pence: 0,
       onecab_net_commission_pence: 0,
@@ -183,21 +206,7 @@ async function fetchLedgerFallback(
       provider_health_status: 'unknown',
       last_webhook_received_at: null,
     },
-    reconciliation_check: {
-      net_customer_revenue_pence: 0,
-      driver_paid_out_pence: paidOut,
-      driver_remaining_liability_pence: Math.max(0, walletBalance),
-      driver_net_earnings_pence: 0,
-      onecab_gross_commission_pence: 0,
-      onecab_net_commission_pence: 0,
-      provider_processing_fee_pence: 0,
-      adjustments_pence: 0,
-      expected_sum_pence: 0,
-      variance_pence: 0,
-      delta_pence: 0,
-      balanced: true,
-      status: 'BALANCED',
-    },
+    reconciliation_check: emptySplitReconciliationCheck(paidOut, Math.max(0, walletBalance), 0),
     ssot: {
       version: 'financial_reconciliation_ssot_v1',
       data_source_badge: 'LEDGER',
@@ -301,11 +310,18 @@ export function useFinancialReconciliationSSOT(args?: {
 
 /** Read-only accessors — pages must use these, never compute locally. */
 export const FinanceSSOT = {
+  cardCustomerRevenue: (s: FinanceReconciliationSummary) => s.customer_revenue.card_customer_revenue_pence,
+  cashCollectedByDriver: (s: FinanceReconciliationSummary) => s.customer_revenue.cash_collected_by_driver_pence,
   totalCustomerRevenue: (s: FinanceReconciliationSummary) => s.customer_revenue.total_customer_revenue_pence,
   refundedAmount: (s: FinanceReconciliationSummary) => s.customer_revenue.refunded_amount_pence,
-  netCustomerRevenue: (s: FinanceReconciliationSummary) => s.customer_revenue.net_customer_revenue_pence,
-  driverGrossEarnings: (s: FinanceReconciliationSummary) => s.driver_money.driver_gross_earnings_pence,
-  driverNetEarnings: (s: FinanceReconciliationSummary) => s.driver_money.driver_net_earnings_pence,
+  netCardRevenue: (s: FinanceReconciliationSummary) => s.customer_revenue.net_card_revenue_pence,
+  netCustomerRevenue: (s: FinanceReconciliationSummary) => s.customer_revenue.net_card_revenue_pence,
+  cardDriverPayable: (s: FinanceReconciliationSummary) => s.driver_money.card_driver_payable_pence,
+  cashDriverAlreadyReceived: (s: FinanceReconciliationSummary) => s.driver_money.cash_driver_already_received_pence,
+  driverGrossEarnings: (s: FinanceReconciliationSummary) => s.driver_money.driver_gross_earnings_pence ?? 0,
+  driverNetEarnings: (s: FinanceReconciliationSummary) => s.driver_money.driver_net_earnings_pence ?? s.driver_money.card_driver_payable_pence,
+  onecabCardCommission: (s: FinanceReconciliationSummary) => s.onecab_money.onecab_card_commission_pence,
+  onecabCashCommissionReceivable: (s: FinanceReconciliationSummary) => s.onecab_money.onecab_cash_commission_receivable_pence,
   onecabGrossCommission: (s: FinanceReconciliationSummary) => s.onecab_money.onecab_gross_commission_pence,
   providerProcessingFee: (s: FinanceReconciliationSummary) => s.onecab_money.provider_processing_fee_pence,
   onecabNetCommission: (s: FinanceReconciliationSummary) => s.onecab_money.onecab_net_commission_pence,

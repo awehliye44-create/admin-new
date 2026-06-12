@@ -78,27 +78,28 @@ Deno.test("computeSafePayoutAmount caps to Stripe available balance", () => {
   assertEquals(r.waiting_for_stripe_funds, true);
 });
 
-Deno.test("buildFinanceReconciliationSummary balances when trip split matches net revenue", () => {
-  const m = sumTripFinanceMetrics([TRIP_5783]);
+Deno.test("buildFinanceReconciliationSummary balances card ledger", async () => {
+  const { computeSSOTMetrics } = await import("./financialReconciliationSSOT.ts");
+  const ssot = computeSSOTMetrics({
+    payments: [{ trip_id: "t1", captured_amount_pence: 5783, status: "captured" }],
+    trips: [{ ...TRIP_5783, id: "t1" }],
+    ledger: [],
+    providerAvailableBalancePence: 5783,
+    providerPendingBalancePence: 0,
+  });
   const summary = buildFinanceReconciliationSummary({
-    tripMetrics: m,
-    refundedAmountPence: 0,
+    ssot,
     commissionableRevenuePence: 5783,
     driverWalletBalancePence: 4916,
-    driverSettledEligiblePence: 4916,
-    driverPaidOutPence: 0,
     inFlightCashoutPence: 0,
-    pendingTransfersPence: 0,
-    stripeAvailablePence: 5783,
-    stripePendingPence: 0,
     settlementStatus: "available_in_stripe_balance",
     settlementStatusLabel: "Available",
     providerHealthStatus: "healthy",
     lastWebhookReceivedAt: null,
   });
   assertEquals(summary.reconciliation_check.balanced, true);
-  assertEquals(summary.onecab_money.onecab_gross_commission_pence, 867);
-  assertEquals(summary.driver_money.driver_available_payout_pence, 4916);
+  assertEquals(summary.onecab_money.onecab_card_commission_pence, 867);
+  assertEquals(summary.driver_money.card_driver_payable_pence, 4916);
 });
 
 Deno.test("classifyOnecabSettlementStatus never marks paid without verification", () => {

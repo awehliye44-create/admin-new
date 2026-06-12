@@ -16,24 +16,40 @@ export type ReconciliationStatus =
   | 'balanced'
   | 'reconciliation_error';
 
+export interface LedgerReconciliationCheck {
+  expected_sum_pence: number;
+  variance_pence: number;
+  delta_pence: number;
+  balanced: boolean;
+  status: 'BALANCED' | 'RECONCILIATION_MISMATCH';
+}
+
 export interface FinanceReconciliationSummary {
   customer_revenue: {
-    total_customer_revenue_pence: number;
+    card_customer_revenue_pence: number;
+    cash_collected_by_driver_pence: number;
     refunded_amount_pence: number;
+    net_card_revenue_pence: number;
+    total_customer_revenue_pence: number;
     net_customer_revenue_pence: number;
     commissionable_revenue_pence: number;
   };
   driver_money: {
-    driver_gross_earnings_pence: number;
-    driver_net_earnings_pence: number;
+    card_driver_payable_pence: number;
+    cash_driver_already_received_pence: number;
     driver_wallet_balance_pence: number;
     driver_available_payout_pence: number;
     driver_pending_payout_pence: number;
     driver_paid_out_pence: number;
     driver_payout_liability_pence: number;
+    onecab_cash_commission_owed_pence: number;
     in_flight_cashout_pence: number;
+    driver_gross_earnings_pence?: number;
+    driver_net_earnings_pence?: number;
   };
   onecab_money: {
+    onecab_card_commission_pence: number;
+    onecab_cash_commission_receivable_pence: number;
     onecab_gross_commission_pence: number;
     provider_processing_fee_pence: number;
     onecab_net_commission_pence: number;
@@ -49,6 +65,16 @@ export interface FinanceReconciliationSummary {
     last_webhook_received_at: string | null;
   };
   reconciliation_check: {
+    card_reconciliation: LedgerReconciliationCheck & {
+      card_customer_revenue_pence: number;
+      card_driver_payable_pence: number;
+      onecab_card_commission_pence: number;
+    };
+    cash_reconciliation: LedgerReconciliationCheck & {
+      cash_collected_by_driver_pence: number;
+      cash_driver_already_received_pence: number;
+      onecab_cash_commission_receivable_pence: number;
+    };
     net_customer_revenue_pence: number;
     driver_paid_out_pence?: number;
     driver_remaining_liability_pence?: number;
@@ -75,6 +101,7 @@ export interface TripFinancialAuditRow {
   trip_code: string | null;
   date: string | null;
   driver_name: string | null;
+  payment_method: string | null;
   customer_paid_pence: number;
   captured_pence: number;
   refunded_pence: number;
@@ -113,8 +140,8 @@ export function toSettlementOverviewResponse(data: FinanceReconciliationResponse
       trip_count: data.meta.trip_count,
     },
     driver_earnings_summary: {
-      driver_gross_earnings_pence: s.driver_money.driver_gross_earnings_pence,
-      driver_net_earnings_pence: s.driver_money.driver_net_earnings_pence,
+      driver_gross_earnings_pence: s.driver_money.driver_gross_earnings_pence ?? 0,
+      driver_net_earnings_pence: s.driver_money.card_driver_payable_pence,
     },
     onecab_commission_summary: {
       onecab_gross_commission_pence: s.onecab_money.onecab_gross_commission_pence,

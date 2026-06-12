@@ -289,15 +289,6 @@ serve(async (req) => {
       });
     }
 
-    const settlementStatus = classifyOnecabSettlementStatus({
-      calculatedOnecabNetPence: finance.onecab_net_pence,
-      verifiedOnecabNetPence: finance.verified_onecab_net_pence,
-      stripeAvailablePence,
-      stripePendingPence,
-      verifiedTripCount: finance.verified_trip_count,
-      tripCount: finance.tripCount,
-    });
-
     const failedWebhookCount = failedWebhooksResult.count ?? 0;
     const lastWebhookAt = webhookResult.data?.created_at ?? null;
     let providerHealth: "healthy" | "degraded" | "failing" | "unknown" = "unknown";
@@ -315,6 +306,15 @@ serve(async (req) => {
       ledger: ledgerResult.data || [],
       providerAvailableBalancePence: stripeAvailablePence,
       providerPendingBalancePence: stripePendingPence,
+    });
+
+    const settlementStatus = classifyOnecabSettlementStatus({
+      calculatedOnecabNetPence: ssotMetrics.onecab_net_commission_pence,
+      verifiedOnecabNetPence: finance.verified_onecab_net_pence,
+      stripeAvailablePence,
+      stripePendingPence,
+      verifiedTripCount: finance.verified_trip_count,
+      tripCount: finance.tripCount,
     });
 
     const finance_reconciliation_summary = buildFinanceReconciliationSummary({
@@ -344,17 +344,17 @@ serve(async (req) => {
         ssot_version: "financial_reconciliation_ssot_v1",
         data_source_badge: "LIVE",
         accounting_rules: {
-          total_customer_revenue: "payments.captured_amount_pence → trips.capture → trips.final_fare",
-          onecab_gross_commission: "sum(trips.commission_pence) — NEVER provider_balance or driver_liability",
-          onecab_net_commission: "onecab_gross_commission_pence - provider_processing_fee_pence",
-          driver_paid_out: "abs(sum(driver_wallet_ledger payout debits))",
-          driver_remaining_liability: "driver_net_earnings - driver_paid_out + adjustments",
-          driver_available_now: "min(driver_remaining_liability, provider_available_balance)",
-          driver_pending_payout: "max(0, driver_remaining_liability - driver_available_now)",
-          reconciliation_period:
-            "net_customer_revenue = driver_net_earnings + onecab_gross_commission + tips (trip earnings in selected period)",
-          reconciliation_cash:
-            "net_customer_revenue = driver_paid_out + driver_remaining_liability + onecab_net_commission + provider_processing_fee (adjustments already in liability)",
+          card_customer_revenue: "sum(card trip fare + card tips) from payments/trips — card trips only",
+          cash_collected_by_driver: "sum(cash trip fare) — not ONECAB Stripe revenue",
+          onecab_card_commission: "sum(card trip commission_pence)",
+          onecab_cash_commission_receivable: "sum(cash trip commission_pence) — owed by driver",
+          onecab_net_commission: "onecab_card_commission - stripe_processing_fees (card only)",
+          driver_payout_liability: "card_driver_payable - driver_paid_out + adjustments (excludes cash driver_net)",
+          driver_wallet: "card: +driver_net+tips; cash: -commission (fare already with driver)",
+          card_reconciliation:
+            "card_customer_revenue = card_driver_payable + onecab_card_commission",
+          cash_reconciliation:
+            "cash_collected_by_driver = cash_driver_already_received + onecab_cash_commission_receivable",
         },
       },
     }), {

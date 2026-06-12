@@ -10,7 +10,7 @@
 
 import {
   buildReconciliationCheck,
-  buildTripEarningsReconciliationCheck,
+  buildSplitReconciliationCheck,
   type FinanceDataSourceBadge,
   type SSOTComputedMetrics,
   SSOT_VERSION,
@@ -305,22 +305,34 @@ export const COUNTABLE_FINANCIAL_OUTCOMES = COUNTABLE_OUTCOMES;
 /** SSOT finance reconciliation payload — all admin finance surfaces read from this shape. */
 export type FinanceReconciliationSummary = {
   customer_revenue: {
-    total_customer_revenue_pence: number;
+    card_customer_revenue_pence: number;
+    cash_collected_by_driver_pence: number;
     refunded_amount_pence: number;
+    net_card_revenue_pence: number;
+    /** @deprecated Use card_customer_revenue_pence + cash_collected_by_driver_pence */
+    total_customer_revenue_pence: number;
+    /** @deprecated Use net_card_revenue_pence for Stripe revenue */
     net_customer_revenue_pence: number;
     commissionable_revenue_pence: number;
   };
   driver_money: {
-    driver_gross_earnings_pence: number;
-    driver_net_earnings_pence: number;
+    card_driver_payable_pence: number;
+    cash_driver_already_received_pence: number;
     driver_wallet_balance_pence: number;
     driver_available_payout_pence: number;
     driver_pending_payout_pence: number;
     driver_paid_out_pence: number;
     driver_payout_liability_pence: number;
+    onecab_cash_commission_owed_pence: number;
     in_flight_cashout_pence: number;
+    /** @deprecated Lifetime earnings — use Driver Earnings screen */
+    driver_gross_earnings_pence?: number;
+    /** @deprecated Mixed card+cash — use card_driver_payable_pence */
+    driver_net_earnings_pence?: number;
   };
   onecab_money: {
+    onecab_card_commission_pence: number;
+    onecab_cash_commission_receivable_pence: number;
     onecab_gross_commission_pence: number;
     provider_processing_fee_pence: number;
     onecab_net_commission_pence: number;
@@ -336,6 +348,26 @@ export type FinanceReconciliationSummary = {
     last_webhook_received_at: string | null;
   };
   reconciliation_check: {
+    card_reconciliation: {
+      card_customer_revenue_pence: number;
+      card_driver_payable_pence: number;
+      onecab_card_commission_pence: number;
+      expected_sum_pence: number;
+      variance_pence: number;
+      delta_pence: number;
+      balanced: boolean;
+      status: "BALANCED" | "RECONCILIATION_MISMATCH";
+    };
+    cash_reconciliation: {
+      cash_collected_by_driver_pence: number;
+      cash_driver_already_received_pence: number;
+      onecab_cash_commission_receivable_pence: number;
+      expected_sum_pence: number;
+      variance_pence: number;
+      delta_pence: number;
+      balanced: boolean;
+      status: "BALANCED" | "RECONCILIATION_MISMATCH";
+    };
     net_customer_revenue_pence: number;
     driver_paid_out_pence: number;
     driver_remaining_liability_pence: number;
@@ -362,6 +394,7 @@ export type TripFinancialAuditRow = {
   trip_code: string | null;
   date: string | null;
   driver_name: string | null;
+  payment_method: string | null;
   customer_paid_pence: number;
   captured_pence: number;
   refunded_pence: number;
@@ -422,44 +455,38 @@ export function buildFinanceReconciliationSummary(args: {
   const m = args.ssot;
   const driverAvailablePayout = Math.max(0, m.driver_available_now_pence - args.inFlightCashoutPence);
 
-  const cashReconciliation = buildReconciliationCheck({
-    netCustomerRevenuePence: m.net_customer_revenue_pence,
-    driverPaidOutPence: m.driver_paid_out_pence,
-    driverRemainingLiabilityPence: m.driver_remaining_liability_pence,
-    onecabNetCommissionPence: m.onecab_net_commission_pence,
-    providerProcessingFeePence: m.provider_processing_fee_pence,
-    adjustmentsPence: m.adjustments_pence,
+  const split = m.ledger_split;
+  const splitReconciliation = buildSplitReconciliationCheck({
+    ledger: split,
     tolerancePence: args.tolerancePence,
   });
-
-  const tripReconciliation = buildTripEarningsReconciliationCheck({
-    netCustomerRevenuePence: m.net_customer_revenue_pence,
-    driverNetEarningsPence: m.driver_net_earnings_pence,
-    onecabGrossCommissionPence: m.onecab_gross_commission_pence,
-    tipsPence: m.tips_pence,
-    tolerancePence: args.tolerancePence,
-  });
-
-  const reconciliation = args.periodScoped !== false ? tripReconciliation : cashReconciliation;
 
   return {
     customer_revenue: {
-      total_customer_revenue_pence: m.total_customer_revenue_pence,
+      card_customer_revenue_pence: split.card_customer_revenue_pence,
+      cash_collected_by_driver_pence: split.cash_collected_by_driver_pence,
       refunded_amount_pence: m.refunded_amount_pence,
-      net_customer_revenue_pence: m.net_customer_revenue_pence,
+      net_card_revenue_pence: split.net_card_revenue_pence,
+      total_customer_revenue_pence: split.card_customer_revenue_pence + split.cash_collected_by_driver_pence,
+      net_customer_revenue_pence: split.net_card_revenue_pence,
       commissionable_revenue_pence: args.commissionableRevenuePence,
     },
     driver_money: {
-      driver_gross_earnings_pence: m.driver_gross_earnings_pence,
-      driver_net_earnings_pence: m.driver_net_earnings_pence,
+      card_driver_payable_pence: split.card_driver_payable_pence,
+      cash_driver_already_received_pence: split.cash_driver_already_received_pence,
       driver_wallet_balance_pence: args.driverWalletBalancePence,
       driver_available_payout_pence: driverAvailablePayout,
       driver_pending_payout_pence: m.driver_pending_payout_pence,
       driver_paid_out_pence: m.driver_paid_out_pence,
       driver_payout_liability_pence: m.driver_remaining_liability_pence,
+      onecab_cash_commission_owed_pence: split.onecab_cash_commission_receivable_pence,
       in_flight_cashout_pence: args.inFlightCashoutPence,
+      driver_gross_earnings_pence: m.driver_gross_earnings_pence,
+      driver_net_earnings_pence: m.driver_net_earnings_pence,
     },
     onecab_money: {
+      onecab_card_commission_pence: split.onecab_card_commission_pence,
+      onecab_cash_commission_receivable_pence: split.onecab_cash_commission_receivable_pence,
       onecab_gross_commission_pence: m.onecab_gross_commission_pence,
       provider_processing_fee_pence: m.provider_processing_fee_pence,
       onecab_net_commission_pence: m.onecab_net_commission_pence,
@@ -475,19 +502,27 @@ export function buildFinanceReconciliationSummary(args: {
       last_webhook_received_at: args.lastWebhookReceivedAt,
     },
     reconciliation_check: {
-      net_customer_revenue_pence: reconciliation.net_customer_revenue_pence,
+      card_reconciliation: splitReconciliation.card_reconciliation,
+      cash_reconciliation: splitReconciliation.cash_reconciliation,
+      net_customer_revenue_pence: split.card_customer_revenue_pence,
       driver_paid_out_pence: m.driver_paid_out_pence,
       driver_remaining_liability_pence: m.driver_remaining_liability_pence,
-      driver_net_earnings_pence: m.driver_net_earnings_pence,
-      onecab_gross_commission_pence: m.onecab_gross_commission_pence,
+      driver_net_earnings_pence: split.card_driver_payable_pence,
+      onecab_gross_commission_pence: split.onecab_card_commission_pence,
       onecab_net_commission_pence: m.onecab_net_commission_pence,
       provider_processing_fee_pence: m.provider_processing_fee_pence,
       adjustments_pence: m.adjustments_pence,
-      expected_sum_pence: reconciliation.expected_sum_pence,
-      variance_pence: reconciliation.variance_pence,
-      delta_pence: reconciliation.delta_pence,
-      balanced: reconciliation.balanced,
-      status: reconciliation.status,
+      expected_sum_pence: splitReconciliation.card_reconciliation.expected_sum_pence,
+      variance_pence: Math.max(
+        Math.abs(splitReconciliation.card_reconciliation.variance_pence),
+        Math.abs(splitReconciliation.cash_reconciliation.variance_pence),
+      ),
+      delta_pence: Math.max(
+        Math.abs(splitReconciliation.card_reconciliation.delta_pence),
+        Math.abs(splitReconciliation.cash_reconciliation.delta_pence),
+      ),
+      balanced: splitReconciliation.balanced,
+      status: splitReconciliation.status,
     },
     ssot: {
       version: SSOT_VERSION,
@@ -544,6 +579,7 @@ export function mapTripToFinancialAuditRow(row: TripAuditSourceRow): TripFinanci
     trip_code: row.trip_code ?? null,
     date: row.completed_at ?? null,
     driver_name: driverName,
+    payment_method: row.payment_method ?? null,
     customer_paid_pence: customerPaid,
     captured_pence: captured,
     refunded_pence: refunded,
