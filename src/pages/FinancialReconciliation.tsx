@@ -350,10 +350,21 @@ export default function FinancialReconciliation() {
                 {backendAudit.reconciliation.reconciliation_status === 'MISMATCH' && (
                   <Alert variant="destructive">
                     <AlertTriangle className="h-4 w-4" />
-                    <AlertTitle>Reconciliation MISMATCH</AlertTitle>
-                    <AlertDescription>
-                      Difference {formatPence(backendAudit.reconciliation.reconciliation_difference_pence, ccy)} —
-                      {backendAudit.answered_questions.K_wallet_vs_payout_diagnosis}
+                    <AlertTitle>Backend audit MISMATCH</AlertTitle>
+                    <AlertDescription className="space-y-2">
+                      {!backendAudit.reconciliation.card_reconciliation?.balanced && (
+                        <p>
+                          Card ledger variance{' '}
+                          {formatPence(backendAudit.reconciliation.card_reconciliation?.variance_pence ?? 0, ccy)}
+                        </p>
+                      )}
+                      {!backendAudit.reconciliation.cash_reconciliation?.balanced && (
+                        <p>
+                          Cash ledger variance{' '}
+                          {formatPence(backendAudit.reconciliation.cash_reconciliation?.variance_pence ?? 0, ccy)}
+                        </p>
+                      )}
+                      <p className="text-xs">{String(backendAudit.answered_questions.K_wallet_vs_payout_diagnosis)}</p>
                     </AlertDescription>
                   </Alert>
                 )}
@@ -361,9 +372,10 @@ export default function FinancialReconciliation() {
                 <div>
                   <h3 className="text-sm font-semibold mb-2">INCOMING MONEY</h3>
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    <MetricCard title="Customer Captured" value={backendAudit.incoming_money.customer_captured_total_pence} ccy={ccy} />
+                    <MetricCard title="Card Customer Revenue" value={backendAudit.incoming_money.card_customer_revenue_pence ?? backendAudit.incoming_money.customer_captured_total_pence} ccy={ccy} />
+                    <MetricCard title="Cash Collected by Driver" value={backendAudit.incoming_money.cash_collected_by_driver_pence ?? 0} ccy={ccy} />
                     <MetricCard title="Customer Refunded" value={backendAudit.incoming_money.customer_refunded_total_pence} ccy={ccy} />
-                    <MetricCard title="Net Customer Money In" value={backendAudit.incoming_money.net_customer_money_in_pence} ccy={ccy} />
+                    <MetricCard title="Net Card Revenue" value={backendAudit.incoming_money.net_card_revenue_pence ?? backendAudit.incoming_money.net_customer_money_in_pence} ccy={ccy} />
                     <MetricCard title="Provider Available" value={backendAudit.incoming_money.provider_available_balance_pence} ccy={ccy} />
                     <MetricCard title="Provider Pending" value={backendAudit.incoming_money.provider_pending_balance_pence} ccy={ccy} />
                     <MetricCard title="Provider Payouts to ONECAB Bank" value={backendAudit.incoming_money.provider_payouts_to_onecab_bank_pence} ccy={ccy} />
@@ -382,10 +394,31 @@ export default function FinancialReconciliation() {
                   </div>
                 </div>
 
+                {backendAudit.reconciliation.card_reconciliation && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-lg border border-blue-500/30 p-3">
+                      <p className="text-xs font-semibold mb-2">Card ledger — {backendAudit.reconciliation.card_reconciliation.status}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Revenue {formatPence(backendAudit.reconciliation.card_reconciliation.card_customer_revenue_pence, ccy)} = payable{' '}
+                        {formatPence(backendAudit.reconciliation.card_reconciliation.card_driver_payable_pence, ccy)} + commission{' '}
+                        {formatPence(backendAudit.reconciliation.card_reconciliation.onecab_card_commission_pence, ccy)}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-amber-500/30 p-3">
+                      <p className="text-xs font-semibold mb-2">Cash ledger — {backendAudit.reconciliation.cash_reconciliation.status}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Collected {formatPence(backendAudit.reconciliation.cash_reconciliation.cash_collected_by_driver_pence, ccy)} = driver received{' '}
+                        {formatPence(backendAudit.reconciliation.cash_reconciliation.cash_driver_already_received_pence, ccy)} + ONECAB receivable{' '}
+                        {formatPence(backendAudit.reconciliation.cash_reconciliation.onecab_cash_commission_receivable_pence, ccy)}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <h3 className="text-sm font-semibold mb-2">REMAINING MONEY</h3>
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    <MetricCard title="Driver Remaining Liability" value={backendAudit.remaining_money.driver_remaining_liability_pence} ccy={ccy} />
+                    <MetricCard title="Driver Remaining Liability" value={backendAudit.remaining_money.driver_remaining_liability_pence} ccy={ccy} subtitle="Card payable only" />
                     <MetricCard title="Driver Available Now" value={backendAudit.remaining_money.driver_available_now_pence} ccy={ccy} subtitle="min(liability, provider available)" />
                     <MetricCard title="Driver Pending Settlement" value={backendAudit.remaining_money.driver_pending_settlement_pence} ccy={ccy} />
                     <MetricCard title="ONECAB Remaining Commission" value={backendAudit.remaining_money.onecab_remaining_commission_pence} ccy={ccy} />

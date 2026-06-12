@@ -9,11 +9,15 @@
  */
 
 import {
+  buildSplitReconciliationCheck,
+  computePaymentMethodLedgerMetrics,
+  isCashTrip,
+  tripTipsPence,
+} from "./financialReconciliationSSOT.ts";
+import {
   sumRefundedAmountPence,
-  sumTripFinanceMetrics,
   tripDriverNetPence,
   tripGrossCommissionPence,
-  tripOnecabNetPence,
   tripStripeFeePence,
   type TripAuditSourceRow,
 } from "./financeSettlementSummary.ts";
@@ -30,9 +34,12 @@ export type FinanceBackendAuditV1 = {
   period: { from: string; to: string };
   currency_code: string;
   incoming_money: {
+    card_customer_revenue_pence: number;
+    cash_collected_by_driver_pence: number;
     customer_captured_total_pence: number;
     customer_refunded_total_pence: number;
     net_customer_money_in_pence: number;
+    net_card_revenue_pence: number;
     provider_available_balance_pence: number;
     provider_pending_balance_pence: number;
     provider_payouts_to_onecab_bank_pence: number;
@@ -57,6 +64,8 @@ export type FinanceBackendAuditV1 = {
   reconciliation: {
     reconciliation_status: "BALANCED" | "MISMATCH";
     reconciliation_difference_pence: number;
+    card_reconciliation: ReturnType<typeof buildSplitReconciliationCheck>["card_reconciliation"];
+    cash_reconciliation: ReturnType<typeof buildSplitReconciliationCheck>["cash_reconciliation"];
     equation: {
       net_customer_money_in_pence: number;
       driver_paid_out_total_pence: number;
@@ -215,6 +224,8 @@ export function buildTripAuditRows(
     const refunded = Math.max(0, row.refund_amount_pence ?? 0);
     const driverNet = tripDriverNetPence(row);
     const paidOut = payoutByTrip.get(row.id) ?? 0;
+    const tips = tripTipsPence(row);
+    const cardPayable = isCashTrip(row) ? 0 : driverNet + tips;
     return {
       trip_id: row.id,
       trip_code: row.trip_code ?? null,
@@ -223,9 +234,9 @@ export function buildTripAuditRows(
       driver_net_pence: driverNet,
       onecab_commission_pence: tripGrossCommissionPence(row),
       provider_fee_pence: tripStripeFeePence(row),
-      payout_status: paidOut > 0 ? "paid_out" : "unpaid",
+      payout_status: paidOut > 0 ? "paid_out" : isCashTrip(row) ? "cash_collected" : "unpaid",
       paid_out_amount_pence: paidOut,
-      remaining_driver_liability_pence: Math.max(0, driverNet - paidOut),
+      remaining_driver_liability_pence: Math.max(0, cardPayable - paidOut),
     };
   });
 }
@@ -329,22 +340,22 @@ export function buildFinanceBackendAuditV1(args: {
   tolerancePence?: number;
 }): FinanceBackendAuditV1 {
   const tolerance = args.tolerancePence ?? 100;
-  const tripMetrics = sumTripFinanceMetrics(args.trips);
+  const ledgerSplit = computePaymentMethodLedgerMetrics({ trips: args.trips });
   const refunded = sumRefundedAmountPence(args.trips);
-  const capturedTotal = args.trips.reduce((s, t) => s + Math.max(0, t.capture_amount_pence ?? 0), 0);
-  const netCustomerIn = Math.max(0, capturedTotal - refunded);
+  const splitCheck = buildSplitReconciliationCheck({ ledger: ledgerSplit, tolerancePence: tolerance });
 
   const payoutDebits = sumLedgerPayoutDebits(args.ledgerRows);
   const adjustments = sumLedgerAdjustmentsPence(args.ledgerRows);
-  const providerFees = tripMetrics.stripe_fee_pence;
+  const providerFees = ledgerSplit.stripe_processing_fees_pence;
 
   const failedPayouts = args.payoutItems
     .filter((p) => p.status === "failed")
     .reduce((s, p) => s + Math.max(0, p.amount_pence ?? 0), 0);
 
+  /** Card driver payable only — cash driver_net is already in the driver's hand. */
   const driverRemainingLiability = Math.max(
     0,
-    tripMetrics.driver_net_earnings_pence - payoutDebits.total + adjustments,
+    ledgerSplit.card_driver_payable_pence - payoutDebits.total + adjustments,
   );
 
   const driverAvailableNow = Math.min(
@@ -354,16 +365,18 @@ export function buildFinanceBackendAuditV1(args: {
 
   const driverPendingSettlement = Math.max(0, driverRemainingLiability - driverAvailableNow);
 
-  const onecabRemainingCommission = Math.max(0, tripMetrics.onecab_net_pence);
+  const onecabRemainingCommission = Math.max(0, ledgerSplit.onecab_card_net_commission_pence);
 
-  const lhs = netCustomerIn;
-  const rhs =
-    payoutDebits.total +
-    driverRemainingLiability +
-    tripMetrics.onecab_net_pence +
-    providerFees;
-  const reconciliationDiff = lhs - rhs;
-  const balanced = Math.abs(reconciliationDiff) <= tolerance;
+  const cardLhs = ledgerSplit.card_customer_revenue_pence;
+  const cardRhs =
+    ledgerSplit.card_driver_payable_pence + ledgerSplit.onecab_card_commission_pence;
+  const reconciliationDiff = splitCheck.balanced
+    ? 0
+    : Math.max(
+      Math.abs(splitCheck.card_reconciliation.variance_pence),
+      Math.abs(splitCheck.cash_reconciliation.variance_pence),
+    );
+  const balanced = splitCheck.balanced;
 
   const ledgerById = new Map(args.ledgerRows.map((r) => [r.id, r]));
 
@@ -444,20 +457,27 @@ export function buildFinanceBackendAuditV1(args: {
   ];
 
   const answered: Record<string, string | number> = {
-    A_total_customer_paid_pence: capturedTotal,
+    A_card_customer_revenue_pence: ledgerSplit.card_customer_revenue_pence,
+    A2_cash_collected_by_driver_pence: ledgerSplit.cash_collected_by_driver_pence,
     B_total_refunded_pence: refunded,
-    C_net_collected_pence: netCustomerIn,
+    C_net_card_revenue_pence: ledgerSplit.net_card_revenue_pence,
     D_driver_paid_out_total_pence: payoutDebits.total,
     E_onecab_paid_to_bank_pence: args.stripePlatformPayoutsPence,
     F_driver_still_owed_pence: driverRemainingLiability,
     G_driver_available_now_pence: driverAvailableNow,
     H_driver_pending_settlement_pence: driverPendingSettlement,
-    I_onecab_true_commission_net_pence: tripMetrics.onecab_net_pence,
+    I_onecab_card_commission_net_pence: ledgerSplit.onecab_card_net_commission_pence,
+    I2_onecab_cash_commission_receivable_pence: ledgerSplit.onecab_cash_commission_receivable_pence,
     J_provider_processing_fee_pence: providerFees,
     K_wallet_vs_payout_diagnosis: walletIntegrity[0]?.explanation ??
-      (totalWalletBalance > 0
-        ? `Aggregate wallet balance ${totalWalletBalance}p; paid out ${payoutDebits.total}p; remaining liability ${driverRemainingLiability}p.`
-        : "No wallet integrity anomalies detected."),
+      (balanced
+        ? `Card and cash ledgers balanced. Card liability ${driverRemainingLiability}p; cash commission owed ${ledgerSplit.onecab_cash_commission_receivable_pence}p.`
+        : !splitCheck.card_reconciliation.balanced
+        ? `Card ledger mismatch ${splitCheck.card_reconciliation.variance_pence}p — do not mix cash into Stripe revenue.`
+        : `Cash ledger mismatch ${splitCheck.cash_reconciliation.variance_pence}p.`)
+        + (totalWalletBalance > 0
+          ? ` Wallet aggregate ${totalWalletBalance}p; paid out ${payoutDebits.total}p.`
+          : ""),
   };
 
   return {
@@ -465,9 +485,12 @@ export function buildFinanceBackendAuditV1(args: {
     period: args.period,
     currency_code: args.currencyCode.toUpperCase(),
     incoming_money: {
-      customer_captured_total_pence: capturedTotal,
+      card_customer_revenue_pence: ledgerSplit.card_customer_revenue_pence,
+      cash_collected_by_driver_pence: ledgerSplit.cash_collected_by_driver_pence,
+      customer_captured_total_pence: ledgerSplit.card_customer_revenue_pence,
       customer_refunded_total_pence: refunded,
-      net_customer_money_in_pence: netCustomerIn,
+      net_customer_money_in_pence: ledgerSplit.net_card_revenue_pence,
+      net_card_revenue_pence: ledgerSplit.net_card_revenue_pence,
       provider_available_balance_pence: args.stripeAvailablePence,
       provider_pending_balance_pence: args.stripePendingPence,
       provider_payouts_to_onecab_bank_pence: args.stripePlatformPayoutsPence,
@@ -492,15 +515,17 @@ export function buildFinanceBackendAuditV1(args: {
     reconciliation: {
       reconciliation_status: balanced ? "BALANCED" : "MISMATCH",
       reconciliation_difference_pence: reconciliationDiff,
+      card_reconciliation: splitCheck.card_reconciliation,
+      cash_reconciliation: splitCheck.cash_reconciliation,
       equation: {
-        net_customer_money_in_pence: lhs,
+        net_customer_money_in_pence: cardLhs,
         driver_paid_out_total_pence: payoutDebits.total,
         driver_remaining_liability_pence: driverRemainingLiability,
-        onecab_net_commission_pence: tripMetrics.onecab_net_pence,
+        onecab_net_commission_pence: ledgerSplit.onecab_card_commission_pence,
         provider_processing_fees_pence: providerFees,
         adjustments_pence: adjustments,
-        lhs_pence: lhs,
-        rhs_pence: rhs,
+        lhs_pence: cardLhs,
+        rhs_pence: cardRhs,
       },
     },
     answered_questions: answered,
@@ -514,12 +539,14 @@ export function buildFinanceBackendAuditV1(args: {
       stripe_balance_error: args.stripeBalanceError,
       accounting_rules: {
         driver_remaining_liability:
-          "driver_net_earnings - ledger_payout_debits + ledger_adjustments",
+          "card_driver_payable - ledger_payout_debits + ledger_adjustments (excludes cash driver_net)",
         driver_available_now:
           "min(driver_remaining_liability, provider_available_balance) — NOT wallet balance",
-        onecab_commission: "sum(trips.onecab_net_pence) — NOT provider available balance",
-        reconciliation:
-          "net_customer_in = paid_out + remaining_liability + onecab_net + provider_fees (adjustments already in liability)",
+        onecab_commission: "card commission − Stripe fees; cash commission is receivable from driver",
+        card_reconciliation:
+          "card_customer_revenue = card_driver_payable + onecab_card_commission",
+        cash_reconciliation:
+          "cash_collected_by_driver = cash_driver_already_received + onecab_cash_commission_receivable",
         payout_ledger:
           "completed payout must insert negative driver_wallet_ledger (PAYOUT/WEEKLY_PAYOUT/EARLY_CASHOUT)",
       },

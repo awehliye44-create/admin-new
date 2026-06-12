@@ -124,3 +124,72 @@ Deno.test("driver_available_now is min(liability, provider_available)", () => {
   assertEquals(audit.remaining_money.driver_available_now_pence, 1000);
   assertEquals(audit.remaining_money.driver_pending_settlement_pence, 1500);
 });
+
+Deno.test("mixed card+cash does not false MISMATCH on backend audit", () => {
+  const audit = buildFinanceBackendAuditV1({
+    period: { from: "2026-01-01", to: "2026-06-12" },
+    currencyCode: "gbp",
+    trips: [
+      {
+        id: "card-1",
+        capture_amount_pence: 480,
+        driver_net_pence: 408,
+        commission_pence: 72,
+        stripe_processing_fee_pence: 27,
+        onecab_net_pence: 45,
+        gross_fare_pence: 480,
+        final_fare_pence: 480,
+        commissionable_fare_pence: 480,
+        tip_pence: 0,
+        tip_amount_pence: 0,
+        payment_method: "card",
+        stripe_settlement_verified: true,
+        driver_tier_commission_percent: 15,
+        commission_pct: 15,
+        completed_at: "2026-06-12",
+      },
+      {
+        id: "cash-1",
+        capture_amount_pence: 0,
+        driver_net_pence: 714,
+        commission_pence: 126,
+        stripe_processing_fee_pence: 0,
+        onecab_net_pence: 126,
+        gross_fare_pence: 840,
+        final_fare_pence: 840,
+        commissionable_fare_pence: 840,
+        tip_pence: 0,
+        tip_amount_pence: 0,
+        payment_method: "CASH",
+        stripe_settlement_verified: false,
+        driver_tier_commission_percent: 15,
+        commission_pct: 15,
+        completed_at: "2026-06-12",
+      },
+    ],
+    ledgerRows: [{
+      id: "earn-1",
+      driver_id: "drv-1",
+      type: "TRIP_EARNING_NET",
+      amount_pence: 282,
+    }, {
+      id: "cash-comm",
+      driver_id: "drv-1",
+      type: "CASH_COMMISSION_DEBIT",
+      amount_pence: -126,
+    }],
+    payoutItems: [],
+    earlyCashouts: [],
+    walletByDriver: new Map([["drv-1", 282]]),
+    drivers: [{ id: "drv-1", first_name: "asriya", last_name: "wahbiya" }],
+    stripeAvailablePence: 1336,
+    stripePendingPence: 564,
+    stripePlatformPayoutsPence: 6176,
+    stripeBalanceError: null,
+  });
+
+  assertEquals(audit.reconciliation.reconciliation_status, "BALANCED");
+  assertEquals(audit.incoming_money.card_customer_revenue_pence, 480);
+  assertEquals(audit.incoming_money.cash_collected_by_driver_pence, 840);
+  assertEquals(audit.remaining_money.driver_remaining_liability_pence, 408);
+});

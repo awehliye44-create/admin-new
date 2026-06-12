@@ -7,6 +7,9 @@ export type FinanceBackendAuditV1 = {
   period: { from: string; to: string };
   currency_code: string;
   incoming_money: {
+    card_customer_revenue_pence?: number;
+    cash_collected_by_driver_pence?: number;
+    net_card_revenue_pence?: number;
     customer_captured_total_pence: number;
     customer_refunded_total_pence: number;
     net_customer_money_in_pence: number;
@@ -34,6 +37,22 @@ export type FinanceBackendAuditV1 = {
   reconciliation: {
     reconciliation_status: 'BALANCED' | 'MISMATCH';
     reconciliation_difference_pence: number;
+    card_reconciliation?: {
+      card_customer_revenue_pence: number;
+      card_driver_payable_pence: number;
+      onecab_card_commission_pence: number;
+      variance_pence: number;
+      balanced: boolean;
+      status: 'BALANCED' | 'MISMATCH';
+    };
+    cash_reconciliation?: {
+      cash_collected_by_driver_pence: number;
+      cash_driver_already_received_pence: number;
+      onecab_cash_commission_receivable_pence: number;
+      variance_pence: number;
+      balanced: boolean;
+      status: 'BALANCED' | 'MISMATCH';
+    };
     equation: Record<string, number>;
   };
   answered_questions: Record<string, string | number>;
