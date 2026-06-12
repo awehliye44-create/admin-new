@@ -32,8 +32,10 @@ interface DispatchMetricsResult {
   socket_delivered: number;
   socket_success_rate: number | null;
   push_enqueued: number;
+  push_skip_no_token?: number;
   push_sent: number;
   push_failed: number;
+  reminder_scheduler_failed?: number;
   push_success_rate: number | null;
   avg_accept_seconds: number;
   total_offers: number;
@@ -57,6 +59,8 @@ interface DispatchMetricsResult {
   debug?: {
     retry_delivery_count: number;
     metrics_basis: string;
+    push_eligible?: number;
+    reminder_scheduler_failed?: number;
   };
 }
 
@@ -107,6 +111,24 @@ function noEligibleHealth(v: number | null): Health {
   if (v <= 25) return "warning";
   return "critical";
 }
+function pushHealth(
+  data: DispatchMetricsResult | undefined,
+  socketHealth: Health,
+  deliveryHealthState: Health,
+): Health {
+  if (!data || data.push_enqueued === 0) return "unknown";
+  const eligible = Math.max(data.push_enqueued - (data.push_skip_no_token ?? 0), 0);
+  if (eligible === 0) return "unknown";
+
+  if (data.push_success_rate == null && data.push_failed === 0) {
+    if (socketHealth === "healthy" && (deliveryHealthState === "healthy" || deliveryHealthState === "warning")) {
+      return "warning";
+    }
+    return "unknown";
+  }
+
+  return deliveryHealth(data.push_success_rate ?? null);
+}
 
 const HEALTH_TEXT: Record<string, Record<Health, string>> = {
   delivery: {
@@ -128,10 +150,16 @@ const HEALTH_TEXT: Record<string, Record<Health, string>> = {
     unknown: "No offers in this window.",
   },
   fallback: {
-    healthy: "Most offers reach drivers without pending-offers poll recovery.",
-    warning: "A meaningful share of offers needed pending-offers recovery at least once.",
-    critical: "Many offers required pending-offers recovery — check realtime/socket health and push delivery.",
+    healthy: "Offers are reaching drivers without needing pending-offers recovery.",
+    warning: "Some offers were only surfaced after pending-offers poll recovery.",
+    critical: "Many offers needed pending-offers recovery before the driver saw them — check realtime/socket health.",
     unknown: "No offer activity in this window.",
+  },
+  push: {
+    healthy: "FCM/APNs native alerts are confirming delivery for enqueued offers.",
+    warning: "FCM confirmation is partial or unlogged; drivers may still receive offers via realtime socket.",
+    critical: "FCM push delivery is failing for many enqueued offers.",
+    unknown: "No FCM push attempts in this window, or outcomes are not yet logged.",
   },
   socket: {
     healthy: "Realtime socket delivery is reaching drivers for nearly all offers.",
@@ -209,7 +237,7 @@ export default function DispatchMetrics() {
   const hTimeout = timeoutHealth(data?.timeout_rate ?? null);
   const hFallback = fallbackHealth(data?.fallback_rate ?? null);
   const hNoEligible = noEligibleHealth(data?.no_eligible_rate ?? null);
-  const hPush = deliveryHealth(data?.push_success_rate ?? null);
+  const hPush = pushHealth(data, hSocket, hDelivery);
 
   // Operational hints
   const hints: string[] = [];
@@ -218,10 +246,16 @@ export default function DispatchMetrics() {
       hints.push("Technical delivery is healthy. This is likely a market/pricing/driver preference issue rather than a notification problem.");
     }
     if (hSocket === "healthy" && hPush === "critical") {
-      hints.push("Socket/realtime delivery is healthy but push notifications are failing — drivers may still see offers in-app.");
+      hints.push("Socket/realtime delivery is healthy but FCM native alerts are failing — drivers may still see offers in-app.");
+    }
+    if (hPush === "warning" && hSocket === "healthy") {
+      hints.push("FCM confirmation is missing or partial, but realtime/socket delivery is healthy — headline delivery is not degraded.");
+    }
+    if ((data.reminder_scheduler_failed ?? 0) > 0) {
+      hints.push(`${data.reminder_scheduler_failed} reminder-scheduler errors logged (ride-offer-reminders). These are excluded from Push Delivery and do not block initial offer delivery.`);
     }
     if ((hFallback === "warning" || hFallback === "critical") && hSocket === "healthy") {
-      hints.push("Pending-offers recovery is used for some offers even though socket delivery looks healthy — often app resume/poll, not a broken socket.");
+      hints.push("Pending-offers poll runs on app resume and is normal when the driver already received the offer via socket.");
     }
     if (hDelivery === "healthy" && (hAcceptance === "warning" || hAcceptance === "critical") && (hTimeout === "warning" || hTimeout === "critical")) {
       hints.push("Drivers are receiving offers correctly but are not accepting them.");
@@ -369,7 +403,7 @@ export default function DispatchMetrics() {
           sub={data ? `${data.fallback_offers ?? 0} offers recovered / ${data.offered} offered` : undefined}
           health={hFallback}
           helpText={HEALTH_TEXT.fallback[hFallback]}
-          why="Distinct offers that used pending_offers_fallback at least once / distinct offers sent. Healthy < 5%, Warning 5–15%, Critical > 15%."
+          why="Distinct offers where pending_offers_fallback fired and the driver had not yet ACKed / distinct offers sent. Resume polling after socket delivery is excluded. Healthy < 5%, Warning 5–15%, Critical > 15%."
           loading={isLoading}
         />
         <HealthCard
@@ -383,15 +417,15 @@ export default function DispatchMetrics() {
           loading={isLoading}
         />
         <HealthCard
-          title="Push Delivery"
+          title="FCM Push (native alert)"
           icon={<Send className="h-4 w-4 text-primary" />}
           value={data?.push_success_rate != null ? `${clampPct(data.push_success_rate)}%` : "—"}
           sub={data
-            ? `${data.push_sent} sent · ${data.push_failed} failed · ${data.push_enqueued} enqueued`
+            ? `${data.push_sent} FCM confirmed · ${data.push_failed} FCM failed · ${Math.max(data.push_enqueued - (data.push_skip_no_token ?? 0), 0)} eligible`
             : undefined}
           health={hPush}
-          helpText="FCM/APNs deliverability per distinct offer. Failed count excludes offers that later succeeded."
-          why="push_sent / push_enqueued (distinct offers). Same thresholds as delivery reliability."
+          helpText={HEALTH_TEXT.push[hPush]}
+          why="push_sent / (push_enqueued − skip_no_token). Reminder-scheduler errors from auto-dispatch are excluded. If FCM is unlogged but socket delivery is healthy, status shows Warning — not Critical."
           loading={isLoading}
         />
       </div>
@@ -400,7 +434,15 @@ export default function DispatchMetrics() {
         <Card className="mb-6">
           <CardHeader><CardTitle className="text-lg">Delivery Diagnostics</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            <DebugStat label="Distinct offers reassigned or retried" value={data.debug.retry_delivery_count} />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <DebugStat label="Distinct offers reassigned or retried" value={data.debug.retry_delivery_count} />
+              {(data.debug.reminder_scheduler_failed ?? data.reminder_scheduler_failed ?? 0) > 0 && (
+                <DebugStat
+                  label="Reminder scheduler failures (excluded from push)"
+                  value={data.debug.reminder_scheduler_failed ?? data.reminder_scheduler_failed ?? 0}
+                />
+              )}
+            </div>
             <p className="text-xs text-muted-foreground">
               Headline rates use one count per offer per phase ({data.debug.metrics_basis}). Duplicate delivery
               log rows are suppressed when offers are ACKed, recovered, or pushed more than once.
