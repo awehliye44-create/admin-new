@@ -397,9 +397,17 @@ export default function RolesPermissions() {
         .update({ role: reassignRole as any })
         .eq('id', selectedStaff.id);
 
+      await writeAudit(user?.id, 'roles.staff.reassign', {
+        target_staff_id: selectedStaff.id,
+        target_user_id: selectedStaff.user_id,
+        full_name: selectedStaff.full_name,
+        previous_role: selectedStaff.role,
+        new_role: reassignRole,
+      });
+
       setSuccess(`Role reassigned to ${ROLE_LABELS[reassignRole]}. New Staff ID will be generated.`);
       setShowReassignDialog(false);
-      await fetchStaffMembers();
+      await Promise.all([fetchStaffMembers(), fetchAuditLogs()]);
     } catch (err: any) {
       setError(err.message || 'Failed to reassign role');
     } finally {
