@@ -211,11 +211,40 @@ export default function RolesPermissions() {
     setPermissionMatrix(matrix);
   }, []);
 
+  const fetchAuditLogs = useCallback(async () => {
+    setIsAuditLoading(true);
+    try {
+      const { data } = await supabase
+        .from('audit_logs')
+        .select('id, event_type, user_id, details, created_at')
+        .like('event_type', 'roles.%')
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      const rows = (data || []) as unknown as AuditLogRow[];
+      const userIds = Array.from(new Set(rows.map(r => r.user_id).filter(Boolean))) as string[];
+      let nameById = new Map<string, string>();
+      if (userIds.length) {
+        const { data: profs } = await supabase
+          .from('staff_profiles')
+          .select('user_id, full_name, staff_role_id')
+          .in('user_id', userIds);
+        nameById = new Map((profs || []).map((p: any) => [p.user_id, `${p.full_name} (${p.staff_role_id})`]));
+      }
+      setAuditLogs(rows.map(r => ({ ...r, actor_name: r.user_id ? (nameById.get(r.user_id) ?? r.user_id.slice(0, 8)) : 'system' })));
+    } catch (err) {
+      console.error('Error fetching audit logs:', err);
+    } finally {
+      setIsAuditLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchStaffMembers();
     fetchServiceAreas();
     fetchPermissionMatrix();
-  }, [fetchStaffMembers, fetchServiceAreas, fetchPermissionMatrix]);
+    fetchAuditLogs();
+  }, [fetchStaffMembers, fetchServiceAreas, fetchPermissionMatrix, fetchAuditLogs]);
 
   const filteredStaff = staffMembers.filter(s => {
     if (filterRole !== 'all' && s.role !== filterRole) return false;
