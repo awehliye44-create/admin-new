@@ -69,12 +69,12 @@ async function writeAudit(
   details: Record<string, unknown>,
 ) {
   try {
-    await supabase.from('audit_logs').insert({
+    await supabase.from('audit_logs').insert([{
       event_type: eventType,
       user_id: actorUserId ?? null,
-      details,
+      details: details as never,
       user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
-    });
+    }]);
   } catch (e) {
     console.error('[audit] write failed', eventType, e);
   }
