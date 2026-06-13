@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -40,11 +40,45 @@ import {
   DollarSign,
   Headphones,
   ClipboardCheck,
+  History,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useStaffProfile, StaffRole, ROLE_LABELS, ROLE_PREFIXES } from '@/hooks/useStaffProfile';
 import { format } from 'date-fns';
+
+type AuditEventType =
+  | 'roles.permission.toggle'
+  | 'roles.staff.add'
+  | 'roles.staff.edit'
+  | 'roles.staff.reassign'
+  | 'roles.staff.remove';
+
+interface AuditLogRow {
+  id: string;
+  event_type: string;
+  user_id: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+  actor_name?: string;
+}
+
+async function writeAudit(
+  actorUserId: string | undefined,
+  eventType: AuditEventType,
+  details: Record<string, unknown>,
+) {
+  try {
+    await supabase.from('audit_logs').insert([{
+      event_type: eventType,
+      user_id: actorUserId ?? null,
+      details: details as never,
+      user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+    }]);
+  } catch (e) {
+    console.error('[audit] write failed', eventType, e);
+  }
+}
 
 interface StaffMember {
   id: string;
@@ -103,6 +137,11 @@ export default function RolesPermissions() {
 
   // Permission matrix
   const [permissionMatrix, setPermissionMatrix] = useState<Record<string, Record<string, boolean>>>({});
+
+  // Audit log
+  const [auditLogs, setAuditLogs] = useState<AuditLogRow[]>([]);
+  const [isAuditLoading, setIsAuditLoading] = useState(false);
+  const [auditFilter, setAuditFilter] = useState<'all' | AuditEventType>('all');
 
   // Stats
   const stats = {
@@ -172,11 +211,40 @@ export default function RolesPermissions() {
     setPermissionMatrix(matrix);
   }, []);
 
+  const fetchAuditLogs = useCallback(async () => {
+    setIsAuditLoading(true);
+    try {
+      const { data } = await supabase
+        .from('audit_logs')
+        .select('id, event_type, user_id, details, created_at')
+        .like('event_type', 'roles.%')
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      const rows = (data || []) as unknown as AuditLogRow[];
+      const userIds = Array.from(new Set(rows.map(r => r.user_id).filter(Boolean))) as string[];
+      let nameById = new Map<string, string>();
+      if (userIds.length) {
+        const { data: profs } = await supabase
+          .from('staff_profiles')
+          .select('user_id, full_name, staff_role_id')
+          .in('user_id', userIds);
+        nameById = new Map((profs || []).map((p: any) => [p.user_id, `${p.full_name} (${p.staff_role_id})`]));
+      }
+      setAuditLogs(rows.map(r => ({ ...r, actor_name: r.user_id ? (nameById.get(r.user_id) ?? r.user_id.slice(0, 8)) : 'system' })));
+    } catch (err) {
+      console.error('Error fetching audit logs:', err);
+    } finally {
+      setIsAuditLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchStaffMembers();
     fetchServiceAreas();
     fetchPermissionMatrix();
-  }, [fetchStaffMembers, fetchServiceAreas, fetchPermissionMatrix]);
+    fetchAuditLogs();
+  }, [fetchStaffMembers, fetchServiceAreas, fetchPermissionMatrix, fetchAuditLogs]);
 
   const filteredStaff = staffMembers.filter(s => {
     if (filterRole !== 'all' && s.role !== filterRole) return false;
@@ -248,10 +316,19 @@ export default function RolesPermissions() {
         );
       }
 
+      await writeAudit(user?.id, 'roles.staff.add', {
+        target_user_id: formUserUuid.trim(),
+        target_staff_id: newProfile?.id,
+        full_name: formFullName.trim(),
+        username: formUsername.trim() || null,
+        role: formRole,
+        service_area_ids: formServiceAreas,
+      });
+
       setSuccess(`Staff member added as ${ROLE_LABELS[formRole]}`);
       resetForm();
       setShowAddDialog(false);
-      await fetchStaffMembers();
+      await Promise.all([fetchStaffMembers(), fetchAuditLogs()]);
     } catch (err: any) {
       setError(err.message || 'Failed to add staff member');
     } finally {
@@ -284,9 +361,24 @@ export default function RolesPermissions() {
         );
       }
 
+      await writeAudit(user?.id, 'roles.staff.edit', {
+        target_staff_id: selectedStaff.id,
+        target_user_id: selectedStaff.user_id,
+        before: {
+          full_name: selectedStaff.full_name,
+          username: selectedStaff.username,
+          service_area_ids: selectedStaff.service_areas.map(s => s.service_area_id),
+        },
+        after: {
+          full_name: formFullName.trim(),
+          username: formUsername.trim() || null,
+          service_area_ids: formServiceAreas,
+        },
+      });
+
       setSuccess('Staff member updated');
       setShowEditDialog(false);
-      await fetchStaffMembers();
+      await Promise.all([fetchStaffMembers(), fetchAuditLogs()]);
     } catch (err: any) {
       setError(err.message || 'Failed to update');
     } finally {
@@ -305,9 +397,17 @@ export default function RolesPermissions() {
         .update({ role: reassignRole as any })
         .eq('id', selectedStaff.id);
 
+      await writeAudit(user?.id, 'roles.staff.reassign', {
+        target_staff_id: selectedStaff.id,
+        target_user_id: selectedStaff.user_id,
+        full_name: selectedStaff.full_name,
+        previous_role: selectedStaff.role,
+        new_role: reassignRole,
+      });
+
       setSuccess(`Role reassigned to ${ROLE_LABELS[reassignRole]}. New Staff ID will be generated.`);
       setShowReassignDialog(false);
-      await fetchStaffMembers();
+      await Promise.all([fetchStaffMembers(), fetchAuditLogs()]);
     } catch (err: any) {
       setError(err.message || 'Failed to reassign role');
     } finally {
@@ -328,10 +428,18 @@ export default function RolesPermissions() {
       // Remove profiles entry for this admin
       await supabase.from('profiles').delete().eq('user_id', selectedStaff.user_id);
 
+      await writeAudit(user?.id, 'roles.staff.remove', {
+        target_staff_id: selectedStaff.id,
+        target_user_id: selectedStaff.user_id,
+        full_name: selectedStaff.full_name,
+        staff_role_id: selectedStaff.staff_role_id,
+        role: selectedStaff.role,
+      });
+
       setSuccess('Staff member removed');
       setShowRemoveDialog(false);
       setSelectedStaff(null);
-      await fetchStaffMembers();
+      await Promise.all([fetchStaffMembers(), fetchAuditLogs()]);
     } catch (err: any) {
       setError(err.message || 'Failed to remove');
     } finally {
@@ -430,6 +538,14 @@ export default function RolesPermissions() {
           [role]: newAccess,
         },
       }));
+
+      await writeAudit(user?.id, 'roles.permission.toggle', {
+        page_slug: pageSlug,
+        role,
+        previous_access: currentAccess,
+        new_access: newAccess,
+      });
+      fetchAuditLogs();
     } catch (err: any) {
       console.error('Failed to toggle permission:', err);
       setError(`Failed to update permission: ${err.message}`);
@@ -489,6 +605,10 @@ export default function RolesPermissions() {
             <TabsTrigger value="permissions" className="gap-2">
               <Shield className="h-4 w-4" />
               Permissions Matrix
+            </TabsTrigger>
+            <TabsTrigger value="audit" className="gap-2">
+              <History className="h-4 w-4" />
+              Audit Log
             </TabsTrigger>
           </TabsList>
 
@@ -665,8 +785,8 @@ export default function RolesPermissions() {
                     </TableHeader>
                     <TableBody>
                       {PAGE_GROUPS.map(group => (
-                        <>
-                          <TableRow key={`group-${group.label}`} className="bg-muted/50">
+                        <Fragment key={`group-${group.label}`}>
+                          <TableRow className="bg-muted/50">
                             <TableCell colSpan={ROLES_ORDER.length + 1} className="font-semibold text-xs uppercase tracking-wider py-2">
                               {group.label}
                             </TableCell>
@@ -708,12 +828,105 @@ export default function RolesPermissions() {
                               })}
                             </TableRow>
                           ))}
-                        </>
+                        </Fragment>
                       ))}
                     </TableBody>
                   </Table>
                 </div>
               </ScrollArea>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Audit Log Tab */}
+        <TabsContent value="audit">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  <CardTitle>Audit Log</CardTitle>
+                  <CardDescription>Every permission toggle, role change, and staff action — last 200 events</CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Select value={auditFilter} onValueChange={(v) => setAuditFilter(v as typeof auditFilter)}>
+                    <SelectTrigger className="w-[220px]">
+                      <Filter className="h-4 w-4 mr-2" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All events</SelectItem>
+                      <SelectItem value="roles.permission.toggle">Permission toggles</SelectItem>
+                      <SelectItem value="roles.staff.add">Staff added</SelectItem>
+                      <SelectItem value="roles.staff.edit">Staff edited</SelectItem>
+                      <SelectItem value="roles.staff.reassign">Role reassigned</SelectItem>
+                      <SelectItem value="roles.staff.remove">Staff removed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button variant="outline" size="sm" onClick={fetchAuditLogs} disabled={isAuditLoading}>
+                    <RefreshCw className={`h-4 w-4 mr-2 ${isAuditLoading ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {isAuditLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                </div>
+              ) : auditLogs.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <History className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No audit events yet</p>
+                  <p className="text-sm mt-1">Permission and role actions will appear here</p>
+                </div>
+              ) : (
+                <div className="rounded-md border overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[170px]">When</TableHead>
+                        <TableHead className="w-[200px]">Actor</TableHead>
+                        <TableHead className="w-[180px]">Action</TableHead>
+                        <TableHead>Details</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {auditLogs
+                        .filter(l => auditFilter === 'all' || l.event_type === auditFilter)
+                        .map(log => {
+                          const d = log.details || {};
+                          const action = log.event_type.replace('roles.', '').replace(/\./g, ' ');
+                          let summary = '';
+                          if (log.event_type === 'roles.permission.toggle') {
+                            summary = `${d.new_access ? 'GRANTED' : 'REVOKED'} "${d.page_slug}" for ${ROLE_LABELS[d.role as StaffRole] ?? d.role}`;
+                          } else if (log.event_type === 'roles.staff.add') {
+                            summary = `Added ${d.full_name} as ${ROLE_LABELS[d.role as StaffRole] ?? d.role}`;
+                          } else if (log.event_type === 'roles.staff.reassign') {
+                            summary = `${d.full_name}: ${ROLE_LABELS[d.previous_role as StaffRole] ?? d.previous_role} → ${ROLE_LABELS[d.new_role as StaffRole] ?? d.new_role}`;
+                          } else if (log.event_type === 'roles.staff.remove') {
+                            summary = `Removed ${d.full_name} (${d.staff_role_id})`;
+                          } else if (log.event_type === 'roles.staff.edit') {
+                            const a = (d.after as Record<string, unknown>) || {};
+                            summary = `Updated ${a.full_name ?? ''}`;
+                          }
+                          return (
+                            <TableRow key={log.id}>
+                              <TableCell className="text-sm text-muted-foreground">
+                                {format(new Date(log.created_at), 'MMM d, HH:mm:ss')}
+                              </TableCell>
+                              <TableCell className="text-sm font-medium">{log.actor_name}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="capitalize text-xs">{action}</Badge>
+                              </TableCell>
+                              <TableCell className="text-sm">{summary}</TableCell>
+                            </TableRow>
+                          );
+                        })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
