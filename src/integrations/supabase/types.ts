@@ -554,6 +554,90 @@ export type Database = {
           },
         ]
       }
+      call_masking_call_logs: {
+        Row: {
+          booking_id: string
+          call_end: string | null
+          call_start: string
+          caller_e164: string
+          created_at: string
+          destination_e164: string
+          disconnect_reason: string | null
+          duration_seconds: number | null
+          id: string
+          msg91_request_id: string | null
+          msg91_uuid: string | null
+          session_id: string
+          status: string
+        }
+        Insert: {
+          booking_id: string
+          call_end?: string | null
+          call_start?: string
+          caller_e164: string
+          created_at?: string
+          destination_e164: string
+          disconnect_reason?: string | null
+          duration_seconds?: number | null
+          id?: string
+          msg91_request_id?: string | null
+          msg91_uuid?: string | null
+          session_id: string
+          status?: string
+        }
+        Update: {
+          booking_id?: string
+          call_end?: string | null
+          call_start?: string
+          caller_e164?: string
+          created_at?: string
+          destination_e164?: string
+          disconnect_reason?: string | null
+          duration_seconds?: number | null
+          id?: string
+          msg91_request_id?: string | null
+          msg91_uuid?: string | null
+          session_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_masking_call_logs_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_masking_call_logs_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_masking_call_logs_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_masking_call_logs_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "call_masking_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_masking_call_logs_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "driver_call_masking_view"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       call_masking_sessions: {
         Row: {
           caller_id: string | null
@@ -1610,6 +1694,7 @@ export type Database = {
       }
       custom_zones: {
         Row: {
+          airport_fee: number
           center_lat: number | null
           center_lng: number | null
           color: string | null
@@ -1629,6 +1714,7 @@ export type Database = {
           zone_type: string
         }
         Insert: {
+          airport_fee?: number
           center_lat?: number | null
           center_lng?: number | null
           color?: string | null
@@ -1648,6 +1734,7 @@ export type Database = {
           zone_type?: string
         }
         Update: {
+          airport_fee?: number
           center_lat?: number | null
           center_lng?: number | null
           color?: string | null
@@ -4256,6 +4343,7 @@ export type Database = {
           charges_enabled: boolean | null
           city: string | null
           country: string | null
+          country_code: string | null
           created_at: string
           current_lat: number | null
           current_lng: number | null
@@ -4309,6 +4397,7 @@ export type Database = {
           charges_enabled?: boolean | null
           city?: string | null
           country?: string | null
+          country_code?: string | null
           created_at?: string
           current_lat?: number | null
           current_lng?: number | null
@@ -4362,6 +4451,7 @@ export type Database = {
           charges_enabled?: boolean | null
           city?: string | null
           country?: string | null
+          country_code?: string | null
           created_at?: string
           current_lat?: number | null
           current_lng?: number | null
@@ -10679,6 +10769,7 @@ export type Database = {
           pickup_latitude: number | null
           pickup_longitude: number | null
           pickup_paid_waiting_started_at: string | null
+          pickup_waiting_admin_config: Json | null
           pickup_waiting_charge_pence: number
           pickup_waiting_started_at: string | null
           pickup_zone_id: string | null
@@ -10918,6 +11009,7 @@ export type Database = {
           pickup_latitude?: number | null
           pickup_longitude?: number | null
           pickup_paid_waiting_started_at?: string | null
+          pickup_waiting_admin_config?: Json | null
           pickup_waiting_charge_pence?: number
           pickup_waiting_started_at?: string | null
           pickup_zone_id?: string | null
@@ -11157,6 +11249,7 @@ export type Database = {
           pickup_latitude?: number | null
           pickup_longitude?: number | null
           pickup_paid_waiting_started_at?: string | null
+          pickup_waiting_admin_config?: Json | null
           pickup_waiting_charge_pence?: number
           pickup_waiting_started_at?: string | null
           pickup_zone_id?: string | null
@@ -13002,9 +13095,17 @@ export type Database = {
         Args: { _trip_id: string }
         Returns: boolean
       }
+      assign_trip_number: {
+        Args: { p_service_area_id: string; p_trip_id: string }
+        Returns: Json
+      }
       bearing_deg: {
         Args: { lat1: number; lat2: number; lng1: number; lng2: number }
         Returns: number
+      }
+      booking_delivery_phase_is_idempotent: {
+        Args: { p_phase: string }
+        Returns: boolean
       }
       can_corporate_user_view_driver: {
         Args: { p_driver_id: string; p_user_id: string }
@@ -13288,6 +13389,7 @@ export type Database = {
         Args: { p_trip_id: string }
         Returns: undefined
       }
+      expire_due_call_masking_sessions: { Args: never; Returns: undefined }
       expire_negotiation_offer: { Args: { p_offer_id: string }; Returns: Json }
       expire_offers_sweep: { Args: never; Returns: undefined }
       expire_stale_drivers: {
