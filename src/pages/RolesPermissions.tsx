@@ -538,6 +538,14 @@ export default function RolesPermissions() {
           [role]: newAccess,
         },
       }));
+
+      await writeAudit(user?.id, 'roles.permission.toggle', {
+        page_slug: pageSlug,
+        role,
+        previous_access: currentAccess,
+        new_access: newAccess,
+      });
+      fetchAuditLogs();
     } catch (err: any) {
       console.error('Failed to toggle permission:', err);
       setError(`Failed to update permission: ${err.message}`);
