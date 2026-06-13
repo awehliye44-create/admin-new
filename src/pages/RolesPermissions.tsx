@@ -40,11 +40,45 @@ import {
   DollarSign,
   Headphones,
   ClipboardCheck,
+  History,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useStaffProfile, StaffRole, ROLE_LABELS, ROLE_PREFIXES } from '@/hooks/useStaffProfile';
 import { format } from 'date-fns';
+
+type AuditEventType =
+  | 'roles.permission.toggle'
+  | 'roles.staff.add'
+  | 'roles.staff.edit'
+  | 'roles.staff.reassign'
+  | 'roles.staff.remove';
+
+interface AuditLogRow {
+  id: string;
+  event_type: string;
+  user_id: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+  actor_name?: string;
+}
+
+async function writeAudit(
+  actorUserId: string | undefined,
+  eventType: AuditEventType,
+  details: Record<string, unknown>,
+) {
+  try {
+    await supabase.from('audit_logs').insert({
+      event_type: eventType,
+      user_id: actorUserId ?? null,
+      details,
+      user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+    });
+  } catch (e) {
+    console.error('[audit] write failed', eventType, e);
+  }
+}
 
 interface StaffMember {
   id: string;
