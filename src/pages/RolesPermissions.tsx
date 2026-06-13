@@ -316,10 +316,19 @@ export default function RolesPermissions() {
         );
       }
 
+      await writeAudit(user?.id, 'roles.staff.add', {
+        target_user_id: formUserUuid.trim(),
+        target_staff_id: newProfile?.id,
+        full_name: formFullName.trim(),
+        username: formUsername.trim() || null,
+        role: formRole,
+        service_area_ids: formServiceAreas,
+      });
+
       setSuccess(`Staff member added as ${ROLE_LABELS[formRole]}`);
       resetForm();
       setShowAddDialog(false);
-      await fetchStaffMembers();
+      await Promise.all([fetchStaffMembers(), fetchAuditLogs()]);
     } catch (err: any) {
       setError(err.message || 'Failed to add staff member');
     } finally {
