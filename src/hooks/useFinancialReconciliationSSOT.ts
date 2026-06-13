@@ -41,7 +41,7 @@ async function fetchSummaryFallback(
   let q = supabase
     .from('driver_financial_summary')
     .select(
-      'wallet_balance, net_available_for_payout, total_payouts_sent, reserved_cashout_pence, company_commission_total, card_trip_gross_total',
+      'wallet_balance, net_available_for_payout, total_payouts_sent, reserved_cashout_pence, company_commission_total, card_gross_total',
     );
 
   if (filter?.regionId) q = q.eq('region_id', filter.regionId);
