@@ -361,9 +361,24 @@ export default function RolesPermissions() {
         );
       }
 
+      await writeAudit(user?.id, 'roles.staff.edit', {
+        target_staff_id: selectedStaff.id,
+        target_user_id: selectedStaff.user_id,
+        before: {
+          full_name: selectedStaff.full_name,
+          username: selectedStaff.username,
+          service_area_ids: selectedStaff.service_areas.map(s => s.service_area_id),
+        },
+        after: {
+          full_name: formFullName.trim(),
+          username: formUsername.trim() || null,
+          service_area_ids: formServiceAreas,
+        },
+      });
+
       setSuccess('Staff member updated');
       setShowEditDialog(false);
-      await fetchStaffMembers();
+      await Promise.all([fetchStaffMembers(), fetchAuditLogs()]);
     } catch (err: any) {
       setError(err.message || 'Failed to update');
     } finally {
