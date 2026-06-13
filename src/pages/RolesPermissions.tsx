@@ -606,6 +606,10 @@ export default function RolesPermissions() {
               <Shield className="h-4 w-4" />
               Permissions Matrix
             </TabsTrigger>
+            <TabsTrigger value="audit" className="gap-2">
+              <History className="h-4 w-4" />
+              Audit Log
+            </TabsTrigger>
           </TabsList>
 
           <div className="flex items-center gap-2">
