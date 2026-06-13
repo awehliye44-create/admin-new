@@ -428,10 +428,18 @@ export default function RolesPermissions() {
       // Remove profiles entry for this admin
       await supabase.from('profiles').delete().eq('user_id', selectedStaff.user_id);
 
+      await writeAudit(user?.id, 'roles.staff.remove', {
+        target_staff_id: selectedStaff.id,
+        target_user_id: selectedStaff.user_id,
+        full_name: selectedStaff.full_name,
+        staff_role_id: selectedStaff.staff_role_id,
+        role: selectedStaff.role,
+      });
+
       setSuccess('Staff member removed');
       setShowRemoveDialog(false);
       setSelectedStaff(null);
-      await fetchStaffMembers();
+      await Promise.all([fetchStaffMembers(), fetchAuditLogs()]);
     } catch (err: any) {
       setError(err.message || 'Failed to remove');
     } finally {
