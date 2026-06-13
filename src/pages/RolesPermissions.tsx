@@ -824,7 +824,7 @@ export default function RolesPermissions() {
                               })}
                             </TableRow>
                           ))}
-                        </>
+                        </Fragment>
                       ))}
                     </TableBody>
                   </Table>
