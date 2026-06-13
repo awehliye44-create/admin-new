@@ -138,6 +138,11 @@ export default function RolesPermissions() {
   // Permission matrix
   const [permissionMatrix, setPermissionMatrix] = useState<Record<string, Record<string, boolean>>>({});
 
+  // Audit log
+  const [auditLogs, setAuditLogs] = useState<AuditLogRow[]>([]);
+  const [isAuditLoading, setIsAuditLoading] = useState(false);
+  const [auditFilter, setAuditFilter] = useState<'all' | AuditEventType>('all');
+
   // Stats
   const stats = {
     total: staffMembers.length,
