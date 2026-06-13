@@ -781,8 +781,8 @@ export default function RolesPermissions() {
                     </TableHeader>
                     <TableBody>
                       {PAGE_GROUPS.map(group => (
-                        <>
-                          <TableRow key={`group-${group.label}`} className="bg-muted/50">
+                        <Fragment key={`group-${group.label}`}>
+                          <TableRow className="bg-muted/50">
                             <TableCell colSpan={ROLES_ORDER.length + 1} className="font-semibold text-xs uppercase tracking-wider py-2">
                               {group.label}
                             </TableCell>
