@@ -837,6 +837,99 @@ export default function RolesPermissions() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Audit Log Tab */}
+        <TabsContent value="audit">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  <CardTitle>Audit Log</CardTitle>
+                  <CardDescription>Every permission toggle, role change, and staff action — last 200 events</CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Select value={auditFilter} onValueChange={(v) => setAuditFilter(v as typeof auditFilter)}>
+                    <SelectTrigger className="w-[220px]">
+                      <Filter className="h-4 w-4 mr-2" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All events</SelectItem>
+                      <SelectItem value="roles.permission.toggle">Permission toggles</SelectItem>
+                      <SelectItem value="roles.staff.add">Staff added</SelectItem>
+                      <SelectItem value="roles.staff.edit">Staff edited</SelectItem>
+                      <SelectItem value="roles.staff.reassign">Role reassigned</SelectItem>
+                      <SelectItem value="roles.staff.remove">Staff removed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button variant="outline" size="sm" onClick={fetchAuditLogs} disabled={isAuditLoading}>
+                    <RefreshCw className={`h-4 w-4 mr-2 ${isAuditLoading ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {isAuditLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                </div>
+              ) : auditLogs.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <History className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No audit events yet</p>
+                  <p className="text-sm mt-1">Permission and role actions will appear here</p>
+                </div>
+              ) : (
+                <div className="rounded-md border overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[170px]">When</TableHead>
+                        <TableHead className="w-[200px]">Actor</TableHead>
+                        <TableHead className="w-[180px]">Action</TableHead>
+                        <TableHead>Details</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {auditLogs
+                        .filter(l => auditFilter === 'all' || l.event_type === auditFilter)
+                        .map(log => {
+                          const d = log.details || {};
+                          const action = log.event_type.replace('roles.', '').replace(/\./g, ' ');
+                          let summary = '';
+                          if (log.event_type === 'roles.permission.toggle') {
+                            summary = `${d.new_access ? 'GRANTED' : 'REVOKED'} "${d.page_slug}" for ${ROLE_LABELS[d.role as StaffRole] ?? d.role}`;
+                          } else if (log.event_type === 'roles.staff.add') {
+                            summary = `Added ${d.full_name} as ${ROLE_LABELS[d.role as StaffRole] ?? d.role}`;
+                          } else if (log.event_type === 'roles.staff.reassign') {
+                            summary = `${d.full_name}: ${ROLE_LABELS[d.previous_role as StaffRole] ?? d.previous_role} → ${ROLE_LABELS[d.new_role as StaffRole] ?? d.new_role}`;
+                          } else if (log.event_type === 'roles.staff.remove') {
+                            summary = `Removed ${d.full_name} (${d.staff_role_id})`;
+                          } else if (log.event_type === 'roles.staff.edit') {
+                            const a = (d.after as Record<string, unknown>) || {};
+                            summary = `Updated ${a.full_name ?? ''}`;
+                          }
+                          return (
+                            <TableRow key={log.id}>
+                              <TableCell className="text-sm text-muted-foreground">
+                                {format(new Date(log.created_at), 'MMM d, HH:mm:ss')}
+                              </TableCell>
+                              <TableCell className="text-sm font-medium">{log.actor_name}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="capitalize text-xs">{action}</Badge>
+                              </TableCell>
+                              <TableCell className="text-sm">{summary}</TableCell>
+                            </TableRow>
+                          );
+                        })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {/* Add Staff Dialog */}
