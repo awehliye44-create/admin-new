@@ -41,6 +41,8 @@ import {
   Headphones,
   ClipboardCheck,
   History,
+  Power,
+  PowerOff,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -52,7 +54,9 @@ type AuditEventType =
   | 'roles.staff.add'
   | 'roles.staff.edit'
   | 'roles.staff.reassign'
-  | 'roles.staff.remove';
+  | 'roles.staff.remove'
+  | 'roles.staff.suspend'
+  | 'roles.staff.activate';
 
 interface AuditLogRow {
   id: string;
@@ -464,6 +468,41 @@ export default function RolesPermissions() {
     }
   };
 
+  const handleToggleSuspend = async (staff: StaffMember) => {
+    if (!canManageRoles) return;
+    setError(null);
+    setSuccess(null);
+    const nextActive = !staff.is_active;
+    try {
+      const { error: updErr } = await supabase
+        .from('staff_profiles')
+        .update({ is_active: nextActive })
+        .eq('id', staff.id);
+      if (updErr) throw updErr;
+
+      const { error: syncErr } = await supabase.rpc('sync_staff_user_role', {
+        _target_user_id: staff.user_id,
+        _action: nextActive ? 'grant' : 'revoke',
+      });
+      if (syncErr) throw syncErr;
+
+      await writeAudit(user?.id, nextActive ? 'roles.staff.activate' : 'roles.staff.suspend', {
+        target_staff_id: staff.id,
+        target_user_id: staff.user_id,
+        full_name: staff.full_name,
+        staff_role_id: staff.staff_role_id,
+        role: staff.role,
+        user_roles_synced: nextActive ? 'grant:admin' : 'revoke:admin',
+      });
+
+      setSuccess(nextActive ? `${staff.full_name} re-activated` : `${staff.full_name} suspended`);
+      await Promise.all([fetchStaffMembers(), fetchAuditLogs()]);
+    } catch (err: any) {
+      setError(err.message || 'Failed to update suspension');
+    }
+  };
+
+
   const openEditDialog = (staff: StaffMember) => {
     setSelectedStaff(staff);
     setFormFullName(staff.full_name);
@@ -709,13 +748,20 @@ export default function RolesPermissions() {
                     </TableHeader>
                     <TableBody>
                       {filteredStaff.map((staff) => (
-                        <TableRow key={staff.id}>
+                        <TableRow key={staff.id} className={!staff.is_active ? 'opacity-60' : undefined}>
                           <TableCell>
                             <span className="font-mono font-semibold text-primary">
                               {staff.staff_role_id}
                             </span>
                           </TableCell>
-                          <TableCell className="font-medium">{staff.full_name}</TableCell>
+                          <TableCell className="font-medium">
+                            <div className="flex items-center gap-2">
+                              {staff.full_name}
+                              {!staff.is_active && (
+                                <Badge variant="secondary" className="text-[10px] uppercase">Suspended</Badge>
+                              )}
+                            </div>
+                          </TableCell>
                           <TableCell className="text-muted-foreground">
                             {staff.username || '—'}
                           </TableCell>
@@ -754,6 +800,15 @@ export default function RolesPermissions() {
                                   </Button>
                                   <Button variant="ghost" size="icon" onClick={() => openReassignDialog(staff)}>
                                     <ArrowRightLeft className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className={staff.is_active ? 'text-amber-500' : 'text-green-500'}
+                                    title={staff.is_active ? 'Suspend' : 'Re-activate'}
+                                    onClick={() => handleToggleSuspend(staff)}
+                                  >
+                                    {staff.is_active ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
                                   </Button>
                                   <Button variant="ghost" size="icon" className="text-destructive" onClick={() => { setSelectedStaff(staff); setShowRemoveDialog(true); }}>
                                     <Trash2 className="h-4 w-4" />
@@ -877,6 +932,8 @@ export default function RolesPermissions() {
                       <SelectItem value="roles.staff.edit">Staff edited</SelectItem>
                       <SelectItem value="roles.staff.reassign">Role reassigned</SelectItem>
                       <SelectItem value="roles.staff.remove">Staff removed</SelectItem>
+                      <SelectItem value="roles.staff.suspend">Staff suspended</SelectItem>
+                      <SelectItem value="roles.staff.activate">Staff re-activated</SelectItem>
                     </SelectContent>
                   </Select>
                   <Button variant="outline" size="sm" onClick={fetchAuditLogs} disabled={isAuditLoading}>
@@ -926,6 +983,10 @@ export default function RolesPermissions() {
                           } else if (log.event_type === 'roles.staff.edit') {
                             const a = (d.after as Record<string, unknown>) || {};
                             summary = `Updated ${a.full_name ?? ''}`;
+                          } else if (log.event_type === 'roles.staff.suspend') {
+                            summary = `Suspended ${d.full_name} (${d.staff_role_id})`;
+                          } else if (log.event_type === 'roles.staff.activate') {
+                            summary = `Re-activated ${d.full_name} (${d.staff_role_id})`;
                           }
                           return (
                             <TableRow key={log.id}>
