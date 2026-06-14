@@ -7211,6 +7211,73 @@ export type Database = {
           },
         ]
       }
+      payment_authorization_ledger: {
+        Row: {
+          amount_pence: number
+          created_at: string
+          error_message: string | null
+          fare_revision_number: number
+          id: string
+          idempotency_key: string
+          metadata: Json
+          operation: string
+          status: string
+          stripe_payment_intent_id: string | null
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          amount_pence: number
+          created_at?: string
+          error_message?: string | null
+          fare_revision_number?: number
+          id?: string
+          idempotency_key: string
+          metadata?: Json
+          operation: string
+          status?: string
+          stripe_payment_intent_id?: string | null
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          amount_pence?: number
+          created_at?: string
+          error_message?: string | null
+          fare_revision_number?: number
+          id?: string
+          idempotency_key?: string
+          metadata?: Json
+          operation?: string
+          status?: string
+          stripe_payment_intent_id?: string | null
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_authorization_ledger_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_authorization_ledger_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_authorization_ledger_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payment_provider_configs: {
         Row: {
           apple_pay_enabled: boolean | null
@@ -10623,6 +10690,7 @@ export type Database = {
           arrived_at: string | null
           assigned_at: string | null
           authorised_amount_pence: number | null
+          authorized_amount_pence: number | null
           base_fare_pence: number | null
           booking_source: string | null
           booking_type: string | null
@@ -10704,6 +10772,7 @@ export type Database = {
           fare_engine_config_id: string | null
           fare_locked: boolean | null
           fare_locked_at: string | null
+          fare_revision_number: number
           fare_snapshot_json: Json | null
           final_customer_fare_pence: number | null
           final_fare_pence: number | null
@@ -10713,6 +10782,7 @@ export type Database = {
           grace_period_expired_at: string | null
           gross_fare_pence: number | null
           id: string
+          idempotency_key: string | null
           invoice_email_error: string | null
           invoice_email_sent: boolean
           invoice_email_sent_at: string | null
@@ -10754,10 +10824,15 @@ export type Database = {
           original_dropoff_longitude: number | null
           original_payment_method: string | null
           other_pass_through_charges_pence: number
+          outstanding_balance_pence: number
           paid_waiting_started_at: string | null
           passenger_id: string
           passenger_name: string | null
           passenger_phone: string | null
+          payment_coverage_status:
+            | Database["public"]["Enums"]["payment_coverage_status"]
+            | null
+          payment_intent_id: string | null
           payment_intent_version: number | null
           payment_method: string | null
           payment_provider: string | null
@@ -10835,6 +10910,7 @@ export type Database = {
           tip_pence: number | null
           tip_window_closed_at: string | null
           tip_window_expires_at: string | null
+          total_authorized_amount_pence: number | null
           total_stops: number | null
           total_waiting_charge_pence: number
           trip_code: string | null
@@ -10863,6 +10939,7 @@ export type Database = {
           arrived_at?: string | null
           assigned_at?: string | null
           authorised_amount_pence?: number | null
+          authorized_amount_pence?: number | null
           base_fare_pence?: number | null
           booking_source?: string | null
           booking_type?: string | null
@@ -10944,6 +11021,7 @@ export type Database = {
           fare_engine_config_id?: string | null
           fare_locked?: boolean | null
           fare_locked_at?: string | null
+          fare_revision_number?: number
           fare_snapshot_json?: Json | null
           final_customer_fare_pence?: number | null
           final_fare_pence?: number | null
@@ -10953,6 +11031,7 @@ export type Database = {
           grace_period_expired_at?: string | null
           gross_fare_pence?: number | null
           id?: string
+          idempotency_key?: string | null
           invoice_email_error?: string | null
           invoice_email_sent?: boolean
           invoice_email_sent_at?: string | null
@@ -10994,10 +11073,15 @@ export type Database = {
           original_dropoff_longitude?: number | null
           original_payment_method?: string | null
           other_pass_through_charges_pence?: number
+          outstanding_balance_pence?: number
           paid_waiting_started_at?: string | null
           passenger_id: string
           passenger_name?: string | null
           passenger_phone?: string | null
+          payment_coverage_status?:
+            | Database["public"]["Enums"]["payment_coverage_status"]
+            | null
+          payment_intent_id?: string | null
           payment_intent_version?: number | null
           payment_method?: string | null
           payment_provider?: string | null
@@ -11075,6 +11159,7 @@ export type Database = {
           tip_pence?: number | null
           tip_window_closed_at?: string | null
           tip_window_expires_at?: string | null
+          total_authorized_amount_pence?: number | null
           total_stops?: number | null
           total_waiting_charge_pence?: number
           trip_code?: string | null
@@ -11103,6 +11188,7 @@ export type Database = {
           arrived_at?: string | null
           assigned_at?: string | null
           authorised_amount_pence?: number | null
+          authorized_amount_pence?: number | null
           base_fare_pence?: number | null
           booking_source?: string | null
           booking_type?: string | null
@@ -11184,6 +11270,7 @@ export type Database = {
           fare_engine_config_id?: string | null
           fare_locked?: boolean | null
           fare_locked_at?: string | null
+          fare_revision_number?: number
           fare_snapshot_json?: Json | null
           final_customer_fare_pence?: number | null
           final_fare_pence?: number | null
@@ -11193,6 +11280,7 @@ export type Database = {
           grace_period_expired_at?: string | null
           gross_fare_pence?: number | null
           id?: string
+          idempotency_key?: string | null
           invoice_email_error?: string | null
           invoice_email_sent?: boolean
           invoice_email_sent_at?: string | null
@@ -11234,10 +11322,15 @@ export type Database = {
           original_dropoff_longitude?: number | null
           original_payment_method?: string | null
           other_pass_through_charges_pence?: number
+          outstanding_balance_pence?: number
           paid_waiting_started_at?: string | null
           passenger_id?: string
           passenger_name?: string | null
           passenger_phone?: string | null
+          payment_coverage_status?:
+            | Database["public"]["Enums"]["payment_coverage_status"]
+            | null
+          payment_intent_id?: string | null
           payment_intent_version?: number | null
           payment_method?: string | null
           payment_provider?: string | null
@@ -11315,6 +11408,7 @@ export type Database = {
           tip_pence?: number | null
           tip_window_closed_at?: string | null
           tip_window_expires_at?: string | null
+          total_authorized_amount_pence?: number | null
           total_stops?: number | null
           total_waiting_charge_pence?: number
           trip_code?: string | null
@@ -14324,6 +14418,17 @@ export type Database = {
       offer_redemption_status: "reserved" | "applied" | "reversed"
       offer_status: "draft" | "active" | "archived"
       offer_type: "percent_discount" | "fixed_amount_discount"
+      payment_coverage_status:
+        | "not_required"
+        | "pending_authorization"
+        | "authorized"
+        | "authorization_insufficient"
+        | "top_up_pending"
+        | "fully_covered"
+        | "capture_pending"
+        | "captured"
+        | "under_captured"
+        | "capture_failed"
       staff_role:
         | "super_admin"
         | "admin"
@@ -14496,6 +14601,18 @@ export const Constants = {
       offer_redemption_status: ["reserved", "applied", "reversed"],
       offer_status: ["draft", "active", "archived"],
       offer_type: ["percent_discount", "fixed_amount_discount"],
+      payment_coverage_status: [
+        "not_required",
+        "pending_authorization",
+        "authorized",
+        "authorization_insufficient",
+        "top_up_pending",
+        "fully_covered",
+        "capture_pending",
+        "captured",
+        "under_captured",
+        "capture_failed",
+      ],
       staff_role: [
         "super_admin",
         "admin",
