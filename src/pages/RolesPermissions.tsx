@@ -983,6 +983,10 @@ export default function RolesPermissions() {
                           } else if (log.event_type === 'roles.staff.edit') {
                             const a = (d.after as Record<string, unknown>) || {};
                             summary = `Updated ${a.full_name ?? ''}`;
+                          } else if (log.event_type === 'roles.staff.suspend') {
+                            summary = `Suspended ${d.full_name} (${d.staff_role_id})`;
+                          } else if (log.event_type === 'roles.staff.activate') {
+                            summary = `Re-activated ${d.full_name} (${d.staff_role_id})`;
                           }
                           return (
                             <TableRow key={log.id}>
