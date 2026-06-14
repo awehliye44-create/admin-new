@@ -86,13 +86,21 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
     const isInitialLoad = !staffProfile && allowedPages.size === 0;
     if (isInitialLoad) setIsStaffLoading(true);
     try {
-      // Fetch staff profile
+      // Fetch staff profile (including inactive — we explicitly check is_active below)
       const { data: profile } = await supabase
         .from('staff_profiles')
         .select('*')
         .eq('user_id', userId)
-        .eq('is_active', true)
         .maybeSingle();
+
+      if (profile && profile.is_active === false) {
+        // Suspended staff: deny all admin access, do NOT fall through to backward-compat super_admin
+        setStaffProfile(profile as unknown as StaffProfile);
+        setAllowedPages(new Set());
+        setAssignedServiceAreas([]);
+        setIsStaffLoading(false);
+        return;
+      }
 
       if (!profile) {
         // No staff profile - user has admin role in profiles (backward compat)
