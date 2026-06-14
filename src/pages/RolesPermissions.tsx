@@ -801,6 +801,15 @@ export default function RolesPermissions() {
                                   <Button variant="ghost" size="icon" onClick={() => openReassignDialog(staff)}>
                                     <ArrowRightLeft className="h-4 w-4" />
                                   </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className={staff.is_active ? 'text-amber-500' : 'text-green-500'}
+                                    title={staff.is_active ? 'Suspend' : 'Re-activate'}
+                                    onClick={() => handleToggleSuspend(staff)}
+                                  >
+                                    {staff.is_active ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
+                                  </Button>
                                   <Button variant="ghost" size="icon" className="text-destructive" onClick={() => { setSelectedStaff(staff); setShowRemoveDialog(true); }}>
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
