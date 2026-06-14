@@ -316,6 +316,13 @@ export default function RolesPermissions() {
         );
       }
 
+      // Sync backend admin role
+      const { error: syncErr } = await supabase.rpc('sync_staff_user_role', {
+        _target_user_id: formUserUuid.trim(),
+        _action: 'grant',
+      });
+      if (syncErr) throw syncErr;
+
       await writeAudit(user?.id, 'roles.staff.add', {
         target_user_id: formUserUuid.trim(),
         target_staff_id: newProfile?.id,
@@ -323,7 +330,9 @@ export default function RolesPermissions() {
         username: formUsername.trim() || null,
         role: formRole,
         service_area_ids: formServiceAreas,
+        user_roles_synced: 'grant:admin',
       });
+
 
       setSuccess(`Staff member added as ${ROLE_LABELS[formRole]}`);
       resetForm();
