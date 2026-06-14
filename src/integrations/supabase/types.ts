@@ -14288,6 +14288,10 @@ export type Database = {
         Args: { p_payout_item_id: string }
         Returns: Json
       }
+      sync_staff_user_role: {
+        Args: { _action: string; _target_user_id: string }
+        Returns: undefined
+      }
       tick_stop_waiting: { Args: { p_waiting_id: string }; Returns: Json }
       timeout_scheduled_offer: {
         Args: { p_driver_id: string; p_trip_id: string }
