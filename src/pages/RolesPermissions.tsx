@@ -468,6 +468,41 @@ export default function RolesPermissions() {
     }
   };
 
+  const handleToggleSuspend = async (staff: StaffMember) => {
+    if (!canManageRoles) return;
+    setError(null);
+    setSuccess(null);
+    const nextActive = !staff.is_active;
+    try {
+      const { error: updErr } = await supabase
+        .from('staff_profiles')
+        .update({ is_active: nextActive })
+        .eq('id', staff.id);
+      if (updErr) throw updErr;
+
+      const { error: syncErr } = await supabase.rpc('sync_staff_user_role', {
+        _target_user_id: staff.user_id,
+        _action: nextActive ? 'grant' : 'revoke',
+      });
+      if (syncErr) throw syncErr;
+
+      await writeAudit(user?.id, nextActive ? 'roles.staff.activate' : 'roles.staff.suspend', {
+        target_staff_id: staff.id,
+        target_user_id: staff.user_id,
+        full_name: staff.full_name,
+        staff_role_id: staff.staff_role_id,
+        role: staff.role,
+        user_roles_synced: nextActive ? 'grant:admin' : 'revoke:admin',
+      });
+
+      setSuccess(nextActive ? `${staff.full_name} re-activated` : `${staff.full_name} suspended`);
+      await Promise.all([fetchStaffMembers(), fetchAuditLogs()]);
+    } catch (err: any) {
+      setError(err.message || 'Failed to update suspension');
+    }
+  };
+
+
   const openEditDialog = (staff: StaffMember) => {
     setSelectedStaff(staff);
     setFormFullName(staff.full_name);
