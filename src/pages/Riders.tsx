@@ -40,12 +40,12 @@ interface Rider {
   updated_at: string;
   trip_count?: number;
   last_trip_at?: string | null;
-  rider_status: 'active' | 'disabled' | 'suspended' | 'deleted';
+  rider_status: 'active' | 'disabled' | 'suspended' | 'deleted' | 'pending_verification';
   wallet_balance?: number;
   default_payment_method?: string | null;
 }
 
-type StatusFilter = 'all' | 'active' | 'disabled' | 'suspended' | 'deleted';
+type StatusFilter = 'all' | 'active' | 'disabled' | 'suspended' | 'deleted' | 'pending_verification';
 type ActionType = 'disable' | 'suspend' | 'enable' | 'delete';
 
 export default function Riders() {
@@ -65,31 +65,18 @@ export default function Riders() {
     queryKey: ['riders'],
     queryFn: async () => {
       const { data: ridersData, error: ridersError } = await supabase
-        .from('customers')
-        .select('id, user_id, customer_code, first_name, last_name, phone, created_at, updated_at, rider_status')
+        .from('admin_riders_with_trip_stats')
+        .select('id, user_id, customer_code, first_name, last_name, phone, created_at, updated_at, rider_status, trip_count, last_trip_at')
         .order('created_at', { ascending: false });
 
       if (ridersError) throw ridersError;
 
-      const ridersWithStats = await Promise.all(
-        (ridersData || []).map(async (rider) => {
-          const { count, data: trips } = await supabase
-            .from('trips')
-            .select('id, created_at', { count: 'exact' })
-            .eq('passenger_id', rider.user_id)
-            .order('created_at', { ascending: false })
-            .limit(1);
-
-          return {
-            ...rider,
-            trip_count: count || 0,
-            last_trip_at: trips?.[0]?.created_at || null,
-            rider_status: (rider as any).rider_status || 'active',
-          };
-        })
-      );
-
-      return ridersWithStats as Rider[];
+      return (ridersData || []).map((rider) => ({
+        ...rider,
+        trip_count: rider.trip_count ?? 0,
+        last_trip_at: rider.last_trip_at ?? null,
+        rider_status: rider.rider_status || 'active',
+      })) as Rider[];
     },
     staleTime: 30_000,
   });
@@ -205,6 +192,8 @@ export default function Riders() {
     switch (status) {
       case 'active':
         return <Badge className="bg-green-500/10 text-green-600 border-green-500/30">Active</Badge>;
+      case 'pending_verification':
+        return <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/30">Pending Verification</Badge>;
       case 'disabled':
         return <Badge className="bg-red-500/10 text-red-600 border-red-500/30">Disabled</Badge>;
       case 'suspended':
@@ -232,6 +221,7 @@ export default function Riders() {
     disabled: riders.filter(r => r.rider_status === 'disabled').length,
     suspended: riders.filter(r => r.rider_status === 'suspended').length,
     deleted: riders.filter(r => r.rider_status === 'deleted').length,
+    pending_verification: riders.filter(r => r.rider_status === 'pending_verification').length,
   };
 
   const totalRiders = counts.active;
@@ -326,6 +316,7 @@ export default function Riders() {
         <TabsList>
           <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
           <TabsTrigger value="active">Active ({counts.active})</TabsTrigger>
+          <TabsTrigger value="pending_verification">Pending ({counts.pending_verification})</TabsTrigger>
           <TabsTrigger value="disabled">Disabled ({counts.disabled})</TabsTrigger>
           <TabsTrigger value="suspended">Suspended ({counts.suspended})</TabsTrigger>
           <TabsTrigger value="deleted">Deleted ({counts.deleted})</TabsTrigger>

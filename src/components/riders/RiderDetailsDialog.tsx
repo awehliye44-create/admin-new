@@ -26,7 +26,7 @@ interface Rider {
   updated_at: string;
   trip_count?: number;
   last_trip_at?: string | null;
-  rider_status: 'active' | 'disabled' | 'suspended' | 'deleted';
+  rider_status: 'active' | 'disabled' | 'suspended' | 'deleted' | 'pending_verification';
   wallet_balance?: number;
   default_payment_method?: string | null;
 }
@@ -53,18 +53,18 @@ export function RiderDetailsDialog({ open, onOpenChange, rider, onRiderUpdate }:
   const [isUpdating, setIsUpdating] = useState(false);
 
   const { data: trips = [], isLoading } = useQuery({
-    queryKey: ['rider-trips', rider?.user_id],
+    queryKey: ['rider-trips', rider?.id],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('trips')
         .select(`id, pickup_address, dropoff_address, status, fare, created_at, driver:drivers!trips_driver_id_fkey(first_name, last_name)`)
-        .eq('passenger_id', rider!.user_id)
+        .eq('passenger_id', rider!.id)
         .order('created_at', { ascending: false })
         .limit(20);
       if (error) throw error;
       return (data || []) as unknown as RiderTrip[];
     },
-    enabled: open && !!rider?.user_id && activeTab === 'history',
+    enabled: open && !!rider?.id && activeTab === 'history',
     staleTime: 60_000,
   });
 
@@ -93,6 +93,7 @@ export function RiderDetailsDialog({ open, onOpenChange, rider, onRiderUpdate }:
   const getRiderStatusBadge = () => {
     switch (rider.rider_status) {
       case 'active': return <Badge className="bg-green-500/10 text-green-600 border-green-500/30">Active</Badge>;
+      case 'pending_verification': return <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/30">Pending Verification</Badge>;
       case 'disabled': return <Badge className="bg-red-500/10 text-red-600 border-red-500/30">Disabled</Badge>;
       case 'suspended': return <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/30">Suspended</Badge>;
       case 'deleted': return <Badge className="bg-muted text-muted-foreground border-muted">Deleted</Badge>;
