@@ -748,13 +748,20 @@ export default function RolesPermissions() {
                     </TableHeader>
                     <TableBody>
                       {filteredStaff.map((staff) => (
-                        <TableRow key={staff.id}>
+                        <TableRow key={staff.id} className={!staff.is_active ? 'opacity-60' : undefined}>
                           <TableCell>
                             <span className="font-mono font-semibold text-primary">
                               {staff.staff_role_id}
                             </span>
                           </TableCell>
-                          <TableCell className="font-medium">{staff.full_name}</TableCell>
+                          <TableCell className="font-medium">
+                            <div className="flex items-center gap-2">
+                              {staff.full_name}
+                              {!staff.is_active && (
+                                <Badge variant="secondary" className="text-[10px] uppercase">Suspended</Badge>
+                              )}
+                            </div>
+                          </TableCell>
                           <TableCell className="text-muted-foreground">
                             {staff.username || '—'}
                           </TableCell>
