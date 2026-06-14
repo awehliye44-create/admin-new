@@ -41,6 +41,8 @@ import {
   Headphones,
   ClipboardCheck,
   History,
+  Power,
+  PowerOff,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -52,7 +54,9 @@ type AuditEventType =
   | 'roles.staff.add'
   | 'roles.staff.edit'
   | 'roles.staff.reassign'
-  | 'roles.staff.remove';
+  | 'roles.staff.remove'
+  | 'roles.staff.suspend'
+  | 'roles.staff.activate';
 
 interface AuditLogRow {
   id: string;
