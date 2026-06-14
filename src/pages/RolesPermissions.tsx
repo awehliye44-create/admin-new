@@ -316,6 +316,13 @@ export default function RolesPermissions() {
         );
       }
 
+      // Sync backend admin role
+      const { error: syncErr } = await supabase.rpc('sync_staff_user_role', {
+        _target_user_id: formUserUuid.trim(),
+        _action: 'grant',
+      });
+      if (syncErr) throw syncErr;
+
       await writeAudit(user?.id, 'roles.staff.add', {
         target_user_id: formUserUuid.trim(),
         target_staff_id: newProfile?.id,
@@ -323,7 +330,9 @@ export default function RolesPermissions() {
         username: formUsername.trim() || null,
         role: formRole,
         service_area_ids: formServiceAreas,
+        user_roles_synced: 'grant:admin',
       });
+
 
       setSuccess(`Staff member added as ${ROLE_LABELS[formRole]}`);
       resetForm();
@@ -427,6 +436,12 @@ export default function RolesPermissions() {
       await supabase.from('staff_profiles').delete().eq('id', selectedStaff.id);
       // Remove profiles entry for this admin
       await supabase.from('profiles').delete().eq('user_id', selectedStaff.user_id);
+      // Revoke backend admin role
+      const { error: syncErr } = await supabase.rpc('sync_staff_user_role', {
+        _target_user_id: selectedStaff.user_id,
+        _action: 'revoke',
+      });
+      if (syncErr) throw syncErr;
 
       await writeAudit(user?.id, 'roles.staff.remove', {
         target_staff_id: selectedStaff.id,
@@ -434,7 +449,9 @@ export default function RolesPermissions() {
         full_name: selectedStaff.full_name,
         staff_role_id: selectedStaff.staff_role_id,
         role: selectedStaff.role,
+        user_roles_synced: 'revoke:admin',
       });
+
 
       setSuccess('Staff member removed');
       setShowRemoveDialog(false);
