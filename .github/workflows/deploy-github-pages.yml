@@ -37,7 +37,6 @@ jobs:
           VITE_SUPABASE_URL: https://thazislrdkjpvvghtvzo.supabase.co
           VITE_SUPABASE_PUBLISHABLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRoYXppc2xyZGtqcHZ2Z2h0dnpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc4NzA1MjIsImV4cCI6MjA4MzQ0NjUyMn0.pXaycIz1t7JXuItyqvjNNrFsZpsaXbB5bV1OWSQLbWM
           VITE_SUPABASE_PROJECT_ID: thazislrdkjpvvghtvzo
-          VITE_MAPBOX_WEB_TOKEN: ${{ secrets.VITE_MAPBOX_WEB_TOKEN }}
 
       - name: SPA fallback for client-side routing
         run: cp dist/index.html dist/404.html
