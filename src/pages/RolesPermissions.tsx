@@ -932,6 +932,8 @@ export default function RolesPermissions() {
                       <SelectItem value="roles.staff.edit">Staff edited</SelectItem>
                       <SelectItem value="roles.staff.reassign">Role reassigned</SelectItem>
                       <SelectItem value="roles.staff.remove">Staff removed</SelectItem>
+                      <SelectItem value="roles.staff.suspend">Staff suspended</SelectItem>
+                      <SelectItem value="roles.staff.activate">Staff re-activated</SelectItem>
                     </SelectContent>
                   </Select>
                   <Button variant="outline" size="sm" onClick={fetchAuditLogs} disabled={isAuditLoading}>
