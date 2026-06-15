@@ -186,6 +186,17 @@ export function AdminSidebar() {
     return <NavItem {...props} />;
   };
 
+  // Section wrapper — hides itself when no child slug is accessible
+  const Section = ({ label, slugs, children }: { label: string; slugs: string[]; children: React.ReactNode }) => {
+    if (!slugs.some((s) => canAccessPage(s))) return null;
+    return (
+      <div>
+        <NavSection label={label} collapsed={isCollapsed} />
+        <div className="space-y-1">{children}</div>
+      </div>
+    );
+  };
+
   return (
     <aside 
       className={cn(
@@ -239,174 +250,132 @@ export function AdminSidebar() {
       <ScrollArea className="flex-1 px-2 py-4">
         <div className="space-y-4">
           {/* DASHBOARD */}
-          <div>
-            <NavSection label="Dashboard" collapsed={isCollapsed} />
+          <Section label="Dashboard" slugs={['dashboard']}>
             <P pageSlug="dashboard" to="/dashboard" icon={<LayoutDashboard className="h-4 w-4" />} label="Main Dashboard" active={currentPath === '/dashboard'} collapsed={isCollapsed} />
-          </div>
+          </Section>
 
           {/* OPERATIONS & DISPATCH */}
-          <div>
-            <NavSection label="Operations & Dispatch" collapsed={isCollapsed} />
-            <div className="space-y-1">
-              <P pageSlug="fleet-tracking" to="/fleet-tracking" icon={<Send className="h-4 w-4" />} label="Live Fleet Tracking" active={currentPath === '/fleet-tracking'} collapsed={isCollapsed} />
-              <P pageSlug="active-trips" to="/active-trips" icon={<Radio className="h-4 w-4" />} label="Active Trips (Real-time)" active={currentPath === '/active-trips'} badge={counts.activeTrips > 0 ? counts.activeTrips : undefined} collapsed={isCollapsed} />
-              <P pageSlug="auto-dispatch" to="/auto-dispatch" icon={<Target className="h-4 w-4" />} label="Auto-Dispatch Rules" active={currentPath === '/auto-dispatch'} collapsed={isCollapsed} />
-              <P pageSlug="scheduled-rides" to="/scheduled-rides" icon={<Calendar className="h-4 w-4" />} label="Scheduled Rides" active={currentPath === '/scheduled-rides'} badge={counts.scheduledRides > 0 ? counts.scheduledRides : undefined} collapsed={isCollapsed} />
-              <P pageSlug="missed-cancelled" to="/missed-cancelled" icon={<XCircle className="h-4 w-4" />} label="Missed & Canceled" active={currentPath === '/missed-cancelled'} collapsed={isCollapsed} />
-              <P pageSlug="trip-history" to="/trip-history" icon={<History className="h-4 w-4" />} label="Trip History" active={currentPath === '/trip-history'} collapsed={isCollapsed} />
-              <P pageSlug="manual-trip" to="/manual-trip" icon={<Plus className="h-4 w-4" />} label="Manual Trip Creation" active={currentPath === '/manual-trip'} collapsed={isCollapsed} />
-              <P pageSlug="qr-booking" to="/qr-booking" icon={<QrCode className="h-4 w-4" />} label="QR Booking" active={currentPath === '/qr-booking'} collapsed={isCollapsed} />
-              <P pageSlug="dispatch-metrics" to="/dispatch-metrics" icon={<Activity className="h-4 w-4" />} label="Dispatch Metrics" active={currentPath === '/dispatch-metrics'} collapsed={isCollapsed} />
-            </div>
-          </div>
+          <Section
+            label="Operations & Dispatch"
+            slugs={['fleet-tracking','active-trips','auto-dispatch','scheduled-rides','missed-cancelled','trip-history','manual-trip','qr-booking','dispatch-metrics']}
+          >
+            <P pageSlug="fleet-tracking" to="/fleet-tracking" icon={<Send className="h-4 w-4" />} label="Live Fleet Tracking" active={currentPath === '/fleet-tracking'} collapsed={isCollapsed} />
+            <P pageSlug="active-trips" to="/active-trips" icon={<Radio className="h-4 w-4" />} label="Active Trips (Real-time)" active={currentPath === '/active-trips'} badge={counts.activeTrips > 0 ? counts.activeTrips : undefined} collapsed={isCollapsed} />
+            <P pageSlug="auto-dispatch" to="/auto-dispatch" icon={<Target className="h-4 w-4" />} label="Auto-Dispatch Rules" active={currentPath === '/auto-dispatch'} collapsed={isCollapsed} />
+            <P pageSlug="scheduled-rides" to="/scheduled-rides" icon={<Calendar className="h-4 w-4" />} label="Scheduled Rides" active={currentPath === '/scheduled-rides'} badge={counts.scheduledRides > 0 ? counts.scheduledRides : undefined} collapsed={isCollapsed} />
+            <P pageSlug="missed-cancelled" to="/missed-cancelled" icon={<XCircle className="h-4 w-4" />} label="Missed & Canceled" active={currentPath === '/missed-cancelled'} collapsed={isCollapsed} />
+            <P pageSlug="trip-history" to="/trip-history" icon={<History className="h-4 w-4" />} label="Trip History" active={currentPath === '/trip-history'} collapsed={isCollapsed} />
+            <P pageSlug="manual-trip" to="/manual-trip" icon={<Plus className="h-4 w-4" />} label="Manual Trip Creation" active={currentPath === '/manual-trip'} collapsed={isCollapsed} />
+            <P pageSlug="qr-booking" to="/qr-booking" icon={<QrCode className="h-4 w-4" />} label="QR Booking" active={currentPath === '/qr-booking'} collapsed={isCollapsed} />
+            <P pageSlug="dispatch-metrics" to="/dispatch-metrics" icon={<Activity className="h-4 w-4" />} label="Dispatch Metrics" active={currentPath === '/dispatch-metrics'} collapsed={isCollapsed} />
+          </Section>
 
           {/* FLEET MANAGEMENT */}
-          <div>
-            <NavSection label="Fleet Management" collapsed={isCollapsed} />
-            <div className="space-y-1">
-              <P pageSlug="drivers" to="/drivers" icon={<UserCircle className="h-4 w-4" />} label="Driver List" active={currentPath === '/drivers'} badge={counts.pendingDrivers > 0 ? counts.pendingDrivers : undefined} collapsed={isCollapsed} />
-              <P pageSlug="vehicles" to="/vehicles" icon={<Car className="h-4 w-4" />} label="Vehicle List" active={currentPath === '/vehicles'} badge={counts.pendingVehicleChanges > 0 ? counts.pendingVehicleChanges : undefined} collapsed={isCollapsed} />
-              <P pageSlug="vehicle-types" to="/vehicle-types" icon={<CarTaxiFront className="h-4 w-4" />} label="Vehicle Types" active={currentPath === '/vehicle-types'} collapsed={isCollapsed} />
-              <P pageSlug="documents" to="/documents" icon={<FolderOpen className="h-4 w-4" />} label="Document Review" active={currentPath === '/documents'} badge={counts.pendingDocuments > 0 ? counts.pendingDocuments : undefined} collapsed={isCollapsed} />
-              <P pageSlug="document-management" to="/document-management" icon={<Settings2 className="h-4 w-4" />} label="Document Management" active={currentPath === '/document-management'} collapsed={isCollapsed} />
-
-            </div>
-          </div>
+          <Section label="Fleet Management" slugs={['drivers','vehicles','vehicle-types','documents','document-management']}>
+            <P pageSlug="drivers" to="/drivers" icon={<UserCircle className="h-4 w-4" />} label="Driver List" active={currentPath === '/drivers'} badge={counts.pendingDrivers > 0 ? counts.pendingDrivers : undefined} collapsed={isCollapsed} />
+            <P pageSlug="vehicles" to="/vehicles" icon={<Car className="h-4 w-4" />} label="Vehicle List" active={currentPath === '/vehicles'} badge={counts.pendingVehicleChanges > 0 ? counts.pendingVehicleChanges : undefined} collapsed={isCollapsed} />
+            <P pageSlug="vehicle-types" to="/vehicle-types" icon={<CarTaxiFront className="h-4 w-4" />} label="Vehicle Types" active={currentPath === '/vehicle-types'} collapsed={isCollapsed} />
+            <P pageSlug="documents" to="/documents" icon={<FolderOpen className="h-4 w-4" />} label="Document Review" active={currentPath === '/documents'} badge={counts.pendingDocuments > 0 ? counts.pendingDocuments : undefined} collapsed={isCollapsed} />
+            <P pageSlug="document-management" to="/document-management" icon={<Settings2 className="h-4 w-4" />} label="Document Management" active={currentPath === '/document-management'} collapsed={isCollapsed} />
+          </Section>
 
           {/* MARKETPLACE */}
-          <div>
-            <NavSection label="Marketplace" collapsed={isCollapsed} />
-            <div className="space-y-1">
-              <P pageSlug="merchants" to="/merchants" icon={<Store className="h-4 w-4" />} label="Merchant Management" active={currentPath === '/merchants' || (currentPath.startsWith('/merchants/') && currentPath !== '/merchants')} collapsed={isCollapsed} />
-              <P pageSlug="merchant-approvals" to="/merchant-approvals" icon={<ShieldCheck className="h-4 w-4" />} label="Merchant Approvals" active={currentPath === '/merchant-approvals'} collapsed={isCollapsed} />
-              <P pageSlug="marketplace-settings" to="/marketplace-settings" icon={<Settings2 className="h-4 w-4" />} label="Marketplace Settings" active={currentPath === '/marketplace-settings'} collapsed={isCollapsed} />
-              <P pageSlug="marketplace-settlements" to="/marketplace-settlements" icon={<Wallet className="h-4 w-4" />} label="Marketplace Settlements" active={currentPath === '/marketplace-settlements'} collapsed={isCollapsed} />
-              <P pageSlug="ai-image-credits" to="/ai-image-credits" icon={<Coins className="h-4 w-4" />} label="AI Image Credits" active={currentPath === '/ai-image-credits'} collapsed={isCollapsed} />
-            </div>
-          </div>
-
+          <Section label="Marketplace" slugs={['merchants','merchant-approvals','marketplace-settings','marketplace-settlements','ai-image-credits']}>
+            <P pageSlug="merchants" to="/merchants" icon={<Store className="h-4 w-4" />} label="Merchant Management" active={currentPath === '/merchants' || (currentPath.startsWith('/merchants/') && currentPath !== '/merchants')} collapsed={isCollapsed} />
+            <P pageSlug="merchant-approvals" to="/merchant-approvals" icon={<ShieldCheck className="h-4 w-4" />} label="Merchant Approvals" active={currentPath === '/merchant-approvals'} collapsed={isCollapsed} />
+            <P pageSlug="marketplace-settings" to="/marketplace-settings" icon={<Settings2 className="h-4 w-4" />} label="Marketplace Settings" active={currentPath === '/marketplace-settings'} collapsed={isCollapsed} />
+            <P pageSlug="marketplace-settlements" to="/marketplace-settlements" icon={<Wallet className="h-4 w-4" />} label="Marketplace Settlements" active={currentPath === '/marketplace-settlements'} collapsed={isCollapsed} />
+            <P pageSlug="ai-image-credits" to="/ai-image-credits" icon={<Coins className="h-4 w-4" />} label="AI Image Credits" active={currentPath === '/ai-image-credits'} collapsed={isCollapsed} />
+          </Section>
 
           {/* SERVICE AREAS */}
-          <div>
-            <NavSection label="Service Areas" collapsed={isCollapsed} />
-            <div className="space-y-1">
-              <P pageSlug="regions" to="/regions" icon={<MapPin className="h-4 w-4" />} label="Regions" active={currentPath === '/regions'} collapsed={isCollapsed} />
-              <P pageSlug="services" to="/services" icon={<Map className="h-4 w-4" />} label="Services" active={currentPath === '/services'} collapsed={isCollapsed} />
-            </div>
-          </div>
+          <Section label="Service Areas" slugs={['regions','services']}>
+            <P pageSlug="regions" to="/regions" icon={<MapPin className="h-4 w-4" />} label="Regions" active={currentPath === '/regions'} collapsed={isCollapsed} />
+            <P pageSlug="services" to="/services" icon={<Map className="h-4 w-4" />} label="Services" active={currentPath === '/services'} collapsed={isCollapsed} />
+          </Section>
 
           {/* PRICING & FARES */}
-          <div>
-            <NavSection label="Pricing & Fares" collapsed={isCollapsed} />
-            <div className="space-y-1">
-              
-              <P pageSlug="promo-codes" to="/promo-codes" icon={<Tag className="h-4 w-4" />} label="Promo Codes" active={currentPath === '/promo-codes'} badge={counts.activePromoCodes > 0 ? counts.activePromoCodes : undefined} collapsed={isCollapsed} />
-              <P pageSlug="offers" to="/offers" icon={<Sparkles className="h-4 w-4" />} label="Customer Offers" active={currentPath === '/offers'} collapsed={isCollapsed} />
-              <P pageSlug="custom-zones" to="/custom-zones" icon={<CircleDollarSign className="h-4 w-4" />} label="Custom Zones" active={currentPath === '/custom-zones'} collapsed={isCollapsed} />
-              <P pageSlug="zone-pricing" to="/zone-pricing" icon={<Target className="h-4 w-4" />} label="Geofence & Zone Pricing" active={currentPath === '/zone-pricing'} collapsed={isCollapsed} />
-              
-              <P pageSlug="fare-simulator" to="/fare-simulator" icon={<Calculator className="h-4 w-4" />} label="Fare Simulator" active={currentPath === '/fare-simulator'} collapsed={isCollapsed} />
-            </div>
-          </div>
-
+          <Section label="Pricing & Fares" slugs={['promo-codes','offers','custom-zones','zone-pricing','fare-simulator']}>
+            <P pageSlug="promo-codes" to="/promo-codes" icon={<Tag className="h-4 w-4" />} label="Promo Codes" active={currentPath === '/promo-codes'} badge={counts.activePromoCodes > 0 ? counts.activePromoCodes : undefined} collapsed={isCollapsed} />
+            <P pageSlug="offers" to="/offers" icon={<Sparkles className="h-4 w-4" />} label="Customer Offers" active={currentPath === '/offers'} collapsed={isCollapsed} />
+            <P pageSlug="custom-zones" to="/custom-zones" icon={<CircleDollarSign className="h-4 w-4" />} label="Custom Zones" active={currentPath === '/custom-zones'} collapsed={isCollapsed} />
+            <P pageSlug="zone-pricing" to="/zone-pricing" icon={<Target className="h-4 w-4" />} label="Geofence & Zone Pricing" active={currentPath === '/zone-pricing'} collapsed={isCollapsed} />
+            <P pageSlug="fare-simulator" to="/fare-simulator" icon={<Calculator className="h-4 w-4" />} label="Fare Simulator" active={currentPath === '/fare-simulator'} collapsed={isCollapsed} />
+          </Section>
 
           {/* CORPORATE */}
-          <div>
-            <NavSection label="Corporate" collapsed={isCollapsed} />
-            <div className="space-y-1">
-              <P pageSlug="corporate-accounts" to="/corporate-accounts" icon={<Briefcase className="h-4 w-4" />} label="Corporate Accounts" active={currentPath === '/corporate-accounts'} collapsed={isCollapsed} />
-              <P pageSlug="account-requests" to="/account-requests" icon={<FileText className="h-4 w-4" />} label="Account Requests" active={currentPath === '/account-requests'} badge={counts.pendingAccountRequests} collapsed={isCollapsed} />
-              <P pageSlug="corporate-billing" to="/corporate-billing" icon={<CreditCard className="h-4 w-4" />} label="Corporate Billing" active={currentPath === '/corporate-billing'} collapsed={isCollapsed} />
-              <P pageSlug="corporate-reports" to="/corporate-reports" icon={<BarChart3 className="h-4 w-4" />} label="Corporate Reports" active={currentPath === '/corporate-reports'} collapsed={isCollapsed} />
-               <P pageSlug="corporate-fares" to="/corporate-fares" icon={<Building2 className="h-4 w-4" />} label="Corporate Fare Rules" active={currentPath === '/corporate-fares'} collapsed={isCollapsed} />
-               <P pageSlug="corporate-settings" to="/corporate-settings" icon={<Settings className="h-4 w-4" />} label="Corporate Settings" active={currentPath === '/corporate-settings'} collapsed={isCollapsed} />
-            </div>
-          </div>
+          <Section label="Corporate" slugs={['corporate-accounts','account-requests','corporate-billing','corporate-reports','corporate-fares','corporate-settings']}>
+            <P pageSlug="corporate-accounts" to="/corporate-accounts" icon={<Briefcase className="h-4 w-4" />} label="Corporate Accounts" active={currentPath === '/corporate-accounts'} collapsed={isCollapsed} />
+            <P pageSlug="account-requests" to="/account-requests" icon={<FileText className="h-4 w-4" />} label="Account Requests" active={currentPath === '/account-requests'} badge={counts.pendingAccountRequests} collapsed={isCollapsed} />
+            <P pageSlug="corporate-billing" to="/corporate-billing" icon={<CreditCard className="h-4 w-4" />} label="Corporate Billing" active={currentPath === '/corporate-billing'} collapsed={isCollapsed} />
+            <P pageSlug="corporate-reports" to="/corporate-reports" icon={<BarChart3 className="h-4 w-4" />} label="Corporate Reports" active={currentPath === '/corporate-reports'} collapsed={isCollapsed} />
+            <P pageSlug="corporate-fares" to="/corporate-fares" icon={<Building2 className="h-4 w-4" />} label="Corporate Fare Rules" active={currentPath === '/corporate-fares'} collapsed={isCollapsed} />
+            <P pageSlug="corporate-settings" to="/corporate-settings" icon={<Settings className="h-4 w-4" />} label="Corporate Settings" active={currentPath === '/corporate-settings'} collapsed={isCollapsed} />
+          </Section>
 
           {/* RIDER MANAGEMENT */}
-          <div>
-            <NavSection label="Rider Management" collapsed={isCollapsed} />
-            <div className="space-y-1">
-              <P pageSlug="riders" to="/riders" icon={<Users className="h-4 w-4" />} label="Rider List" active={currentPath === '/riders'} collapsed={isCollapsed} />
-              <P pageSlug="rider-feedback" to="/rider-feedback" icon={<MessageSquare className="h-4 w-4" />} label="Rider Feedback" active={currentPath === '/rider-feedback'} badge={counts.pendingFeedback > 0 ? counts.pendingFeedback : undefined} collapsed={isCollapsed} />
-            </div>
-          </div>
+          <Section label="Rider Management" slugs={['riders','rider-feedback']}>
+            <P pageSlug="riders" to="/riders" icon={<Users className="h-4 w-4" />} label="Rider List" active={currentPath === '/riders'} collapsed={isCollapsed} />
+            <P pageSlug="rider-feedback" to="/rider-feedback" icon={<MessageSquare className="h-4 w-4" />} label="Rider Feedback" active={currentPath === '/rider-feedback'} badge={counts.pendingFeedback > 0 ? counts.pendingFeedback : undefined} collapsed={isCollapsed} />
+          </Section>
 
           {/* SUPPORT */}
-          <div>
-            <NavSection label="Support" collapsed={isCollapsed} />
-            <div className="space-y-1">
-              <P pageSlug="suspensions" to="/suspensions" icon={<UserX className="h-4 w-4" />} label="Account Suspension" active={currentPath === '/suspensions'} collapsed={isCollapsed} />
-              <P pageSlug="complaints" to="/complaints" icon={<AlertTriangle className="h-4 w-4" />} label="Complaints Dashboard" active={currentPath === '/complaints'} collapsed={isCollapsed} />
-              <P pageSlug="live-chat" to="/live-chat" icon={<MessageSquare className="h-4 w-4" />} label="Live Chat" active={currentPath === '/live-chat'} badge={chatUnread > 0 ? chatUnread : undefined} badgeColor="destructive" collapsed={isCollapsed} />
-              <P pageSlug="tickets" to="/tickets" icon={<Ticket className="h-4 w-4" />} label="Tickets" active={currentPath === '/tickets'} collapsed={isCollapsed} />
-              <P pageSlug="lost-property" to="/lost-property" icon={<PackageSearch className="h-4 w-4" />} label="Lost Property" active={currentPath === '/lost-property' || currentPath.startsWith('/lost-property/')} badge={lpUnread > 0 ? lpUnread : undefined} badgeColor="destructive" collapsed={isCollapsed} />
-              <P pageSlug="categories" to="/categories" icon={<Grid3X3 className="h-4 w-4" />} label="Support Categories" active={currentPath === '/categories'} collapsed={isCollapsed} />
-            </div>
-          </div>
+          <Section label="Support" slugs={['suspensions','complaints','live-chat','tickets','lost-property','categories']}>
+            <P pageSlug="suspensions" to="/suspensions" icon={<UserX className="h-4 w-4" />} label="Account Suspension" active={currentPath === '/suspensions'} collapsed={isCollapsed} />
+            <P pageSlug="complaints" to="/complaints" icon={<AlertTriangle className="h-4 w-4" />} label="Complaints Dashboard" active={currentPath === '/complaints'} collapsed={isCollapsed} />
+            <P pageSlug="live-chat" to="/live-chat" icon={<MessageSquare className="h-4 w-4" />} label="Live Chat" active={currentPath === '/live-chat'} badge={chatUnread > 0 ? chatUnread : undefined} badgeColor="destructive" collapsed={isCollapsed} />
+            <P pageSlug="tickets" to="/tickets" icon={<Ticket className="h-4 w-4" />} label="Tickets" active={currentPath === '/tickets'} collapsed={isCollapsed} />
+            <P pageSlug="lost-property" to="/lost-property" icon={<PackageSearch className="h-4 w-4" />} label="Lost Property" active={currentPath === '/lost-property' || currentPath.startsWith('/lost-property/')} badge={lpUnread > 0 ? lpUnread : undefined} badgeColor="destructive" collapsed={isCollapsed} />
+            <P pageSlug="categories" to="/categories" icon={<Grid3X3 className="h-4 w-4" />} label="Support Categories" active={currentPath === '/categories'} collapsed={isCollapsed} />
+          </Section>
 
           {/* FINANCE & PAYOUTS */}
-          <div>
-            <NavSection label="Finance & Payouts" collapsed={isCollapsed} />
-            <div className="space-y-1">
-              <P pageSlug="payments" to="/payments" icon={<CreditCard className="h-4 w-4" />} label="Payments & Transactions" active={currentPath === '/payments'} collapsed={isCollapsed} />
-              <P pageSlug="financial-reconciliation" to="/financial-reconciliation" icon={<Calculator className="h-4 w-4" />} label="Financial Reconciliation" active={currentPath === '/financial-reconciliation'} collapsed={isCollapsed} />
-              <P pageSlug="driver-wallet" to="/driver-wallet" icon={<Wallet className="h-4 w-4" />} label="Driver Wallet & Ledger" active={currentPath === '/driver-wallet'} collapsed={isCollapsed} />
-              <P pageSlug="admin-settlements" to="/admin-settlements" icon={<DollarSign className="h-4 w-4" />} label="Driver Settlements" active={currentPath === '/admin-settlements'} collapsed={isCollapsed} />
-              <P pageSlug="payout-batches" to="/payout-batches" icon={<History className="h-4 w-4" />} label="Payout Batches & Audit" active={currentPath === '/payout-batches'} collapsed={isCollapsed} />
-              <P pageSlug="disputes" to="/disputes" icon={<Scale className="h-4 w-4" />} label="Disputes & Adjustments" active={currentPath === '/disputes'} collapsed={isCollapsed} />
-              <P pageSlug="invoices" to="/invoices" icon={<FileText className="h-4 w-4" />} label="Invoices" active={currentPath === '/invoices'} collapsed={isCollapsed} />
-              <P pageSlug="invoice-templates" to="/invoice-templates" icon={<FileEdit className="h-4 w-4" />} label="Invoice Templates" active={currentPath === '/invoice-templates'} collapsed={isCollapsed} />
-              <P pageSlug="statement-runs" to="/statement-runs" icon={<BarChart3 className="h-4 w-4" />} label="Statement Runs" active={currentPath === '/statement-runs'} collapsed={isCollapsed} />
-            </div>
-          </div>
+          <Section label="Finance & Payouts" slugs={['payments','financial-reconciliation','driver-wallet','admin-settlements','payout-batches','disputes','invoices','invoice-templates','statement-runs']}>
+            <P pageSlug="payments" to="/payments" icon={<CreditCard className="h-4 w-4" />} label="Payments & Transactions" active={currentPath === '/payments'} collapsed={isCollapsed} />
+            <P pageSlug="financial-reconciliation" to="/financial-reconciliation" icon={<Calculator className="h-4 w-4" />} label="Financial Reconciliation" active={currentPath === '/financial-reconciliation'} collapsed={isCollapsed} />
+            <P pageSlug="driver-wallet" to="/driver-wallet" icon={<Wallet className="h-4 w-4" />} label="Driver Wallet & Ledger" active={currentPath === '/driver-wallet'} collapsed={isCollapsed} />
+            <P pageSlug="admin-settlements" to="/admin-settlements" icon={<DollarSign className="h-4 w-4" />} label="Driver Settlements" active={currentPath === '/admin-settlements'} collapsed={isCollapsed} />
+            <P pageSlug="payout-batches" to="/payout-batches" icon={<History className="h-4 w-4" />} label="Payout Batches & Audit" active={currentPath === '/payout-batches'} collapsed={isCollapsed} />
+            <P pageSlug="disputes" to="/disputes" icon={<Scale className="h-4 w-4" />} label="Disputes & Adjustments" active={currentPath === '/disputes'} collapsed={isCollapsed} />
+            <P pageSlug="invoices" to="/invoices" icon={<FileText className="h-4 w-4" />} label="Invoices" active={currentPath === '/invoices'} collapsed={isCollapsed} />
+            <P pageSlug="invoice-templates" to="/invoice-templates" icon={<FileEdit className="h-4 w-4" />} label="Invoice Templates" active={currentPath === '/invoice-templates'} collapsed={isCollapsed} />
+            <P pageSlug="statement-runs" to="/statement-runs" icon={<BarChart3 className="h-4 w-4" />} label="Statement Runs" active={currentPath === '/statement-runs'} collapsed={isCollapsed} />
+          </Section>
 
           {/* ONECAB DOCUMENTS */}
-          <div>
-            <NavSection label="ONECAB Documents" collapsed={isCollapsed} />
-            <div className="space-y-1">
-              <P pageSlug="onecab-documents" to="/onecab-documents" icon={<ShieldCheck className="h-4 w-4" />} label="Compliance Center" active={currentPath === '/onecab-documents'} collapsed={isCollapsed} />
-            </div>
-          </div>
+          <Section label="ONECAB Documents" slugs={['onecab-documents']}>
+            <P pageSlug="onecab-documents" to="/onecab-documents" icon={<ShieldCheck className="h-4 w-4" />} label="Compliance Center" active={currentPath === '/onecab-documents'} collapsed={isCollapsed} />
+          </Section>
 
           {/* CONTENT & LEGAL */}
-          <div>
-            <NavSection label="Content & Legal" collapsed={isCollapsed} />
-            <div className="space-y-1">
-              <P pageSlug="content" to="/content" icon={<FileEdit className="h-4 w-4" />} label="Manage Content" active={currentPath === '/content'} collapsed={isCollapsed} />
-            </div>
-          </div>
+          <Section label="Content & Legal" slugs={['content']}>
+            <P pageSlug="content" to="/content" icon={<FileEdit className="h-4 w-4" />} label="Manage Content" active={currentPath === '/content'} collapsed={isCollapsed} />
+          </Section>
 
           {/* OPS INTELLIGENCE */}
-          <div>
-            <NavSection label="Ops Intelligence" collapsed={isCollapsed} />
-            <div className="space-y-1">
-              <P pageSlug="ops-intelligence" to="/ops-intelligence" icon={<BrainCircuit className="h-4 w-4" />} label="Ops Dashboard" active={currentPath === '/ops-intelligence' && !location.search.includes('tab=')} collapsed={isCollapsed} />
-              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=driver-app" icon={<Car className="h-4 w-4" />} label="Driver App" active={currentPath === '/ops-intelligence' && location.search.includes('tab=driver-app')} collapsed={isCollapsed} />
-              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=customer-app" icon={<Smartphone className="h-4 w-4" />} label="Customer App" active={currentPath === '/ops-intelligence' && location.search.includes('tab=customer-app')} collapsed={isCollapsed} />
-              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=guest" icon={<Globe className="h-4 w-4" />} label="Guest Booking" active={currentPath === '/ops-intelligence' && location.search.includes('tab=guest')} collapsed={isCollapsed} />
-              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=corporate" icon={<Building2 className="h-4 w-4" />} label="Corporate" active={currentPath === '/ops-intelligence' && location.search.includes('tab=corporate')} collapsed={isCollapsed} />
-              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=money" icon={<CreditCard className="h-4 w-4" />} label="Money Integrity" active={currentPath === '/ops-intelligence' && location.search.includes('tab=money')} collapsed={isCollapsed} />
-              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=app-performance" icon={<Gauge className="h-4 w-4" />} label="App Performance" active={currentPath === '/ops-intelligence' && location.search.includes('tab=app-performance')} collapsed={isCollapsed} />
-              <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=integration" icon={<FileText className="h-4 w-4" />} label="Integration Guide" active={currentPath === '/ops-intelligence' && location.search.includes('tab=integration')} collapsed={isCollapsed} />
-            </div>
-          </div>
+          <Section label="Ops Intelligence" slugs={['ops-intelligence']}>
+            <P pageSlug="ops-intelligence" to="/ops-intelligence" icon={<BrainCircuit className="h-4 w-4" />} label="Ops Dashboard" active={currentPath === '/ops-intelligence' && !location.search.includes('tab=')} collapsed={isCollapsed} />
+            <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=driver-app" icon={<Car className="h-4 w-4" />} label="Driver App" active={currentPath === '/ops-intelligence' && location.search.includes('tab=driver-app')} collapsed={isCollapsed} />
+            <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=customer-app" icon={<Smartphone className="h-4 w-4" />} label="Customer App" active={currentPath === '/ops-intelligence' && location.search.includes('tab=customer-app')} collapsed={isCollapsed} />
+            <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=guest" icon={<Globe className="h-4 w-4" />} label="Guest Booking" active={currentPath === '/ops-intelligence' && location.search.includes('tab=guest')} collapsed={isCollapsed} />
+            <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=corporate" icon={<Building2 className="h-4 w-4" />} label="Corporate" active={currentPath === '/ops-intelligence' && location.search.includes('tab=corporate')} collapsed={isCollapsed} />
+            <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=money" icon={<CreditCard className="h-4 w-4" />} label="Money Integrity" active={currentPath === '/ops-intelligence' && location.search.includes('tab=money')} collapsed={isCollapsed} />
+            <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=app-performance" icon={<Gauge className="h-4 w-4" />} label="App Performance" active={currentPath === '/ops-intelligence' && location.search.includes('tab=app-performance')} collapsed={isCollapsed} />
+            <P pageSlug="ops-intelligence" to="/ops-intelligence?tab=integration" icon={<FileText className="h-4 w-4" />} label="Integration Guide" active={currentPath === '/ops-intelligence' && location.search.includes('tab=integration')} collapsed={isCollapsed} />
+          </Section>
 
           {/* SETTINGS */}
-          <div>
-            <NavSection label="Settings" collapsed={isCollapsed} />
-            <div className="space-y-1">
-              <P pageSlug="general-settings" to="/general-settings" icon={<Palette className="h-4 w-4" />} label="General & Branding" active={currentPath === '/general-settings'} collapsed={isCollapsed} />
-              <P pageSlug="integrations" to="/integrations" icon={<Plug className="h-4 w-4" />} label="Integrations & API" active={currentPath === '/integrations'} collapsed={isCollapsed} />
-              <P pageSlug="payment-providers" to="/payment-providers" icon={<CreditCard className="h-4 w-4" />} label="Payment Providers" active={currentPath === '/payment-providers'} collapsed={isCollapsed} />
-              <P pageSlug="webhooks" to="/webhooks" icon={<Webhook className="h-4 w-4" />} label="Webhooks" active={currentPath === '/webhooks'} collapsed={isCollapsed} />
-              
-              <P pageSlug="roles" to="/roles" icon={<Shield className="h-4 w-4" />} label="Roles & Permissions" active={currentPath === '/roles'} collapsed={isCollapsed} />
-              <P pageSlug="user-directory" to="/user-directory" icon={<Contact className="h-4 w-4" />} label="User Directory" active={currentPath === '/user-directory'} collapsed={isCollapsed} />
-              <P pageSlug="notifications" to="/notifications" icon={<Bell className="h-4 w-4" />} label="Notifications & Alerts" active={currentPath === '/notifications'} collapsed={isCollapsed} />
-              <P pageSlug="alert-sounds" to="/alert-sounds" icon={<Volume2 className="h-4 w-4" />} label="Alert Sounds" active={currentPath === '/alert-sounds'} collapsed={isCollapsed} />
-            </div>
-          </div>
+          <Section label="Settings" slugs={['general-settings','integrations','payment-providers','webhooks','roles','user-directory','notifications','alert-sounds']}>
+            <P pageSlug="general-settings" to="/general-settings" icon={<Palette className="h-4 w-4" />} label="General & Branding" active={currentPath === '/general-settings'} collapsed={isCollapsed} />
+            <P pageSlug="integrations" to="/integrations" icon={<Plug className="h-4 w-4" />} label="Integrations & API" active={currentPath === '/integrations'} collapsed={isCollapsed} />
+            <P pageSlug="payment-providers" to="/payment-providers" icon={<CreditCard className="h-4 w-4" />} label="Payment Providers" active={currentPath === '/payment-providers'} collapsed={isCollapsed} />
+            <P pageSlug="webhooks" to="/webhooks" icon={<Webhook className="h-4 w-4" />} label="Webhooks" active={currentPath === '/webhooks'} collapsed={isCollapsed} />
+            <P pageSlug="roles" to="/roles" icon={<Shield className="h-4 w-4" />} label="Roles & Permissions" active={currentPath === '/roles'} collapsed={isCollapsed} />
+            <P pageSlug="user-directory" to="/user-directory" icon={<Contact className="h-4 w-4" />} label="User Directory" active={currentPath === '/user-directory'} collapsed={isCollapsed} />
+            <P pageSlug="notifications" to="/notifications" icon={<Bell className="h-4 w-4" />} label="Notifications & Alerts" active={currentPath === '/notifications'} collapsed={isCollapsed} />
+            <P pageSlug="alert-sounds" to="/alert-sounds" icon={<Volume2 className="h-4 w-4" />} label="Alert Sounds" active={currentPath === '/alert-sounds'} collapsed={isCollapsed} />
+          </Section>
+
         </div>
       </ScrollArea>
 
