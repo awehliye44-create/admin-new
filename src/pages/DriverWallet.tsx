@@ -22,6 +22,9 @@ import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/Cu
 import { FinanceReconciliationTotalsCards } from '@/components/finance/FinanceReconciliationTotalsCards';
 import { FinanceSSOT, useFinancialReconciliationSSOT } from '@/hooks/useFinancialReconciliationSSOT';
 import { DriverSSOTPayoutPanel } from '@/components/finance/DriverSSOTPayoutPanel';
+import { MondayPayoutTodayCards, PartialSettlementAlert } from '@/components/finance/MondayPayoutTodayCards';
+import { MondayPayoutDiagnosticsTable } from '@/components/finance/MondayPayoutDiagnosticsTable';
+import { useMondayPayoutDiagnostics } from '@/hooks/useMondayPayoutDiagnostics';
 import { 
   Search, Wallet, TrendingDown, Eye, RefreshCw, AlertTriangle, CheckCircle2, User, Banknote, CreditCard, ArrowUpRight, ArrowDownRight
 } from 'lucide-react';
@@ -34,6 +37,10 @@ export default function DriverWallet() {
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
 
   const financeSSOT = useFinancialReconciliationSSOT({ filter: serviceFilter });
+  const mondayPayouts = useMondayPayoutDiagnostics(serviceFilter, {
+    driverId: selectedDriver?.driver_id ?? null,
+    allKinds: true,
+  });
   const { data: allDrivers = [], isLoading, refetch } = useDriverFinancialSummaries();
   const { data: ledgerEntries = [], isLoading: isLoadingLedger } = useDriverLedger(selectedDriver?.driver_id || null);
 
@@ -96,6 +103,13 @@ export default function DriverWallet() {
     >
       <div className="space-y-6">
         <FinanceReconciliationTotalsCards ssot={financeSSOT} />
+
+        <MondayPayoutTodayCards
+          cards={mondayPayouts.data?.today_cards}
+          currencyCode={resolvedCurrency}
+          isLoading={mondayPayouts.isLoading}
+        />
+        <PartialSettlementAlert count={mondayPayouts.data?.partial_settlements?.length ?? 0} />
 
         {/* Service Area Filter */}
         <div className="flex items-center gap-3">
@@ -339,6 +353,18 @@ export default function DriverWallet() {
                       <div className="flex justify-between"><span>Wallet Credit</span><span className="text-green-600">+{sFmt(selectedDriver.card_net_credits)}</span></div>
                     </div>
                   </CardContent></Card>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h4 className="font-medium mb-2">Payout diagnostics (Monday settlement)</h4>
+                  <MondayPayoutDiagnosticsTable
+                    rows={mondayPayouts.data?.payouts ?? []}
+                    currencyCode={sc}
+                    compact
+                    emptyMessage="No payout records for this driver today."
+                  />
                 </div>
 
                 <Separator />

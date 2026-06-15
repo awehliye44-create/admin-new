@@ -19,6 +19,11 @@ import {
   RefreshCw, CheckCircle2, Clock, XCircle, Eye, Calendar,
   DollarSign, Wallet, AlertTriangle
 } from 'lucide-react';
+import { MondayPayoutTodayCards, PartialSettlementAlert } from '@/components/finance/MondayPayoutTodayCards';
+import { MondayPayoutDiagnosticsTable } from '@/components/finance/MondayPayoutDiagnosticsTable';
+import { retryMondayPayoutItem, useMondayPayoutDiagnostics } from '@/hooks/useMondayPayoutDiagnostics';
+import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface PayoutItem {
   id: string;
@@ -294,8 +299,11 @@ export default function AdminPayoutBatches() {
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
 
+  const [retryingPayoutId, setRetryingPayoutId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const regionScope = serviceFilter.regionId ?? null;
   const financeSSOT = useFinancialReconciliationSSOT({ filter: serviceFilter });
+  const mondayPayouts = useMondayPayoutDiagnostics(serviceFilter, { allKinds: true, today: false });
   const hasRegionScope = !!regionScope;
 
   const { data: allDrivers = [], isLoading: isLoadingDrivers, isError: isDriversError, error: driversError, refetch: refetchDrivers } =
@@ -433,6 +441,22 @@ export default function AdminPayoutBatches() {
     refetchBatches();
   };
 
+  const handleRetryMondayPayout = async (row: Parameters<typeof retryMondayPayoutItem>[0]) => {
+    setRetryingPayoutId(row.payout_item_id);
+    try {
+      await retryMondayPayoutItem(row);
+      toast.success('Payout retry initiated');
+      await mondayPayouts.refetch();
+      refetchBatches();
+      queryClient.invalidateQueries({ queryKey: ['admin-payout-batches-list'] });
+      financeSSOT.refetch();
+    } catch (e) {
+      toast.error(`Retry failed: ${(e as Error).message}`);
+    } finally {
+      setRetryingPayoutId(null);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     const config: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline', icon: React.ReactNode }> = {
       completed: { variant: 'default', icon: <CheckCircle2 className="h-3 w-3 mr-1" /> },
@@ -497,6 +521,44 @@ export default function AdminPayoutBatches() {
 
         {/* Canonical finance cards — ONECAB commission separated from Stripe platform balance */}
         <FinanceReconciliationTotalsCards ssot={financeSSOT} />
+
+        <MondayPayoutTodayCards
+          cards={mondayPayouts.data?.today_cards}
+          currencyCode={resolvedCurrency}
+          isLoading={mondayPayouts.isLoading}
+        />
+        <PartialSettlementAlert count={mondayPayouts.data?.partial_settlements?.length ?? 0} />
+
+        {(mondayPayouts.data?.failed_payouts?.length ?? 0) > 0 && (
+          <Card className="border-destructive/40">
+            <CardHeader>
+              <CardTitle className="text-base text-destructive">Failed Payouts — must not be hidden</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <MondayPayoutDiagnosticsTable
+                rows={mondayPayouts.data?.failed_payouts ?? []}
+                currencyCode={resolvedCurrency}
+                onRetry={handleRetryMondayPayout}
+                retryingId={retryingPayoutId}
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Monday Payout Audit</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <MondayPayoutDiagnosticsTable
+              rows={mondayPayouts.data?.payouts ?? []}
+              currencyCode={resolvedCurrency}
+              onRetry={handleRetryMondayPayout}
+              retryingId={retryingPayoutId}
+              emptyMessage="No weekly Monday payout records. Failed payouts always appear here once recorded."
+            />
+          </CardContent>
+        </Card>
 
 
         <div className="grid gap-4 md:grid-cols-5">

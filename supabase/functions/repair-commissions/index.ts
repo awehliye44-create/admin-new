@@ -67,7 +67,7 @@ serve(async (req) => {
     // === Fetch completed trips ===
     let query = supabase
       .from('trips')
-      .select('id, driver_id, service_area_id, gross_fare_pence, commission_pence, driver_net_pence, payment_method, payment_status, currency_code, financial_outcome, completed_at, fare, tip_pence')
+      .select('id, driver_id, service_area_id, gross_fare_pence, final_fare_pence, airport_charge_pence, other_pass_through_charges_pence, commission_pence, driver_net_pence, payment_method, payment_status, currency_code, financial_outcome, completed_at, fare, tip_pence')
       .eq('status', 'completed')
       .not('driver_id', 'is', null);
 
@@ -100,8 +100,10 @@ serve(async (req) => {
 
     for (const trip of trips) {
       const dId = trip.driver_id;
-      const grossFare = trip.gross_fare_pence || 0;
+      const finalFare = trip.final_fare_pence || trip.gross_fare_pence || 0;
       const tipPence = trip.tip_pence || 0;
+      const airportPence = trip.airport_charge_pence || 0;
+      const passThroughPence = trip.other_pass_through_charges_pence || 0;
       const isCash = (trip.payment_method || '').toUpperCase() === 'CASH';
       const issues: string[] = [];
 
@@ -140,13 +142,13 @@ serve(async (req) => {
       }
 
       const correctPct = commissionCache[dId].commission_pct;
-      const correctCommission = Math.round(grossFare * correctPct / 100);
-      const accounting = buildTripAccounting({
-        commissionableSubtotalPence: grossFare,
-        commissionPence: correctCommission,
-        tipAmountPence: tipPence,
+      const recomputed = await calculateCommission(supabase, dId, finalFare, {
+        airport_charge_pence: airportPence,
+        other_pass_through_charges_pence: passThroughPence,
+        tips_pence: tipPence,
       });
-      const correctNet = accounting.driverNetBeforeTipPence;
+      const correctCommission = recomputed.commission_pence;
+      const correctNet = recomputed.driver_net_pence;
       const oldCommission = trip.commission_pence || 0;
       const oldDriverNet = trip.driver_net_pence || 0;
       const commissionDelta = correctCommission - oldCommission;
@@ -181,7 +183,7 @@ serve(async (req) => {
       corrections.push({
         trip_id: trip.id,
         driver_id: dId,
-        gross_fare_pence: grossFare,
+        gross_fare_pence: recomputed.commissionable_fare_pence,
         old_commission_pence: oldCommission,
         correct_commission_pence: correctCommission,
         correct_driver_net_pence: correctNet,

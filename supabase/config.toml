@@ -67,6 +67,9 @@ verify_jwt = false
 [functions.admin-sync-payout-ledger]
 verify_jwt = false
 
+[functions.admin-monday-payout-diagnostics]
+verify_jwt = false
+
 [functions.admin-finance-summary]
 verify_jwt = false
 

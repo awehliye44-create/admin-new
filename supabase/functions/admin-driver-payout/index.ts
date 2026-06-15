@@ -2,6 +2,11 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveCurrencyFromDriver } from "../_shared/regionCurrency.ts";
 import { finalizePayoutAfterProviderSuccess } from "../_shared/payoutLedgerSync.ts";
+import {
+  buildPayoutSettlementSnapshot,
+  recordPayoutFailureAndReturnToWallet,
+  recordPayoutSuccessDiagnostics,
+} from "../_shared/payoutFailureRecovery.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 
 const corsHeaders = {
@@ -158,6 +163,22 @@ serve(async (req) => {
 
     if (itemError) throw itemError;
 
+    const runDate = batch.run_date ?? new Date().toISOString().slice(0, 10);
+    const settlementSnapshot = await buildPayoutSettlementSnapshot(
+      supabase,
+      driver_id,
+      payoutAmount,
+      runDate,
+    );
+
+    await supabase.from('payout_items').update({
+      settlement_status: 'PROCESSING',
+      gross_payable_pence: settlementSnapshot.gross_payable_pence,
+      cash_commission_recovered_pence: settlementSnapshot.cash_commission_recovered_pence,
+      net_driver_payout_pence: settlementSnapshot.net_driver_payout_pence,
+      updated_at: new Date().toISOString(),
+    }).eq('id', payoutItem.id);
+
     let stripeTransferId: string | null = null;
     let stripePayoutId: string | null = null;
     let stripeError: string | null = null;
@@ -204,29 +225,38 @@ serve(async (req) => {
     }
 
     if (stripeError) {
-      await supabase.from('payout_items').update({
-        status: 'failed',
-        error_message: stripeError,
-        updated_at: new Date().toISOString(),
-      }).eq('id', payoutItem.id);
-
-      await supabase.from('payout_batches').update({
-        status: 'failed',
-        successful_payouts: 0,
-        failed_payouts: 1,
-        completed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }).eq('id', batch.id);
+      const failure = await recordPayoutFailureAndReturnToWallet({
+        supabase,
+        payoutItemId: payoutItem.id,
+        batchId: batch.id,
+        batchKind: kind,
+        driverId: driver_id,
+        netDriverPayoutPence: payoutAmount,
+        snapshot: settlementSnapshot,
+        providerStatus: 'failed',
+        providerReference: null,
+        rawFailureReason: stripeError,
+      });
 
       return new Response(JSON.stringify({
         success: false,
         batchId: batch.id,
         payoutItemId: payoutItem.id,
         amount: payoutAmount,
+        settlement_status: settlementSnapshot.cash_commission_recovered_pence > 0
+          ? 'PARTIAL_SETTLEMENT'
+          : 'FAILED',
+        gross_payable_pence: settlementSnapshot.gross_payable_pence,
+        cash_commission_recovered_pence: settlementSnapshot.cash_commission_recovered_pence,
+        net_driver_payout_pence: settlementSnapshot.net_driver_payout_pence,
+        driver_paid_out_pence: 0,
+        failed_payout_amount_pence: payoutAmount,
+        returned_to_wallet_pence: failure.returned_pence ?? payoutAmount,
         wallet_balance_before: available,
-        wallet_balance_after: available,
+        wallet_balance_after: available + (failure.returned_pence ?? payoutAmount),
         currency_code,
         error: stripeError,
+        wallet_returned: failure.success,
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -268,11 +298,25 @@ serve(async (req) => {
       });
     }
 
+    await recordPayoutSuccessDiagnostics({
+      supabase,
+      payoutItemId: payoutItem.id,
+      snapshot: settlementSnapshot,
+      netDriverPayoutPence: payoutAmount,
+      providerStatus: 'paid',
+      providerReference: stripeTransferId ?? stripePayoutId,
+    });
+
     return new Response(JSON.stringify({
       success: true,
       batchId: batch.id,
       payoutItemId: payoutItem.id,
       amount: payoutAmount,
+      settlement_status: 'COMPLETE',
+      gross_payable_pence: settlementSnapshot.gross_payable_pence,
+      cash_commission_recovered_pence: settlementSnapshot.cash_commission_recovered_pence,
+      net_driver_payout_pence: settlementSnapshot.net_driver_payout_pence,
+      driver_paid_out_pence: payoutAmount,
       wallet_balance_before: available,
       wallet_balance_after: finalize.walletBalanceAfter,
       stripeTransferId,

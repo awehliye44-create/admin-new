@@ -30,6 +30,9 @@ import { FinanceReconciliationTotalsCards } from '@/components/finance/FinanceRe
 import { FinanceSSOT, useFinancialReconciliationSSOT } from '@/hooks/useFinancialReconciliationSSOT';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
 import { DriverSSOTPayoutPanel, useDriverSSOTPayoutGate } from '@/components/finance/DriverSSOTPayoutPanel';
+import { MondayPayoutTodayCards, PartialSettlementAlert } from '@/components/finance/MondayPayoutTodayCards';
+import { MondayPayoutDiagnosticsTable } from '@/components/finance/MondayPayoutDiagnosticsTable';
+import { retryMondayPayoutItem, useMondayPayoutDiagnostics } from '@/hooks/useMondayPayoutDiagnostics';
 import { 
   Search, Download, DollarSign, TrendingUp, Eye, RefreshCw, User, Car,
   Banknote, Wallet, CheckCircle2, AlertTriangle, CreditCard, Plus, Minus,
@@ -46,8 +49,13 @@ export default function AdminDriverSettlements() {
   const [adjustmentType, setAdjustmentType] = useState<'add' | 'deduct'>('add');
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
   
+  const [retryingPayoutId, setRetryingPayoutId] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const financeSSOT = useFinancialReconciliationSSOT({ filter: serviceFilter });
+  const mondayPayouts = useMondayPayoutDiagnostics(serviceFilter, {
+    driverId: selectedDriverId,
+    allKinds: true,
+  });
 
   const { data: allDrivers = [], isLoading, refetch } = useDriverFinancialSummaries();
   const { data: selectedDriverDetail } = useDriverFinancialSummary(selectedDriverId);
@@ -109,6 +117,21 @@ export default function AdminDriverSettlements() {
     onError: (error: Error) => toast.error(`Payout failed: ${error.message}`),
   });
 
+  const handleRetryPayout = async (row: Parameters<typeof retryMondayPayoutItem>[0]) => {
+    setRetryingPayoutId(row.payout_item_id);
+    try {
+      await retryMondayPayoutItem(row);
+      toast.success('Payout retry initiated');
+      await mondayPayouts.refetch();
+      queryClient.invalidateQueries({ queryKey: ['driver-financial-summaries'] });
+      financeSSOT.refetch();
+    } catch (e) {
+      toast.error(`Retry failed: ${(e as Error).message}`);
+    } finally {
+      setRetryingPayoutId(null);
+    }
+  };
+
   const handleAddAdjustment = () => {
     if (!selectedDriverId || !adjustmentAmount || !adjustmentReason) {
       toast.error('Please fill in all fields');
@@ -155,6 +178,33 @@ export default function AdminDriverSettlements() {
     >
       <div className="space-y-6">
         <FinanceReconciliationTotalsCards ssot={financeSSOT} />
+
+        <MondayPayoutTodayCards
+          cards={mondayPayouts.data?.today_cards}
+          currencyCode={resolvedCurrency}
+          isLoading={mondayPayouts.isLoading}
+        />
+        <PartialSettlementAlert count={mondayPayouts.data?.partial_settlements?.length ?? 0} />
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Monday Payout Diagnostics</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <MondayPayoutDiagnosticsTable
+              rows={mondayPayouts.data?.payouts ?? []}
+              currencyCode={resolvedCurrency}
+              onRetry={handleRetryPayout}
+              retryingId={retryingPayoutId}
+              compact={!selectedDriverId}
+              emptyMessage={
+                selectedDriverId
+                  ? 'No payout records for this driver today.'
+                  : 'No Monday payout records today. Commission recovered does not imply payout succeeded.'
+              }
+            />
+          </CardContent>
+        </Card>
 
         {/* Service Area Filter */}
         <div className="flex items-center gap-3">

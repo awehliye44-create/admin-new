@@ -3,6 +3,7 @@ import {
   getExpectedCustomerTotalPence,
   getTripCaptureStatus,
   getTripSettlementFarePence,
+  summarizeTripPayments,
   type TripCaptureFields,
 } from '../tripCaptureStatus';
 
@@ -89,6 +90,26 @@ describe('tripCaptureStatus — prod screenshot trips', () => {
   it('MK-260607-011 reconciles fare + tip', () => {
     const trip = PROD_TRIPS['MK-260607-011'];
     expect(getExpectedCustomerTotalPence(trip)).toBe(1045);
+    expect(getTripCaptureStatus(trip).kind).toBe('captured');
+  });
+
+  it('legacy post-capture tip metadata counts toward captured total (MK-260613-029 class)', () => {
+    const summary = summarizeTripPayments([{
+      captured_amount_pence: 734,
+      amount_pence: 834,
+      status: 'capture_failed',
+      metadata: { post_capture_tip_pence: 100, tip_pence: 100 },
+    }]);
+    expect(summary.capturedTotalPence).toBe(834);
+
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'capture_failed',
+      final_fare_pence: 734,
+      tip_pence: 100,
+      payment_captured_pence: summary.capturedTotalPence,
+      payment_count: 1,
+    };
     expect(getTripCaptureStatus(trip).kind).toBe('captured');
   });
 

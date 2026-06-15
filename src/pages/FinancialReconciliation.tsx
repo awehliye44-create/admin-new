@@ -37,6 +37,9 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
+import { MondayPayoutTodayCards, PartialSettlementAlert } from '@/components/finance/MondayPayoutTodayCards';
+import { MondayPayoutDiagnosticsTable } from '@/components/finance/MondayPayoutDiagnosticsTable';
+import { useMondayPayoutDiagnostics } from '@/hooks/useMondayPayoutDiagnostics';
 
 function statusChipVariant(label: string | null | undefined): 'default' | 'secondary' | 'destructive' | 'outline' {
   const l = String(label ?? '').toLowerCase();
@@ -172,6 +175,8 @@ function FinancialReconciliationPage() {
     to: to || undefined,
   });
 
+  const mondayPayouts = useMondayPayoutDiagnostics(filter, { allKinds: true });
+
   const summary = ssot.summary;
   const ccy = ssot.currencyCode || filter.currencyCode || 'GBP';
   const auditRows = useMemo(() => {
@@ -275,6 +280,39 @@ function FinancialReconciliationPage() {
             </Button>
           </div>
         </div>
+
+        <MondayPayoutTodayCards
+          cards={mondayPayouts.data?.today_cards}
+          currencyCode={ccy}
+          isLoading={mondayPayouts.isLoading}
+        />
+        <PartialSettlementAlert count={mondayPayouts.data?.partial_settlements?.length ?? 0} />
+        {(mondayPayouts.data?.reconciliation_mismatches?.length ?? 0) > 0 && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>RECONCILIATION_MISMATCH — Monday payouts</AlertTitle>
+            <AlertDescription>
+              {mondayPayouts.data?.reconciliation_mismatches?.length} payout(s) fail gross−commission=net or
+              net=paid+failed+pending+returned checks.
+            </AlertDescription>
+          </Alert>
+        )}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Monday Payout Settlement Diagnostics</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-4">
+              ONECAB commission recovered does not mean driver payout succeeded. Each row shows gross payable,
+              commission recovered, net payout, provider status, and wallet return.
+            </p>
+            <MondayPayoutDiagnosticsTable
+              rows={mondayPayouts.data?.payouts ?? []}
+              currencyCode={ccy}
+              emptyMessage="No Monday payout activity in the selected scope today."
+            />
+          </CardContent>
+        </Card>
 
         {ssotBadge !== 'LIVE' && (
           <Alert variant="destructive">

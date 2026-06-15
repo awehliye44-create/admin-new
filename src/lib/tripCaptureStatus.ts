@@ -167,6 +167,12 @@ export function summarizeTripPayments(payments: PaymentCaptureRow[]): {
     if (p.fee_type) {
       lifecycleFees += rowCaptured;
     }
+    const postCaptureTip = meta?.post_capture_tip_pence != null
+      ? Number(meta.post_capture_tip_pence)
+      : 0;
+    if (Number.isFinite(postCaptureTip) && postCaptureTip > 0) {
+      capturedSum += postCaptureTip;
+    }
   }
 
   return {

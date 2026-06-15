@@ -559,9 +559,9 @@ export default function RolesPermissions() {
     { label: 'Pricing', pages: ['promo-codes', 'custom-zones', 'zone-pricing', 'corporate-fares', 'fare-simulator'] },
     { label: 'Corporate', pages: ['corporate-accounts', 'account-requests', 'corporate-billing', 'corporate-reports', 'corporate-settings'] },
     { label: 'Riders & Support', pages: ['riders', 'rider-feedback', 'suspensions', 'complaints', 'live-chat', 'tickets', 'categories'] },
-    { label: 'Finance', pages: ['admin-payments', 'driver-wallet', 'admin-settlements', 'payout-batches', 'disputes', 'dispute-settings', 'invoices', 'invoice-templates', 'statement-runs'] },
+    { label: 'Finance', pages: ['admin-payments', 'financial-reconciliation', 'driver-wallet', 'admin-settlements', 'payout-batches', 'disputes', 'dispute-settings', 'invoices', 'invoice-templates', 'statement-runs'] },
     { label: 'Documents', pages: ['onecab-documents', 'content'] },
-    { label: 'Settings', pages: ['general-settings', 'integrations', 'webhooks', 'roles', 'user-directory', 'notifications', 'alert-sounds'] },
+    { label: 'Settings', pages: ['general-settings', 'integrations', 'webhooks', 'system', 'roles', 'user-directory', 'notifications', 'alert-sounds'] },
   ];
 
   const ROLES_ORDER: StaffRole[] = ['super_admin', 'admin', 'operator', 'finance_manager', 'customer_support', 'compliance_officer'];

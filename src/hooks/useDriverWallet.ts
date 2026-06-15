@@ -107,6 +107,8 @@ export function getEntryTypeDisplay(entryType: string): { label: string; color: 
       return { label: 'Bonus', color: 'text-green-600' };
     case 'DEBT_RECOVERY':
       return { label: 'Debt Recovery', color: 'text-orange-600' };
+    case 'PAYOUT_FAILED_RETURN':
+      return { label: 'Payout failed — funds returned to wallet', color: 'text-amber-600' };
     case 'REFUND_DEBIT':
       return { label: 'Refund Debit', color: 'text-red-600' };
     case 'COMPANY_COMMISSION':
@@ -114,10 +116,6 @@ export function getEntryTypeDisplay(entryType: string): { label: string; color: 
       return { label: 'Platform Commission', color: 'text-emerald-600' };
     case 'TIP_CREDIT':
       return { label: 'Tip Credit', color: 'text-green-500' };
-    case 'WEEKLY_PAYOUT':
-      return { label: 'Weekly Payout', color: 'text-blue-500' };
-    case 'MANUAL_PAYOUT':
-      return { label: 'Manual Payout', color: 'text-blue-500' };
     default:
       return { label: entryType, color: 'text-muted-foreground' };
   }
