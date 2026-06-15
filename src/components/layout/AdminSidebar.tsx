@@ -186,6 +186,17 @@ export function AdminSidebar() {
     return <NavItem {...props} />;
   };
 
+  // Section wrapper — hides itself when no child slug is accessible
+  const Section = ({ label, slugs, children }: { label: string; slugs: string[]; children: React.ReactNode }) => {
+    if (!slugs.some((s) => canAccessPage(s))) return null;
+    return (
+      <div>
+        <NavSection label={label} collapsed={isCollapsed} />
+        <div className="space-y-1">{children}</div>
+      </div>
+    );
+  };
+
   return (
     <aside 
       className={cn(
