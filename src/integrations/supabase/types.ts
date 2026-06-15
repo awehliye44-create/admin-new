@@ -686,6 +686,13 @@ export type Database = {
             foreignKeyName: "call_masking_sessions_customer_id_fkey"
             columns: ["customer_id"]
             isOneToOne: false
+            referencedRelation: "admin_riders_with_trip_stats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_masking_sessions_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
             referencedRelation: "customers"
             referencedColumns: ["id"]
           },
@@ -1839,6 +1846,13 @@ export type Database = {
             foreignKeyName: "customer_live_locations_customer_id_fkey"
             columns: ["customer_id"]
             isOneToOne: false
+            referencedRelation: "admin_riders_with_trip_stats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_live_locations_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
             referencedRelation: "customers"
             referencedColumns: ["id"]
           },
@@ -1989,6 +2003,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "customer_wallets_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: true
+            referencedRelation: "admin_riders_with_trip_stats"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "customer_wallets_customer_id_fkey"
             columns: ["customer_id"]
@@ -6578,6 +6599,36 @@ export type Database = {
         }
         Relationships: []
       }
+      onboarding_login_audit_log: {
+        Row: {
+          app_type: string
+          block_code: string
+          created_at: string
+          id: string
+          intent: string
+          message: string
+          user_id: string
+        }
+        Insert: {
+          app_type: string
+          block_code: string
+          created_at?: string
+          id?: string
+          intent?: string
+          message: string
+          user_id: string
+        }
+        Update: {
+          app_type?: string
+          block_code?: string
+          created_at?: string
+          id?: string
+          intent?: string
+          message?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       onecab_document_activity_log: {
         Row: {
           action: string
@@ -7179,6 +7230,13 @@ export type Database = {
             columns: ["driver_id"]
             isOneToOne: false
             referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "passenger_ratings_passenger_id_fkey"
+            columns: ["passenger_id"]
+            isOneToOne: false
+            referencedRelation: "admin_riders_with_trip_stats"
             referencedColumns: ["id"]
           },
           {
@@ -9823,6 +9881,13 @@ export type Database = {
             foreignKeyName: "support_conversations_customer_id_fkey"
             columns: ["customer_id"]
             isOneToOne: false
+            referencedRelation: "admin_riders_with_trip_stats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_conversations_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
             referencedRelation: "customers"
             referencedColumns: ["id"]
           },
@@ -12272,6 +12337,22 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      admin_riders_with_trip_stats: {
+        Row: {
+          created_at: string | null
+          customer_code: string | null
+          first_name: string | null
+          id: string | null
+          last_name: string | null
+          last_trip_at: string | null
+          phone: string | null
+          rider_status: string | null
+          trip_count: number | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Relationships: []
       }
       admin_trip_lifecycle_fees: {
         Row: {
