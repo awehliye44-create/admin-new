@@ -383,7 +383,7 @@ export default function DriverWallet() {
                 </div>
               </div>
             )}
-            <DialogFooter>
+            <DialogFooter className="p-4 border-t shrink-0">
               <Button variant="outline" onClick={() => setSelectedDriver(null)}>Close</Button>
             </DialogFooter>
           </DialogContent>
