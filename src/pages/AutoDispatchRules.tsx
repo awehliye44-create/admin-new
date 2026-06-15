@@ -306,6 +306,15 @@ export default function AutoDispatchRules() {
         .eq('singleton', true);
       if (error) throw error;
 
+      // Keep legacy dispatch_settings.stacked_rides_enabled aligned for older readers.
+      await supabase
+        .from('dispatch_settings')
+        .update({
+          stacked_rides_enabled: !!settings.stackedRidesEnabled,
+          updated_at: new Date().toISOString(),
+        })
+        .not('id', 'is', null);
+
       setHasChanges(false);
       setLastSaved(new Date());
       toast.success('Global dispatch settings saved');
@@ -744,7 +753,9 @@ export default function AutoDispatchRules() {
               <Layers className="h-5 w-5 text-muted-foreground" />
               <div>
                 <CardTitle>Stacked Rides Configuration</CardTitle>
-                <CardDescription>Policy layer — does not affect dispatch ranking or scoring</CardDescription>
+                <CardDescription>
+                  Radius-based matching — a queued offer is only sent when the new pickup falls within the search radius of the driver or the active trip dropoff
+                </CardDescription>
               </div>
               <Badge variant="outline" className="ml-auto">Policy</Badge>
             </div>
@@ -757,6 +768,12 @@ export default function AutoDispatchRules() {
               </div>
               <Switch checked={settings.stackedRidesEnabled} onCheckedChange={(checked) => updateSetting('stackedRidesEnabled', checked)} disabled={isLoading} />
             </div>
+
+            <p className="text-sm text-muted-foreground rounded-lg border bg-muted/40 px-4 py-3">
+              Stacked dispatch is <span className="font-medium text-foreground">radius-first</span>: the new ride&apos;s pickup must be within{' '}
+              <span className="font-medium text-foreground">Stacked Search Radius</span> of the driver&apos;s current position{' '}
+              <span className="font-medium text-foreground">or</span> the active trip&apos;s dropoff. Direction and detour rules apply only after that radius gate passes.
+            </p>
 
             <Tabs value={stackedTab} onValueChange={setStackedTab}>
               <TabsList className="grid w-full grid-cols-2">
@@ -778,7 +795,9 @@ export default function AutoDispatchRules() {
                     <Input type="number" min="500" max="10000" step="100" value={settings.stackedSearchRadiusMeters}
                       onChange={(e) => updateSetting('stackedSearchRadiusMeters', parseInt(e.target.value) || 2000)}
                       disabled={isLoading || !settings.stackedRidesEnabled} />
-                    <p className="text-xs text-muted-foreground">Pickup must be within this distance of driver ({fromKm(settings.stackedSearchRadiusMeters / 1000).toFixed(2)} {unitShort})</p>
+                    <p className="text-xs text-muted-foreground">
+                      New pickup must be within this radius of the driver or the active trip dropoff ({fromKm(settings.stackedSearchRadiusMeters / 1000).toFixed(2)} {unitShort}). Primary stacked matching gate.
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label>Offer Window (minutes)</Label>
@@ -790,7 +809,9 @@ export default function AutoDispatchRules() {
                   <div className="flex items-center justify-between p-3 border rounded-lg">
                     <div>
                       <p className="text-sm font-medium">Same Direction Only</p>
-                      <p className="text-xs text-muted-foreground">Reject stacked offers whose bearing differs by more than 90° from the active trip</p>
+                      <p className="text-xs text-muted-foreground">
+                        Reject stacked offers whose bearing differs by more than 90° from the active trip. Bypassed when the new pickup is already inside the search radius of the dropoff.
+                      </p>
                     </div>
                     <Switch checked={settings.stackedSameDirectionOnly}
                       onCheckedChange={(checked) => updateSetting('stackedSameDirectionOnly', checked)}
@@ -800,6 +821,9 @@ export default function AutoDispatchRules() {
               </TabsContent>
 
               <TabsContent value="matching" className="space-y-6 pt-4">
+                <p className="text-sm text-muted-foreground">
+                  Matching rules run after the radius gate. Trips outside the search radius are never offered, regardless of direction or detour settings below.
+                </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label>Minimum Trip Distance ({unitShort})</Label>
