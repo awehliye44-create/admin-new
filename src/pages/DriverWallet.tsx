@@ -268,15 +268,15 @@ export default function DriverWallet() {
 
         {/* Driver Detail Dialog */}
         <Dialog open={!!selectedDriver} onOpenChange={() => setSelectedDriver(null)}>
-          <DialogContent className="max-w-2xl max-h-[80vh]">
-            <DialogHeader>
+          <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0">
+            <DialogHeader className="p-6 pb-3 border-b shrink-0">
               <DialogTitle>Wallet Details</DialogTitle>
               <DialogDescription>
                 {selectedDriver?.first_name} {selectedDriver?.last_name} — Financial Summary ({getCurrencySymbol(sc)} {sc || 'N/A'})
               </DialogDescription>
             </DialogHeader>
             {selectedDriver && (
-              <div className="space-y-4">
+              <div className="space-y-4 overflow-y-auto px-6 py-4 flex-1 min-h-0">
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <Card><CardContent className="pt-4">
                     <p className="text-xs text-muted-foreground">Today's Earnings</p>
@@ -383,7 +383,7 @@ export default function DriverWallet() {
                 </div>
               </div>
             )}
-            <DialogFooter>
+            <DialogFooter className="p-4 border-t shrink-0">
               <Button variant="outline" onClick={() => setSelectedDriver(null)}>Close</Button>
             </DialogFooter>
           </DialogContent>
