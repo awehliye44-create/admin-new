@@ -65,7 +65,6 @@ interface DispatchSettings {
   stackedMinTripDistanceKm: number;
   stackedMaxDetourMinutes: number;
   stackedOfferWindowMinutes: number;
-  stackedSameDirectionOnly: boolean;
   allowAirportStacking: boolean;
   allowScheduledStacking: boolean;
   allowStackingDuringPickupWaiting: boolean;
@@ -116,7 +115,6 @@ const defaultSettings: DispatchSettings = {
   stackedMinTripDistanceKm: 3,
   stackedMaxDetourMinutes: 10,
   stackedOfferWindowMinutes: 5,
-  stackedSameDirectionOnly: true,
   allowAirportStacking: false,
   allowScheduledStacking: false,
   allowStackingDuringPickupWaiting: false,
@@ -164,7 +162,6 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   stackedMinTripDistanceKm: Number(data.stacked_min_trip_distance_meters ?? 3000) / 1000,
   stackedMaxDetourMinutes: Number(data.stacked_max_detour_minutes ?? defaultSettings.stackedMaxDetourMinutes),
   stackedOfferWindowMinutes: Number(data.stacked_offer_window_minutes ?? defaultSettings.stackedOfferWindowMinutes),
-  stackedSameDirectionOnly: (data.stacked_same_direction_only as boolean) ?? true,
   allowAirportStacking: Boolean(data.allow_airport_stacking),
   allowScheduledStacking: Boolean(data.allow_scheduled_stacking),
   allowStackingDuringPickupWaiting: Boolean(data.allow_stacking_during_pickup_waiting),
@@ -212,7 +209,7 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
   stacked_min_trip_distance_meters: Math.round(settings.stackedMinTripDistanceKm * 1000),
   stacked_max_detour_minutes: settings.stackedMaxDetourMinutes,
   stacked_offer_window_minutes: settings.stackedOfferWindowMinutes,
-  stacked_same_direction_only: !!settings.stackedSameDirectionOnly,
+  stacked_same_direction_only: false,
   allow_airport_stacking: !!settings.allowAirportStacking,
   allow_scheduled_stacking: !!settings.allowScheduledStacking,
   allow_stacking_during_pickup_waiting: !!settings.allowStackingDuringPickupWaiting,
@@ -754,7 +751,7 @@ export default function AutoDispatchRules() {
               <div>
                 <CardTitle>Stacked Rides Configuration</CardTitle>
                 <CardDescription>
-                  Radius-based matching — a queued offer is only sent when the new pickup falls within the search radius of the driver or the active trip dropoff
+                  Radius-only matching — queued offers require the new pickup within search radius of the driver or active dropoff
                 </CardDescription>
               </div>
               <Badge variant="outline" className="ml-auto">Policy</Badge>
@@ -770,9 +767,9 @@ export default function AutoDispatchRules() {
             </div>
 
             <p className="text-sm text-muted-foreground rounded-lg border bg-muted/40 px-4 py-3">
-              Stacked dispatch is <span className="font-medium text-foreground">radius-first</span>: the new ride&apos;s pickup must be within{' '}
+              Stacked dispatch is <span className="font-medium text-foreground">radius-only</span>: the new ride&apos;s pickup must be within{' '}
               <span className="font-medium text-foreground">Stacked Search Radius</span> of the driver&apos;s current position{' '}
-              <span className="font-medium text-foreground">or</span> the active trip&apos;s dropoff. Direction and detour rules apply only after that radius gate passes.
+              <span className="font-medium text-foreground">or</span> the active trip&apos;s dropoff. Direction and bearing are not used for eligibility.
             </p>
 
             <Tabs value={stackedTab} onValueChange={setStackedTab}>
@@ -804,25 +801,14 @@ export default function AutoDispatchRules() {
                     <Input type="number" min="1" max="60" value={settings.stackedOfferWindowMinutes}
                       onChange={(e) => updateSetting('stackedOfferWindowMinutes', parseInt(e.target.value) || 5)}
                       disabled={isLoading || !settings.stackedRidesEnabled} />
-                    <p className="text-xs text-muted-foreground">Only stack when active trip's remaining time is within this window</p>
-                  </div>
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
-                    <div>
-                      <p className="text-sm font-medium">Same Direction Only</p>
-                      <p className="text-xs text-muted-foreground">
-                        Reject stacked offers whose bearing differs by more than 90° from the active trip. Bypassed when the new pickup is already inside the search radius of the dropoff.
-                      </p>
-                    </div>
-                    <Switch checked={settings.stackedSameDirectionOnly}
-                      onCheckedChange={(checked) => updateSetting('stackedSameDirectionOnly', checked)}
-                      disabled={isLoading || !settings.stackedRidesEnabled} />
+                    <p className="text-xs text-muted-foreground">Only stack when active trip&apos;s remaining time is within this window</p>
                   </div>
                 </div>
               </TabsContent>
 
               <TabsContent value="matching" className="space-y-6 pt-4">
                 <p className="text-sm text-muted-foreground">
-                  Matching rules run after the radius gate. Trips outside the search radius are never offered, regardless of direction or detour settings below.
+                  Additional matching rules run after the radius gate. Trips outside the search radius are never offered.
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
