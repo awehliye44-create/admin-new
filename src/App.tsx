@@ -100,7 +100,7 @@ const App = () => (
             <Route path="/auth" element={<Auth />} />
             <Route path="/auth/reset" element={<AuthReset />} />
             <Route path="/login" element={<Navigate to="/auth" replace />} />
-            <Route path="/merchant-apply" element={<MerchantApply />} />
+            
             
             {/* Protected Admin Routes - wrapped in persistent shell */}
             <Route element={<ProtectedRoute><AdminShell /></ProtectedRoute>}>
