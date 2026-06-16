@@ -81,14 +81,7 @@ import OpsIntelligence from "./pages/OpsIntelligence";
 import DispatchMetrics from "./pages/DispatchMetrics";
 import LostProperty from "./pages/LostProperty";
 import LostPropertyDetail from "./pages/LostPropertyDetail";
-import MerchantManagement from "./pages/MerchantManagement";
-import MerchantDetail from "./pages/MerchantDetail";
 import { AdminTelemetryProvider } from "@/lib/telemetry/adminBootstrap";
-import MerchantApprovals from "./pages/MerchantApprovals";
-import MarketplaceSettings from "./pages/MarketplaceSettings";
-import MarketplaceSettlements from "./pages/MarketplaceSettlements";
-import MerchantApply from "./pages/MerchantApply";
-import AiImageCredits from "./pages/AiImageCredits";
 const queryClient = createAppQueryClient();
 
 const App = () => (
@@ -107,7 +100,7 @@ const App = () => (
             <Route path="/auth" element={<Auth />} />
             <Route path="/auth/reset" element={<AuthReset />} />
             <Route path="/login" element={<Navigate to="/auth" replace />} />
-            <Route path="/merchant-apply" element={<MerchantApply />} />
+            
             
             {/* Protected Admin Routes - wrapped in persistent shell */}
             <Route element={<ProtectedRoute><AdminShell /></ProtectedRoute>}>
@@ -141,20 +134,11 @@ const App = () => (
               <Route path="vehicles" element={<Vehicles />} />
               <Route path="riders" element={<Riders />} />
 
-              {/* Merchant Management */}
-              <Route path="merchants" element={<MerchantManagement />} />
-              <Route path="merchants/:id" element={<MerchantDetail />} />
-
-              
               {/* Pricing & Fares */}
               <Route path="promo-codes" element={<PromoCodes />} />
               <Route path="offers" element={<Offers />} />
-              <Route path="merchants" element={<MerchantManagement />} />
-              <Route path="merchants/:id" element={<MerchantDetail />} />
-              <Route path="merchant-approvals" element={<MerchantApprovals />} />
-              <Route path="marketplace-settings" element={<MarketplaceSettings />} />
-              <Route path="marketplace-settlements" element={<MarketplaceSettlements />} />
-              <Route path="ai-image-credits" element={<AiImageCredits />} />
+              
+
               
               
               
