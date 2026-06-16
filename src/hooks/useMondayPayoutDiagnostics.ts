@@ -53,7 +53,7 @@ export type MondayPayoutDiagnosticsResponse = {
 export const PARTIAL_SETTLEMENT_MESSAGE =
   "ONECAB commission was recovered, but driver payout did not complete.";
 
-function buildDiagnosticsPath(
+function buildDiagnosticsQuery(
   filter: ServiceAreaFinanceSelection,
   opts?: { driverId?: string | null; today?: boolean; allKinds?: boolean },
 ): string {
@@ -63,10 +63,7 @@ function buildDiagnosticsPath(
   if (opts?.driverId) params.set("driver_id", opts.driverId);
   if (opts?.today === false) params.set("today", "false");
   if (opts?.allKinds) params.set("all_kinds", "true");
-  const qs = params.toString();
-  return qs
-    ? `admin-monday-payout-diagnostics?${qs}`
-    : "admin-monday-payout-diagnostics";
+  return params.toString();
 }
 
 export function useMondayPayoutDiagnostics(
@@ -84,10 +81,27 @@ export function useMondayPayoutDiagnostics(
     ],
     enabled: opts?.enabled !== false,
     queryFn: async (): Promise<MondayPayoutDiagnosticsResponse> => {
-      const path = buildDiagnosticsPath(filter, opts);
-      const { data, error } = await supabase.functions.invoke(path, { method: "GET" });
-      if (error) throw error;
-      return data as MondayPayoutDiagnosticsResponse;
+      // NOTE: supabase.functions.invoke() does not support query strings in the
+      // function name — it URL-encodes the `?` and the gateway 401s. Use fetch.
+      const qs = buildDiagnosticsQuery(filter, opts);
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token ?? anonKey;
+      const url = `${supabaseUrl}/functions/v1/admin-monday-payout-diagnostics${qs ? `?${qs}` : ""}`;
+      const res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          apikey: anonKey,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Edge function returned ${res.status}: ${text}`);
+      }
+      return (await res.json()) as MondayPayoutDiagnosticsResponse;
     },
     staleTime: 30_000,
   });
