@@ -132,6 +132,7 @@ export default function AdminPayments() {
   const [customDateTo, setCustomDateTo] = useState<Date | undefined>(undefined);
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
   const [tripSearchInput, setTripSearchInput] = useState('');
+  const [tripSearchMode, setTripSearchMode] = useState<'code' | 'id'>('code');
   const [debouncedTripSearch, setDebouncedTripSearch] = useState('');
 
   useEffect(() => {
@@ -165,6 +166,7 @@ export default function AdminPayments() {
       statusFilter,
       methodFilter,
       debouncedTripSearch,
+      tripSearchMode,
       activeTab,
       periodFrom,
       periodTo,
@@ -179,7 +181,10 @@ export default function AdminPayments() {
       params.set('limit', '500');
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (methodFilter !== 'all') params.set('method', methodFilter);
-      if (debouncedTripSearch) params.set('search', debouncedTripSearch);
+      if (debouncedTripSearch) {
+        params.set('search', debouncedTripSearch);
+        if (tripSearchMode === 'id') params.set('search_type', 'id');
+      }
       if (activeTab === 'payment' || activeTab === 'refund') params.set('type', activeTab);
       if (serviceFilter.serviceAreaId) params.set('service_area_id', serviceFilter.serviceAreaId);
       if (serviceFilter.regionId) params.set('region_id', serviceFilter.regionId);
@@ -407,14 +412,32 @@ export default function AdminPayments() {
             </TabsList>
 
             <div className="flex gap-2 flex-wrap">
+              <Select
+                value={tripSearchMode}
+                onValueChange={(v) => {
+                  setTripSearchMode(v as 'code' | 'id');
+                  setTripSearchInput('');
+                  setDebouncedTripSearch('');
+                }}
+              >
+                <SelectTrigger className="w-[110px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="code">Trip code</SelectItem>
+                  <SelectItem value="id">Trip ID</SelectItem>
+                </SelectContent>
+              </Select>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Trip code (e.g. MK-260616-016)"
-                  className="pl-9 pr-9 w-[240px]"
+                  placeholder={
+                    tripSearchMode === 'id'
+                      ? 'Trip ID (UUID)'
+                      : 'Trip code (e.g. MK-260616-016)'
+                  }
+                  className={cn('pl-9 pr-9', tripSearchMode === 'id' ? 'w-[280px]' : 'w-[240px]')}
                   value={tripSearchInput}
                   onChange={(e) => setTripSearchInput(e.target.value)}
-                  aria-label="Search by trip code or route"
+                  aria-label={tripSearchMode === 'id' ? 'Search by trip ID' : 'Search by trip code or route'}
                 />
                 {isFetchingList && debouncedTripSearch !== tripSearchInput.trim() && (
                   <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-muted-foreground" />

@@ -11,6 +11,16 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const TRIP_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isTripUuid(value: string): boolean {
+  return TRIP_UUID_RE.test(value.trim());
+}
+
+function escapePostgrestFilter(value: string): string {
+  return value.replace(/[%_,]/g, '');
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -62,6 +72,7 @@ serve(async (req) => {
     const method = url.searchParams.get('method');
     const type = url.searchParams.get('type'); // 'payment', 'refund', or null for all
     const search = url.searchParams.get('search');
+    const searchType = url.searchParams.get('search_type');
     const startDate = url.searchParams.get('from') || url.searchParams.get('startDate');
     const endDate = url.searchParams.get('to') || url.searchParams.get('endDate');
     const serviceAreaId = url.searchParams.get('service_area_id');
@@ -146,9 +157,18 @@ serve(async (req) => {
 
     if (search) {
       const term = search.trim();
-      query = query.or(
-        `trip_code.ilike.%${term}%,trip_number.ilike.%${term}%,pickup_address.ilike.%${term}%,dropoff_address.ilike.%${term}%`,
-      );
+      if (searchType === 'id') {
+        query = isTripUuid(term)
+          ? query.eq('id', term.toLowerCase())
+          : query.eq('id', '00000000-0000-0000-0000-000000000000');
+      } else if (isTripUuid(term)) {
+        query = query.eq('id', term.toLowerCase());
+      } else {
+        const safe = escapePostgrestFilter(term);
+        query = query.or(
+          `trip_code.ilike.%${safe}%,trip_number.ilike.%${safe}%,pickup_address.ilike.%${safe}%,dropoff_address.ilike.%${safe}%`,
+        );
+      }
     }
 
     // Apply pagination
