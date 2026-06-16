@@ -33,6 +33,25 @@ export interface TripCaptureFields {
   arrival_cancellation_applied?: boolean | null;
   arrival_cancellation_fee?: number | null;
   fare_breakdown?: Record<string, unknown> | null;
+  /** trip_finance.final_trip_total_pence — settlement SSOT when payments row absent */
+  settlement_total_pence?: number | null;
+  driver_net_pence?: number | null;
+  /** Confirmed ledger TRIP_EARNING_NET for the trip */
+  ledger_trip_earning_net_pence?: number | null;
+  waiting_charge_pence?: number | null;
+  pickup_waiting_charge_pence?: number | null;
+  total_waiting_charge_pence?: number | null;
+  /** Legacy trips.fare in pounds */
+  fare?: number | null;
+}
+
+export interface TripSettlementBreakdown {
+  baseFarePence: number;
+  waitingPence: number;
+  extrasPence: number;
+  tipPence: number;
+  totalSettlementPence: number;
+  showBreakdown: boolean;
 }
 
 export interface TripCaptureStatus {
@@ -102,12 +121,116 @@ export function getTripFarePence(trip: TripCaptureFields): number {
   return 0;
 }
 
-/** Settlement ride fare in pence (excludes tip; includes waiting/modification charges). */
-export function getTripSettlementFarePence(trip: TripCaptureFields): number {
+function isCardPaymentCaptured(trip: TripCaptureFields): boolean {
+  if (!isCardTrip(trip)) return false;
+  const captured = getCapturedTotalPence(trip);
+  if (captured == null || captured <= 0) return false;
+  const status = (trip.payment_status || '').toLowerCase();
+  return status === 'captured' || status === 'paid' || captured > 0;
+}
+
+/** Settlement fare for capture reconciliation — uses final_fare_pence, not raw captured shortcut. */
+function getReconciliationSettlementFarePence(trip: TripCaptureFields): number {
+  if (trip.settlement_total_pence != null && trip.settlement_total_pence > 0) {
+    return trip.settlement_total_pence;
+  }
   if (trip.final_fare_pence != null) {
     return Math.max(0, trip.final_fare_pence);
   }
-  return getTripFarePence(trip);
+  if (trip.gross_fare_pence != null && trip.gross_fare_pence > 0) {
+    return trip.gross_fare_pence;
+  }
+  return 0;
+}
+
+/**
+ * Settlement / customer-paid fare for admin finance displays (Trip History, reconciliation views).
+ * Priority: payments.captured_amount_pence → trip_finance settlement total → final_fare_pence → legacy.
+ * Never uses final_customer_fare_pence (display/promo only).
+ */
+export function getTripSettlementFarePence(trip: TripCaptureFields): number {
+  if (isCardPaymentCaptured(trip)) {
+    return getCapturedTotalPence(trip)!;
+  }
+
+  if (trip.settlement_total_pence != null && trip.settlement_total_pence > 0) {
+    return trip.settlement_total_pence;
+  }
+
+  if (!isCardTrip(trip)) {
+    const status = (trip.payment_status || '').toLowerCase();
+    if (status === 'collected_cash') {
+      if (trip.final_fare_pence != null && trip.final_fare_pence > 0) {
+        return trip.final_fare_pence;
+      }
+      const captured = getCapturedTotalPence(trip);
+      if (captured != null && captured > 0) return captured;
+    }
+  }
+
+  if (trip.final_fare_pence != null) {
+    return Math.max(0, trip.final_fare_pence);
+  }
+
+  if (trip.gross_fare_pence != null && trip.gross_fare_pence > 0) {
+    return trip.gross_fare_pence;
+  }
+
+  if (trip.fare != null && trip.fare > 0) {
+    return Math.round(trip.fare * 100);
+  }
+
+  return 0;
+}
+
+/** Driver net — ledger TRIP_EARNING_NET first, then trips.driver_net_pence. Never derived from display fare. */
+export function getTripDriverNetPence(trip: TripCaptureFields): number | null {
+  if (trip.ledger_trip_earning_net_pence != null && trip.ledger_trip_earning_net_pence >= 0) {
+    return trip.ledger_trip_earning_net_pence;
+  }
+  if (trip.driver_net_pence != null) {
+    return Math.max(0, trip.driver_net_pence);
+  }
+  return null;
+}
+
+export function getTripSettlementBreakdown(trip: TripCaptureFields): TripSettlementBreakdown {
+  const totalSettlementPence = getTripSettlementFarePence(trip);
+  const tipPence = getTripTipPence(trip);
+  const fb = trip.fare_breakdown as Record<string, number> | null;
+  const waitingPence =
+    trip.total_waiting_charge_pence ??
+    trip.waiting_charge_pence ??
+    trip.pickup_waiting_charge_pence ??
+    (fb?.waiting_charge_pence ?? 0);
+
+  const quotedBase =
+    fb?.base_fare_pence ??
+    fb?.quoted_fare_pence ??
+    trip.final_customer_fare_pence ??
+    trip.gross_fare_pence ??
+    0;
+
+  let baseFarePence = quotedBase > 0 ? quotedBase : Math.max(0, totalSettlementPence - waitingPence - tipPence);
+  let extrasPence = Math.max(0, totalSettlementPence - baseFarePence - waitingPence - tipPence);
+
+  if (extrasPence === 0 && trip.arrival_cancellation_applied && trip.arrival_cancellation_fee) {
+    extrasPence = trip.arrival_cancellation_fee;
+    baseFarePence = Math.max(0, totalSettlementPence - waitingPence - tipPence - extrasPence);
+  }
+
+  const showBreakdown =
+    totalSettlementPence > baseFarePence &&
+    (waitingPence > 0 || extrasPence > 0 || tipPence > 0);
+
+  return {
+    baseFarePence,
+    waitingPence,
+    extrasPence,
+    tipPence,
+    totalSettlementPence,
+    showBreakdown,
+  };
 }
 
 /** Captured pence for one payments row — prefers captured_amount_pence, else amount_pence when captured. */
@@ -213,7 +336,7 @@ export function getTripLifecycleExtrasPence(trip: TripCaptureFields): number {
 }
 
 export function getExpectedCustomerTotalPence(trip: TripCaptureFields): number | null {
-  const fare = getTripSettlementFarePence(trip);
+  const fare = getReconciliationSettlementFarePence(trip);
   const tip = getTripTipPence(trip);
   const extras = getTripLifecycleExtrasPence(trip);
   if (fare <= 0 && tip <= 0 && extras <= 0) return null;

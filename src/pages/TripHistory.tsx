@@ -50,7 +50,9 @@ import {
   captureStatusColorClass,
   getCapturedTotalPence,
   getTripCaptureStatus,
-  getTripFarePence,
+  getTripDriverNetPence,
+  getTripSettlementBreakdown,
+  getTripSettlementFarePence,
   getTripTipPence,
   isCardTrip,
   summarizeTripPayments,
@@ -200,6 +202,8 @@ interface CompletedTrip {
   payment_metadata_lifecycle_fees_pence?: number | null;
   arrival_cancellation_applied?: boolean | null;
   arrival_cancellation_fee?: number | null;
+  settlement_total_pence?: number | null;
+  ledger_trip_earning_net_pence?: number | null;
   invoice_no: string | null;
   invoice_pdf_url: string | null;
   invoice_generated_at: string | null;
@@ -388,6 +392,36 @@ export default function TripHistory() {
         }
       }
 
+      let financeMap: Record<string, number> = {};
+      let ledgerNetMap: Record<string, number> = {};
+      if (tripIds.length > 0) {
+        const [{ data: financeData }, { data: ledgerData }] = await Promise.all([
+          supabase
+            .from('trip_finance')
+            .select('trip_id, final_trip_total_pence')
+            .in('trip_id', tripIds),
+          supabase
+            .from('driver_wallet_ledger')
+            .select('related_trip_id, amount_pence')
+            .in('related_trip_id', tripIds)
+            .eq('type', 'TRIP_EARNING_NET'),
+        ]);
+        if (financeData) {
+          for (const row of financeData as { trip_id: string; final_trip_total_pence: number }[]) {
+            if (row.final_trip_total_pence > 0) {
+              financeMap[row.trip_id] = row.final_trip_total_pence;
+            }
+          }
+        }
+        if (ledgerData) {
+          for (const row of ledgerData as { related_trip_id: string | null; amount_pence: number }[]) {
+            if (row.related_trip_id && row.amount_pence >= 0) {
+              ledgerNetMap[row.related_trip_id] = row.amount_pence;
+            }
+          }
+        }
+      }
+
       return (tripsData || []).map(trip => {
         const pay = paymentsMap[trip.id];
         return {
@@ -402,6 +436,8 @@ export default function TripHistory() {
           has_shortfall_payment_intent: pay?.hasShortfallPi ?? false,
           payment_lifecycle_fees_pence: pay?.lifecycleFees ?? 0,
           payment_metadata_lifecycle_fees_pence: pay?.metadataLifecycleFees ?? 0,
+          settlement_total_pence: financeMap[trip.id] ?? null,
+          ledger_trip_earning_net_pence: ledgerNetMap[trip.id] ?? null,
         };
       }) as CompletedTrip[];
     },
@@ -814,49 +850,32 @@ export default function TripHistory() {
     return matchesSearch;
   });
 
-  // Ride fare in pence (excludes tip) — fare + tip compared separately for capture confirmation
-  const getEffectiveFarePence = (trip: CompletedTrip): number => {
-    const fare = getTripFarePence(trip);
-    if (fare > 0) return fare;
-    if (trip.fare != null && trip.fare > 0) return Math.round(trip.fare * 100);
-    return 0;
-  };
+  // Settlement fare (customer paid) — SSOT via getTripSettlementFarePence
+  const getTripFarePounds = (trip: CompletedTrip): number => getTripSettlementFarePence(trip) / 100;
 
-  // Commission derived from settlement-truth fare for card trips
   const getEffectiveCommissionPence = (trip: CompletedTrip): number | null => {
-    if (isCardTrip(trip) && trip.payment_captured_pence != null && trip.payment_captured_pence > 0) {
-      if (trip.payment_commission_pence != null) return trip.payment_commission_pence;
-      const pct = trip.payment_commission_pct
-        ?? ((trip.fare_breakdown as any)?.commission_pct)
-        ?? (trip.gross_fare_pence && trip.commission_pence != null
-              ? (trip.commission_pence / trip.gross_fare_pence) * 100
-              : null);
-      if (pct != null) return Math.round(trip.payment_captured_pence * (Number(pct) / 100));
-    }
+    if (trip.payment_commission_pence != null) return trip.payment_commission_pence;
     return trip.commission_pence ?? null;
   };
 
-  const getEffectiveDriverNetPence = (trip: CompletedTrip): number | null => {
-    const fare = getEffectiveFarePence(trip);
-    const commission = getEffectiveCommissionPence(trip);
-    if (commission == null) return trip.driver_net_pence ?? null;
-    return Math.max(0, fare - commission);
+  const getEffectiveDriverNetPence = (trip: CompletedTrip): number | null => getTripDriverNetPence(trip);
+
+  const getEffectiveTipPence = (trip: CompletedTrip): number => {
+    const tip = getTripTipPence(trip);
+    if (tip <= 0) return 0;
+    if (isCardTrip(trip)) {
+      const captured = getCapturedTotalPence(trip);
+      const settlement = getTripSettlementFarePence(trip);
+      if (captured != null && captured > 0 && settlement >= captured) return 0;
+    }
+    return tip;
   };
 
-  const getEffectiveTipPence = (trip: CompletedTrip): number => getTripTipPence(trip);
-
-  // Helper to get fare in pounds (ride fare only, excludes tip)
-  const getTripFarePounds = (trip: CompletedTrip): number => getEffectiveFarePence(trip) / 100;
-
-  // Customer total for revenue — captured sum for card trips, else fare + tip
-  const getTripCustomerTotalPence = (trip: CompletedTrip): number => {
-    const captured = getCapturedTotalPence(trip);
-    if (isCardTrip(trip) && captured != null && captured > 0) return captured;
-    return getEffectiveFarePence(trip) + getEffectiveTipPence(trip);
-  };
+  // Customer total for revenue stat — same settlement fare as list row
+  const getTripCustomerTotalPence = (trip: CompletedTrip): number => getTripSettlementFarePence(trip);
 
   // Stats based on filtered trips
-  const totalRevenue = filteredTrips.reduce((sum, t) => sum + getTripCustomerTotalPence(t) / 100, 0);
+  const totalRevenue = filteredTrips.reduce((sum, t) => sum + getTripSettlementFarePence(t) / 100, 0);
   const avgFare = filteredTrips.length > 0 ? totalRevenue / filteredTrips.length : 0;
   const multiStopTrips = filteredTrips.filter(t => isMultiStopTrip(t)).length;
 
@@ -1028,7 +1047,7 @@ export default function TripHistory() {
                   <TableHead>Driver</TableHead>
                   <TableHead>Stops</TableHead>
                   <TableHead>Distance</TableHead>
-                  <TableHead>Fare</TableHead>
+                  <TableHead>Customer Paid</TableHead>
                   <TableHead>Payment</TableHead>
                   <TableHead>Invoice</TableHead>
                   <TableHead>Completed</TableHead>
@@ -1101,9 +1120,9 @@ export default function TripHistory() {
                         {getCurrencySymbol(resolveTripCurrency(trip))}
                         {getTripFarePounds(trip).toFixed(2)}
                       </div>
-                      {trip.commission_pence != null && (
+                      {getTripDriverNetPence(trip) != null && (
                         <div className="text-[10px] text-muted-foreground mt-0.5">
-                          Net: {getCurrencySymbol(resolveTripCurrency(trip))}{((getEffectiveDriverNetPence(trip) || 0) / 100).toFixed(2)}
+                          Net: {getCurrencySymbol(resolveTripCurrency(trip))}{((getTripDriverNetPence(trip) || 0) / 100).toFixed(2)}
                         </div>
                       )}
                       {getEffectiveTipPence(trip) > 0 && (
@@ -1525,23 +1544,18 @@ export default function TripHistory() {
                     {(() => {
                       const cs = getCurrencySymbol(resolveTripCurrency(selectedTrip));
                       const fmt = (pence: number) => `${cs}${(pence / 100).toFixed(2)}`;
+                      const settlement = getTripSettlementBreakdown(selectedTrip);
                       const fb = selectedTrip.fare_breakdown as Record<string, number> | null;
-                      const waitingTotal = selectedTrip.total_waiting_charge_pence 
-                        || selectedTrip.waiting_charge_pence 
-                        || selectedTrip.pickup_waiting_charge_pence
-                        || (fb?.waiting_charge_pence ?? 0);
-                      const baseFare = fb?.base_fare_pence ?? fb?.quoted_fare_pence ?? null;
                       const distanceCharge = fb?.distance_charge_pence ?? null;
                       const timeCharge = fb?.time_charge_pence ?? null;
                       const bookingFee = fb?.booking_fee_pence ?? null;
 
                       return (
                         <div className="bg-muted/50 rounded-lg p-4 space-y-2">
-                          {/* Detailed fare breakdown from fare_breakdown JSON */}
-                          {baseFare != null && baseFare > 0 && (
+                          {settlement.baseFarePence > 0 && (
                             <div className="flex justify-between text-sm">
                               <span className="text-muted-foreground">Base Fare</span>
-                              <span>{fmt(baseFare)}</span>
+                              <span>{fmt(settlement.baseFarePence)}</span>
                             </div>
                           )}
                           {distanceCharge != null && distanceCharge > 0 && (
@@ -1563,16 +1577,28 @@ export default function TripHistory() {
                             </div>
                           )}
 
-                          {/* Waiting Charge — show if > 0 */}
-                          {waitingTotal > 0 && (
+                          {/* Waiting Charge — show when it contributed to settlement */}
+                          {settlement.waitingPence > 0 && (
                             <div className="flex justify-between text-sm">
                               <span className="text-muted-foreground">
-                                Waiting Charge
+                                Waiting Time
                                 {selectedTrip.waiting_minutes != null && selectedTrip.waiting_minutes > 0 && (
                                   <span className="text-xs ml-1">({Math.round(selectedTrip.waiting_minutes)} min)</span>
                                 )}
                               </span>
-                              <span className="text-amber-600">{fmt(waitingTotal)}</span>
+                              <span className="text-amber-600">{fmt(settlement.waitingPence)}</span>
+                            </div>
+                          )}
+                          {settlement.extrasPence > 0 && (
+                            <div className="flex justify-between text-sm">
+                              <span className="text-muted-foreground">Extras / Adjustments</span>
+                              <span>{fmt(settlement.extrasPence)}</span>
+                            </div>
+                          )}
+                          {settlement.tipPence > 0 && (
+                            <div className="flex justify-between text-sm">
+                              <span className="text-muted-foreground">Tips</span>
+                              <span className="text-emerald-600">{fmt(settlement.tipPence)}</span>
                             </div>
                           )}
 
@@ -1583,9 +1609,10 @@ export default function TripHistory() {
                             const captured = getCapturedTotalPence(selectedTrip);
                             const authorized = selectedTrip.payment_authorized_pence;
                             const useSettlement = isCard && captured != null && captured > 0;
-                            const grossDiffers = useSettlement && selectedTrip.gross_fare_pence != null && selectedTrip.gross_fare_pence !== captured;
+                            const settlementFare = getTripSettlementFarePence(selectedTrip);
+                            const grossDiffers = useSettlement && selectedTrip.gross_fare_pence != null && selectedTrip.gross_fare_pence !== settlementFare;
                             const effectiveCommission = getEffectiveCommissionPence(selectedTrip);
-                            const effectiveDriverNet = getEffectiveDriverNetPence(selectedTrip);
+                            const effectiveDriverNet = getTripDriverNetPence(selectedTrip);
                             const releasedBuffer = useSettlement && authorized != null ? Math.max(0, authorized - (captured as number)) : null;
                             const pctLabel = (selectedTrip as any).commission_pct
                               ?? (selectedTrip.fare_breakdown as any)?.commission_pct
@@ -1601,8 +1628,8 @@ export default function TripHistory() {
                                 )}
                                 {useSettlement ? (
                                   <div className="flex justify-between text-sm">
-                                    <span className="text-muted-foreground">Captured (Stripe)</span>
-                                    <span className="font-medium">{fmt(captured as number)}</span>
+                                    <span className="text-muted-foreground">Customer Paid (Stripe Captured)</span>
+                                    <span className="font-medium">{fmt(settlementFare)}</span>
                                   </div>
                                 ) : (
                                   selectedTrip.gross_fare_pence != null && (
@@ -1621,7 +1648,7 @@ export default function TripHistory() {
                                 {effectiveCommission != null && (
                                   <div className="flex justify-between text-sm">
                                     <span className="text-muted-foreground">
-                                      Commission
+                                      ONECAB Commission
                                       {pctLabel != null && (
                                         <span className="text-xs ml-1">({pctLabel}%)</span>
                                       )}
@@ -1658,7 +1685,7 @@ export default function TripHistory() {
                                 <span>{fmt(selectedTrip.commission_pence)}</span>
                               </div>
                               <div className="flex justify-between text-sm">
-                                <span className="text-muted-foreground">Stripe fee</span>
+                                <span className="text-muted-foreground">Stripe Fee</span>
                                 <span className="text-orange-600">
                                   {selectedTrip.stripe_processing_fee_pence && selectedTrip.stripe_processing_fee_pence > 0
                                     ? `−${fmt(selectedTrip.stripe_processing_fee_pence)}`
@@ -1723,9 +1750,9 @@ export default function TripHistory() {
                           )}
                           <Separator />
                           <div className="flex justify-between font-semibold">
-                            <span>Final Fare</span>
+                            <span>Final Settlement Total</span>
                             <span className="text-green-600">
-                              {cs}{getTripFarePounds(selectedTrip).toFixed(2)}
+                              {fmt(getTripSettlementFarePence(selectedTrip))}
                             </span>
                           </div>
                         </div>

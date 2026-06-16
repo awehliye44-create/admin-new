@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   getExpectedCustomerTotalPence,
   getTripCaptureStatus,
+  getTripDriverNetPence,
+  getTripSettlementBreakdown,
   getTripSettlementFarePence,
   summarizeTripPayments,
   type TripCaptureFields,
@@ -63,7 +65,7 @@ const PROD_TRIPS: Record<string, TripCaptureFields> = {
 };
 
 describe('tripCaptureStatus — prod screenshot trips', () => {
-  it('MK-260608-003 uses settlement fare (includes 21p waiting), not discounted display fare', () => {
+  it('MK-260608-003 uses captured settlement fare (includes waiting), not discounted display fare', () => {
     const trip = PROD_TRIPS['MK-260608-003'];
     expect(getTripSettlementFarePence(trip)).toBe(562);
     expect(getExpectedCustomerTotalPence(trip)).toBe(562);
@@ -159,5 +161,111 @@ describe('tripCaptureStatus — mismatch gating', () => {
     };
     expect(getExpectedCustomerTotalPence(trip)).toBe(400);
     expect(getTripCaptureStatus(trip).kind).toBe('captured');
+  });
+});
+
+describe('tripCaptureStatus — Trip History finance SSOT', () => {
+  it('card captured: uses captured_amount_pence not legacy final_customer_fare_pence (MK-260615-006 class)', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      final_customer_fare_pence: 480,
+      final_fare_pence: 512,
+      gross_fare_pence: 512,
+      payment_captured_pence: 512,
+      payment_count: 1,
+    };
+    expect(getTripSettlementFarePence(trip)).toBe(512);
+    expect(getTripSettlementFarePence(trip) / 100).toBe(5.12);
+  });
+
+  it('card captured: driver net from trips.driver_net_pence, not recomputed from captured fare', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      final_customer_fare_pence: 480,
+      payment_captured_pence: 512,
+      driver_net_pence: 403,
+      commission_pence: 77,
+      payment_count: 1,
+    };
+    expect(getTripDriverNetPence(trip)).toBe(403);
+    expect(getTripDriverNetPence(trip)).not.toBe(512 - 77);
+  });
+
+  it('card captured: prefers ledger TRIP_EARNING_NET over trips.driver_net_pence', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      payment_captured_pence: 512,
+      driver_net_pence: 403,
+      ledger_trip_earning_net_pence: 435,
+      payment_count: 1,
+    };
+    expect(getTripDriverNetPence(trip)).toBe(435);
+  });
+
+  it('cash trip: uses final_fare_pence / collected cash fare', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'cash',
+      payment_status: 'collected_cash',
+      final_fare_pence: 850,
+      final_customer_fare_pence: 800,
+      driver_net_pence: 680,
+    };
+    expect(getTripSettlementFarePence(trip)).toBe(850);
+    expect(getTripDriverNetPence(trip)).toBe(680);
+  });
+
+  it('average fare uses settlement fare: captured 512 not legacy 480', () => {
+    const trips: TripCaptureFields[] = [
+      {
+        payment_method: 'card',
+        payment_status: 'captured',
+        final_customer_fare_pence: 480,
+        payment_captured_pence: 512,
+        payment_count: 1,
+      },
+      {
+        payment_method: 'card',
+        payment_status: 'captured',
+        final_customer_fare_pence: 400,
+        payment_captured_pence: 400,
+        payment_count: 1,
+      },
+    ];
+    const sum = trips.reduce((s, t) => s + getTripSettlementFarePence(t), 0);
+    expect(sum / trips.length).toBe(456);
+  });
+
+  it('waiting time included in settlement breakdown when settlement exceeds base', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      final_customer_fare_pence: 480,
+      final_fare_pence: 512,
+      payment_captured_pence: 512,
+      total_waiting_charge_pence: 32,
+      payment_count: 1,
+    };
+    const breakdown = getTripSettlementBreakdown(trip);
+    expect(breakdown.totalSettlementPence).toBe(512);
+    expect(breakdown.waitingPence).toBe(32);
+    expect(breakdown.showBreakdown).toBe(true);
+  });
+
+  it('MK-260615-006 prod snapshot: £5.12 customer paid, £4.35 driver net', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      final_customer_fare_pence: 480,
+      final_fare_pence: 512,
+      gross_fare_pence: 512,
+      driver_net_pence: 435,
+      payment_captured_pence: 512,
+      payment_count: 1,
+    };
+    expect(getTripSettlementFarePence(trip)).toBe(512);
+    expect(getTripDriverNetPence(trip)).toBe(435);
   });
 });
