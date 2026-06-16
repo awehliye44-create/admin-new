@@ -46,6 +46,8 @@ interface PaymentTransaction {
   type: 'payment' | 'refund';
   route: string;
   amount: number;
+  customerPaid?: number;
+  estimatedFare?: number;
   refundAmount: number;
   status: string;
   method: string;
@@ -56,7 +58,7 @@ interface PaymentTransaction {
   customer: string | null;
   customerId: string | null;
   commission: number;
-  driverNet: number;
+  driverNet: number | null;
   extras: number;
   tip: number;
   stripePaymentIntentId: string | null;
@@ -80,15 +82,19 @@ interface PaymentDetail {
     estimated_total_pence: number;
     authorised_amount_pence: number;
     final_fare_pence: number;
+    customer_paid_pence: number;
+    final_settlement_total_pence: number;
+    waiting_charge_pence: number;
     extras_pence: number;
     tip_pence: number;
+    /** @deprecated Legacy gross — quote comparison only */
     gross_fare_pence: number;
   };
   commission_breakdown: {
     commission_percent: number;
     commission_fixed_pence: number;
     platform_commission_pence: number;
-    driver_net_pence: number;
+    driver_net_pence: number | null;
     /** Stripe fee is absorbed inside commission — shown for transparency only, NOT deducted from driver */
     stripe_processing_fee_pence: number;
     /** ONECAB net after Stripe (commission - stripe fee). Read from DB. */
@@ -110,6 +116,11 @@ interface PaymentDetail {
 const formatPence = (pence: number, currencyCode?: string): string => {
   const symbol = getCurrencySymbol(currencyCode || '');
   return `${symbol}${(pence / 100).toFixed(2)}`;
+};
+
+const formatPenceOrUnknown = (pence: number | null | undefined, currencyCode?: string): string => {
+  if (pence == null) return 'Unknown';
+  return formatPence(pence, currencyCode);
 };
 
 export default function AdminPayments() {
@@ -198,7 +209,10 @@ export default function AdminPayments() {
         fare_breakdown: {
           estimated_total_pence: data.fareBreakdown?.estimatedFare || 0,
           authorised_amount_pence: data.fareBreakdown?.authorisedAmount || 0,
-          final_fare_pence: Math.max(0, (data.fareBreakdown?.grossFare || 0) - (data.fareBreakdown?.extras || 0) - (data.fareBreakdown?.tip || 0)),
+          customer_paid_pence: data.fareBreakdown?.customerPaidPence ?? data.fareBreakdown?.finalSettlementTotalPence ?? 0,
+          final_settlement_total_pence: data.fareBreakdown?.finalSettlementTotalPence ?? data.fareBreakdown?.customerPaidPence ?? 0,
+          waiting_charge_pence: data.fareBreakdown?.waitingChargePence || 0,
+          final_fare_pence: data.fareBreakdown?.finalSettlementTotalPence ?? data.fareBreakdown?.customerPaidPence ?? 0,
           extras_pence: data.fareBreakdown?.extras || 0,
           tip_pence: data.fareBreakdown?.tip || 0,
           gross_fare_pence: data.fareBreakdown?.grossFare || 0,
@@ -207,7 +221,7 @@ export default function AdminPayments() {
           commission_percent: data.commissionBreakdown?.commissionPercent || 0,
           commission_fixed_pence: data.commissionBreakdown?.commissionFixed || 0,
           platform_commission_pence: data.commissionBreakdown?.platformCommission || 0,
-          driver_net_pence: data.commissionBreakdown?.driverNet || 0,
+          driver_net_pence: data.commissionBreakdown?.driverNet ?? null,
           stripe_processing_fee_pence: data.commissionBreakdown?.stripeFee || 0,
           onecab_net_pence: data.commissionBreakdown?.onecabNet ?? (data.commissionBreakdown?.platformCommission || 0),
         },
@@ -417,7 +431,7 @@ export default function AdminPayments() {
                       <TableHead>Trip Code</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Route</TableHead>
-                      <TableHead className="text-right">Gross Fare</TableHead>
+                      <TableHead className="text-right">Customer Paid</TableHead>
                       <TableHead className="text-right">Commission</TableHead>
                       <TableHead className="text-right">Driver Net</TableHead>
                       <TableHead>Status</TableHead>
@@ -449,9 +463,13 @@ export default function AdminPayments() {
                               <p className="text-xs text-muted-foreground">{tx.customer} {tx.driver && `• ${tx.driver}`}</p>
                             </div>
                           </TableCell>
-                          <TableCell className="text-right font-medium">{formatPence(tx.amount || 0, activeCurrency)}</TableCell>
+                          <TableCell className="text-right font-medium">
+                            {formatPence(tx.customerPaid ?? tx.amount ?? 0, activeCurrency)}
+                          </TableCell>
                           <TableCell className="text-right text-blue-600">{formatPence(tx.commission || 0, activeCurrency)}</TableCell>
-                          <TableCell className="text-right text-green-600">{formatPence(tx.driverNet || 0, activeCurrency)}</TableCell>
+                          <TableCell className="text-right text-green-600">
+                            {formatPenceOrUnknown(tx.driverNet, activeCurrency)}
+                          </TableCell>
                           <TableCell>{getStatusBadge(tx.status)}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
@@ -516,13 +534,21 @@ export default function AdminPayments() {
 
                 {/* Fare Breakdown */}
                 <div>
-                  <h4 className="font-medium mb-2">Fare Breakdown</h4>
+                  <h4 className="font-medium mb-2">Settlement Breakdown</h4>
                   <Card>
                     <CardContent className="pt-4 space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Base Fare</span>
-                        <span>{formatPence(paymentDetail.fare_breakdown.final_fare_pence || 0)}</span>
-                      </div>
+                      {paymentDetail.fare_breakdown.estimated_total_pence > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Quoted / Estimated</span>
+                          <span>{formatPence(paymentDetail.fare_breakdown.estimated_total_pence)}</span>
+                        </div>
+                      )}
+                      {paymentDetail.fare_breakdown.waiting_charge_pence > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Waiting Time</span>
+                          <span>{formatPence(paymentDetail.fare_breakdown.waiting_charge_pence)}</span>
+                        </div>
+                      )}
                       {paymentDetail.fare_breakdown.extras_pence > 0 && (
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">Extras</span>
@@ -537,8 +563,12 @@ export default function AdminPayments() {
                       )}
                       <Separator />
                       <div className="flex justify-between font-medium">
-                        <span>Gross Total</span>
-                        <span>{formatPence(paymentDetail.fare_breakdown.gross_fare_pence || 0)}</span>
+                        <span>Customer Paid</span>
+                        <span>{formatPence(paymentDetail.fare_breakdown.customer_paid_pence || 0)}</span>
+                      </div>
+                      <div className="flex justify-between font-medium">
+                        <span>Final Settlement Total</span>
+                        <span>{formatPence(paymentDetail.fare_breakdown.final_settlement_total_pence || 0)}</span>
                       </div>
                     </CardContent>
                   </Card>
@@ -566,7 +596,9 @@ export default function AdminPayments() {
                       <Separator />
                       <div className="flex justify-between font-medium">
                         <span>Driver Net</span>
-                        <span className="text-green-600">{formatPence(paymentDetail.commission_breakdown.driver_net_pence || 0)}</span>
+                        <span className="text-green-600">
+                          {formatPenceOrUnknown(paymentDetail.commission_breakdown.driver_net_pence)}
+                        </span>
                       </div>
 
                       {/* ONECAB net-after-Stripe breakdown — read from DB, never recomputed */}

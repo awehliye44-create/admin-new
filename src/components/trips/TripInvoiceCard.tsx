@@ -1,3 +1,8 @@
+/**
+ * Trip invoice display — uses generated invoice snapshots (invoice_total_paid_pence).
+ * TODO(Phase 1D): Future invoice writer must persist settlement fare (getTripSettlementFarePence)
+ * at generation time; do not regenerate historical invoices without explicit approval.
+ */
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';

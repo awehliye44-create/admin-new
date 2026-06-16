@@ -222,7 +222,7 @@ export function buildTripAuditRows(
   return trips.map((row) => {
     const captured = Math.max(0, row.capture_amount_pence ?? 0);
     const refunded = Math.max(0, row.refund_amount_pence ?? 0);
-    const driverNet = tripDriverNetPence(row);
+    const driverNet = tripDriverNetPence(row) ?? 0;
     const paidOut = payoutByTrip.get(row.id) ?? 0;
     const tips = tripTipsPence(row);
     const cardPayable = isCashTrip(row) ? 0 : driverNet + tips;

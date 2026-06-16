@@ -1,5 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  getPaymentRowCapturedPence,
+  getTripDriverNetPence,
+  getTripSettlementFarePence,
+} from "../_shared/tripSettlementFinanceSSOT.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -74,6 +79,9 @@ serve(async (req) => {
         pickup_address,
         dropoff_address,
         gross_fare_pence,
+        final_fare_pence,
+        capture_amount_pence,
+        estimated_fare_pence,
         commission_pence,
         driver_net_pence,
         payment_method,
@@ -148,29 +156,86 @@ serve(async (req) => {
       throw error;
     }
 
-    // Transform data
-    const transformedTransactions = transactions?.map((t: any) => ({
-      id: t.id,
-      tripCode: t.trip_number || t.trip_code || t.id?.substring(0, 8).toUpperCase(),
-      type: (t.refund_amount_pence && t.refund_amount_pence > 0) ? 'refund' : 'payment',
-      route: `${t.pickup_address?.split(',')[0] || 'Unknown'} → ${t.dropoff_address?.split(',')[0] || 'Unknown'}`,
-      amount: t.gross_fare_pence || 0,
-      refundAmount: t.refund_amount_pence || 0,
-      status: t.payment_status || 'unknown',
-      method: t.payment_method || 'unknown',
-      date: t.created_at,
-      completedAt: t.completed_at,
-      driver: t.drivers ? `${t.drivers.first_name} ${t.drivers.last_name}` : null,
-      driverId: t.driver_id,
-      customer: null,
-      customerId: t.passenger_id,
-      commission: t.commission_pence || 0,
-      driverNet: t.driver_net_pence || 0,
-      extras: t.extras_pence || 0,
-      tip: t.tip_pence || 0,
-      stripePaymentIntentId: t.stripe_payment_intent_id,
-      stripeChargeId: t.stripe_charge_id,
-    })) || [];
+    const tripIds = (transactions ?? []).map((t: { id: string }) => t.id);
+    const paymentsByTrip = new Map<string, number>();
+    const ledgerNetByTrip = new Map<string, number>();
+
+    if (tripIds.length > 0) {
+      const [{ data: payments }, { data: ledgerRows }] = await Promise.all([
+        supabase
+          .from('payments')
+          .select('trip_id, captured_amount_pence, amount_pence, status')
+          .in('trip_id', tripIds),
+        supabase
+          .from('driver_wallet_ledger')
+          .select('related_trip_id, type, amount_pence')
+          .in('related_trip_id', tripIds)
+          .eq('type', 'TRIP_EARNING_NET'),
+      ]);
+
+      for (const payment of payments ?? []) {
+        if (!payment.trip_id) continue;
+        const rowCaptured = getPaymentRowCapturedPence(payment);
+        paymentsByTrip.set(
+          payment.trip_id,
+          (paymentsByTrip.get(payment.trip_id) ?? 0) + rowCaptured,
+        );
+      }
+
+      for (const entry of ledgerRows ?? []) {
+        if (!entry.related_trip_id) continue;
+        ledgerNetByTrip.set(entry.related_trip_id, entry.amount_pence);
+      }
+    }
+
+    // Transform data — Customer Paid uses settlement SSOT, not gross_fare_pence
+    const transformedTransactions = transactions?.map((t: Record<string, unknown>) => {
+      const tripId = String(t.id);
+      const paymentCaptured = paymentsByTrip.get(tripId) ?? 0;
+      const customerPaid = getTripSettlementFarePence(
+        {
+          payment_method: t.payment_method as string | null,
+          payment_status: t.payment_status as string | null,
+          final_fare_pence: t.final_fare_pence as number | null,
+          gross_fare_pence: t.gross_fare_pence as number | null,
+          capture_amount_pence: t.capture_amount_pence as number | null,
+        },
+        { paymentCapturedPence: paymentCaptured > 0 ? paymentCaptured : null },
+      );
+      const driverNet = getTripDriverNetPence({
+        driver_net_pence: t.driver_net_pence as number | null,
+        ledger: ledgerNetByTrip.has(tripId)
+          ? [{ type: 'TRIP_EARNING_NET', amount_pence: ledgerNetByTrip.get(tripId)! }]
+          : [],
+      });
+      const drivers = t.drivers as { first_name?: string; last_name?: string } | null;
+
+      return {
+        id: t.id,
+        tripCode: t.trip_number || t.trip_code || String(t.id).substring(0, 8).toUpperCase(),
+        type: (t.refund_amount_pence && (t.refund_amount_pence as number) > 0) ? 'refund' : 'payment',
+        route: `${(t.pickup_address as string)?.split(',')[0] || 'Unknown'} → ${(t.dropoff_address as string)?.split(',')[0] || 'Unknown'}`,
+        amount: customerPaid,
+        customerPaid,
+        estimatedFare: t.estimated_fare_pence
+          ?? (t.estimated_fare != null ? Math.round((t.estimated_fare as number) * 100) : 0),
+        refundAmount: t.refund_amount_pence || 0,
+        status: t.payment_status || 'unknown',
+        method: t.payment_method || 'unknown',
+        date: t.created_at,
+        completedAt: t.completed_at,
+        driver: drivers ? `${drivers.first_name} ${drivers.last_name}` : null,
+        driverId: t.driver_id,
+        customer: null,
+        customerId: t.passenger_id,
+        commission: t.commission_pence || 0,
+        driverNet,
+        extras: t.extras_pence || 0,
+        tip: t.tip_pence || 0,
+        stripePaymentIntentId: t.stripe_payment_intent_id,
+        stripeChargeId: t.stripe_charge_id,
+      };
+    }) || [];
 
     return new Response(JSON.stringify({
       transactions: transformedTransactions,

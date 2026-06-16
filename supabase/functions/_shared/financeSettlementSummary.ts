@@ -22,6 +22,12 @@ import {
   type TripAuditPayoutRecord,
   type TripAuditStatusBadge,
 } from "./tripFinancialAuditStatus.ts";
+import {
+  getPaymentRowCapturedPence,
+  getTripCapturedPenceForAudit,
+  getTripDriverNetPence,
+  getTripSettlementFarePence,
+} from "./tripSettlementFinanceSSOT.ts";
 
 export { SSOT_VERSION, type FinanceDataSourceBadge };
 
@@ -96,12 +102,21 @@ export function tripOnecabNetPence(row: TripFinanceRow): number {
   return Math.max(0, tripGrossCommissionPence(row) - tripStripeFeePence(row));
 }
 
-export function tripDriverNetPence(row: TripFinanceRow): number {
+/** Stored driver net only — never derives fare − commission. */
+export function tripDriverNetPence(row: TripFinanceRow): number | null {
   if (row.driver_net_pence != null) return Math.max(0, row.driver_net_pence);
-  const commissionable = commissionableRevenuePence(row);
-  const commission = tripGrossCommissionPence(row);
-  if (commissionable > 0 && commission > 0) return Math.max(0, commissionable - commission);
-  return 0;
+  return null;
+}
+
+/** Audit/display driver net — ledger TRIP_EARNING_NET first, then trips.driver_net_pence. */
+export function tripDriverNetPenceForAudit(
+  row: TripFinanceRow,
+  ledger: TripAuditLedgerRecord[] = [],
+): number | null {
+  return getTripDriverNetPence({
+    driver_net_pence: row.driver_net_pence,
+    ledger,
+  });
 }
 
 export function sumTripFinanceMetrics(rows: TripFinanceRow[]) {
@@ -122,7 +137,7 @@ export function sumTripFinanceMetrics(rows: TripFinanceRow[]) {
     const grossComm = tripGrossCommissionPence(row);
     const stripeFee = tripStripeFeePence(row);
     const net = tripOnecabNetPence(row);
-    const driverNet = tripDriverNetPence(row);
+    const driverNet = tripDriverNetPence(row) ?? 0;
 
     totalCustomerRevenue += customerRev;
     totalCommissionableRevenue += commissionable;
@@ -416,7 +431,7 @@ export type TripFinancialAuditRow = {
   captured_pence: number;
   refunded_pence: number;
   net_customer_payment_pence: number;
-  driver_net_pence: number;
+  driver_net_pence: number | null;
   onecab_gross_commission_pence: number;
   processing_fee_pence: number;
   onecab_net_pence: number;
@@ -576,19 +591,26 @@ export function mapTripToFinancialAuditRow(
     ledgerByTripId: new Map(),
   },
 ): TripFinancialAuditRow {
-  const captured = Math.max(0, row.capture_amount_pence ?? 0);
+  const payment = context.paymentByTripId.get(row.id) ?? null;
+  const ledger = context.ledgerByTripId.get(row.id) ?? [];
+  const paymentCaptured = payment ? getPaymentRowCapturedPence(payment) : 0;
+  const captured = getTripCapturedPenceForAudit({
+    paymentCapturedPence: paymentCaptured > 0 ? paymentCaptured : null,
+    tripCaptureAmountPence: row.capture_amount_pence,
+  });
   const refunded = Math.max(0, row.refund_amount_pence ?? 0);
-  const tip = Math.max(0, row.tip_pence ?? row.tip_amount_pence ?? 0);
-  const customerPaid = captured > 0 ? captured : customerRevenuePence(row);
+  const customerPaid = getTripSettlementFarePence(row, {
+    paymentCapturedPence: paymentCaptured > 0 ? paymentCaptured : null,
+  });
   const driverName = row.driver
     ? [row.driver.first_name, row.driver.last_name].filter(Boolean).join(" ").trim() || null
     : null;
 
   const statuses = deriveTripFinancialAuditStatuses({
     trip: row,
-    payment: context.paymentByTripId.get(row.id) ?? null,
+    payment,
     payouts: context.payoutsByTripId.get(row.id) ?? [],
-    ledger: context.ledgerByTripId.get(row.id) ?? [],
+    ledger,
   });
 
   return {
@@ -601,7 +623,7 @@ export function mapTripToFinancialAuditRow(
     captured_pence: captured,
     refunded_pence: refunded,
     net_customer_payment_pence: Math.max(0, customerPaid - refunded),
-    driver_net_pence: tripDriverNetPence(row),
+    driver_net_pence: tripDriverNetPenceForAudit(row, ledger),
     onecab_gross_commission_pence: tripGrossCommissionPence(row),
     processing_fee_pence: tripStripeFeePence(row),
     onecab_net_pence: tripOnecabNetPence(row),

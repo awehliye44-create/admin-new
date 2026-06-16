@@ -4,10 +4,12 @@ import {
   buildFinanceReconciliationSummary,
   classifyOnecabSettlementStatus,
   computeSafePayoutAmount,
+  mapTripToFinancialAuditRow,
   parseInsufficientFundsReason,
   partitionStripePlatformCash,
   reconcileStripeBalance,
   sumTripFinanceMetrics,
+  buildTripFinancialAuditContext,
 } from "./financeSettlementSummary.ts";
 
 const TRIP_5783 = {
@@ -114,4 +116,125 @@ Deno.test("classifyOnecabSettlementStatus never marks paid without verification"
     }),
     "calculated_only",
   );
+});
+
+const MK_260615_006 = {
+  id: "trip-006",
+  trip_code: "MK-260615-006",
+  payment_method: "card",
+  payment_status: "captured",
+  final_fare_pence: 512,
+  gross_fare_pence: 480,
+  capture_amount_pence: 480,
+  commission_pence: 77,
+  driver_net_pence: 435,
+  stripe_processing_fee_pence: null,
+  onecab_net_pence: null,
+  commissionable_fare_pence: null,
+  tip_pence: 0,
+  tip_amount_pence: null,
+  stripe_settlement_verified: true,
+  driver_tier_commission_percent: null,
+  commission_pct: null,
+  completed_at: "2026-06-15T12:00:00Z",
+};
+
+Deno.test("Financial Reconciliation audit: card captured uses payments.captured_amount_pence not legacy fare", () => {
+  const context = buildTripFinancialAuditContext({
+    payments: [{
+      trip_id: "trip-006",
+      status: "captured",
+      provider_status: "available",
+      captured_amount_pence: 512,
+    }],
+    payoutItems: [],
+    ledgerRows: [],
+  });
+  const row = mapTripToFinancialAuditRow(MK_260615_006, context);
+  assertEquals(row.customer_paid_pence, 512);
+  assertEquals(row.captured_pence, 512);
+});
+
+Deno.test("Financial Reconciliation audit: driver net from trips.driver_net_pence, not captured − commission", () => {
+  const context = buildTripFinancialAuditContext({
+    payments: [{
+      trip_id: "trip-006",
+      status: "captured",
+      provider_status: "available",
+      captured_amount_pence: 512,
+    }],
+    payoutItems: [],
+    ledgerRows: [],
+  });
+  const row = mapTripToFinancialAuditRow(MK_260615_006, context);
+  assertEquals(row.driver_net_pence, 435);
+});
+
+Deno.test("Financial Reconciliation audit: prefers ledger TRIP_EARNING_NET over trips.driver_net_pence", () => {
+  const context = buildTripFinancialAuditContext({
+    payments: [{
+      trip_id: "trip-006",
+      status: "captured",
+      provider_status: "available",
+      captured_amount_pence: 512,
+    }],
+    payoutItems: [],
+    ledgerRows: [{
+      related_trip_id: "trip-006",
+      type: "TRIP_EARNING_NET",
+      amount_pence: 435,
+    }],
+  });
+  const row = mapTripToFinancialAuditRow(MK_260615_006, context);
+  assertEquals(row.driver_net_pence, 435);
+});
+
+Deno.test("Financial Reconciliation audit: missing driver net is null, not fare − commission", () => {
+  const trip = {
+    ...MK_260615_006,
+    driver_net_pence: null,
+  };
+  const context = buildTripFinancialAuditContext({
+    payments: [{
+      trip_id: "trip-006",
+      status: "captured",
+      provider_status: "available",
+      captured_amount_pence: 512,
+    }],
+    payoutItems: [],
+    ledgerRows: [],
+  });
+  const row = mapTripToFinancialAuditRow(trip, context);
+  assertEquals(row.driver_net_pence, null);
+});
+
+Deno.test("Financial Reconciliation audit: cash trip uses final_fare_pence as customer paid", () => {
+  const cashTrip = {
+    id: "trip-004",
+    trip_code: "MK-260615-004",
+    payment_method: "cash",
+    payment_status: "collected_cash",
+    final_fare_pence: 793,
+    gross_fare_pence: 793,
+    capture_amount_pence: 0,
+    commission_pence: 106,
+    driver_net_pence: 687,
+    stripe_processing_fee_pence: null,
+    onecab_net_pence: null,
+    commissionable_fare_pence: null,
+    tip_pence: 0,
+    tip_amount_pence: null,
+    stripe_settlement_verified: null,
+    driver_tier_commission_percent: null,
+    commission_pct: null,
+    completed_at: "2026-06-15T12:00:00Z",
+  };
+  const context = buildTripFinancialAuditContext({
+    payments: [],
+    payoutItems: [],
+    ledgerRows: [],
+  });
+  const row = mapTripToFinancialAuditRow(cashTrip, context);
+  assertEquals(row.customer_paid_pence, 793);
+  assertEquals(row.driver_net_pence, 687);
 });

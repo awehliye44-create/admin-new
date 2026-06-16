@@ -75,7 +75,7 @@ function normalizeAuditRow(row: TripFinancialAuditRow & Record<string, unknown>)
     captured_pence: Number(row.captured_pence ?? 0),
     refunded_pence: Number(row.refunded_pence ?? 0),
     net_customer_payment_pence: Number(row.net_customer_payment_pence ?? 0),
-    driver_net_pence: Number(row.driver_net_pence ?? 0),
+    driver_net_pence: row.driver_net_pence == null ? null : Number(row.driver_net_pence ?? 0),
     onecab_gross_commission_pence: Number(row.onecab_gross_commission_pence ?? 0),
     processing_fee_pence: Number(row.processing_fee_pence ?? 0),
     onecab_net_pence: Number(row.onecab_net_pence ?? 0),
@@ -766,7 +766,13 @@ function FinancialReconciliationPage() {
                       <TableCell className="text-right">{formatPence(row.captured_pence, ccy)}</TableCell>
                       <TableCell className="text-right">{formatPence(row.refunded_pence, ccy)}</TableCell>
                       <TableCell className="text-right">{formatPence(row.net_customer_payment_pence, ccy)}</TableCell>
-                      <TableCell className="text-right">{formatPence(row.driver_net_pence, ccy)}</TableCell>
+                      <TableCell className="text-right">
+                        {row.driver_net_pence == null ? (
+                          <span className="text-muted-foreground">Unknown</span>
+                        ) : (
+                          formatPence(row.driver_net_pence, ccy)
+                        )}
+                      </TableCell>
                       <TableCell className="text-right">{formatPence(row.onecab_gross_commission_pence, ccy)}</TableCell>
                       <TableCell className="text-right">{formatPence(row.processing_fee_pence, ccy)}</TableCell>
                       <TableCell className="text-right">{formatPence(row.onecab_net_pence, ccy)}</TableCell>

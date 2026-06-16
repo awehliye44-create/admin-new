@@ -268,4 +268,16 @@ describe('tripCaptureStatus — Trip History finance SSOT', () => {
     expect(getTripSettlementFarePence(trip)).toBe(512);
     expect(getTripDriverNetPence(trip)).toBe(435);
   });
+
+  it('missing driver net: returns null, not fare − commission', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      payment_captured_pence: 512,
+      commission_pence: 77,
+      payment_count: 1,
+    };
+    expect(getTripDriverNetPence(trip)).toBeNull();
+    expect(getTripDriverNetPence(trip)).not.toBe(512 - 77);
+  });
 });

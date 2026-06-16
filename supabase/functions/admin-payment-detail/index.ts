@@ -2,6 +2,11 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getDriverCommissionPct } from "../_shared/commission.ts";
 import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
+import {
+  getPaymentRowCapturedPence,
+  getTripDriverNetPence,
+  getTripSettlementFarePence,
+} from "../_shared/tripSettlementFinanceSSOT.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -225,13 +230,40 @@ serve(async (req) => {
       .eq('related_trip_id', tripId)
       .order('created_at', { ascending: false });
 
-    // Calculate fare breakdown
-    const estimatedFare = trip.estimated_fare ? Math.round(trip.estimated_fare * 100) : 0;
+    const { data: payments } = await supabase
+      .from('payments')
+      .select('captured_amount_pence, amount_pence, status')
+      .eq('trip_id', tripId);
+
+    let paymentCaptured = 0;
+    for (const payment of payments ?? []) {
+      paymentCaptured += getPaymentRowCapturedPence(payment);
+    }
+
+    const customerPaidPence = getTripSettlementFarePence(trip, {
+      paymentCapturedPence: paymentCaptured > 0 ? paymentCaptured : null,
+    });
+    const finalSettlementTotalPence = customerPaidPence;
+
+    // Calculate fare breakdown — settlement SSOT for finance display
+    const estimatedFare = trip.estimated_fare ? Math.round(trip.estimated_fare * 100) : (trip.estimated_fare_pence ?? 0);
     const extras = trip.extras_pence || 0;
     const tip = trip.tip_pence || 0;
-    const grossFare = trip.gross_fare_pence || (estimatedFare + extras + tip);
+    const waitingChargePence = Math.max(
+      0,
+      trip.total_waiting_charge_pence
+        ?? trip.waiting_charge_pence
+        ?? trip.pickup_waiting_charge_pence
+        ?? 0,
+    );
     const commission = trip.commission_pence || 0;
-    const driverNet = trip.driver_net_pence || 0;
+    const driverNet = getTripDriverNetPence({
+      driver_net_pence: trip.driver_net_pence,
+      ledger: (ledgerEntries ?? []).map((entry) => ({
+        type: entry.type,
+        amount_pence: entry.amount_pence,
+      })),
+    });
     const stripeFee = trip.stripe_processing_fee_pence || 0;
     // ONECAB net after Stripe — read from DB (do NOT recompute on the client).
     // Historical trips that pre-date fee tracking fall back to gross commission.
@@ -267,7 +299,11 @@ serve(async (req) => {
         estimatedFare,
         extras,
         tip,
-        grossFare,
+        waitingChargePence,
+        customerPaidPence,
+        finalSettlementTotalPence,
+        /** @deprecated Use customerPaidPence — legacy gross fare retained for quote comparison only */
+        grossFare: trip.gross_fare_pence || (estimatedFare + extras + tip),
         authorisedAmount: trip.authorised_amount_pence,
       },
       commissionBreakdown: {

@@ -114,7 +114,7 @@ export interface TripFinancialAuditRow {
   captured_pence: number;
   refunded_pence: number;
   net_customer_payment_pence: number;
-  driver_net_pence: number;
+  driver_net_pence: number | null;
   onecab_gross_commission_pence: number;
   processing_fee_pence: number;
   onecab_net_pence: number;

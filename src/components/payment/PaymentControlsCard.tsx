@@ -22,6 +22,9 @@ import {
   captureStatusColorClass,
   getCapturedTotalPence,
   getTripCaptureStatus,
+  getTripDriverNetPence,
+  getTripSettlementBreakdown,
+  getTripSettlementFarePence,
   getTripTipPence,
   isCardTrip,
   summarizeTripPayments,
@@ -164,20 +167,26 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
     queryKey: ['admin-payment-capture-context', tripId],
     enabled: !!tripId && isAdmin,
     queryFn: async () => {
-      const [tripRes, paymentsRes] = await Promise.all([
+      const [tripRes, paymentsRes, ledgerRes] = await Promise.all([
         supabase
           .from('trips')
-          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, authorised_amount_pence, estimated_fare_pence, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee')
+          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, authorised_amount_pence, estimated_fare_pence, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee, driver_net_pence, total_waiting_charge_pence, waiting_charge_pence, pickup_waiting_charge_pence')
           .eq('id', tripId)
           .single(),
         supabase
           .from('payments')
           .select('captured_amount_pence, amount_pence, status, fee_type, metadata')
           .eq('trip_id', tripId),
+        supabase
+          .from('driver_wallet_ledger')
+          .select('type, amount_pence')
+          .eq('related_trip_id', tripId)
+          .eq('type', 'TRIP_EARNING_NET'),
       ]);
       if (tripRes.error) throw tripRes.error;
       const payments = (paymentsRes.data ?? []) as unknown as Parameters<typeof summarizeTripPayments>[0];
       const summary = summarizeTripPayments(payments);
+      const ledgerEarning = ledgerRes.data?.[0];
       return {
         ...(tripRes.data as TripCaptureFields & { authorised_amount_pence?: number | null; estimated_fare_pence?: number | null }),
         payment_captured_pence: summary.capturedTotalPence,
@@ -186,6 +195,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
         has_shortfall_payment_intent: summary.hasShortfallPaymentIntent,
         payment_lifecycle_fees_pence: summary.lifecycleFeesPence,
         payment_metadata_lifecycle_fees_pence: summary.metadataLifecycleFeesPence,
+        ledger_trip_earning_net_pence: ledgerEarning?.amount_pence ?? null,
       };
     },
   });
@@ -274,18 +284,16 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
     0,
     state?.captured_pence ?? ctx?.capture_amount_pence ?? getCapturedTotalPence(ctx ?? {}) ?? 0,
   );
-  const finalFarePence = Math.max(
+  const settlementTotalPence = Math.max(
     0,
-    ctx?.final_fare_pence
-      || state?.final_fare_pence
-      || ctx?.capture_amount_pence
-      || capturedPence
-      || ctx?.estimated_fare_pence
-      || 0,
+    ctx ? getTripSettlementFarePence(ctx) : (state?.final_fare_pence ?? 0),
   );
-  const extraDuePence = Math.max(0, finalFarePence - capturedPence);
+  const settlementBreakdown = ctx ? getTripSettlementBreakdown(ctx) : null;
+  const driverNetPence = ctx ? getTripDriverNetPence(ctx) : (state?.driver_net_pence ?? null);
+  const quotedEstimatePence = Math.max(0, ctx?.estimated_fare_pence ?? 0);
+  const extraDuePence = Math.max(0, settlementTotalPence - capturedPence);
   const releasedBufferPence = Math.max(0, authorisedPence - capturedPence);
-  const paymentFullyPaid = capturedPence >= finalFarePence && finalFarePence > 0;
+  const paymentFullyPaid = capturedPence >= settlementTotalPence && settlementTotalPence > 0;
   const isLegacyTrip = !!ctx
     && (ctx.final_fare_pence == null || ctx.final_fare_pence === 0)
     && capturedPence > 0;
@@ -310,7 +318,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
   const openExtraPayment = () => {
     setMode('edit');
     setReason('');
-    setAmountInput((finalFarePence / 100).toFixed(2));
+    setAmountInput((settlementTotalPence / 100).toFixed(2));
   };
   const openWaive = () => {
     setMode('edit');
@@ -320,7 +328,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
   const openInternalAdjustment = () => {
     setMode('edit');
     setReason('Internal adjustment — ');
-    setAmountInput((finalFarePence / 100).toFixed(2));
+    setAmountInput((settlementTotalPence / 100).toFixed(2));
   };
 
   const submit = () => {
@@ -505,7 +513,13 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
                 )}
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-1">
-                <div className="flex justify-between"><span className="text-muted-foreground">Final fare</span><span>{formatPence(finalFarePence, currency)}</span></div>
+                {quotedEstimatePence > 0 && quotedEstimatePence !== settlementTotalPence && (
+                  <div className="flex justify-between col-span-full">
+                    <span className="text-muted-foreground">Quoted / Estimated</span>
+                    <span>{formatPence(quotedEstimatePence, currency)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between"><span className="text-muted-foreground">Final Settlement Total</span><span>{formatPence(settlementTotalPence, currency)}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Authorised hold</span><span>{formatPence(authorisedPence, currency)}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Captured</span><span>{formatPence(capturedPence, currency)}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Released buffer</span><span>{formatPence(releasedBufferPence, currency)}</span></div>
@@ -548,13 +562,16 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
 
             {/* Detailed breakdown */}
             <div className="rounded-md border bg-muted/30 p-3 text-xs space-y-1.5">
-              <div className="flex justify-between"><span className="text-muted-foreground">Final fare</span><span>{formatPence(state.final_fare_pence, currency)}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Buffer (auth − fare)</span><span>{formatPence(state.buffer_pence, currency)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Final Settlement Total</span><span>{formatPence(settlementTotalPence, currency)}</span></div>
+              {settlementBreakdown?.showBreakdown && settlementBreakdown.waitingPence > 0 && (
+                <div className="flex justify-between"><span className="text-muted-foreground">Waiting time</span><span>{formatPence(settlementBreakdown.waitingPence, currency)}</span></div>
+              )}
+              <div className="flex justify-between"><span className="text-muted-foreground">Buffer (auth − settlement)</span><span>{formatPence(state.buffer_pence, currency)}</span></div>
               <Separator className="my-1" />
               <div className="flex justify-between"><span className="text-muted-foreground">Gross commission</span><span>{formatPence(state.commission_pence, currency)}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Stripe fee</span><span className="text-orange-600">{state.stripe_fee_pence > 0 ? `−${formatPence(state.stripe_fee_pence, currency)}` : '—'}</span></div>
               <div className="flex justify-between font-medium"><span>ONECAB net</span><span className="text-blue-600">{formatPence(state.onecab_net_pence, currency)}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Driver net</span><span className="text-green-600">{formatPence(state.driver_net_pence, currency)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Driver net</span><span className="text-green-600">{driverNetPence != null ? formatPence(driverNetPence, currency) : 'Unknown'}</span></div>
               <Separator className="my-1" />
               <div className="flex justify-between"><span className="text-muted-foreground">Stripe application fee</span><span>{state.stripe_application_fee_amount_pence != null ? formatPence(state.stripe_application_fee_amount_pence, currency) : '—'}</span></div>
               {state.stripe_application_fee_id && <div className="flex justify-between gap-2"><span className="text-muted-foreground">Application fee ID</span><code className="text-[10px] truncate">{state.stripe_application_fee_id}</code></div>}
