@@ -293,7 +293,7 @@ export default function TripHistory() {
 
   // React Query for trip data
   const { data: trips = [], isLoading } = useQuery({
-    queryKey: ['trip-history', dateFilter, selectedRegionId, selectedServiceAreaId],
+    queryKey: ['trip-history', dateFilter, selectedRegionId, selectedServiceAreaId, corporateFilter],
     queryFn: async () => {
       const { start, end } = getDateRange();
       
