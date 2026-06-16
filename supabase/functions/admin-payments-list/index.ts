@@ -133,7 +133,8 @@ serve(async (req) => {
     }
 
     // Align trip list with Financial Reconciliation SSOT (completed_at window).
-    if (startDate || endDate) {
+    // Skip date window when searching — admins look up trips by code across periods.
+    if ((startDate || endDate) && !search) {
       query = query.not('completed_at', 'is', null);
       if (startDate) {
         query = query.gte('completed_at', startDate);
@@ -144,7 +145,10 @@ serve(async (req) => {
     }
 
     if (search) {
-      query = query.or(`trip_code.ilike.%${search}%,trip_number.ilike.%${search}%,pickup_address.ilike.%${search}%,dropoff_address.ilike.%${search}%`);
+      const term = search.trim();
+      query = query.or(
+        `trip_code.ilike.%${term}%,trip_number.ilike.%${term}%,pickup_address.ilike.%${term}%,dropoff_address.ilike.%${term}%`,
+      );
     }
 
     // Apply pagination

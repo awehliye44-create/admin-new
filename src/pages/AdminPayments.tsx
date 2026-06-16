@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { AdminLayout } from '@/components/layout/AdminLayout';
@@ -16,7 +16,7 @@ import { Separator } from '@/components/ui/separator';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { supabase } from '@/integrations/supabase/client';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { getTripDisplayId } from '@/lib/tripUtils';
@@ -131,7 +131,13 @@ export default function AdminPayments() {
   const [customDateFrom, setCustomDateFrom] = useState<Date | undefined>(undefined);
   const [customDateTo, setCustomDateTo] = useState<Date | undefined>(undefined);
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [tripSearchInput, setTripSearchInput] = useState('');
+  const [debouncedTripSearch, setDebouncedTripSearch] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedTripSearch(tripSearchInput.trim()), 350);
+    return () => clearTimeout(timer);
+  }, [tripSearchInput]);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [methodFilter, setMethodFilter] = useState<string>('all');
   const [viewingTripId, setViewingTripId] = useState<string | null>(null);
@@ -153,18 +159,19 @@ export default function AdminPayments() {
   const activeCurrency = serviceFilter.currencyCode || financeSSOT.currencyCode || 'gbp';
 
   // Fetch transactions — same service area + completed_at window as SSOT totals
-  const { data: transactions = [], isLoading: isLoadingList, isError: isListError, error: listError, refetch: refetchList } = useQuery<PaymentTransaction[]>({
+  const { data: transactions = [], isLoading: isLoadingList, isFetching: isFetchingList, isError: isListError, error: listError, refetch: refetchList } = useQuery<PaymentTransaction[]>({
     queryKey: [
       'admin-payments-list',
       statusFilter,
       methodFilter,
-      searchTerm,
+      debouncedTripSearch,
       activeTab,
       periodFrom,
       periodTo,
       serviceFilter.serviceAreaId,
       serviceFilter.regionId,
     ],
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set('from', periodFrom);
@@ -172,7 +179,7 @@ export default function AdminPayments() {
       params.set('limit', '500');
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (methodFilter !== 'all') params.set('method', methodFilter);
-      if (searchTerm) params.set('search', searchTerm);
+      if (debouncedTripSearch) params.set('search', debouncedTripSearch);
       if (activeTab === 'payment' || activeTab === 'refund') params.set('type', activeTab);
       if (serviceFilter.serviceAreaId) params.set('service_area_id', serviceFilter.serviceAreaId);
       if (serviceFilter.regionId) params.set('region_id', serviceFilter.regionId);
@@ -292,9 +299,9 @@ export default function AdminPayments() {
     return methods[method?.toLowerCase()] || method || 'Unknown';
   };
 
-  const isLoading = isLoadingList;
+  const isInitialLoad = isLoadingList && transactions.length === 0 && !isListError;
 
-  if (isLoading && transactions.length === 0) {
+  if (isInitialLoad) {
     return (
       <AdminLayout title="Payments & Transactions" description="Manage payments">
         <div className="flex items-center justify-center h-64">
@@ -402,7 +409,16 @@ export default function AdminPayments() {
             <div className="flex gap-2 flex-wrap">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Search..." className="pl-9 w-[180px]" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                <Input
+                  placeholder="Trip code (e.g. MK-260616-016)"
+                  className="pl-9 pr-9 w-[240px]"
+                  value={tripSearchInput}
+                  onChange={(e) => setTripSearchInput(e.target.value)}
+                  aria-label="Search by trip code or route"
+                />
+                {isFetchingList && debouncedTripSearch !== tripSearchInput.trim() && (
+                  <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                )}
               </div>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-[130px]"><SelectValue placeholder="Status" /></SelectTrigger>
@@ -434,8 +450,14 @@ export default function AdminPayments() {
           </div>
 
           <TabsContent value={activeTab} className="m-0">
-            <Card>
-              <CardContent className="p-0">
+            <Card className={cn(isFetchingList && !isInitialLoad && 'opacity-80')}>
+              <CardContent className="p-0 relative">
+                {isFetchingList && !isInitialLoad && (
+                  <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    Updating…
+                  </div>
+                )}
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -454,7 +476,11 @@ export default function AdminPayments() {
                   <TableBody>
                     {filteredTransactions.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">No transactions found</TableCell>
+                        <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                          {debouncedTripSearch
+                            ? `No transactions matching "${debouncedTripSearch}"`
+                            : 'No transactions found'}
+                        </TableCell>
                       </TableRow>
                     ) : (
                       filteredTransactions.map((tx) => (
