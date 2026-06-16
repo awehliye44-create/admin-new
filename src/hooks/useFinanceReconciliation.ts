@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import type { FinanceSettlementSummaryResponse } from '@/components/finance/FinanceSettlementOverview';
 import { invokeFinanceReconciliation } from '@/hooks/financeReconciliationApi';
@@ -214,13 +214,31 @@ export function useFinanceReconciliation(args?: {
   from?: string;
   to?: string;
   enabled?: boolean;
+  tripSearch?: string;
+  tripSearchType?: 'code' | 'id';
 }) {
-  const { filter, from, to, enabled = true } = args ?? {};
+  const { filter, from, to, enabled = true, tripSearch, tripSearchType } = args ?? {};
+  const searchExtra = tripSearch
+    ? {
+        search: tripSearch,
+        ...(tripSearchType === 'id' ? { search_type: 'id' } : {}),
+      }
+    : undefined;
+
   return useQuery<FinanceReconciliationResponse>({
-    queryKey: ['finance-reconciliation-summary', filter?.regionId, filter?.serviceAreaId, from, to],
-    queryFn: () => invokeFinanceReconciliation(filter, from, to),
+    queryKey: [
+      'finance-reconciliation-summary',
+      filter?.regionId,
+      filter?.serviceAreaId,
+      from,
+      to,
+      tripSearch,
+      tripSearchType,
+    ],
+    queryFn: () => invokeFinanceReconciliation(filter, from, to, searchExtra),
     enabled,
     staleTime: 30_000,
-    refetchInterval: 60_000,
+    refetchInterval: tripSearch ? false : 60_000,
+    placeholderData: keepPreviousData,
   });
 }

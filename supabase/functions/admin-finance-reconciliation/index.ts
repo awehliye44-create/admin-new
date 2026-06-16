@@ -13,6 +13,46 @@ import {
   sumTripFinanceMetrics,
   type TripAuditSourceRow,
 } from "../_shared/financeSettlementSummary.ts";
+import {
+  isTripUuid,
+  NO_MATCH_TRIP_ID,
+  tripCodeOrFilter,
+} from "../_shared/tripAdminSearch.ts";
+
+const TRIP_AUDIT_SELECT = `
+        id,
+        trip_code,
+        commission_pence,
+        stripe_processing_fee_pence,
+        onecab_net_pence,
+        driver_net_pence,
+        gross_fare_pence,
+        final_fare_pence,
+        commissionable_fare_pence,
+        capture_amount_pence,
+        refund_amount_pence,
+        pickup_waiting_charge_pence,
+        stop_waiting_charge_pence,
+        airport_charge_pence,
+        other_pass_through_charges_pence,
+        tip_pence,
+        tip_amount_pence,
+        payment_method,
+        payment_status,
+        financial_outcome,
+        stripe_payment_intent_id,
+        stripe_charge_id,
+        provider_status,
+        driver_id,
+        stripe_settlement_verified,
+        stripe_settlement_warning,
+        refunded_at,
+        driver_tier_commission_percent,
+        commission_pct,
+        completed_at,
+        service_area_id,
+        driver:drivers!trips_driver_id_fkey(first_name, last_name)
+      `;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -97,6 +137,8 @@ serve(async (req) => {
     const periodFrom = url.searchParams.get("from") || startOfTodayUtc();
     const periodTo = url.searchParams.get("to") || endOfTodayUtc();
     const driverId = url.searchParams.get("driver_id");
+    const search = url.searchParams.get("search");
+    const searchType = url.searchParams.get("search_type");
     const auditLimit = Math.min(Number(url.searchParams.get("audit_limit") || 100), 500);
 
     let resolvedRegionId = regionId;
@@ -121,40 +163,7 @@ serve(async (req) => {
 
     let tripQuery = supabase
       .from("trips")
-      .select(`
-        id,
-        trip_code,
-        commission_pence,
-        stripe_processing_fee_pence,
-        onecab_net_pence,
-        driver_net_pence,
-        gross_fare_pence,
-        final_fare_pence,
-        commissionable_fare_pence,
-        capture_amount_pence,
-        refund_amount_pence,
-        pickup_waiting_charge_pence,
-        stop_waiting_charge_pence,
-        airport_charge_pence,
-        other_pass_through_charges_pence,
-        tip_pence,
-        tip_amount_pence,
-        payment_method,
-        payment_status,
-        financial_outcome,
-        stripe_payment_intent_id,
-        stripe_charge_id,
-        provider_status,
-        driver_id,
-        stripe_settlement_verified,
-        stripe_settlement_warning,
-        refunded_at,
-        driver_tier_commission_percent,
-        commission_pct,
-        completed_at,
-        service_area_id,
-        driver:drivers!trips_driver_id_fkey(first_name, last_name)
-      `)
+      .select(TRIP_AUDIT_SELECT)
       .gte("completed_at", periodFrom)
       .lte("completed_at", periodTo)
       .or(`financial_outcome.in.(${COUNTABLE_FINANCIAL_OUTCOMES.join(",")}),status.in.(completed,no_show)`)
@@ -385,9 +394,76 @@ serve(async (req) => {
       dataSourceBadge: "LIVE",
     });
 
-    const trip_financial_audit = tripRows.map((row) =>
-      mapTripToFinancialAuditRow(row, auditContext)
-    );
+    const trip_financial_audit = search?.trim()
+      ? await (async () => {
+        let auditSearchQuery = supabase
+          .from("trips")
+          .select(TRIP_AUDIT_SELECT)
+          .or(`financial_outcome.in.(${COUNTABLE_FINANCIAL_OUTCOMES.join(",")}),status.in.(completed,no_show)`)
+          .not("completed_at", "is", null)
+          .order("completed_at", { ascending: false })
+          .limit(Math.min(auditLimit, 50));
+
+        if (serviceAreaId) {
+          auditSearchQuery = auditSearchQuery.eq("service_area_id", serviceAreaId);
+        } else if (resolvedRegionId) {
+          const { data: areas } = await supabase.from("service_areas").select("id").eq("region_id", resolvedRegionId);
+          const ids = (areas || []).map((a) => a.id);
+          if (ids.length === 0) return [];
+          auditSearchQuery = auditSearchQuery.in("service_area_id", ids);
+        }
+
+        const term = search.trim();
+        if (searchType === "id") {
+          auditSearchQuery = isTripUuid(term)
+            ? auditSearchQuery.eq("id", term.toLowerCase())
+            : auditSearchQuery.eq("id", NO_MATCH_TRIP_ID);
+        } else if (isTripUuid(term)) {
+          auditSearchQuery = auditSearchQuery.eq("id", term.toLowerCase());
+        } else {
+          auditSearchQuery = auditSearchQuery.or(tripCodeOrFilter(term));
+        }
+
+        const { data: searchTrips, error: searchError } = await auditSearchQuery;
+        if (searchError) throw searchError;
+
+        const auditSourceRows = (searchTrips || []) as TripAuditSourceRow[];
+        const auditTripIds = auditSourceRows.map((t) => t.id);
+        if (auditTripIds.length === 0) return [];
+
+        const [paymentsRes, payoutItemsRes, tripLedgerRes] = await Promise.all([
+          supabase
+            .from("payments")
+            .select("captured_amount_pence, status, trip_id, provider_status, stripe_payment_intent_id, provider_available_on")
+            .in("trip_id", auditTripIds),
+          supabase
+            .from("payout_items")
+            .select("trip_id, status, driver_amount_pence, amount_pence, batch_id")
+            .in("trip_id", auditTripIds),
+          supabase
+            .from("driver_wallet_ledger")
+            .select("related_trip_id, type, amount_pence, stripe_payout_id, stripe_transfer_id")
+            .in("related_trip_id", auditTripIds),
+        ]);
+        if (paymentsRes.error) throw paymentsRes.error;
+        if (payoutItemsRes.error) throw payoutItemsRes.error;
+        if (tripLedgerRes.error) throw tripLedgerRes.error;
+
+        const searchAuditContext = buildTripFinancialAuditContext({
+          payments: paymentsRes.data || [],
+          payoutItems: payoutItemsRes.data || [],
+          ledgerRows: (tripLedgerRes.data || []).map((row) => ({
+            related_trip_id: row.related_trip_id ?? null,
+            type: row.type,
+            amount_pence: row.amount_pence,
+            stripe_payout_id: row.stripe_payout_id ?? null,
+            stripe_transfer_id: row.stripe_transfer_id ?? null,
+          })),
+        });
+
+        return auditSourceRows.map((row) => mapTripToFinancialAuditRow(row, searchAuditContext));
+      })()
+      : tripRows.map((row) => mapTripToFinancialAuditRow(row, auditContext));
 
     return new Response(JSON.stringify({
       period: { from: periodFrom, to: periodTo },

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { ServiceAreaFinanceFilter, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatPence } from '@/hooks/useDriverWallet';
@@ -27,6 +28,7 @@ import {
   safeReconciliationCheck,
   safeReconciliationStatus,
 } from '@/lib/financialReconciliationGuards';
+import { cn } from '@/lib/utils';
 import {
   AlertTriangle,
   Banknote,
@@ -34,6 +36,7 @@ import {
   Calculator,
   CreditCard,
   RefreshCw,
+  Search,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -156,11 +159,21 @@ function FinancialReconciliationPage() {
   });
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [tripSearchInput, setTripSearchInput] = useState('');
+  const [tripSearchMode, setTripSearchMode] = useState<'code' | 'id'>('code');
+  const [debouncedTripSearch, setDebouncedTripSearch] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedTripSearch(tripSearchInput.trim()), 350);
+    return () => clearTimeout(timer);
+  }, [tripSearchInput]);
 
   const ssot = useFinancialReconciliationSSOT({
     filter,
     from: from || undefined,
     to: to || undefined,
+    tripSearch: debouncedTripSearch || undefined,
+    tripSearchType: tripSearchMode,
   });
   const { isLoading, error, refetch, isFetching } = ssot;
   const data = ssot.response;
@@ -713,13 +726,46 @@ function FinancialReconciliationPage() {
         )}
 
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="flex items-center gap-2 text-base">
               <Wallet className="h-4 w-4" />
               Trip Financial Audit
             </CardTitle>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={tripSearchMode}
+                onValueChange={(v) => {
+                  setTripSearchMode(v as 'code' | 'id');
+                  setTripSearchInput('');
+                  setDebouncedTripSearch('');
+                }}
+              >
+                <SelectTrigger className="w-[110px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="code">Trip code</SelectItem>
+                  <SelectItem value="id">Trip ID</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder={
+                    tripSearchMode === 'id'
+                      ? 'Trip ID (UUID)'
+                      : 'Trip code (e.g. MK-260615-006)'
+                  }
+                  className={cn('pl-9 pr-9', tripSearchMode === 'id' ? 'w-[280px]' : 'w-[240px]')}
+                  value={tripSearchInput}
+                  onChange={(e) => setTripSearchInput(e.target.value)}
+                  aria-label={tripSearchMode === 'id' ? 'Search audit by trip ID' : 'Search audit by trip code'}
+                />
+                {isFetching && debouncedTripSearch !== tripSearchInput.trim() && (
+                  <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                )}
+              </div>
+            </div>
           </CardHeader>
-          <CardContent className="overflow-x-auto">
+          <CardContent className={cn('overflow-x-auto', isFetching && debouncedTripSearch && 'opacity-80')}>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -744,7 +790,9 @@ function FinancialReconciliationPage() {
                 {auditRows.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={15} className="text-center text-muted-foreground py-8">
-                      No trips in selected period
+                      {debouncedTripSearch
+                        ? `No audit rows matching "${debouncedTripSearch}"`
+                        : 'No trips in selected period'}
                     </TableCell>
                   </TableRow>
                 ) : (

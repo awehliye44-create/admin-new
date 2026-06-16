@@ -5,21 +5,16 @@ import {
   getTripDriverNetPence,
   getTripSettlementFarePence,
 } from "../_shared/tripSettlementFinanceSSOT.ts";
+import {
+  isTripUuid,
+  NO_MATCH_TRIP_ID,
+  tripCodeRouteOrFilter,
+} from "../_shared/tripAdminSearch.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-const TRIP_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function isTripUuid(value: string): boolean {
-  return TRIP_UUID_RE.test(value.trim());
-}
-
-function escapePostgrestFilter(value: string): string {
-  return value.replace(/[%_,]/g, '');
-}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -160,14 +155,11 @@ serve(async (req) => {
       if (searchType === 'id') {
         query = isTripUuid(term)
           ? query.eq('id', term.toLowerCase())
-          : query.eq('id', '00000000-0000-0000-0000-000000000000');
+          : query.eq('id', NO_MATCH_TRIP_ID);
       } else if (isTripUuid(term)) {
         query = query.eq('id', term.toLowerCase());
       } else {
-        const safe = escapePostgrestFilter(term);
-        query = query.or(
-          `trip_code.ilike.%${safe}%,trip_number.ilike.%${safe}%,pickup_address.ilike.%${safe}%,dropoff_address.ilike.%${safe}%`,
-        );
+        query = query.or(tripCodeRouteOrFilter(term));
       }
     }
 

@@ -226,10 +226,12 @@ export function useFinancialReconciliationSSOT(args?: {
   from?: string;
   to?: string;
   enabled?: boolean;
+  tripSearch?: string;
+  tripSearchType?: 'code' | 'id';
 }): FinancialReconciliationSSOTResult {
-  const { filter, from, to, enabled = true } = args ?? {};
+  const { filter, from, to, enabled = true, tripSearch, tripSearchType } = args ?? {};
 
-  const live = useFinanceReconciliation({ filter, from, to, enabled });
+  const live = useFinanceReconciliation({ filter, from, to, enabled, tripSearch, tripSearchType });
 
   const liveUnavailable = !live.isLoading && !live.data?.finance_reconciliation_summary;
 
