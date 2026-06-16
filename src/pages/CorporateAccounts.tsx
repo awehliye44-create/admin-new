@@ -617,6 +617,36 @@ export default function CorporateAccounts() {
                   <Input type="number" min="0" value={formData.monthly_budget} onChange={(e) => setFormData({ ...formData, monthly_budget: parseFloat(e.target.value) || 0 })} />
                 </div>
               </div>
+
+              {/* Payment Methods — per-corporate-account toggles */}
+              <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4">
+                <div>
+                  <Label className="text-base font-semibold">Allowed Payment Methods</Label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Corporate bookings must use a method enabled here. Cash and Invoice are OFF by default to prevent ONECAB paying drivers before the corporate customer has paid.
+                  </p>
+                </div>
+                {([
+                  { key: 'payment_card_enabled', label: 'Card (Stripe)', desc: 'Credit/debit cards via Stripe' },
+                  { key: 'payment_apple_pay_enabled', label: 'Apple Pay (Stripe)', desc: 'iOS — via Stripe' },
+                  { key: 'payment_google_pay_enabled', label: 'Google Pay (Stripe)', desc: 'Android — via Stripe' },
+                  { key: 'payment_wallet_enabled', label: 'Corporate Wallet / Prepaid', desc: 'Only effective when prepaid balance > 0' },
+                  { key: 'payment_cash_enabled', label: 'Cash', desc: '⚠ Risk: driver paid before corporate pays ONECAB' },
+                  { key: 'payment_invoice_enabled', label: 'Invoice / Monthly billing', desc: '⚠ Risk: driver paid before corporate pays ONECAB' },
+                ] as const).map((m) => (
+                  <div key={m.key} className="flex items-start justify-between gap-4 py-1">
+                    <div>
+                      <Label className="font-medium">{m.label}</Label>
+                      <p className="text-xs text-muted-foreground">{m.desc}</p>
+                    </div>
+                    <Switch
+                      checked={(formData as any)[m.key]}
+                      onCheckedChange={(checked) => setFormData({ ...formData, [m.key]: checked })}
+                    />
+                  </div>
+                ))}
+              </div>
+
               <div className="space-y-2">
                 <Label>Notes</Label>
                 <Textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} rows={3} />
