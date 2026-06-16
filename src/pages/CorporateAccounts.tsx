@@ -180,6 +180,12 @@ export default function CorporateAccounts() {
       monthly_budget: account.monthly_budget || 0,
       region_id: account.region_id || '',
       service_area_id: account.service_area_id || '',
+      payment_cash_enabled: account.payment_cash_enabled ?? false,
+      payment_card_enabled: account.payment_card_enabled ?? true,
+      payment_apple_pay_enabled: account.payment_apple_pay_enabled ?? true,
+      payment_google_pay_enabled: account.payment_google_pay_enabled ?? true,
+      payment_invoice_enabled: account.payment_invoice_enabled ?? false,
+      payment_wallet_enabled: account.payment_wallet_enabled ?? true,
     });
     setIsEditOpen(true);
   };
@@ -203,6 +209,12 @@ export default function CorporateAccounts() {
       monthly_budget: formData.monthly_budget,
       region_id: formData.region_id || null,
       service_area_id: formData.service_area_id || null,
+      payment_cash_enabled: formData.payment_cash_enabled,
+      payment_card_enabled: formData.payment_card_enabled,
+      payment_apple_pay_enabled: formData.payment_apple_pay_enabled,
+      payment_google_pay_enabled: formData.payment_google_pay_enabled,
+      payment_invoice_enabled: formData.payment_invoice_enabled,
+      payment_wallet_enabled: formData.payment_wallet_enabled,
     });
   };
 
