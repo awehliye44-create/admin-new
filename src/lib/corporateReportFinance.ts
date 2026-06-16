@@ -15,6 +15,7 @@ export type CorporateReportTripRow = ServiceAreaTripFinanceRow & {
   id: string;
   created_at: string;
   corporate_account_id?: string | null;
+  corporate_account?: { id: string; company_name: string } | null;
   commission_pence?: number | null;
   financial_outcome?: string | null;
 };
