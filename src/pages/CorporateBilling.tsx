@@ -103,6 +103,7 @@ export default function CorporateBilling() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [regionFilter, setRegionFilter] = useState<string>('all');
   const [serviceAreaFilter, setServiceAreaFilter] = useState<string>('all');
+  const [companyFilter, setCompanyFilter] = useState<string>('all');
   const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null);
 
   // Fetch corporate accounts
