@@ -13726,6 +13726,10 @@ export type Database = {
         Returns: string
       }
       get_active_stop_waiting: { Args: { p_driver_id: string }; Returns: Json }
+      get_corporate_allowed_payment_methods: {
+        Args: { p_account_id: string }
+        Returns: string[]
+      }
       get_customer_lifecycle_debt_pence: {
         Args: { p_customer_id: string }
         Returns: number
