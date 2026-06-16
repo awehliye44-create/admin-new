@@ -125,9 +125,12 @@ export default function MarketplaceSettlements() {
   }, [filtered]);
 
   const handleExportCSV = () => {
+    const disclaimer =
+      '# ONECAB marketplace merchant export — Merchant Gross Sales is marketplace order snapshot (not trip settlement SSOT). Figures are zero until marketplace order flow is live.';
     const header = [
       'Merchant', 'Type', 'Service Area', 'Currency',
-      'Gross Sales', 'ONECAB Commission', 'Stripe Fees',
+      'Merchant Gross Sales (marketplace snapshot)',
+      'ONECAB Commission', 'Stripe Fees',
       'Driver Earnings', 'Net Merchant Balance', 'Payout Status', 'Payout Date',
     ];
     const rowsCsv = filtered.map(r => [
@@ -140,8 +143,8 @@ export default function MarketplaceSettlements() {
       STATUS_META[r.payout_status].label,
       r.payout_date || '',
     ]);
-    const csv = [header, ...rowsCsv]
-      .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+    const csv = [disclaimer, header, ...rowsCsv]
+      .map((r) => (Array.isArray(r) ? r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',') : r))
       .join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
