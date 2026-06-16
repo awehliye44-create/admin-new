@@ -1081,6 +1081,7 @@ export default function TripHistory() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Trip</TableHead>
+                  <TableHead>Account</TableHead>
                   <TableHead>Passenger</TableHead>
                   <TableHead>Route</TableHead>
                   <TableHead>Driver</TableHead>
