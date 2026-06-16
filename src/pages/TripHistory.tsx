@@ -1103,6 +1103,24 @@ export default function TripHistory() {
                       </div>
                     </TableCell>
                     <TableCell>
+                      {trip.corporate_account_id ? (
+                        <div className="flex flex-col gap-1">
+                          <Badge variant="default" className="gap-1 w-fit bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/20">
+                            <Briefcase className="h-3 w-3" />
+                            Corporate
+                          </Badge>
+                          <span className="text-xs font-medium truncate max-w-[160px]" title={trip.corporate_account?.company_name || ''}>
+                            {trip.corporate_account?.company_name || '—'}
+                          </span>
+                        </div>
+                      ) : (
+                        <Badge variant="outline" className="gap-1 w-fit text-muted-foreground">
+                          <User className="h-3 w-3" />
+                          Personal
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
                       <div>
                         <div className="font-medium">{trip.passenger_name || 'Unknown'}</div>
                         <div className="text-xs text-muted-foreground flex items-center gap-1">
