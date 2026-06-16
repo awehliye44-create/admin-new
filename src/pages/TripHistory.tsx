@@ -851,9 +851,24 @@ export default function TripHistory() {
     if (selectedServiceAreaId !== 'all' && trip.service_area_id !== selectedServiceAreaId) {
       return false;
     }
-    
+
+    if (corporateFilter === 'corporate' && !trip.corporate_account_id) return false;
+    if (corporateFilter === 'personal' && trip.corporate_account_id) return false;
+    if (corporateFilter !== 'all' && corporateFilter !== 'corporate' && corporateFilter !== 'personal' && trip.corporate_account_id !== corporateFilter) return false;
+
     return matchesSearch;
   });
+
+  // Unique corporate accounts present in current trip set (for filter dropdown)
+  const corporateAccountsInTrips = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const t of trips) {
+      if (t.corporate_account_id && t.corporate_account?.company_name) {
+        map.set(t.corporate_account_id, t.corporate_account.company_name);
+      }
+    }
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [trips]);
 
   // Settlement fare (customer paid) — SSOT via getTripSettlementFarePence
   const getTripFarePounds = (trip: CompletedTrip): number => getTripSettlementFarePence(trip) / 100;
