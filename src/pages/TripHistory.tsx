@@ -1025,6 +1025,25 @@ export default function TripHistory() {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={corporateFilter} onValueChange={setCorporateFilter}>
+              <SelectTrigger className="w-full md:w-[170px]">
+                <Briefcase className="h-4 w-4 mr-2 text-muted-foreground" />
+                <SelectValue placeholder="Account Type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Trips</SelectItem>
+                <SelectItem value="corporate">Corporate Only</SelectItem>
+                <SelectItem value="personal">Personal Only</SelectItem>
+                {corporateAccountsInTrips.length > 0 && (
+                  <>
+                    <div className="px-2 py-1 text-xs text-muted-foreground">Companies</div>
+                    {corporateAccountsInTrips.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </>
+                )}
+              </SelectContent>
+            </Select>
             <Select value={dateFilter} onValueChange={setDateFilter}>
               <SelectTrigger className="w-full md:w-[130px]">
                 <SelectValue placeholder="Date Range" />
