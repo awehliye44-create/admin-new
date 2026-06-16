@@ -6,6 +6,7 @@ import {
   type EarlyCashoutRow,
   type LedgerRow,
   type PayoutItemRow,
+  sumLedgerWalletBalanceByDriver,
 } from "../_shared/financeBackendAuditV1.ts";
 import {
   COUNTABLE_FINANCIAL_OUTCOMES,
@@ -214,6 +215,11 @@ serve(async (req) => {
     let driversQuery = supabase.from("drivers").select("id, first_name, last_name").limit(5000);
     if (driverId) driversQuery = driversQuery.eq("id", driverId);
 
+    let walletLedgerQuery = supabase
+      .from("driver_wallet_ledger")
+      .select("driver_id, type, amount_pence");
+    if (driverId) walletLedgerQuery = walletLedgerQuery.eq("driver_id", driverId);
+
     const [
       tripResult,
       ledgerResult,
@@ -221,6 +227,7 @@ serve(async (req) => {
       cashoutResult,
       walletResult,
       driversResult,
+      walletLedgerResult,
     ] = await Promise.all([
       tripQuery,
       ledgerQuery,
@@ -228,6 +235,7 @@ serve(async (req) => {
       cashoutQuery,
       walletQuery,
       driversQuery,
+      walletLedgerQuery,
     ]);
 
     if (tripResult.error) throw tripResult.error;
@@ -236,6 +244,7 @@ serve(async (req) => {
     if (cashoutResult.error) throw cashoutResult.error;
     if (walletResult.error) throw walletResult.error;
     if (driversResult.error) throw driversResult.error;
+    if (walletLedgerResult.error) throw walletLedgerResult.error;
 
     const trips = (tripResult.data || []) as TripAuditSourceRow[];
     const ledgerRows = (ledgerResult.data || []) as LedgerRow[];
@@ -246,6 +255,10 @@ serve(async (req) => {
     for (const w of walletResult.data || []) {
       walletByDriver.set(w.driver_id, Number(w.available_pence || 0));
     }
+
+    const ledgerWalletSumByDriver = sumLedgerWalletBalanceByDriver(
+      walletLedgerResult.data || [],
+    );
 
     let stripeAvailablePence = 0;
     let stripePendingPence = 0;
@@ -280,6 +293,7 @@ serve(async (req) => {
       payoutItems,
       earlyCashouts,
       walletByDriver,
+      ledgerWalletSumByDriver,
       drivers: driversResult.data || [],
       stripeAvailablePence,
       stripePendingPence,

@@ -4,6 +4,10 @@ import Stripe from "https://esm.sh/stripe@14.21.0";
 import { validateTripAccounting } from "../_shared/tripAccounting.ts";
 import { capturePaymentIntentWithSettlement } from "../_shared/stripeSettlement.ts";
 import { assertServiceRole } from "../_shared/internalAuth.ts";
+import {
+  creditCapturedCardTripLedger,
+  recordCardCaptureFailure,
+} from "../_shared/onecabFinanceLedger.ts";
 
 
 const corsHeaders = {
@@ -103,18 +107,10 @@ serve(async (req) => {
       .from('driver_wallet_ledger')
       .select('amount_pence')
       .eq('driver_id', driver_id)
-      .not('type', 'in', '("PLATFORM_COMMISSION","CASH_TRIP_EARNING")');
+      .not('type', 'in', '("PLATFORM_COMMISSION","CASH_TRIP_EARNING","COMMISSION_RECOVERED")');
 
     const walletBalanceBefore = walletEntries?.reduce((sum, e) => sum + (e.amount_pence || 0), 0) || 0;
     let debtRecoveryPence = 0;
-
-    if (walletBalanceBefore < 0) {
-      debtRecoveryPence = Math.min(Math.abs(walletBalanceBefore), driver_total_earnings_pence);
-      console.log(`[capture] Wallet debt: ${walletBalanceBefore}p, recovering: ${debtRecoveryPence}p`);
-    }
-
-    const finalDriverPayoutPence = driver_total_earnings_pence - debtRecoveryPence;
-    console.log(`[capture] Final payout after debt recovery: ${finalDriverPayoutPence}p`);
 
     // === STRIPE: Capture PaymentIntent and enforce real settlement ===
     let stripeChargeId: string | null = null;
@@ -172,10 +168,12 @@ serve(async (req) => {
         console.error(`[capture] Stripe capture failed:`, captureErr);
         const errMsg = (captureErr as Error).message;
 
-        await supabase.from('trips').update({
-          payment_status: 'capture_failed',
-          updated_at: new Date().toISOString(),
-        }).eq('id', trip_id);
+        await recordCardCaptureFailure(supabase, {
+          tripId: trip_id,
+          driverId: driver_id,
+          message: errMsg,
+          stripePaymentIntentId: payment_intent_id,
+        });
 
         return new Response(JSON.stringify({
           success: false,
@@ -188,59 +186,35 @@ serve(async (req) => {
       console.log(`[capture] No STRIPE_SECRET_KEY, operating in ledger-only mode`);
     }
 
-    // === LEDGER: Record driver earning in driver_wallet_ledger ===
-    const { error: ledgerError } = await supabase
-      .from('driver_wallet_ledger')
-      .insert({
-        driver_id,
-        related_trip_id: trip_id,
-        type: 'TRIP_EARNING_NET',
-        amount_pence: driver_total_earnings_pence,
-        currency: currency_code,
-        description: `Trip earnings (net + tip)`,
-        stripe_transfer_id: payment_intent_id,
-      });
-
-    if (ledgerError) {
-      console.error(`[capture] Ledger entry failed:`, ledgerError);
-    } else {
-      console.log(`[capture] Ledger TRIP_EARNING_NET: +${driver_total_earnings_pence}p`);
+    // === LEDGER: only after successful capture ===
+    if (!captureSuccess) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Capture not completed — no wallet credit created',
+      }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // === LEDGER: Record platform commission ===
-    if (platform_commission_pence > 0) {
-      await supabase.from('driver_wallet_ledger').insert({
-        driver_id,
-        related_trip_id: trip_id,
-        type: 'PLATFORM_COMMISSION',
-        amount_pence: platform_commission_pence,
-        currency: currency_code,
-        description: `Platform commission from card trip`,
-        stripe_transfer_id: payment_intent_id,
-      });
-      console.log(`[capture] PLATFORM_COMMISSION: +${platform_commission_pence}p`);
+    const ledgerResult = await creditCapturedCardTripLedger(supabase, {
+      driverId: driver_id,
+      tripId: trip_id,
+      driverNetPence: driver_total_earnings_pence - tip_amount_pence,
+      tipPence: tip_amount_pence,
+      currency: currency_code,
+    });
+    debtRecoveryPence = ledgerResult.recovery_pence;
+    console.log(`[capture] Ledger credited via SSOT, debt recovery: ${debtRecoveryPence}p`);
+
+    const { error: recalcError } = await supabase.rpc('recalculate_driver_wallet', {
+      p_driver_id: driver_id,
+    });
+    if (recalcError) {
+      console.warn(`[capture] Wallet cache recalc failed for ${driver_id}: ${recalcError.message}`);
     }
 
-    // === LEDGER: Record debt recovery if applicable ===
-    if (debtRecoveryPence > 0) {
-      const { error: recoveryError } = await supabase
-        .from('driver_wallet_ledger')
-        .insert({
-          driver_id,
-          related_trip_id: trip_id,
-          type: 'DEBT_RECOVERY',
-          amount_pence: -debtRecoveryPence,
-          currency: currency_code,
-          description: `Debt recovery from cash trip commission`,
-          stripe_transfer_id: `recovery_${trip_id}`,
-        });
-
-      if (recoveryError) {
-        console.error(`[capture] Debt recovery ledger failed:`, recoveryError);
-      } else {
-        console.log(`[capture] Ledger DEBT_RECOVERY: -${debtRecoveryPence}p`);
-      }
-    }
+    await supabase.from('trip_finance').update({
+      financial_status: 'recognized',
+      updated_at: new Date().toISOString(),
+    }).eq('trip_id', trip_id);
 
     // === Calculate new wallet balance ===
     const walletBalanceAfter = walletBalanceBefore + driver_total_earnings_pence - debtRecoveryPence;

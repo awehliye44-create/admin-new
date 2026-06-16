@@ -22,6 +22,8 @@ import {
   type TripAuditSourceRow,
 } from "./financeSettlementSummary.ts";
 
+export { sumLedgerWalletBalanceByDriver } from "./walletBalanceSSOT.ts";
+
 export const PAYOUT_DEBIT_LEDGER_TYPES = [
   "PAYOUT",
   "EARLY_CASHOUT",
@@ -306,7 +308,8 @@ export function buildWalletIntegrityRows(args: {
       explanation =
         `Completed payout(s) totalling ${missingLedger}p have no matching negative driver_wallet_ledger entry — wallet may still show pre-payout balance (e.g. £42.08 after £41.16 paid).`;
     } else if (Math.abs(drift) > 1) {
-      explanation = `driver_wallets cache drifts from ledger sum by ${drift}p — run recalculate_driver_wallet.`;
+      explanation =
+        `driver_wallets cache drifts from ledger SSOT by ${drift}p — run recalculate_driver_wallet.`;
     }
     return {
       driver_id: d.id,
@@ -332,6 +335,8 @@ export function buildFinanceBackendAuditV1(args: {
   payoutItems: PayoutItemRow[];
   earlyCashouts: EarlyCashoutRow[];
   walletByDriver: Map<string, number>;
+  /** All-time ledger wallet SSOT per driver (excludes COMMISSION_RECOVERED). */
+  ledgerWalletSumByDriver: Map<string, number>;
   drivers: Array<{ id: string; first_name?: string | null; last_name?: string | null }>;
   stripeAvailablePence: number;
   stripePendingPence: number;
@@ -403,15 +408,7 @@ export function buildFinanceBackendAuditV1(args: {
     );
   }
 
-  const ledgerSumByDriver = new Map<string, number>();
-  for (const row of args.ledgerRows) {
-    ledgerSumByDriver.set(
-      row.driver_id,
-      (ledgerSumByDriver.get(row.driver_id) ?? 0) + (row.type === "PLATFORM_COMMISSION" || row.type === "CASH_TRIP_EARNING"
-        ? 0
-        : row.amount_pence || 0),
-    );
-  }
+  const ledgerSumByDriver = args.ledgerWalletSumByDriver;
 
   const walletIntegrity = buildWalletIntegrityRows({
     drivers: args.drivers,

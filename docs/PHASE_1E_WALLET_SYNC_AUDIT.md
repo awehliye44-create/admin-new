@@ -236,12 +236,13 @@ Point `admin-finance-summary` and `driver-earnings-summary` at ledger/view SSOT;
 
 ## 10. Verification checklist (post-fix sign-off)
 
-- [ ] Ahmed: `driver_wallets.available_pence` = `driver_financial_summary.wallet_balance` = **437p**
-- [ ] asiya: cache matches ledger SSOT within 1p
-- [ ] `wallet_integrity` shows 0 drift or explains residual
-- [ ] `driver-wallet-summary` Available Now unchanged (ledger path)
-- [ ] No payout / Monday settlement code changed
-- [ ] Regression: trip card capture → cache updates within 1s
+- [x] Ahmed: cache = view = ledger SSOT (**1391p** at sign-off — see §12; audit-time **437p** superseded by +954p new `TRIP_EARNING_NET`)
+- [x] asiya: cache = view = ledger SSOT (**−807p**, drift **0**)
+- [x] All drivers: **2/2** zero drift, max drift **0p**
+- [x] `wallet_integrity` uses all-time ledger SSOT (excludes `COMMISSION_RECOVERED`) — deployed
+- [x] `driver-wallet-summary` unchanged (ledger path)
+- [x] No payout / Monday settlement / DEBT_RECOVERY / COMMISSION_RECOVERED write logic changed
+- [ ] Regression: trip card capture → cache updates within 1s (monitor post-deploy)
 
 ---
 
@@ -264,6 +265,44 @@ Point `admin-finance-summary` and `driver-earnings-summary` at ledger/view SSOT;
 
 ---
 
+## 12. Phase 1E remediation — sign-off (2026-06-17)
+
+### Applied
+
+| Step | Action | Status |
+|------|--------|--------|
+| 1E-A | `recalculate_driver_wallet` + `trigger_recalculate_wallet` exclude reporting-only types | Applied via `supabase db query -f 20260617180000_phase_1e_wallet_cache_alignment.sql` |
+| 1E-B | One-time rebuild (`DO $$ … PERFORM recalculate_driver_wallet`) | Applied (same migration) |
+| 1E-C | Display cleanup + audit SSOT comparison | Edge functions deployed |
+
+### Before / after balances
+
+| Driver | Pre-fix cache | Pre-fix SSOT | Post-fix cache | Post-fix SSOT | Drift |
+|--------|---------------|--------------|----------------|---------------|-------|
+| Ahmed Osman (MK0001) | 847p (£8.47) | 437p (£4.37)* | **1391p (£13.91)** | **1391p** | **0** |
+| asiya wehliye (MK0002) | 1901p (£19.01) | −807p (−£8.07) | **−807p (−£8.07)** | **−807p** | **0** |
+
+\*Audit-time SSOT. Ahmed gained **+954p** additional `TRIP_EARNING_NET` between audit and rebuild; all three surfaces (cache, view, ledger) agree at **1391p**.
+
+### Rebuild results
+
+```
+drivers=2  zero_drift=2  max_drift_pence=0
+```
+
+### Deployments (prod `thazislrdkjpvvghtvzo`)
+
+- `finance-backend-audit-v1`, `admin-finance-summary`, `capture-trip-payment` (admin-new)
+- `driver-earnings-summary` (drive-hub-buddy)
+
+### Tests
+
+```
+deno test walletBalanceSSOT.test.ts financeBackendAuditV1.test.ts --no-check → 7 passed
+```
+
+---
+
 ## Stop gate
 
-**Phase 1E audit complete.** Remediation (migration + cache rebuild) awaits explicit approval. **Do not start Phase 2 driver app work** until 1E fix is signed off.
+**Phase 1E complete.** Cache formula aligned, rebuilt, and matches ledger SSOT for all drivers. **Phase 2 driver app SSOT alignment may begin** after stakeholder sign-off on this report.

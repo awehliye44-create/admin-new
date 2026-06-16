@@ -5,9 +5,9 @@
 //   4. ONECAB net commission (#2 - #3)
 //   5. Driver net earnings (ledger TRIP_EARNING_NET + DRIVER_TIP_CREDIT + ADJUSTMENT)
 //   6. Stripe platform balance (live, never used as commission)
-//   7. Driver payout liability (Σ driver_wallets.available_pence + pending_pence)
+//   7. Driver payout liability (Σ driver_financial_summary.wallet_balance)
 //   8. Driver available payout (Σ driver_financial_summary.net_available_for_payout)
-//   9. Driver pending payout (Σ driver_wallets.pending_pence)
+//   9. Driver pending payout (Σ driver_wallets.pending_pence — cache component only)
 // Plus commission_status, validation_warnings, and currency_code grouping.
 //
 // HARD RULE: ONECAB commission is NEVER `stripe_balance - driver_payable`.
@@ -109,10 +109,10 @@ serve(async (req) => {
     const { data: summaryRows, error: sumErr } = await summaryQuery;
     if (sumErr) throw new Error(`driver_financial_summary: ${sumErr.message}`);
 
-    // ── 5. Driver wallets — pending payout component ──
+    // ── 5. Pending payout component (no SSOT view field) ──
     const { data: walletRows, error: walletErr } = await supabase
       .from('driver_wallets')
-      .select('available_pence, pending_pence');
+      .select('pending_pence');
     if (walletErr) throw new Error(`driver_wallets: ${walletErr.message}`);
 
     // ── 6. Max tier % for validation ──
