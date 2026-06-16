@@ -11,6 +11,14 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import { useRegions } from '@/hooks/useRegions';
 import { getCurrencySymbol, formatCurrency } from '@/lib/regionSettings';
+import {
+  calculateMonthlySettlementTrends,
+  enrichCorporateReportTrip,
+  isCountableCorporateFinancialTrip,
+  sumCustomerPaidPence,
+  type EnrichedCorporateReportTrip,
+} from '@/lib/corporateReportFinance';
+import { sumPaymentCapturedPenceForTrip } from '@/lib/serviceAreaTripFinance';
 import { 
   BarChart3, 
   Download, 
@@ -104,14 +112,15 @@ export default function CorporateReports() {
     return { start: startDate.toISOString(), end: now.toISOString() };
   }, [dateRange]);
 
-  // Fetch corporate trip data — using correct DB columns
-  const { data: tripData = [], isLoading } = useQuery({
+  // Fetch corporate trip data — enrich with settlement SSOT (payments + ledger)
+  const { data: tripData = [], isLoading } = useQuery<EnrichedCorporateReportTrip[]>({
     queryKey: ['corporate-trip-reports', dateRange, regionFilter, serviceAreaFilter, selectedAccount],
     queryFn: async () => {
       let query = supabase
         .from('trips')
         .select(`
-          id, gross_fare_pence, commission_pence, created_at, completed_at, status,
+          id, gross_fare_pence, final_fare_pence, capture_amount_pence, driver_net_pence,
+          payment_method, payment_status, commission_pence, created_at, completed_at, status,
           financial_outcome, service_area_id, corporate_account_id,
           waiting_charge_pence, total_waiting_charge_pence, fare_breakdown,
           corporate_account:corporate_accounts!trips_corporate_account_id_fkey(id, company_name)
@@ -129,7 +138,55 @@ export default function CorporateReports() {
       
       const { data: trips, error } = await query;
       if (error) throw error;
-      return trips || [];
+
+      const tripRows = trips || [];
+      const tripIds = tripRows.map((trip) => trip.id);
+      const paymentsByTripId = new Map<string, number>();
+      const ledgerNetByTripId = new Map<string, number>();
+
+      if (tripIds.length > 0) {
+        const [paymentsRes, ledgerRes] = await Promise.all([
+          supabase
+            .from('payments')
+            .select('trip_id, captured_amount_pence, amount_pence, status')
+            .in('trip_id', tripIds),
+          supabase
+            .from('driver_wallet_ledger')
+            .select('related_trip_id, amount_pence')
+            .in('related_trip_id', tripIds)
+            .eq('type', 'TRIP_EARNING_NET'),
+        ]);
+
+        if (paymentsRes.error) throw paymentsRes.error;
+        if (ledgerRes.error) throw ledgerRes.error;
+
+        const paymentsGrouped = new Map<string, Array<{
+          captured_amount_pence: number | null;
+          amount_pence: number | null;
+          status: string | null;
+        }>>();
+
+        for (const payment of paymentsRes.data ?? []) {
+          if (!payment.trip_id) continue;
+          const list = paymentsGrouped.get(payment.trip_id) ?? [];
+          list.push(payment);
+          paymentsGrouped.set(payment.trip_id, list);
+        }
+
+        for (const [tripId, paymentRows] of paymentsGrouped) {
+          const captured = sumPaymentCapturedPenceForTrip(paymentRows);
+          if (captured > 0) paymentsByTripId.set(tripId, captured);
+        }
+
+        for (const entry of ledgerRes.data ?? []) {
+          if (!entry.related_trip_id) continue;
+          ledgerNetByTripId.set(entry.related_trip_id, entry.amount_pence);
+        }
+      }
+
+      return tripRows.map((trip) =>
+        enrichCorporateReportTrip(trip, paymentsByTripId, ledgerNetByTripId),
+      );
     },
   });
 
@@ -145,30 +202,7 @@ export default function CorporateReports() {
     return formatCurrency(penceToCurrency(pence), currencyCode);
   };
 
-  // Calculate report data from real corporate trips
-  const calculateMonthlyTrends = (trips: any[]) => {
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const monthData: Record<string, { trips: number; revenue: number }> = {};
-    
-    trips.forEach(trip => {
-      const date = new Date(trip.created_at);
-      const key = `${date.getFullYear()}-${String(date.getMonth()).padStart(2, '0')}`;
-      if (!monthData[key]) monthData[key] = { trips: 0, revenue: 0 };
-      monthData[key].trips++;
-      monthData[key].revenue += penceToCurrency(trip.gross_fare_pence || 0);
-    });
-
-    return Object.entries(monthData)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .slice(-6)
-      .map(([key, data]) => ({
-        month: monthNames[parseInt(key.split('-')[1])],
-        trips: data.trips,
-        revenue: Math.round(data.revenue * 100) / 100,
-      }));
-  };
-
-  const calculateTripDistribution = (trips: any[]) => {
+  const calculateTripDistribution = (trips: EnrichedCorporateReportTrip[]) => {
     if (!trips.length) return [];
     const distribution: Record<string, number> = {};
     
@@ -188,7 +222,7 @@ export default function CorporateReports() {
       }));
   };
 
-  const calculateUsageByTime = (trips: any[]) => {
+  const calculateUsageByTime = (trips: EnrichedCorporateReportTrip[]) => {
     const hourData: Record<number, number> = {};
     trips.forEach(trip => {
       const hour = new Date(trip.created_at).getHours();
@@ -202,16 +236,13 @@ export default function CorporateReports() {
     }));
   };
 
-  // Only count financially countable trips for revenue
-  const financialTrips = tripData.filter((t: any) => 
-    ['COMPLETED', 'NO_SHOW', 'LATE_PASSENGER_CANCELLATION'].includes(t.financial_outcome)
-  );
-  const totalRevenuePence = financialTrips.reduce((sum: number, t: any) => sum + (t.gross_fare_pence || 0), 0);
-  const totalCommissionPence = financialTrips.reduce((sum: number, t: any) => sum + (t.commission_pence || 0), 0);
+  const financialTrips = tripData.filter(isCountableCorporateFinancialTrip);
+  const totalRevenuePence = sumCustomerPaidPence(financialTrips);
+  const totalCommissionPence = financialTrips.reduce((sum, trip) => sum + (trip.commission_pence || 0), 0);
   const totalTrips = tripData.length;
   const avgTripCostPence = financialTrips.length > 0 ? totalRevenuePence / financialTrips.length : 0;
   const activeAccounts = accounts.filter((a: any) => a.status === 'active').length;
-  const monthlyTrends = calculateMonthlyTrends(financialTrips);
+  const monthlyTrends = calculateMonthlySettlementTrends(financialTrips);
   const tripDistribution = calculateTripDistribution(tripData);
   const usageByTime = calculateUsageByTime(tripData);
 
@@ -312,7 +343,7 @@ export default function CorporateReports() {
         {/* Mixed currency warning */}
         {!currencyCode && regions.length > 1 && (
           <div className="rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-3 text-sm text-amber-800 dark:text-amber-200">
-            Select a Region to see revenue in the correct currency. Showing raw totals without currency conversion.
+            Select a Region to see settlement revenue in the correct currency. Showing raw totals without currency conversion.
           </div>
         )}
 
@@ -343,12 +374,12 @@ export default function CorporateReports() {
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Gross Revenue {currencyLabel}</CardTitle>
+              <CardTitle className="text-sm font-medium">Settlement Revenue {currencyLabel}</CardTitle>
               <BarChart3 className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{fmtAmount(totalRevenuePence)}</div>
-              <p className="text-xs text-muted-foreground">From financially countable trips</p>
+              <p className="text-xs text-muted-foreground">Customer paid — financially countable trips</p>
             </CardContent>
           </Card>
           <Card>
@@ -363,7 +394,7 @@ export default function CorporateReports() {
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Avg Trip Cost</CardTitle>
+              <CardTitle className="text-sm font-medium">Avg Customer Paid</CardTitle>
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -398,8 +429,8 @@ export default function CorporateReports() {
               {/* Monthly Revenue Chart */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Monthly Revenue {currencyLabel}</CardTitle>
-                  <CardDescription>Revenue trend over the past months</CardDescription>
+                  <CardTitle>Monthly Settlement Revenue {currencyLabel}</CardTitle>
+                  <CardDescription>Customer paid trend over the past months</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="h-[300px]">
@@ -410,7 +441,7 @@ export default function CorporateReports() {
                           <XAxis dataKey="month" className="text-xs" />
                           <YAxis className="text-xs" />
                           <Tooltip 
-                            formatter={(value: number) => [`${currencySymbol}${value.toLocaleString()}`, 'Revenue']}
+                            formatter={(value: number) => [`${currencySymbol}${value.toLocaleString()}`, 'Settlement Revenue']}
                             contentStyle={{ 
                               backgroundColor: 'hsl(var(--background))', 
                               border: '1px solid hsl(var(--border))' 
@@ -482,8 +513,8 @@ export default function CorporateReports() {
           <TabsContent value="trends" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Trip & Revenue Trends {currencyLabel}</CardTitle>
-                <CardDescription>Monthly comparison of trips and revenue</CardDescription>
+                <CardTitle>Trip & Settlement Revenue Trends {currencyLabel}</CardTitle>
+                <CardDescription>Monthly comparison of trips and customer paid settlement</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="h-[400px]">
@@ -496,8 +527,8 @@ export default function CorporateReports() {
                         <YAxis yAxisId="right" orientation="right" className="text-xs" />
                         <Tooltip 
                           formatter={(value: number, name: string) => [
-                            name === 'Revenue' ? `${currencySymbol}${value.toLocaleString()}` : value,
-                            name
+                            name === 'Settlement Revenue' ? `${currencySymbol}${value.toLocaleString()}` : value,
+                            name,
                           ]}
                           contentStyle={{ 
                             backgroundColor: 'hsl(var(--background))', 
@@ -518,7 +549,7 @@ export default function CorporateReports() {
                           dataKey="revenue" 
                           stroke="hsl(var(--chart-2))" 
                           strokeWidth={2}
-                          name="Revenue"
+                          name="Settlement Revenue"
                         />
                       </RechartsLineChart>
                     </ResponsiveContainer>
@@ -536,7 +567,7 @@ export default function CorporateReports() {
             <Card>
               <CardHeader>
                 <CardTitle>Corporate Account Performance</CardTitle>
-                <CardDescription>Trip volume and revenue by account for selected period {currencyLabel}</CardDescription>
+                <CardDescription>Trip volume and settlement revenue by account for selected period {currencyLabel}</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                 <Table>
@@ -545,9 +576,9 @@ export default function CorporateReports() {
                       <TableHead>Company</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Trips</TableHead>
-                      <TableHead className="text-right">Revenue</TableHead>
+                      <TableHead className="text-right">Settlement Revenue</TableHead>
                       <TableHead className="text-right">Commission</TableHead>
-                      <TableHead className="text-right">Avg Fare</TableHead>
+                      <TableHead className="text-right">Avg Customer Paid</TableHead>
                       <TableHead className="text-right">Discount</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -560,12 +591,13 @@ export default function CorporateReports() {
                       </TableRow>
                     ) : (
                       accounts.map((account: any) => {
-                        const accountTrips = financialTrips.filter((t: any) => t.corporate_account_id === account.id);
-                        const accountRevenuePence = accountTrips.reduce((sum: number, t: any) => 
-                          sum + (t.gross_fare_pence || 0), 0);
-                        const accountCommissionPence = accountTrips.reduce((sum: number, t: any) => 
-                          sum + (t.commission_pence || 0), 0);
-                        const avgFarePence = accountTrips.length > 0 ? accountRevenuePence / accountTrips.length : 0;
+                        const accountTrips = financialTrips.filter((trip) => trip.corporate_account_id === account.id);
+                        const accountRevenuePence = sumCustomerPaidPence(accountTrips);
+                        const accountCommissionPence = accountTrips.reduce((sum, trip) =>
+                          sum + (trip.commission_pence || 0), 0);
+                        const avgCustomerPaidPence = accountTrips.length > 0
+                          ? accountRevenuePence / accountTrips.length
+                          : 0;
                         
                         return (
                           <TableRow key={account.id}>
@@ -582,7 +614,7 @@ export default function CorporateReports() {
                             <TableCell className="text-right">
                               {fmtAmount(accountCommissionPence)}
                             </TableCell>
-                            <TableCell className="text-right">{fmtAmount(Math.round(avgFarePence))}</TableCell>
+                            <TableCell className="text-right">{fmtAmount(Math.round(avgCustomerPaidPence))}</TableCell>
                             <TableCell className="text-right">{account.discount_percentage || 0}%</TableCell>
                           </TableRow>
                         );
