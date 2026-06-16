@@ -157,6 +157,8 @@ interface CompletedTrip {
   driver_location_lng: number | null;
   stripe_payment_intent_id: string | null;
   stacked_trip_id: string | null;
+  corporate_account_id: string | null;
+  corporate_account?: { id: string; company_name: string } | null;
   // Fare Engine source-of-truth fields
   pricing_mode: string | null;
   fare_locked: boolean | null;
