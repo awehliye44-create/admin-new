@@ -246,7 +246,18 @@ export default function CorporateBilling() {
     const matchesSearch = invoice.invoice_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          invoice.corporate_account?.company_name?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || invoice.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesCompany = companyFilter === 'all' || invoice.corporate_account_id === companyFilter;
+    return matchesSearch && matchesStatus && matchesCompany;
+  });
+
+  const filteredCorporateTrips = corporateTrips.filter(trip => {
+    if (companyFilter !== 'all' && trip.corporate_account_id !== companyFilter) return false;
+    if (searchTerm) {
+      const q = searchTerm.toLowerCase();
+      const hay = `${trip.trip_number || ''} ${trip.trip_code || ''} ${trip.corporate_account?.company_name || ''} ${trip.pickup_address || ''} ${trip.dropoff_address || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
   });
 
   // Trip stats
