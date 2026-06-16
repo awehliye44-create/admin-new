@@ -33,6 +33,15 @@ import {
 } from 'lucide-react';
 
 import { getCurrencySymbol } from '@/lib/regionSettings';
+import { enrichCorporateReportTrip } from '@/lib/corporateReportFinance';
+import { sumPaymentCapturedPenceForTrip } from '@/lib/serviceAreaTripFinance';
+import {
+  formatDriverNetPence,
+  formatSettlementPence,
+  getQuotedContractFareMajor,
+  sumCompletedCustomerPaidPence,
+  type CorporateBillingTripRow,
+} from '@/lib/corporateBillingFinance';
 
 interface Invoice {
   id: string;
@@ -56,23 +65,18 @@ interface Invoice {
   service_area?: { id: string; name: string } | null;
 }
 
-interface CorporateTrip {
-  id: string;
+interface CorporateTrip extends CorporateBillingTripRow {
   trip_number: string | null;
   trip_code: string | null;
-  status: string;
   fare: number | null;
   estimated_fare: number | null;
-  gross_fare_pence: number | null;
   waiting_charge_pence: number | null;
   total_waiting_charge_pence: number | null;
   fare_breakdown: Record<string, number> | null;
   currency_code: string | null;
   pickup_address: string | null;
   dropoff_address: string | null;
-  created_at: string;
   completed_at: string | null;
-  corporate_account_id: string | null;
   corporate_account?: { id: string; company_name: string } | null;
 }
 
@@ -121,13 +125,14 @@ export default function CorporateBilling() {
   });
 
   // Fetch corporate trips
-  const { data: corporateTrips = [], isLoading: loadingTrips } = useQuery({
+  const { data: corporateTrips = [], isLoading: loadingTrips } = useQuery<CorporateTrip[]>({
     queryKey: ['corporate-trips'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data: trips, error } = await supabase
         .from('trips')
         .select(`
           id, trip_number, trip_code, status, fare, estimated_fare, gross_fare_pence,
+          final_fare_pence, capture_amount_pence, driver_net_pence, payment_method, payment_status,
           waiting_charge_pence, total_waiting_charge_pence, fare_breakdown,
           currency_code, pickup_address, dropoff_address, created_at, completed_at, corporate_account_id,
           corporate_account:corporate_accounts(id, company_name)
@@ -136,7 +141,55 @@ export default function CorporateBilling() {
         .order('created_at', { ascending: false })
         .limit(100);
       if (error) throw error;
-      return data as CorporateTrip[];
+
+      const tripRows = trips || [];
+      const tripIds = tripRows.map((trip) => trip.id);
+      const paymentsByTripId = new Map<string, number>();
+      const ledgerNetByTripId = new Map<string, number>();
+
+      if (tripIds.length > 0) {
+        const [paymentsRes, ledgerRes] = await Promise.all([
+          supabase
+            .from('payments')
+            .select('trip_id, captured_amount_pence, amount_pence, status')
+            .in('trip_id', tripIds),
+          supabase
+            .from('driver_wallet_ledger')
+            .select('related_trip_id, amount_pence')
+            .in('related_trip_id', tripIds)
+            .eq('type', 'TRIP_EARNING_NET'),
+        ]);
+
+        if (paymentsRes.error) throw paymentsRes.error;
+        if (ledgerRes.error) throw ledgerRes.error;
+
+        const paymentsGrouped = new Map<string, Array<{
+          captured_amount_pence: number | null;
+          amount_pence: number | null;
+          status: string | null;
+        }>>();
+
+        for (const payment of paymentsRes.data ?? []) {
+          if (!payment.trip_id) continue;
+          const list = paymentsGrouped.get(payment.trip_id) ?? [];
+          list.push(payment);
+          paymentsGrouped.set(payment.trip_id, list);
+        }
+
+        for (const [tripId, paymentRows] of paymentsGrouped) {
+          const captured = sumPaymentCapturedPenceForTrip(paymentRows);
+          if (captured > 0) paymentsByTripId.set(tripId, captured);
+        }
+
+        for (const entry of ledgerRes.data ?? []) {
+          if (!entry.related_trip_id) continue;
+          ledgerNetByTripId.set(entry.related_trip_id, entry.amount_pence);
+        }
+      }
+
+      return tripRows.map((trip) =>
+        enrichCorporateReportTrip(trip, paymentsByTripId, ledgerNetByTripId),
+      ) as CorporateTrip[];
     },
   });
 
@@ -263,12 +316,7 @@ export default function CorporateBilling() {
   // Trip stats
   const totalCorpTrips = corporateTrips.length;
   const completedCorpTrips = corporateTrips.filter(t => t.status === 'completed').length;
-  const totalCorpRevenue = corporateTrips
-    .filter(t => t.status === 'completed')
-    .reduce((sum, t) => {
-      if (t.gross_fare_pence != null && t.gross_fare_pence > 0) return sum + t.gross_fare_pence / 100;
-      return sum + (t.fare || t.estimated_fare || 0);
-    }, 0);
+  const totalCorpRevenue = sumCompletedCustomerPaidPence(corporateTrips) / 100;
 
   // Invoice Stats
   const totalRevenue = invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + i.total_amount, 0);
@@ -330,12 +378,12 @@ export default function CorporateBilling() {
             </Card>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Revenue</CardTitle>
+                <CardTitle className="text-sm font-medium">Settlement Revenue</CardTitle>
                 <TrendingUp className="h-4 w-4 text-green-500" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-green-500">{getCurrencySymbol('')}{totalCorpRevenue.toFixed(2)}</div>
-                <p className="text-xs text-muted-foreground">From corporate trips</p>
+                <p className="text-xs text-muted-foreground">Customer paid — completed corporate trips</p>
               </CardContent>
             </Card>
             <Card>
@@ -562,7 +610,8 @@ export default function CorporateBilling() {
                       <TableHead>Company</TableHead>
                       <TableHead>Pickup</TableHead>
                       <TableHead>Dropoff</TableHead>
-                      <TableHead>Fare</TableHead>
+                      <TableHead>Customer Paid</TableHead>
+                      <TableHead>Driver Net</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Date</TableHead>
                     </TableRow>
@@ -570,12 +619,21 @@ export default function CorporateBilling() {
                   <TableBody>
                     {filteredCorporateTrips.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                           No corporate trips found. Trips linked to corporate accounts will appear here.
                         </TableCell>
                       </TableRow>
                     ) : (
-                      filteredCorporateTrips.map((trip) => (
+                      filteredCorporateTrips.map((trip) => {
+                        const currencyFmt = (amount: number) =>
+                          `${getCurrencySymbol(trip.currency_code || '')}${amount.toFixed(2)}`;
+                        const quotedFare = getQuotedContractFareMajor(trip);
+                        const showQuoted =
+                          trip.status !== 'completed'
+                          && quotedFare != null
+                          && quotedFare > 0;
+
+                        return (
                         <TableRow key={trip.id}>
                           <TableCell className="font-medium">
                             {trip.trip_number || trip.trip_code || trip.id.slice(0, 8)}
@@ -597,24 +655,27 @@ export default function CorporateBilling() {
                             </span>
                           </TableCell>
                           <TableCell className="font-medium">
-                            {getCurrencySymbol(trip.currency_code || '')}
-                            {(trip.gross_fare_pence != null && trip.gross_fare_pence > 0
-                              ? (trip.gross_fare_pence / 100)
-                              : (trip.fare || trip.estimated_fare || 0)
-                            ).toFixed(2)}
-                            {(trip.total_waiting_charge_pence || trip.waiting_charge_pence || 0) > 0 && (
-                              <span className="block text-[10px] text-amber-600">
-                                incl. waiting {getCurrencySymbol(trip.currency_code || '')}
-                                {((trip.total_waiting_charge_pence || trip.waiting_charge_pence || 0) / 100).toFixed(2)}
+                            {trip.status === 'completed' && trip.customerPaidPence > 0
+                              ? formatSettlementPence(trip.customerPaidPence, currencyFmt)
+                              : '—'}
+                            {showQuoted && (
+                              <span className="block text-[10px] text-muted-foreground">
+                                Quoted / Contract Fare {currencyFmt(quotedFare!)}
                               </span>
                             )}
+                          </TableCell>
+                          <TableCell className="text-green-600">
+                            {trip.status === 'completed'
+                              ? formatDriverNetPence(trip.driverNetPence, currencyFmt)
+                              : '—'}
                           </TableCell>
                           <TableCell>{getTripStatusBadge(trip.status)}</TableCell>
                           <TableCell>
                             {new Date(trip.created_at).toLocaleDateString()}
                           </TableCell>
                         </TableRow>
-                      ))
+                        );
+                      })
                     )}
                   </TableBody>
                 </Table>
