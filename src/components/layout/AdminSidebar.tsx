@@ -279,14 +279,6 @@ export function AdminSidebar() {
             <P pageSlug="document-management" to="/document-management" icon={<Settings2 className="h-4 w-4" />} label="Document Management" active={currentPath === '/document-management'} collapsed={isCollapsed} />
           </Section>
 
-          {/* MARKETPLACE */}
-          <Section label="Marketplace" slugs={['merchants','merchant-approvals','marketplace-settings','marketplace-settlements','ai-image-credits']}>
-            <P pageSlug="merchants" to="/merchants" icon={<Store className="h-4 w-4" />} label="Merchant Management" active={currentPath === '/merchants' || (currentPath.startsWith('/merchants/') && currentPath !== '/merchants')} collapsed={isCollapsed} />
-            <P pageSlug="merchant-approvals" to="/merchant-approvals" icon={<ShieldCheck className="h-4 w-4" />} label="Merchant Approvals" active={currentPath === '/merchant-approvals'} collapsed={isCollapsed} />
-            <P pageSlug="marketplace-settings" to="/marketplace-settings" icon={<Settings2 className="h-4 w-4" />} label="Marketplace Settings" active={currentPath === '/marketplace-settings'} collapsed={isCollapsed} />
-            <P pageSlug="marketplace-settlements" to="/marketplace-settlements" icon={<Wallet className="h-4 w-4" />} label="Marketplace Settlements" active={currentPath === '/marketplace-settlements'} collapsed={isCollapsed} />
-            <P pageSlug="ai-image-credits" to="/ai-image-credits" icon={<Coins className="h-4 w-4" />} label="AI Image Credits" active={currentPath === '/ai-image-credits'} collapsed={isCollapsed} />
-          </Section>
 
           {/* SERVICE AREAS */}
           <Section label="Service Areas" slugs={['regions','services']}>
