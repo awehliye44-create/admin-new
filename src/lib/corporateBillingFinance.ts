@@ -5,7 +5,7 @@ export type CorporateBillingTripStatus = string;
 export type CorporateBillingTripRow = EnrichedCorporateReportTrip & {
   trip_number?: string | null;
   trip_code?: string | null;
-  status: CorporateBillingTripStatus;
+  status?: CorporateBillingTripStatus;
   fare?: number | null;
   estimated_fare?: number | null;
   currency_code?: string | null;
