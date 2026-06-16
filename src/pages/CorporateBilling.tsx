@@ -103,6 +103,7 @@ export default function CorporateBilling() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [regionFilter, setRegionFilter] = useState<string>('all');
   const [serviceAreaFilter, setServiceAreaFilter] = useState<string>('all');
+  const [companyFilter, setCompanyFilter] = useState<string>('all');
   const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null);
 
   // Fetch corporate accounts
@@ -245,7 +246,18 @@ export default function CorporateBilling() {
     const matchesSearch = invoice.invoice_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          invoice.corporate_account?.company_name?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || invoice.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesCompany = companyFilter === 'all' || invoice.corporate_account_id === companyFilter;
+    return matchesSearch && matchesStatus && matchesCompany;
+  });
+
+  const filteredCorporateTrips = corporateTrips.filter(trip => {
+    if (companyFilter !== 'all' && trip.corporate_account_id !== companyFilter) return false;
+    if (searchTerm) {
+      const q = searchTerm.toLowerCase();
+      const hay = `${trip.trip_number || ''} ${trip.trip_code || ''} ${trip.corporate_account?.company_name || ''} ${trip.pickup_address || ''} ${trip.dropoff_address || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
   });
 
   // Trip stats
@@ -429,6 +441,18 @@ export default function CorporateBilling() {
                   ))}
                 </SelectContent>
               </Select>
+              <Select value={companyFilter} onValueChange={setCompanyFilter}>
+                <SelectTrigger className="w-[200px]">
+                  <Building2 className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Organization" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Organizations</SelectItem>
+                  {corporateAccounts.map((acc) => (
+                    <SelectItem key={acc.id} value={acc.id}>{acc.company_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-[130px]">
                   <SelectValue placeholder="Status" />
@@ -544,14 +568,14 @@ export default function CorporateBilling() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {corporateTrips.length === 0 ? (
+                    {filteredCorporateTrips.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                           No corporate trips found. Trips linked to corporate accounts will appear here.
                         </TableCell>
                       </TableRow>
                     ) : (
-                      corporateTrips.map((trip) => (
+                      filteredCorporateTrips.map((trip) => (
                         <TableRow key={trip.id}>
                           <TableCell className="font-medium">
                             {trip.trip_number || trip.trip_code || trip.id.slice(0, 8)}
