@@ -1117,7 +1117,13 @@ export type Database = {
           id: string
           monthly_budget: number | null
           notes: string | null
+          payment_apple_pay_enabled: boolean
+          payment_card_enabled: boolean
+          payment_cash_enabled: boolean
+          payment_google_pay_enabled: boolean
+          payment_invoice_enabled: boolean
           payment_terms: string | null
+          payment_wallet_enabled: boolean
           region_id: string | null
           service_area_id: string | null
           status: string
@@ -1141,7 +1147,13 @@ export type Database = {
           id?: string
           monthly_budget?: number | null
           notes?: string | null
+          payment_apple_pay_enabled?: boolean
+          payment_card_enabled?: boolean
+          payment_cash_enabled?: boolean
+          payment_google_pay_enabled?: boolean
+          payment_invoice_enabled?: boolean
           payment_terms?: string | null
+          payment_wallet_enabled?: boolean
           region_id?: string | null
           service_area_id?: string | null
           status?: string
@@ -1165,7 +1177,13 @@ export type Database = {
           id?: string
           monthly_budget?: number | null
           notes?: string | null
+          payment_apple_pay_enabled?: boolean
+          payment_card_enabled?: boolean
+          payment_cash_enabled?: boolean
+          payment_google_pay_enabled?: boolean
+          payment_invoice_enabled?: boolean
           payment_terms?: string | null
+          payment_wallet_enabled?: boolean
           region_id?: string | null
           service_area_id?: string | null
           status?: string
@@ -13708,6 +13726,10 @@ export type Database = {
         Returns: string
       }
       get_active_stop_waiting: { Args: { p_driver_id: string }; Returns: Json }
+      get_corporate_allowed_payment_methods: {
+        Args: { p_account_id: string }
+        Returns: string[]
+      }
       get_customer_lifecycle_debt_pence: {
         Args: { p_customer_id: string }
         Returns: number
