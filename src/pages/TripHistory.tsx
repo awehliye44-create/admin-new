@@ -36,7 +36,7 @@ import { useServiceAreas as useSharedServiceAreas } from '@/hooks/useServiceArea
 import { 
   History, Loader2, Search, RefreshCw, MapPin, Phone,
   Eye, CheckCircle, Route, DollarSign,
-  Navigation, User, Car, Globe, Settings2, AlertTriangle
+  Navigation, User, Car, Globe, Settings2, AlertTriangle, Briefcase
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -157,6 +157,8 @@ interface CompletedTrip {
   driver_location_lng: number | null;
   stripe_payment_intent_id: string | null;
   stacked_trip_id: string | null;
+  corporate_account_id: string | null;
+  corporate_account?: { id: string; company_name: string } | null;
   // Fare Engine source-of-truth fields
   pricing_mode: string | null;
   fare_locked: boolean | null;
@@ -225,6 +227,7 @@ export default function TripHistory() {
   // Region and Service Area filters
   const [selectedRegionId, setSelectedRegionId] = useState<string>('all');
   const [selectedServiceAreaId, setSelectedServiceAreaId] = useState<string>('all');
+  const [corporateFilter, setCorporateFilter] = useState<string>('all');
 
   // Dialog states
   const [isViewOpen, setIsViewOpen] = useState(false);
@@ -290,7 +293,7 @@ export default function TripHistory() {
 
   // React Query for trip data
   const { data: trips = [], isLoading } = useQuery({
-    queryKey: ['trip-history', dateFilter, selectedRegionId, selectedServiceAreaId],
+    queryKey: ['trip-history', dateFilter, selectedRegionId, selectedServiceAreaId, corporateFilter],
     queryFn: async () => {
       const { start, end } = getDateRange();
       
@@ -305,6 +308,7 @@ export default function TripHistory() {
           payment_status, payment_method, currency_code, estimated_distance_km, estimated_duration_minutes,
           total_stops, created_at, started_at, completed_at, surge_multiplier, driver_id,
           driver_location_lat, driver_location_lng, stripe_payment_intent_id, stacked_trip_id,
+          corporate_account_id,
           pricing_mode, fare_locked, vehicle_type_id, vehicle_type, service_area_id, fare_engine_config_id,
           waiting_charge_pence, pickup_waiting_charge_pence, total_waiting_charge_pence, waiting_minutes, fare_breakdown,
           tip_pence, tip_amount_pence,
@@ -313,6 +317,7 @@ export default function TripHistory() {
           invoice_email_sent_at, invoice_email_status, invoice_email_error,
           invoice_pdf_error, invoice_total_paid_pence, invoice_regenerated_at,
           driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, driver_code, region_id),
+          corporate_account:corporate_accounts!trips_corporate_account_id_fkey(id, company_name),
           service_area_join:service_areas!trips_service_area_id_fkey(region_id, region:regions(currency_code, distance_unit))
         `)
         // Match useLedgerRevenue: financially terminal by outcome OR legacy status snapshot.
@@ -846,9 +851,24 @@ export default function TripHistory() {
     if (selectedServiceAreaId !== 'all' && trip.service_area_id !== selectedServiceAreaId) {
       return false;
     }
-    
+
+    if (corporateFilter === 'corporate' && !trip.corporate_account_id) return false;
+    if (corporateFilter === 'personal' && trip.corporate_account_id) return false;
+    if (corporateFilter !== 'all' && corporateFilter !== 'corporate' && corporateFilter !== 'personal' && trip.corporate_account_id !== corporateFilter) return false;
+
     return matchesSearch;
   });
+
+  // Unique corporate accounts present in current trip set (for filter dropdown)
+  const corporateAccountsInTrips = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const t of trips) {
+      if (t.corporate_account_id && t.corporate_account?.company_name) {
+        map.set(t.corporate_account_id, t.corporate_account.company_name);
+      }
+    }
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [trips]);
 
   // Settlement fare (customer paid) — SSOT via getTripSettlementFarePence
   const getTripFarePounds = (trip: CompletedTrip): number => getTripSettlementFarePence(trip) / 100;
@@ -1005,6 +1025,25 @@ export default function TripHistory() {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={corporateFilter} onValueChange={setCorporateFilter}>
+              <SelectTrigger className="w-full md:w-[170px]">
+                <Briefcase className="h-4 w-4 mr-2 text-muted-foreground" />
+                <SelectValue placeholder="Account Type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Trips</SelectItem>
+                <SelectItem value="corporate">Corporate Only</SelectItem>
+                <SelectItem value="personal">Personal Only</SelectItem>
+                {corporateAccountsInTrips.length > 0 && (
+                  <>
+                    <div className="px-2 py-1 text-xs text-muted-foreground">Companies</div>
+                    {corporateAccountsInTrips.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </>
+                )}
+              </SelectContent>
+            </Select>
             <Select value={dateFilter} onValueChange={setDateFilter}>
               <SelectTrigger className="w-full md:w-[130px]">
                 <SelectValue placeholder="Date Range" />
@@ -1042,6 +1081,7 @@ export default function TripHistory() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Trip</TableHead>
+                  <TableHead>Account</TableHead>
                   <TableHead>Passenger</TableHead>
                   <TableHead>Route</TableHead>
                   <TableHead>Driver</TableHead>
@@ -1061,6 +1101,24 @@ export default function TripHistory() {
                       <div className="font-mono text-sm font-medium text-primary">
                         {getTripDisplayId(trip)}
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      {trip.corporate_account_id ? (
+                        <div className="flex flex-col gap-1">
+                          <Badge variant="default" className="gap-1 w-fit bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/20">
+                            <Briefcase className="h-3 w-3" />
+                            Corporate
+                          </Badge>
+                          <span className="text-xs font-medium truncate max-w-[160px]" title={trip.corporate_account?.company_name || ''}>
+                            {trip.corporate_account?.company_name || '—'}
+                          </span>
+                        </div>
+                      ) : (
+                        <Badge variant="outline" className="gap-1 w-fit text-muted-foreground">
+                          <User className="h-3 w-3" />
+                          Personal
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                       <div>
