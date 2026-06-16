@@ -308,6 +308,7 @@ export default function TripHistory() {
           payment_status, payment_method, currency_code, estimated_distance_km, estimated_duration_minutes,
           total_stops, created_at, started_at, completed_at, surge_multiplier, driver_id,
           driver_location_lat, driver_location_lng, stripe_payment_intent_id, stacked_trip_id,
+          corporate_account_id,
           pricing_mode, fare_locked, vehicle_type_id, vehicle_type, service_area_id, fare_engine_config_id,
           waiting_charge_pence, pickup_waiting_charge_pence, total_waiting_charge_pence, waiting_minutes, fare_breakdown,
           tip_pence, tip_amount_pence,
@@ -316,6 +317,7 @@ export default function TripHistory() {
           invoice_email_sent_at, invoice_email_status, invoice_email_error,
           invoice_pdf_error, invoice_total_paid_pence, invoice_regenerated_at,
           driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, driver_code, region_id),
+          corporate_account:corporate_accounts!trips_corporate_account_id_fkey(id, company_name),
           service_area_join:service_areas!trips_service_area_id_fkey(region_id, region:regions(currency_code, distance_unit))
         `)
         // Match useLedgerRevenue: financially terminal by outcome OR legacy status snapshot.
