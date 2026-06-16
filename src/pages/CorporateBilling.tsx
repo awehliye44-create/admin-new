@@ -568,14 +568,14 @@ export default function CorporateBilling() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {corporateTrips.length === 0 ? (
+                    {filteredCorporateTrips.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                           No corporate trips found. Trips linked to corporate accounts will appear here.
                         </TableCell>
                       </TableRow>
                     ) : (
-                      corporateTrips.map((trip) => (
+                      filteredCorporateTrips.map((trip) => (
                         <TableRow key={trip.id}>
                           <TableCell className="font-medium">
                             {trip.trip_number || trip.trip_code || trip.id.slice(0, 8)}
