@@ -441,6 +441,18 @@ export default function CorporateBilling() {
                   ))}
                 </SelectContent>
               </Select>
+              <Select value={companyFilter} onValueChange={setCompanyFilter}>
+                <SelectTrigger className="w-[200px]">
+                  <Building2 className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Organization" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Organizations</SelectItem>
+                  {corporateAccounts.map((acc) => (
+                    <SelectItem key={acc.id} value={acc.id}>{acc.company_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-[130px]">
                   <SelectValue placeholder="Status" />
