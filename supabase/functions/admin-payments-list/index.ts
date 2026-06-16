@@ -81,7 +81,8 @@ serve(async (req) => {
         gross_fare_pence,
         final_fare_pence,
         capture_amount_pence,
-        estimated_fare_pence,
+        estimated_total_pence,
+        estimated_fare,
         commission_pence,
         driver_net_pence,
         payment_method,
@@ -217,7 +218,7 @@ serve(async (req) => {
         route: `${(t.pickup_address as string)?.split(',')[0] || 'Unknown'} → ${(t.dropoff_address as string)?.split(',')[0] || 'Unknown'}`,
         amount: customerPaid,
         customerPaid,
-        estimatedFare: t.estimated_fare_pence
+        estimatedFare: (t.estimated_total_pence as number | null)
           ?? (t.estimated_fare != null ? Math.round((t.estimated_fare as number) * 100) : 0),
         refundAmount: t.refund_amount_pence || 0,
         status: t.payment_status || 'unknown',

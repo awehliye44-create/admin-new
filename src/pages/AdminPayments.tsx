@@ -3,6 +3,7 @@ import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -152,7 +153,7 @@ export default function AdminPayments() {
   const activeCurrency = serviceFilter.currencyCode || financeSSOT.currencyCode || 'gbp';
 
   // Fetch transactions — same service area + completed_at window as SSOT totals
-  const { data: transactions = [], isLoading: isLoadingList, refetch: refetchList } = useQuery<PaymentTransaction[]>({
+  const { data: transactions = [], isLoading: isLoadingList, isError: isListError, error: listError, refetch: refetchList } = useQuery<PaymentTransaction[]>({
     queryKey: [
       'admin-payments-list',
       statusFilter,
@@ -179,7 +180,8 @@ export default function AdminPayments() {
       const { data, error } = await supabase.functions.invoke(`admin-payments-list?${params.toString()}`, {
         method: 'GET',
       });
-      if (error) throw error;
+      if (error) throw new Error(data?.error || error.message || 'Failed to load payments list');
+      if (data?.error) throw new Error(data.error);
       return data.transactions || [];
     },
   });
@@ -379,6 +381,15 @@ export default function AdminPayments() {
         </Card>
 
         <FinanceReconciliationTotalsCards ssot={financeSSOT} />
+
+        {isListError && (
+          <Alert variant="destructive">
+            <AlertTitle>Payments list failed to load</AlertTitle>
+            <AlertDescription>
+              {(listError as Error)?.message || 'The admin-payments-list API returned an error. Try Refresh or contact engineering.'}
+            </AlertDescription>
+          </Alert>
+        )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <div className="flex flex-col sm:flex-row justify-between gap-4">
