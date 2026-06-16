@@ -7695,10 +7695,14 @@ export type Database = {
           completed_at: string | null
           created_at: string
           created_by: string | null
+          failed_at: string | null
           failed_payouts: number | null
+          failure_code: string | null
+          failure_reason: string | null
           id: string
           kind: string
           notes: string | null
+          provider_response: Json | null
           run_date: string
           status: string
           successful_payouts: number | null
@@ -7710,10 +7714,14 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
+          failed_at?: string | null
           failed_payouts?: number | null
+          failure_code?: string | null
+          failure_reason?: string | null
           id?: string
           kind: string
           notes?: string | null
+          provider_response?: Json | null
           run_date?: string
           status?: string
           successful_payouts?: number | null
@@ -7725,10 +7733,14 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
+          failed_at?: string | null
           failed_payouts?: number | null
+          failure_code?: string | null
+          failure_reason?: string | null
           id?: string
           kind?: string
           notes?: string | null
+          provider_response?: Json | null
           run_date?: string
           status?: string
           successful_payouts?: number | null
@@ -7742,19 +7754,33 @@ export type Database = {
         Row: {
           amount_pence: number
           batch_id: string | null
+          cash_commission_recovered_pence: number | null
           commission_amount_pence: number | null
           commission_pct: number | null
           completed_at: string | null
           created_at: string
           driver_amount_pence: number | null
           driver_id: string
+          driver_paid_out_pence: number | null
           driver_stripe_account_id: string | null
           error_message: string | null
+          failed_at: string | null
+          failed_payout_amount_pence: number | null
+          failure_code: string | null
+          failure_reason: string | null
           gross_amount_pence: number | null
+          gross_payable_pence: number | null
           id: string
           ledger_entry_id: string | null
           ledger_sync_error: string | null
+          net_driver_payout_pence: number | null
           payment_id: string | null
+          provider_reference: string | null
+          provider_response: Json | null
+          provider_status: string | null
+          return_ledger_entry_id: string | null
+          returned_to_wallet_pence: number | null
+          settlement_status: string | null
           status: string
           stripe_payout_id: string | null
           stripe_transfer_id: string | null
@@ -7765,19 +7791,33 @@ export type Database = {
         Insert: {
           amount_pence: number
           batch_id?: string | null
+          cash_commission_recovered_pence?: number | null
           commission_amount_pence?: number | null
           commission_pct?: number | null
           completed_at?: string | null
           created_at?: string
           driver_amount_pence?: number | null
           driver_id: string
+          driver_paid_out_pence?: number | null
           driver_stripe_account_id?: string | null
           error_message?: string | null
+          failed_at?: string | null
+          failed_payout_amount_pence?: number | null
+          failure_code?: string | null
+          failure_reason?: string | null
           gross_amount_pence?: number | null
+          gross_payable_pence?: number | null
           id?: string
           ledger_entry_id?: string | null
           ledger_sync_error?: string | null
+          net_driver_payout_pence?: number | null
           payment_id?: string | null
+          provider_reference?: string | null
+          provider_response?: Json | null
+          provider_status?: string | null
+          return_ledger_entry_id?: string | null
+          returned_to_wallet_pence?: number | null
+          settlement_status?: string | null
           status?: string
           stripe_payout_id?: string | null
           stripe_transfer_id?: string | null
@@ -7788,19 +7828,33 @@ export type Database = {
         Update: {
           amount_pence?: number
           batch_id?: string | null
+          cash_commission_recovered_pence?: number | null
           commission_amount_pence?: number | null
           commission_pct?: number | null
           completed_at?: string | null
           created_at?: string
           driver_amount_pence?: number | null
           driver_id?: string
+          driver_paid_out_pence?: number | null
           driver_stripe_account_id?: string | null
           error_message?: string | null
+          failed_at?: string | null
+          failed_payout_amount_pence?: number | null
+          failure_code?: string | null
+          failure_reason?: string | null
           gross_amount_pence?: number | null
+          gross_payable_pence?: number | null
           id?: string
           ledger_entry_id?: string | null
           ledger_sync_error?: string | null
+          net_driver_payout_pence?: number | null
           payment_id?: string | null
+          provider_reference?: string | null
+          provider_response?: Json | null
+          provider_status?: string | null
+          return_ledger_entry_id?: string | null
+          returned_to_wallet_pence?: number | null
+          settlement_status?: string | null
           status?: string
           stripe_payout_id?: string | null
           stripe_transfer_id?: string | null
@@ -7863,6 +7917,13 @@ export type Database = {
             columns: ["payment_id"]
             isOneToOne: false
             referencedRelation: "payments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_items_return_ledger_entry_id_fkey"
+            columns: ["return_ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_ledger"
             referencedColumns: ["id"]
           },
           {
@@ -14065,6 +14126,10 @@ export type Database = {
       }
       ops_retry_failed_dispatch: { Args: { p_trip_id: string }; Returns: Json }
       ops_retry_failed_payout: { Args: { p_payout_id: string }; Returns: Json }
+      ops_retry_failed_payout_item: {
+        Args: { p_payout_item_id: string }
+        Returns: Json
+      }
       ops_run_all_detections: { Args: never; Returns: Json }
       ops_suppress_alert: {
         Args: { p_alert_id: string; p_until: string }
@@ -14293,6 +14358,10 @@ export type Database = {
           zone_name: string
           zone_type: string
         }[]
+      }
+      return_failed_payout_to_wallet: {
+        Args: { p_payout_item_id: string }
+        Returns: Json
       }
       ride_offer_build_send_notification_body: {
         Args: { p_offer_id: string }
