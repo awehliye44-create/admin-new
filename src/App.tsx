@@ -81,14 +81,7 @@ import OpsIntelligence from "./pages/OpsIntelligence";
 import DispatchMetrics from "./pages/DispatchMetrics";
 import LostProperty from "./pages/LostProperty";
 import LostPropertyDetail from "./pages/LostPropertyDetail";
-import MerchantManagement from "./pages/MerchantManagement";
-import MerchantDetail from "./pages/MerchantDetail";
 import { AdminTelemetryProvider } from "@/lib/telemetry/adminBootstrap";
-import MerchantApprovals from "./pages/MerchantApprovals";
-import MarketplaceSettings from "./pages/MarketplaceSettings";
-import MarketplaceSettlements from "./pages/MarketplaceSettlements";
-import MerchantApply from "./pages/MerchantApply";
-import AiImageCredits from "./pages/AiImageCredits";
 const queryClient = createAppQueryClient();
 
 const App = () => (
