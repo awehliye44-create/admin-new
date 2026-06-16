@@ -14,6 +14,7 @@ export const COUNTABLE_CORPORATE_FINANCIAL_OUTCOMES = [
 export type CorporateReportTripRow = ServiceAreaTripFinanceRow & {
   id: string;
   created_at: string;
+  status: string;
   corporate_account_id?: string | null;
   corporate_account?: { id: string; company_name: string } | null;
   commission_pence?: number | null;
