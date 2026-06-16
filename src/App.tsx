@@ -134,20 +134,11 @@ const App = () => (
               <Route path="vehicles" element={<Vehicles />} />
               <Route path="riders" element={<Riders />} />
 
-              {/* Merchant Management */}
-              <Route path="merchants" element={<MerchantManagement />} />
-              <Route path="merchants/:id" element={<MerchantDetail />} />
-
-              
               {/* Pricing & Fares */}
               <Route path="promo-codes" element={<PromoCodes />} />
               <Route path="offers" element={<Offers />} />
-              <Route path="merchants" element={<MerchantManagement />} />
-              <Route path="merchants/:id" element={<MerchantDetail />} />
-              <Route path="merchant-approvals" element={<MerchantApprovals />} />
-              <Route path="marketplace-settings" element={<MarketplaceSettings />} />
-              <Route path="marketplace-settlements" element={<MarketplaceSettlements />} />
-              <Route path="ai-image-credits" element={<AiImageCredits />} />
+              
+
               
               
               
