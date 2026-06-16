@@ -1,7 +1,7 @@
 /**
  * Trip invoice display — uses generated invoice snapshots (invoice_total_paid_pence).
- * TODO(Phase 1D): Future invoice writer must persist settlement fare (getTripSettlementFarePence)
- * at generation time; do not regenerate historical invoices without explicit approval.
+ * Label: Final Settlement Total. Do not recalculate on display; writer persists SSOT at generation.
+ * Writer: onecab-comfy-ride/supabase/functions/trip-invoice-process (getTripSettlementFarePence).
  */
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -185,7 +185,7 @@ export function TripInvoiceCard({ trip, onUpdated, compact = false }: TripInvoic
           <p>{formatPaymentMethod(trip.payment_method)}</p>
         </div>
         <div>
-          <Label className="text-xs text-muted-foreground">Total Paid</Label>
+          <Label className="text-xs text-muted-foreground">Final Settlement Total</Label>
           <p className="font-medium">{formatTotalPaid(trip.invoice_total_paid_pence)}</p>
         </div>
         <div>
