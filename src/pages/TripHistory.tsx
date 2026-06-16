@@ -36,7 +36,7 @@ import { useServiceAreas as useSharedServiceAreas } from '@/hooks/useServiceArea
 import { 
   History, Loader2, Search, RefreshCw, MapPin, Phone,
   Eye, CheckCircle, Route, DollarSign,
-  Navigation, User, Car, Globe, Settings2, AlertTriangle
+  Navigation, User, Car, Globe, Settings2, AlertTriangle, Briefcase
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
