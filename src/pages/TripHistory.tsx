@@ -227,6 +227,7 @@ export default function TripHistory() {
   // Region and Service Area filters
   const [selectedRegionId, setSelectedRegionId] = useState<string>('all');
   const [selectedServiceAreaId, setSelectedServiceAreaId] = useState<string>('all');
+  const [corporateFilter, setCorporateFilter] = useState<string>('all');
 
   // Dialog states
   const [isViewOpen, setIsViewOpen] = useState(false);
