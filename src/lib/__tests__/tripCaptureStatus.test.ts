@@ -186,7 +186,6 @@ describe('tripCaptureStatus — Trip History finance SSOT', () => {
       final_customer_fare_pence: 480,
       payment_captured_pence: 512,
       driver_net_pence: 403,
-      commission_pence: 77,
       payment_count: 1,
     };
     expect(getTripDriverNetPence(trip)).toBe(403);
@@ -274,7 +273,7 @@ describe('tripCaptureStatus — Trip History finance SSOT', () => {
       payment_method: 'card',
       payment_status: 'captured',
       payment_captured_pence: 512,
-      commission_pence: 77,
+      
       payment_count: 1,
     };
     expect(getTripDriverNetPence(trip)).toBeNull();
