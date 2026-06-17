@@ -175,6 +175,7 @@ const App = () => (
               <Route path="invoices" element={<Invoices />} />
               <Route path="invoice-templates" element={<InvoiceTemplates />} />
               <Route path="statement-runs" element={<StatementRuns />} />
+              <Route path="annual-taxi-report" element={<AnnualTaxiReport />} />
               
               {/* ONECAB Documents */}
               <Route path="onecab-documents" element={<OnecabDocuments />} />
