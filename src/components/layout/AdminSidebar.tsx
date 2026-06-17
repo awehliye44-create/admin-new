@@ -322,9 +322,8 @@ export function AdminSidebar() {
           </Section>
 
           {/* FINANCE & PAYOUTS */}
-          <Section label="Finance & Payouts" slugs={['payments','financial-reconciliation','driver-wallet','admin-settlements','payout-batches','disputes','invoices','invoice-templates','statement-runs']}>
+          <Section label="Finance & Payouts" slugs={['payments','driver-wallet','admin-settlements','payout-batches','disputes','invoices','invoice-templates','statement-runs']}>
             <P pageSlug="payments" to="/payments" icon={<CreditCard className="h-4 w-4" />} label="Payments & Transactions" active={currentPath === '/payments'} collapsed={isCollapsed} />
-            <P pageSlug="financial-reconciliation" to="/financial-reconciliation" icon={<Calculator className="h-4 w-4" />} label="Financial Reconciliation" active={currentPath === '/financial-reconciliation'} collapsed={isCollapsed} />
             <P pageSlug="driver-wallet" to="/driver-wallet" icon={<Wallet className="h-4 w-4" />} label="Driver Wallet & Ledger" active={currentPath === '/driver-wallet'} collapsed={isCollapsed} />
             <P pageSlug="admin-settlements" to="/admin-settlements" icon={<DollarSign className="h-4 w-4" />} label="Driver Settlements" active={currentPath === '/admin-settlements'} collapsed={isCollapsed} />
             <P pageSlug="payout-batches" to="/payout-batches" icon={<History className="h-4 w-4" />} label="Payout Batches & Audit" active={currentPath === '/payout-batches'} collapsed={isCollapsed} />
@@ -332,6 +331,12 @@ export function AdminSidebar() {
             <P pageSlug="invoices" to="/invoices" icon={<FileText className="h-4 w-4" />} label="Invoices" active={currentPath === '/invoices'} collapsed={isCollapsed} />
             <P pageSlug="invoice-templates" to="/invoice-templates" icon={<FileEdit className="h-4 w-4" />} label="Invoice Templates" active={currentPath === '/invoice-templates'} collapsed={isCollapsed} />
             <P pageSlug="statement-runs" to="/statement-runs" icon={<BarChart3 className="h-4 w-4" />} label="Statement Runs" active={currentPath === '/statement-runs'} collapsed={isCollapsed} />
+          </Section>
+
+          {/* REPORTS */}
+          <Section label="Reports" slugs={['financial-reconciliation','annual-taxi-report']}>
+            <P pageSlug="financial-reconciliation" to="/financial-reconciliation" icon={<Calculator className="h-4 w-4" />} label="Financial Reconciliation (SSOT)" active={currentPath === '/financial-reconciliation'} collapsed={isCollapsed} />
+            <P pageSlug="annual-taxi-report" to="/annual-taxi-report" icon={<FileText className="h-4 w-4" />} label="Annual Taxi Report" active={currentPath === '/annual-taxi-report'} collapsed={isCollapsed} />
           </Section>
 
           {/* ONECAB DOCUMENTS */}
