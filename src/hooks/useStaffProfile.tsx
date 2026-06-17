@@ -62,6 +62,11 @@ const ROUTE_PERMISSION_ALIASES: Record<string, string[]> = {
     'admin-settlements',
     'admin-payments',
   ],
+  'annual-taxi-report': [
+    'annual-taxi-report',
+    'financial-reconciliation',
+    'admin-settlements',
+  ],
 };
 
 export function StaffProfileProvider({ children }: { children: ReactNode }) {

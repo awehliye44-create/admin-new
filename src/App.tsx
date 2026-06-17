@@ -52,6 +52,7 @@ import FinancialReconciliation from "./pages/FinancialReconciliation";
 import AdminDriverSettlements from "./pages/AdminDriverSettlements";
 import DriverWallet from "./pages/DriverWallet";
 import AdminPayoutBatches from "./pages/AdminPayoutBatches";
+import AnnualTaxiReport from "./pages/AnnualTaxiReport";
 import Disputes from "./pages/Disputes";
 import DisputeSettings from "./pages/DisputeSettings";
 import Invoices from "./pages/Invoices";
@@ -174,6 +175,7 @@ const App = () => (
               <Route path="invoices" element={<Invoices />} />
               <Route path="invoice-templates" element={<InvoiceTemplates />} />
               <Route path="statement-runs" element={<StatementRuns />} />
+              <Route path="annual-taxi-report" element={<AnnualTaxiReport />} />
               
               {/* ONECAB Documents */}
               <Route path="onecab-documents" element={<OnecabDocuments />} />
