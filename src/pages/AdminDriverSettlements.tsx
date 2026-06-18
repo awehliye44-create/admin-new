@@ -30,6 +30,9 @@ import { FinanceReconciliationTotalsCards } from '@/components/finance/FinanceRe
 import { FinanceSSOT, useFinancialReconciliationSSOT } from '@/hooks/useFinancialReconciliationSSOT';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
 import { DriverSSOTPayoutPanel, useDriverSSOTPayoutGate } from '@/components/finance/DriverSSOTPayoutPanel';
+import { ManualPayoutConfirmDialog } from '@/components/finance/ManualPayoutConfirmDialog';
+import { OnecabCommissionVisibility } from '@/components/finance/OnecabCommissionVisibility';
+import { MANUAL_PAYOUT_NO_SSOT_BALANCE_MESSAGE } from '@/lib/manualPayoutGate';
 import { MondayPayoutTodayCards, PartialSettlementAlert } from '@/components/finance/MondayPayoutTodayCards';
 import { MondayPayoutDiagnosticsTable } from '@/components/finance/MondayPayoutDiagnosticsTable';
 import { retryMondayPayoutItem, useMondayPayoutDiagnostics } from '@/hooks/useMondayPayoutDiagnostics';
@@ -50,6 +53,7 @@ export default function AdminDriverSettlements() {
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
   
   const [retryingPayoutId, setRetryingPayoutId] = useState<string | null>(null);
+  const [showPayoutConfirm, setShowPayoutConfirm] = useState(false);
   const queryClient = useQueryClient();
   const financeSSOT = useFinancialReconciliationSSOT({ filter: serviceFilter });
   const mondayPayouts = useMondayPayoutDiagnostics(serviceFilter, {
@@ -59,7 +63,44 @@ export default function AdminDriverSettlements() {
 
   const { data: allDrivers = [], isLoading, refetch } = useDriverFinancialSummaries();
   const { data: selectedDriverDetail } = useDriverFinancialSummary(selectedDriverId);
-  const driverPayoutGate = useDriverSSOTPayoutGate(selectedDriverId, serviceFilter);
+
+  const { data: inFlightPayout } = useQuery({
+    queryKey: ['driver-inflight-payout', selectedDriverId],
+    enabled: !!selectedDriverId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('payout_items')
+        .select('id, status, settlement_status, stripe_transfer_id')
+        .eq('driver_id', selectedDriverId!)
+        .in('status', ['pending', 'processing', 'ledger_sync_failed'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return null;
+      if (data.status === 'ledger_sync_failed') return data;
+      const settlement = String(data.settlement_status ?? '').toUpperCase();
+      if (settlement !== 'COMPLETE' && settlement !== 'FAILED' && !data.stripe_transfer_id) {
+        return data;
+      }
+      return null;
+    },
+  });
+
+  const driverPayoutGate = useDriverSSOTPayoutGate(
+    selectedDriverId,
+    serviceFilter,
+    selectedDriverDetail
+      ? {
+          stripe_account_id: selectedDriverDetail.stripe_account_id,
+          onboarding_complete: selectedDriverDetail.onboarding_complete,
+          payouts_enabled: selectedDriverDetail.payouts_enabled,
+          amount_owed_to_onecab: selectedDriverDetail.amount_owed_to_onecab,
+          card_net_credits: selectedDriverDetail.card_net_credits,
+        }
+      : null,
+    !!inFlightPayout,
+  );
   const { data: ledgerEntries = [], isLoading: isLoadingLedger } = useDriverLedger(selectedDriverId);
 
   // Filter by region when a service area is selected
@@ -100,21 +141,33 @@ export default function AdminDriverSettlements() {
   const payoutMutation = useMutation({
     mutationFn: async (driverId: string) => {
       const { data, error } = await supabase.functions.invoke('admin-driver-payout', {
-        body: { driver_id: driverId },
+        body: { driver_id: driverId, confirm_payout: true },
       });
       if (error) throw error;
-      if (!data.success) throw new Error(data.error || 'Payout failed');
+      if (!data?.success) {
+        const err = new Error(data?.error || 'Payout failed') as Error & { data?: typeof data };
+        err.data = data;
+        throw err;
+      }
       return data;
     },
-    onSuccess: () => {
-      toast.success('Payout initiated successfully');
+    onSuccess: (data) => {
+      if (data?.dry_run || data?.stripe_execution_disabled) {
+        toast.success('Payout batch created (Stripe execution disabled — dry run mode)');
+      } else {
+        toast.success('Payout initiated successfully');
+      }
+      setShowPayoutConfirm(false);
       queryClient.invalidateQueries({ queryKey: ['driver-financial-summaries'] });
       queryClient.invalidateQueries({ queryKey: ['driver-financial-summary', selectedDriverId] });
       queryClient.invalidateQueries({ queryKey: ['per-driver-finance-ssot', selectedDriverId] });
       driverPayoutGate.refetch();
       financeSSOT.refetch();
     },
-    onError: (error: Error) => toast.error(`Payout failed: ${error.message}`),
+    onError: (error: Error & { data?: { error?: string; error_code?: string; ssot?: Record<string, unknown> } }) => {
+      const message = error.data?.error || error.message;
+      toast.error(message);
+    },
   });
 
   const handleRetryPayout = async (row: Parameters<typeof retryMondayPayoutItem>[0]) => {
@@ -146,7 +199,7 @@ export default function AdminDriverSettlements() {
     const name = `${d.first_name} ${d.last_name}`.toLowerCase();
     const matchesSearch = name.includes(searchTerm.toLowerCase()) || d.email.toLowerCase().includes(searchTerm.toLowerCase());
     if (activeTab === 'with_earnings') return matchesSearch && d.available_for_payout > 0;
-    if (activeTab === 'in_debt') return matchesSearch && d.wallet_balance < 0;
+    if (activeTab === 'in_debt') return matchesSearch && d.amount_owed_to_onecab > 0;
     if (activeTab === 'online') return matchesSearch && d.is_online;
     return matchesSearch;
   });
@@ -159,6 +212,7 @@ export default function AdminDriverSettlements() {
     ? FinanceSSOT.onecabNetCommission(financeSSOT.summary)
     : 0;
   const driversWithEarnings = drivers.filter(d => d.available_for_payout > 0).length;
+  const driversInDebt = drivers.filter(d => d.amount_owed_to_onecab > 0).length;
   const onlineDrivers = drivers.filter(d => d.is_online).length;
 
   if (isLoading && drivers.length === 0) {
@@ -178,6 +232,7 @@ export default function AdminDriverSettlements() {
     >
       <div className="space-y-6">
         <FinanceReconciliationTotalsCards ssot={financeSSOT} />
+        <OnecabCommissionVisibility summary={financeSSOT.summary} currencyCode={resolvedCurrency} />
 
         <MondayPayoutTodayCards
           cards={mondayPayouts.data?.today_cards}
@@ -277,7 +332,7 @@ export default function AdminDriverSettlements() {
             <TabsList>
               <TabsTrigger value="all">All ({drivers.length})</TabsTrigger>
               <TabsTrigger value="with_earnings">Ready for Payout ({driversWithEarnings})</TabsTrigger>
-              <TabsTrigger value="in_debt">In Debt</TabsTrigger>
+              <TabsTrigger value="in_debt">In Debt ({driversInDebt})</TabsTrigger>
               <TabsTrigger value="online">Online ({onlineDrivers})</TabsTrigger>
             </TabsList>
             <div className="flex gap-2">
@@ -301,7 +356,7 @@ export default function AdminDriverSettlements() {
                       <TableHead className="text-right">Trips</TableHead>
                       <TableHead className="text-right">Gross Fares</TableHead>
                       <TableHead className="text-right">Commission</TableHead>
-                      <TableHead className="text-right">Wallet Balance</TableHead>
+                      <TableHead className="text-right">Wallet Balance (SSOT)</TableHead>
                       <TableHead>Rating</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -362,7 +417,7 @@ export default function AdminDriverSettlements() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Gross Fares</p><p className="text-lg font-bold">{formatPence(selectedDriverDetail.gross_trip_total, selectedDriverDetail.currency_code)}</p></CardContent></Card>
                   <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Commission</p><p className="text-lg font-bold text-blue-600">{formatPence(selectedDriverDetail.company_commission_total, selectedDriverDetail.currency_code)}</p></CardContent></Card>
-                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Wallet (informational)</p><p className={`text-lg font-bold text-muted-foreground ${selectedDriverDetail.wallet_balance >= 0 ? '' : 'text-red-600'}`}>{formatPence(selectedDriverDetail.wallet_balance, selectedDriverDetail.currency_code)}</p></CardContent></Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Wallet Balance (SSOT)</p><p className={`text-lg font-bold ${selectedDriverDetail.wallet_balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatPence(selectedDriverDetail.wallet_balance, selectedDriverDetail.currency_code)}</p></CardContent></Card>
                   <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">SSOT Available</p><p className="text-lg font-bold text-green-600">{formatPence(driverPayoutGate.payoutAmountPence, selectedDriverDetail.currency_code)}</p></CardContent></Card>
                 </div>
 
@@ -371,6 +426,14 @@ export default function AdminDriverSettlements() {
                   currencyCode={selectedDriverDetail.currency_code}
                   filter={serviceFilter}
                   compact
+                  inFlightPayout={!!inFlightPayout}
+                  driverSummary={{
+                    stripe_account_id: selectedDriverDetail.stripe_account_id,
+                    onboarding_complete: selectedDriverDetail.onboarding_complete,
+                    payouts_enabled: selectedDriverDetail.payouts_enabled,
+                    amount_owed_to_onecab: selectedDriverDetail.amount_owed_to_onecab,
+                    card_net_credits: selectedDriverDetail.card_net_credits,
+                  }}
                 />
 
                 <Card>
@@ -428,20 +491,49 @@ export default function AdminDriverSettlements() {
               <Button variant="outline" size="sm" onClick={() => { setAdjustmentType('add'); setShowAdjustmentDialog(true); }}>
                 <Plus className="h-4 w-4 mr-1" /> Adjustment
               </Button>
-              {selectedDriverDetail && driverPayoutGate.canPayout && (
+              {selectedDriverDetail && driverPayoutGate.canPayout ? (
                 <Button
                   size="sm"
-                  onClick={() => selectedDriverId && payoutMutation.mutate(selectedDriverId)}
+                  variant={driverPayoutGate.softWarningMessage ? 'outline' : 'default'}
+                  className={driverPayoutGate.softWarningMessage ? 'border-amber-400 text-amber-900' : ''}
+                  onClick={() => setShowPayoutConfirm(true)}
                   disabled={payoutMutation.isPending || driverPayoutGate.isLoading}
                 >
                   <Wallet className="h-4 w-4 mr-1" />
-                  Payout {formatPence(driverPayoutGate.payoutAmountPence, selectedDriverDetail.currency_code)}
+                  Pay Driver Now {formatPence(driverPayoutGate.payoutAmountPence, selectedDriverDetail.currency_code)}
                 </Button>
-              )}
+              ) : selectedDriverDetail && driverPayoutGate.ssot ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled
+                  title={driverPayoutGate.blockedHeadline ?? MANUAL_PAYOUT_NO_SSOT_BALANCE_MESSAGE}
+                >
+                  <Wallet className="h-4 w-4 mr-1" />
+                  Pay Driver Now — Blocked
+                </Button>
+              ) : null}
               <Button variant="outline" onClick={() => setSelectedDriverId(null)}>Close</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {selectedDriverDetail && driverPayoutGate.ssot && selectedDriverId && (
+          <ManualPayoutConfirmDialog
+            open={showPayoutConfirm}
+            onOpenChange={setShowPayoutConfirm}
+            driver={{
+              id: selectedDriverId,
+              first_name: selectedDriverDetail.first_name,
+              last_name: selectedDriverDetail.last_name,
+              currency_code: selectedDriverDetail.currency_code,
+              wallet_balance: selectedDriverDetail.wallet_balance,
+            }}
+            ssot={driverPayoutGate.ssot}
+            isPending={payoutMutation.isPending}
+            onConfirm={() => payoutMutation.mutate(selectedDriverId)}
+          />
+        )}
 
         {/* Adjustment Dialog */}
         <Dialog open={showAdjustmentDialog} onOpenChange={setShowAdjustmentDialog}>

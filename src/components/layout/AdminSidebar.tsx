@@ -66,6 +66,7 @@ import {
   Activity,
   Store,
   Coins,
+  Lock,
 } from 'lucide-react';
 import {
   Collapsible,
@@ -322,11 +323,12 @@ export function AdminSidebar() {
           </Section>
 
           {/* FINANCE & PAYOUTS */}
-          <Section label="Finance & Payouts" slugs={['payments','driver-wallet','admin-settlements','payout-batches','disputes','invoices','invoice-templates','statement-runs']}>
+          <Section label="Finance & Payouts" slugs={['payments','driver-wallet','admin-settlements','payout-batches','connect-payout-lockdown','disputes','invoices','invoice-templates','statement-runs']}>
             <P pageSlug="payments" to="/payments" icon={<CreditCard className="h-4 w-4" />} label="Payments & Transactions" active={currentPath === '/payments'} collapsed={isCollapsed} />
             <P pageSlug="driver-wallet" to="/driver-wallet" icon={<Wallet className="h-4 w-4" />} label="Driver Wallet & Ledger" active={currentPath === '/driver-wallet'} collapsed={isCollapsed} />
             <P pageSlug="admin-settlements" to="/admin-settlements" icon={<DollarSign className="h-4 w-4" />} label="Driver Settlements" active={currentPath === '/admin-settlements'} collapsed={isCollapsed} />
             <P pageSlug="payout-batches" to="/payout-batches" icon={<History className="h-4 w-4" />} label="Payout Batches & Audit" active={currentPath === '/payout-batches'} collapsed={isCollapsed} />
+            <P pageSlug="connect-payout-lockdown" to="/connect-payout-lockdown" icon={<Lock className="h-4 w-4" />} label="Connect Payout Lockdown" active={currentPath === '/connect-payout-lockdown'} collapsed={isCollapsed} />
             <P pageSlug="disputes" to="/disputes" icon={<Scale className="h-4 w-4" />} label="Disputes & Adjustments" active={currentPath === '/disputes'} collapsed={isCollapsed} />
             <P pageSlug="invoices" to="/invoices" icon={<FileText className="h-4 w-4" />} label="Invoices" active={currentPath === '/invoices'} collapsed={isCollapsed} />
             <P pageSlug="invoice-templates" to="/invoice-templates" icon={<FileEdit className="h-4 w-4" />} label="Invoice Templates" active={currentPath === '/invoice-templates'} collapsed={isCollapsed} />

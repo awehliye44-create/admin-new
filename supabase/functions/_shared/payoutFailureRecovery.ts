@@ -20,12 +20,11 @@ export async function computeCashCommissionRecoveredPence(
     .from("driver_wallet_ledger")
     .select("type, amount_pence")
     .eq("driver_id", driverId)
-    .in("type", ["DEBT_RECOVERY", "CASH_COMMISSION_DEBT"])
+    .eq("type", "DEBT_RECOVERY")
     .gte("created_at", sinceIso);
 
   return (rows ?? []).reduce((sum, row) => {
-    const amt = Math.abs(Number(row.amount_pence ?? 0));
-    return sum + amt;
+    return sum + Math.abs(Number(row.amount_pence ?? 0));
   }, 0);
 }
 
@@ -83,7 +82,9 @@ export async function recordPayoutFailureAndReturnToWallet(args: {
     failed_payout_amount_pence: args.netDriverPayoutPence,
     provider_status: args.providerStatus,
     provider_reference: args.providerReference,
+    failure_code: "PROVIDER_TRANSFER_FAILED",
     failure_reason: failureReason,
+    provider_response: { raw: args.rawFailureReason },
     error_message: failureReason,
     failed_at: failedAt,
     stripe_transfer_id: args.stripeTransferId ?? null,
@@ -91,13 +92,14 @@ export async function recordPayoutFailureAndReturnToWallet(args: {
     updated_at: failedAt,
   }).eq("id", args.payoutItemId);
 
-  const batchStatus =
-    settlementStatus === "PARTIAL_SETTLEMENT" ? "PARTIAL_SETTLEMENT" : "failed";
-
   await args.supabase.from("payout_batches").update({
-    status: batchStatus,
+    status: "failed",
     successful_payouts: 0,
     failed_payouts: 1,
+    failure_code: "PROVIDER_TRANSFER_FAILED",
+    failure_reason: failureReason,
+    provider_response: { raw: args.rawFailureReason },
+    failed_at: failedAt,
     completed_at: failedAt,
     notes: settlementStatus === "PARTIAL_SETTLEMENT"
       ? "ONECAB commission was recovered, but driver payout did not complete."

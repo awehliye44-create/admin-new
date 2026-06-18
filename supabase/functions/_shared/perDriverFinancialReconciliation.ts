@@ -1,20 +1,26 @@
 /**
  * Per-driver Financial Reconciliation SSOT.
- * Provider balance is allocated across drivers by settled eligible liability — never wallet balance.
+ * Digital driver liability = wallet ledger balance (Phase 3A.4).
  */
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   allocateProviderBalanceByLiability,
-  buildSplitReconciliationCheck,
+  buildDigitalReconciliationCheck,
+  classifyReconciliationVariance,
   type FinanceDataSourceBadge,
-  computePaymentMethodLedgerMetrics,
+  filterDigitalTrips,
+  onecabNetCommissionPence,
+  PAYOUT_SOFT_WARNING_RECONCILIATION,
   perDriverAvailableNowPence,
-  perDriverRemainingLiabilityPence,
+  perDriverLedgerLiabilityPence,
   sumAdjustmentsPence,
   sumBankPayoutPaidOutPence,
+  sumDigitalNetCustomerRevenuePence,
   sumDriverGrossEarningsPence,
   sumDriverNetEarningsPence,
+  sumOnecabGrossCommissionPence,
+  sumProviderProcessingFeesPence,
   type LedgerSSOTRow,
   type PaymentCaptureRow,
   type TripSSOTRow,
@@ -37,10 +43,16 @@ export type PerDriverSSOT = {
   driver_pending_payout_pence: number;
   next_payout_date: string | null;
   reconciliation_status: "BALANCED" | "RECONCILIATION_MISMATCH";
+  reconciliation_scope: "digital_v3";
+  digital_net_customer_revenue_pence: number;
+  digital_onecab_net_commission_pence: number;
+  digital_provider_processing_fee_pence: number;
+  reconciliation_variance_pence: number;
   source_tier: FinanceDataSourceBadge;
   ledger_sync_missing: boolean;
   payout_blocked: boolean;
   payout_blocked_reasons: string[];
+  payout_warning_reasons: string[];
 };
 
 export type EarlyCashoutRow = {
@@ -73,34 +85,74 @@ export function nextWeeklyPayoutDateIso(): string {
   return london.toISOString();
 }
 
+export function buildPayoutGateReasons(args: {
+  reconciliationStatus: "BALANCED" | "RECONCILIATION_MISMATCH";
+  reconciliationVariancePence: number;
+  sourceTier: FinanceDataSourceBadge;
+  regionId?: string | null;
+  providerAllocatedPence: number;
+  ledgerSyncMissing: boolean;
+  availableNowPence: number;
+}): {
+  payout_blocked_reasons: string[];
+  payout_warning_reasons: string[];
+} {
+  const hard: string[] = [];
+  const soft: string[] = [];
+
+  const varianceClass = classifyReconciliationVariance({
+    reconciliationStatus: args.reconciliationStatus,
+    variancePence: args.reconciliationVariancePence,
+    sourceTier: args.sourceTier,
+    regionId: args.regionId,
+  });
+
+  if (varianceClass === "hard_mismatch") {
+    hard.push("Reconciliation mismatch — payout blocked until balanced");
+  } else if (varianceClass === "soft_positive_classified") {
+    soft.push(PAYOUT_SOFT_WARNING_RECONCILIATION);
+  }
+
+  if (args.sourceTier === "RECONSTRUCTED") {
+    hard.push("Reconstructed data tier — live reconciliation required");
+  }
+  if (args.ledgerSyncMissing) {
+    hard.push("Ledger sync missing after previous payout — resolve before paying out");
+  }
+  if (args.providerAllocatedPence <= 0) {
+    hard.push("No provider balance allocated — funds awaiting settlement");
+  }
+  if (args.availableNowPence <= 0) {
+    hard.push("No SSOT available payout for this driver");
+  }
+
+  return { payout_blocked_reasons: hard, payout_warning_reasons: soft };
+}
+
+/** Hard payout blocks only — use buildPayoutGateReasons for soft warnings. */
 export function buildPayoutBlockedReasons(args: {
   reconciliationStatus: "BALANCED" | "RECONCILIATION_MISMATCH";
+  reconciliationVariancePence?: number;
   sourceTier: FinanceDataSourceBadge;
+  regionId?: string | null;
   providerAllocatedPence: number;
   ledgerSyncMissing: boolean;
   availableNowPence: number;
 }): string[] {
-  const reasons: string[] = [];
-  if (args.reconciliationStatus !== "BALANCED") {
-    reasons.push("Reconciliation mismatch — payout blocked until balanced");
-  }
-  if (args.sourceTier === "RECONSTRUCTED") {
-    reasons.push("Reconstructed data tier — live reconciliation required");
-  }
-  if (args.ledgerSyncMissing) {
-    reasons.push("Ledger sync missing after previous payout — resolve before paying out");
-  }
-  if (args.providerAllocatedPence <= 0) {
-    reasons.push("No provider balance allocated — funds awaiting settlement");
-  }
-  if (args.availableNowPence <= 0) {
-    reasons.push("No SSOT available payout for this driver");
-  }
-  return reasons;
+  return buildPayoutGateReasons({
+    reconciliationStatus: args.reconciliationStatus,
+    reconciliationVariancePence: args.reconciliationVariancePence ?? 0,
+    sourceTier: args.sourceTier,
+    regionId: args.regionId,
+    providerAllocatedPence: args.providerAllocatedPence,
+    ledgerSyncMissing: args.ledgerSyncMissing,
+    availableNowPence: args.availableNowPence,
+  }).payout_blocked_reasons;
 }
 
 export function computePerDriverSSOT(args: {
   driverId: string;
+  regionId?: string | null;
   trips: TripSSOTRow[];
   ledger: LedgerSSOTRow[];
   earlyCashouts: EarlyCashoutRow[];
@@ -114,20 +166,11 @@ export function computePerDriverSSOT(args: {
   const sourceTier = args.sourceTier ?? "LIVE";
   const driverGross = sumDriverGrossEarningsPence(args.trips);
   const driverNet = sumDriverNetEarningsPence(args.trips);
-  const ledgerSplit = computePaymentMethodLedgerMetrics({
-    trips: args.trips,
-    payments: args.payments,
-  });
   const bankPaidOut = sumBankPayoutPaidOutPence(args.ledger);
   const completedEarly = sumCompletedEarlyCashoutsPence(args.earlyCashouts);
   const inFlight = sumInFlightCashoutPence(args.earlyCashouts);
   const adjustments = sumAdjustmentsPence(args.ledger);
-  const remaining = perDriverRemainingLiabilityPence({
-    driverNetEarningsPence: ledgerSplit.card_driver_payable_pence,
-    bankPaidOutPence: bankPaidOut,
-    completedEarlyCashoutsPence: completedEarly,
-    adjustmentsPence: adjustments,
-  });
+  const remaining = perDriverLedgerLiabilityPence(args.ledger);
   const allocated = Math.max(0, args.providerAllocations[args.driverId] ?? 0);
   const availableNow = perDriverAvailableNowPence({
     driverRemainingLiabilityPence: remaining,
@@ -136,15 +179,33 @@ export function computePerDriverSSOT(args: {
   });
   const pendingPayout = Math.max(0, remaining - availableNow);
 
-  const reconciliation = buildSplitReconciliationCheck({ ledger: ledgerSplit, tolerancePence: 100 });
+  const digitalTrips = filterDigitalTrips(args.trips);
+  const digitalNetCustomer = sumDigitalNetCustomerRevenuePence({
+    payments: args.payments,
+    digitalTrips,
+  });
+  const digitalOnecabGross = sumOnecabGrossCommissionPence(digitalTrips);
+  const digitalProviderFees = sumProviderProcessingFeesPence(digitalTrips);
+  const digitalOnecabNet = onecabNetCommissionPence(digitalOnecabGross, digitalProviderFees);
+  const reconciliation = buildDigitalReconciliationCheck({
+    digitalNetCustomerRevenuePence: digitalNetCustomer,
+    driverWalletLiabilityPence: remaining,
+    digitalOnecabNetCommissionPence: digitalOnecabNet,
+    digitalProviderProcessingFeePence: digitalProviderFees,
+    bankPaidOutPence: bankPaidOut,
+    completedEarlyCashoutsPence: completedEarly,
+  });
 
-  const payoutBlockedReasons = buildPayoutBlockedReasons({
+  const payoutGate = buildPayoutGateReasons({
     reconciliationStatus: reconciliation.status,
+    reconciliationVariancePence: reconciliation.variance_pence,
     sourceTier,
+    regionId: args.regionId,
     providerAllocatedPence: allocated,
     ledgerSyncMissing: args.ledgerSyncMissing,
     availableNowPence: availableNow,
   });
+  const payoutBlockedReasons = payoutGate.payout_blocked_reasons;
 
   return {
     driver_id: args.driverId,
@@ -163,10 +224,16 @@ export function computePerDriverSSOT(args: {
     driver_pending_payout_pence: pendingPayout,
     next_payout_date: nextWeeklyPayoutDateIso(),
     reconciliation_status: reconciliation.status,
+    reconciliation_scope: reconciliation.reconciliation_scope,
+    digital_net_customer_revenue_pence: reconciliation.digital_net_customer_revenue_pence,
+    digital_onecab_net_commission_pence: reconciliation.digital_onecab_net_commission_pence,
+    digital_provider_processing_fee_pence: reconciliation.digital_provider_processing_fee_pence,
+    reconciliation_variance_pence: reconciliation.variance_pence,
     source_tier: sourceTier,
     ledger_sync_missing: args.ledgerSyncMissing,
     payout_blocked: payoutBlockedReasons.length > 0,
     payout_blocked_reasons: payoutBlockedReasons,
+    payout_warning_reasons: payoutGate.payout_warning_reasons,
   };
 }
 
@@ -206,7 +273,7 @@ export async function fetchPerDriverFinancialReconciliation(
   let tripQuery = supabase
     .from("trips")
     .select(`
-      id, driver_id,
+      id, driver_id, payment_method,
       commission_pence, stripe_processing_fee_pence, onecab_net_pence, driver_net_pence,
       gross_fare_pence, final_fare_pence, commissionable_fare_pence, capture_amount_pence,
       refund_amount_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence,
@@ -261,15 +328,8 @@ export async function fetchPerDriverFinancialReconciliation(
 
   const liabilities: Record<string, number> = {};
   for (const peerId of peerDriverIds) {
-    const peerTrips = allTrips.filter((t) => t.driver_id === peerId);
     const peerLedger = allLedger.filter((l) => l.driver_id === peerId);
-    const peerCashouts = allCashouts.filter((c) => c.driver_id === peerId);
-    liabilities[peerId] = perDriverRemainingLiabilityPence({
-      driverNetEarningsPence: sumDriverNetEarningsPence(peerTrips),
-      bankPaidOutPence: sumBankPayoutPaidOutPence(peerLedger),
-      completedEarlyCashoutsPence: sumCompletedEarlyCashoutsPence(peerCashouts),
-      adjustmentsPence: sumAdjustmentsPence(peerLedger),
-    });
+    liabilities[peerId] = perDriverLedgerLiabilityPence(peerLedger);
   }
 
   const allocations = allocateProviderBalanceByLiability({
@@ -292,6 +352,7 @@ export async function fetchPerDriverFinancialReconciliation(
 
   return computePerDriverSSOT({
     driverId,
+    regionId,
     trips: driverTrips,
     ledger: driverLedger,
     earlyCashouts: driverCashouts,

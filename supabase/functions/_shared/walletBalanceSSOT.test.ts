@@ -2,9 +2,18 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   sumLedgerWalletBalanceByDriver,
   sumLedgerWalletBalancePence,
+  WALLET_BALANCE_EXCLUDED_LEDGER_TYPES,
 } from "./walletBalanceSSOT.ts";
+import { computeLedgerWalletBalancePence } from "./onecabFinanceLedger.ts";
 
-Deno.test("excludes COMMISSION_RECOVERED from wallet balance SSOT", () => {
+Deno.test("wallet SSOT excludes only PLATFORM_COMMISSION and CASH_TRIP_EARNING", () => {
+  assertEquals([...WALLET_BALANCE_EXCLUDED_LEDGER_TYPES].sort(), [
+    "CASH_TRIP_EARNING",
+    "PLATFORM_COMMISSION",
+  ]);
+});
+
+Deno.test("includes COMMISSION_RECOVERED in wallet balance SSOT", () => {
   const rows = [
     { type: "TRIP_EARNING_NET", amount_pence: 436 },
     { type: "DEBT_RECOVERY", amount_pence: -414 },
@@ -12,18 +21,18 @@ Deno.test("excludes COMMISSION_RECOVERED from wallet balance SSOT", () => {
     { type: "PLATFORM_COMMISSION", amount_pence: 77 },
     { type: "CASH_TRIP_EARNING", amount_pence: 840 },
   ];
-  assertEquals(sumLedgerWalletBalancePence(rows), 22);
+  assertEquals(sumLedgerWalletBalancePence(rows), 436);
+  assertEquals(computeLedgerWalletBalancePence(rows), 436);
 });
 
-Deno.test("Ahmed Osman class: net 437p excludes commission recovered mirror", () => {
+Deno.test("MK0002 class: COMMISSION_RECOVERED offsets DEBT_RECOVERY in wallet", () => {
   const rows = [
-    { driver_id: "ahmed", type: "TRIP_EARNING_NET", amount_pence: 2129 },
-    { driver_id: "ahmed", type: "CASH_COMMISSION_DEBT", amount_pence: -846 },
-    { driver_id: "ahmed", type: "DEBT_RECOVERY", amount_pence: -846 },
-    { driver_id: "ahmed", type: "COMMISSION_RECOVERED", amount_pence: 846 },
+    { driver_id: "mk0002", type: "TRIP_EARNING_NET", amount_pence: 4609 },
+    { driver_id: "mk0002", type: "DEBT_RECOVERY", amount_pence: -2708 },
+    { driver_id: "mk0002", type: "COMMISSION_RECOVERED", amount_pence: 2708 },
   ];
   const byDriver = sumLedgerWalletBalanceByDriver(rows);
-  assertEquals(byDriver.get("ahmed"), 437);
+  assertEquals(byDriver.get("mk0002"), 4609);
 });
 
 Deno.test("groups wallet balance by driver", () => {
@@ -32,6 +41,6 @@ Deno.test("groups wallet balance by driver", () => {
     { driver_id: "b", type: "TRIP_EARNING_NET", amount_pence: 200 },
     { driver_id: "a", type: "COMMISSION_RECOVERED", amount_pence: 50 },
   ]);
-  assertEquals(byDriver.get("a"), 100);
+  assertEquals(byDriver.get("a"), 150);
   assertEquals(byDriver.get("b"), 200);
 });

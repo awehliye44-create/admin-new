@@ -274,6 +274,7 @@ Point `admin-finance-summary` and `driver-earnings-summary` at ledger/view SSOT;
 | 1E-A | `recalculate_driver_wallet` + `trigger_recalculate_wallet` exclude reporting-only types | Applied via `supabase db query -f 20260617180000_phase_1e_wallet_cache_alignment.sql` |
 | 1E-B | One-time rebuild (`DO $$ … PERFORM recalculate_driver_wallet`) | Applied (same migration) |
 | 1E-C | Display cleanup + audit SSOT comparison | Edge functions deployed |
+| History | `supabase migration repair --status applied 20260617180000` | Recorded in remote migration history (no re-run) |
 
 ### Before / after balances
 

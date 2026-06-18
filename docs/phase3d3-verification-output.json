@@ -1,0 +1,567 @@
+{
+  "phase": "3D.3",
+  "timestamp": "2026-06-18T11:53:01.839Z",
+  "apply_lockdown_requested": true,
+  "status_before": {
+    "status": 200,
+    "data": {
+      "phase": "3D.3",
+      "read_only": true,
+      "timestamp": "2026-06-18T11:52:45.130Z",
+      "connect_accounts": [
+        {
+          "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+          "driver_code": "MK0002",
+          "driver_name": "asiya wehliye",
+          "stripe_account_id": "acct_1ThUR8Izd0dzmC0Y",
+          "db_payouts_enabled": true,
+          "payout_mode": "automatic",
+          "payout_schedule_interval": "daily",
+          "payout_schedule_delay_days": 7,
+          "automatic_payouts_enabled": true,
+          "connect_available_pence": 0,
+          "connect_pending_pence": 0,
+          "in_flight_payouts": [],
+          "last_lockdown_audit": {
+            "action": "LOCKDOWN_DRY_RUN",
+            "after_interval": "manual",
+            "dry_run": true,
+            "created_at": "2026-06-18T11:51:55.645681+00:00"
+          }
+        },
+        {
+          "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+          "driver_code": "MK0001",
+          "driver_name": "Ahmed Osman",
+          "stripe_account_id": "acct_1ThTrEEXTz9Ab5Ic",
+          "db_payouts_enabled": true,
+          "payout_mode": "automatic",
+          "payout_schedule_interval": "daily",
+          "payout_schedule_delay_days": 7,
+          "automatic_payouts_enabled": true,
+          "connect_available_pence": 87,
+          "connect_pending_pence": 954,
+          "in_flight_payouts": [
+            {
+              "payout_id": "po_1TjdXrEXTz9Ab5Ic7xa29zfU",
+              "amount_pence": 278,
+              "status": "pending",
+              "automatic": false,
+              "arrival_date": "2026-06-18T00:00:00.000Z",
+              "in_ledger": true,
+              "in_payout_items": true,
+              "orphan_risk": false
+            }
+          ],
+          "last_lockdown_audit": {
+            "action": "LOCKDOWN_DRY_RUN",
+            "after_interval": "manual",
+            "dry_run": true,
+            "created_at": "2026-06-18T11:51:56.939334+00:00"
+          }
+        }
+      ],
+      "summary": {
+        "total": 2,
+        "automatic_count": 2,
+        "manual_count": 0,
+        "in_flight_count": 1
+      },
+      "recent_audits": [
+        {
+          "id": "37b05f78-a156-4a9b-8885-e7a5958c4db9",
+          "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+          "stripe_account_id": "acct_1ThTrEEXTz9Ab5Ic",
+          "action": "LOCKDOWN_DRY_RUN",
+          "before_interval": "daily",
+          "before_delay_days": 7,
+          "after_interval": "manual",
+          "after_delay_days": 7,
+          "in_flight_payout_ids": [
+            {
+              "status": "pending",
+              "automatic": false,
+              "payout_id": "po_1TjdXrEXTz9Ab5Ic7xa29zfU",
+              "amount_pence": 278,
+              "arrival_date": "2026-06-18T00:00:00.000Z"
+            },
+            {
+              "status": "pending",
+              "automatic": false,
+              "payout_id": "po_1TjdXrEXTz9Ab5Ic7xa29zfU",
+              "amount_pence": 278,
+              "arrival_date": "2026-06-18T00:00:00.000Z"
+            },
+            {
+              "status": "paid",
+              "automatic": false,
+              "payout_id": "po_1Tjb00EXTz9Ab5IcGLdtDR2s",
+              "amount_pence": 457,
+              "arrival_date": "2026-06-18T00:00:00.000Z"
+            },
+            {
+              "status": "paid",
+              "automatic": true,
+              "payout_id": "po_1TjTPXEXTz9Ab5IcE2GFPiaq",
+              "amount_pence": 1693,
+              "arrival_date": "2026-06-18T00:00:00.000Z"
+            }
+          ],
+          "connect_available_pence": 87,
+          "connect_pending_pence": 954,
+          "performed_by": "9ab3080c-73ef-4c36-b92b-ae8e8f4815f2",
+          "dry_run": true,
+          "error_message": null,
+          "created_at": "2026-06-18T11:51:56.939334+00:00"
+        },
+        {
+          "id": "2045c767-0ae7-4cb6-9e54-114fa16b145f",
+          "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+          "stripe_account_id": "acct_1ThUR8Izd0dzmC0Y",
+          "action": "LOCKDOWN_DRY_RUN",
+          "before_interval": "daily",
+          "before_delay_days": 7,
+          "after_interval": "manual",
+          "after_delay_days": 7,
+          "in_flight_payout_ids": [
+            {
+              "status": "paid",
+              "automatic": true,
+              "payout_id": "po_1TjUCpIzd0dzmC0Y65sJxUHu",
+              "amount_pence": 5641,
+              "arrival_date": "2026-06-18T00:00:00.000Z"
+            }
+          ],
+          "connect_available_pence": 0,
+          "connect_pending_pence": 0,
+          "performed_by": "9ab3080c-73ef-4c36-b92b-ae8e8f4815f2",
+          "dry_run": true,
+          "error_message": null,
+          "created_at": "2026-06-18T11:51:55.645681+00:00"
+        }
+      ]
+    }
+  },
+  "dry_run": {
+    "status": 200,
+    "data": {
+      "success": true,
+      "phase": "3D.3",
+      "dry_run": true,
+      "verification_mode": true,
+      "confirm_lockdown": false,
+      "drivers_processed": 2,
+      "automatic_remaining_count": 2,
+      "all_manual": false,
+      "results": [
+        {
+          "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+          "driver_code": "MK0002",
+          "driver_name": "asiya wehliye",
+          "stripe_account_id": "acct_1ThUR8Izd0dzmC0Y",
+          "before": {
+            "stripe_account_id": "acct_1ThUR8Izd0dzmC0Y",
+            "interval": "daily",
+            "delay_days": 7,
+            "automatic_payouts_enabled": true,
+            "payouts_enabled": true,
+            "available_pence": 0,
+            "pending_pence": 0
+          },
+          "after": {
+            "stripe_account_id": "acct_1ThUR8Izd0dzmC0Y",
+            "interval": "manual",
+            "delay_days": 7,
+            "automatic_payouts_enabled": false,
+            "payouts_enabled": true,
+            "available_pence": 0,
+            "pending_pence": 0
+          },
+          "in_flight_payouts": [],
+          "would_change": true,
+          "applied": false,
+          "dry_run": true,
+          "error": null
+        },
+        {
+          "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+          "driver_code": "MK0001",
+          "driver_name": "Ahmed Osman",
+          "stripe_account_id": "acct_1ThTrEEXTz9Ab5Ic",
+          "before": {
+            "stripe_account_id": "acct_1ThTrEEXTz9Ab5Ic",
+            "interval": "daily",
+            "delay_days": 7,
+            "automatic_payouts_enabled": true,
+            "payouts_enabled": true,
+            "available_pence": 87,
+            "pending_pence": 954
+          },
+          "after": {
+            "stripe_account_id": "acct_1ThTrEEXTz9Ab5Ic",
+            "interval": "manual",
+            "delay_days": 7,
+            "automatic_payouts_enabled": false,
+            "payouts_enabled": true,
+            "available_pence": 87,
+            "pending_pence": 954
+          },
+          "in_flight_payouts": [
+            {
+              "payout_id": "po_1TjdXrEXTz9Ab5Ic7xa29zfU",
+              "amount_pence": 278,
+              "status": "pending",
+              "automatic": false,
+              "arrival_date": "2026-06-18T00:00:00.000Z"
+            }
+          ],
+          "would_change": true,
+          "applied": false,
+          "dry_run": true,
+          "error": null
+        }
+      ],
+      "message": "Dry run — no Stripe schedule changes applied"
+    }
+  },
+  "apply_result": {
+    "status": 200,
+    "data": {
+      "success": true,
+      "phase": "3D.3",
+      "dry_run": false,
+      "verification_mode": false,
+      "confirm_lockdown": true,
+      "drivers_processed": 2,
+      "automatic_remaining_count": 0,
+      "all_manual": true,
+      "results": [
+        {
+          "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+          "driver_code": "MK0002",
+          "driver_name": "asiya wehliye",
+          "stripe_account_id": "acct_1ThUR8Izd0dzmC0Y",
+          "before": {
+            "stripe_account_id": "acct_1ThUR8Izd0dzmC0Y",
+            "interval": "daily",
+            "delay_days": 7,
+            "automatic_payouts_enabled": true,
+            "payouts_enabled": true,
+            "available_pence": 0,
+            "pending_pence": 0
+          },
+          "after": {
+            "stripe_account_id": "acct_1ThUR8Izd0dzmC0Y",
+            "interval": "manual",
+            "delay_days": 7,
+            "automatic_payouts_enabled": false,
+            "payouts_enabled": true,
+            "available_pence": 0,
+            "pending_pence": 0
+          },
+          "in_flight_payouts": [],
+          "would_change": true,
+          "applied": true,
+          "dry_run": false,
+          "error": null
+        },
+        {
+          "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+          "driver_code": "MK0001",
+          "driver_name": "Ahmed Osman",
+          "stripe_account_id": "acct_1ThTrEEXTz9Ab5Ic",
+          "before": {
+            "stripe_account_id": "acct_1ThTrEEXTz9Ab5Ic",
+            "interval": "daily",
+            "delay_days": 7,
+            "automatic_payouts_enabled": true,
+            "payouts_enabled": true,
+            "available_pence": 87,
+            "pending_pence": 954
+          },
+          "after": {
+            "stripe_account_id": "acct_1ThTrEEXTz9Ab5Ic",
+            "interval": "manual",
+            "delay_days": 7,
+            "automatic_payouts_enabled": false,
+            "payouts_enabled": true,
+            "available_pence": 87,
+            "pending_pence": 954
+          },
+          "in_flight_payouts": [
+            {
+              "payout_id": "po_1TjdXrEXTz9Ab5Ic7xa29zfU",
+              "amount_pence": 278,
+              "status": "pending",
+              "automatic": false,
+              "arrival_date": "2026-06-18T00:00:00.000Z"
+            }
+          ],
+          "would_change": true,
+          "applied": true,
+          "dry_run": false,
+          "error": null
+        }
+      ],
+      "message": "Connect payout lockdown applied where automatic was enabled"
+    }
+  },
+  "status_after": {
+    "status": 200,
+    "data": {
+      "phase": "3D.3",
+      "read_only": true,
+      "timestamp": "2026-06-18T11:53:00.829Z",
+      "connect_accounts": [
+        {
+          "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+          "driver_code": "MK0002",
+          "driver_name": "asiya wehliye",
+          "stripe_account_id": "acct_1ThUR8Izd0dzmC0Y",
+          "db_payouts_enabled": true,
+          "payout_mode": "manual",
+          "payout_schedule_interval": "manual",
+          "payout_schedule_delay_days": 7,
+          "automatic_payouts_enabled": false,
+          "connect_available_pence": 0,
+          "connect_pending_pence": 0,
+          "in_flight_payouts": [],
+          "last_lockdown_audit": {
+            "action": "LOCKDOWN_APPLIED",
+            "after_interval": "manual",
+            "dry_run": false,
+            "created_at": "2026-06-18T11:52:53.815451+00:00"
+          }
+        },
+        {
+          "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+          "driver_code": "MK0001",
+          "driver_name": "Ahmed Osman",
+          "stripe_account_id": "acct_1ThTrEEXTz9Ab5Ic",
+          "db_payouts_enabled": true,
+          "payout_mode": "manual",
+          "payout_schedule_interval": "manual",
+          "payout_schedule_delay_days": 7,
+          "automatic_payouts_enabled": false,
+          "connect_available_pence": 87,
+          "connect_pending_pence": 954,
+          "in_flight_payouts": [
+            {
+              "payout_id": "po_1TjdXrEXTz9Ab5Ic7xa29zfU",
+              "amount_pence": 278,
+              "status": "pending",
+              "automatic": false,
+              "arrival_date": "2026-06-18T00:00:00.000Z",
+              "in_ledger": true,
+              "in_payout_items": true,
+              "orphan_risk": false
+            }
+          ],
+          "last_lockdown_audit": {
+            "action": "LOCKDOWN_APPLIED",
+            "after_interval": "manual",
+            "dry_run": false,
+            "created_at": "2026-06-18T11:52:57.065274+00:00"
+          }
+        }
+      ],
+      "summary": {
+        "total": 2,
+        "automatic_count": 0,
+        "manual_count": 2,
+        "in_flight_count": 1
+      },
+      "recent_audits": [
+        {
+          "id": "da5f3ed0-950f-4bf0-a64a-b9fc84b54fba",
+          "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+          "stripe_account_id": "acct_1ThTrEEXTz9Ab5Ic",
+          "action": "LOCKDOWN_APPLIED",
+          "before_interval": "daily",
+          "before_delay_days": 7,
+          "after_interval": "manual",
+          "after_delay_days": 7,
+          "in_flight_payout_ids": [
+            {
+              "status": "pending",
+              "automatic": false,
+              "payout_id": "po_1TjdXrEXTz9Ab5Ic7xa29zfU",
+              "amount_pence": 278,
+              "arrival_date": "2026-06-18T00:00:00.000Z"
+            }
+          ],
+          "connect_available_pence": 87,
+          "connect_pending_pence": 954,
+          "performed_by": "9ab3080c-73ef-4c36-b92b-ae8e8f4815f2",
+          "dry_run": false,
+          "error_message": null,
+          "created_at": "2026-06-18T11:52:57.065274+00:00"
+        },
+        {
+          "id": "d545ef2f-c511-4924-8061-aa71dffea9aa",
+          "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+          "stripe_account_id": "acct_1ThUR8Izd0dzmC0Y",
+          "action": "LOCKDOWN_APPLIED",
+          "before_interval": "daily",
+          "before_delay_days": 7,
+          "after_interval": "manual",
+          "after_delay_days": 7,
+          "in_flight_payout_ids": [],
+          "connect_available_pence": 0,
+          "connect_pending_pence": 0,
+          "performed_by": "9ab3080c-73ef-4c36-b92b-ae8e8f4815f2",
+          "dry_run": false,
+          "error_message": null,
+          "created_at": "2026-06-18T11:52:53.815451+00:00"
+        },
+        {
+          "id": "f04afa71-7ded-44eb-b592-59678d624d6f",
+          "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+          "stripe_account_id": "acct_1ThTrEEXTz9Ab5Ic",
+          "action": "LOCKDOWN_DRY_RUN",
+          "before_interval": "daily",
+          "before_delay_days": 7,
+          "after_interval": "manual",
+          "after_delay_days": 7,
+          "in_flight_payout_ids": [
+            {
+              "status": "pending",
+              "automatic": false,
+              "payout_id": "po_1TjdXrEXTz9Ab5Ic7xa29zfU",
+              "amount_pence": 278,
+              "arrival_date": "2026-06-18T00:00:00.000Z"
+            }
+          ],
+          "connect_available_pence": 87,
+          "connect_pending_pence": 954,
+          "performed_by": "9ab3080c-73ef-4c36-b92b-ae8e8f4815f2",
+          "dry_run": true,
+          "error_message": null,
+          "created_at": "2026-06-18T11:52:49.502952+00:00"
+        },
+        {
+          "id": "ce7c7096-81c2-410e-aa3f-b0af9bcf04b5",
+          "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+          "stripe_account_id": "acct_1ThUR8Izd0dzmC0Y",
+          "action": "LOCKDOWN_DRY_RUN",
+          "before_interval": "daily",
+          "before_delay_days": 7,
+          "after_interval": "manual",
+          "after_delay_days": 7,
+          "in_flight_payout_ids": [],
+          "connect_available_pence": 0,
+          "connect_pending_pence": 0,
+          "performed_by": "9ab3080c-73ef-4c36-b92b-ae8e8f4815f2",
+          "dry_run": true,
+          "error_message": null,
+          "created_at": "2026-06-18T11:52:48.284248+00:00"
+        },
+        {
+          "id": "37b05f78-a156-4a9b-8885-e7a5958c4db9",
+          "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+          "stripe_account_id": "acct_1ThTrEEXTz9Ab5Ic",
+          "action": "LOCKDOWN_DRY_RUN",
+          "before_interval": "daily",
+          "before_delay_days": 7,
+          "after_interval": "manual",
+          "after_delay_days": 7,
+          "in_flight_payout_ids": [
+            {
+              "status": "pending",
+              "automatic": false,
+              "payout_id": "po_1TjdXrEXTz9Ab5Ic7xa29zfU",
+              "amount_pence": 278,
+              "arrival_date": "2026-06-18T00:00:00.000Z"
+            },
+            {
+              "status": "pending",
+              "automatic": false,
+              "payout_id": "po_1TjdXrEXTz9Ab5Ic7xa29zfU",
+              "amount_pence": 278,
+              "arrival_date": "2026-06-18T00:00:00.000Z"
+            },
+            {
+              "status": "paid",
+              "automatic": false,
+              "payout_id": "po_1Tjb00EXTz9Ab5IcGLdtDR2s",
+              "amount_pence": 457,
+              "arrival_date": "2026-06-18T00:00:00.000Z"
+            },
+            {
+              "status": "paid",
+              "automatic": true,
+              "payout_id": "po_1TjTPXEXTz9Ab5IcE2GFPiaq",
+              "amount_pence": 1693,
+              "arrival_date": "2026-06-18T00:00:00.000Z"
+            }
+          ],
+          "connect_available_pence": 87,
+          "connect_pending_pence": 954,
+          "performed_by": "9ab3080c-73ef-4c36-b92b-ae8e8f4815f2",
+          "dry_run": true,
+          "error_message": null,
+          "created_at": "2026-06-18T11:51:56.939334+00:00"
+        },
+        {
+          "id": "2045c767-0ae7-4cb6-9e54-114fa16b145f",
+          "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+          "stripe_account_id": "acct_1ThUR8Izd0dzmC0Y",
+          "action": "LOCKDOWN_DRY_RUN",
+          "before_interval": "daily",
+          "before_delay_days": 7,
+          "after_interval": "manual",
+          "after_delay_days": 7,
+          "in_flight_payout_ids": [
+            {
+              "status": "paid",
+              "automatic": true,
+              "payout_id": "po_1TjUCpIzd0dzmC0Y65sJxUHu",
+              "amount_pence": 5641,
+              "arrival_date": "2026-06-18T00:00:00.000Z"
+            }
+          ],
+          "connect_available_pence": 0,
+          "connect_pending_pence": 0,
+          "performed_by": "9ab3080c-73ef-4c36-b92b-ae8e8f4815f2",
+          "dry_run": true,
+          "error_message": null,
+          "created_at": "2026-06-18T11:51:55.645681+00:00"
+        }
+      ]
+    }
+  },
+  "payout_safety_check": {
+    "status": 200,
+    "data": {
+      "success": true,
+      "dry_run": true,
+      "verification_mode": true,
+      "payout_safety_version": "3d.1",
+      "stripe_execution_disabled": true,
+      "amount": 0,
+      "payout_warning_reasons": [
+        "Reconciliation variance within expected timing — payouts use finance-cleared amounts"
+      ],
+      "payout_blocked_reasons": [
+        "No provider balance allocated — funds awaiting settlement",
+        "No SSOT available payout for this driver"
+      ],
+      "settlement_status": "SIMULATED",
+      "gross_payable_pence": 0,
+      "cash_commission_recovered_pence": 0,
+      "net_driver_payout_pence": 0,
+      "wallet_balance_before": 0,
+      "currency_code": "GBP",
+      "message": "Verification mode — no batches, payout items, ledger debits, or Stripe calls were made.",
+      "ssot": {
+        "driver_available_now_pence": 0,
+        "outstanding_cash_commission_pence": 0,
+        "settled_card_earnings_pence": 3083,
+        "reconciliation_status": "RECONCILIATION_MISMATCH"
+      }
+    }
+  },
+  "ledger_delta": 0,
+  "blockers": [],
+  "pass": true
+}

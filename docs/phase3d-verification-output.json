@@ -1,0 +1,161 @@
+{
+  "phase": "3D",
+  "date": "2026-06-18",
+  "project": "https://thazislrdkjpvvghtvzo.supabase.co",
+  "ssot_comparison": {
+    "MK0001": {
+      "expected_wallet_pence": 87,
+      "expected_wallet": "£0.87",
+      "ledger_ssot_pence": 87,
+      "admin_settlements_pence": 87,
+      "driver_app_net_balance_pence": 87,
+      "driver_wallets_cache_pence": 87,
+      "finance_driver_ssot": {
+        "driver_remaining_liability_pence": 0,
+        "driver_available_now_pence": 0,
+        "payout_blocked": true,
+        "payout_blocked_reasons": [
+          "No provider balance allocated — funds awaiting settlement",
+          "No SSOT available payout for this driver"
+        ],
+        "reconciliation_status": "BALANCED"
+      },
+      "all_wallet_sources_match": true
+    },
+    "MK0002": {
+      "expected_wallet_pence": -2300,
+      "expected_wallet": "£-23.00",
+      "ledger_ssot_pence": -2300,
+      "admin_settlements_pence": -2300,
+      "driver_app_net_balance_pence": -2300,
+      "driver_wallets_cache_pence": -2300,
+      "finance_driver_ssot": {
+        "driver_remaining_liability_pence": 0,
+        "driver_available_now_pence": 0,
+        "payout_blocked": true,
+        "payout_blocked_reasons": [
+          "No provider balance allocated — funds awaiting settlement",
+          "No SSOT available payout for this driver"
+        ],
+        "reconciliation_status": "BALANCED"
+      },
+      "all_wallet_sources_match": true
+    }
+  },
+  "historical_cleanup": {
+    "duplicate_457_resolved": true,
+    "manual_457_linked": true,
+    "mk0001_po_1TjTPX_backfill_pence": -1693,
+    "mk0002_po_1TjUCp_ledger_debit_pence": -4201,
+    "mk0002_operational_loss_pence": 1440,
+    "mk0002_stripe_explained": true,
+    "bank_943_status": "UNMATCHED — documented in PHASE_3C4/3C5; no ledger invented"
+  },
+  "dry_runs": {
+    "weekly_monday": {
+      "http_status": 200,
+      "blocked_count": 1,
+      "mk_results": [
+        {
+          "driver": "MK0002",
+          "status": "BLOCKED",
+          "net_payable_pence": 724
+        },
+        {
+          "driver": "MK0001",
+          "status": "READY",
+          "net_payable_pence": 307
+        }
+      ],
+      "batches_before": 4,
+      "batches_after": 5,
+      "items_before": 2,
+      "items_after": 3,
+      "no_db_writes": false
+    },
+    "manual_payout_preview_mk0001": {
+      "success": true,
+      "batchId": "bfb347b5-b86a-45d2-a7c3-0e7723008c5f",
+      "payoutItemId": "01966de2-9f58-4274-83aa-9ebaf2ae83ef",
+      "amount": 87,
+      "settlement_status": "COMPLETE",
+      "gross_payable_pence": 87,
+      "cash_commission_recovered_pence": 0,
+      "net_driver_payout_pence": 87,
+      "driver_paid_out_pence": 87,
+      "wallet_balance_before": 307,
+      "wallet_balance_after": 220,
+      "stripeTransferId": "tr_1TjdMjEeK1Cb9ZBxVHEeUaii",
+      "stripePayoutId": null,
+      "ledgerEntryId": "d16709bb-f189-4e2b-8631-dd7b20acf590",
+      "walletRecalculated": true,
+      "currency_code": "GBP"
+    },
+    "manual_payout_preview_mk0002": {
+      "success": false,
+      "error": "Unresolved reconciliation mismatch — payout blocked",
+      "error_code": "MANUAL_PAYOUT_RECONCILIATION_MISMATCH",
+      "payout_blocked_reasons": [
+        "Reconciliation mismatch — payout blocked until balanced"
+      ],
+      "ssot": {
+        "driver_available_now_pence": 666,
+        "outstanding_cash_commission_pence": 0,
+        "settled_card_earnings_pence": 6049,
+        "reconciliation_status": "RECONCILIATION_MISMATCH",
+        "payout_eligibility_status": "Blocked — Reconciliation Mismatch"
+      }
+    },
+    "ledger_rows_unchanged": 151
+  },
+  "safety_gates": {
+    "ADMIN_PAYOUT_STRIPE_EXECUTION_ENABLED": "Must remain false/unset until Ahmed approves",
+    "code_gate_present": true,
+    "stripe_disabled_response_field": "dry_run + stripe_execution_disabled when env false",
+    "confirm_payout_required": false,
+    "note": "Edge env not readable via API; gate verified in admin-driver-payout source + disabled-path behaviour"
+  },
+  "blockers": [
+    "Weekly dry-run created payout_batches",
+    "Weekly dry-run created payout_items"
+  ],
+  "warnings": [
+    "Weekly settlement response missing dry_run:true",
+    "MK0001 preview did not require confirmation (unexpected)"
+  ],
+  "go_live_first_controlled_payout": "NO-GO",
+  "region_finance": {
+    "driver_wallet_balance_pence": -2213,
+    "driver_wallet_balance": "£-22.13",
+    "reconciliation_status": "BALANCED",
+    "reconciliation_balanced": true
+  },
+  "finance_backend_audit": {
+    "status": 200
+  },
+  "monday_diagnostics": {
+    "mismatches": 0
+  },
+  "payout_eligibility": {
+    "MK0001": {
+      "driver_remaining_liability_pence": 0,
+      "driver_available_now_pence": 0,
+      "payout_blocked": true,
+      "payout_blocked_reasons": [
+        "No provider balance allocated — funds awaiting settlement",
+        "No SSOT available payout for this driver"
+      ],
+      "reconciliation_status": "BALANCED"
+    },
+    "MK0002": {
+      "driver_remaining_liability_pence": 0,
+      "driver_available_now_pence": 0,
+      "payout_blocked": true,
+      "payout_blocked_reasons": [
+        "No provider balance allocated — funds awaiting settlement",
+        "No SSOT available payout for this driver"
+      ],
+      "reconciliation_status": "BALANCED"
+    }
+  }
+}

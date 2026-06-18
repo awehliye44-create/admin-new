@@ -113,11 +113,39 @@ Deno.serve(async (req) => {
 
       stripeAccountId = account.id;
 
+      // Phase 3D.3 — manual Connect payouts only (no automatic bank sweeps)
+      await fetch(`https://api.stripe.com/v1/accounts/${stripeAccountId}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${stripeSecretKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          "settings[payouts][schedule][interval]": "manual",
+        }),
+      });
+
       // Save to driver record
       await supabase
         .from("drivers")
         .update({ stripe_account_id: stripeAccountId })
         .eq("id", driver_id);
+    } else {
+      // Phase 3D.3 — ensure existing Connect accounts stay on manual schedule
+      const updateRes = await fetch(`https://api.stripe.com/v1/accounts/${stripeAccountId}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${stripeSecretKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          "settings[payouts][schedule][interval]": "manual",
+        }),
+      });
+      const updateBody = await updateRes.json();
+      if (updateBody.error) {
+        console.warn("[stripe-onboard] Manual schedule ensure failed:", updateBody.error.message);
+      }
     }
 
     // Create onboarding link

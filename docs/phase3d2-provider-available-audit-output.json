@@ -1,0 +1,309 @@
+{
+  "phase": "3D.2",
+  "timestamp": "2026-06-18T11:08:45.472Z",
+  "region_id": "7f611e59-a9e5-42c2-b65a-61376910bb5d",
+  "provider_available": {
+    "pence": 666,
+    "gbp": "£6.66",
+    "pending_pence": 113,
+    "pending_gbp": "£1.13",
+    "source": "stripe.balance.retrieve() → balance.available[gbp] (platform account)",
+    "query_location": "admin-finance-reconciliation/index.ts lines 315-322"
+  },
+  "reconciliation_summary": {
+    "remaining_liability_pence": 0,
+    "driver_available_now_pence": 0,
+    "driver_paid_out_pence": 6716,
+    "reconciliation_status": "BALANCED",
+    "balanced": true,
+    "card_payable_pence": 0,
+    "wallet_aggregate_pence": -2578
+  },
+  "drivers": [
+    {
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "wallet_pence": -278,
+      "wallet_gbp": "£-2.78",
+      "ledger_ssot_pence": -278,
+      "card_net_credits_pence": 3083,
+      "cash_owed_pence": 0,
+      "total_payouts_sent_pence": 2515
+    },
+    {
+      "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+      "wallet_pence": -2300,
+      "wallet_gbp": "£-23.00",
+      "ledger_ssot_pence": -2300,
+      "card_net_credits_pence": 6049,
+      "cash_owed_pence": 0,
+      "total_payouts_sent_pence": 4201
+    }
+  ],
+  "payout_items_today": [
+    {
+      "id": "8ab91a82-b271-42db-910b-7f8c2948603d",
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "amount_pence": 278,
+      "status": "completed",
+      "stripe_transfer_id": "tr_1TjdXqEeK1Cb9ZBx8XfIYOm0",
+      "stripe_payout_id": "po_1TjdXrEXTz9Ab5Ic7xa29zfU",
+      "created_at": "2026-06-18T10:51:38.253786+00:00",
+      "completed_at": "2026-06-18T10:51:40.412+00:00"
+    },
+    {
+      "id": "01966de2-9f58-4274-83aa-9ebaf2ae83ef",
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "amount_pence": 87,
+      "status": "completed",
+      "stripe_transfer_id": "tr_1TjdMjEeK1Cb9ZBxVHEeUaii",
+      "stripe_payout_id": null,
+      "created_at": "2026-06-18T10:40:09.113218+00:00",
+      "completed_at": "2026-06-18T10:40:10.843+00:00"
+    },
+    {
+      "id": "0c12e3dc-a8e9-4331-8080-2a5c713d4e9a",
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "amount_pence": 0,
+      "status": "FAILED_DUPLICATE",
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-18T10:40:00.171014+00:00",
+      "completed_at": null
+    },
+    {
+      "id": "2c50b7df-dcae-40be-9888-f89f061e0f4b",
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "amount_pence": 457,
+      "status": "completed",
+      "stripe_transfer_id": "tr_1TjazzEeK1Cb9ZBxr9bq5kdd",
+      "stripe_payout_id": "po_1Tjb00EXTz9Ab5IcGLdtDR2s",
+      "created_at": "2026-06-18T08:08:30.73285+00:00",
+      "completed_at": "2026-06-18T08:08:32+00:00"
+    },
+    {
+      "id": "c5bcd2f7-36f6-44ba-a36d-9822ac32ed44",
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "amount_pence": 0,
+      "status": "FAILED_DUPLICATE",
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-18T08:08:28.46231+00:00",
+      "completed_at": null
+    }
+  ],
+  "mk0001_recent_ledger": [
+    {
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "type": "MANUAL_PAYOUT",
+      "amount_pence": -278,
+      "stripe_transfer_id": "tr_1TjdXqEeK1Cb9ZBx8XfIYOm0",
+      "stripe_payout_id": "po_1TjdXrEXTz9Ab5Ic7xa29zfU",
+      "created_at": "2026-06-18T10:51:40.320314+00:00"
+    },
+    {
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "type": "PAYOUT_CREATED",
+      "amount_pence": 0,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-18T10:51:38.318061+00:00"
+    },
+    {
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "type": "MANUAL_PAYOUT",
+      "amount_pence": -87,
+      "stripe_transfer_id": "tr_1TjdMjEeK1Cb9ZBxVHEeUaii",
+      "stripe_payout_id": null,
+      "created_at": "2026-06-18T10:40:10.776301+00:00"
+    },
+    {
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "type": "PAYOUT_CREATED",
+      "amount_pence": 0,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-18T10:40:09.514077+00:00"
+    },
+    {
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "type": "MANUAL_PAYOUT",
+      "amount_pence": -457,
+      "stripe_transfer_id": "tr_1TjazzEeK1Cb9ZBxr9bq5kdd",
+      "stripe_payout_id": "po_1Tjb00EXTz9Ab5IcGLdtDR2s",
+      "created_at": "2026-06-18T08:08:32.796423+00:00"
+    },
+    {
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "type": "PAYOUT_CREATED",
+      "amount_pence": 0,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-18T08:08:30.805572+00:00"
+    },
+    {
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "type": "WEEKLY_PAYOUT",
+      "amount_pence": -1693,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": "po_1TjTPXEXTz9Ab5IcE2GFPiaq",
+      "created_at": "2026-06-18T00:02:23+00:00"
+    },
+    {
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "type": "TRIP_EARNING_NET",
+      "amount_pence": 419,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-16T17:22:12.471677+00:00"
+    },
+    {
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "type": "TRIP_EARNING_NET",
+      "amount_pence": 535,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-16T17:13:02.416064+00:00"
+    },
+    {
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "type": "PLATFORM_COMMISSION",
+      "amount_pence": 77,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-16T12:06:30.497297+00:00"
+    },
+    {
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "type": "TRIP_EARNING_NET",
+      "amount_pence": 436,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-16T12:06:30.496601+00:00"
+    },
+    {
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "type": "COMMISSION_RECOVERED",
+      "amount_pence": 24,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-15T22:18:11.660008+00:00"
+    },
+    {
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "type": "DEBT_RECOVERY",
+      "amount_pence": -24,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-15T22:18:11.6258+00:00"
+    },
+    {
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "type": "TRIP_EARNING_NET",
+      "amount_pence": 463,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-15T22:18:11.514666+00:00"
+    },
+    {
+      "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+      "type": "COMMISSION_RECOVERED",
+      "amount_pence": 414,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-15T22:03:07.890846+00:00"
+    }
+  ],
+  "mk0002_recent_ledger": [
+    {
+      "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+      "type": "WEEKLY_PAYOUT",
+      "amount_pence": -4201,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": "po_1TjUCpIzd0dzmC0Y65sJxUHu",
+      "created_at": "2026-06-18T00:53:19+00:00"
+    },
+    {
+      "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+      "type": "COMMISSION_RECOVERED",
+      "amount_pence": 163,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-15T23:19:55.89803+00:00"
+    },
+    {
+      "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+      "type": "DEBT_RECOVERY",
+      "amount_pence": -163,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-15T23:19:55.838433+00:00"
+    },
+    {
+      "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+      "type": "TRIP_EARNING_NET",
+      "amount_pence": 408,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-15T23:19:55.699095+00:00"
+    },
+    {
+      "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+      "type": "COMMISSION_RECOVERED",
+      "amount_pence": 445,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-15T22:50:23.116948+00:00"
+    },
+    {
+      "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+      "type": "DEBT_RECOVERY",
+      "amount_pence": -445,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-15T22:50:23.081587+00:00"
+    },
+    {
+      "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+      "type": "TRIP_EARNING_NET",
+      "amount_pence": 445,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-15T22:50:22.959207+00:00"
+    },
+    {
+      "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+      "type": "COMMISSION_RECOVERED",
+      "amount_pence": 408,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-15T22:35:24.654772+00:00"
+    },
+    {
+      "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+      "type": "DEBT_RECOVERY",
+      "amount_pence": -408,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-15T22:35:24.595664+00:00"
+    },
+    {
+      "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+      "type": "TRIP_EARNING_NET",
+      "amount_pence": 408,
+      "stripe_transfer_id": null,
+      "stripe_payout_id": null,
+      "created_at": "2026-06-15T22:35:24.445474+00:00"
+    }
+  ],
+  "all_time_reconciliation": {
+    "card_customer_revenue_pence": 10744,
+    "card_driver_payable_pence": 9232,
+    "onecab_card_commission_pence": 1612,
+    "onecab_net_commission_pence": 4855,
+    "driver_paid_out_pence": 6716,
+    "remaining_liability_pence": 0,
+    "driver_available_now_pence": 0,
+    "wallet_aggregate_pence": -2578,
+    "reconciliation_status": "BALANCED"
+  }
+}

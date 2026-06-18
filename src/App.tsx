@@ -53,6 +53,7 @@ import AdminDriverSettlements from "./pages/AdminDriverSettlements";
 import DriverWallet from "./pages/DriverWallet";
 import AdminPayoutBatches from "./pages/AdminPayoutBatches";
 import AnnualTaxiReport from "./pages/AnnualTaxiReport";
+import ConnectPayoutLockdown from "./pages/ConnectPayoutLockdown";
 import Disputes from "./pages/Disputes";
 import DisputeSettings from "./pages/DisputeSettings";
 import Invoices from "./pages/Invoices";
@@ -170,6 +171,7 @@ const App = () => (
               <Route path="admin-settlements" element={<AdminDriverSettlements />} />
               <Route path="driver-wallet" element={<DriverWallet />} />
               <Route path="payout-batches" element={<AdminPayoutBatches />} />
+              <Route path="connect-payout-lockdown" element={<ConnectPayoutLockdown />} />
               <Route path="disputes" element={<Disputes />} />
               <Route path="dispute-settings" element={<DisputeSettings />} />
               <Route path="invoices" element={<Invoices />} />

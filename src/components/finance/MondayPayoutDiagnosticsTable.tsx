@@ -11,6 +11,7 @@ import {
 import { formatPence } from "@/hooks/useDriverWallet";
 import {
   PARTIAL_SETTLEMENT_MESSAGE,
+  canRetryMondayPayoutItem,
   type MondayPayoutDiagnosticsRow,
 } from "@/hooks/useMondayPayoutDiagnostics";
 import { format } from "date-fns";
@@ -65,7 +66,7 @@ export function MondayPayoutDiagnosticsTable({
             <TableHead>Failed amount</TableHead>
             {!compact && <TableHead>Returned to wallet</TableHead>}
             <TableHead>Provider</TableHead>
-            <TableHead>Failure reason</TableHead>
+            <TableHead>Failure</TableHead>
             <TableHead>Failed at</TableHead>
             <TableHead>Reconciliation</TableHead>
             {onRetry && <TableHead />}
@@ -127,6 +128,9 @@ export function MondayPayoutDiagnosticsTable({
                 )}
               </TableCell>
               <TableCell className="text-xs max-w-[200px]">
+                {row.failure_code && (
+                  <div className="font-mono text-destructive">{row.failure_code}</div>
+                )}
                 {row.failure_reason ?? "—"}
               </TableCell>
               <TableCell className="text-xs whitespace-nowrap">
@@ -144,7 +148,7 @@ export function MondayPayoutDiagnosticsTable({
               </TableCell>
               {onRetry && (
                 <TableCell>
-                  {(row.payout_status === "failed" || row.payout_status === "ledger_sync_failed") && (
+                  {canRetryMondayPayoutItem(row) && (
                     <Button
                       size="sm"
                       variant="outline"

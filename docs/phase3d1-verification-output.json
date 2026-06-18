@@ -1,0 +1,100 @@
+{
+  "phase": "3D.1",
+  "timestamp": "2026-06-18T11:53:14.318Z",
+  "counts_before": {
+    "batches_since_window": 0,
+    "items_since_window": 0,
+    "ledger_since_window": 0,
+    "window_since": "2026-06-18T11:48:09.786Z"
+  },
+  "counts_after": {
+    "batches_since_window": 0,
+    "items_since_window": 0,
+    "ledger_since_window": 0,
+    "window_since": "2026-06-18T11:48:13.105Z"
+  },
+  "delta": {
+    "batches": 0,
+    "items": 0,
+    "ledger": 0
+  },
+  "weekly_verification": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "dry_run": true,
+      "verification_mode": true,
+      "payout_safety_version": "3d.1",
+      "stripe_execution_disabled": true,
+      "message": "Verification mode — no batches, payout items, ledger debits, or Stripe calls were made.",
+      "batch_id": null,
+      "batch_status": "SIMULATED",
+      "total_amount_pence": 0,
+      "ready_count": 2,
+      "blocked_count": 0,
+      "failed_count": 0,
+      "warning_count": 0,
+      "results": [
+        {
+          "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+          "driver_name": "asiya wehliye",
+          "status": "SIMULATED"
+        },
+        {
+          "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+          "driver_name": "Ahmed Osman",
+          "status": "SIMULATED"
+        }
+      ]
+    }
+  },
+  "manual_verification": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "dry_run": true,
+      "verification_mode": true,
+      "payout_safety_version": "3d.1",
+      "stripe_execution_disabled": true,
+      "amount": 0,
+      "payout_warning_reasons": [
+        "Reconciliation variance within expected timing — payouts use finance-cleared amounts"
+      ],
+      "payout_blocked_reasons": [
+        "No provider balance allocated — funds awaiting settlement",
+        "No SSOT available payout for this driver"
+      ],
+      "settlement_status": "SIMULATED",
+      "gross_payable_pence": 0,
+      "cash_commission_recovered_pence": 0,
+      "net_driver_payout_pence": 0,
+      "wallet_balance_before": 0,
+      "currency_code": "GBP",
+      "message": "Verification mode — no batches, payout items, ledger debits, or Stripe calls were made.",
+      "ssot": {
+        "driver_available_now_pence": 0,
+        "outstanding_cash_commission_pence": 0,
+        "settled_card_earnings_pence": 3083,
+        "reconciliation_status": "RECONCILIATION_MISMATCH"
+      }
+    }
+  },
+  "monday_diagnostics": {
+    "status": 200
+  },
+  "orphan_cancel": {
+    "batch": {
+      "status": "failed",
+      "total_amount_pence": 0,
+      "failure_code": "ORPHAN_CANCELLED_3D1"
+    },
+    "item": {
+      "status": "FAILED_DUPLICATE",
+      "amount_pence": 0,
+      "stripe_transfer_id": null,
+      "failure_code": "ORPHAN_CANCELLED_3D1"
+    }
+  },
+  "blockers": [],
+  "pass": true
+}

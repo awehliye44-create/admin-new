@@ -24,6 +24,9 @@ export type PerDriverFinanceSSOT = {
   ledger_sync_missing: boolean;
   payout_blocked: boolean;
   payout_blocked_reasons: string[];
+  payout_warning_reasons: string[];
+  reconciliation_scope?: 'digital' | 'split';
+  reconciliation_variance_pence?: number;
 };
 
 export type PerDriverFinanceSSOTResponse = {
@@ -79,5 +82,6 @@ export const PerDriverSSOT = {
   pendingPayout: (s: PerDriverFinanceSSOT) => s.driver_pending_payout_pence,
   remainingLiability: (s: PerDriverFinanceSSOT) => s.driver_remaining_liability_pence,
   canPayout: (s: PerDriverFinanceSSOT) =>
-    !s.payout_blocked && s.driver_available_now_pence > 0,
+    !s.payout_blocked && !s.ledger_sync_missing && s.driver_available_now_pence > 0,
+  hasSoftWarning: (s: PerDriverFinanceSSOT) => (s.payout_warning_reasons?.length ?? 0) > 0,
 };

@@ -58,7 +58,7 @@ export default function DriverWallet() {
         d.email.toLowerCase().includes(searchTerm.toLowerCase());
       
       if (activeTab === 'positive') return matchesSearch && d.wallet_balance > 0;
-      if (activeTab === 'negative') return matchesSearch && d.wallet_balance < 0;
+      if (activeTab === 'negative') return matchesSearch && d.amount_owed_to_onecab > 0;
       if (activeTab === 'zero') return matchesSearch && d.wallet_balance === 0;
       return matchesSearch;
     });
@@ -76,7 +76,7 @@ export default function DriverWallet() {
     ? FinanceSSOT.onecabNetCommission(ssotSummary)
     : drivers.reduce((sum, d) => sum + d.amount_owed_to_onecab, 0);
   const totalCardCredits = drivers.reduce((sum, d) => sum + d.card_net_credits, 0);
-  const driversInDebt = drivers.filter(d => d.wallet_balance < 0).length;
+  const driversInDebt = drivers.filter(d => d.amount_owed_to_onecab > 0).length;
   const driversWithBalance = drivers.filter(d => d.wallet_balance > 0).length;
 
   // Per-driver currency formatter
@@ -177,7 +177,7 @@ export default function DriverWallet() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{driversInDebt}</div>
-              <p className="text-xs text-muted-foreground">Drivers with negative balance</p>
+              <p className="text-xs text-muted-foreground">Drivers owing cash commission to ONECAB</p>
             </CardContent>
           </Card>
           <Card>
@@ -301,12 +301,12 @@ export default function DriverWallet() {
                     </div>
                   </CardContent></Card>
                   <Card><CardContent className="pt-4">
-                    <p className="text-xs text-muted-foreground">Wallet Balance</p>
+                    <p className="text-xs text-muted-foreground">Wallet Balance (SSOT)</p>
                     <p className={`text-lg font-bold ${selectedDriver.wallet_balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>{sFmt(selectedDriver.wallet_balance)}</p>
                   </CardContent></Card>
                   <Card><CardContent className="pt-4">
-                    <p className="text-xs text-muted-foreground">Wallet (informational)</p>
-                    <p className="text-lg font-bold text-muted-foreground">{sFmt(selectedDriver.wallet_balance)}</p>
+                    <p className="text-xs text-muted-foreground">Ready for Payout</p>
+                    <p className="text-lg font-bold text-green-600">{sFmt(selectedDriver.net_available_for_payout)}</p>
                   </CardContent></Card>
                   <Card><CardContent className="pt-4">
                     <p className="text-xs text-muted-foreground">Owed to ONECAB</p>

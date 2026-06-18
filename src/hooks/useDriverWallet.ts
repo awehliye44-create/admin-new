@@ -41,7 +41,7 @@ export interface DriverFinancialSummary {
   adjustments_total: number;
   total_payouts_sent: number;
   total_fees: number;
-  // Wallet
+  // Wallet — Phase 3A.4 ledger liability SSOT (driver_financial_summary.wallet_balance)
   wallet_balance: number;
   available_for_payout: number;
   /** Sum of pending/processing early-cashout requested amounts (matches driver-wallet-summary). */

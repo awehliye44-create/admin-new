@@ -21,7 +21,9 @@ import {
 } from 'lucide-react';
 import { MondayPayoutTodayCards, PartialSettlementAlert } from '@/components/finance/MondayPayoutTodayCards';
 import { MondayPayoutDiagnosticsTable } from '@/components/finance/MondayPayoutDiagnosticsTable';
-import { retryMondayPayoutItem, useMondayPayoutDiagnostics } from '@/hooks/useMondayPayoutDiagnostics';
+import { retryMondayPayoutItem, canRetryMondayPayoutItem, useMondayPayoutDiagnostics } from '@/hooks/useMondayPayoutDiagnostics';
+import { WeeklyMondaySettlementPanel } from '@/components/finance/WeeklyMondaySettlementPanel';
+import { OnecabCommissionVisibility } from '@/components/finance/OnecabCommissionVisibility';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -521,6 +523,11 @@ export default function AdminPayoutBatches() {
 
         {/* Canonical finance cards — ONECAB commission separated from Stripe platform balance */}
         <FinanceReconciliationTotalsCards ssot={financeSSOT} />
+        <OnecabCommissionVisibility summary={financeSSOT.summary} currencyCode={resolvedCurrency} />
+
+        {hasRegionScope && (
+          <WeeklyMondaySettlementPanel filter={serviceFilter} currencyCode={resolvedCurrency} />
+        )}
 
         <MondayPayoutTodayCards
           cards={mondayPayouts.data?.today_cards}

@@ -27,6 +27,7 @@ export type MondayPayoutDiagnosticsRow = {
   provider_status: string | null;
   provider_reference: string | null;
   failure_reason: string | null;
+  failure_code?: string | null;
   failed_at: string | null;
   reconciliation_status: "BALANCED" | "RECONCILIATION_MISMATCH";
   reconciliation_detail: string | null;
@@ -107,7 +108,7 @@ export function useMondayPayoutDiagnostics(
   });
 }
 
-/** Retry a failed payout item — ledger sync vs full provider retry. */
+/** Retry a failed payout item — ledger sync vs full provider retry (no duplicate batch). */
 export async function retryMondayPayoutItem(row: MondayPayoutDiagnosticsRow): Promise<void> {
   if (row.payout_status === "ledger_sync_failed") {
     const { data, error } = await supabase.functions.invoke("admin-driver-payout", {
@@ -120,19 +121,24 @@ export async function retryMondayPayoutItem(row: MondayPayoutDiagnosticsRow): Pr
     return;
   }
 
-  await supabase.rpc("ops_retry_failed_payout_item", {
-    p_payout_item_id: row.payout_item_id,
-  });
+  if (row.provider_reference || row.payout_status === "completed") {
+    throw new Error("Payout already sent to provider — cannot retry full payout");
+  }
 
   const { data, error } = await supabase.functions.invoke("admin-driver-payout", {
     body: {
-      driver_id: row.driver_id,
-      amount_pence: row.net_driver_payout_pence,
-      kind: row.batch_kind === "WEEKLY_MONDAY" ? "WEEKLY_MONDAY" : "MANUAL_ADMIN",
+      retry_payout_item_id: row.payout_item_id,
+      confirm_payout: true,
     },
   });
   if (error) throw error;
   if (!(data as { success?: boolean })?.success) {
     throw new Error((data as { error?: string })?.error ?? "Payout retry failed");
   }
+}
+
+export function canRetryMondayPayoutItem(row: MondayPayoutDiagnosticsRow): boolean {
+  if (row.payout_status === "ledger_sync_failed") return true;
+  if (row.payout_status === "failed" && !row.provider_reference) return true;
+  return false;
 }

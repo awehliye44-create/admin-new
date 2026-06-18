@@ -29,6 +29,19 @@ Deno.test("deriveSettlementStatus PARTIAL_SETTLEMENT when commission recovered a
   );
 });
 
+Deno.test("deriveSettlementStatus FAILED for FAILED_DUPLICATE", () => {
+  assertEquals(
+    deriveSettlementStatus({
+      payoutStatus: "FAILED_DUPLICATE",
+      cashCommissionRecoveredPence: 0,
+      driverPaidOutPence: 0,
+      failedPayoutAmountPence: 0,
+      returnedToWalletPence: 0,
+    }),
+    "FAILED",
+  );
+});
+
 Deno.test("gross minus commission equals net", () => {
   assertEquals(grossMinusCommissionBalanced(11338, 1338, 10000), true);
   assertEquals(grossMinusCommissionBalanced(11338, 1338, 9998), false);

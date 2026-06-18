@@ -1,0 +1,380 @@
+{
+  "phase": "3D.4",
+  "timestamp": "2026-06-18T12:27:44.692Z",
+  "project": "thazislrdkjpvvghtvzo",
+  "region_id": "7f611e59-a9e5-42c2-b65a-61376910bb5d",
+  "read_only": true,
+  "constraints": {
+    "no_stripe_updates": true,
+    "no_ledger_writes": true,
+    "no_payout_execution": true,
+    "no_batch_creation": true,
+    "no_schema_changes": true
+  },
+  "sections": [
+    {
+      "section": "1_wallet_ssot",
+      "pass": true,
+      "blockers": [],
+      "warnings": [],
+      "evidence": {
+        "MK0001": {
+          "ledger_ssot_pence": -278,
+          "ledger_ssot_gbp": "£-2.78",
+          "driver_financial_summary_pence": -278,
+          "driver_wallets_cache_pence": -278,
+          "driver_app_net_balance_pence": -278,
+          "sources_match": true
+        },
+        "MK0002": {
+          "ledger_ssot_pence": -2300,
+          "ledger_ssot_gbp": "£-23.00",
+          "driver_financial_summary_pence": -2300,
+          "driver_wallets_cache_pence": -2300,
+          "driver_app_net_balance_pence": -2300,
+          "sources_match": true
+        }
+      }
+    },
+    {
+      "section": "2_financial_reconciliation_ssot",
+      "pass": true,
+      "blockers": [],
+      "warnings": [
+        "MK0002: reconciliation_status RECONCILIATION_MISMATCH (documented timing variance)"
+      ],
+      "evidence": {
+        "endpoint_status": {
+          "all_time": 200,
+          "today": 200,
+          "backend_audit": 200
+        },
+        "reconciliation_check": {
+          "card_reconciliation": {
+            "card_customer_revenue_pence": 10744,
+            "card_driver_payable_pence": 9232,
+            "onecab_card_commission_pence": 1612,
+            "expected_sum_pence": 10844,
+            "variance_pence": -100,
+            "delta_pence": -100,
+            "balanced": true,
+            "status": "BALANCED"
+          },
+          "cash_reconciliation": {
+            "cash_collected_by_driver_pence": 25152,
+            "cash_driver_already_received_pence": 21378,
+            "onecab_cash_commission_receivable_pence": 3774,
+            "expected_sum_pence": 25152,
+            "variance_pence": 0,
+            "delta_pence": 0,
+            "balanced": true,
+            "status": "BALANCED"
+          },
+          "net_customer_revenue_pence": 10744,
+          "driver_paid_out_pence": 6716,
+          "driver_remaining_liability_pence": 0,
+          "driver_net_earnings_pence": 9232,
+          "onecab_gross_commission_pence": 5386,
+          "onecab_net_commission_pence": 4855,
+          "provider_processing_fee_pence": 531,
+          "adjustments_pence": -3554,
+          "expected_sum_pence": 10844,
+          "variance_pence": 100,
+          "delta_pence": 100,
+          "balanced": true,
+          "status": "BALANCED"
+        },
+        "driver_money": {
+          "card_driver_payable_pence": 9232,
+          "cash_driver_already_received_pence": 21378,
+          "driver_wallet_balance_pence": -2578,
+          "driver_available_payout_pence": 0,
+          "driver_pending_payout_pence": 0,
+          "driver_paid_out_pence": 6716,
+          "driver_payout_liability_pence": 0,
+          "onecab_cash_commission_owed_pence": 3774,
+          "in_flight_cashout_pence": 0,
+          "driver_gross_earnings_pence": 37150,
+          "driver_net_earnings_pence": 30510
+        },
+        "wallet_integrity_count": 0,
+        "wallet_integrity_failures": 0,
+        "per_driver": {
+          "MK0001": {
+            "driver_id": "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
+            "driver_gross_earnings_pence": 10864,
+            "driver_net_earnings_pence": 9123,
+            "driver_paid_out_pence": 2515,
+            "completed_early_cashouts_pence": 0,
+            "adjustments_pence": -846,
+            "driver_remaining_liability_pence": 5762,
+            "in_flight_cashout_pence": 0,
+            "provider_available_balance_pence": 666,
+            "provider_pending_balance_pence": 113,
+            "provider_available_balance_allocated_to_driver_pence": 190,
+            "provider_upcoming_payout_pence": 113,
+            "driver_available_now_pence": 190,
+            "driver_pending_payout_pence": 5572,
+            "next_payout_date": "2026-06-24T00:00:00.000Z",
+            "reconciliation_status": "BALANCED",
+            "source_tier": "LIVE",
+            "ledger_sync_missing": false,
+            "payout_blocked": false,
+            "payout_blocked_reasons": []
+          },
+          "MK0002": {
+            "driver_id": "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+            "driver_gross_earnings_pence": 26286,
+            "driver_net_earnings_pence": 21387,
+            "driver_paid_out_pence": 4201,
+            "completed_early_cashouts_pence": 0,
+            "adjustments_pence": -2708,
+            "driver_remaining_liability_pence": 14578,
+            "in_flight_cashout_pence": 0,
+            "provider_available_balance_pence": 666,
+            "provider_pending_balance_pence": 113,
+            "provider_available_balance_allocated_to_driver_pence": 476,
+            "provider_upcoming_payout_pence": 113,
+            "driver_available_now_pence": 476,
+            "driver_pending_payout_pence": 14102,
+            "next_payout_date": "2026-06-24T00:00:00.000Z",
+            "reconciliation_status": "RECONCILIATION_MISMATCH",
+            "source_tier": "LIVE",
+            "ledger_sync_missing": false,
+            "payout_blocked": true,
+            "payout_blocked_reasons": [
+              "Reconciliation mismatch — payout blocked until balanced"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "section": "3_stripe_reconciliation",
+      "pass": true,
+      "blockers": [],
+      "warnings": [],
+      "evidence": {
+        "stripe_reconciliation_audit": {
+          "status": 200,
+          "platform_payouts_count": 5,
+          "connected_payouts_count": 4,
+          "connected_transfers_count": 21,
+          "ledger_cross_check_summary": null,
+          "paid_without_ledger_in_audit": 4
+        },
+        "stripe_balance_audit": {
+          "status": 200,
+          "automatic_payout_accounts": []
+        }
+      }
+    },
+    {
+      "section": "4_provider_available_audit",
+      "pass": true,
+      "blockers": [],
+      "warnings": [],
+      "evidence": {
+        "source": "stripe.balance.retrieve() platform available[gbp] via admin-finance-reconciliation",
+        "provider_available_pence": 666,
+        "provider_available_gbp": "£6.66",
+        "provider_pending_pence": 113,
+        "provider_pending_gbp": "£1.13",
+        "driver_remaining_liability_pence": 0,
+        "driver_available_now_pence": 0,
+        "formula": "driver_available_now = min(max(remaining_liability,0), provider_available)",
+        "future_payouts_platform_pence": 779
+      }
+    },
+    {
+      "section": "5_payout_safety_gates",
+      "pass": true,
+      "blockers": [],
+      "warnings": [],
+      "evidence": {
+        "weekly": {
+          "status": 200,
+          "verification_mode": true,
+          "payout_safety_version": "3d.1",
+          "batch_id": null
+        },
+        "manual": {
+          "status": 200,
+          "verification_mode": true,
+          "payout_safety_version": "3d.1",
+          "batchId": null
+        },
+        "side_effects": {
+          "batches_delta": 0,
+          "items_delta": 0,
+          "ledger_delta": 0
+        },
+        "execution_flag_note": "ADMIN_PAYOUT_STRIPE_EXECUTION_ENABLED=false (prod secret)"
+      }
+    },
+    {
+      "section": "6_connect_manual_payout_lockdown",
+      "pass": true,
+      "blockers": [],
+      "warnings": [],
+      "evidence": {
+        "status": 200,
+        "summary": {
+          "total": 2,
+          "automatic_count": 0,
+          "manual_count": 2,
+          "in_flight_count": 0
+        },
+        "accounts": [
+          {
+            "driver_code": "MK0002",
+            "stripe_account_id": "acct_1ThUR8Izd0dzmC0Y",
+            "payout_schedule_interval": "manual",
+            "automatic_payouts_enabled": false,
+            "last_lockdown_audit": {
+              "action": "LOCKDOWN_APPLIED",
+              "after_interval": "manual",
+              "dry_run": false,
+              "created_at": "2026-06-18T11:52:53.815451+00:00"
+            }
+          },
+          {
+            "driver_code": "MK0001",
+            "stripe_account_id": "acct_1ThTrEEXTz9Ab5Ic",
+            "payout_schedule_interval": "manual",
+            "automatic_payouts_enabled": false,
+            "last_lockdown_audit": {
+              "action": "LOCKDOWN_APPLIED",
+              "after_interval": "manual",
+              "dry_run": false,
+              "created_at": "2026-06-18T11:52:57.065274+00:00"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "section": "7_orphan_duplicate_cleanup",
+      "pass": true,
+      "blockers": [],
+      "warnings": [],
+      "evidence": {
+        "orphan_weekly_batch": {
+          "status": "failed",
+          "total_amount_pence": 0,
+          "failure_code": "ORPHAN_CANCELLED_3D1"
+        },
+        "orphan_weekly_item": {
+          "status": "FAILED_DUPLICATE",
+          "amount_pence": 0,
+          "stripe_transfer_id": null,
+          "stripe_payout_id": null,
+          "failure_code": "ORPHAN_CANCELLED_3D1"
+        },
+        "duplicate_457_item": {
+          "status": "FAILED_DUPLICATE",
+          "amount_pence": 0
+        },
+        "real_457_item": {
+          "status": "completed",
+          "ledger_entry_id": "3448df70-8f1e-4bcf-9062-dfb2fcc3f8ef",
+          "stripe_payout_id": "po_1Tjb00EXTz9Ab5IcGLdtDR2s",
+          "stripe_transfer_id": "tr_1TjazzEeK1Cb9ZBxr9bq5kdd"
+        },
+        "mk0001_auto_orphan_backfill_pence": -1693,
+        "mk0002_auto_orphan_partial_debit_pence": -4201,
+        "mk0002_operational_loss_note": {
+          "operational_loss_pence": 1440,
+          "stripe_payout_amount_pence": 5641
+        },
+        "invalid_orphaned_batches": [
+          {
+            "id": "99e964b1-9050-4995-9f1b-c70c7e31b81a",
+            "status": "INVALID_ORPHANED",
+            "total_amount_pence": 4208
+          },
+          {
+            "id": "06b1c321-3ec8-4b3d-8f6d-47d3f7afbc59",
+            "status": "INVALID_ORPHANED",
+            "total_amount_pence": 4208
+          }
+        ],
+        "bank_943_unmatched": "documented — no ledger invented (Phase 3C4/3C5)"
+      }
+    },
+    {
+      "section": "8_pending_stripe_payout_objects",
+      "pass": true,
+      "blockers": [],
+      "warnings": [
+        "MK0002: no pending/in_transit Connect payouts",
+        "MK0001: no pending/in_transit Connect payouts"
+      ],
+      "evidence": {
+        "MK0002": [],
+        "MK0001": []
+      }
+    },
+    {
+      "section": "9_driver_wallet_consistency",
+      "pass": true,
+      "blockers": [],
+      "warnings": [
+        "MK0001: ledger wallet -278p vs finance card liability 5762p (different SSOT layers)",
+        "MK0001: negative wallet with finance driver_available_now 190p and payout_blocked=false",
+        "MK0002: ledger wallet -2300p vs finance card liability 14578p (different SSOT layers)"
+      ],
+      "evidence": {
+        "per_driver": {
+          "MK0001": {
+            "ledger_wallet_pence": -278,
+            "finance_card_liability_pence": 5762,
+            "finance_available_now_pence": 190,
+            "payout_blocked": false,
+            "payout_blocked_reasons": [],
+            "negative_wallet": true,
+            "wallet_sources_match": true
+          },
+          "MK0002": {
+            "ledger_wallet_pence": -2300,
+            "finance_card_liability_pence": 14578,
+            "finance_available_now_pence": 476,
+            "payout_blocked": true,
+            "payout_blocked_reasons": [
+              "Reconciliation mismatch — payout blocked until balanced"
+            ],
+            "negative_wallet": true,
+            "wallet_sources_match": true
+          }
+        },
+        "region_aggregate_wallet_pence": -2578,
+        "sum_driver_ledger_wallets_pence": -2578,
+        "aggregate_matches_sum": true,
+        "note": "Wallet SSOT (ledger) and finance card liability are intentionally different measures"
+      }
+    }
+  ],
+  "summary": {
+    "sections_total": 9,
+    "sections_passed": 9,
+    "sections_failed": 0,
+    "all_sections_pass": true,
+    "blockers": [],
+    "warnings": [
+      "[2_financial_reconciliation_ssot] MK0002: reconciliation_status RECONCILIATION_MISMATCH (documented timing variance)",
+      "[8_pending_stripe_payout_objects] MK0002: no pending/in_transit Connect payouts",
+      "[8_pending_stripe_payout_objects] MK0001: no pending/in_transit Connect payouts",
+      "[9_driver_wallet_consistency] MK0001: ledger wallet -278p vs finance card liability 5762p (different SSOT layers)",
+      "[9_driver_wallet_consistency] MK0001: negative wallet with finance driver_available_now 190p and payout_blocked=false",
+      "[9_driver_wallet_consistency] MK0002: ledger wallet -2300p vs finance card liability 14578p (different SSOT layers)"
+    ]
+  },
+  "final_verdict": {
+    "finance_system_closure": "PASS",
+    "first_controlled_live_payout": "NO-GO",
+    "readiness_blockers": [
+      "First controlled live payout requires Ahmed approval + ADMIN_PAYOUT_STRIPE_EXECUTION_ENABLED=true",
+      "One or more driver wallets negative — resolve before live payout"
+    ]
+  }
+}

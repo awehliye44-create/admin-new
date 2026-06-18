@@ -335,7 +335,7 @@ export function buildFinanceBackendAuditV1(args: {
   payoutItems: PayoutItemRow[];
   earlyCashouts: EarlyCashoutRow[];
   walletByDriver: Map<string, number>;
-  /** All-time ledger wallet SSOT per driver (excludes COMMISSION_RECOVERED). */
+  /** All-time ledger wallet SSOT per driver (Phase 3A.4 — includes COMMISSION_RECOVERED). */
   ledgerWalletSumByDriver: Map<string, number>;
   drivers: Array<{ id: string; first_name?: string | null; last_name?: string | null }>;
   stripeAvailablePence: number;

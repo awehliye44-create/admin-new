@@ -55,6 +55,12 @@ export function formatProviderFailureReason(
   return trimmed.length > 0 ? trimmed : PROVIDER_FAILURE_REASON_FALLBACK;
 }
 
+const TERMINAL_FAILED_PAYOUT_STATUSES = new Set([
+  "failed",
+  "ledger_sync_failed",
+  "FAILED_DUPLICATE",
+]);
+
 export function deriveSettlementStatus(args: {
   payoutStatus: string;
   cashCommissionRecoveredPence: number;
@@ -64,17 +70,17 @@ export function deriveSettlementStatus(args: {
 }): MondayPayoutSettlementStatus {
   const { payoutStatus, cashCommissionRecoveredPence } = args;
   if (payoutStatus === "completed") return "COMPLETE";
+  if (payoutStatus === "FAILED_DUPLICATE") return "FAILED";
   if (payoutStatus === "pending" || payoutStatus === "processing") return "PROCESSING";
   if (
     cashCommissionRecoveredPence > 0 &&
-    (payoutStatus === "failed" ||
-      payoutStatus === "ledger_sync_failed" ||
+    (TERMINAL_FAILED_PAYOUT_STATUSES.has(payoutStatus) ||
       args.failedPayoutAmountPence > 0 ||
       args.returnedToWalletPence > 0)
   ) {
     return "PARTIAL_SETTLEMENT";
   }
-  if (payoutStatus === "failed" || payoutStatus === "ledger_sync_failed") return "FAILED";
+  if (TERMINAL_FAILED_PAYOUT_STATUSES.has(payoutStatus)) return "FAILED";
   return "PENDING";
 }
 
@@ -167,7 +173,7 @@ export function buildMondayPayoutDiagnosticsRow(args: {
   const driverPaidOut = payoutStatus === "completed"
     ? Number(item.driver_paid_out_pence ?? netPayout)
     : Number(item.driver_paid_out_pence ?? 0);
-  const failedAmount = payoutStatus === "failed" || payoutStatus === "ledger_sync_failed"
+  const failedAmount = TERMINAL_FAILED_PAYOUT_STATUSES.has(payoutStatus)
     ? Number(item.failed_payout_amount_pence ?? netPayout)
     : Number(item.failed_payout_amount_pence ?? 0);
   const returned = Number(item.returned_to_wallet_pence ?? 0);

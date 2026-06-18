@@ -1,12 +1,18 @@
 /**
- * Wallet balance SSOT — mirrors driver_financial_summary.balance_totals and onecabFinanceLedger.
+ * Wallet balance SSOT — aligned with Phase 3A.4 computeLedgerWalletBalancePence().
  */
+import {
+  BALANCE_EXCLUDED_LEDGER_TYPES,
+  computeLedgerWalletBalancePence,
+  type LedgerRow,
+} from "./onecabFinanceLedger.ts";
 
-export const WALLET_BALANCE_EXCLUDED_LEDGER_TYPES = new Set([
-  "PLATFORM_COMMISSION",
-  "CASH_TRIP_EARNING",
-  "COMMISSION_RECOVERED",
-]);
+export { BALANCE_EXCLUDED_LEDGER_TYPES, computeLedgerWalletBalancePence };
+
+/** Reporting-only types excluded from wallet balance (same as BALANCE_EXCLUDED_LEDGER_TYPES). */
+export const WALLET_BALANCE_EXCLUDED_LEDGER_TYPES = new Set<string>(
+  BALANCE_EXCLUDED_LEDGER_TYPES,
+);
 
 export type WalletBalanceLedgerRow = {
   driver_id?: string | null;
@@ -18,13 +24,13 @@ export function isWalletBalanceLedgerType(type: string | null | undefined): bool
   return !WALLET_BALANCE_EXCLUDED_LEDGER_TYPES.has(String(type ?? ""));
 }
 
+/** Ledger wallet balance — identical to computeLedgerWalletBalancePence / perDriverLedgerLiabilityPence (pre-max). */
 export function sumLedgerWalletBalancePence(rows: WalletBalanceLedgerRow[]): number {
-  let sum = 0;
-  for (const row of rows) {
-    if (!isWalletBalanceLedgerType(row.type)) continue;
-    sum += Number(row.amount_pence ?? 0);
-  }
-  return sum;
+  const ledger: LedgerRow[] = rows.map((r) => ({
+    type: String(r.type ?? ""),
+    amount_pence: Number(r.amount_pence ?? 0),
+  }));
+  return computeLedgerWalletBalancePence(ledger);
 }
 
 export function sumLedgerWalletBalanceByDriver(

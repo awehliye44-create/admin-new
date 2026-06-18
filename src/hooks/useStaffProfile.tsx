@@ -67,6 +67,7 @@ const ROUTE_PERMISSION_ALIASES: Record<string, string[]> = {
     'financial-reconciliation',
     'admin-settlements',
   ],
+  'connect-payout-lockdown': ['connect-payout-lockdown', 'payout-batches'],
 };
 
 export function StaffProfileProvider({ children }: { children: ReactNode }) {

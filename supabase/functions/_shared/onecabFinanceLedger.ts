@@ -7,11 +7,14 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 export const CAPTURED_PAYMENT_STATUSES = new Set(["captured", "paid", "succeeded"]);
 
-export const REPORTING_ONLY_LEDGER_TYPES = new Set([
+/** Ledger types excluded from wallet balance (reporting-only). */
+export const BALANCE_EXCLUDED_LEDGER_TYPES = [
   "PLATFORM_COMMISSION",
   "CASH_TRIP_EARNING",
-  "COMMISSION_RECOVERED",
-]);
+] as const;
+
+/** Reporting-only types excluded from wallet balance (Phase 3A.4). COMMISSION_RECOVERED is included in wallet. */
+export const REPORTING_ONLY_LEDGER_TYPES = new Set<string>(BALANCE_EXCLUDED_LEDGER_TYPES);
 
 export const CARD_CREDIT_LEDGER_TYPES = new Set([
   "TRIP_EARNING_NET",
@@ -90,6 +93,16 @@ export function computeCashCommissionOutstanding(ledger: LedgerRow[]): number {
 
 export function computeOwedToOnecab(ledger: LedgerRow[]): number {
   return computeCashCommissionOutstanding(ledger);
+}
+
+/** Single wallet balance from ledger — SSOT for cache, net_balance, and available_now. */
+export function computeLedgerWalletBalancePence(ledger: LedgerRow[]): number {
+  let total = 0;
+  for (const entry of ledger) {
+    if ((BALANCE_EXCLUDED_LEDGER_TYPES as readonly string[]).includes(entry.type)) continue;
+    total += entry.amount_pence ?? 0;
+  }
+  return total;
 }
 
 export type DriverPayoutInputs = {

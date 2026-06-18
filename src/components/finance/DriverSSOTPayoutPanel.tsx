@@ -9,17 +9,34 @@ import {
   type PerDriverFinanceSSOT,
 } from '@/hooks/usePerDriverFinancialReconciliation';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
+import {
+  buildManualPayoutSsotSnapshot,
+  canManualPayout,
+  manualPayoutBlockedHeadline,
+  manualPayoutSoftWarningMessage,
+  type ManualPayoutDriverFlags,
+} from '@/lib/manualPayoutGate';
+
+export type ManualPayoutDriverSummary = ManualPayoutDriverFlags & {
+  amount_owed_to_onecab?: number;
+  card_net_credits?: number;
+};
 
 export function DriverSSOTPayoutPanel({
   driverId,
   currencyCode,
   filter,
   compact = false,
+  driverSummary,
+  inFlightPayout = false,
 }: {
   driverId: string | null;
   currencyCode: string;
   filter?: ServiceAreaFinanceSelection;
   compact?: boolean;
+  /** Ledger-backed owed + settled card from driver_financial_summary */
+  driverSummary?: ManualPayoutDriverSummary | null;
+  inFlightPayout?: boolean;
 }) {
   const { data, isLoading, isError } = usePerDriverFinancialReconciliation({
     driverId,
@@ -27,6 +44,27 @@ export function DriverSSOTPayoutPanel({
   });
 
   const ssot = data?.finance_reconciliation_driver_ssot;
+  const payoutAllowed = ssot && driverSummary
+    ? canManualPayout({ driver: driverSummary, ssot, inFlightPayout })
+    : ssot
+      ? PerDriverSSOT.canPayout(ssot) && !inFlightPayout
+      : false;
+
+  const softWarningMessage = ssot ? manualPayoutSoftWarningMessage(ssot) : null;
+
+  const manualSnapshot = ssot && driverSummary
+    ? buildManualPayoutSsotSnapshot({
+        driver: driverSummary,
+        ssot,
+        settled_card_earnings_pence: driverSummary.card_net_credits ?? 0,
+        outstanding_cash_commission_pence: driverSummary.amount_owed_to_onecab ?? 0,
+        inFlightPayout,
+      })
+    : null;
+
+  const blockedHeadline = ssot
+    ? manualPayoutBlockedHeadline({ ssot, canPayout: payoutAllowed, inFlightPayout })
+    : null;
 
   if (!driverId) return null;
 
@@ -49,15 +87,65 @@ export function DriverSSOTPayoutPanel({
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <FinanceSSOTBadge badge={ssot.source_tier} />
-        <Badge variant={ssot.reconciliation_status === 'BALANCED' ? 'outline' : 'destructive'}>
+        <Badge variant={ssot.reconciliation_status === 'BALANCED' ? 'outline' : 'secondary'}>
           {ssot.reconciliation_status}
         </Badge>
+        {softWarningMessage && (
+          <Badge variant="secondary" className="bg-amber-100 text-amber-900 border-amber-300">
+            Finance review warning
+          </Badge>
+        )}
         {ssot.ledger_sync_missing && (
           <Badge variant="destructive">Ledger sync missing</Badge>
         )}
       </div>
 
-      {ssot.payout_blocked && (
+      {softWarningMessage && payoutAllowed && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-3 text-sm text-amber-900 dark:text-amber-100">
+          <p className="font-medium flex items-center gap-1">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {softWarningMessage}
+          </p>
+        </div>
+      )}
+
+      {blockedHeadline && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-3 text-sm space-y-3">
+          <p className="font-medium flex items-center gap-1 text-amber-900 dark:text-amber-100">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {blockedHeadline}
+          </p>
+          {manualSnapshot && (
+            <div className="grid gap-2 sm:grid-cols-2 text-amber-900 dark:text-amber-100">
+              <Row
+                label="Settled card earnings"
+                value={formatPence(manualSnapshot.settled_card_earnings_pence, currencyCode)}
+              />
+              <Row
+                label="Outstanding cash commission"
+                value={formatPence(manualSnapshot.outstanding_cash_commission_pence, currencyCode)}
+              />
+              <Row
+                label="SSOT Available Now"
+                value={formatPence(manualSnapshot.available_now_pence, currencyCode)}
+              />
+              <Row
+                label="Payout eligibility"
+                value={manualSnapshot.payout_eligibility_status}
+              />
+            </div>
+          )}
+          {ssot.payout_blocked && ssot.payout_blocked_reasons.length > 0 && (
+            <ul className="list-disc pl-5 text-amber-800 dark:text-amber-200 space-y-1">
+              {ssot.payout_blocked_reasons.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {ssot.payout_blocked && !blockedHeadline && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-3 text-sm">
           <p className="font-medium flex items-center gap-1 text-amber-900 dark:text-amber-100">
             <AlertTriangle className="h-4 w-4" />
@@ -101,14 +189,33 @@ export function DriverSSOTPayoutPanel({
 export function useDriverSSOTPayoutGate(
   driverId: string | null,
   filter?: ServiceAreaFinanceSelection,
+  driverSummary?: ManualPayoutDriverSummary | null,
+  inFlightPayout = false,
 ) {
   const query = usePerDriverFinancialReconciliation({ driverId, filter });
   const ssot = query.data?.finance_reconciliation_driver_ssot;
+  const canPayout = ssot && driverSummary
+    ? canManualPayout({ driver: driverSummary, ssot, inFlightPayout })
+    : ssot
+      ? PerDriverSSOT.canPayout(ssot) && !inFlightPayout
+      : false;
+
   return {
     ...query,
     ssot,
-    canPayout: ssot ? PerDriverSSOT.canPayout(ssot) : false,
+    canPayout,
+    softWarningMessage: ssot ? manualPayoutSoftWarningMessage(ssot) : null,
     payoutAmountPence: ssot?.driver_available_now_pence ?? 0,
+    blockedHeadline: ssot ? manualPayoutBlockedHeadline({ ssot, canPayout, inFlightPayout }) : null,
+    manualSnapshot: ssot && driverSummary
+      ? buildManualPayoutSsotSnapshot({
+          driver: driverSummary,
+          ssot,
+          settled_card_earnings_pence: driverSummary.card_net_credits ?? 0,
+          outstanding_cash_commission_pence: driverSummary.amount_owed_to_onecab ?? 0,
+          inFlightPayout,
+        })
+      : null,
   };
 }
 

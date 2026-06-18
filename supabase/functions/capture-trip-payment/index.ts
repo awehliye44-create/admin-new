@@ -107,7 +107,7 @@ serve(async (req) => {
       .from('driver_wallet_ledger')
       .select('amount_pence')
       .eq('driver_id', driver_id)
-      .not('type', 'in', '("PLATFORM_COMMISSION","CASH_TRIP_EARNING","COMMISSION_RECOVERED")');
+      .not('type', 'in', '("PLATFORM_COMMISSION","CASH_TRIP_EARNING")');
 
     const walletBalanceBefore = walletEntries?.reduce((sum, e) => sum + (e.amount_pence || 0), 0) || 0;
     let debtRecoveryPence = 0;
