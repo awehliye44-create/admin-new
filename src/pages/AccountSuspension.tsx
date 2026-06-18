@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import {
@@ -42,6 +43,7 @@ interface Suspension {
 
 export default function AccountSuspension() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [userTypeFilter, setUserTypeFilter] = useState<string>('all');
@@ -138,8 +140,14 @@ export default function AccountSuspension() {
       toast.error('Please fill in required fields');
       return;
     }
+    const selfEmail = user?.email?.toLowerCase();
+    if (selfEmail && newSuspension.user_email.trim().toLowerCase() === selfEmail) {
+      toast.error('You cannot suspend or block your own admin account.');
+      return;
+    }
     createMutation.mutate(newSuspension);
   };
+
 
   const filteredSuspensions = suspensions.filter(s => {
     const matchesSearch = 
