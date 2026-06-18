@@ -4,7 +4,25 @@
 **Date:** 2026-06-18  
 **Project:** `thazislrdkjpvvghtvzo` (Supabase prod, Frankfurt)  
 **Region scope:** MK (`7f611e59-a9e5-42c2-b65a-61376910bb5d`)  
-**Status:** **Recommended tag — pending git commit of working tree**
+**Status:** **COMPLETE** — tag `ONECAB_FINANCE_BASELINE_v1` on `d6b7df0` (2026-06-18)
+
+### Phase 3F completion proof (2026-06-18)
+
+| Check | Result | Evidence |
+|-------|--------|----------|
+| Git baseline pushed | **PASS** | `d6b7df0` on `origin/main` |
+| Release tag | **PASS** | `ONECAB_FINANCE_BASELINE_v1` pushed |
+| `npm run build` | **PASS** | 6.65s, `dist/` produced |
+| Phase 3D.4 verification | **PASS** | 9/9 sections |
+| Phase 3D.1 payout safety | **PASS** | zero side effects |
+| Phase 3D.3 Connect lockdown | **PASS** | `automatic_count: 0`, `ledger_delta: 0` |
+| Unit tests (payout gate) | **PASS** | 9/9 |
+| Stripe writes during audit | **NONE** | read-only + verification_mode only |
+| Ledger writes during audit | **NONE** | `ledger_delta: 0` |
+| Execution flag | **false** | verified via dry-run responses |
+| Lovable git sync | **PASS** | manual Publish still required in Lovable UI |
+
+Full JSON: [`phase3f-completion-proof.json`](phase3f-completion-proof.json)
 
 ---
 
@@ -208,9 +226,9 @@ npx tsx scripts/phase3d3-connect-lockdown-verification.ts  # no apply flag
 | Orphan / Duplicate Cleanup PASS | ✅ |
 | Finance Closure PASS | ✅ |
 | Phase 3E ops plan documented | ✅ |
-| Git commit contains full baseline | ❌ **Pending** |
-| Admin UI published | ❌ **Pending** |
-| Release tag created | ❌ **Pending** |
+| Git commit contains full baseline | ✅ `d6b7df0` |
+| Admin UI published | ⚠️ **Git pushed** — Lovable manual Publish still required |
+| Release tag created | ✅ `ONECAB_FINANCE_BASELINE_v1` |
 | Payout execution enabled | ❌ **Must remain false** |
 
 ---

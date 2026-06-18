@@ -3,7 +3,8 @@
 **Date:** 2026-06-18  
 **Project:** `thazislrdkjpvvghtvzo` (prod)  
 **Repo:** `admin-new` (+ related apps noted below)  
-**Mode:** Planning and verification only — no deployments, Stripe changes, ledger writes, or execution-flag changes performed during this audit
+**Status:** **COMPLETE** — see [`phase3f-completion-proof.json`](phase3f-completion-proof.json) and [`PHASE_3F_COMPLETION_REPORT.md`](PHASE_3F_COMPLETION_REPORT.md)  
+**Mode:** Audit and verification complete — no Stripe changes, ledger writes, or execution-flag changes during this phase
 
 ---
 
@@ -11,7 +12,7 @@
 
 Production **already reflects** the verified Phase 3D finance baseline for database migrations (3C.5–3D.3) and critical edge functions (3D.1 gates, Connect lockdown). Phase 3D.4 closure verification **re-passed** on 2026-06-18 with 9/9 sections PASS.
 
-**Deployment gap:** A large **uncommitted working tree** (88 files) and **Admin UI not published** to Lovable/hosting mean the git release point does not yet match what operators see in prod vs what developers have locally.
+**Deployment gap (resolved 2026-06-18):** Git baseline committed (`d6b7df0`), tagged `ONECAB_FINANCE_BASELINE_v1`, pushed to GitHub. **Remaining:** Lovable manual Publish for Admin UI.
 
 | Area | Prod state | Local state | Deploy needed? |
 |------|------------|-------------|----------------|
