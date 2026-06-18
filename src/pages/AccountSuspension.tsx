@@ -140,8 +140,14 @@ export default function AccountSuspension() {
       toast.error('Please fill in required fields');
       return;
     }
+    const selfEmail = user?.email?.toLowerCase();
+    if (selfEmail && newSuspension.user_email.trim().toLowerCase() === selfEmail) {
+      toast.error('You cannot suspend or block your own admin account.');
+      return;
+    }
     createMutation.mutate(newSuspension);
   };
+
 
   const filteredSuspensions = suspensions.filter(s => {
     const matchesSearch = 
