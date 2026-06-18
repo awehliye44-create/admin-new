@@ -237,9 +237,9 @@ npx tsx scripts/phase3d3-connect-lockdown-verification.ts  # no apply flag
 
 | Decision | Verdict |
 |----------|---------|
-| **Tag `ONECAB_FINANCE_BASELINE_v1` after commit** | **GO** |
-| **Publish Admin UI (no execution)** | **GO** |
-| **Start Phase 4A–4F development** | **GO** after tag + UI publish |
+| **Tag `ONECAB_FINANCE_BASELINE_v1` after commit** | **GO** — done on `d6b7df0` |
+| **Publish Admin UI (no execution)** | **GO** — git synced; click Publish in Lovable |
+| **Start Phase 4A–4F development** | **GO** after Critical A/B per execution order |
 | **Apply pending SAFE migrations** | **GO** with backup |
 | **Enable payout execution** | **NO-GO** |
 | **First controlled live payout** | **NO-GO** |
