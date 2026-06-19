@@ -866,7 +866,6 @@ export default function ManualTrip() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="ride">Ride</SelectItem>
-                        <SelectItem value="delivery">Delivery</SelectItem>
                         <SelectItem value="parcel">Parcel</SelectItem>
                       </SelectContent>
                     </Select>
