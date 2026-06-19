@@ -4844,6 +4844,97 @@ export type Database = {
           },
         ]
       }
+      finance_reconciliation_notes: {
+        Row: {
+          classification: string | null
+          created_at: string
+          driver_id: string
+          id: string
+          ledger_debit_pence: number
+          ledger_entry_id: string | null
+          metadata: Json
+          note: string
+          operational_loss_pence: number
+          reference_doc: string | null
+          remediation_option: string
+          stripe_payout_amount_pence: number
+          stripe_payout_id: string
+        }
+        Insert: {
+          classification?: string | null
+          created_at?: string
+          driver_id: string
+          id?: string
+          ledger_debit_pence: number
+          ledger_entry_id?: string | null
+          metadata?: Json
+          note: string
+          operational_loss_pence?: number
+          reference_doc?: string | null
+          remediation_option: string
+          stripe_payout_amount_pence: number
+          stripe_payout_id: string
+        }
+        Update: {
+          classification?: string | null
+          created_at?: string
+          driver_id?: string
+          id?: string
+          ledger_debit_pence?: number
+          ledger_entry_id?: string | null
+          metadata?: Json
+          note?: string
+          operational_loss_pence?: number
+          reference_doc?: string | null
+          remediation_option?: string
+          stripe_payout_amount_pence?: number
+          stripe_payout_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finance_reconciliation_notes_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_reconciliation_notes_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "finance_reconciliation_notes_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "finance_reconciliation_notes_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "finance_reconciliation_notes_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_reconciliation_notes_ledger_entry_id_fkey"
+            columns: ["ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_ledger"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       geofence_events: {
         Row: {
           created_at: string
@@ -7927,7 +8018,7 @@ export type Database = {
             foreignKeyName: "payout_items_ledger_entry_id_fkey"
             columns: ["ledger_entry_id"]
             isOneToOne: false
-            referencedRelation: "driver_ledger"
+            referencedRelation: "driver_wallet_ledger"
             referencedColumns: ["id"]
           },
           {
@@ -9893,6 +9984,96 @@ export type Database = {
             columns: ["service_area_id"]
             isOneToOne: true
             referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stripe_connect_payout_schedule_audit: {
+        Row: {
+          action: string
+          after_delay_days: number | null
+          after_interval: string | null
+          before_delay_days: number | null
+          before_interval: string | null
+          connect_available_pence: number | null
+          connect_pending_pence: number | null
+          created_at: string
+          driver_id: string | null
+          dry_run: boolean
+          error_message: string | null
+          id: string
+          in_flight_payout_ids: Json | null
+          performed_by: string | null
+          stripe_account_id: string
+        }
+        Insert: {
+          action: string
+          after_delay_days?: number | null
+          after_interval?: string | null
+          before_delay_days?: number | null
+          before_interval?: string | null
+          connect_available_pence?: number | null
+          connect_pending_pence?: number | null
+          created_at?: string
+          driver_id?: string | null
+          dry_run?: boolean
+          error_message?: string | null
+          id?: string
+          in_flight_payout_ids?: Json | null
+          performed_by?: string | null
+          stripe_account_id: string
+        }
+        Update: {
+          action?: string
+          after_delay_days?: number | null
+          after_interval?: string | null
+          before_delay_days?: number | null
+          before_interval?: string | null
+          connect_available_pence?: number | null
+          connect_pending_pence?: number | null
+          created_at?: string
+          driver_id?: string | null
+          dry_run?: boolean
+          error_message?: string | null
+          id?: string
+          in_flight_payout_ids?: Json | null
+          performed_by?: string | null
+          stripe_account_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stripe_connect_payout_schedule_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stripe_connect_payout_schedule_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "stripe_connect_payout_schedule_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "stripe_connect_payout_schedule_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "stripe_connect_payout_schedule_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
         ]
