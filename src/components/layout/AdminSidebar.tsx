@@ -336,9 +336,10 @@ export function AdminSidebar() {
           </Section>
 
           {/* REPORTS */}
-          <Section label="Reports" slugs={['financial-reconciliation','annual-taxi-report']}>
+          <Section label="Reports" slugs={['financial-reconciliation','annual-taxi-report','onecab-revenue-profit']}>
             <P pageSlug="financial-reconciliation" to="/financial-reconciliation" icon={<Calculator className="h-4 w-4" />} label="Financial Reconciliation (SSOT)" active={currentPath === '/financial-reconciliation'} collapsed={isCollapsed} />
             <P pageSlug="annual-taxi-report" to="/annual-taxi-report" icon={<FileText className="h-4 w-4" />} label="Annual Taxi Report" active={currentPath === '/annual-taxi-report'} collapsed={isCollapsed} />
+            <P pageSlug="onecab-revenue-profit" to="/onecab-revenue-profit" icon={<BarChart3 className="h-4 w-4" />} label="ONECAB Revenue & Profit" active={currentPath === '/onecab-revenue-profit'} collapsed={isCollapsed} />
           </Section>
 
           {/* ONECAB DOCUMENTS */}
