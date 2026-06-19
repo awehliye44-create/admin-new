@@ -299,37 +299,6 @@ export default function Dashboard() {
     serviceAreas,
   });
 
-  // ─── Delivery Marketplace Overview — respects service area filter ───
-  // Source: merchants table grouped by category. Marketplace order flow is not
-  // yet emitting completed orders, so the volumetric widgets render 0 until
-  // delivery orders are recorded — we never invent numbers.
-  const { data: deliveryData } = useQuery({
-    queryKey: ['dashboard-delivery-overview', selectedServiceArea],
-    queryFn: async () => {
-      let q = supabase
-        .from('merchants')
-        .select('id, category, status, service_area_id')
-        .limit(5000);
-      if (selectedServiceArea !== 'all') q = q.eq('service_area_id', selectedServiceArea);
-      const { data, error } = await q;
-      if (error) throw error;
-      const merchants = data || [];
-      const byCategory = (cat: string) => merchants.filter(m => m.category === cat).length;
-      return {
-        merchantCount: merchants.length,
-        activeMerchants: merchants.filter(m => m.status === 'approved').length,
-        byCategory: {
-          food: byCategory('food'),
-          grocery: byCategory('grocery'),
-          retail: byCategory('retail'),
-          pharmacy: byCategory('pharmacy'),
-          parcel: byCategory('parcel'),
-        },
-      };
-    },
-  });
-
-
   // ─── MAIN DASHBOARD QUERY — operational stats only (no revenue) ───
   const { data: dashData, isLoading, refetch: fetchStats } = useQuery({
     queryKey: ['dashboard-stats', period, selectedServiceArea, customDateFrom?.toISOString(), customDateTo?.toISOString()],
@@ -729,69 +698,6 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* ─── Delivery Marketplace Overview ─── */}
-      {/* Respects the selected service area filter. Values are labelled
-          explicitly as Delivery Marketplace to never get mixed with Ride
-          Revenue. Cash is not allowed for marketplace delivery — all
-          customer-side payments are card / Apple Pay / Google Pay. */}
-      <Card className="mb-6">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <Send className="h-5 w-5 text-primary" />
-              Delivery Marketplace Overview
-            </CardTitle>
-            <span className="text-xs text-muted-foreground">
-              {selectedServiceArea === 'all'
-                ? 'All service areas'
-                : selectedArea?.name || 'Selected service area'}
-            </span>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-4">
-            <DeliveryStat label="Delivery Orders Today" value="0" sub={`${deliveryData?.activeMerchants ?? 0} active merchants`} />
-            <DeliveryStat label="Active Delivery Orders" value="0" sub="In progress" />
-            <DeliveryStat label="Completed Delivery Orders" value="0" sub="This period" />
-            <DeliveryStat label="Cancelled Delivery Orders" value="0" sub="This period" />
-          </div>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-4">
-            <DeliveryStat
-              label="Delivery Marketplace Revenue"
-              value={selectedServiceArea === 'all' ? '—' : formatPence(0, activeCurrencyCode)}
-              sub="ONECAB commission (delivery)"
-            />
-            <DeliveryStat
-              label="Merchant Sales"
-              value={selectedServiceArea === 'all' ? '—' : formatPence(0, activeCurrencyCode)}
-              sub="Gross merchant sales"
-            />
-            <DeliveryStat
-              label="Driver Delivery Earnings"
-              value={selectedServiceArea === 'all' ? '—' : formatPence(0, activeCurrencyCode)}
-              sub="Paid to delivery drivers"
-            />
-            <DeliveryStat
-              label="Pending Merchant Settlements"
-              value={selectedServiceArea === 'all' ? '—' : formatPence(0, activeCurrencyCode)}
-              sub="Net owed to merchants"
-            />
-          </div>
-          <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-5">
-            <DeliveryCategoryCard label="Food Orders" count={deliveryData?.byCategory.food ?? 0} />
-            <DeliveryCategoryCard label="Grocery Orders" count={deliveryData?.byCategory.grocery ?? 0} />
-            <DeliveryCategoryCard label="Retail Orders" count={deliveryData?.byCategory.retail ?? 0} />
-            <DeliveryCategoryCard label="Pharmacy Orders" count={deliveryData?.byCategory.pharmacy ?? 0} />
-            <DeliveryCategoryCard label="Parcel Orders" count={deliveryData?.byCategory.parcel ?? 0} />
-          </div>
-          <p className="mt-4 text-xs text-muted-foreground">
-            Delivery order volumes populate once marketplace orders flow through the
-            ONECAB payment workflow (card, Apple Pay, Google Pay — no cash). Counts above
-            reflect registered merchants in the selected service area.
-          </p>
-        </CardContent>
-      </Card>
-
       <div className="grid gap-6 lg:grid-cols-2 mb-6">
 
         {/* User Statistics */}
@@ -1025,28 +931,3 @@ export default function Dashboard() {
   );
 }
 
-function DeliveryStat({ label, value, sub }: { label: string; value: string; sub: string }) {
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-bold">{value}</div>
-        <p className="text-xs text-muted-foreground">{sub}</p>
-      </CardContent>
-    </Card>
-  );
-}
-
-function DeliveryCategoryCard({ label, count }: { label: string; count: number }) {
-  return (
-    <Card className="bg-muted/30">
-      <CardContent className="pt-4">
-        <div className="text-xs text-muted-foreground">{label}</div>
-        <div className="text-xl font-bold mt-1">0</div>
-        <div className="text-[10px] text-muted-foreground mt-0.5">{count} merchants</div>
-      </CardContent>
-    </Card>
-  );
-}
