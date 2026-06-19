@@ -67,6 +67,10 @@ const ROUTE_PERMISSION_ALIASES: Record<string, string[]> = {
     'financial-reconciliation',
     'admin-settlements',
   ],
+  'onecab-revenue-profit': [
+    'onecab-revenue-profit',
+    'financial-reconciliation',
+  ],
   'connect-payout-lockdown': ['connect-payout-lockdown', 'payout-batches'],
 };
 
