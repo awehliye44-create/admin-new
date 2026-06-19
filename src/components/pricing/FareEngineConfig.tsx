@@ -420,6 +420,17 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
             .insert(stopPayload);
         }
 
+        // Keep fare_pricing_settings stop columns in sync — customer app reads fare when stop_waiting_settings row missing.
+        if (settings?.id) {
+          await supabase
+            .from('fare_pricing_settings')
+            .update({
+              stop_waiting_grace_period_minutes: stopWaiting.stopWaitingGracePeriodMinutes,
+              stop_waiting_rate_pence_per_minute: stopWaiting.stopWaitingRatePencePerMinute,
+            })
+            .eq('id', settings.id);
+        }
+
         // Keep dispatch_settings in sync — stop-workflow reads both tables every check.
         const dispatchRadiusPayload = {
           stop_radius_enabled: stopWaiting.stopRadiusEnabled,
