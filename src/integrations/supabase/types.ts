@@ -6842,6 +6842,69 @@ export type Database = {
         }
         Relationships: []
       }
+      onecab_expenses: {
+        Row: {
+          amount_pence: number
+          category: string
+          created_at: string
+          created_by: string | null
+          currency_code: string
+          description: string | null
+          expense_date: string
+          id: string
+          notes: string | null
+          region_id: string | null
+          service_area_id: string | null
+          subcategory: string
+          updated_at: string
+        }
+        Insert: {
+          amount_pence: number
+          category: string
+          created_at?: string
+          created_by?: string | null
+          currency_code?: string
+          description?: string | null
+          expense_date?: string
+          id?: string
+          notes?: string | null
+          region_id?: string | null
+          service_area_id?: string | null
+          subcategory: string
+          updated_at?: string
+        }
+        Update: {
+          amount_pence?: number
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          currency_code?: string
+          description?: string | null
+          expense_date?: string
+          id?: string
+          notes?: string | null
+          region_id?: string | null
+          service_area_id?: string | null
+          subcategory?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "onecab_expenses_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "onecab_expenses_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ops_ai_summaries: {
         Row: {
           alert_id: string
