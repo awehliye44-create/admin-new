@@ -56,7 +56,7 @@ interface TripRow {
   final_fare_pence: number | null;
   final_customer_fare_pence: number | null;
   commission_pence: number | null;
-  stripe_fee_pence: number | null;
+  
   corporate_account_id: string | null;
   region_id: string | null;
   service_area_id: string | null;
@@ -124,7 +124,7 @@ export default function OnecabRevenueProfitReport() {
     queryFn: async () => {
       let q = supabase
         .from('trips')
-        .select('id,completed_at,payment_method,status,currency_code,gross_fare_pence,final_fare_pence,final_customer_fare_pence,commission_pence,stripe_fee_pence,corporate_account_id,region_id,service_area_id')
+        .select('id,completed_at,payment_method,status,currency_code,gross_fare_pence,final_fare_pence,final_customer_fare_pence,commission_pence,corporate_account_id,region_id,service_area_id')
         .eq('status', 'completed')
         .gte('completed_at', range.start.toISOString())
         .lte('completed_at', range.end.toISOString())
@@ -162,7 +162,6 @@ export default function OnecabRevenueProfitReport() {
       const g = tripGross(t);
       totalBooking += g;
       commission += t.commission_pence ?? 0;
-      stripeFees += t.stripe_fee_pence ?? 0;
       const pm = String(t.payment_method ?? '').toUpperCase();
       if (t.corporate_account_id) corporate += g;
       if (pm === 'CASH') cashCommission += t.commission_pence ?? 0;
