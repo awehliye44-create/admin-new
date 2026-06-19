@@ -44,9 +44,14 @@ import {
   CheckCircle2, XCircle, Clock, AlertTriangle, FileCheck, FileClock,
   Calendar, ExternalLink, ImageOff
 } from 'lucide-react';
-import { format, isPast, addDays, isBefore } from 'date-fns';
+import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { useDocumentTypes } from '@/hooks/useDocumentTypes';
+import {
+  formatExpiryDisplayDate,
+  getDocumentExpiryDisplayStatus,
+  isDocumentExpiringSoon,
+} from '@/lib/driverDocumentCompliance';
 
 interface Document {
   id: string;
@@ -173,11 +178,20 @@ export default function Documents() {
     return DOCUMENT_TYPES.find(t => t.value === type)?.label || type;
   };
 
-  const isExpiringSoon = (expiryDate: string | null) => {
-    if (!expiryDate) return false;
-    const expiry = new Date(expiryDate);
-    const warningDate = addDays(new Date(), 30);
-    return isBefore(expiry, warningDate) && !isPast(expiry);
+  const DOCUMENT_EXPIRY_WARNING_DAYS = 30;
+
+  const getExpiryBadge = (doc: Document) => {
+    if (!doc.expiry_date) return { expired: false, expiringSoon: false };
+    const displayStatus = getDocumentExpiryDisplayStatus({
+      status: doc.status,
+      expiry_date: doc.expiry_date,
+      has_expiry: true,
+      warningDays: DOCUMENT_EXPIRY_WARNING_DAYS,
+    });
+    return {
+      expired: displayStatus === 'expired',
+      expiringSoon: displayStatus === 'expiring_soon',
+    };
   };
 
   const filteredDocuments = documents.filter(doc => {
@@ -195,7 +209,7 @@ export default function Documents() {
   const pendingCount = documents.filter(d => d.status === 'pending').length;
   const approvedCount = documents.filter(d => d.status === 'approved').length;
   const rejectedCount = documents.filter(d => d.status === 'rejected').length;
-  const expiringCount = documents.filter(d => d.expiry_date && isExpiringSoon(d.expiry_date)).length;
+  const expiringCount = documents.filter((d) => getExpiryBadge(d).expiringSoon).length;
 
   return (
     <AdminLayout 
@@ -333,8 +347,7 @@ export default function Documents() {
                   {filteredDocuments.map((doc) => {
                     const statusConfig = STATUS_CONFIG[doc.status] || STATUS_CONFIG.pending;
                     const StatusIcon = statusConfig.icon;
-                    const expiringSoon = isExpiringSoon(doc.expiry_date);
-                    const expired = doc.expiry_date && isPast(new Date(doc.expiry_date));
+                    const { expired, expiringSoon } = getExpiryBadge(doc);
                     
                     return (
                       <TableRow key={doc.id}>
@@ -358,7 +371,7 @@ export default function Documents() {
                           {doc.expiry_date ? (
                             <div className={`flex items-center gap-1 ${expired ? 'text-red-600' : expiringSoon ? 'text-orange-600' : ''}`}>
                               <Calendar className="h-3 w-3" />
-                              {format(new Date(doc.expiry_date), 'MMM d, yyyy')}
+                              {formatExpiryDisplayDate(doc.expiry_date)}
                               {expired && <Badge variant="destructive" className="ml-1 text-xs">Expired</Badge>}
                               {expiringSoon && !expired && <Badge variant="outline" className="ml-1 text-xs bg-orange-100 text-orange-700">Soon</Badge>}
                             </div>
@@ -603,7 +616,7 @@ function DocumentViewDialog({
         {doc.expiry_date && (
           <div>
             <Label className="text-muted-foreground">Expiry Date</Label>
-            <p className="font-medium">{format(new Date(doc.expiry_date), 'PPP')}</p>
+            <p className="font-medium">{formatExpiryDisplayDate(doc.expiry_date)}</p>
           </div>
         )}
 

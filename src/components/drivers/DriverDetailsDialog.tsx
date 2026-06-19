@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { getDaysUntilExpiryLondon } from '@/lib/documentExpiryLondon';
+import { isDocumentExpired, isDocumentExpiringSoon } from '@/lib/driverDocumentCompliance';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { useDriverProfilePhoto } from '@/hooks/useDriverFileUrl';
@@ -253,8 +255,6 @@ export function DriverDetailsDialog({
 
   const getDocComplianceItems = () => {
     const { requiredTypes, driverDocs } = documentCompliance;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
 
     return requiredTypes.map((dt) => {
       const doc = driverDocs.find((d) => d.document_type === dt.slug);
@@ -263,13 +263,14 @@ export function DriverDetailsDialog({
       if (doc.status === 'rejected') return { name: dt.name, slug: dt.slug, status: 'rejected' as const, daysLeft: null, fileUrl: doc.file_url };
       if (doc.status !== 'approved') return { name: dt.name, slug: dt.slug, status: 'pending' as const, daysLeft: null, fileUrl: doc.file_url };
 
-      // Approved — check expiry
       if (doc.expiry_date) {
-        const expiry = new Date(doc.expiry_date);
-        expiry.setHours(0, 0, 0, 0);
-        const daysLeft = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-        if (daysLeft < 0) return { name: dt.name, slug: dt.slug, status: 'expired' as const, daysLeft, fileUrl: doc.file_url };
-        if (daysLeft <= 30) return { name: dt.name, slug: dt.slug, status: 'expiring_soon' as const, daysLeft, fileUrl: doc.file_url };
+        const daysLeft = getDaysUntilExpiryLondon(doc.expiry_date);
+        if (isDocumentExpired(doc.expiry_date)) {
+          return { name: dt.name, slug: dt.slug, status: 'expired' as const, daysLeft, fileUrl: doc.file_url };
+        }
+        if (isDocumentExpiringSoon(doc.expiry_date, 30)) {
+          return { name: dt.name, slug: dt.slug, status: 'expiring_soon' as const, daysLeft, fileUrl: doc.file_url };
+        }
       }
 
       return { name: dt.name, slug: dt.slug, status: 'valid' as const, daysLeft: null, fileUrl: doc.file_url };
