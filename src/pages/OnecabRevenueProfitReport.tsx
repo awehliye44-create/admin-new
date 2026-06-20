@@ -605,7 +605,40 @@ export default function OnecabRevenueProfitReport() {
             <CardHeader><CardTitle>Tax Overview</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
               <Line label="Profit Before Tax" value={formatPence(profit.profitBeforeTax, revenue.currency)} />
-              <Line label="Estimated Corporation Tax (25%)" value={formatPence(profit.corpTax, revenue.currency)} />
+
+              <div className="flex items-center justify-between gap-2 py-1">
+                <Label htmlFor="corp-tax-rate" className="text-sm font-normal">
+                  Corporation Tax Rate (%)
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="corp-tax-rate"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    value={taxRateInput}
+                    onChange={(e) => setTaxRateInput(e.target.value)}
+                    disabled={!canEditTaxRate || saveTaxRate.isPending}
+                    className="w-24 h-8 text-right"
+                  />
+                  {canEditTaxRate && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={saveTaxRate.isPending || Number(taxRateInput) === corpTaxPct}
+                      onClick={() => saveTaxRate.mutate(Number(taxRateInput))}
+                    >
+                      {saveTaxRate.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <Line
+                label={`Estimated Corporation Tax (${corpTaxPct}%)`}
+                value={formatPence(profit.corpTax, revenue.currency)}
+              />
               <div className="border-t pt-2 mt-2 flex justify-between font-semibold">
                 <span>Profit After Tax</span>
                 <span className={profit.profitAfterTax >= 0 ? 'text-emerald-600' : 'text-destructive'}>
@@ -614,7 +647,8 @@ export default function OnecabRevenueProfitReport() {
               </div>
               <Line label="Retained Earnings" value={formatPence(profit.retainedEarnings, revenue.currency)} />
               <p className="text-xs text-muted-foreground pt-2">
-                Corporation Tax estimate uses a flat 25% rate. Consult your accountant for exact liability.
+                Estimate only for internal reporting — not the SSOT for HMRC filing.
+                {!canEditTaxRate && ' You have view-only access to this rate.'}
               </p>
             </CardContent>
           </Card>
