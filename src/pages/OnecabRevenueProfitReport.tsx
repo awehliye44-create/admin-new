@@ -236,14 +236,15 @@ export default function OnecabRevenueProfitReport() {
 
   const profit = useMemo(() => {
     const profitBeforeTax = revenue.netRevenue - expenseTotals.total;
-    const corpTax = Math.max(0, Math.round(profitBeforeTax * CORP_TAX_RATE));
+    const rate = Math.max(0, Math.min(100, corpTaxPct)) / 100;
+    const corpTax = Math.max(0, Math.round(profitBeforeTax * rate));
     return {
       profitBeforeTax,
       corpTax,
       profitAfterTax: profitBeforeTax - corpTax,
       retainedEarnings: profitBeforeTax - corpTax,
     };
-  }, [revenue, expenseTotals]);
+  }, [revenue, expenseTotals, corpTaxPct]);
 
   // Expense dialog state
   const [openDialog, setOpenDialog] = useState(false);
