@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, startOfWeek, startOfMonth, startOfQuarter, startOfYear, endOfDay, startOfDay } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Info, Download, Printer, Plus, Trash2, Loader2, TrendingUp, TrendingDown, Receipt } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { formatPence } from '@/hooks/useDriverWallet';
+import { useStaffProfile } from '@/hooks/useStaffProfile';
 
 type PeriodMode = 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'custom';
 type ExpenseCategory = 'technology' | 'marketing' | 'operations' | 'staff' | 'other';
@@ -28,7 +29,8 @@ const SUBCATEGORIES: Record<ExpenseCategory, string[]> = {
   other: ['Custom Expense'],
 };
 
-const CORP_TAX_RATE = 0.25;
+const DEFAULT_CORP_TAX_PCT = 25;
+const CORP_TAX_SETTING_KEY = 'corporation_tax_rate';
 
 interface RegionRow { id: string; name: string; currency_code?: string | null }
 interface ServiceAreaRow { id: string; name: string; region_id: string | null }
@@ -85,12 +87,18 @@ function periodRange(mode: PeriodMode, customFrom?: string, customTo?: string): 
 export default function OnecabRevenueProfitReport() {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { staffProfile } = useStaffProfile();
+
+  // Edit allowed for Super Admin & Finance Admin (admin/super_admin/finance_manager). Others view-only.
+  const canEditTaxRate = !staffProfile
+    || ['super_admin', 'admin', 'finance_manager'].includes(staffProfile.role);
 
   const [periodMode, setPeriodMode] = useState<PeriodMode>('monthly');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [regionId, setRegionId] = useState<string>('__all__');
   const [serviceAreaId, setServiceAreaId] = useState<string>('__all__');
+  const [taxRateInput, setTaxRateInput] = useState<string>(String(DEFAULT_CORP_TAX_PCT));
 
   const range = useMemo(() => periodRange(periodMode, customFrom, customTo), [periodMode, customFrom, customTo]);
   const periodLabel = `${format(range.start, 'd MMM yyyy')} – ${format(range.end, 'd MMM yyyy')}`;
@@ -178,6 +186,43 @@ export default function OnecabRevenueProfitReport() {
     };
   }, [tripsQuery.data]);
 
+  // Persisted manual Corporation Tax rate (percentage)
+  const taxRateQuery = useQuery({
+    queryKey: ['orp-corp-tax-rate'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('admin_settings')
+        .select('setting_value')
+        .eq('setting_key', CORP_TAX_SETTING_KEY)
+        .maybeSingle();
+      if (error) throw error;
+      const raw = (data?.setting_value as any);
+      const pct = typeof raw === 'number' ? raw : (raw?.percent ?? raw?.value ?? DEFAULT_CORP_TAX_PCT);
+      const num = Number(pct);
+      return isFinite(num) ? num : DEFAULT_CORP_TAX_PCT;
+    },
+  });
+
+  const corpTaxPct = taxRateQuery.data ?? DEFAULT_CORP_TAX_PCT;
+
+  // Sync input when persisted value loads / changes
+  useEffect(() => { setTaxRateInput(String(corpTaxPct)); }, [corpTaxPct]);
+
+  const saveTaxRate = useMutation({
+    mutationFn: async (pct: number) => {
+      if (!isFinite(pct) || pct < 0 || pct > 100) throw new Error('Enter a rate between 0 and 100');
+      const { error } = await supabase
+        .from('admin_settings')
+        .upsert({ setting_key: CORP_TAX_SETTING_KEY, setting_value: pct as any }, { onConflict: 'setting_key' });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast({ title: 'Corporation Tax rate updated' });
+      qc.invalidateQueries({ queryKey: ['orp-corp-tax-rate'] });
+    },
+    onError: (e: any) => toast({ title: 'Failed', description: e.message, variant: 'destructive' }),
+  });
+
   const expenseTotals = useMemo(() => {
     const ex = expensesQuery.data ?? [];
     const byCat: Record<ExpenseCategory, number> = { technology: 0, marketing: 0, operations: 0, staff: 0, other: 0 };
@@ -191,14 +236,15 @@ export default function OnecabRevenueProfitReport() {
 
   const profit = useMemo(() => {
     const profitBeforeTax = revenue.netRevenue - expenseTotals.total;
-    const corpTax = Math.max(0, Math.round(profitBeforeTax * CORP_TAX_RATE));
+    const rate = Math.max(0, Math.min(100, corpTaxPct)) / 100;
+    const corpTax = Math.max(0, Math.round(profitBeforeTax * rate));
     return {
       profitBeforeTax,
       corpTax,
       profitAfterTax: profitBeforeTax - corpTax,
       retainedEarnings: profitBeforeTax - corpTax,
     };
-  }, [revenue, expenseTotals]);
+  }, [revenue, expenseTotals, corpTaxPct]);
 
   // Expense dialog state
   const [openDialog, setOpenDialog] = useState(false);
@@ -275,7 +321,8 @@ export default function OnecabRevenueProfitReport() {
       [],
       ['Profit', 'Amount'],
       ['Profit Before Tax', (profit.profitBeforeTax / 100).toFixed(2)],
-      ['Estimated Corporation Tax (25%)', (profit.corpTax / 100).toFixed(2)],
+      [`Corporation Tax Rate (%)`, String(corpTaxPct)],
+      [`Estimated Corporation Tax (${corpTaxPct}%)`, (profit.corpTax / 100).toFixed(2)],
       ['Profit After Tax', (profit.profitAfterTax / 100).toFixed(2)],
       ['Currency', c],
       [],
@@ -558,7 +605,40 @@ export default function OnecabRevenueProfitReport() {
             <CardHeader><CardTitle>Tax Overview</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
               <Line label="Profit Before Tax" value={formatPence(profit.profitBeforeTax, revenue.currency)} />
-              <Line label="Estimated Corporation Tax (25%)" value={formatPence(profit.corpTax, revenue.currency)} />
+
+              <div className="flex items-center justify-between gap-2 py-1">
+                <Label htmlFor="corp-tax-rate" className="text-sm font-normal">
+                  Corporation Tax Rate (%)
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="corp-tax-rate"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    value={taxRateInput}
+                    onChange={(e) => setTaxRateInput(e.target.value)}
+                    disabled={!canEditTaxRate || saveTaxRate.isPending}
+                    className="w-24 h-8 text-right"
+                  />
+                  {canEditTaxRate && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={saveTaxRate.isPending || Number(taxRateInput) === corpTaxPct}
+                      onClick={() => saveTaxRate.mutate(Number(taxRateInput))}
+                    >
+                      {saveTaxRate.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <Line
+                label={`Estimated Corporation Tax (${corpTaxPct}%)`}
+                value={formatPence(profit.corpTax, revenue.currency)}
+              />
               <div className="border-t pt-2 mt-2 flex justify-between font-semibold">
                 <span>Profit After Tax</span>
                 <span className={profit.profitAfterTax >= 0 ? 'text-emerald-600' : 'text-destructive'}>
@@ -567,7 +647,8 @@ export default function OnecabRevenueProfitReport() {
               </div>
               <Line label="Retained Earnings" value={formatPence(profit.retainedEarnings, revenue.currency)} />
               <p className="text-xs text-muted-foreground pt-2">
-                Corporation Tax estimate uses a flat 25% rate. Consult your accountant for exact liability.
+                Estimate only for internal reporting — not the SSOT for HMRC filing.
+                {!canEditTaxRate && ' You have view-only access to this rate.'}
               </p>
             </CardContent>
           </Card>
