@@ -29,7 +29,8 @@ const SUBCATEGORIES: Record<ExpenseCategory, string[]> = {
   other: ['Custom Expense'],
 };
 
-const CORP_TAX_RATE = 0.25;
+const DEFAULT_CORP_TAX_PCT = 25;
+const CORP_TAX_SETTING_KEY = 'corporation_tax_rate';
 
 interface RegionRow { id: string; name: string; currency_code?: string | null }
 interface ServiceAreaRow { id: string; name: string; region_id: string | null }
