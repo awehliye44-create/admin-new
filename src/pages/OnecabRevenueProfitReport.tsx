@@ -186,6 +186,43 @@ export default function OnecabRevenueProfitReport() {
     };
   }, [tripsQuery.data]);
 
+  // Persisted manual Corporation Tax rate (percentage)
+  const taxRateQuery = useQuery({
+    queryKey: ['orp-corp-tax-rate'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('admin_settings')
+        .select('setting_value')
+        .eq('setting_key', CORP_TAX_SETTING_KEY)
+        .maybeSingle();
+      if (error) throw error;
+      const raw = (data?.setting_value as any);
+      const pct = typeof raw === 'number' ? raw : (raw?.percent ?? raw?.value ?? DEFAULT_CORP_TAX_PCT);
+      const num = Number(pct);
+      return isFinite(num) ? num : DEFAULT_CORP_TAX_PCT;
+    },
+  });
+
+  const corpTaxPct = taxRateQuery.data ?? DEFAULT_CORP_TAX_PCT;
+
+  // Sync input when persisted value loads / changes
+  useMemo(() => { setTaxRateInput(String(corpTaxPct)); }, [corpTaxPct]);
+
+  const saveTaxRate = useMutation({
+    mutationFn: async (pct: number) => {
+      if (!isFinite(pct) || pct < 0 || pct > 100) throw new Error('Enter a rate between 0 and 100');
+      const { error } = await supabase
+        .from('admin_settings')
+        .upsert({ setting_key: CORP_TAX_SETTING_KEY, setting_value: pct as any }, { onConflict: 'setting_key' });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast({ title: 'Corporation Tax rate updated' });
+      qc.invalidateQueries({ queryKey: ['orp-corp-tax-rate'] });
+    },
+    onError: (e: any) => toast({ title: 'Failed', description: e.message, variant: 'destructive' }),
+  });
+
   const expenseTotals = useMemo(() => {
     const ex = expensesQuery.data ?? [];
     const byCat: Record<ExpenseCategory, number> = { technology: 0, marketing: 0, operations: 0, staff: 0, other: 0 };
