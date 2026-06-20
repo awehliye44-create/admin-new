@@ -6,7 +6,8 @@ import {
   manualPayoutSoftWarningMessage,
 } from '../manualPayoutGate';
 import type { PerDriverFinanceSSOT } from '@/hooks/usePerDriverFinancialReconciliation';
-import { PAYOUT_SOFT_WARNING_RECONCILIATION } from '../../../supabase/functions/_shared/financialReconciliationSSOT.ts';
+const PAYOUT_SOFT_WARNING_RECONCILIATION =
+  "Reconciliation variance within expected timing — payouts use finance-cleared amounts";
 
 const baseSsot: PerDriverFinanceSSOT = {
   driver_id: 'd1',
