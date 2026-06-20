@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Info, Download, Printer, Plus, Trash2, Loader2, TrendingUp, TrendingDown, Receipt } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { formatPence } from '@/hooks/useDriverWallet';
+import { useStaffProfile } from '@/hooks/useStaffProfile';
 
 type PeriodMode = 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'custom';
 type ExpenseCategory = 'technology' | 'marketing' | 'operations' | 'staff' | 'other';
