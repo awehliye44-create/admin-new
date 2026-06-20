@@ -87,12 +87,18 @@ function periodRange(mode: PeriodMode, customFrom?: string, customTo?: string): 
 export default function OnecabRevenueProfitReport() {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { staffProfile } = useStaffProfile();
+
+  // Edit allowed for Super Admin & Finance Admin (admin/super_admin/finance_manager). Others view-only.
+  const canEditTaxRate = !staffProfile
+    || ['super_admin', 'admin', 'finance_manager'].includes(staffProfile.role);
 
   const [periodMode, setPeriodMode] = useState<PeriodMode>('monthly');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [regionId, setRegionId] = useState<string>('__all__');
   const [serviceAreaId, setServiceAreaId] = useState<string>('__all__');
+  const [taxRateInput, setTaxRateInput] = useState<string>(String(DEFAULT_CORP_TAX_PCT));
 
   const range = useMemo(() => periodRange(periodMode, customFrom, customTo), [periodMode, customFrom, customTo]);
   const periodLabel = `${format(range.start, 'd MMM yyyy')} – ${format(range.end, 'd MMM yyyy')}`;
