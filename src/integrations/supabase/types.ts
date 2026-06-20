@@ -13638,6 +13638,7 @@ export type Database = {
         }
         Returns: string
       }
+      capture_expired_tip_windows_sweep: { Args: never; Returns: undefined }
       check_driver_documents_approved: {
         Args: { p_driver_id: string }
         Returns: boolean
@@ -13815,6 +13816,7 @@ export type Database = {
         Args: { p_driver_id: string; p_offer_id: string }
         Returns: Json
       }
+      driver_compliance_today_london: { Args: never; Returns: string }
       driver_effective_online_reason: {
         Args: {
           p_driver_id: string
@@ -14508,9 +14510,17 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: undefined
       }
+      recalculate_driver_documents_approved: {
+        Args: { p_driver_id: string }
+        Returns: boolean
+      }
       recalculate_driver_wallet: {
         Args: { p_driver_id: string }
         Returns: undefined
+      }
+      recalculate_drivers_compliance_london_daily: {
+        Args: never
+        Returns: number
       }
       reconcile_stale_online_drivers: {
         Args: never
