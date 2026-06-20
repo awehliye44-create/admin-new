@@ -206,7 +206,7 @@ export default function OnecabRevenueProfitReport() {
   const corpTaxPct = taxRateQuery.data ?? DEFAULT_CORP_TAX_PCT;
 
   // Sync input when persisted value loads / changes
-  useMemo(() => { setTaxRateInput(String(corpTaxPct)); }, [corpTaxPct]);
+  useEffect(() => { setTaxRateInput(String(corpTaxPct)); }, [corpTaxPct]);
 
   const saveTaxRate = useMutation({
     mutationFn: async (pct: number) => {
