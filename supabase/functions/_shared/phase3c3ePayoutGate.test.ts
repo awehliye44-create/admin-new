@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildPayoutGateReasons,
-} from '../../../supabase/functions/_shared/perDriverFinancialReconciliation.ts';
+} from './perDriverFinancialReconciliation.ts';
 import {
   classifyReconciliationVariance,
   PAYOUT_SOFT_WARNING_RECONCILIATION,
-} from '../../../supabase/functions/_shared/financialReconciliationSSOT.ts';
-import { ledgerTypeForBatchKind } from '../../../supabase/functions/_shared/payoutLedgerSync.ts';
+} from './financialReconciliationSSOT.ts';
+import { ledgerTypeForBatchKind } from './payoutLedgerSync.ts';
 
 const MK_REGION = '7f611e59-a9e5-42c2-b65a-61376910bb5d';
 
