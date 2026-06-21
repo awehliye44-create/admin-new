@@ -1,4 +1,3 @@
-import React from "react";
 import { createRoot } from "react-dom/client";
 import { initSentry } from "./lib/sentry";
 import { resolveMapboxToken } from "./lib/mapbox";
@@ -14,8 +13,4 @@ void resolveMapboxToken().catch((err: unknown) => {
   console.warn("[mapbox] preload:", msg);
 });
 
-createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+createRoot(document.getElementById("root")!).render(<App />);
