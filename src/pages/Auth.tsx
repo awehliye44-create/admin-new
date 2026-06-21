@@ -146,7 +146,7 @@ function FormShell({ children }: { children: React.ReactNode }) {
 
 export default function Auth() {
   const navigate = useNavigate();
-  const { user, isAdmin, isLoading, signIn, signOut } = useAuth();
+  const { user, isAdmin, isAuthReady, signIn, signOut } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -158,10 +158,10 @@ export default function Auth() {
   const [resetEmailSent, setResetEmailSent] = useState(false);
 
   useEffect(() => {
-    if (!isLoading && user && isAdmin) {
+    if (isAuthReady && user && isAdmin) {
       navigate('/', { replace: true });
     }
-  }, [user, isAdmin, isLoading, navigate]);
+  }, [user, isAdmin, isAuthReady, navigate]);
 
   const validateForm = () => {
     try {
@@ -222,7 +222,7 @@ export default function Auth() {
     else setResetEmailSent(true);
   };
 
-  if (isLoading) {
+  if (!isAuthReady) {
     return (
       <div
         className="flex min-h-dvh items-center justify-center"
