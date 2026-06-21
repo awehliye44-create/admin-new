@@ -222,7 +222,7 @@ export default function Auth() {
     else setResetEmailSent(true);
   };
 
-  if (isLoading) {
+  if (!isAuthReady) {
     return (
       <div
         className="flex min-h-dvh items-center justify-center"
