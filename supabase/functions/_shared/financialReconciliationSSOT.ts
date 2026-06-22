@@ -466,15 +466,12 @@ export function computeSSOTMetrics(args: {
   const onecabNet = onecabNetCommissionPence(onecabGross, providerFees);
   const paidOut = sumDriverPaidOutPence(args.ledger);
   const adjustments = sumAdjustmentsPence(args.ledger);
-  const remaining = perDriverLedgerLiabilityPence(args.ledger);
-  const availableNow = driverAvailableNowPence({
-    driverRemainingLiabilityPence: remaining,
-    providerAvailableBalancePence: args.providerAvailableBalancePence,
-  });
-  const pendingPayout = driverPendingPayoutPence({
-    driverRemainingLiabilityPence: remaining,
-    driverAvailableNowPence: availableNow,
-  });
+  const walletBalance = computeLedgerWalletBalancePence(args.ledger); // signed
+  const remaining = Math.max(0, walletBalance);
+  // SSOT: available_payout = max(walletBalance, 0). No provider cap, no in-flight cap.
+  const availableNow = availablePayoutPence(walletBalance);
+  // Pending is meaningless under the SSOT (wallet is either available or debt).
+  const pendingPayout = 0;
 
   return {
     total_customer_revenue_pence: customerRev.total_pence,
