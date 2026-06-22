@@ -190,14 +190,14 @@ export function computePerDriverSSOT(args: {
   const completedEarly = sumCompletedEarlyCashoutsPence(args.earlyCashouts);
   const inFlight = sumInFlightCashoutPence(args.earlyCashouts);
   const adjustments = sumAdjustmentsPence(args.ledger);
-  const remaining = perDriverLedgerLiabilityPence(args.ledger);
+  const walletBalance = computeLedgerWalletBalancePence(args.ledger); // signed
+  const remaining = perDriverLedgerLiabilityPence(args.ledger); // == max(walletBalance, 0)
   const allocated = Math.max(0, args.providerAllocations[args.driverId] ?? 0);
-  const availableNow = perDriverAvailableNowPence({
-    driverRemainingLiabilityPence: remaining,
-    providerAllocatedBalancePence: allocated,
-    inFlightCashoutPence: inFlight,
-  });
-  const pendingPayout = Math.max(0, remaining - availableNow);
+  // SSOT: available_payout = max(wallet_balance, 0). No provider cap, no in-flight cap.
+  const availableNow = availablePayoutPence(walletBalance);
+  const driverDebt = driverDebtPence(walletBalance);
+  // Pending is meaningless under the SSOT (wallet is either available or debt).
+  const pendingPayout = 0;
 
   const digitalTrips = filterDigitalTrips(args.trips);
   const digitalNetCustomer = sumDigitalNetCustomerRevenuePence({
@@ -224,6 +224,7 @@ export function computePerDriverSSOT(args: {
     providerAllocatedPence: allocated,
     ledgerSyncMissing: args.ledgerSyncMissing,
     availableNowPence: availableNow,
+    walletBalancePence: walletBalance,
   });
   const payoutBlockedReasons = payoutGate.payout_blocked_reasons;
 
