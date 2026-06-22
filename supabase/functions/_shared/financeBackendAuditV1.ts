@@ -443,13 +443,13 @@ export function buildFinanceBackendAuditV1(args: {
     },
     {
       id: "wallet_not_available_payout",
-      passed: driverAvailableNow <= driverRemainingLiability,
-      detail: `driver_available_now_pence=min(remaining_liability, provider_available); wallet aggregate=${totalWalletBalance}p is informational only.`,
+      passed: driverAvailableNow === driverRemainingLiability,
+      detail: `SSOT: driver_available_now_pence = Σ max(wallet_balance_i, 0). wallet aggregate=${totalWalletBalance}p informational only.`,
     },
     {
       id: "available_payout_formula",
-      passed: driverAvailableNow === Math.min(driverRemainingLiability, Math.max(0, args.stripeAvailablePence)),
-      detail: "driver_available_now = min(driver_remaining_liability, provider_available_balance).",
+      passed: driverAvailableNow === Math.max(0, driverRemainingLiability),
+      detail: "SSOT: driver_available_now = max(wallet_balance, 0). No provider cap, no in-flight cap.",
     },
   ];
 
