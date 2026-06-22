@@ -23,6 +23,8 @@ const baseSsot: PerDriverFinanceSSOT = {
   provider_available_balance_allocated_to_driver_pence: 304,
   provider_upcoming_payout_pence: 0,
   driver_available_now_pence: 305,
+  driver_wallet_balance_pence: 305,
+  driver_debt_pence: 0,
   driver_pending_payout_pence: 0,
   next_payout_date: null,
   reconciliation_status: 'RECONCILIATION_MISMATCH',
