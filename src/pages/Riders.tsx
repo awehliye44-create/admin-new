@@ -28,6 +28,7 @@ import {
 import { format, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { RiderDetailsDialog } from '@/components/riders/RiderDetailsDialog';
+import { PersonalVoucherDialog } from '@/components/riders/PersonalVoucherDialog';
 
 interface Rider {
   id: string;
@@ -60,6 +61,8 @@ export default function Riders() {
   const [actionType, setActionType] = useState<ActionType>('disable');
   const [actionReason, setActionReason] = useState('');
   const [isActing, setIsActing] = useState(false);
+  const [voucherRider, setVoucherRider] = useState<Rider | null>(null);
+  const [isVoucherDialogOpen, setIsVoucherDialogOpen] = useState(false);
 
   const { data: riders = [], isLoading } = useQuery({
     queryKey: ['riders'],
@@ -93,6 +96,11 @@ export default function Riders() {
     setActionType(type);
     setActionReason('');
     setActionDialogOpen(true);
+  };
+
+  const openPersonalVoucherDialog = (rider: Rider) => {
+    setVoucherRider(rider);
+    setIsVoucherDialogOpen(true);
   };
 
   const handleActionConfirm = async () => {
@@ -433,6 +441,10 @@ export default function Riders() {
                             <Eye className="h-4 w-4 mr-2" />
                             View Details
                           </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => openPersonalVoucherDialog(rider)}>
+                            <span className="mr-2" aria-hidden>🎟</span>
+                            Personal Voucher
+                          </DropdownMenuItem>
                           <DropdownMenuSeparator />
 
                           {rider.rider_status === 'active' && (
@@ -481,6 +493,12 @@ export default function Riders() {
         onOpenChange={setIsViewDialogOpen}
         rider={selectedRider}
         onRiderUpdate={handleRiderUpdate}
+      />
+
+      <PersonalVoucherDialog
+        open={isVoucherDialogOpen}
+        onOpenChange={setIsVoucherDialogOpen}
+        rider={voucherRider}
       />
 
       {/* Action Confirmation Dialog */}
