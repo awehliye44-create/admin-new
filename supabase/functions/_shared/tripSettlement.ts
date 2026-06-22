@@ -13,6 +13,8 @@ export type TripSettlementInput = {
   final_fare_pence: number;
   airport_charge_pence?: number;
   other_pass_through_charges_pence?: number;
+  /** Sum of voucher + promo + loyalty + corporate discounts (pence). */
+  discounts_pence?: number;
   tips_pence?: number;
   driver_tier_commission_percent: number;
   stripe_fee_pence?: number;
@@ -26,6 +28,7 @@ export type TripSettlementResult = {
   driver_total_earnings_pence: number;
   airport_charge_pence: number;
   other_pass_through_charges_pence: number;
+  discounts_pence: number;
   tips_pence: number;
   stripe_fee_pence: number;
   platform_gross_revenue_pence: number;
