@@ -6,6 +6,7 @@
  */
 
 import {
+  getPaymentRowCapturedPence,
   getTripDriverNetPence as getTripDriverNetPenceSsot,
   getTripSettlementFarePence as getTripSettlementFarePenceSsot,
   isCardTrip,
