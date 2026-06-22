@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
+import { fetchEdgeFunctionGet } from '@/lib/fetchEdgeFunctionGet';
 
 export type FinanceBackendAuditV1 = {
   audit_version: 'finance_backend_audit_v1';
@@ -116,20 +116,19 @@ export type FinanceBackendAuditResponse = {
   };
 };
 
-function buildAuditPath(
+function buildAuditParams(
   filter?: ServiceAreaFinanceSelection,
   from?: string,
   to?: string,
   driverId?: string,
-): string {
-  const params = new URLSearchParams();
-  if (filter?.regionId) params.set('region_id', filter.regionId);
-  else if (filter?.serviceAreaId) params.set('service_area_id', filter.serviceAreaId);
-  if (from) params.set('from', from);
-  if (to) params.set('to', to);
-  if (driverId) params.set('driver_id', driverId);
-  const qs = params.toString();
-  return qs ? `finance-backend-audit-v1?${qs}` : 'finance-backend-audit-v1';
+): Record<string, string> {
+  const params: Record<string, string> = {};
+  if (filter?.regionId) params.region_id = filter.regionId;
+  else if (filter?.serviceAreaId) params.service_area_id = filter.serviceAreaId;
+  if (from) params.from = from;
+  if (to) params.to = to;
+  if (driverId) params.driver_id = driverId;
+  return params;
 }
 
 export function useFinanceBackendAudit(args?: {
@@ -142,27 +141,11 @@ export function useFinanceBackendAudit(args?: {
   const { filter, from, to, driverId, enabled = true } = args ?? {};
   return useQuery<FinanceBackendAuditResponse>({
     queryKey: ['finance-backend-audit-v1', filter?.regionId, filter?.serviceAreaId, from, to, driverId],
-    queryFn: async () => {
-      const path = buildAuditPath(filter, from, to, driverId);
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token ?? anonKey;
-      const url = `${supabaseUrl}/functions/v1/${path}`;
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          apikey: anonKey,
-          'Content-Type': 'application/json',
-        },
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Edge function returned ${res.status}: ${text}`);
-      }
-      return (await res.json()) as FinanceBackendAuditResponse;
-    },
+    queryFn: async () =>
+      fetchEdgeFunctionGet<FinanceBackendAuditResponse>(
+        'finance-backend-audit-v1',
+        buildAuditParams(filter, from, to, driverId),
+      ),
     enabled,
     staleTime: 30_000,
   });

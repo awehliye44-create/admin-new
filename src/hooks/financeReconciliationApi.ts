@@ -1,25 +1,32 @@
-import { supabase } from '@/integrations/supabase/client';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import type { FinanceReconciliationResponse } from '@/hooks/useFinanceReconciliation';
+import { fetchEdgeFunctionGet } from '@/lib/fetchEdgeFunctionGet';
 
-/** Build admin-finance-reconciliation edge function path (Financial Reconciliation SSOT). */
+/** Build query params for admin-finance-reconciliation (Financial Reconciliation SSOT). */
+export function buildFinanceReconciliationParams(
+  filter?: ServiceAreaFinanceSelection,
+  from?: string,
+  to?: string,
+  extra?: Record<string, string>,
+): Record<string, string> {
+  const params: Record<string, string> = {};
+  if (filter?.regionId) params.region_id = filter.regionId;
+  else if (filter?.serviceAreaId) params.service_area_id = filter.serviceAreaId;
+  if (from) params.from = from;
+  if (to) params.to = to;
+  if (extra) Object.assign(params, extra);
+  return params;
+}
+
+/** @deprecated Use buildFinanceReconciliationParams + fetchEdgeFunctionGet */
 export function buildFinanceReconciliationPath(
   filter?: ServiceAreaFinanceSelection,
   from?: string,
   to?: string,
   extra?: Record<string, string>,
 ): string {
-  const params = new URLSearchParams();
-  if (filter?.regionId) params.set('region_id', filter.regionId);
-  else if (filter?.serviceAreaId) params.set('service_area_id', filter.serviceAreaId);
-  if (from) params.set('from', from);
-  if (to) params.set('to', to);
-  if (extra) {
-    for (const [key, value] of Object.entries(extra)) {
-      params.set(key, value);
-    }
-  }
-  const qs = params.toString();
+  const params = buildFinanceReconciliationParams(filter, from, to, extra);
+  const qs = new URLSearchParams(params).toString();
   return qs ? `admin-finance-reconciliation?${qs}` : 'admin-finance-reconciliation';
 }
 
@@ -30,25 +37,10 @@ export async function invokeFinanceReconciliation(
   to?: string,
   extra?: Record<string, string>,
 ): Promise<FinanceReconciliationResponse> {
-  const qs = buildFinanceReconciliationPath(filter, from, to, extra).split('?')[1] ?? '';
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-  const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
-  const { data: sessionData } = await supabase.auth.getSession();
-  const token = sessionData.session?.access_token ?? anonKey;
-  const url = `${supabaseUrl}/functions/v1/admin-finance-reconciliation${qs ? `?${qs}` : ''}`;
-  const res = await fetch(url, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      apikey: anonKey,
-      'Content-Type': 'application/json',
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Edge function returned ${res.status}: ${text}`);
-  }
-  return (await res.json()) as FinanceReconciliationResponse;
+  return fetchEdgeFunctionGet<FinanceReconciliationResponse>(
+    'admin-finance-reconciliation',
+    buildFinanceReconciliationParams(filter, from, to, extra),
+  );
 }
 
 /** Read ONECAB net commission for a period — never compute locally. */

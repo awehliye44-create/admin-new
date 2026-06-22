@@ -176,7 +176,7 @@ serve(async (req) => {
         created_at,
         completed_at,
         error_message,
-        batch:payout_batches(kind)
+        payout_batches(kind)
       `)
       .gte("created_at", periodFrom)
       .lte("created_at", periodTo)
@@ -248,7 +248,12 @@ serve(async (req) => {
 
     const trips = (tripResult.data || []) as TripAuditSourceRow[];
     const ledgerRows = (ledgerResult.data || []) as LedgerRow[];
-    const payoutItems = (payoutResult.data || []) as PayoutItemRow[];
+    const payoutItems = ((payoutResult.data || []) as Array<PayoutItemRow & {
+      payout_batches?: { kind?: string | null } | null;
+    }>).map((item) => ({
+      ...item,
+      batch: item.payout_batches ?? item.batch ?? null,
+    })) as PayoutItemRow[];
     const earlyCashouts = (cashoutResult.data || []) as EarlyCashoutRow[];
 
     const walletByDriver = new Map<string, number>();

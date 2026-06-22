@@ -351,5 +351,5 @@ export const FinanceSSOT = {
   reconciliationStatus: (s: FinanceReconciliationSummary) =>
     s.reconciliation_check?.status ?? 'BALANCED',
   reconciliationVariance: (s: FinanceReconciliationSummary) =>
-    s.reconciliation_check.variance_pence ?? s.reconciliation_check.delta_pence,
+    s.reconciliation_check?.variance_pence ?? s.reconciliation_check?.delta_pence ?? 0,
 };

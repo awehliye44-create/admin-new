@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import type { FinanceDataSourceBadge } from '@/hooks/useFinancialReconciliationSSOT';
+import { fetchEdgeFunctionGet } from '@/lib/fetchEdgeFunctionGet';
 
 export type PerDriverFinanceSSOT = {
   driver_id: string;
@@ -43,19 +43,6 @@ export type PerDriverFinanceSSOTResponse = {
   };
 };
 
-function buildPerDriverPath(
-  driverId: string,
-  filter?: ServiceAreaFinanceSelection,
-  from?: string,
-  to?: string,
-): string {
-  const params = new URLSearchParams({ driver_id: driverId });
-  if (filter?.regionId) params.set('region_id', filter.regionId);
-  if (from) params.set('from', from);
-  if (to) params.set('to', to);
-  return `admin-finance-reconciliation?${params.toString()}`;
-}
-
 export function usePerDriverFinancialReconciliation(args: {
   driverId: string | null;
   filter?: ServiceAreaFinanceSelection;
@@ -69,10 +56,15 @@ export function usePerDriverFinancialReconciliation(args: {
     queryKey: ['per-driver-finance-ssot', driverId, filter?.regionId, from, to],
     queryFn: async () => {
       if (!driverId) throw new Error('driver_id required');
-      const path = buildPerDriverPath(driverId, filter, from, to);
-      const { data, error } = await supabase.functions.invoke(path, { method: 'GET' });
-      if (error) throw error;
-      return data as PerDriverFinanceSSOTResponse;
+      return fetchEdgeFunctionGet<PerDriverFinanceSSOTResponse>(
+        'admin-finance-reconciliation',
+        {
+          driver_id: driverId,
+          region_id: filter?.regionId ?? undefined,
+          from,
+          to,
+        },
+      );
     },
     enabled: enabled && !!driverId,
     staleTime: 30_000,

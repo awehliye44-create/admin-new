@@ -255,7 +255,19 @@ function FinancialReconciliationPage() {
     );
   }
 
-  if (!summary) return null;
+  if (!summary) {
+    return (
+      <AdminLayout title="Financial Reconciliation">
+        <Alert variant="destructive">
+          <AlertTitle>Reconciliation unavailable</AlertTitle>
+          <AlertDescription>
+            Live reconciliation and fallback sources returned no data. Refresh the page or check that you are signed in
+            as an admin.
+          </AlertDescription>
+        </Alert>
+      </AdminLayout>
+    );
+  }
 
   const revenue = safeCustomerRevenue(summary);
   const driver = safeDriverMoney(summary);

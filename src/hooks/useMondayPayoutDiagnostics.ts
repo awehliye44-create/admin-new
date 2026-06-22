@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import type { ServiceAreaFinanceSelection } from "@/components/finance/ServiceAreaFinanceFilter";
+import { fetchEdgeFunctionGet } from "@/lib/fetchEdgeFunctionGet";
+import { supabase } from "@/integrations/supabase/client";
 
 export type MondayPayoutSettlementStatus =
   | "PENDING"
@@ -88,27 +89,12 @@ export function useMondayPayoutDiagnostics(
     ],
     enabled: opts?.enabled !== false,
     queryFn: async (): Promise<MondayPayoutDiagnosticsResponse> => {
-      // NOTE: supabase.functions.invoke() does not support query strings in the
-      // function name — it URL-encodes the `?` and the gateway 401s. Use fetch.
       const qs = buildDiagnosticsQuery(filter, opts);
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token ?? anonKey;
-      const url = `${supabaseUrl}/functions/v1/admin-monday-payout-diagnostics${qs ? `?${qs}` : ""}`;
-      const res = await fetch(url, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          apikey: anonKey,
-          "Content-Type": "application/json",
-        },
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Edge function returned ${res.status}: ${text}`);
-      }
-      return (await res.json()) as MondayPayoutDiagnosticsResponse;
+      const params = Object.fromEntries(new URLSearchParams(qs));
+      return fetchEdgeFunctionGet<MondayPayoutDiagnosticsResponse>(
+        "admin-monday-payout-diagnostics",
+        params,
+      );
     },
     staleTime: 30_000,
   });
