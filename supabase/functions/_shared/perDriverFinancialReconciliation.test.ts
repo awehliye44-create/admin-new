@@ -1,7 +1,6 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   allocateProviderBalanceByLiability,
-  perDriverAvailableNowPence,
   perDriverRemainingLiabilityPence,
 } from "./financialReconciliationSSOT.ts";
 import {
@@ -9,6 +8,7 @@ import {
   sumCompletedEarlyCashoutsPence,
   sumInFlightCashoutPence,
 } from "./perDriverFinancialReconciliation.ts";
+import { WALLET_NEGATIVE_BLOCK_REASON } from "./payoutAvailability.ts";
 
 Deno.test("per-driver liability subtracts bank payouts and completed early cashouts", () => {
   const remaining = perDriverRemainingLiabilityPence({
@@ -37,38 +37,13 @@ Deno.test("single driver receives full provider available balance", () => {
   assertEquals(allocations.solo, 92);
 });
 
-Deno.test("available now uses allocation not wallet balance", () => {
-  const available = perDriverAvailableNowPence({
-    driverRemainingLiabilityPence: 4208,
-    providerAllocatedBalancePence: 92,
-    inFlightCashoutPence: 0,
-  });
-  assertEquals(available, 92);
-});
-
-Deno.test("in-flight cashout reduces available now", () => {
-  const available = perDriverAvailableNowPence({
-    driverRemainingLiabilityPence: 5000,
-    providerAllocatedBalancePence: 5000,
-    inFlightCashoutPence: 500,
-  });
-  assertEquals(available, 4500);
-});
-
-Deno.test("computePerDriverSSOT caps available by allocated provider balance", () => {
+Deno.test("SSOT: available_payout = max(walletBalance, 0) — positive wallet", () => {
   const ssot = computePerDriverSSOT({
     driverId: "d1",
-    trips: [{
-      driver_net_pence: 5000,
-      commission_pence: 500,
-      gross_fare_pence: 5500,
-      stripe_processing_fee_pence: 0,
-      onecab_net_pence: 500,
-      final_fare_pence: 5500,
-      commissionable_fare_pence: 5000,
-      capture_amount_pence: 5500,
-    }],
-    ledger: [],
+    trips: [],
+    ledger: [
+      { type: "TRIP_EARNING_NET", amount_pence: 5000 },
+    ],
     earlyCashouts: [],
     payments: [],
     providerAvailableBalancePence: 100,
@@ -76,15 +51,38 @@ Deno.test("computePerDriverSSOT caps available by allocated provider balance", (
     providerAllocations: { d1: 100 },
     ledgerSyncMissing: false,
   });
-  assertEquals(ssot.driver_available_now_pence, 100);
-  assertEquals(ssot.driver_remaining_liability_pence, 5000);
+  // available is independent of provider allocation under the SSOT
+  assertEquals(ssot.driver_wallet_balance_pence, 5000);
+  assertEquals(ssot.driver_available_now_pence, 5000);
+  assertEquals(ssot.driver_debt_pence, 0);
+});
+
+Deno.test("SSOT: wallet_balance < 0 blocks payout with explicit reason", () => {
+  const ssot = computePerDriverSSOT({
+    driverId: "d1",
+    trips: [],
+    ledger: [
+      { type: "CASH_COMMISSION_DEBT", amount_pence: -1964 },
+    ],
+    earlyCashouts: [],
+    payments: [],
+    providerAvailableBalancePence: 5000,
+    providerPendingBalancePence: 0,
+    providerAllocations: { d1: 5000 },
+    ledgerSyncMissing: false,
+  });
+  assertEquals(ssot.driver_wallet_balance_pence, -1964);
+  assertEquals(ssot.driver_available_now_pence, 0);
+  assertEquals(ssot.driver_debt_pence, 1964);
+  assertEquals(ssot.payout_blocked, true);
+  assertEquals(ssot.payout_blocked_reasons.includes(WALLET_NEGATIVE_BLOCK_REASON), true);
 });
 
 Deno.test("computePerDriverSSOT blocks payout when ledger sync missing", () => {
   const ssot = computePerDriverSSOT({
     driverId: "d1",
     trips: [],
-    ledger: [],
+    ledger: [{ type: "TRIP_EARNING_NET", amount_pence: 5000 }],
     earlyCashouts: [],
     payments: [],
     providerAvailableBalancePence: 5000,
