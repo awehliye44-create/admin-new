@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -61,6 +61,7 @@ import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/Cu
 import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { mapboxgl } from '@/lib/mapbox';
 import { createMapboxMap } from '@/lib/mapboxMap';
+import { fetchTripHistoryRows } from '@/lib/tripHistoryQuery';
 
 function getTripMapCenter(trip: CompletedTrip): [number, number] {
   const lng = trip.pickup_longitude ?? trip.dropoff_longitude ?? -0.7594;
@@ -113,10 +114,6 @@ interface Region {
   currency_code: string;
   distance_unit: string;
 }
-
-/** Terminal trips shown in history — aligned with Financial Reconciliation SSOT trip filters. */
-const HISTORY_FINANCIAL_OUTCOMES = ['COMPLETED', 'NO_SHOW'] as const;
-const HISTORY_STATUSES = ['completed', 'no_show'] as const;
 
 interface CompletedTrip {
   id: string;
@@ -256,8 +253,6 @@ export default function TripHistory() {
     selectedTripRef.current = selectedTrip;
   }, [selectedTrip]);
 
-  const queryClient = useQueryClient();
-
   const getDateRange = useCallback(() => {
     const now = new Date();
     switch (dateFilter) {
@@ -292,44 +287,19 @@ export default function TripHistory() {
   }, [selectedRegionId]);
 
   // React Query for trip data
-  const { data: trips = [], isLoading } = useQuery({
+  const { data: trips = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['trip-history', dateFilter, selectedRegionId, selectedServiceAreaId, corporateFilter],
     queryFn: async () => {
       const { start, end } = getDateRange();
-      
-      const { data: tripsData, error: tripsError } = await supabase
-        .from('trips')
-        .select(`
-          id, trip_code, trip_number, status, financial_outcome, passenger_name, passenger_phone,
-          pickup_address, pickup_latitude, pickup_longitude, dropoff_address, dropoff_latitude, dropoff_longitude,
-          estimated_fare, fare, gross_fare_pence, commission_pence, driver_net_pence, final_fare_pence,
-          final_customer_fare_pence, capture_amount_pence,
-          stripe_processing_fee_pence, onecab_net_pence,
-          payment_status, payment_method, currency_code, estimated_distance_km, estimated_duration_minutes,
-          total_stops, created_at, started_at, completed_at, surge_multiplier, driver_id,
-          driver_location_lat, driver_location_lng, stripe_payment_intent_id, stacked_trip_id,
-          corporate_account_id,
-          pricing_mode, fare_locked, vehicle_type_id, vehicle_type, service_area_id, fare_engine_config_id,
-          waiting_charge_pence, pickup_waiting_charge_pence, total_waiting_charge_pence, waiting_minutes, fare_breakdown,
-          tip_pence, tip_amount_pence,
-          arrival_cancellation_applied, arrival_cancellation_fee,
-          invoice_no, invoice_pdf_url, invoice_generated_at, invoice_email_sent,
-          invoice_email_sent_at, invoice_email_status, invoice_email_error,
-          invoice_pdf_error, invoice_total_paid_pence, invoice_regenerated_at,
-          driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, driver_code, region_id),
-          corporate_account:corporate_accounts!trips_corporate_account_id_fkey(id, company_name),
-          service_area_join:service_areas!trips_service_area_id_fkey(region_id, region:regions(currency_code, distance_unit))
-        `)
-        // Match useLedgerRevenue: financially terminal by outcome OR legacy status snapshot.
-        .or(`financial_outcome.in.(${HISTORY_FINANCIAL_OUTCOMES.join(',')}),status.in.(${HISTORY_STATUSES.join(',')})`)
-        .not('completed_at', 'is', null)
-        .gte('completed_at', start.toISOString())
-        .lte('completed_at', end.toISOString())
-        .order('completed_at', { ascending: false });
 
-      if (tripsError) throw tripsError;
+      const tripsData = await fetchTripHistoryRows({
+        start,
+        end,
+        regionId: selectedRegionId !== 'all' ? selectedRegionId : undefined,
+        serviceAreaId: selectedServiceAreaId !== 'all' ? selectedServiceAreaId : undefined,
+      });
 
-      const tripIds = (tripsData || []).map(t => t.id);
+      const tripIds = tripsData.map((t) => t.id);
       
       let stopsMap: Record<string, TripStop[]> = {};
       if (tripIds.length > 0) {
@@ -427,7 +397,7 @@ export default function TripHistory() {
         }
       }
 
-      return (tripsData || []).map(trip => {
+      return tripsData.map((trip) => {
         const pay = paymentsMap[trip.id];
         return {
           ...trip,
@@ -443,6 +413,16 @@ export default function TripHistory() {
           payment_metadata_lifecycle_fees_pence: pay?.metadataLifecycleFees ?? 0,
           settlement_total_pence: financeMap[trip.id] ?? null,
           ledger_trip_earning_net_pence: ledgerNetMap[trip.id] ?? null,
+          invoice_no: (trip.invoice_no as string | null | undefined) ?? null,
+          invoice_pdf_url: (trip.invoice_pdf_url as string | null | undefined) ?? null,
+          invoice_generated_at: (trip.invoice_generated_at as string | null | undefined) ?? null,
+          invoice_email_sent: (trip.invoice_email_sent as boolean | null | undefined) ?? null,
+          invoice_email_sent_at: (trip.invoice_email_sent_at as string | null | undefined) ?? null,
+          invoice_email_status: (trip.invoice_email_status as string | null | undefined) ?? null,
+          invoice_email_error: (trip.invoice_email_error as string | null | undefined) ?? null,
+          invoice_pdf_error: (trip.invoice_pdf_error as string | null | undefined) ?? null,
+          invoice_total_paid_pence: (trip.invoice_total_paid_pence as number | null | undefined) ?? null,
+          invoice_regenerated_at: (trip.invoice_regenerated_at as string | null | undefined) ?? null,
         };
       }) as CompletedTrip[];
     },
@@ -450,8 +430,8 @@ export default function TripHistory() {
   });
 
   const fetchData = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['trip-history'] });
-  }, [queryClient]);
+    void refetch();
+  }, [refetch]);
 
   const fetchTripStops = async (tripId: string) => {
     try {
@@ -1062,6 +1042,18 @@ export default function TripHistory() {
           </div>
         </CardHeader>
         <CardContent>
+          {isError ? (
+            <Alert variant="destructive" className="mb-4">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Trip history failed to load</AlertTitle>
+              <AlertDescription className="space-y-2">
+                <p>{(error as Error).message}</p>
+                <Button variant="outline" size="sm" onClick={() => fetchData()}>
+                  Retry
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : null}
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
