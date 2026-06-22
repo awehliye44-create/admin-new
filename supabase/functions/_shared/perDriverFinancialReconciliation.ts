@@ -44,8 +44,14 @@ export type PerDriverSSOT = {
   provider_pending_balance_pence: number;
   provider_available_balance_allocated_to_driver_pence: number;
   provider_upcoming_payout_pence: number;
+  /** SSOT: max(wallet_balance, 0). */
   driver_available_now_pence: number;
+  /** Always 0 under the SSOT; kept for UI compatibility. */
   driver_pending_payout_pence: number;
+  /** Signed wallet balance (can be negative when driver owes ONECAB). */
+  driver_wallet_balance_pence: number;
+  /** abs(min(wallet_balance, 0)). */
+  driver_debt_pence: number;
   next_payout_date: string | null;
   reconciliation_status: "BALANCED" | "RECONCILIATION_MISMATCH";
   reconciliation_scope: "digital_v3";
