@@ -292,29 +292,10 @@ export function perDriverLedgerLiabilityPence(ledger: LedgerSSOTRow[]): number {
   return Math.max(0, computeLedgerWalletBalancePence(ledger));
 }
 
-/** 11. Driver available now (platform — full provider balance cap). */
-export function driverAvailableNowPence(args: {
-  driverRemainingLiabilityPence: number;
-  providerAvailableBalancePence: number;
-}): number {
-  return Math.min(
-    Math.max(0, args.driverRemainingLiabilityPence),
-    Math.max(0, args.providerAvailableBalancePence),
-  );
-}
-
-/** Per-driver available now — allocated provider balance minus in-flight cashouts. */
-export function perDriverAvailableNowPence(args: {
-  driverRemainingLiabilityPence: number;
-  providerAllocatedBalancePence: number;
-  inFlightCashoutPence: number;
-}): number {
-  const capped = Math.min(
-    Math.max(0, args.driverRemainingLiabilityPence),
-    Math.max(0, args.providerAllocatedBalancePence),
-  );
-  return Math.max(0, capped - Math.max(0, args.inFlightCashoutPence));
-}
+// NOTE: legacy `driverAvailableNowPence` and `perDriverAvailableNowPence` have
+// been permanently removed. The single SSOT is `availablePayoutPence(walletBalance)`
+// in `payoutAvailability.ts` — applied directly in computeSSOTMetrics and
+// computePerDriverSSOT.
 
 /** Allocate platform provider balance across drivers by settled eligible liability. */
 export function allocateProviderBalanceByLiability(args: {
