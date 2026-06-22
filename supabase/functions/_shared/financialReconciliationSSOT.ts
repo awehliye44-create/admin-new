@@ -332,13 +332,10 @@ export function allocateProviderBalanceByLiability(args: {
   return result;
 }
 
-/** 12. Driver pending payout */
-export function driverPendingPayoutPence(args: {
-  driverRemainingLiabilityPence: number;
-  driverAvailableNowPence: number;
-}): number {
-  return Math.max(0, args.driverRemainingLiabilityPence - args.driverAvailableNowPence);
-}
+// NOTE: legacy `driverPendingPayoutPence` removed. Under the SSOT
+// (available_payout = max(walletBalance,0)) pending is always 0 — the wallet
+// is either available or it's debt. Pending-payout fields are kept in output
+// types for UI compatibility and pinned to 0.
 
 /**
  * Phase 3A.6 — digital-scoped reconciliation identity.
