@@ -308,17 +308,15 @@ export async function fetchPerDriverFinancialReconciliation(
   if (args.periodFrom) tripQuery = tripQuery.gte("completed_at", args.periodFrom);
   if (args.periodTo) tripQuery = tripQuery.lte("completed_at", args.periodTo);
 
-  let ledgerQuery = supabase
+  // Wallet balance / payout guard MUST use full lifetime ledger — never period-filtered.
+  const fullLedgerQuery = supabase
     .from("driver_wallet_ledger")
     .select("type, amount_pence, driver_id")
     .in("driver_id", peerDriverIds);
 
-  if (args.periodFrom) ledgerQuery = ledgerQuery.gte("created_at", args.periodFrom);
-  if (args.periodTo) ledgerQuery = ledgerQuery.lte("created_at", args.periodTo);
-
-  const [tripsResult, ledgerResult, cashoutsResult, payoutItemsResult] = await Promise.all([
+  const [tripsResult, fullLedgerResult, cashoutsResult, payoutItemsResult] = await Promise.all([
     tripQuery,
-    ledgerQuery,
+    fullLedgerQuery,
     supabase
       .from("driver_early_cashouts")
       .select("driver_id, status, requested_cashout_pence, driver_receives_pence")
@@ -331,12 +329,12 @@ export async function fetchPerDriverFinancialReconciliation(
   ]);
 
   if (tripsResult.error) throw tripsResult.error;
-  if (ledgerResult.error) throw ledgerResult.error;
+  if (fullLedgerResult.error) throw fullLedgerResult.error;
   if (cashoutsResult.error) throw cashoutsResult.error;
   if (payoutItemsResult.error) throw payoutItemsResult.error;
 
   const allTrips = (tripsResult.data ?? []) as Array<TripSSOTRow & { driver_id?: string }>;
-  const allLedger = (ledgerResult.data ?? []) as Array<LedgerSSOTRow & { driver_id?: string }>;
+  const allLedger = (fullLedgerResult.data ?? []) as Array<LedgerSSOTRow & { driver_id?: string }>;
   const allCashouts = (cashoutsResult.data ?? []) as Array<EarlyCashoutRow & { driver_id?: string }>;
 
   const tripIds = allTrips.map((t) => (t as { id?: string }).id).filter(Boolean) as string[];

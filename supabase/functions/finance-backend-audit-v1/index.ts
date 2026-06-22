@@ -263,6 +263,14 @@ serve(async (req) => {
     let stripeAvailablePence = 0;
     let stripePendingPence = 0;
     let stripePlatformPayoutsPence = 0;
+    let stripePlatformPaidTodayPence = 0;
+    let stripePlatformPayoutDetails: Array<{
+      id: string;
+      amount_pence: number;
+      status: string;
+      arrival_date: string | null;
+      created_at: string;
+    }> = [];
     let stripeBalanceError: string | null = null;
 
     if (stripeSecretKey) {
@@ -278,6 +286,36 @@ serve(async (req) => {
         stripePlatformPayoutsPence = payouts.data
           .filter((p) => p.currency === currency && p.status === "paid")
           .reduce((s, p) => s + (p.amount ?? 0), 0);
+
+        const londonTodayStartMs = (() => {
+          const now = new Date();
+          const london = new Date(
+            now.toLocaleString("en-US", { timeZone: "Europe/London" }),
+          );
+          london.setHours(0, 0, 0, 0);
+          return london.getTime();
+        })();
+
+        stripePlatformPayoutDetails = payouts.data
+          .filter((p) => p.currency === currency)
+          .map((p) => ({
+            id: p.id,
+            amount_pence: p.amount ?? 0,
+            status: p.status,
+            arrival_date: p.arrival_date
+              ? new Date(p.arrival_date * 1000).toISOString()
+              : null,
+            created_at: new Date(p.created * 1000).toISOString(),
+          }));
+
+        stripePlatformPaidTodayPence = stripePlatformPayoutDetails
+          .filter(
+            (p) =>
+              p.status === "paid" &&
+              p.arrival_date &&
+              new Date(p.arrival_date).getTime() >= londonTodayStartMs,
+          )
+          .reduce((s, p) => s + p.amount_pence, 0);
       } catch (e) {
         stripeBalanceError = (e as Error).message;
       }
@@ -301,7 +339,16 @@ serve(async (req) => {
       stripeBalanceError,
     });
 
-    return new Response(JSON.stringify({ finance_backend_audit_v1 }), {
+    return new Response(JSON.stringify({
+      finance_backend_audit_v1,
+      stripe_platform_payouts: {
+        paid_today_pence: stripePlatformPaidTodayPence,
+        paid_all_time_pence: stripePlatformPayoutsPence,
+        recent: stripePlatformPayoutDetails.slice(0, 20),
+        note:
+          "Stripe automatic platform payouts to ONECAB business bank — not the same as admin commission-sweep batches.",
+      },
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {

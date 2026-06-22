@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrencySymbol } from "@/lib/regionSettings";
 import { AlertTriangle, ArrowDownLeft, Banknote, CheckCircle2, Clock, XCircle } from "lucide-react";
+import { format } from "date-fns";
 import type { MondayPayoutTodayCards } from "@/hooks/useMondayPayoutDiagnostics";
 
 function fmt(pence: number, currencyCode: string): string {
@@ -12,10 +13,13 @@ export function MondayPayoutTodayCards({
   cards,
   currencyCode,
   isLoading,
+  todayPeriodStart,
 }: {
   cards: MondayPayoutTodayCards | undefined;
   currencyCode: string;
   isLoading?: boolean;
+  /** London calendar day start — cards only count activity on this day */
+  todayPeriodStart?: string;
 }) {
   if (isLoading) {
     return (
@@ -58,8 +62,17 @@ export function MondayPayoutTodayCards({
     },
   ];
 
+  const periodLabel = todayPeriodStart
+    ? format(new Date(todayPeriodStart), "EEE d MMM yyyy")
+    : "today (London)";
+
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">
+        Totals below are for <span className="font-medium">{periodLabel}</span> only — not all-time.
+        Driver payouts go to driver Stripe Connect accounts; ONECAB commission above is calculated from trips, not bank sweeps.
+      </p>
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
       {items.map((item) => (
         <Card
           key={item.title}
@@ -76,6 +89,7 @@ export function MondayPayoutTodayCards({
           </CardContent>
         </Card>
       ))}
+      </div>
     </div>
   );
 }

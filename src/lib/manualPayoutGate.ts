@@ -21,6 +21,9 @@ export type ManualPayoutSsotSnapshot = {
   payout_eligibility_status: string;
 };
 
+const WALLET_NEGATIVE_BLOCK_MESSAGE =
+  'Wallet balance is negative — driver owes ONECAB. All payouts blocked until balance reaches zero.';
+
 export function hasSoftPayoutWarning(
   ssot: Pick<PerDriverFinanceSSOT, 'payout_warning_reasons'>,
 ): boolean {
@@ -34,6 +37,8 @@ export function formatPayoutEligibilityStatus(args: {
     | 'payout_blocked'
     | 'ledger_sync_missing'
     | 'driver_available_now_pence'
+    | 'driver_wallet_balance_pence'
+    | 'driver_debt_pence'
     | 'payout_warning_reasons'
     | 'reconciliation_status'
   >;
@@ -45,6 +50,7 @@ export function formatPayoutEligibilityStatus(args: {
   if (!connected) return 'Not Connected';
   if (!driver.payouts_enabled) return 'Connected — Payout Not Enabled';
   if (ssot.ledger_sync_missing) return 'Blocked — Ledger Sync Missing';
+  if ((ssot.driver_wallet_balance_pence ?? 0) < 0) return 'Blocked — Driver In Debt';
   if (ssot.payout_blocked) return 'Blocked — Payout Hold';
   if (args.inFlightPayout) return 'Blocked — Payout In Flight';
   if (ssot.driver_available_now_pence <= 0) {
@@ -66,6 +72,7 @@ export function canManualPayout(args: {
 
   return (
     payoutEligible &&
+    (ssot.driver_wallet_balance_pence ?? 0) >= 0 &&
     !ssot.payout_blocked &&
     !ssot.ledger_sync_missing &&
     !args.inFlightPayout &&
@@ -100,6 +107,9 @@ export function manualPayoutBlockedHeadline(args: {
   if (args.canPayout) return null;
   if (args.inFlightPayout) {
     return 'Manual payout unavailable. A payout is already in flight for this driver.';
+  }
+  if ((args.ssot.driver_wallet_balance_pence ?? 0) < 0) {
+    return WALLET_NEGATIVE_BLOCK_MESSAGE;
   }
   if (args.ssot.driver_available_now_pence <= 0) {
     return MANUAL_PAYOUT_NO_SSOT_BALANCE_MESSAGE;

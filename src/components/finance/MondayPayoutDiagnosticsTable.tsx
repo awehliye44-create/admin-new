@@ -18,6 +18,13 @@ import { format } from "date-fns";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 
 function statusBadge(row: MondayPayoutDiagnosticsRow) {
+  if (row.payout_policy_violation) {
+    return (
+      <Badge variant="destructive" title={row.payout_policy_violation_detail ?? undefined}>
+        POLICY VIOLATION
+      </Badge>
+    );
+  }
   if (row.settlement_status === "PARTIAL_SETTLEMENT") {
     return <Badge variant="outline" className="border-amber-500 text-amber-700">PARTIAL_SETTLEMENT</Badge>;
   }
@@ -57,11 +64,13 @@ export function MondayPayoutDiagnosticsTable({
         <TableHeader>
           <TableRow>
             <TableHead>Driver</TableHead>
+            {!compact && <TableHead>Wallet</TableHead>}
+            {!compact && <TableHead>Paid / activity</TableHead>}
             {!compact && <TableHead>Gross payable</TableHead>}
             <TableHead>Cash commission recovered</TableHead>
             <TableHead>Net payout</TableHead>
             <TableHead>Payout status</TableHead>
-            <TableHead>Settlement</TableHead>
+            <TableHead>Driver settlement</TableHead>
             {!compact && <TableHead>Driver paid out</TableHead>}
             <TableHead>Failed amount</TableHead>
             {!compact && <TableHead>Returned to wallet</TableHead>}
@@ -87,6 +96,37 @@ export function MondayPayoutDiagnosticsTable({
               <TableCell className="font-medium whitespace-nowrap">
                 {row.driver_name ?? row.driver_id.slice(0, 8)}
               </TableCell>
+              {!compact && (
+                <TableCell className="text-xs">
+                  {row.driver_wallet_balance_pence != null ? (
+                    <span
+                      className={
+                        row.driver_wallet_balance_pence < 0
+                          ? "text-destructive font-semibold"
+                          : "text-foreground"
+                      }
+                    >
+                      {formatPence(row.driver_wallet_balance_pence, currencyCode)}
+                      {row.driver_debt_pence != null && row.driver_debt_pence > 0 && (
+                        <span className="block text-destructive">In debt</span>
+                      )}
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </TableCell>
+              )}
+              {!compact && (
+                <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
+                  {row.completed_at
+                    ? format(new Date(row.completed_at), "d MMM yyyy HH:mm")
+                    : row.failed_at
+                    ? format(new Date(row.failed_at), "d MMM yyyy HH:mm")
+                    : row.created_at
+                    ? format(new Date(row.created_at), "d MMM yyyy HH:mm")
+                    : "—"}
+                </TableCell>
+              )}
               {!compact && (
                 <TableCell>{formatPence(row.gross_payable_pence, currencyCode)}</TableCell>
               )}

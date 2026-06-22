@@ -66,6 +66,29 @@ describe('manualPayoutGate', () => {
     ).toBe(true);
   });
 
+  it('blocks manual payout when wallet balance is negative', () => {
+    expect(
+      canManualPayout({
+        driver: {
+          stripe_account_id: 'acct',
+          onboarding_complete: true,
+          payouts_enabled: true,
+        },
+        ssot: { ...baseSsot, driver_wallet_balance_pence: -278, driver_debt_pence: 278 },
+      }),
+    ).toBe(false);
+    expect(
+      formatPayoutEligibilityStatus({
+        driver: {
+          stripe_account_id: 'acct',
+          onboarding_complete: true,
+          payouts_enabled: true,
+        },
+        ssot: { ...baseSsot, driver_wallet_balance_pence: -278, driver_debt_pence: 278 },
+      }),
+    ).toBe('Blocked — Driver In Debt');
+  });
+
   it('labels eligibility when connected but no SSOT balance', () => {
     expect(
       formatPayoutEligibilityStatus({

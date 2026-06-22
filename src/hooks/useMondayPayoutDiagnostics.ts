@@ -15,6 +15,8 @@ export type MondayPayoutDiagnosticsRow = {
   batch_kind: string;
   driver_id: string;
   driver_name: string | null;
+  driver_wallet_balance_pence: number | null;
+  driver_debt_pence: number | null;
   gross_payable_pence: number;
   cash_commission_recovered_pence: number;
   net_driver_payout_pence: number;
@@ -31,6 +33,8 @@ export type MondayPayoutDiagnosticsRow = {
   failed_at: string | null;
   reconciliation_status: "BALANCED" | "RECONCILIATION_MISMATCH";
   reconciliation_detail: string | null;
+  payout_policy_violation: boolean;
+  payout_policy_violation_detail: string | null;
   created_at: string;
   completed_at: string | null;
 };
@@ -45,6 +49,8 @@ export type MondayPayoutTodayCards = {
 
 export type MondayPayoutDiagnosticsResponse = {
   today_cards: MondayPayoutTodayCards;
+  /** London midnight ISO — scope for today_cards totals */
+  today_period_start?: string;
   payouts: MondayPayoutDiagnosticsRow[];
   failed_payouts: MondayPayoutDiagnosticsRow[];
   partial_settlements: MondayPayoutDiagnosticsRow[];

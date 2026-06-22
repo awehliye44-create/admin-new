@@ -21,6 +21,10 @@ export type MondayPayoutDiagnosticsRow = {
   batch_kind: string;
   driver_id: string;
   driver_name: string | null;
+  /** Current signed wallet balance — negative means driver owes ONECAB. */
+  driver_wallet_balance_pence: number | null;
+  /** abs(min(wallet, 0)) */
+  driver_debt_pence: number | null;
   gross_payable_pence: number;
   cash_commission_recovered_pence: number;
   net_driver_payout_pence: number;
@@ -36,6 +40,9 @@ export type MondayPayoutDiagnosticsRow = {
   failed_at: string | null;
   reconciliation_status: "BALANCED" | "RECONCILIATION_MISMATCH";
   reconciliation_detail: string | null;
+  /** Completed payout while driver currently owes ONECAB — should not have been paid. */
+  payout_policy_violation: boolean;
+  payout_policy_violation_detail: string | null;
   created_at: string;
   completed_at: string | null;
 };
@@ -162,6 +169,7 @@ export function buildMondayPayoutDiagnosticsRow(args: {
   item: Record<string, unknown>;
   batchKind: string;
   driverName: string | null;
+  driverWalletBalancePence?: number | null;
 }): MondayPayoutDiagnosticsRow {
   const item = args.item;
   const payoutStatus = String(item.status ?? "pending");
@@ -205,12 +213,29 @@ export function buildMondayPayoutDiagnosticsRow(args: {
     (item.stripe_transfer_id as string | null) ??
     (item.stripe_payout_id as string | null);
 
+  const walletBalance =
+    typeof args.driverWalletBalancePence === "number"
+      ? args.driverWalletBalancePence
+      : null;
+  const driverDebt =
+    walletBalance != null ? Math.max(0, -walletBalance) : null;
+  const payoutPolicyViolation =
+    payoutStatus === "completed" &&
+    driverPaidOut > 0 &&
+    walletBalance != null &&
+    walletBalance < 0;
+  const payoutPolicyViolationDetail = payoutPolicyViolation
+    ? `Driver wallet is ${walletBalance}p (debt ${driverDebt}p) — payout should have been blocked.`
+    : null;
+
   return {
     payout_item_id: String(item.id),
     batch_id: (item.batch_id as string | null) ?? null,
     batch_kind: args.batchKind,
     driver_id: String(item.driver_id),
     driver_name: args.driverName,
+    driver_wallet_balance_pence: walletBalance,
+    driver_debt_pence: driverDebt,
     gross_payable_pence: grossPayable,
     cash_commission_recovered_pence: cashCommission,
     net_driver_payout_pence: netPayout,
@@ -231,6 +256,8 @@ export function buildMondayPayoutDiagnosticsRow(args: {
       (payoutStatus === "failed" ? (item.updated_at as string | null) : null),
     reconciliation_status: recon.status,
     reconciliation_detail: recon.detail,
+    payout_policy_violation: payoutPolicyViolation,
+    payout_policy_violation_detail: payoutPolicyViolationDetail,
     created_at: String(item.created_at ?? ""),
     completed_at: (item.completed_at as string | null) ?? null,
   };
@@ -266,4 +293,30 @@ export function londonTodayStartIso(): string {
   );
   london.setHours(0, 0, 0, 0);
   return london.toISOString();
+}
+
+/** True when a payout row's activity falls on the current London calendar day. */
+export function isMondayPayoutRowActivityToday(
+  row: Pick<
+    MondayPayoutDiagnosticsRow,
+    "completed_at" | "created_at" | "failed_at" | "payout_status"
+  >,
+  todayStartIso: string,
+): boolean {
+  const todayStart = new Date(todayStartIso).getTime();
+  const activityAt =
+    row.completed_at ??
+    row.failed_at ??
+    (row.payout_status === "pending" || row.payout_status === "processing"
+      ? row.created_at
+      : null);
+  if (!activityAt) return false;
+  return new Date(activityAt).getTime() >= todayStart;
+}
+
+export function filterMondayPayoutRowsForLondonToday(
+  rows: MondayPayoutDiagnosticsRow[],
+  todayStartIso = londonTodayStartIso(),
+): MondayPayoutDiagnosticsRow[] {
+  return rows.filter((row) => isMondayPayoutRowActivityToday(row, todayStartIso));
 }

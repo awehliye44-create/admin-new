@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   aggregateMondayPayoutTodayCards,
   buildMondayPayoutDiagnosticsRow,
+  filterMondayPayoutRowsForLondonToday,
   londonTodayStartIso,
   type MondayPayoutDiagnosticsRow,
 } from "../_shared/mondayPayoutDiagnostics.ts";
@@ -103,6 +104,7 @@ serve(async (req) => {
     if (batchIds.length === 0) {
       return new Response(JSON.stringify({
         today_cards: aggregateMondayPayoutTodayCards([]),
+        today_period_start: todayStart,
         payouts: [] as MondayPayoutDiagnosticsRow[],
         failed_payouts: [] as MondayPayoutDiagnosticsRow[],
         partial_settlements: [] as MondayPayoutDiagnosticsRow[],
@@ -133,6 +135,18 @@ serve(async (req) => {
     const { data: items, error: itemError } = await itemQuery;
     if (itemError) throw itemError;
 
+    const driverIds = [...new Set((items ?? []).map((i) => String(i.driver_id)))];
+    const walletByDriver = new Map<string, number>();
+    if (driverIds.length > 0) {
+      const { data: walletRows } = await supabase
+        .from("driver_financial_summary")
+        .select("driver_id, wallet_balance")
+        .in("driver_id", driverIds);
+      for (const row of walletRows ?? []) {
+        walletByDriver.set(String(row.driver_id), Number(row.wallet_balance ?? 0));
+      }
+    }
+
     const rows: MondayPayoutDiagnosticsRow[] = [];
 
     for (const item of items ?? []) {
@@ -153,6 +167,7 @@ serve(async (req) => {
         item: item as Record<string, unknown>,
         batchKind: batch?.kind ?? "WEEKLY_MONDAY",
         driverName: driverName || null,
+        driverWalletBalancePence: walletByDriver.get(String(item.driver_id)) ?? null,
       }));
     }
 
@@ -163,8 +178,11 @@ serve(async (req) => {
       r.settlement_status === "PARTIAL_SETTLEMENT"
     );
 
+    const todayRows = filterMondayPayoutRowsForLondonToday(rows, todayStart);
+
     return new Response(JSON.stringify({
-      today_cards: aggregateMondayPayoutTodayCards(rows),
+      today_cards: aggregateMondayPayoutTodayCards(todayRows),
+      today_period_start: todayStart,
       payouts: rows,
       failed_payouts: failedPayouts,
       partial_settlements: partialSettlements,

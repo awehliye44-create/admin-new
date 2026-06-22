@@ -102,6 +102,18 @@ export type FinanceBackendAuditV1 = {
 
 export type FinanceBackendAuditResponse = {
   finance_backend_audit_v1: FinanceBackendAuditV1;
+  stripe_platform_payouts?: {
+    paid_today_pence: number;
+    paid_all_time_pence: number;
+    recent: Array<{
+      id: string;
+      amount_pence: number;
+      status: string;
+      arrival_date: string | null;
+      created_at: string;
+    }>;
+    note?: string;
+  };
 };
 
 function buildAuditPath(
@@ -132,9 +144,24 @@ export function useFinanceBackendAudit(args?: {
     queryKey: ['finance-backend-audit-v1', filter?.regionId, filter?.serviceAreaId, from, to, driverId],
     queryFn: async () => {
       const path = buildAuditPath(filter, from, to, driverId);
-      const { data, error } = await supabase.functions.invoke(path, { method: 'GET' });
-      if (error) throw error;
-      return data as FinanceBackendAuditResponse;
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token ?? anonKey;
+      const url = `${supabaseUrl}/functions/v1/${path}`;
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          apikey: anonKey,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Edge function returned ${res.status}: ${text}`);
+      }
+      return (await res.json()) as FinanceBackendAuditResponse;
     },
     enabled,
     staleTime: 30_000,

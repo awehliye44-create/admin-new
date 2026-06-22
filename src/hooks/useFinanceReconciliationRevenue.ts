@@ -1,12 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
+import { subDays, format } from 'date-fns';
 import {
-  startOfDay,
-  endOfDay,
-  startOfWeek,
-  startOfMonth,
-  subDays,
-  format,
-} from 'date-fns';
+  getLondonDayBounds,
+  getLondonMonthStart,
+  getLondonWeekStart,
+} from '@/lib/financeLondonDay';
 import {
   fetchOnecabNetCommissionPence,
   invokeFinanceReconciliation,
@@ -34,7 +32,7 @@ export interface FinanceReconciliationRevenueResult {
   customRevenue: number;
   chartData: RevenueDataPoint[];
   serviceAreaBreakdown: ServiceAreaRevenueBreakdown[];
-  dataSourceBadge: 'LIVE';
+  dataSourceBadge: 'LIVE' | 'FALLBACK';
 }
 
 interface UseFinanceReconciliationRevenueOptions {
@@ -57,7 +55,7 @@ function bucketAuditChart(
     if (period === 'daily' || period === 'custom') {
       key = format(d, 'MMM d');
     } else if (period === 'weekly') {
-      key = format(startOfWeek(d, { weekStartsOn: 1 }), 'MMM d');
+      key = format(getLondonWeekStart(d), 'MMM d');
     } else {
       key = format(d, 'MMM yyyy');
     }
@@ -78,20 +76,19 @@ export function useFinanceReconciliationRevenue({
   serviceAreas,
 }: UseFinanceReconciliationRevenueOptions) {
   const now = new Date();
-  const todayStart = startOfDay(now);
-  const todayEnd = endOfDay(now);
-  const weekStart = startOfWeek(now, { weekStartsOn: 1 });
-  const monthStart = startOfMonth(now);
+  const { start: todayStart, end: todayEnd } = getLondonDayBounds(now);
+  const weekStart = getLondonWeekStart(now);
+  const monthStart = getLondonMonthStart(now);
 
   let chartFrom: Date;
   let chartTo: Date = todayEnd;
   if (period === 'custom' && customFrom) {
-    chartFrom = startOfDay(customFrom);
-    chartTo = customTo ? endOfDay(customTo) : todayEnd;
+    chartFrom = getLondonDayBounds(customFrom).start;
+    chartTo = customTo ? getLondonDayBounds(customTo).end : todayEnd;
   } else if (period === 'monthly') {
-    chartFrom = startOfMonth(subDays(monthStart, 90));
+    chartFrom = getLondonMonthStart(subDays(monthStart, 90));
   } else if (period === 'weekly') {
-    chartFrom = startOfWeek(subDays(now, 28), { weekStartsOn: 1 });
+    chartFrom = getLondonWeekStart(subDays(now, 28));
   } else {
     chartFrom = subDays(todayStart, 7);
   }
@@ -121,8 +118,8 @@ export function useFinanceReconciliationRevenue({
 
       let customRev = 0;
       if (period === 'custom' && customFrom) {
-        const cFrom = startOfDay(customFrom);
-        const cTo = customTo ? endOfDay(customTo) : todayEnd;
+        const cFrom = getLondonDayBounds(customFrom).start;
+        const cTo = customTo ? getLondonDayBounds(customTo).end : todayEnd;
         customRev = await fetchOnecabNetCommissionPence(cFrom, cTo, saId);
       }
 
@@ -158,5 +155,11 @@ export function useFinanceReconciliationRevenue({
     },
     staleTime: 30_000,
     refetchInterval: 60_000,
+    meta: { londonDay: true },
   });
+}
+
+/** Dashboard badge when reconciliation revenue API fails */
+export function financeRevenueDataSourceBadge(isError: boolean): 'LIVE' | 'FALLBACK' {
+  return isError ? 'FALLBACK' : 'LIVE';
 }

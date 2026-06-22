@@ -9,7 +9,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { supabase } from '@/integrations/supabase/client';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
-import { useFinanceReconciliationRevenue } from '@/hooks/useFinanceReconciliationRevenue';
+import { useFinanceReconciliationRevenue, financeRevenueDataSourceBadge } from '@/hooks/useFinanceReconciliationRevenue';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
 import { formatPence } from '@/hooks/useDriverWallet';
 import { 
@@ -134,11 +134,11 @@ function QuickActionsPanel({ navigate }: { navigate: (path: string) => void }) {
     },
     {
       icon: CreditCard,
-      label: 'Payments',
+      label: 'Finance & Payouts',
       description: counts.pendingDocuments > 0
-        ? `${counts.pendingDocuments} pending payouts`
-        : 'Manage payouts & billing',
-      path: '/payments',
+        ? `${counts.pendingDocuments} driver document${counts.pendingDocuments !== 1 ? 's' : ''} pending review`
+        : 'Driver wallets, payouts, and ledger',
+      path: '/drivers-and-payouts',
       badge: counts.pendingDocuments,
     },
     {
@@ -291,7 +291,7 @@ export default function Dashboard() {
   }, [period, customDateFrom, customDateTo]);
 
   // ─── ONECAB net commission — Financial Reconciliation SSOT only ───
-  const { data: revenueData, isLoading: revenueLoading } = useFinanceReconciliationRevenue({
+  const { data: revenueData, isLoading: revenueLoading, isError: revenueError } = useFinanceReconciliationRevenue({
     period,
     serviceAreaId: selectedServiceArea === 'all' ? null : selectedServiceArea,
     customFrom: customDateFrom,
@@ -568,7 +568,7 @@ export default function Dashboard() {
             ? 'ONECAB net commission by service area (Financial Reconciliation SSOT)'
             : `ONECAB net commission for ${selectedArea?.name || 'selected service area'}`}
         </span>
-        <FinanceSSOTBadge badge="LIVE" />
+        <FinanceSSOTBadge badge={financeRevenueDataSourceBadge(revenueError)} />
       </div>
 
       {/* ONECAB net commission — specific service area only (avoids mixed-currency aggregation) */}
@@ -576,14 +576,14 @@ export default function Dashboard() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Today Net Commission</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Today Net Commission (London)</CardTitle>
             <CircleDollarSign className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
               {revenueLoading ? '...' : formatPence(revenueData?.todayRevenue || 0, activeCurrencyCode)}
             </div>
-            <p className="text-xs text-muted-foreground">ONECAB net (after Stripe fee)</p>
+            <p className="text-xs text-muted-foreground">ONECAB net · London calendar day</p>
           </CardContent>
         </Card>
 
@@ -643,7 +643,7 @@ export default function Dashboard() {
             <TrendingUp className="h-5 w-5 text-primary" />
             <CardTitle>ONECAB Net Commission Over Time</CardTitle>
             <span className="text-xs text-muted-foreground ml-auto flex items-center gap-1">
-              Financial Reconciliation SSOT <FinanceSSOTBadge badge="LIVE" />
+              Financial Reconciliation SSOT <FinanceSSOTBadge badge={financeRevenueDataSourceBadge(revenueError)} />
             </span>
           </CardHeader>
           <CardContent>
@@ -668,7 +668,7 @@ export default function Dashboard() {
             <MapPin className="h-5 w-5 text-primary" />
             <CardTitle>Net Commission by Service Area</CardTitle>
             <span className="text-xs text-muted-foreground ml-auto flex items-center gap-1">
-              Financial Reconciliation SSOT <FinanceSSOTBadge badge="LIVE" />
+              Financial Reconciliation SSOT <FinanceSSOTBadge badge={financeRevenueDataSourceBadge(revenueError)} />
             </span>
           </CardHeader>
           <CardContent>

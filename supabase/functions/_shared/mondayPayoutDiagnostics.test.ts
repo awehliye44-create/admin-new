@@ -1,7 +1,9 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   aggregateMondayPayoutTodayCards,
+  buildMondayPayoutDiagnosticsRow,
   deriveSettlementStatus,
+  filterMondayPayoutRowsForLondonToday,
   formatProviderFailureReason,
   grossMinusCommissionBalanced,
   netPayoutAllocationBalanced,
@@ -79,6 +81,8 @@ Deno.test("aggregateMondayPayoutTodayCards sums rows", () => {
       batch_kind: "WEEKLY_MONDAY",
       driver_id: "d",
       driver_name: "Test",
+      driver_wallet_balance_pence: null,
+      driver_debt_pence: null,
       gross_payable_pence: 11338,
       cash_commission_recovered_pence: 1338,
       net_driver_payout_pence: 10000,
@@ -94,6 +98,8 @@ Deno.test("aggregateMondayPayoutTodayCards sums rows", () => {
       failed_at: "2026-06-09T10:00:00Z",
       reconciliation_status: "BALANCED",
       reconciliation_detail: null,
+      payout_policy_violation: false,
+      payout_policy_violation_detail: null,
       created_at: "",
       completed_at: null,
     },
@@ -101,4 +107,65 @@ Deno.test("aggregateMondayPayoutTodayCards sums rows", () => {
   assertEquals(cards.onecab_commission_recovered_pence, 1338);
   assertEquals(cards.driver_payout_failed_pence, 10000);
   assertEquals(cards.returned_to_wallet_pence, 10000);
+});
+
+Deno.test("filterMondayPayoutRowsForLondonToday excludes historical completed payouts", () => {
+  const todayStart = "2026-06-22T00:00:00.000Z";
+  const rows = [
+    {
+      payout_item_id: "old",
+      completed_at: "2026-06-20T12:00:00Z",
+      created_at: "2026-06-20T11:00:00Z",
+      failed_at: null,
+      payout_status: "completed",
+      driver_paid_out_pence: 278,
+      cash_commission_recovered_pence: 0,
+      failed_payout_amount_pence: 0,
+      driver_pending_pence: 0,
+      returned_to_wallet_pence: 0,
+    },
+    {
+      payout_item_id: "today",
+      completed_at: "2026-06-22T14:00:00Z",
+      created_at: "2026-06-22T13:00:00Z",
+      failed_at: null,
+      payout_status: "completed",
+      driver_paid_out_pence: 500,
+      cash_commission_recovered_pence: 0,
+      failed_payout_amount_pence: 0,
+      driver_pending_pence: 0,
+      returned_to_wallet_pence: 0,
+      driver_wallet_balance_pence: null,
+      driver_debt_pence: null,
+      payout_policy_violation: false,
+      payout_policy_violation_detail: null,
+    },
+  ] as Parameters<typeof filterMondayPayoutRowsForLondonToday>[0];
+
+  const todayRows = filterMondayPayoutRowsForLondonToday(rows, todayStart);
+  assertEquals(todayRows.length, 1);
+  assertEquals(todayRows[0].payout_item_id, "today");
+  const cards = aggregateMondayPayoutTodayCards(todayRows);
+  assertEquals(cards.driver_payout_sent_pence, 500);
+});
+
+Deno.test("buildMondayPayoutDiagnosticsRow flags debt driver with completed payout", () => {
+  const row = buildMondayPayoutDiagnosticsRow({
+    item: {
+      id: "pi1",
+      driver_id: "d1",
+      status: "completed",
+      amount_pence: 278,
+      net_driver_payout_pence: 278,
+      driver_paid_out_pence: 278,
+      gross_payable_pence: 278,
+      created_at: "2026-06-22T08:00:00Z",
+      completed_at: "2026-06-22T08:05:00Z",
+    },
+    batchKind: "MANUAL_ADMIN",
+    driverName: "Ahmed Osman",
+    driverWalletBalancePence: -278,
+  });
+  assertEquals(row.payout_policy_violation, true);
+  assertEquals(row.driver_debt_pence, 278);
 });

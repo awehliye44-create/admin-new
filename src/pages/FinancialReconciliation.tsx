@@ -40,9 +40,10 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
-import { MondayPayoutTodayCards, PartialSettlementAlert } from '@/components/finance/MondayPayoutTodayCards';
-import { MondayPayoutDiagnosticsTable } from '@/components/finance/MondayPayoutDiagnosticsTable';
-import { useMondayPayoutDiagnostics } from '@/hooks/useMondayPayoutDiagnostics';
+import { FinanceReconciliationTotalsCards } from '@/components/finance/FinanceReconciliationTotalsCards';
+import { OnecabCommissionVisibility } from '@/components/finance/OnecabCommissionVisibility';
+import { FinancePayoutAuditSection } from '@/components/finance/FinancePayoutAuditSection';
+import { MONDAY_PAYOUT_DIAGNOSTICS_OPTS } from '@/lib/financePageSSOT';
 
 function statusChipVariant(label: string | null | undefined): 'default' | 'secondary' | 'destructive' | 'outline' {
   const l = String(label ?? '').toLowerCase();
@@ -188,7 +189,7 @@ function FinancialReconciliationPage() {
     to: to || undefined,
   });
 
-  const mondayPayouts = useMondayPayoutDiagnostics(filter, { allKinds: true });
+  const mondayPayouts = useMondayPayoutDiagnostics(filter, MONDAY_PAYOUT_DIAGNOSTICS_OPTS);
 
   const summary = ssot.summary;
   const ccy = ssot.currencyCode || filter.currencyCode || 'GBP';
@@ -294,38 +295,18 @@ function FinancialReconciliationPage() {
           </div>
         </div>
 
-        <MondayPayoutTodayCards
-          cards={mondayPayouts.data?.today_cards}
+        <FinanceReconciliationTotalsCards ssot={ssot} />
+        <OnecabCommissionVisibility
+          summary={ssot.summary}
           currencyCode={ccy}
-          isLoading={mondayPayouts.isLoading}
+          filter={filter}
+          dataBadge={ssotBadge}
         />
-        <PartialSettlementAlert count={mondayPayouts.data?.partial_settlements?.length ?? 0} />
-        {(mondayPayouts.data?.reconciliation_mismatches?.length ?? 0) > 0 && (
-          <Alert variant="destructive">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>RECONCILIATION_MISMATCH — Monday payouts</AlertTitle>
-            <AlertDescription>
-              {mondayPayouts.data?.reconciliation_mismatches?.length} payout(s) fail gross−commission=net or
-              net=paid+failed+pending+returned checks.
-            </AlertDescription>
-          </Alert>
-        )}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Monday Payout Settlement Diagnostics</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground mb-4">
-              ONECAB commission recovered does not mean driver payout succeeded. Each row shows gross payable,
-              commission recovered, net payout, provider status, and wallet return.
-            </p>
-            <MondayPayoutDiagnosticsTable
-              rows={mondayPayouts.data?.payouts ?? []}
-              currencyCode={ccy}
-              emptyMessage="No Monday payout activity in the selected scope today."
-            />
-          </CardContent>
-        </Card>
+
+        <FinancePayoutAuditSection
+          mondayPayouts={mondayPayouts}
+          currencyCode={ccy}
+        />
 
         {ssotBadge !== 'LIVE' && (
           <Alert variant="destructive">
@@ -483,7 +464,7 @@ function FinancialReconciliationPage() {
               ccy={ccy}
               subtitle="Total commission earned − Stripe fees"
             />
-            <MetricCard title="ONECAB Bank Payout" value={onecab.onecab_bank_payout_pence} ccy={ccy} />
+            <MetricCard title="ONECAB Bank Payout (reconciliation field)" value={onecab.onecab_bank_payout_pence} ccy={ccy} subtitle="Admin sweep batches not built — see ONECAB Commission panel above for Stripe bank receipts" />
             <div className="rounded-lg border bg-card p-3">
               <p className="text-xs text-muted-foreground">Commission Status</p>
               <Badge variant={statusChipVariant(onecab.onecab_commission_status_label)} className="mt-2">

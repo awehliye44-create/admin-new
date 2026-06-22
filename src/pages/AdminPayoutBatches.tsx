@@ -19,9 +19,9 @@ import {
   RefreshCw, CheckCircle2, Clock, XCircle, Eye, Calendar,
   DollarSign, Wallet, AlertTriangle
 } from 'lucide-react';
-import { MondayPayoutTodayCards, PartialSettlementAlert } from '@/components/finance/MondayPayoutTodayCards';
-import { MondayPayoutDiagnosticsTable } from '@/components/finance/MondayPayoutDiagnosticsTable';
+import { FinancePayoutAuditSection } from '@/components/finance/FinancePayoutAuditSection';
 import { retryMondayPayoutItem, canRetryMondayPayoutItem, useMondayPayoutDiagnostics } from '@/hooks/useMondayPayoutDiagnostics';
+import { MONDAY_PAYOUT_DIAGNOSTICS_OPTS } from '@/lib/financePageSSOT';
 import { WeeklyMondaySettlementPanel } from '@/components/finance/WeeklyMondaySettlementPanel';
 import { OnecabCommissionVisibility } from '@/components/finance/OnecabCommissionVisibility';
 import { toast } from 'sonner';
@@ -305,7 +305,7 @@ export default function AdminPayoutBatches() {
   const queryClient = useQueryClient();
   const regionScope = serviceFilter.regionId ?? null;
   const financeSSOT = useFinancialReconciliationSSOT({ filter: serviceFilter });
-  const mondayPayouts = useMondayPayoutDiagnostics(serviceFilter, { allKinds: true, today: false });
+  const mondayPayouts = useMondayPayoutDiagnostics(serviceFilter, MONDAY_PAYOUT_DIAGNOSTICS_OPTS);
   const hasRegionScope = !!regionScope;
 
   const { data: allDrivers = [], isLoading: isLoadingDrivers, isError: isDriversError, error: driversError, refetch: refetchDrivers } =
@@ -523,50 +523,23 @@ export default function AdminPayoutBatches() {
 
         {/* Canonical finance cards — ONECAB commission separated from Stripe platform balance */}
         <FinanceReconciliationTotalsCards ssot={financeSSOT} />
-        <OnecabCommissionVisibility summary={financeSSOT.summary} currencyCode={resolvedCurrency} />
+        <OnecabCommissionVisibility
+          summary={financeSSOT.summary}
+          currencyCode={resolvedCurrency}
+          filter={serviceFilter}
+          dataBadge={financeSSOT.badge}
+        />
 
         {hasRegionScope && (
           <WeeklyMondaySettlementPanel filter={serviceFilter} currencyCode={resolvedCurrency} />
         )}
 
-        <MondayPayoutTodayCards
-          cards={mondayPayouts.data?.today_cards}
+        <FinancePayoutAuditSection
+          mondayPayouts={mondayPayouts}
           currencyCode={resolvedCurrency}
-          isLoading={mondayPayouts.isLoading}
+          onRetry={handleRetryMondayPayout}
+          retryingId={retryingPayoutId}
         />
-        <PartialSettlementAlert count={mondayPayouts.data?.partial_settlements?.length ?? 0} />
-
-        {(mondayPayouts.data?.failed_payouts?.length ?? 0) > 0 && (
-          <Card className="border-destructive/40">
-            <CardHeader>
-              <CardTitle className="text-base text-destructive">Failed Payouts — must not be hidden</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <MondayPayoutDiagnosticsTable
-                rows={mondayPayouts.data?.failed_payouts ?? []}
-                currencyCode={resolvedCurrency}
-                onRetry={handleRetryMondayPayout}
-                retryingId={retryingPayoutId}
-              />
-            </CardContent>
-          </Card>
-        )}
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Monday Payout Audit</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <MondayPayoutDiagnosticsTable
-              rows={mondayPayouts.data?.payouts ?? []}
-              currencyCode={resolvedCurrency}
-              onRetry={handleRetryMondayPayout}
-              retryingId={retryingPayoutId}
-              emptyMessage="No weekly Monday payout records. Failed payouts always appear here once recorded."
-            />
-          </CardContent>
-        </Card>
-
 
         <div className="grid gap-4 md:grid-cols-5">
           <Card>

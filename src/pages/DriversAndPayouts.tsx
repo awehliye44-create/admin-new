@@ -32,16 +32,17 @@ import {
 } from '@/components/finance/ServiceAreaFinanceFilter';
 import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 import { FinanceReconciliationTotalsCards } from '@/components/finance/FinanceReconciliationTotalsCards';
-import { FinanceSSOT, useFinancialReconciliationSSOT } from '@/hooks/useFinancialReconciliationSSOT';
+import { useFinancialReconciliationSSOT } from '@/hooks/useFinancialReconciliationSSOT';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
 import { DriverSSOTPayoutPanel, useDriverSSOTPayoutGate } from '@/components/finance/DriverSSOTPayoutPanel';
 import { ManualPayoutConfirmDialog } from '@/components/finance/ManualPayoutConfirmDialog';
 import { OnecabCommissionVisibility } from '@/components/finance/OnecabCommissionVisibility';
 import { FinanceLedgerPanel } from '@/components/finance/FinanceLedgerPanel';
 import { MANUAL_PAYOUT_NO_SSOT_BALANCE_MESSAGE } from '@/lib/manualPayoutGate';
-import { MondayPayoutTodayCards, PartialSettlementAlert } from '@/components/finance/MondayPayoutTodayCards';
+import { FinancePayoutAuditSection } from '@/components/finance/FinancePayoutAuditSection';
 import { MondayPayoutDiagnosticsTable } from '@/components/finance/MondayPayoutDiagnosticsTable';
 import { retryMondayPayoutItem, useMondayPayoutDiagnostics } from '@/hooks/useMondayPayoutDiagnostics';
+import { MONDAY_PAYOUT_DIAGNOSTICS_OPTS } from '@/lib/financePageSSOT';
 import {
   Search,
   Eye,
@@ -83,7 +84,7 @@ export default function DriversAndPayouts() {
   const financeSSOT = useFinancialReconciliationSSOT({ filter: serviceFilter });
   const mondayPayouts = useMondayPayoutDiagnostics(serviceFilter, {
     driverId: selectedDriverId,
-    allKinds: true,
+    ...MONDAY_PAYOUT_DIAGNOSTICS_OPTS,
   });
 
   const { data: allDrivers = [], isLoading, refetch } = useDriverFinancialSummaries();
@@ -136,13 +137,6 @@ export default function DriversAndPayouts() {
   const resolvedCurrency = serviceFilter.currencyCode || getSingleCurrency(drivers) || '';
   const isMixedCurrency = !serviceFilter.currencyCode && !getSingleCurrency(drivers) && drivers.length > 0;
 
-  const ssotSummary = financeSSOT.summary;
-  const totalWalletBalance = ssotSummary
-    ? FinanceSSOT.driverRemainingLiability(ssotSummary)
-    : drivers.reduce((sum, d) => sum + d.wallet_balance, 0);
-  const totalCommission = ssotSummary
-    ? FinanceSSOT.onecabNetCommission(ssotSummary)
-    : drivers.reduce((sum, d) => sum + d.amount_owed_to_onecab, 0);
   const driversPayable = drivers.filter((d) => d.net_available_for_payout > 0 || d.available_for_payout > 0).length;
   const driversInDebt = drivers.filter((d) => d.amount_owed_to_onecab > 0).length;
   const driversWithBalance = drivers.filter((d) => d.wallet_balance > 0).length;
@@ -272,14 +266,20 @@ export default function DriversAndPayouts() {
     >
       <div className="space-y-6">
         <FinanceReconciliationTotalsCards ssot={financeSSOT} />
-        <OnecabCommissionVisibility summary={financeSSOT.summary} currencyCode={resolvedCurrency} />
-
-        <MondayPayoutTodayCards
-          cards={mondayPayouts.data?.today_cards}
+        <OnecabCommissionVisibility
+          summary={financeSSOT.summary}
           currencyCode={resolvedCurrency}
-          isLoading={mondayPayouts.isLoading}
+          filter={serviceFilter}
+          dataBadge={financeSSOT.badge}
         />
-        <PartialSettlementAlert count={mondayPayouts.data?.partial_settlements?.length ?? 0} />
+
+        <FinancePayoutAuditSection
+          mondayPayouts={mondayPayouts}
+          currencyCode={resolvedCurrency}
+          onRetry={handleRetryPayout}
+          retryingId={retryingPayoutId}
+          compact={!selectedDriverId}
+        />
 
         <div className="flex flex-wrap items-center gap-3">
           <ServiceAreaFinanceFilter value={serviceFilter} onChange={setServiceFilter} />
@@ -304,39 +304,7 @@ export default function DriversAndPayouts() {
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6 mt-4">
-            <div className="grid gap-4 md:grid-cols-5">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Remaining Liability</CardTitle>
-                  <Wallet className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  {isMixedCurrency ? (
-                    <p className="text-sm text-muted-foreground">Select a service area</p>
-                  ) : (
-                    <div className={`text-2xl font-bold ${totalWalletBalance >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                      {formatPence(totalWalletBalance, resolvedCurrency)}
-                    </div>
-                  )}
-                  <p className="text-xs text-muted-foreground">ONECAB owes drivers (SSOT)</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">ONECAB Commission</CardTitle>
-                  <TrendingDown className="h-4 w-4 text-blue-500" />
-                </CardHeader>
-                <CardContent>
-                  {isMixedCurrency ? (
-                    <p className="text-sm text-muted-foreground">Select a service area</p>
-                  ) : (
-                    <div className="text-2xl font-bold text-blue-500">{formatPence(totalCommission, resolvedCurrency)}</div>
-                  )}
-                  <p className="text-xs text-muted-foreground flex items-center gap-1">
-                    Net commission <FinanceSSOTBadge badge={financeSSOT.badge} />
-                  </p>
-                </CardContent>
-              </Card>
+            <div className="grid gap-4 md:grid-cols-3">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Ready for Payout</CardTitle>
@@ -344,46 +312,32 @@ export default function DriversAndPayouts() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{driversPayable}</div>
-                  <p className="text-xs text-muted-foreground">Drivers with cleared funds</p>
+                  <p className="text-xs text-muted-foreground">Drivers with cleared summary balance</p>
                 </CardContent>
               </Card>
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">In Debt</CardTitle>
+                  <CardTitle className="text-sm font-medium">Cash Commission Debt</CardTitle>
                   <AlertTriangle className="h-4 w-4 text-red-500" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{driversInDebt}</div>
-                  <p className="text-xs text-muted-foreground">Owe cash commission</p>
+                  <p className="text-xs text-muted-foreground">Drivers owing cash trip commission</p>
                 </CardContent>
               </Card>
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Positive Wallet</CardTitle>
-                  <CreditCard className="h-4 w-4 text-green-500" />
+                  <CardTitle className="text-sm font-medium">Negative Wallet</CardTitle>
+                  <TrendingDown className="h-4 w-4 text-destructive" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{driversWithBalance}</div>
-                  <p className="text-xs text-muted-foreground">Drivers with balance &gt; 0</p>
+                  <div className="text-2xl font-bold">
+                    {drivers.filter((d) => d.wallet_balance < 0).length}
+                  </div>
+                  <p className="text-xs text-muted-foreground">Ledger balance below zero</p>
                 </CardContent>
               </Card>
             </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Monday Payout Diagnostics</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <MondayPayoutDiagnosticsTable
-                  rows={mondayPayouts.data?.payouts ?? []}
-                  currencyCode={resolvedCurrency}
-                  onRetry={handleRetryPayout}
-                  retryingId={retryingPayoutId}
-                  compact={!selectedDriverId}
-                  emptyMessage="No Monday payout records today."
-                />
-              </CardContent>
-            </Card>
 
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row justify-between gap-4">
@@ -513,7 +467,7 @@ export default function DriversAndPayouts() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <Card>
                     <CardContent className="pt-4">
-                      <p className="text-xs text-muted-foreground">Wallet (SSOT)</p>
+                      <p className="text-xs text-muted-foreground">Wallet (ledger)</p>
                       <p className={`text-lg font-bold ${selectedDriverDetail.wallet_balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                         {formatPence(selectedDriverDetail.wallet_balance, selectedDriverDetail.currency_code)}
                       </p>
@@ -537,7 +491,7 @@ export default function DriversAndPayouts() {
                   </Card>
                   <Card>
                     <CardContent className="pt-4">
-                      <p className="text-xs text-muted-foreground">Today&apos;s earnings</p>
+                      <p className="text-xs text-muted-foreground">Today&apos;s trip gross (calendar day)</p>
                       <p className="text-lg font-bold">{formatPence(selectedDriverDetail.today_gross_earnings, selectedDriverDetail.currency_code)}</p>
                     </CardContent>
                   </Card>
@@ -618,7 +572,7 @@ export default function DriversAndPayouts() {
                     rows={mondayPayouts.data?.payouts ?? []}
                     currencyCode={selectedDriverDetail.currency_code}
                     compact
-                    emptyMessage="No payout records for this driver today."
+                    emptyMessage="No payout records for this driver."
                   />
                 </div>
 

@@ -26,7 +26,7 @@ import {
   Banknote, Smartphone, CalendarIcon,
 } from 'lucide-react';
 import { PaymentControlsCard } from '@/components/payment/PaymentControlsCard';
-import { FinanceReconciliationTotalsCards } from '@/components/finance/FinanceReconciliationTotalsCards';
+import { OnecabCommissionVisibility } from '@/components/finance/OnecabCommissionVisibility';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
 import {
   DEFAULT_SERVICE_AREA_SELECTION,
@@ -393,6 +393,12 @@ export default function AdminPayments() {
         </Card>
 
         <FinanceReconciliationTotalsCards ssot={financeSSOT} />
+        <OnecabCommissionVisibility
+          summary={financeSSOT.summary}
+          currencyCode={serviceFilter.currencyCode || 'GBP'}
+          filter={serviceFilter}
+          dataBadge={financeSSOT.badge}
+        />
 
         {isListError && (
           <Alert variant="destructive">
