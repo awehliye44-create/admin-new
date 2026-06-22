@@ -243,6 +243,8 @@ export function computePerDriverSSOT(args: {
     provider_upcoming_payout_pence: args.providerPendingBalancePence,
     driver_available_now_pence: availableNow,
     driver_pending_payout_pence: pendingPayout,
+    driver_wallet_balance_pence: walletBalance,
+    driver_debt_pence: driverDebt,
     next_payout_date: nextWeeklyPayoutDateIso(),
     reconciliation_status: reconciliation.status,
     reconciliation_scope: reconciliation.reconciliation_scope,
