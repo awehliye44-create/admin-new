@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { PaymentControlsCard } from '@/components/payment/PaymentControlsCard';
 import { OnecabCommissionVisibility } from '@/components/finance/OnecabCommissionVisibility';
+import { FinanceReconciliationTotalsCards } from '@/components/finance/FinanceReconciliationTotalsCards';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
 import {
   DEFAULT_SERVICE_AREA_SELECTION,
