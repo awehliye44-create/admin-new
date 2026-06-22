@@ -363,12 +363,12 @@ export function buildFinanceBackendAuditV1(args: {
     ledgerSplit.card_driver_payable_pence - payoutDebits.total + adjustments,
   );
 
-  const driverAvailableNow = Math.min(
-    driverRemainingLiability,
-    Math.max(0, args.stripeAvailablePence),
-  );
+  // SSOT: aggregate available_payout = Σ max(walletBalance_i, 0).
+  // Equal to driverRemainingLiability (already max(0, …) per driver). No provider cap.
+  const driverAvailableNow = driverRemainingLiability;
 
-  const driverPendingSettlement = Math.max(0, driverRemainingLiability - driverAvailableNow);
+  // Pending settlement is always 0 under the SSOT; kept for response shape.
+  const driverPendingSettlement = 0;
 
   const onecabRemainingCommission = Math.max(0, ledgerSplit.onecab_card_net_commission_pence);
 
