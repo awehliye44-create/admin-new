@@ -64,6 +64,7 @@ import {
   Sparkles,
   Gauge,
   Activity,
+  Flame,
   Store,
   Coins,
   Lock,
@@ -258,7 +259,7 @@ export function AdminSidebar() {
           {/* OPERATIONS & DISPATCH */}
           <Section
             label="Operations & Dispatch"
-            slugs={['fleet-tracking','active-trips','auto-dispatch','scheduled-rides','missed-cancelled','trip-history','manual-trip','qr-booking','dispatch-metrics']}
+            slugs={['fleet-tracking','active-trips','auto-dispatch','scheduled-rides','missed-cancelled','trip-history','manual-trip','qr-booking','dispatch-metrics','driver-demand-zones']}
           >
             <P pageSlug="fleet-tracking" to="/fleet-tracking" icon={<Send className="h-4 w-4" />} label="Live Fleet Tracking" active={currentPath === '/fleet-tracking'} collapsed={isCollapsed} />
             <P pageSlug="active-trips" to="/active-trips" icon={<Radio className="h-4 w-4" />} label="Active Trips (Real-time)" active={currentPath === '/active-trips'} badge={counts.activeTrips > 0 ? counts.activeTrips : undefined} collapsed={isCollapsed} />
@@ -269,6 +270,7 @@ export function AdminSidebar() {
             <P pageSlug="manual-trip" to="/manual-trip" icon={<Plus className="h-4 w-4" />} label="Manual Trip Creation" active={currentPath === '/manual-trip'} collapsed={isCollapsed} />
             <P pageSlug="qr-booking" to="/qr-booking" icon={<QrCode className="h-4 w-4" />} label="QR Booking" active={currentPath === '/qr-booking'} collapsed={isCollapsed} />
             <P pageSlug="dispatch-metrics" to="/dispatch-metrics" icon={<Activity className="h-4 w-4" />} label="Dispatch Metrics" active={currentPath === '/dispatch-metrics'} collapsed={isCollapsed} />
+            <P pageSlug="driver-demand-zones" to="/driver-demand-zones" icon={<Flame className="h-4 w-4" />} label="Driver Demand Zones" active={currentPath === '/driver-demand-zones'} collapsed={isCollapsed} />
           </Section>
 
           {/* FLEET MANAGEMENT */}

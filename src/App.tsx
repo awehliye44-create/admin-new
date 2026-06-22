@@ -82,6 +82,7 @@ import UserDirectory from "./pages/UserDirectory";
 import QrBookingControl from "./pages/QrBookingControl";
 import OpsIntelligence from "./pages/OpsIntelligence";
 import DispatchMetrics from "./pages/DispatchMetrics";
+import DriverDemandZones from "./pages/DriverDemandZones";
 import LostProperty from "./pages/LostProperty";
 import LostPropertyDetail from "./pages/LostPropertyDetail";
 import { AdminTelemetryProvider } from "@/lib/telemetry/adminBootstrap";
@@ -121,6 +122,7 @@ const App = () => (
               <Route path="dispatch" element={<Dispatch />} />
               <Route path="qr-booking" element={<QrBookingControl />} />
               <Route path="dispatch-metrics" element={<DispatchMetrics />} />
+              <Route path="driver-demand-zones" element={<DriverDemandZones />} />
               
               {/* Service Areas */}
               <Route path="regions" element={<Regions />} />
