@@ -106,14 +106,16 @@ export function getEntryTypeDisplay(entryType: string): { label: string; color: 
     case 'BONUS':
       return { label: 'Bonus', color: 'text-green-600' };
     case 'DEBT_RECOVERY':
-      return { label: 'Debt Recovery', color: 'text-orange-600' };
+      return { label: 'Debt recovered', color: 'text-orange-600' };
+    case 'COMMISSION_RECOVERED':
+      return { label: 'Debt recovered (mirror)', color: 'text-orange-500' };
     case 'PAYOUT_FAILED_RETURN':
       return { label: 'Payout failed — funds returned to wallet', color: 'text-amber-600' };
     case 'REFUND_DEBIT':
       return { label: 'Refund Debit', color: 'text-red-600' };
     case 'COMPANY_COMMISSION':
     case 'PLATFORM_COMMISSION':
-      return { label: 'Platform Commission', color: 'text-emerald-600' };
+      return { label: 'ONECAB commission', color: 'text-emerald-600' };
     case 'TIP_CREDIT':
       return { label: 'Tip Credit', color: 'text-green-500' };
     default:

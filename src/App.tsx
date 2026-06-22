@@ -49,12 +49,10 @@ import Tickets from "./pages/Tickets";
 import SupportCategories from "./pages/SupportCategories";
 import AdminPayments from "./pages/AdminPayments";
 import FinancialReconciliation from "./pages/FinancialReconciliation";
-import AdminDriverSettlements from "./pages/AdminDriverSettlements";
-import DriverWallet from "./pages/DriverWallet";
+import DriversAndPayouts from "./pages/DriversAndPayouts";
 import AdminPayoutBatches from "./pages/AdminPayoutBatches";
 import AnnualTaxiReport from "./pages/AnnualTaxiReport";
 import OnecabRevenueProfitReport from "./pages/OnecabRevenueProfitReport";
-import ConnectPayoutLockdown from "./pages/ConnectPayoutLockdown";
 import Disputes from "./pages/Disputes";
 import DisputeSettings from "./pages/DisputeSettings";
 import Invoices from "./pages/Invoices";
@@ -171,10 +169,12 @@ const App = () => (
               {/* Finance & Payouts */}
               <Route path="payments" element={<AdminPayments />} />
               <Route path="financial-reconciliation" element={<FinancialReconciliation />} />
-              <Route path="admin-settlements" element={<AdminDriverSettlements />} />
-              <Route path="driver-wallet" element={<DriverWallet />} />
+              <Route path="drivers-and-payouts" element={<DriversAndPayouts />} />
+              <Route path="driver-wallet" element={<Navigate to="/drivers-and-payouts" replace />} />
+              <Route path="admin-settlements" element={<Navigate to="/drivers-and-payouts" replace />} />
+              <Route path="finance-ledger-transactions" element={<Navigate to="/drivers-and-payouts?tab=ledger" replace />} />
               <Route path="payout-batches" element={<AdminPayoutBatches />} />
-              <Route path="connect-payout-lockdown" element={<ConnectPayoutLockdown />} />
+              <Route path="connect-payout-lockdown" element={<Navigate to="/payout-batches" replace />} />
               <Route path="disputes" element={<Disputes />} />
               <Route path="dispute-settings" element={<DisputeSettings />} />
               <Route path="invoices" element={<Invoices />} />
