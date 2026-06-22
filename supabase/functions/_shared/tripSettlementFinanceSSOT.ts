@@ -1,6 +1,5 @@
 /**
- * Settlement finance SSOT helpers for edge functions and reconciliation audit rows.
- * Mirrors src/lib/tripCaptureStatus.ts — keep display logic aligned.
+ * Synced from drive-hub-buddy — run scripts/sync-finance-ssot.ts to refresh.
  */
 
 export type TripSettlementFields = {
@@ -24,10 +23,16 @@ export type LedgerEarningFields = {
 };
 
 const CARD_METHODS = new Set(["card", "apple_pay", "google_pay"]);
+const CAPTURED_PAYMENT_STATUSES = new Set(["captured", "paid", "succeeded"]);
+const CASH_COLLECTED_STATUSES = new Set(["collected_cash", "cash_collected"]);
 
 export function isCardTrip(trip: { payment_method?: string | null }): boolean {
   const method = (trip.payment_method ?? "").toLowerCase();
   return CARD_METHODS.has(method);
+}
+
+export function isCashTrip(trip: { payment_method?: string | null }): boolean {
+  return String(trip.payment_method ?? "").trim().toLowerCase() === "cash";
 }
 
 export function getPaymentRowCapturedPence(payment: PaymentCaptureFields): number {
@@ -54,17 +59,13 @@ function isCardPaymentCaptured(
   paymentCapturedPence: number | null | undefined,
 ): boolean {
   if (!isCardTrip(trip)) return false;
-  const captured = paymentCapturedPence ?? (trip.capture_amount_pence ?? 0);
-  if (captured <= 0) return false;
   const status = (trip.payment_status ?? "").toLowerCase();
-  return status === "captured" || status === "paid" || captured > 0;
+  if (CAPTURED_PAYMENT_STATUSES.has(status)) return true;
+  const captured = paymentCapturedPence ?? (trip.capture_amount_pence ?? 0);
+  return captured > 0;
 }
 
-/**
- * Settlement / customer-paid fare for admin finance displays.
- * Card captured: payments.captured_amount_pence wins.
- * Cash collected: final_fare_pence.
- */
+/** Settlement / customer-paid total for finance displays. */
 export function getTripSettlementFarePence(
   trip: TripSettlementFields,
   args?: { paymentCapturedPence?: number | null },
@@ -72,14 +73,19 @@ export function getTripSettlementFarePence(
   const paymentCaptured = args?.paymentCapturedPence ?? null;
 
   if (isCardPaymentCaptured(trip, paymentCaptured)) {
-    return paymentCaptured != null && paymentCaptured > 0
-      ? paymentCaptured
-      : Math.max(0, trip.capture_amount_pence ?? 0);
+    if (paymentCaptured != null && paymentCaptured > 0) return paymentCaptured;
+    if (trip.capture_amount_pence != null && trip.capture_amount_pence > 0) {
+      return trip.capture_amount_pence;
+    }
+    if (trip.final_fare_pence != null && trip.final_fare_pence > 0) {
+      return trip.final_fare_pence;
+    }
+    return 0;
   }
 
   if (!isCardTrip(trip)) {
     const status = (trip.payment_status ?? "").toLowerCase();
-    if (status === "collected_cash") {
+    if (CASH_COLLECTED_STATUSES.has(status)) {
       if (trip.final_fare_pence != null && trip.final_fare_pence > 0) {
         return trip.final_fare_pence;
       }
@@ -92,10 +98,6 @@ export function getTripSettlementFarePence(
 
   if (trip.final_fare_pence != null) {
     return Math.max(0, trip.final_fare_pence);
-  }
-
-  if (trip.gross_fare_pence != null && trip.gross_fare_pence > 0) {
-    return trip.gross_fare_pence;
   }
 
   if (paymentCaptured != null && paymentCaptured > 0) return paymentCaptured;
@@ -131,4 +133,23 @@ export function getTripCapturedPenceForAudit(args: {
     return args.paymentCapturedPence;
   }
   return Math.max(0, args.tripCaptureAmountPence ?? 0);
+}
+
+export function customerPaidLabel(trip: { payment_method?: string | null }): "Customer Paid" | "Cash Collected" {
+  return isCashTrip(trip) ? "Cash Collected" : "Customer Paid";
+}
+
+/** Completed-trip payment status badge — not ambiguous "card" alone. */
+export function completedTripPaymentStatusLabel(trip: {
+  payment_method?: string | null;
+  payment_status?: string | null;
+}): string | null {
+  const status = String(trip.payment_status ?? "").trim().toLowerCase();
+  if (isCashTrip(trip) && CASH_COLLECTED_STATUSES.has(status)) {
+    return "Cash Collected";
+  }
+  if (isCardTrip(trip) && CAPTURED_PAYMENT_STATUSES.has(status)) {
+    return "Card Captured";
+  }
+  return null;
 }

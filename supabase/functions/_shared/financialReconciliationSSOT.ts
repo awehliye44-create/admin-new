@@ -114,11 +114,11 @@ export type LedgerSSOTRow = {
   amount_pence: number;
 };
 
-/** 4. Driver gross earnings from trips (excludes provider fees, commission, auth buffer). */
+/** Driver gross earnings from trips — use final_fare_pence (authoritative customer payable ex tips). */
 export function tripDriverGrossEarningsPence(row: TripSSOTRow): number {
   const fare = Math.max(
     0,
-    row.gross_fare_pence ?? row.final_fare_pence ?? row.commissionable_fare_pence ?? 0,
+    row.final_fare_pence ?? row.commissionable_fare_pence ?? 0,
   );
   const pickupWaiting = Math.max(0, row.pickup_waiting_charge_pence ?? 0);
   const stopWaiting = Math.max(0, row.stop_waiting_charge_pence ?? 0);
@@ -147,7 +147,7 @@ export function sumCustomerRevenuePence(args: {
   }
 
   const fromFinal = args.trips.reduce(
-    (s, t) => s + Math.max(0, t.final_fare_pence ?? t.gross_fare_pence ?? 0),
+    (s, t) => s + Math.max(0, t.final_fare_pence ?? t.commissionable_fare_pence ?? 0),
     0,
   );
   return { total_pence: fromFinal, source: "trips_final_fare" };

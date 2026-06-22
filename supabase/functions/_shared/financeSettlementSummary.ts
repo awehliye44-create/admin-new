@@ -69,7 +69,6 @@ export function commissionableRevenuePence(row: TripFinanceRow): number {
   return Math.max(
     0,
     row.commissionable_fare_pence ??
-      row.gross_fare_pence ??
       row.final_fare_pence ??
       row.capture_amount_pence ??
       0,

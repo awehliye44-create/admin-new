@@ -3,7 +3,8 @@
  * Recalculated on every reconciliation request (no cached status text).
  */
 
-import { isCashTrip, type TripSSOTRow } from "./financialReconciliationSSOT.ts";
+import { isCashTrip } from "./tripSettlementFinanceSSOT.ts";
+import { type TripSSOTRow } from "./financialReconciliationSSOT.ts";
 
 export type TripAuditStatusTone = "green" | "yellow" | "blue" | "orange" | "gray" | "red";
 

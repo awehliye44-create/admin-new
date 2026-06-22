@@ -73,8 +73,8 @@ function driverName(d: DriverRow | undefined): string {
   return [d.first_name, d.last_name].filter(Boolean).join(' ') || d.driver_code || d.id;
 }
 
-function tripGross(t: TripRow): number {
-  return t.gross_fare_pence ?? t.final_customer_fare_pence ?? t.final_fare_pence ?? 0;
+function tripCustomerRevenuePence(t: TripRow): number {
+  return t.final_fare_pence ?? t.final_customer_fare_pence ?? 0;
 }
 function tripNet(t: TripRow): number {
   return t.driver_net_pence ?? t.driver_total_earnings_pence ?? 0;
@@ -168,7 +168,7 @@ export default function AnnualTaxiReport() {
     let gross = 0, commission = 0, net = 0, tips = 0;
     let cash = 0, card = 0, corporate = 0;
     for (const t of trips) {
-      gross += tripGross(t);
+      gross += tripCustomerRevenuePence(t);
       commission += t.commission_pence ?? 0;
       net += tripNet(t);
       tips += tripTip(t);
@@ -211,7 +211,7 @@ export default function AnnualTaxiReport() {
       t.completed_at ? format(new Date(t.completed_at), 'yyyy-MM-dd HH:mm') : '',
       getTripDisplayId(t as any) || t.id,
       t.corporate_account_id ? 'CORPORATE' : (t.payment_method ?? ''),
-      (tripGross(t) / 100).toFixed(2),
+      (tripCustomerRevenuePence(t) / 100).toFixed(2),
       ((t.commission_pence ?? 0) / 100).toFixed(2),
       (tripNet(t) / 100).toFixed(2),
       t.status ?? '',
@@ -439,7 +439,7 @@ export default function AnnualTaxiReport() {
                         </TableCell>
                         <TableCell className="font-mono text-xs">{getTripDisplayId(t as any) || t.id.slice(0, 8)}</TableCell>
                         <TableCell>{t.corporate_account_id ? 'CORPORATE' : (t.payment_method ?? '—')}</TableCell>
-                        <TableCell className="text-right">{formatPence(tripGross(t), t.currency_code ?? summary.currency)}</TableCell>
+                        <TableCell className="text-right">{formatPence(tripCustomerRevenuePence(t), t.currency_code ?? summary.currency)}</TableCell>
                         <TableCell className="text-right">{formatPence(t.commission_pence ?? 0, t.currency_code ?? summary.currency)}</TableCell>
                         <TableCell className="text-right">{formatPence(tripNet(t), t.currency_code ?? summary.currency)}</TableCell>
                         <TableCell><Badge variant="outline">{t.status ?? '—'}</Badge></TableCell>

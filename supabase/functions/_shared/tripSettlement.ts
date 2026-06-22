@@ -1,8 +1,5 @@
 /**
- * Trip settlement — SINGLE SOURCE OF TRUTH for commission / driver net / platform revenue.
- *
- * All settlement writers (trip complete, negotiation accept, admin fare edit, Stripe
- * webhook recovery, capture) must use calculateTripSettlement().
+ * Synced from drive-hub-buddy — run scripts/sync-finance-ssot.ts to refresh.
  */
 
 export const SETTLEMENT_FORMULA_VERSION = "1";
@@ -13,8 +10,6 @@ export type TripSettlementInput = {
   final_fare_pence: number;
   airport_charge_pence?: number;
   other_pass_through_charges_pence?: number;
-  /** Sum of voucher + promo + loyalty + corporate discounts (pence). */
-  discounts_pence?: number;
   tips_pence?: number;
   driver_tier_commission_percent: number;
   stripe_fee_pence?: number;
@@ -28,7 +23,6 @@ export type TripSettlementResult = {
   driver_total_earnings_pence: number;
   airport_charge_pence: number;
   other_pass_through_charges_pence: number;
-  discounts_pence: number;
   tips_pence: number;
   stripe_fee_pence: number;
   platform_gross_revenue_pence: number;
@@ -66,15 +60,13 @@ export function calculateTripSettlement(input: TripSettlementInput): TripSettlem
   const finalFarePence = nonNegInt(input.final_fare_pence);
   const airportChargePence = nonNegInt(input.airport_charge_pence);
   const otherPassThroughChargesPence = nonNegInt(input.other_pass_through_charges_pence);
-  const discountsPence = nonNegInt(input.discounts_pence);
   const tipsPence = nonNegInt(input.tips_pence);
   const stripeFeePence = nonNegInt(input.stripe_fee_pence);
   const tierPercentUsed = capTierCommissionPercent(input.driver_tier_commission_percent);
 
-  // Authoritative: commissionable = max(0, final - airport - pass_through - discounts).
   const commissionableFarePence = Math.max(
     0,
-    finalFarePence - airportChargePence - otherPassThroughChargesPence - discountsPence,
+    finalFarePence - airportChargePence - otherPassThroughChargesPence,
   );
 
   const commissionPence = Math.round((commissionableFarePence * tierPercentUsed) / 100);
@@ -93,7 +85,6 @@ export function calculateTripSettlement(input: TripSettlementInput): TripSettlem
     driver_total_earnings_pence: driverTotalEarningsPence,
     airport_charge_pence: airportChargePence,
     other_pass_through_charges_pence: otherPassThroughChargesPence,
-    discounts_pence: discountsPence,
     tips_pence: tipsPence,
     stripe_fee_pence: stripeFeePence,
     platform_gross_revenue_pence: platformGrossRevenuePence,

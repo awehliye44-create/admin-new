@@ -64,8 +64,8 @@ interface TripRow {
   service_area_id: string | null;
 }
 
-function tripGross(t: TripRow): number {
-  return t.gross_fare_pence ?? t.final_customer_fare_pence ?? t.final_fare_pence ?? 0;
+function tripCustomerRevenuePence(t: TripRow): number {
+  return t.final_fare_pence ?? t.final_customer_fare_pence ?? 0;
 }
 
 function periodRange(mode: PeriodMode, customFrom?: string, customTo?: string): { start: Date; end: Date } {
@@ -167,7 +167,7 @@ export default function OnecabRevenueProfitReport() {
     const trips = tripsQuery.data ?? [];
     let totalBooking = 0, commission = 0, corporate = 0, cashCommission = 0, stripeFees = 0;
     for (const t of trips) {
-      const g = tripGross(t);
+      const g = tripCustomerRevenuePence(t);
       totalBooking += g;
       commission += t.commission_pence ?? 0;
       const pm = String(t.payment_method ?? '').toUpperCase();
