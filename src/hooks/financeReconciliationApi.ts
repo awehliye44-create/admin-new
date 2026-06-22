@@ -30,10 +30,25 @@ export async function invokeFinanceReconciliation(
   to?: string,
   extra?: Record<string, string>,
 ): Promise<FinanceReconciliationResponse> {
-  const path = buildFinanceReconciliationPath(filter, from, to, extra);
-  const { data, error } = await supabase.functions.invoke(path, { method: 'GET' });
-  if (error) throw error;
-  return data as FinanceReconciliationResponse;
+  const qs = buildFinanceReconciliationPath(filter, from, to, extra).split('?')[1] ?? '';
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+  const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token ?? anonKey;
+  const url = `${supabaseUrl}/functions/v1/admin-finance-reconciliation${qs ? `?${qs}` : ''}`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: anonKey,
+      'Content-Type': 'application/json',
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Edge function returned ${res.status}: ${text}`);
+  }
+  return (await res.json()) as FinanceReconciliationResponse;
 }
 
 /** Read ONECAB net commission for a period — never compute locally. */

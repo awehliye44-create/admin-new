@@ -28,6 +28,7 @@ export type TripAuditPayoutRecord = {
   driver_amount_pence?: number | null;
   amount_pence?: number | null;
   batch_status?: string | null;
+  batch_id?: string | null;
 };
 
 export type TripAuditLedgerRecord = {

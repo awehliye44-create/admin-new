@@ -316,8 +316,8 @@ serve(async (req) => {
       try {
         const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
         const balance = await stripe.balance.retrieve();
-        const avail = balance.available.find((b) => b.currency === currency);
-        const pend = balance.pending.find((b) => b.currency === currency);
+        const avail = balance.available.find((b: { currency: string }) => b.currency === currency);
+        const pend = balance.pending.find((b: { currency: string }) => b.currency === currency);
         stripeAvailablePence = avail?.amount ?? 0;
         stripePendingPence = pend?.amount ?? 0;
       } catch (e) {

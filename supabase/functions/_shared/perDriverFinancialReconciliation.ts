@@ -202,7 +202,10 @@ export function computePerDriverSSOT(args: {
   const digitalTrips = filterDigitalTrips(args.trips);
   const digitalNetCustomer = sumDigitalNetCustomerRevenuePence({
     payments: args.payments,
-    digitalTrips,
+    digitalTrips: digitalTrips.map((t) => ({
+      id: t.id ?? undefined,
+      refund_amount_pence: t.refund_amount_pence,
+    })),
   });
   const digitalOnecabGross = sumOnecabGrossCommissionPence(digitalTrips);
   const digitalProviderFees = sumProviderProcessingFeesPence(digitalTrips);

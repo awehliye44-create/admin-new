@@ -277,15 +277,15 @@ serve(async (req) => {
       try {
         const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
         const balance = await stripe.balance.retrieve();
-        const avail = balance.available.find((b) => b.currency === currency);
-        const pend = balance.pending.find((b) => b.currency === currency);
+        const avail = balance.available.find((b: { currency: string }) => b.currency === currency);
+        const pend = balance.pending.find((b: { currency: string }) => b.currency === currency);
         stripeAvailablePence = avail?.amount ?? 0;
         stripePendingPence = pend?.amount ?? 0;
 
         const payouts = await stripe.payouts.list({ limit: 100 });
         stripePlatformPayoutsPence = payouts.data
-          .filter((p) => p.currency === currency && p.status === "paid")
-          .reduce((s, p) => s + (p.amount ?? 0), 0);
+          .filter((p: { currency: string; status: string }) => p.currency === currency && p.status === "paid")
+          .reduce((s: number, p: { amount?: number | null }) => s + (p.amount ?? 0), 0);
 
         const londonTodayStartMs = (() => {
           const now = new Date();
@@ -297,8 +297,14 @@ serve(async (req) => {
         })();
 
         stripePlatformPayoutDetails = payouts.data
-          .filter((p) => p.currency === currency)
-          .map((p) => ({
+          .filter((p: { currency: string }) => p.currency === currency)
+          .map((p: {
+            id: string;
+            amount?: number | null;
+            status: string;
+            arrival_date?: number | null;
+            created: number;
+          }) => ({
             id: p.id,
             amount_pence: p.amount ?? 0,
             status: p.status,

@@ -44,6 +44,7 @@ import { FinanceReconciliationTotalsCards } from '@/components/finance/FinanceRe
 import { OnecabCommissionVisibility } from '@/components/finance/OnecabCommissionVisibility';
 import { FinancePayoutAuditSection } from '@/components/finance/FinancePayoutAuditSection';
 import { MONDAY_PAYOUT_DIAGNOSTICS_OPTS } from '@/lib/financePageSSOT';
+import { useMondayPayoutDiagnostics } from '@/hooks/useMondayPayoutDiagnostics';
 
 function statusChipVariant(label: string | null | undefined): 'default' | 'secondary' | 'destructive' | 'outline' {
   const l = String(label ?? '').toLowerCase();
