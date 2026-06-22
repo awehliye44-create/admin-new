@@ -11,6 +11,11 @@ import { fetchPerDriverFinancialReconciliation } from "../_shared/perDriverFinan
 import { derivePayoutEligibility } from "../_shared/onecabFinanceLedger.ts";
 import { findInFlightPayoutItem } from "../_shared/payoutInflightGuard.ts";
 import {
+  evaluatePayoutGuard,
+  WALLET_NEGATIVE_BLOCK_CODE,
+  PAYOUT_EXCEEDS_AVAILABLE_BLOCK_CODE,
+} from "../_shared/payoutAvailability.ts";
+import {
   isAdminStripePayoutExecutionEnabled,
   isPayoutVerificationMode,
   PAYOUT_EXECUTION_DISABLED_CODE,
@@ -432,9 +437,42 @@ serve(async (req) => {
     }
 
     const available = ssot.driver_available_now_pence;
+    const walletBalance = ssot.driver_wallet_balance_pence;
     const payoutAmount = amount_pence || available;
 
-    console.log(`[payout] Driver ${driver_id}: SSOT available_now = ${available}p, requested payout = ${payoutAmount}p, currency: ${currency_code}`);
+    console.log(
+      `[payout] Driver ${driver_id}: wallet_balance=${walletBalance}p, ` +
+      `available_payout=${available}p (max(wallet,0)), debt=${ssot.driver_debt_pence}p, ` +
+      `requested=${payoutAmount}p, currency=${currency_code}`,
+    );
+
+    // P1 SSOT guard — wallet<0 blocks; requested>available blocks.
+    const guard = evaluatePayoutGuard({
+      walletBalancePence: walletBalance,
+      requestedPence: payoutAmount,
+    });
+    if (!guard.allowed) {
+      const finance = await fetchDriverFinanceSnapshot(supabase, driver_id);
+      const isWalletNegative = guard.block_codes.includes(WALLET_NEGATIVE_BLOCK_CODE);
+      const errorCode = isWalletNegative
+        ? WALLET_NEGATIVE_BLOCK_CODE
+        : PAYOUT_EXCEEDS_AVAILABLE_BLOCK_CODE;
+      return manualPayoutBlockedResponse({
+        error: guard.block_reasons.join(" "),
+        error_code: errorCode,
+        status: 400,
+        ssot: {
+          driver_wallet_balance_pence: walletBalance,
+          driver_debt_pence: guard.driver_debt_pence,
+          driver_available_now_pence: guard.available_payout_pence,
+          requested_pence: payoutAmount,
+          outstanding_cash_commission_pence: finance.amount_owed_to_onecab,
+          settled_card_earnings_pence: finance.settled_card_earnings_pence,
+          reconciliation_status: ssot.reconciliation_status,
+        },
+        payout_blocked_reasons: guard.block_reasons,
+      });
+    }
 
     if (payoutAmount <= 0) {
       const finance = await fetchDriverFinanceSnapshot(supabase, driver_id);
@@ -443,6 +481,8 @@ serve(async (req) => {
         error_code: 'MANUAL_PAYOUT_NO_SSOT_BALANCE',
         status: 400,
         ssot: {
+          driver_wallet_balance_pence: walletBalance,
+          driver_debt_pence: ssot.driver_debt_pence,
           driver_available_now_pence: available,
           outstanding_cash_commission_pence: finance.amount_owed_to_onecab,
           settled_card_earnings_pence: finance.settled_card_earnings_pence,
@@ -457,22 +497,6 @@ serve(async (req) => {
           }),
         },
         payout_blocked_reasons: ssot.payout_blocked_reasons,
-      });
-    }
-
-    if (payoutAmount > available) {
-      const finance = await fetchDriverFinanceSnapshot(supabase, driver_id);
-      return manualPayoutBlockedResponse({
-        error: 'Payout amount exceeds SSOT available balance',
-        error_code: 'MANUAL_PAYOUT_EXCEEDS_AVAILABLE',
-        status: 400,
-        ssot: {
-          driver_available_now_pence: available,
-          requested_pence: payoutAmount,
-          outstanding_cash_commission_pence: finance.amount_owed_to_onecab,
-          settled_card_earnings_pence: finance.settled_card_earnings_pence,
-          reconciliation_status: ssot.reconciliation_status,
-        },
       });
     }
 

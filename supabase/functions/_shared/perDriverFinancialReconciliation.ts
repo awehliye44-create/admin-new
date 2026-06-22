@@ -12,7 +12,6 @@ import {
   filterDigitalTrips,
   onecabNetCommissionPence,
   PAYOUT_SOFT_WARNING_RECONCILIATION,
-  perDriverAvailableNowPence,
   perDriverLedgerLiabilityPence,
   sumAdjustmentsPence,
   sumBankPayoutPaidOutPence,
@@ -25,6 +24,12 @@ import {
   type PaymentCaptureRow,
   type TripSSOTRow,
 } from "./financialReconciliationSSOT.ts";
+import { computeLedgerWalletBalancePence } from "./onecabFinanceLedger.ts";
+import {
+  availablePayoutPence,
+  driverDebtPence,
+  WALLET_NEGATIVE_BLOCK_REASON,
+} from "./payoutAvailability.ts";
 
 export type PerDriverSSOT = {
   driver_id: string;
@@ -39,8 +44,14 @@ export type PerDriverSSOT = {
   provider_pending_balance_pence: number;
   provider_available_balance_allocated_to_driver_pence: number;
   provider_upcoming_payout_pence: number;
+  /** SSOT: max(wallet_balance, 0). */
   driver_available_now_pence: number;
+  /** Always 0 under the SSOT; kept for UI compatibility. */
   driver_pending_payout_pence: number;
+  /** Signed wallet balance (can be negative when driver owes ONECAB). */
+  driver_wallet_balance_pence: number;
+  /** abs(min(wallet_balance, 0)). */
+  driver_debt_pence: number;
   next_payout_date: string | null;
   reconciliation_status: "BALANCED" | "RECONCILIATION_MISMATCH";
   reconciliation_scope: "digital_v3";
@@ -93,12 +104,18 @@ export function buildPayoutGateReasons(args: {
   providerAllocatedPence: number;
   ledgerSyncMissing: boolean;
   availableNowPence: number;
+  walletBalancePence: number;
 }): {
   payout_blocked_reasons: string[];
   payout_warning_reasons: string[];
 } {
   const hard: string[] = [];
   const soft: string[] = [];
+
+  // SSOT rule #1: wallet_balance < 0 blocks every payout path.
+  if (args.walletBalancePence < 0) {
+    hard.push(WALLET_NEGATIVE_BLOCK_REASON);
+  }
 
   const varianceClass = classifyReconciliationVariance({
     reconciliationStatus: args.reconciliationStatus,
@@ -122,7 +139,8 @@ export function buildPayoutGateReasons(args: {
   if (args.providerAllocatedPence <= 0) {
     hard.push("No provider balance allocated — funds awaiting settlement");
   }
-  if (args.availableNowPence <= 0) {
+  if (args.availableNowPence <= 0 && args.walletBalancePence >= 0) {
+    // Only surface this when wallet is non-negative; wallet<0 already blocked above.
     hard.push("No SSOT available payout for this driver");
   }
 
@@ -138,6 +156,7 @@ export function buildPayoutBlockedReasons(args: {
   providerAllocatedPence: number;
   ledgerSyncMissing: boolean;
   availableNowPence: number;
+  walletBalancePence: number;
 }): string[] {
   return buildPayoutGateReasons({
     reconciliationStatus: args.reconciliationStatus,
@@ -147,6 +166,7 @@ export function buildPayoutBlockedReasons(args: {
     providerAllocatedPence: args.providerAllocatedPence,
     ledgerSyncMissing: args.ledgerSyncMissing,
     availableNowPence: args.availableNowPence,
+    walletBalancePence: args.walletBalancePence,
   }).payout_blocked_reasons;
 }
 
@@ -170,14 +190,14 @@ export function computePerDriverSSOT(args: {
   const completedEarly = sumCompletedEarlyCashoutsPence(args.earlyCashouts);
   const inFlight = sumInFlightCashoutPence(args.earlyCashouts);
   const adjustments = sumAdjustmentsPence(args.ledger);
-  const remaining = perDriverLedgerLiabilityPence(args.ledger);
+  const walletBalance = computeLedgerWalletBalancePence(args.ledger); // signed
+  const remaining = perDriverLedgerLiabilityPence(args.ledger); // == max(walletBalance, 0)
   const allocated = Math.max(0, args.providerAllocations[args.driverId] ?? 0);
-  const availableNow = perDriverAvailableNowPence({
-    driverRemainingLiabilityPence: remaining,
-    providerAllocatedBalancePence: allocated,
-    inFlightCashoutPence: inFlight,
-  });
-  const pendingPayout = Math.max(0, remaining - availableNow);
+  // SSOT: available_payout = max(wallet_balance, 0). No provider cap, no in-flight cap.
+  const availableNow = availablePayoutPence(walletBalance);
+  const driverDebt = driverDebtPence(walletBalance);
+  // Pending is meaningless under the SSOT (wallet is either available or debt).
+  const pendingPayout = 0;
 
   const digitalTrips = filterDigitalTrips(args.trips);
   const digitalNetCustomer = sumDigitalNetCustomerRevenuePence({
@@ -204,6 +224,7 @@ export function computePerDriverSSOT(args: {
     providerAllocatedPence: allocated,
     ledgerSyncMissing: args.ledgerSyncMissing,
     availableNowPence: availableNow,
+    walletBalancePence: walletBalance,
   });
   const payoutBlockedReasons = payoutGate.payout_blocked_reasons;
 
@@ -222,6 +243,8 @@ export function computePerDriverSSOT(args: {
     provider_upcoming_payout_pence: args.providerPendingBalancePence,
     driver_available_now_pence: availableNow,
     driver_pending_payout_pence: pendingPayout,
+    driver_wallet_balance_pence: walletBalance,
+    driver_debt_pence: driverDebt,
     next_payout_date: nextWeeklyPayoutDateIso(),
     reconciliation_status: reconciliation.status,
     reconciliation_scope: reconciliation.reconciliation_scope,

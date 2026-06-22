@@ -18,6 +18,8 @@ export type PerDriverFinanceSSOT = {
   provider_upcoming_payout_pence: number;
   driver_available_now_pence: number;
   driver_pending_payout_pence: number;
+  driver_wallet_balance_pence: number;
+  driver_debt_pence: number;
   next_payout_date: string | null;
   reconciliation_status: 'BALANCED' | 'RECONCILIATION_MISMATCH';
   source_tier: FinanceDataSourceBadge;

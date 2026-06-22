@@ -2,9 +2,7 @@ import {
   assertEquals,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import {
-  computeAvailableNowPence,
   computeCashCommissionOutstanding,
-  computeNextWeeklyPayoutPence,
   computeOwedToOnecab,
   derivePayoutEligibility,
   isCardCaptureFailed,
@@ -30,20 +28,6 @@ Deno.test("cash trip — commission debt without card earnings", () => {
     { type: "CASH_TRIP_EARNING", amount_pence: 2000 },
   ];
   assertEquals(computeOwedToOnecab(ledger), 500);
-  assertEquals(
-    computeAvailableNowPence({
-      ledger,
-      settledCardDriverEarningsPence: 0,
-      settledCardTipsPence: 0,
-      pendingCardEarningsPence: 0,
-      pendingCardTipsPence: 0,
-      bonusesPence: 0,
-      positiveAdjustmentsPence: 0,
-      negativeAdjustmentsPence: 0,
-      paidOutPence: 0,
-    }),
-    0,
-  );
 });
 
 Deno.test("cash debt recovered by card earnings — DEBT_RECOVERY reduces owed", () => {
@@ -55,20 +39,6 @@ Deno.test("cash debt recovered by card earnings — DEBT_RECOVERY reduces owed",
   ];
   assertEquals(computeCashCommissionOutstanding(ledger), 200);
   assertEquals(computeOwedToOnecab(ledger), 200);
-  assertEquals(
-    computeAvailableNowPence({
-      ledger,
-      settledCardDriverEarningsPence: 1000,
-      settledCardTipsPence: 0,
-      pendingCardEarningsPence: 0,
-      pendingCardTipsPence: 0,
-      bonusesPence: 0,
-      positiveAdjustmentsPence: 0,
-      negativeAdjustmentsPence: 0,
-      paidOutPence: 0,
-    }),
-    500,
-  );
 });
 
 Deno.test("positive wallet — debt fully recovered shows zero owed", () => {
@@ -79,38 +49,6 @@ Deno.test("positive wallet — debt fully recovered shows zero owed", () => {
     { type: "TRIP_EARNING_NET", amount_pence: 2000 },
   ];
   assertEquals(computeOwedToOnecab(ledger), 0);
-  assertEquals(
-    computeAvailableNowPence({
-      ledger,
-      settledCardDriverEarningsPence: 2000,
-      settledCardTipsPence: 0,
-      pendingCardEarningsPence: 0,
-      pendingCardTipsPence: 0,
-      bonusesPence: 0,
-      positiveAdjustmentsPence: 0,
-      negativeAdjustmentsPence: 0,
-      paidOutPence: 0,
-    }),
-    1500,
-  );
-});
-
-Deno.test("next weekly payout excludes failed captures and offsets debt", () => {
-  const ledger = [{ type: "CASH_COMMISSION_DEBT", amount_pence: -400 }];
-  assertEquals(
-    computeNextWeeklyPayoutPence({
-      ledger,
-      settledCardDriverEarningsPence: 0,
-      settledCardTipsPence: 0,
-      pendingCardEarningsPence: 600,
-      pendingCardTipsPence: 100,
-      bonusesPence: 0,
-      positiveAdjustmentsPence: 0,
-      negativeAdjustmentsPence: 0,
-      paidOutPence: 0,
-    }),
-    300,
-  );
 });
 
 Deno.test("payout eligibility — connected but missing external account", () => {

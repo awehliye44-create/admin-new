@@ -12,6 +12,7 @@
  */
 
 import { computeLedgerWalletBalancePence } from "./onecabFinanceLedger.ts";
+import { availablePayoutPence } from "./payoutAvailability.ts";
 
 export const SSOT_VERSION = "financial_reconciliation_ssot_v3";
 
@@ -291,29 +292,10 @@ export function perDriverLedgerLiabilityPence(ledger: LedgerSSOTRow[]): number {
   return Math.max(0, computeLedgerWalletBalancePence(ledger));
 }
 
-/** 11. Driver available now (platform — full provider balance cap). */
-export function driverAvailableNowPence(args: {
-  driverRemainingLiabilityPence: number;
-  providerAvailableBalancePence: number;
-}): number {
-  return Math.min(
-    Math.max(0, args.driverRemainingLiabilityPence),
-    Math.max(0, args.providerAvailableBalancePence),
-  );
-}
-
-/** Per-driver available now — allocated provider balance minus in-flight cashouts. */
-export function perDriverAvailableNowPence(args: {
-  driverRemainingLiabilityPence: number;
-  providerAllocatedBalancePence: number;
-  inFlightCashoutPence: number;
-}): number {
-  const capped = Math.min(
-    Math.max(0, args.driverRemainingLiabilityPence),
-    Math.max(0, args.providerAllocatedBalancePence),
-  );
-  return Math.max(0, capped - Math.max(0, args.inFlightCashoutPence));
-}
+// NOTE: legacy `driverAvailableNowPence` and `perDriverAvailableNowPence` have
+// been permanently removed. The single SSOT is `availablePayoutPence(walletBalance)`
+// in `payoutAvailability.ts` — applied directly in computeSSOTMetrics and
+// computePerDriverSSOT.
 
 /** Allocate platform provider balance across drivers by settled eligible liability. */
 export function allocateProviderBalanceByLiability(args: {
@@ -350,13 +332,10 @@ export function allocateProviderBalanceByLiability(args: {
   return result;
 }
 
-/** 12. Driver pending payout */
-export function driverPendingPayoutPence(args: {
-  driverRemainingLiabilityPence: number;
-  driverAvailableNowPence: number;
-}): number {
-  return Math.max(0, args.driverRemainingLiabilityPence - args.driverAvailableNowPence);
-}
+// NOTE: legacy `driverPendingPayoutPence` removed. Under the SSOT
+// (available_payout = max(walletBalance,0)) pending is always 0 — the wallet
+// is either available or it's debt. Pending-payout fields are kept in output
+// types for UI compatibility and pinned to 0.
 
 /**
  * Phase 3A.6 — digital-scoped reconciliation identity.
@@ -487,15 +466,12 @@ export function computeSSOTMetrics(args: {
   const onecabNet = onecabNetCommissionPence(onecabGross, providerFees);
   const paidOut = sumDriverPaidOutPence(args.ledger);
   const adjustments = sumAdjustmentsPence(args.ledger);
-  const remaining = perDriverLedgerLiabilityPence(args.ledger);
-  const availableNow = driverAvailableNowPence({
-    driverRemainingLiabilityPence: remaining,
-    providerAvailableBalancePence: args.providerAvailableBalancePence,
-  });
-  const pendingPayout = driverPendingPayoutPence({
-    driverRemainingLiabilityPence: remaining,
-    driverAvailableNowPence: availableNow,
-  });
+  const walletBalance = computeLedgerWalletBalancePence(args.ledger); // signed
+  const remaining = Math.max(0, walletBalance);
+  // SSOT: available_payout = max(walletBalance, 0). No provider cap, no in-flight cap.
+  const availableNow = availablePayoutPence(walletBalance);
+  // Pending is meaningless under the SSOT (wallet is either available or debt).
+  const pendingPayout = 0;
 
   return {
     total_customer_revenue_pence: customerRev.total_pence,

@@ -105,47 +105,10 @@ export function computeLedgerWalletBalancePence(ledger: LedgerRow[]): number {
   return total;
 }
 
-export type DriverPayoutInputs = {
-  ledger: LedgerRow[];
-  settledCardDriverEarningsPence: number;
-  settledCardTipsPence: number;
-  pendingCardEarningsPence: number;
-  pendingCardTipsPence: number;
-  bonusesPence: number;
-  positiveAdjustmentsPence: number;
-  negativeAdjustmentsPence: number;
-  paidOutPence: number;
-};
-
-export function computeAvailableNowPence(args: DriverPayoutInputs): number {
-  const outstanding = computeCashCommissionOutstanding(args.ledger);
-  const recoveredFromCard = sumLedgerAbs(args.ledger, "DEBT_RECOVERY");
-  return Math.max(
-    0,
-    args.settledCardDriverEarningsPence
-      + args.settledCardTipsPence
-      + args.bonusesPence
-      + args.positiveAdjustmentsPence
-      - outstanding
-      - recoveredFromCard
-      - args.negativeAdjustmentsPence
-      - args.paidOutPence,
-  );
-}
-
-export function computeNextWeeklyPayoutPence(args: DriverPayoutInputs): number {
-  const outstanding = computeCashCommissionOutstanding(args.ledger);
-  const pendingGross = args.pendingCardEarningsPence + args.pendingCardTipsPence;
-  const outstandingNotCoveredBySettled = Math.max(
-    0,
-    outstanding
-      - args.settledCardDriverEarningsPence
-      - args.settledCardTipsPence
-      - args.bonusesPence
-      - args.positiveAdjustmentsPence,
-  );
-  return Math.max(0, pendingGross - outstandingNotCoveredBySettled);
-}
+// NOTE: legacy `computeAvailableNowPence` and `computeNextWeeklyPayoutPence`
+// formulas have been permanently removed (double-counted cash debt + card
+// recovery). The single SSOT is `availablePayoutPence(walletBalance)` in
+// `payoutAvailability.ts`.
 
 export async function logFinanceAuditEvent(
   supabase: SupabaseClient,
