@@ -10857,6 +10857,60 @@ export type Database = {
           },
         ]
       }
+      trip_state_violations: {
+        Row: {
+          confirmed_driver_id: string | null
+          dispatch_status: string | null
+          driver_id: string | null
+          id: number
+          new_status: string | null
+          observed_at: string
+          old_status: string | null
+          op: string | null
+          request_path: string | null
+          trip_code: string | null
+          trip_id: string | null
+          txid: number | null
+          violation_type: string | null
+          writer_application_name: string | null
+          writer_role: string | null
+        }
+        Insert: {
+          confirmed_driver_id?: string | null
+          dispatch_status?: string | null
+          driver_id?: string | null
+          id?: never
+          new_status?: string | null
+          observed_at?: string
+          old_status?: string | null
+          op?: string | null
+          request_path?: string | null
+          trip_code?: string | null
+          trip_id?: string | null
+          txid?: number | null
+          violation_type?: string | null
+          writer_application_name?: string | null
+          writer_role?: string | null
+        }
+        Update: {
+          confirmed_driver_id?: string | null
+          dispatch_status?: string | null
+          driver_id?: string | null
+          id?: never
+          new_status?: string | null
+          observed_at?: string
+          old_status?: string | null
+          op?: string | null
+          request_path?: string | null
+          trip_code?: string | null
+          trip_id?: string | null
+          txid?: number | null
+          violation_type?: string | null
+          writer_application_name?: string | null
+          writer_role?: string | null
+        }
+        Relationships: []
+      }
       trip_stop_waiting: {
         Row: {
           charge_interval_seconds: number
