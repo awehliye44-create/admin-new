@@ -104,12 +104,18 @@ export function buildPayoutGateReasons(args: {
   providerAllocatedPence: number;
   ledgerSyncMissing: boolean;
   availableNowPence: number;
+  walletBalancePence: number;
 }): {
   payout_blocked_reasons: string[];
   payout_warning_reasons: string[];
 } {
   const hard: string[] = [];
   const soft: string[] = [];
+
+  // SSOT rule #1: wallet_balance < 0 blocks every payout path.
+  if (args.walletBalancePence < 0) {
+    hard.push(WALLET_NEGATIVE_BLOCK_REASON);
+  }
 
   const varianceClass = classifyReconciliationVariance({
     reconciliationStatus: args.reconciliationStatus,
@@ -133,7 +139,8 @@ export function buildPayoutGateReasons(args: {
   if (args.providerAllocatedPence <= 0) {
     hard.push("No provider balance allocated — funds awaiting settlement");
   }
-  if (args.availableNowPence <= 0) {
+  if (args.availableNowPence <= 0 && args.walletBalancePence >= 0) {
+    // Only surface this when wallet is non-negative; wallet<0 already blocked above.
     hard.push("No SSOT available payout for this driver");
   }
 
@@ -149,6 +156,7 @@ export function buildPayoutBlockedReasons(args: {
   providerAllocatedPence: number;
   ledgerSyncMissing: boolean;
   availableNowPence: number;
+  walletBalancePence: number;
 }): string[] {
   return buildPayoutGateReasons({
     reconciliationStatus: args.reconciliationStatus,
@@ -158,6 +166,7 @@ export function buildPayoutBlockedReasons(args: {
     providerAllocatedPence: args.providerAllocatedPence,
     ledgerSyncMissing: args.ledgerSyncMissing,
     availableNowPence: args.availableNowPence,
+    walletBalancePence: args.walletBalancePence,
   }).payout_blocked_reasons;
 }
 
