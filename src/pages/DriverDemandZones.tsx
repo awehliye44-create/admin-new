@@ -30,7 +30,28 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Plus, Pencil, Trash2, RefreshCw, Flame } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, RefreshCw, Flame, Info, ChevronDown } from 'lucide-react';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+
+/** Driver-app map colours (SSOT: drive-hub-buddy demandZoneStyle.ts) — display only, do not change. */
+const DRIVER_DEMAND_COLORS = {
+  HIGH: { fill: '#FF5722', stroke: '#E64A19', label: 'High demand' },
+  MEDIUM: { fill: '#FFC107', stroke: '#FFA000', label: 'Medium demand' },
+  LOW: { fill: '#64B5F6', stroke: '#42A5F5', label: 'Low demand' },
+} as const;
+
+const RECOMMENDED_USE_CASES = [
+  'Station areas',
+  'Shopping centres',
+  'Hospitals',
+  'Stadiums',
+  'Airport pickup locations',
+  'Nightlife areas',
+] as const;
 
 type DemandLevel = 'LOW' | 'MEDIUM' | 'HIGH';
 type DemandSource = 'manual' | 'computed';
@@ -84,6 +105,7 @@ export default function DriverDemandZones() {
   const [form, setForm] = useState(emptyForm);
   const [sourceFilter, setSourceFilter] = useState<'all' | DemandSource>('all');
   const [search, setSearch] = useState('');
+  const [helpOpen, setHelpOpen] = useState(true);
 
   const { data: zones = [], isLoading, refetch, isFetching } = useQuery({
     queryKey: ['driver-demand-zones'],
@@ -265,6 +287,106 @@ export default function DriverDemandZones() {
       description="Visual guidance for drivers on the map heatmap. Does not affect fares or dispatch."
     >
       <div className="flex flex-col gap-4">
+        <Collapsible open={helpOpen} onOpenChange={setHelpOpen}>
+          <div className="rounded-lg border bg-card">
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-muted/40"
+              >
+                <span className="flex items-center gap-2 font-medium">
+                  <Info className="h-4 w-4 text-muted-foreground" />
+                  About Driver Demand Zones
+                </span>
+                <ChevronDown
+                  className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${helpOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="border-t px-4 pb-4 pt-3 text-sm text-muted-foreground">
+              <p className="text-foreground">
+                Driver Demand Zones provide visual guidance to drivers about areas of higher and lower
+                activity. They are intended to help drivers position themselves more effectively.
+              </p>
+              <p className="mt-2">
+                Zones are <strong className="font-medium text-foreground">advisory only</strong>.
+                They do not change fares, dispatch priority, matching, or commission.
+              </p>
+
+              <h3 className="mt-4 font-medium text-foreground">Hierarchy</h3>
+              <p className="mt-1">
+                <strong className="font-medium text-foreground">Region → Service Area → Demand Zone</strong>
+              </p>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                <li>
+                  Assign a <strong className="font-medium text-foreground">Region</strong> and optional{' '}
+                  <strong className="font-medium text-foreground">Service Area</strong> when creating manual zones.
+                </li>
+                <li>
+                  Drivers only see zones that match their assigned region/service area (or global zones with no scope).
+                </li>
+                <li>
+                  Computed zones inherit <strong className="font-medium text-foreground">region_id</strong> from the
+                  trip&apos;s service area.
+                </li>
+              </ul>
+
+              <h3 className="mt-4 font-medium text-foreground">Demand levels &amp; colours (driver map)</h3>
+              <p className="mt-1">
+                These are the colours currently shown on the driver app map overlay:
+              </p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                {(Object.entries(DRIVER_DEMAND_COLORS) as Array<
+                  [keyof typeof DRIVER_DEMAND_COLORS, (typeof DRIVER_DEMAND_COLORS)[keyof typeof DRIVER_DEMAND_COLORS]]
+                >).map(([level, colors]) => (
+                  <div key={level} className="rounded-md border bg-background p-3">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-block h-4 w-4 rounded-full border"
+                        style={{ backgroundColor: colors.fill, borderColor: colors.stroke }}
+                        aria-hidden
+                      />
+                      <span className="font-medium text-foreground">{colors.label}</span>
+                      <Badge variant={level === 'HIGH' ? 'destructive' : level === 'MEDIUM' ? 'default' : 'secondary'}>
+                        {level}
+                      </Badge>
+                    </div>
+                    <p className="mt-2 font-mono text-xs">
+                      Fill {colors.fill} · Stroke {colors.stroke}
+                    </p>
+                    <p className="mt-1 text-xs">
+                      {level === 'HIGH' && '4+ open trips in grid cell (computed) or admin-set HIGH'}
+                      {level === 'MEDIUM' && '2–3 open trips in grid cell (computed) or admin-set MEDIUM'}
+                      {level === 'LOW' && '1 open trip in grid cell (computed) or admin-set LOW'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <h3 className="mt-4 font-medium text-foreground">Data sources</h3>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                <li>
+                  <strong className="font-medium text-foreground">Manual</strong> — zones you create here; editable.
+                </li>
+                <li>
+                  <strong className="font-medium text-foreground">Computed</strong> — rebuilt from open unassigned trips
+                  (last 45 minutes), every 2 minutes or when you click &quot;Recompute from trips&quot;.
+                </li>
+              </ul>
+
+              <h3 className="mt-4 font-medium text-foreground">Recommended manual zone use cases</h3>
+              <ul className="mt-2 grid gap-1 sm:grid-cols-2">
+                {RECOMMENDED_USE_CASES.map((item) => (
+                  <li key={item} className="flex items-center gap-2">
+                    <span className="text-foreground">•</span>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </CollapsibleContent>
+          </div>
+        </Collapsible>
+
         <div className="flex flex-wrap items-center gap-3">
           <Input
             placeholder="Search zones…"
