@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table,
   TableBody,
@@ -30,40 +31,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Plus, Pencil, Trash2, RefreshCw, Flame, Info, ChevronDown } from 'lucide-react';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
-
-/** Driver-app map colours (SSOT: drive-hub-buddy demandZoneStyle.ts) — display only, do not change. */
-const DRIVER_DEMAND_COLORS = {
-  HIGH: { fill: '#FF5722', stroke: '#E64A19', label: 'High demand' },
-  MEDIUM: { fill: '#FFC107', stroke: '#FFA000', label: 'Medium demand' },
-  LOW: { fill: '#64B5F6', stroke: '#42A5F5', label: 'Low demand' },
-} as const;
-
-const RECOMMENDED_USE_CASES = [
-  'Station areas',
-  'Shopping centres',
-  'Hospitals',
-  'Stadiums',
-  'Airport pickup locations',
-  'Nightlife areas',
-] as const;
+import { Loader2, Plus, Pencil, Trash2, RefreshCw, Flame, Map, List } from 'lucide-react';
+import { DriverDemandZonesMap } from '@/components/maps/DriverDemandZonesMap';
+import { DriverDemandZonesHelpPanel } from '@/components/dispatch/DriverDemandZonesHelpPanel';
+import type { AdminDemandZone } from '@/lib/demandZoneGeojson';
 
 type DemandLevel = 'LOW' | 'MEDIUM' | 'HIGH';
 type DemandSource = 'manual' | 'computed';
+type ViewMode = 'map' | 'list';
 
-interface DemandZone {
-  id: string;
-  name: string;
-  center_lat: number;
-  center_lng: number;
-  radius_meters: number;
-  demand_level: DemandLevel;
-  active: boolean;
+interface DemandZone extends AdminDemandZone {
   region_id: string | null;
   service_area_id: string | null;
   source: DemandSource;
@@ -82,6 +59,7 @@ interface ServiceArea {
   id: string;
   name: string;
   region_id: string;
+  geo_boundary: GeoJSON.Polygon | null;
 }
 
 const DEMAND_LEVELS: DemandLevel[] = ['LOW', 'MEDIUM', 'HIGH'];
@@ -97,15 +75,27 @@ const emptyForm = {
   service_area_id: '',
 };
 
+function parseGeoBoundary(raw: unknown): GeoJSON.Polygon | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as { type?: string; coordinates?: unknown };
+  if (obj.type === 'Polygon' && Array.isArray(obj.coordinates)) {
+    return obj as GeoJSON.Polygon;
+  }
+  return null;
+}
+
 export default function DriverDemandZones() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<DemandZone | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [viewMode, setViewMode] = useState<ViewMode>('map');
+  const [regionFilter, setRegionFilter] = useState('all');
+  const [serviceAreaFilter, setServiceAreaFilter] = useState('all');
   const [sourceFilter, setSourceFilter] = useState<'all' | DemandSource>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('active');
   const [search, setSearch] = useState('');
-  const [helpOpen, setHelpOpen] = useState(true);
 
   const { data: zones = [], isLoading, refetch, isFetching } = useQuery({
     queryKey: ['driver-demand-zones'],
@@ -138,13 +128,23 @@ export default function DriverDemandZones() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('service_areas')
-        .select('id, name, region_id')
+        .select('id, name, region_id, geo_boundary')
         .eq('is_active', true)
         .order('name');
       if (error) throw error;
-      return data as ServiceArea[];
+      return (data ?? []).map((row) => ({
+        ...row,
+        geo_boundary: parseGeoBoundary(row.geo_boundary),
+      })) as ServiceArea[];
     },
   });
+
+  const filterServiceAreas = useMemo(
+    () => (regionFilter === 'all'
+      ? serviceAreas
+      : serviceAreas.filter((sa) => sa.region_id === regionFilter)),
+    [serviceAreas, regionFilter],
+  );
 
   const formServiceAreas = useMemo(
     () => serviceAreas.filter((sa) => !form.region_id || sa.region_id === form.region_id),
@@ -154,7 +154,11 @@ export default function DriverDemandZones() {
   const filteredZones = useMemo(() => {
     const q = search.trim().toLowerCase();
     return zones.filter((zone) => {
+      if (regionFilter !== 'all' && zone.region_id !== regionFilter) return false;
+      if (serviceAreaFilter !== 'all' && zone.service_area_id !== serviceAreaFilter) return false;
       if (sourceFilter !== 'all' && zone.source !== sourceFilter) return false;
+      if (statusFilter === 'active' && !zone.active) return false;
+      if (statusFilter === 'inactive' && zone.active) return false;
       if (!q) return true;
       return (
         zone.name.toLowerCase().includes(q)
@@ -162,7 +166,17 @@ export default function DriverDemandZones() {
         || zone.region?.name?.toLowerCase().includes(q)
       );
     });
-  }, [zones, sourceFilter, search]);
+  }, [zones, regionFilter, serviceAreaFilter, sourceFilter, statusFilter, search]);
+
+  const mapZones = useMemo(
+    () => filteredZones.filter((z) => z.active),
+    [filteredZones],
+  );
+
+  const serviceAreaBoundary = useMemo(() => {
+    if (serviceAreaFilter === 'all') return null;
+    return filterServiceAreas.find((sa) => sa.id === serviceAreaFilter)?.geo_boundary ?? null;
+  }, [serviceAreaFilter, filterServiceAreas]);
 
   const openCreate = () => {
     setEditing(null);
@@ -281,121 +295,123 @@ export default function DriverDemandZones() {
     return <Badge variant={variant}>{level}</Badge>;
   };
 
+  const zonesTable = (
+    <div className="rounded-lg border bg-card">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead>Level</TableHead>
+            <TableHead>Source</TableHead>
+            <TableHead>Service area</TableHead>
+            <TableHead>Center</TableHead>
+            <TableHead>Radius (m)</TableHead>
+            <TableHead>Active</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {isLoading ? (
+            <TableRow>
+              <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
+                Loading zones…
+              </TableCell>
+            </TableRow>
+          ) : filteredZones.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                No demand zones match the current filters.
+              </TableCell>
+            </TableRow>
+          ) : filteredZones.map((zone) => (
+            <TableRow key={zone.id}>
+              <TableCell className="font-medium">{zone.name}</TableCell>
+              <TableCell>{levelBadge(zone.demand_level)}</TableCell>
+              <TableCell>
+                <Badge variant={zone.source === 'computed' ? 'outline' : 'secondary'}>
+                  {zone.source}
+                </Badge>
+              </TableCell>
+              <TableCell>{zone.service_area?.name ?? 'Global'}</TableCell>
+              <TableCell className="font-mono text-xs">
+                {zone.center_lat.toFixed(4)}, {zone.center_lng.toFixed(4)}
+              </TableCell>
+              <TableCell>{zone.radius_meters}</TableCell>
+              <TableCell>{zone.active ? 'Yes' : 'No'}</TableCell>
+              <TableCell className="text-right">
+                <div className="flex justify-end gap-2">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => openEdit(zone)}
+                    disabled={zone.source === 'computed'}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => deleteMutation.mutate(zone)}
+                    disabled={zone.source === 'computed' || deleteMutation.isPending}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+
   return (
     <AdminLayout
       title="Driver Demand Zones"
-      description="Visual guidance for drivers on the map heatmap. Does not affect fares or dispatch."
+      description="Visual guidance for drivers. Zones show areas of expected demand based on live trip activity."
     >
       <div className="flex flex-col gap-4">
-        <Collapsible open={helpOpen} onOpenChange={setHelpOpen}>
-          <div className="rounded-lg border bg-card">
-            <CollapsibleTrigger asChild>
-              <button
-                type="button"
-                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-muted/40"
-              >
-                <span className="flex items-center gap-2 font-medium">
-                  <Info className="h-4 w-4 text-muted-foreground" />
-                  About Driver Demand Zones
-                </span>
-                <ChevronDown
-                  className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${helpOpen ? 'rotate-180' : ''}`}
-                />
-              </button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="border-t px-4 pb-4 pt-3 text-sm text-muted-foreground">
-              <p className="text-foreground">
-                Driver Demand Zones provide visual guidance to drivers about areas of higher and lower
-                activity. They are intended to help drivers position themselves more effectively.
-              </p>
-              <p className="mt-2">
-                Zones are <strong className="font-medium text-foreground">advisory only</strong>.
-                They do not change fares, dispatch priority, matching, or commission.
-              </p>
-
-              <h3 className="mt-4 font-medium text-foreground">Hierarchy</h3>
-              <p className="mt-1">
-                <strong className="font-medium text-foreground">Region → Service Area → Demand Zone</strong>
-              </p>
-              <ul className="mt-2 list-disc space-y-1 pl-5">
-                <li>
-                  Assign a <strong className="font-medium text-foreground">Region</strong> and optional{' '}
-                  <strong className="font-medium text-foreground">Service Area</strong> when creating manual zones.
-                </li>
-                <li>
-                  Drivers only see zones that match their assigned region/service area (or global zones with no scope).
-                </li>
-                <li>
-                  Computed zones inherit <strong className="font-medium text-foreground">region_id</strong> from the
-                  trip&apos;s service area.
-                </li>
-              </ul>
-
-              <h3 className="mt-4 font-medium text-foreground">Demand levels &amp; colours (driver map)</h3>
-              <p className="mt-1">
-                These are the colours currently shown on the driver app map overlay:
-              </p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                {(Object.entries(DRIVER_DEMAND_COLORS) as Array<
-                  [keyof typeof DRIVER_DEMAND_COLORS, (typeof DRIVER_DEMAND_COLORS)[keyof typeof DRIVER_DEMAND_COLORS]]
-                >).map(([level, colors]) => (
-                  <div key={level} className="rounded-md border bg-background p-3">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="inline-block h-4 w-4 rounded-full border"
-                        style={{ backgroundColor: colors.fill, borderColor: colors.stroke }}
-                        aria-hidden
-                      />
-                      <span className="font-medium text-foreground">{colors.label}</span>
-                      <Badge variant={level === 'HIGH' ? 'destructive' : level === 'MEDIUM' ? 'default' : 'secondary'}>
-                        {level}
-                      </Badge>
-                    </div>
-                    <p className="mt-2 font-mono text-xs">
-                      Fill {colors.fill} · Stroke {colors.stroke}
-                    </p>
-                    <p className="mt-1 text-xs">
-                      {level === 'HIGH' && '4+ open trips in grid cell (computed) or admin-set HIGH'}
-                      {level === 'MEDIUM' && '2–3 open trips in grid cell (computed) or admin-set MEDIUM'}
-                      {level === 'LOW' && '1 open trip in grid cell (computed) or admin-set LOW'}
-                    </p>
-                  </div>
-                ))}
-              </div>
-
-              <h3 className="mt-4 font-medium text-foreground">Data sources</h3>
-              <ul className="mt-2 list-disc space-y-1 pl-5">
-                <li>
-                  <strong className="font-medium text-foreground">Manual</strong> — zones you create here; editable.
-                </li>
-                <li>
-                  <strong className="font-medium text-foreground">Computed</strong> — rebuilt from open unassigned trips
-                  (last 45 minutes), every 2 minutes or when you click &quot;Recompute from trips&quot;.
-                </li>
-              </ul>
-
-              <h3 className="mt-4 font-medium text-foreground">Recommended manual zone use cases</h3>
-              <ul className="mt-2 grid gap-1 sm:grid-cols-2">
-                {RECOMMENDED_USE_CASES.map((item) => (
-                  <li key={item} className="flex items-center gap-2">
-                    <span className="text-foreground">•</span>
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </CollapsibleContent>
-          </div>
-        </Collapsible>
-
         <div className="flex flex-wrap items-center gap-3">
+          <Select
+            value={regionFilter}
+            onValueChange={(v) => {
+              setRegionFilter(v);
+              setServiceAreaFilter('all');
+            }}
+          >
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="Region" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All regions</SelectItem>
+              {regions.map((r) => (
+                <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={serviceAreaFilter} onValueChange={setServiceAreaFilter}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Service area" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All service areas</SelectItem>
+              {filterServiceAreas.map((sa) => (
+                <SelectItem key={sa.id} value={sa.id}>{sa.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           <Input
             placeholder="Search zones…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="max-w-xs"
+            className="max-w-[200px]"
           />
+
           <Select value={sourceFilter} onValueChange={(v) => setSourceFilter(v as typeof sourceFilter)}>
-            <SelectTrigger className="w-[180px]">
+            <SelectTrigger className="w-[150px]">
               <SelectValue placeholder="Source" />
             </SelectTrigger>
             <SelectContent>
@@ -404,6 +420,18 @@ export default function DriverDemandZones() {
               <SelectItem value="computed">Computed</SelectItem>
             </SelectContent>
           </Select>
+
+          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
+            <SelectTrigger className="w-[130px]">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All status</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="inactive">Inactive</SelectItem>
+            </SelectContent>
+          </Select>
+
           <div className="ml-auto flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
               {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
@@ -426,74 +454,40 @@ export default function DriverDemandZones() {
           </div>
         </div>
 
-        <div className="rounded-lg border bg-card">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Level</TableHead>
-                <TableHead>Source</TableHead>
-                <TableHead>Service area</TableHead>
-                <TableHead>Center</TableHead>
-                <TableHead>Radius (m)</TableHead>
-                <TableHead>Active</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
-                    <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
-                    Loading zones…
-                  </TableCell>
-                </TableRow>
-              ) : filteredZones.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
-                    No demand zones yet. Add manual zones or run compute from open trips.
-                  </TableCell>
-                </TableRow>
-              ) : filteredZones.map((zone) => (
-                <TableRow key={zone.id}>
-                  <TableCell className="font-medium">{zone.name}</TableCell>
-                  <TableCell>{levelBadge(zone.demand_level)}</TableCell>
-                  <TableCell>
-                    <Badge variant={zone.source === 'computed' ? 'outline' : 'secondary'}>
-                      {zone.source}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{zone.service_area?.name ?? 'Global'}</TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {zone.center_lat.toFixed(4)}, {zone.center_lng.toFixed(4)}
-                  </TableCell>
-                  <TableCell>{zone.radius_meters}</TableCell>
-                  <TableCell>{zone.active ? 'Yes' : 'No'}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => openEdit(zone)}
-                        disabled={zone.source === 'computed'}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => deleteMutation.mutate(zone)}
-                        disabled={zone.source === 'computed' || deleteMutation.isPending}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+        <div className="flex items-center justify-between gap-3">
+          <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
+            <TabsList>
+              <TabsTrigger value="map" className="gap-2">
+                <Map className="h-4 w-4" />
+                Map
+              </TabsTrigger>
+              <TabsTrigger value="list" className="gap-2">
+                <List className="h-4 w-4" />
+                List
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <p className="text-xs text-muted-foreground">
+            {filteredZones.length} zone{filteredZones.length === 1 ? '' : 's'} · Demand zones recompute every 2 minutes from live open trips
+          </p>
         </div>
+
+        {viewMode === 'map' ? (
+          <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
+            <div className="min-w-0">
+              <DriverDemandZonesMap
+                zones={mapZones}
+                serviceAreaBoundary={serviceAreaBoundary}
+              />
+            </div>
+            <DriverDemandZonesHelpPanel />
+          </div>
+        ) : (
+          <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
+            <div className="min-w-0">{zonesTable}</div>
+            <DriverDemandZonesHelpPanel />
+          </div>
+        )}
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
