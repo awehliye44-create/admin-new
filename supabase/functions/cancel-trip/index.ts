@@ -74,7 +74,7 @@ serve(async (req) => {
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, status, driver_id, customer_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at"
+        "id, status, driver_id, confirmed_driver_id, passenger_id, customer_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at"
       )
       .eq("id", trip_id)
       .single();
@@ -325,6 +325,14 @@ serve(async (req) => {
       cancellation_reason: cancellationReasonFinal,
       cancellation_fee_pence: appliedFee,
       financial_outcome: financialOutcome,
+      driver_id: null,
+      confirmed_driver_id: null,
+      negotiation_owner_driver_id: null,
+      current_offer_driver_id: null,
+      negotiation_locked_until: null,
+      current_offer_expires_at: null,
+      searching_expires_at: null,
+      dispatch_status: "cancelled",
       updated_at: now.toISOString(),
     };
 
@@ -339,12 +347,18 @@ serve(async (req) => {
     }
 
     // Clear driver's current trip if driver was assigned
-    if (trip.driver_id) {
+    const assignedDriverId = trip.confirmed_driver_id ?? trip.driver_id ?? null;
+    if (assignedDriverId) {
       await supabase
         .from("drivers")
         .update({ current_trip_id: null })
-        .eq("id", trip.driver_id);
+        .eq("id", assignedDriverId);
     }
+
+    await supabase
+      .from("customers")
+      .update({ active_trip_id: null, updated_at: now.toISOString() })
+      .eq("active_trip_id", trip_id);
 
     // Record financial outcome if fee > 0
     if (appliedFee > 0 && trip.driver_id) {

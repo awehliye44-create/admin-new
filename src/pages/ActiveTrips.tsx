@@ -238,15 +238,16 @@ export default function ActiveTrips() {
 
     setIsSaving(true);
     try {
-      const { error } = await supabase
-        .from('trips')
-        .update({ 
-          status: 'cancelled',
-          special_instructions: cancelReason ? `Cancelled by admin: ${cancelReason}` : 'Cancelled by admin',
-        })
-        .eq('id', selectedTrip.id);
+      const { data: cancelResult, error } = await supabase.rpc('apply_terminal_trip_cancellation', {
+        p_trip_id: selectedTrip.id,
+        p_cancelled_by: 'admin',
+        p_reason: cancelReason || null,
+      });
 
       if (error) throw error;
+      if (cancelResult && typeof cancelResult === 'object' && (cancelResult as { success?: boolean }).success === false) {
+        throw new Error((cancelResult as { error?: string }).error || 'Failed to cancel trip');
+      }
 
       toast.success('Trip cancelled successfully');
       setIsCancelOpen(false);
