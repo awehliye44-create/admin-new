@@ -27,6 +27,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { DriverTiersConfig } from '@/components/dispatch/DriverTiersConfig';
+import { StackedRidesHelpPanel } from '@/components/dispatch/StackedRidesHelpPanel';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 // useServiceAreas removed — dispatch config is global
@@ -303,10 +304,11 @@ export default function AutoDispatchRules() {
         .eq('singleton', true);
       if (error) throw error;
 
-      // Keep legacy dispatch_settings.stacked_rides_enabled aligned for older readers.
+      // Keep legacy dispatch_settings aligned for older SQL readers.
       await supabase
         .from('dispatch_settings')
         .update({
+          max_driver_find_time_minutes: settings.maxDriverFindTimeMinutes,
           stacked_rides_enabled: !!settings.stackedRidesEnabled,
           updated_at: new Date().toISOString(),
         })
@@ -773,9 +775,10 @@ export default function AutoDispatchRules() {
             </p>
 
             <Tabs value={stackedTab} onValueChange={setStackedTab}>
-              <TabsList className="grid w-full grid-cols-2">
+              <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="general">General</TabsTrigger>
                 <TabsTrigger value="matching">Matching Rules</TabsTrigger>
+                <TabsTrigger value="help">Help &amp; Rules</TabsTrigger>
               </TabsList>
 
               <TabsContent value="general" className="space-y-6 pt-4">
@@ -864,6 +867,19 @@ export default function AutoDispatchRules() {
                       disabled={isLoading || !settings.stackedRidesEnabled} />
                   </div>
                 </div>
+              </TabsContent>
+
+              <TabsContent value="help" className="pt-4">
+                <StackedRidesHelpPanel
+                  stackedRidesEnabled={settings.stackedRidesEnabled}
+                  stackedSearchRadiusMeters={settings.stackedSearchRadiusMeters}
+                  stackedMinTripDistanceKm={settings.stackedMinTripDistanceKm}
+                  stackedOfferWindowMinutes={settings.stackedOfferWindowMinutes}
+                  stackedMaxDetourMinutes={settings.stackedMaxDetourMinutes}
+                  maxStackedRides={settings.maxStackedRides}
+                  unitShort={unitShort}
+                  fromKm={fromKm}
+                />
               </TabsContent>
             </Tabs>
 
