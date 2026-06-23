@@ -59,78 +59,102 @@ export function DriverDemandZonesMap({
   useEffect(() => {
     if (!mapboxReady || !containerRef.current || mapRef.current) return;
 
-    const map = createMapboxMap(containerRef.current, {
-      center: [-0.77, 52.04],
-      zoom: 11,
-    });
+    let cancelled = false;
+    let detachResize: (() => void) | undefined;
 
-    map.on('load', () => {
-      setIsMapLoaded(true);
-      map.addSource(ZONE_SOURCE, {
-        type: 'geojson',
-        data: buildAdminDemandZonesGeoJson([]),
-      });
+    void (async () => {
+      try {
+        const { map, detachResize: detach } = await createMapboxMap({
+          container: containerRef.current!,
+          center: [-0.77, 52.04],
+          zoom: 11,
+          onLoad: (m) => {
+            if (cancelled) return;
+            m.addSource(ZONE_SOURCE, {
+              type: 'geojson',
+              data: buildAdminDemandZonesGeoJson([]),
+            });
 
-      map.addLayer({
-        id: ZONE_FILL,
-        type: 'fill',
-        source: ZONE_SOURCE,
-        paint: {
-          'fill-color': ['get', 'fillColor'],
-          'fill-opacity': ['get', 'fillOpacity'],
-        },
-      });
+            m.addLayer({
+              id: ZONE_FILL,
+              type: 'fill',
+              source: ZONE_SOURCE,
+              paint: {
+                'fill-color': ['get', 'fillColor'],
+                'fill-opacity': ['get', 'fillOpacity'],
+              },
+            });
 
-      map.addLayer({
-        id: ZONE_LINE,
-        type: 'line',
-        source: ZONE_SOURCE,
-        paint: {
-          'line-color': ['get', 'strokeColor'],
-          'line-opacity': ['get', 'strokeOpacity'],
-          'line-width': 2,
-        },
-      });
+            m.addLayer({
+              id: ZONE_LINE,
+              type: 'line',
+              source: ZONE_SOURCE,
+              paint: {
+                'line-color': ['get', 'strokeColor'],
+                'line-opacity': ['get', 'strokeOpacity'],
+                'line-width': 2,
+              },
+            });
 
-      map.addSource(BOUNDARY_SOURCE, {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
-      });
+            m.addSource(BOUNDARY_SOURCE, {
+              type: 'geojson',
+              data: { type: 'FeatureCollection', features: [] },
+            });
 
-      map.addLayer({
-        id: BOUNDARY_LINE,
-        type: 'line',
-        source: BOUNDARY_SOURCE,
-        paint: {
-          'line-color': '#64748b',
-          'line-opacity': 0.85,
-          'line-width': 2,
-          'line-dasharray': [4, 3],
-        },
-      });
+            m.addLayer({
+              id: BOUNDARY_LINE,
+              type: 'line',
+              source: BOUNDARY_SOURCE,
+              paint: {
+                'line-color': '#64748b',
+                'line-opacity': 0.85,
+                'line-width': 2,
+                'line-dasharray': [4, 3],
+              },
+            });
 
-      if (onZoneClick) {
-        map.on('click', ZONE_FILL, (e) => {
-          const id = e.features?.[0]?.properties?.id;
-          if (typeof id === 'string') onZoneClick(id);
+            if (onZoneClick) {
+              m.on('click', ZONE_FILL, (e) => {
+                const id = e.features?.[0]?.properties?.id;
+                if (typeof id === 'string') onZoneClick(id);
+              });
+              m.on('mouseenter', ZONE_FILL, () => {
+                m.getCanvas().style.cursor = 'pointer';
+              });
+              m.on('mouseleave', ZONE_FILL, () => {
+                m.getCanvas().style.cursor = '';
+              });
+            }
+
+            setIsMapLoaded(true);
+          },
+          onTileError: (msg) => {
+            if (!cancelled) {
+              setMapError(msg);
+              setIsMapLoaded(true);
+            }
+          },
         });
-        map.on('mouseenter', ZONE_FILL, () => {
-          map.getCanvas().style.cursor = 'pointer';
-        });
-        map.on('mouseleave', ZONE_FILL, () => {
-          map.getCanvas().style.cursor = '';
-        });
+
+        if (cancelled) {
+          map.remove();
+          detach();
+          return;
+        }
+
+        detachResize = detach;
+        mapRef.current = map;
+      } catch (err) {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : 'Failed to initialize map';
+        setMapError(msg);
       }
-    });
-
-    map.on('error', (e) => {
-      setMapError(e.error?.message ?? 'Map failed to load');
-    });
-
-    mapRef.current = map;
+    })();
 
     return () => {
-      map.remove();
+      cancelled = true;
+      detachResize?.();
+      mapRef.current?.remove();
       mapRef.current = null;
       setIsMapLoaded(false);
     };
