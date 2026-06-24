@@ -9,16 +9,24 @@ const MARKER_SIZES = {
   selected: 64,
 } as const;
 
+export type DriverMarkerStatus = 'live' | 'on_trip' | 'stale' | 'offline';
+
+const STATUS_DOT_COLORS: Record<DriverMarkerStatus, string> = {
+  live: '#22c55e',
+  on_trip: '#f59e0b',
+  stale: '#6b7280',
+  offline: '#9ca3af',
+};
+
 /**
  * Build an HTMLElement representing a driver car marker for Mapbox.
- * The element rotates with the driver heading and shows an optional
- * "on trip" status dot.
+ * The element rotates with the driver heading and shows a status dot.
  *
  * Use with `new mapboxgl.Marker({ element, rotation: heading, rotationAlignment: 'map' })`.
  */
 export function createCarMarkerElement(
   size: 32 | 64 = 32,
-  isOnTrip: boolean = false
+  status: DriverMarkerStatus = 'live',
 ): HTMLElement {
   const actualSize = size === 64 ? MARKER_SIZES.selected : MARKER_SIZES.default;
 
@@ -28,28 +36,32 @@ export function createCarMarkerElement(
   wrapper.style.position = 'relative';
   wrapper.style.cursor = 'pointer';
 
+  if (status === 'offline') {
+    wrapper.style.opacity = '0.55';
+  }
+
   const img = document.createElement('img');
   img.src = onecabCarMarker;
   img.width = actualSize;
   img.height = actualSize;
   img.style.width = '100%';
   img.style.height = '100%';
-  img.style.filter = 'drop-shadow(0 3px 6px rgba(0, 0, 0, 0.35))';
+  img.style.filter = status === 'stale'
+    ? 'grayscale(1) drop-shadow(0 3px 6px rgba(0, 0, 0, 0.35))'
+    : 'drop-shadow(0 3px 6px rgba(0, 0, 0, 0.35))';
   img.style.display = 'block';
   wrapper.appendChild(img);
 
-  if (isOnTrip) {
-    const dot = document.createElement('div');
-    dot.style.position = 'absolute';
-    dot.style.top = '0';
-    dot.style.right = '0';
-    dot.style.width = '12px';
-    dot.style.height = '12px';
-    dot.style.borderRadius = '50%';
-    dot.style.background = '#22c55e';
-    dot.style.border = '2px solid #ffffff';
-    wrapper.appendChild(dot);
-  }
+  const dot = document.createElement('div');
+  dot.style.position = 'absolute';
+  dot.style.top = '0';
+  dot.style.right = '0';
+  dot.style.width = '12px';
+  dot.style.height = '12px';
+  dot.style.borderRadius = '50%';
+  dot.style.background = STATUS_DOT_COLORS[status];
+  dot.style.border = '2px solid #ffffff';
+  wrapper.appendChild(dot);
 
   return wrapper;
 }

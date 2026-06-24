@@ -17,11 +17,22 @@ import {
   Navigation, Phone, Star, Clock, Wifi, WifiOff
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { createCarMarkerElement, preloadMarkerImage } from '@/lib/mapMarkers';
+import { createCarMarkerElement, preloadMarkerImage, type DriverMarkerStatus } from '@/lib/mapMarkers';
 import { mapboxgl } from '@/lib/mapbox';
 import { createMapboxMap } from '@/lib/mapboxMap';
 import { useMapboxToken } from '@/hooks/useMapboxToken';
+import { attachAdminMapControls } from '@/lib/mapControls';
+import {
+  boundsFromPositions,
+  collectDriverMapPositions,
+  DEFAULT_MAP_CENTER,
+  DEFAULT_MAP_ZOOM,
+  fitMapToLngLatBounds,
+  recenterMap,
+} from '@/lib/mapBounds';
 import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
+
+const STALE_LOCATION_MS = 5 * 60 * 1000;
 
 interface Driver {
   id: string;
@@ -82,11 +93,110 @@ export default function FleetTracking() {
   const mapboxMapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<Map<string, mapboxgl.Marker>>(new Map());
   const regionLayerIdsRef = useRef<string[]>([]);
+  const detachControlsRef = useRef<(() => void) | null>(null);
+  const userAdjustedViewRef = useRef(false);
+  const hasAutoFitRef = useRef(false);
+  const selectedDriverIdRef = useRef<string | null>(null);
+  const driversRef = useRef(drivers);
+  const regionsRef = useRef(regions);
+  const filtersRef = useRef({
+    searchQuery,
+    regionFilter,
+    serviceAreaFilter,
+    statusFilter,
+    driverServiceAreasMap,
+  });
 
   // Preload marker image
   useEffect(() => {
     preloadMarkerImage();
   }, []);
+
+  useEffect(() => {
+    driversRef.current = drivers;
+    regionsRef.current = regions;
+    filtersRef.current = {
+      searchQuery,
+      regionFilter,
+      serviceAreaFilter,
+      statusFilter,
+      driverServiceAreasMap,
+    };
+  }, [drivers, regions, searchQuery, regionFilter, serviceAreaFilter, statusFilter, driverServiceAreasMap]);
+
+  useEffect(() => {
+    selectedDriverIdRef.current = selectedDriver?.id ?? null;
+  }, [selectedDriver]);
+
+  const getFilteredDriversFromRefs = useCallback(() => {
+    const {
+      searchQuery: query,
+      regionFilter: region,
+      serviceAreaFilter: serviceArea,
+      statusFilter: status,
+      driverServiceAreasMap: serviceAreasByDriver,
+    } = filtersRef.current;
+
+    return driversRef.current.filter((driver) => {
+      const matchesSearch =
+        `${driver.first_name} ${driver.last_name}`.toLowerCase().includes(query.toLowerCase())
+        || driver.phone.includes(query);
+      const matchesRegion = region === 'all' || driver.region_id === region;
+      const matchesServiceArea =
+        serviceArea === 'all'
+        || serviceAreasByDriver[driver.id]?.includes(serviceArea);
+      const matchesStatus =
+        status === 'all'
+        || (status === 'online' && driver.is_online)
+        || (status === 'offline' && !driver.is_online)
+        || (status === 'on_trip' && driver.current_trip);
+      return matchesSearch && matchesRegion && matchesServiceArea && matchesStatus;
+    });
+  }, []);
+
+  const fitMapToDrivers = useCallback((options?: { force?: boolean }) => {
+    const map = mapboxMapRef.current;
+    if (!map) return;
+
+    const positions = collectDriverMapPositions(
+      getFilteredDriversFromRefs(),
+      regionsRef.current,
+    );
+    const bounds = boundsFromPositions(positions);
+    if (bounds) {
+      fitMapToLngLatBounds(map, bounds, { maxZoom: 13, padding: 64 });
+      return;
+    }
+
+    if (options?.force) {
+      recenterMap(map, DEFAULT_MAP_CENTER, 13);
+    }
+  }, [getFilteredDriversFromRefs]);
+
+  const recenterFleetMap = useCallback(() => {
+    const map = mapboxMapRef.current;
+    if (!map) return;
+    const selected = selectedDriverIdRef.current
+      ? driversRef.current.find((driver) => driver.id === selectedDriverIdRef.current)
+      : null;
+    if (selected?.current_lat != null && selected.current_lng != null) {
+      map.flyTo({
+        center: [selected.current_lng, selected.current_lat],
+        zoom: 15,
+        duration: 600,
+      });
+      return;
+    }
+    recenterMap(map, DEFAULT_MAP_CENTER, 13);
+  }, []);
+
+  const fitMapToDriversRef = useRef(fitMapToDrivers);
+  const recenterFleetMapRef = useRef(recenterFleetMap);
+
+  useEffect(() => {
+    fitMapToDriversRef.current = fitMapToDrivers;
+    recenterFleetMapRef.current = recenterFleetMap;
+  }, [fitMapToDrivers, recenterFleetMap]);
 
   // Initialize Mapbox after web token resolves (env or get-mapbox-token)
   useEffect(() => {
@@ -99,10 +209,13 @@ export default function FleetTracking() {
       try {
         const { map, detachResize: detach } = await createMapboxMap({
           container: mapRef.current!,
-          center: [-0.7594, 52.0406],
+          center: DEFAULT_MAP_CENTER,
           zoom: 13,
           onLoad: () => {
             if (!cancelled) setIsMapLoaded(true);
+          },
+          onIdle: (m) => {
+            m.resize();
           },
           onTileError: (msg) => {
             if (!cancelled) {
@@ -116,7 +229,26 @@ export default function FleetTracking() {
           detach();
           return;
         }
-        map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
+
+        map.on('dragstart', () => {
+          userAdjustedViewRef.current = true;
+        });
+        map.on('zoomstart', (event) => {
+          if ((event as { originalEvent?: Event }).originalEvent) {
+            userAdjustedViewRef.current = true;
+          }
+        });
+
+        detachControlsRef.current = attachAdminMapControls(map, {
+          onFit: () => {
+            userAdjustedViewRef.current = false;
+            fitMapToDriversRef.current({ force: true });
+          },
+          onRecenter: () => recenterFleetMapRef.current(),
+          fitTitle: 'Fit all drivers',
+          recenterTitle: 'Recenter map',
+        });
+
         detachResize = detach;
         mapboxMapRef.current = map;
       } catch (err) {
@@ -130,10 +262,14 @@ export default function FleetTracking() {
 
     return () => {
       cancelled = true;
+      detachControlsRef.current?.();
+      detachControlsRef.current = null;
       detachResize?.();
       mapboxMapRef.current?.remove();
       mapboxMapRef.current = null;
       setIsMapLoaded(false);
+      hasAutoFitRef.current = false;
+      userAdjustedViewRef.current = false;
     };
   }, [mapboxReady]);
 
@@ -307,6 +443,63 @@ export default function FleetTracking() {
     else map.once('load', apply);
   }, [regions, isMapLoaded]);
 
+  // Reset auto-fit when filters change so the map reframes to the new driver set.
+  useEffect(() => {
+    userAdjustedViewRef.current = false;
+    hasAutoFitRef.current = false;
+  }, [searchQuery, regionFilter, serviceAreaFilter, statusFilter]);
+
+  const resolveDriverMarkerStatus = (driver: Driver): DriverMarkerStatus => {
+    if (!driver.is_online) return 'offline';
+    if (driver.current_trip) return 'on_trip';
+    if (driver.last_location_updated_at) {
+      const ageMs = Date.now() - new Date(driver.last_location_updated_at).getTime();
+      if (ageMs > STALE_LOCATION_MS) return 'stale';
+    }
+    return 'live';
+  };
+
+  // Auto-fit visible drivers on first load and when filters change (not every GPS tick).
+  useEffect(() => {
+    if (!isMapLoaded || userAdjustedViewRef.current) return;
+    const filtered = getFilteredDriversFromRefs();
+    if (filtered.length === 0) return;
+    fitMapToDrivers();
+    hasAutoFitRef.current = true;
+  }, [
+    searchQuery,
+    regionFilter,
+    serviceAreaFilter,
+    statusFilter,
+    isMapLoaded,
+    fitMapToDrivers,
+    getFilteredDriversFromRefs,
+  ]);
+
+  useEffect(() => {
+    if (!isMapLoaded || userAdjustedViewRef.current || hasAutoFitRef.current) return;
+    const filtered = getFilteredDriversFromRefs();
+    if (filtered.length === 0) return;
+    fitMapToDrivers();
+    hasAutoFitRef.current = true;
+  }, [drivers, isMapLoaded, fitMapToDrivers, getFilteredDriversFromRefs]);
+
+  // Follow selected driver when their GPS updates.
+  useEffect(() => {
+    if (!selectedDriver?.current_lat || !selectedDriver.current_lng) return;
+    const map = mapboxMapRef.current;
+    if (!map || !isMapLoaded) return;
+    map.easeTo({
+      center: [selectedDriver.current_lng, selectedDriver.current_lat],
+      duration: 800,
+    });
+  }, [
+    selectedDriver?.id,
+    selectedDriver?.current_lat,
+    selectedDriver?.current_lng,
+    isMapLoaded,
+  ]);
+
   // Update driver markers with real GPS coordinates
   useEffect(() => {
     const map = mapboxMapRef.current;
@@ -317,21 +510,7 @@ export default function FleetTracking() {
     markersRef.current.clear();
 
     // Filter drivers
-    const filtered = drivers.filter((driver) => {
-      const matchesSearch =
-        `${driver.first_name} ${driver.last_name}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        driver.phone.includes(searchQuery);
-      const matchesRegion = regionFilter === 'all' || driver.region_id === regionFilter;
-      const matchesServiceArea =
-        serviceAreaFilter === 'all' ||
-        driverServiceAreasMap[driver.id]?.includes(serviceAreaFilter);
-      const matchesStatus =
-        statusFilter === 'all' ||
-        (statusFilter === 'online' && driver.is_online) ||
-        (statusFilter === 'offline' && !driver.is_online) ||
-        (statusFilter === 'on_trip' && driver.current_trip);
-      return matchesSearch && matchesRegion && matchesServiceArea && matchesStatus;
-    });
+    const filtered = getFilteredDriversFromRefs();
 
     // Create markers for each driver
     filtered.forEach((driver) => {
@@ -352,11 +531,11 @@ export default function FleetTracking() {
 
       const isSelected = selectedDriver?.id === driver.id;
       const markerSize = isSelected ? 64 : 32;
-      const isOnTrip = !!driver.current_trip;
+      const markerStatus = resolveDriverMarkerStatus(driver);
 
-      const el = createCarMarkerElement(markerSize as 32 | 64, isOnTrip);
+      const el = createCarMarkerElement(markerSize as 32 | 64, markerStatus);
       el.title = `${driver.first_name} ${driver.last_name}${driver.speed ? ` (${Math.round(driver.speed * 3.6)} km/h)` : ''}`;
-      el.style.zIndex = String(isSelected ? 1000 : isOnTrip ? 100 : 1);
+      el.style.zIndex = String(isSelected ? 1000 : markerStatus === 'on_trip' ? 100 : 1);
 
       const marker = new mapboxgl.Marker({
         element: el,
@@ -368,6 +547,7 @@ export default function FleetTracking() {
 
       el.addEventListener('click', () => {
         setSelectedDriver(driver);
+        userAdjustedViewRef.current = true;
         if (mapboxMapRef.current && position) {
           mapboxMapRef.current.flyTo({ center: [position.lng, position.lat], zoom: 15 });
         }
@@ -375,7 +555,7 @@ export default function FleetTracking() {
 
       markersRef.current.set(driver.id, marker);
     });
-  }, [drivers, regions, searchQuery, regionFilter, serviceAreaFilter, statusFilter, isMapLoaded, driverServiceAreasMap, selectedDriver]);
+  }, [isMapLoaded, selectedDriver, getFilteredDriversFromRefs, regions]);
 
   // Filter service areas by selected region
   const filteredServiceAreas = regionFilter === 'all' 
@@ -477,7 +657,21 @@ export default function FleetTracking() {
                   <span className="text-xs text-muted-foreground">
                     Last updated: {lastRefresh.toLocaleTimeString()}
                   </span>
-                  <Button variant="outline" size="sm" onClick={() => fetchData()} disabled={isLoading}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      userAdjustedViewRef.current = false;
+                      fitMapToDrivers({ force: true });
+                    }}
+                    title="Fit all drivers"
+                  >
+                    Fit drivers
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => recenterFleetMap()} title="Recenter map">
+                    Recenter
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => fetchData()} disabled={isLoading} title="Refresh locations">
                     <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
                   </Button>
                 </div>
@@ -499,17 +693,15 @@ export default function FleetTracking() {
               </div>
             </CardHeader>
             <CardContent>
-              <div
-                ref={mapRef}
-                className="w-full h-[500px] rounded-lg border border-border overflow-hidden relative"
-              >
+              <div className="relative w-full h-[500px] rounded-lg border border-border overflow-hidden">
+                <div ref={mapRef} className="absolute inset-0 min-h-[400px] w-full" />
                 {mapInitError && (
-                  <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm text-muted-foreground">
+                  <div className="absolute inset-0 z-10 flex items-center justify-center p-4 text-center text-sm text-muted-foreground bg-background/80">
                     Map unavailable: {mapInitError}. Set VITE_MAPBOX_WEB_TOKEN in Lovable or MAPBOX_WEB_TOKEN on Supabase.
                   </div>
                 )}
                 {!mapInitError && !isMapLoaded && (
-                  <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
+                  <div className="absolute inset-0 z-10 flex items-center justify-center text-muted-foreground bg-background/80">
                     <Loader2 className="h-6 w-6 animate-spin mr-2" />
                     Loading map...
                   </div>
