@@ -50,10 +50,10 @@ type LedgerDbRow = {
   trips: {
     trip_code: string | null;
     payment_method: string | null;
-    customer_id: string | null;
-    voucher_discount_pence: number | null;
+    passenger_id: string | null;
+    passenger_name: string | null;
+    discount_pence: number | null;
     discount_source: string | null;
-    customers: { first_name: string | null; last_name: string | null } | null;
   } | null;
 };
 
@@ -72,8 +72,8 @@ type PaymentDbRow = {
   trips: {
     trip_code: string | null;
     payment_method: string | null;
-    customer_id: string | null;
-    customers: { first_name: string | null; last_name: string | null } | null;
+    passenger_id: string | null;
+    passenger_name: string | null;
   } | null;
   drivers: { first_name: string | null; last_name: string | null; region_id?: string | null } | null;
 };
@@ -83,21 +83,21 @@ type DiscountTripRow = {
   trip_code: string | null;
   payment_method: string | null;
   completed_at: string | null;
-  voucher_discount_pence: number | null;
+  discount_pence: number | null;
   discount_source: string | null;
   driver_id: string | null;
-  customer_id: string | null;
+  passenger_id: string | null;
+  passenger_name: string | null;
   drivers: { first_name: string | null; last_name: string | null } | null;
-  customers: { first_name: string | null; last_name: string | null } | null;
 };
 
 const LEDGER_SELECT = `
   id, type, amount_pence, currency, description, created_at, related_trip_id,
   driver_id, stripe_transfer_id, stripe_payout_id,
   drivers(first_name, last_name, region_id),
-  trips(trip_code, payment_method, customer_id, voucher_discount_pence, discount_source,
-    customers(first_name, last_name))
+  trips(trip_code, payment_method, passenger_id, passenger_name, discount_pence, discount_source)
 `;
+
 
 function formatName(first: string | null | undefined, last: string | null | undefined): string | null {
   const name = `${first ?? ''} ${last ?? ''}`.trim();
