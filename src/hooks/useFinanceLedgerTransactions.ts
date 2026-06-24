@@ -140,7 +140,7 @@ function mapPaymentRow(row: PaymentDbRow): FinanceLedgerTransactionRow {
     trip_code: trip?.trip_code ?? null,
     driver_id: row.driver_id,
     driver_name: formatName(row.drivers?.first_name, row.drivers?.last_name),
-    customer_name: formatName(trip?.customers?.first_name, trip?.customers?.last_name),
+    customer_name: trip?.passenger_name ?? null,
     type: ADMIN_CUSTOMER_PAYMENT_ROW_TYPE,
     type_label: meta.label,
     party: meta.party,
