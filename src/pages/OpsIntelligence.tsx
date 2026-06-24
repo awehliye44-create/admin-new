@@ -191,8 +191,24 @@ export default function OpsIntelligence() {
           a.fingerprint.includes('error_spike') || a.fingerprint.includes('edge_fn') ||
           a.fingerprint.includes('fatal_log')) perf.push(a);
       if (a.category === 'duplication') dup.push(a);
-      if (a.category === 'driver_app' || a.app === 'driver' || a.app === 'driver_app') driverApp.push(a);
-      if (a.category === 'customer_app' || a.app === 'customer' || a.app === 'customer_app') customerApp.push(a);
+      const eventType = typeof a.metadata?.event_type === 'string' ? a.metadata.event_type : '';
+      if (
+        a.category === 'driver_app' || a.app === 'driver' || a.app === 'driver_app'
+        || a.fingerprint.startsWith('driver_') || eventType.startsWith('driver_')
+        || a.source === 'workflow' && eventType.startsWith('driver_')
+      ) driverApp.push(a);
+      if (
+        a.category === 'customer_app' || a.app === 'customer' || a.app === 'customer_app'
+        || a.fingerprint.startsWith('customer_') || eventType.startsWith('customer_')
+        || a.source === 'workflow' && eventType.startsWith('customer_')
+      ) customerApp.push(a);
+      if (
+        a.source === 'workflow' && (
+          eventType.startsWith('contradictory_') || eventType.startsWith('rematch_')
+          || eventType.startsWith('call_masking_') || eventType.startsWith('offer_presets_')
+          || eventType.startsWith('dispatch_timeout_')
+        )
+      ) perf.push(a);
       if (a.category === 'corporate_booking' || a.category === 'corporate_web' || a.app === 'corporate_web') corporate.push(a);
     }
 
