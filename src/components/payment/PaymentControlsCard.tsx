@@ -402,14 +402,8 @@ export function PaymentControlsCard({
       toast.error(`Cannot capture more than authorized (${formatPence(state.amount_capturable_pence ?? state.authorized_pence, currency)})`);
       return;
     }
-    if (mode === 'extra_payment' && pence > extraDuePence) {
-      toast.error(`Cannot charge more than outstanding balance (${formatPence(extraDuePence, currency)})`);
-      return;
-    }
-    if (mode === 'extra_payment') {
-      actionMutation.mutate({ mode, reason: reason.trim() });
-      return;
-    }
+    // 'extra_payment' and 'cancel' handled above; mode is narrowed to capture | edit | partial_refund | refund here.
+
     if (mode === 'edit') actionMutation.mutate({ mode, new_total_pence: pence, reason: reason.trim() });
     else if (mode) actionMutation.mutate({ mode, amount_pence: pence, reason: reason.trim() });
   };
