@@ -25,7 +25,7 @@ import {
   ArrowUpRight, ArrowDownLeft, Wallet, Clock, CheckCircle2, XCircle,
   Banknote, Smartphone, CalendarIcon,
 } from 'lucide-react';
-import { PaymentControlsCard } from '@/components/payment/PaymentControlsCard';
+import { FinanceRecoveryPanel } from '@/components/payment/FinanceRecoveryPanel';
 import { OnecabCommissionVisibility } from '@/components/finance/OnecabCommissionVisibility';
 import { FinanceReconciliationTotalsCards } from '@/components/finance/FinanceReconciliationTotalsCards';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
@@ -581,7 +581,13 @@ export default function AdminPayments() {
               </div>
             ) : paymentDetail ? (
               <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto">
-                {viewingTripId && <PaymentControlsCard tripId={viewingTripId} />}
+                {viewingTripId && (
+                  <FinanceRecoveryPanel
+                    tripId={viewingTripId}
+                    source="payments"
+                    variant="finance"
+                  />
+                )}
                 {/* Trip Info */}
                 <div className="grid gap-4 grid-cols-2">
                   <div>

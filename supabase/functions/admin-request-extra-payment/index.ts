@@ -3,6 +3,10 @@ import Stripe from "https://esm.sh/stripe@14.21.0";
 import { z } from "https://esm.sh/zod@3.23.8";
 import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
 import { STRIPE_STATEMENT_DESCRIPTOR } from "../_shared/stripeStatementDescriptor.ts";
+import {
+  assertExtraPaymentAmountTrusted,
+  resolveExtraPaymentChargePence,
+} from "../_shared/extraPaymentRecoverySSOT.ts";
 
 const InputSchema = z.object({
   trip_id: z.string().uuid(),
@@ -37,23 +41,41 @@ serve(async (req) => {
       .select(
         "id, trip_number, passenger_id, driver_id, stripe_payment_intent_id, outstanding_balance_pence, "
         + "capture_amount_pence, final_fare_pence, tip_pence, tip_amount_pence, payment_status, "
-        + "payment_coverage_status, currency_code, currency",
+        + "payment_coverage_status, currency_code, currency, arrival_cancellation_applied, arrival_cancellation_fee",
       )
       .eq("id", trip_id)
       .single();
     if (tripErr || !trip) return jsonResponse({ error: "Trip not found" }, 404);
 
-    const outstanding = Math.max(0, Number(trip.outstanding_balance_pence ?? 0));
-    if (outstanding <= 0) {
-      return jsonResponse({ error: "Trip has no outstanding balance to collect" }, 400);
+    const { data: paymentRows, error: paymentsErr } = await gate.supabase
+      .from("payments")
+      .select("captured_amount_pence, amount_pence, status")
+      .eq("trip_id", trip_id);
+    if (paymentsErr) {
+      return jsonResponse({ error: "Failed to load trip payments" }, 500);
     }
 
-    const chargePence = amount_pence ?? outstanding;
-    if (chargePence > outstanding) {
+    const recovery = resolveExtraPaymentChargePence({
+      trip,
+      payments: paymentRows ?? [],
+    });
+
+    const amountMismatch = assertExtraPaymentAmountTrusted(amount_pence, recovery.charge_pence);
+    if (amountMismatch) {
+      return jsonResponse({ error: amountMismatch }, 400);
+    }
+
+    if (recovery.charge_pence <= 0) {
       return jsonResponse({
-        error: `amount_pence (${chargePence}) exceeds outstanding balance (${outstanding})`,
+        error: "Trip has no outstanding balance to collect",
+        settlement_total_pence: recovery.settlement_total_pence,
+        captured_total_pence: recovery.captured_total_pence,
+        outstanding_balance_pence: 0,
       }, 400);
     }
+
+    const outstanding = recovery.charge_pence;
+    const chargePence = outstanding;
 
     if (!trip.passenger_id) {
       return jsonResponse({ error: "Trip has no passenger — cannot charge extra payment" }, 400);
@@ -218,6 +240,10 @@ serve(async (req) => {
         outstanding_before_pence: outstanding,
         outstanding_after_pence: remainingOutstanding,
         charge_id: chargeId,
+        settlement_total_pence: recovery.settlement_total_pence,
+        captured_total_pence: recovery.captured_total_pence,
+        recovery_source: recovery.source,
+        admin_user_id: gate.userId,
       },
     });
 
@@ -231,7 +257,12 @@ serve(async (req) => {
       charged_pence: chargePence,
       captured_total_pence: newCapturedTotal,
       outstanding_balance_pence: remainingOutstanding,
+      settlement_total_pence: recovery.settlement_total_pence,
+      captured_before_pence: recovery.captured_total_pence,
+      recovery_source: recovery.source,
+      admin_user_id: gate.userId,
       fully_paid: fullyPaid,
+      reconciliation_cleared: fullyPaid && remainingOutstanding === 0,
     });
   } catch (e) {
     console.error("[admin-request-extra-payment] Error:", e);

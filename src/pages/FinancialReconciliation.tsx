@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
+import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { ServiceAreaFinanceFilter, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -43,6 +44,8 @@ import {
 import { FinanceReconciliationTotalsCards } from '@/components/finance/FinanceReconciliationTotalsCards';
 import { OnecabCommissionVisibility } from '@/components/finance/OnecabCommissionVisibility';
 import { FinancePayoutAuditSection } from '@/components/finance/FinancePayoutAuditSection';
+import { FinanceRecoveryPanel } from '@/components/payment/FinanceRecoveryPanel';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { MONDAY_PAYOUT_DIAGNOSTICS_OPTS } from '@/lib/financePageSSOT';
 import { useMondayPayoutDiagnostics } from '@/hooks/useMondayPayoutDiagnostics';
 
@@ -153,7 +156,14 @@ function MetricCard({
   );
 }
 
+function hasCaptureMismatch(row: TripFinancialAuditRow): boolean {
+  const method = (row.payment_method ?? '').toLowerCase();
+  if (method === 'cash') return false;
+  return row.customer_paid_pence > row.captured_pence + 1;
+}
+
 function FinancialReconciliationPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [filter, setFilter] = useState<ServiceAreaFinanceSelection>({
     serviceAreaId: null,
     regionId: null,
@@ -164,6 +174,24 @@ function FinancialReconciliationPage() {
   const [tripSearchInput, setTripSearchInput] = useState('');
   const [tripSearchMode, setTripSearchMode] = useState<'code' | 'id'>('code');
   const [debouncedTripSearch, setDebouncedTripSearch] = useState('');
+  const [recoveryTripId, setRecoveryTripId] = useState<string | null>(null);
+  const [recoveryTripCode, setRecoveryTripCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    const tripCode = searchParams.get('trip')?.trim();
+    const tripId = searchParams.get('tripId')?.trim();
+    const recover = searchParams.get('recover') === '1';
+    if (!recover) return;
+    if (tripCode) {
+      setTripSearchMode('code');
+      setTripSearchInput(tripCode);
+      setDebouncedTripSearch(tripCode);
+    } else if (tripId) {
+      setTripSearchMode('id');
+      setTripSearchInput(tripId);
+      setDebouncedTripSearch(tripId);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedTripSearch(tripSearchInput.trim()), 350);
@@ -224,6 +252,22 @@ function FinancialReconciliationPage() {
     });
   }, [data?.trip_financial_audit]);
   const backendAudit = backendAuditData?.finance_backend_audit_v1;
+
+  useEffect(() => {
+    if (searchParams.get('recover') !== '1') return;
+    const tripCode = searchParams.get('trip')?.trim();
+    const tripIdParam = searchParams.get('tripId')?.trim();
+    const match = auditRows.find((row) => {
+      if (tripIdParam && row.trip_id === tripIdParam) return true;
+      if (tripCode && row.trip_code?.toUpperCase() === tripCode.toUpperCase()) return true;
+      if (tripCode && safeTripDisplayId(row).toUpperCase() === tripCode.toUpperCase()) return true;
+      return false;
+    });
+    if (match) {
+      setRecoveryTripId(match.trip_id);
+      setRecoveryTripCode(match.trip_code ?? safeTripDisplayId(match));
+    }
+  }, [searchParams, auditRows]);
 
   const reconciliationChip = useMemo(() => {
     if (!summary) return null;
@@ -778,12 +822,13 @@ function FinancialReconciliationPage() {
                   <TableHead>Driver Payout</TableHead>
                   <TableHead>Commission</TableHead>
                   <TableHead>Provider</TableHead>
+                  <TableHead>Recovery</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {auditRows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={15} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={16} className="text-center text-muted-foreground py-8">
                       {debouncedTripSearch
                         ? `No audit rows matching "${debouncedTripSearch}"`
                         : 'No trips in selected period'}
@@ -827,6 +872,28 @@ function FinancialReconciliationPage() {
                       <TableCell>
                         <TripAuditStatusChip badge={row.provider} />
                       </TableCell>
+                      <TableCell>
+                        {hasCaptureMismatch(row) ? (
+                          <div className="flex flex-col gap-1">
+                            <Badge variant="outline" className="text-[10px] border-amber-500/50 text-amber-800">
+                              Capture mismatch
+                            </Badge>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="h-7 text-xs"
+                              onClick={() => {
+                                setRecoveryTripId(row.trip_id);
+                                setRecoveryTripCode(row.trip_code ?? safeTripDisplayId(row));
+                              }}
+                            >
+                              Recapture
+                            </Button>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -834,6 +901,39 @@ function FinancialReconciliationPage() {
             </Table>
           </CardContent>
         </Card>
+
+        <Dialog
+          open={!!recoveryTripId}
+          onOpenChange={(open) => {
+            if (!open) {
+              setRecoveryTripId(null);
+              setRecoveryTripCode(null);
+              if (searchParams.get('recover')) {
+                const next = new URLSearchParams(searchParams);
+                next.delete('recover');
+                next.delete('trip');
+                next.delete('tripId');
+                setSearchParams(next, { replace: true });
+              }
+            }
+          }}
+        >
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>
+                Finance recovery — {recoveryTripCode ?? recoveryTripId?.slice(0, 8)}
+              </DialogTitle>
+            </DialogHeader>
+            {recoveryTripId && (
+              <FinanceRecoveryPanel
+                tripId={recoveryTripId}
+                tripCode={recoveryTripCode}
+                source="financial-reconciliation"
+                variant="finance"
+              />
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </AdminLayout>
   );

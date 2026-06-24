@@ -43,7 +43,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
 import { getCurrencySymbol, formatDistance as formatDistanceUtil, getDistanceUnitShort } from '@/lib/regionSettings';
-import { PaymentControlsCard } from '@/components/payment/PaymentControlsCard';
+import { FinanceRecoveryPanel } from '@/components/payment/FinanceRecoveryPanel';
 import { TripInvoiceCard, TripInvoiceStatusBadge } from '@/components/trips/TripInvoiceCard';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import {
@@ -1888,8 +1888,14 @@ export default function TripHistory() {
                 />
               )}
 
-              {/* Admin Payment Controls — Capture, Cancel, Refund, Edit + full payment logs */}
-              {selectedTrip.id && <PaymentControlsCard tripId={selectedTrip.id} />}
+              {selectedTrip.id && (
+                <FinanceRecoveryPanel
+                  tripId={selectedTrip.id}
+                  tripCode={selectedTrip.trip_code ?? selectedTrip.trip_number ?? undefined}
+                  source="trip-history"
+                  variant="summary"
+                />
+              )}
             </div>
           )}
         </DialogContent>

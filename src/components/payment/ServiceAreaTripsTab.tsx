@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/hooks/useAuth';
-import { PaymentControlsCard } from '@/components/payment/PaymentControlsCard';
+import { FinanceRecoveryPanel } from '@/components/payment/FinanceRecoveryPanel';
 import { format } from 'date-fns';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import {
@@ -201,7 +201,9 @@ export function ServiceAreaTripsTab({ serviceAreaId, currencyCode = 'GBP' }: { s
           <DialogHeader>
             <DialogTitle>Trip payment controls</DialogTitle>
           </DialogHeader>
-          {openTripId && <PaymentControlsCard tripId={openTripId} />}
+          {openTripId && (
+            <FinanceRecoveryPanel tripId={openTripId} source="payments" variant="finance" />
+          )}
         </DialogContent>
       </Dialog>
     </Card>

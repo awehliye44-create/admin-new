@@ -143,7 +143,15 @@ function settlementWarningLabel(
   return apiLabel ?? SETTLEMENT_WARNING_LABELS[warning] ?? warning;
 }
 
-export function PaymentControlsCard({ tripId }: { tripId: string }) {
+export type PaymentControlsVariant = 'finance' | 'summary';
+
+export function PaymentControlsCard({
+  tripId,
+  variant = 'finance',
+}: {
+  tripId: string;
+  variant?: PaymentControlsVariant;
+}) {
   const { isAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<Mode | null>(null);
@@ -221,6 +229,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
     queryClient.invalidateQueries({ queryKey: ['admin-payment-detail', tripId] });
     queryClient.invalidateQueries({ queryKey: ['admin-payments-list'] });
     queryClient.invalidateQueries({ queryKey: ['admin-payments-summary'] });
+    queryClient.invalidateQueries({ queryKey: ['finance-reconciliation-summary'] });
   };
 
   const actionMutation = useMutation({
@@ -233,7 +242,9 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
         : 'admin-edit-trip-fare';
       const body: Record<string, unknown> = { trip_id: tripId, reason: input.reason };
       if (input.mode === 'edit') body.new_total_pence = input.new_total_pence;
-      else if (input.mode === 'extra_payment' || (input.mode !== 'cancel' && input.amount_pence !== undefined)) {
+      else if (input.mode === 'extra_payment') {
+        // Server computes charge from settlement − captured; never trust UI amount.
+      } else if (input.mode !== 'cancel' && input.amount_pence !== undefined) {
         body.amount_pence = input.amount_pence;
       }
       const { data, error } = await supabase.functions.invoke(fn, { body });
@@ -251,6 +262,9 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
     },
     onError: (err: Error) => toast.error(err.message),
   });
+
+  const isFinanceVariant = variant === 'finance';
+  const showRecoveryActions = isFinanceVariant;
 
   if (!isAdmin) return null;
 
@@ -343,6 +357,10 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
       actionMutation.mutate({ mode, reason: reason.trim() });
       return;
     }
+    if (mode === 'extra_payment') {
+      actionMutation.mutate({ mode, reason: reason.trim() });
+      return;
+    }
     const value = Number(amountInput);
     if (!Number.isFinite(value) || value <= 0) {
       toast.error('Enter a valid amount greater than 0');
@@ -361,8 +379,11 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
       toast.error(`Cannot charge more than outstanding balance (${formatPence(extraDuePence, currency)})`);
       return;
     }
+    if (mode === 'extra_payment') {
+      actionMutation.mutate({ mode, reason: reason.trim() });
+      return;
+    }
     if (mode === 'edit') actionMutation.mutate({ mode, new_total_pence: pence, reason: reason.trim() });
-    else if (mode === 'extra_payment') actionMutation.mutate({ mode, amount_pence: pence, reason: reason.trim() });
     else if (mode) actionMutation.mutate({ mode, amount_pence: pence, reason: reason.trim() });
   };
 
@@ -390,7 +411,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-base">
             <ShieldCheck className="h-4 w-4 text-primary" />
-            Admin Payment Controls
+            {isFinanceVariant ? 'Finance recovery (SSOT)' : 'Payment status (read-only)'}
           </CardTitle>
           <Button variant="ghost" size="sm" onClick={() => stateQuery.refetch()} disabled={stateQuery.isFetching}>
             <RefreshCw className={`h-4 w-4 ${stateQuery.isFetching ? 'animate-spin' : ''}`} />
@@ -554,7 +575,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
                   <span>Historical shortfall detected — final fare exceeds captured amount and authorised buffer is exhausted. No automatic charge will be made.</span>
                 </div>
               )}
-              {extraDuePence > 0 && !isLegacyIncomplete && (
+              {extraDuePence > 0 && !isLegacyIncomplete && showRecoveryActions && (
                 <div className="flex flex-wrap gap-2 pt-1">
                   <Button size="sm" onClick={openExtraPayment} disabled={actionMutation.isPending}>
                     <PlusCircle className="h-4 w-4 mr-1" /> Request extra payment
@@ -609,6 +630,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
             </div>
 
             {/* Actions */}
+            {showRecoveryActions && (
             <div className="flex flex-wrap gap-2">
               {isUncaptured && (
                 <Button size="sm" onClick={() => openMode('capture')} disabled={actionMutation.isPending}>
@@ -644,6 +666,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
                 <Badge variant="outline" className="text-xs">Fully refunded</Badge>
               )}
             </div>
+            )}
 
             {/* Audit log */}
             <Collapsible open={auditOpen} onOpenChange={setAuditOpen}>
@@ -695,7 +718,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
             <DialogDescription>{dialogDesc}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            {mode !== 'cancel' && (
+            {mode !== 'cancel' && mode !== 'extra_payment' && (
               <div>
                 <Label>{mode === 'edit' ? 'New total' : 'Amount'} ({currency})</Label>
                 <Input
@@ -710,6 +733,11 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
                   </p>
                 )}
               </div>
+            )}
+            {mode === 'extra_payment' && (
+              <p className="text-sm text-muted-foreground">
+                Server will charge the outstanding delta only ({formatPence(extraDuePence, currency)}).
+              </p>
             )}
             <div>
               <Label>Reason (required, min 5 chars)</Label>
