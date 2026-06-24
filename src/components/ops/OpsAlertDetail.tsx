@@ -173,7 +173,13 @@ export function OpsAlertDetail({ alert, onBack, onRefresh }: OpsAlertDetailProps
     const result = await generateAISummary(buildAIInput());
     setAiGenerating(false);
     if (result.success) {
-      toast.success('AI summary generated');
+      if (result.degraded) {
+        toast.warning('Summary saved (rules-based fallback)', {
+          description: result.warning || 'AI gateway unavailable; update LOVABLE_API_KEY for full AI analysis.',
+        });
+      } else {
+        toast.success('AI summary generated');
+      }
       refetchAI();
     } else {
       toast.error('Failed to generate summary', { description: result.error });
@@ -185,7 +191,13 @@ export function OpsAlertDetail({ alert, onBack, onRefresh }: OpsAlertDetailProps
     const result = await regenerateAISummary(buildAIInput());
     setAiGenerating(false);
     if (result.success) {
-      toast.success('AI summary regenerated');
+      if (result.degraded) {
+        toast.warning('Summary saved (rules-based fallback)', {
+          description: result.warning || 'AI gateway unavailable; update LOVABLE_API_KEY for full AI analysis.',
+        });
+      } else {
+        toast.success('AI summary regenerated');
+      }
       refetchAI();
     } else {
       toast.error('Failed to regenerate summary', { description: result.error });

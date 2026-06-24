@@ -9747,6 +9747,7 @@ export type Database = {
           region_id: string
           stops_waiting_charges: Json | null
           timezone: string | null
+          tips_enabled: boolean
           updated_at: string
         }
         Insert: {
@@ -9767,6 +9768,7 @@ export type Database = {
           region_id: string
           stops_waiting_charges?: Json | null
           timezone?: string | null
+          tips_enabled?: boolean
           updated_at?: string
         }
         Update: {
@@ -9787,6 +9789,7 @@ export type Database = {
           region_id?: string
           stops_waiting_charges?: Json | null
           timezone?: string | null
+          tips_enabled?: boolean
           updated_at?: string
         }
         Relationships: [

@@ -27,6 +27,7 @@ import {
   FileText,
   Globe,
   Calculator,
+  Gift,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ServiceAreaPaymentConfig } from '@/components/payment/ServiceAreaPaymentConfig';
@@ -57,6 +58,7 @@ interface ServiceArea {
   name: string;
   region_id: string;
   is_active: boolean;
+  tips_enabled: boolean;
   per_booking_fee_enabled: boolean;
   per_booking_fee_pence: number;
   region?: { 
@@ -108,7 +110,7 @@ export default function ServiceAreaPricing() {
       const [areasRes, vtRes] = await Promise.all([
         supabase
           .from('service_areas')
-          .select('id, name, region_id, is_active, per_booking_fee_enabled, per_booking_fee_pence, region:regions(name, currency_code, distance_unit)')
+          .select('id, name, region_id, is_active, tips_enabled, per_booking_fee_enabled, per_booking_fee_pence, region:regions(name, currency_code, distance_unit)')
           .order('name'),
         supabase
           .from('vehicle_types')
@@ -178,6 +180,15 @@ export default function ServiceAreaPricing() {
     setHasChanges(true);
   };
 
+  const updateTipsEnabled = (enabled: boolean) => {
+    setServiceAreas(prev => prev.map(sa =>
+      sa.id === selectedServiceAreaId
+        ? { ...sa, tips_enabled: enabled }
+        : sa
+    ));
+    setHasChanges(true);
+  };
+
   const handleSave = async () => {
     if (!selectedServiceAreaId) return;
 
@@ -190,6 +201,7 @@ export default function ServiceAreaPricing() {
           .update({
             per_booking_fee_enabled: selectedServiceArea.per_booking_fee_enabled,
             per_booking_fee_pence: selectedServiceArea.per_booking_fee_pence,
+            tips_enabled: selectedServiceArea.tips_enabled,
           })
           .eq('id', selectedServiceAreaId);
       }
@@ -412,6 +424,28 @@ export default function ServiceAreaPricing() {
 
         {/* Offers & Payment Tab */}
         <TabsContent value="offers" className="space-y-6">
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                    <Gift className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold">Passenger tips</h3>
+                    <p className="text-sm text-muted-foreground">
+                      When enabled, card trips show a tip step after completion and defer fare capture for the 2-minute tip window.
+                      When disabled, passengers rate only and fare captures immediately at trip end.
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  checked={selectedServiceArea?.tips_enabled ?? false}
+                  onCheckedChange={updateTipsEnabled}
+                />
+              </div>
+            </CardContent>
+          </Card>
           {selectedServiceAreaId && (
             <PresetOffersConfig
               serviceAreaId={selectedServiceAreaId}

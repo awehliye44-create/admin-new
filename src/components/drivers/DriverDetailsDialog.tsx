@@ -45,6 +45,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDriverAddressFull, formatCountryWithFlag } from '@/lib/driverAddress';
+import { isDriverStripeOnboardingComplete } from '@/lib/manualPayoutGate';
 
 interface Driver {
   id: string;
@@ -767,19 +768,25 @@ export function DriverDetailsDialog({
                     </p>
                   )}
 
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={sendOnboardingLink}
-                    disabled={isSendingOnboardLink}
-                  >
-                    {isSendingOnboardLink ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Send className="mr-2 h-4 w-4" />
-                    )}
-                    {driver.stripe_account_id ? 'Resend Onboarding Link' : 'Send Onboarding Link'}
-                  </Button>
+                  {isDriverStripeOnboardingComplete(driver) ? (
+                    <p className="text-sm text-muted-foreground">
+                      Payout account is fully set up. No onboarding link is needed.
+                    </p>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={sendOnboardingLink}
+                      disabled={isSendingOnboardLink}
+                    >
+                      {isSendingOnboardLink ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="mr-2 h-4 w-4" />
+                      )}
+                      {driver.stripe_account_id ? 'Resend Onboarding Link' : 'Send Onboarding Link'}
+                    </Button>
+                  )}
                 </div>
 
                 <div className="flex gap-2 pt-4 border-t flex-wrap">
