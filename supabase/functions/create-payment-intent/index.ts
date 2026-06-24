@@ -13,6 +13,7 @@ import {
   errorResponse,
   logAuditEvent,
 } from "../_shared/security.ts";
+import { STRIPE_STATEMENT_DESCRIPTOR } from "../_shared/stripeStatementDescriptor.ts";
 
 const RATE_LIMIT_CONFIG = { limit: 20, windowMs: 60 * 1000 };
 
@@ -269,6 +270,8 @@ serve(async (req) => {
     if (stripe_payment_method_id) {
       piParams.payment_method = stripe_payment_method_id;
     }
+
+    console.log(`[create-payment-intent] Statement descriptor SSOT: ${STRIPE_STATEMENT_DESCRIPTOR} (account static; no PI suffix)`);
 
     const paymentIntent = await stripe.paymentIntents.create(piParams, {
       idempotencyKey: `create_pi_${trip_id}`,

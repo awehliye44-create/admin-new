@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import { z } from "https://esm.sh/zod@3.23.8";
 import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
+import { STRIPE_STATEMENT_DESCRIPTOR } from "../_shared/stripeStatementDescriptor.ts";
 
 const InputSchema = z.object({
   trip_id: z.string().uuid(),
@@ -107,6 +108,7 @@ serve(async (req) => {
     }
 
     const idempotencyKey = `admin_extra_payment_${trip_id}_${chargePence}`;
+    console.log(`[admin-request-extra-payment] Statement descriptor SSOT: ${STRIPE_STATEMENT_DESCRIPTOR}`);
     let paymentIntent: Stripe.PaymentIntent;
     try {
       paymentIntent = await stripe.paymentIntents.create(

@@ -11,6 +11,7 @@ import type {
   ProviderEnvironment,
   WebhookVerifyResult,
 } from "./types.ts";
+import { STRIPE_STATEMENT_DESCRIPTOR } from "../stripeStatementDescriptor.ts";
 
 export function createStripeAdapter(
   supabase: SupabaseClient,
@@ -33,6 +34,7 @@ export function createStripeAdapter(
 
     async createPaymentIntent(amountPence, currency, metadata = {}) {
       const stripe = await getStripe();
+      console.log(`[stripe-adapter] Statement descriptor SSOT: ${STRIPE_STATEMENT_DESCRIPTOR}`);
       const pi = await stripe.paymentIntents.create({
         amount: amountPence,
         currency: currency.toLowerCase(),
