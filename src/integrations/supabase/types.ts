@@ -14873,6 +14873,10 @@ export type Database = {
         Args: { p_next_status?: string; p_trip_id: string }
         Returns: undefined
       }
+      reset_auth_user_email_unconfirmed: {
+        Args: { _user_id: string }
+        Returns: undefined
+      }
       resolve_driver_alert: {
         Args: { p_alert_type: string; p_driver_id: string }
         Returns: number
@@ -14980,6 +14984,10 @@ export type Database = {
       }
       sweep_stale_searching_trips: { Args: never; Returns: Json }
       sync_customer_phone_verification: {
+        Args: { _user_id: string }
+        Returns: undefined
+      }
+      sync_driver_phone_verification: {
         Args: { _user_id: string }
         Returns: undefined
       }
