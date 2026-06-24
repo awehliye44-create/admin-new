@@ -267,7 +267,7 @@ export function useFinanceLedgerTransactions(args: {
           .select(`
             id, trip_id, driver_id, status, captured_amount_pence, amount_pence, currency,
             stripe_fee_pence, payment_provider, provider_webhook_event_id, created_at,
-            trips(trip_code, payment_method, customer_id, customers(first_name, last_name)),
+            trips(trip_code, payment_method, passenger_id, passenger_name),
             drivers(first_name, last_name, region_id)
           `)
           .in('status', ['captured', 'paid', 'succeeded'])
@@ -275,7 +275,7 @@ export function useFinanceLedgerTransactions(args: {
           .limit(includePayments && !includeLedger ? limit : Math.min(limit, 150));
 
         if (paymentError) throw paymentError;
-        for (const row of (paymentData ?? []) as PaymentDbRow[]) {
+        for (const row of (paymentData ?? []) as unknown as PaymentDbRow[]) {
           if (!regionMatches(args.regionId, row.drivers?.region_id)) continue;
           rows.push(mapPaymentRow(row));
         }
@@ -285,12 +285,11 @@ export function useFinanceLedgerTransactions(args: {
         let discountQuery = supabase
           .from('trips')
           .select(`
-            id, trip_code, payment_method, completed_at, voucher_discount_pence, discount_source,
-            driver_id, customer_id, region_id,
-            drivers(first_name, last_name),
-            customers(first_name, last_name)
+            id, trip_code, payment_method, completed_at, discount_pence, discount_source,
+            driver_id, passenger_id, passenger_name, region_id,
+            drivers(first_name, last_name)
           `)
-          .gt('voucher_discount_pence', 0)
+          .gt('discount_pence', 0)
           .order('completed_at', { ascending: false })
           .limit(Math.min(limit, 100));
 
