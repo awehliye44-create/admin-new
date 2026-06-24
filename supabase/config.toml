@@ -73,6 +73,9 @@ verify_jwt = false
 [functions.admin-connect-payout-lockdown]
 verify_jwt = false
 
+[functions.admin-driver-connect-payout]
+verify_jwt = false
+
 [functions.admin-monday-payout-diagnostics]
 verify_jwt = false
 

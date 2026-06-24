@@ -295,3 +295,75 @@ Deno.test("MK-260624-001 recovered: sum all payment PIs — no mismatch when £4
   assertEquals(row.outstanding_pence, 0);
   assertEquals(row.capture_mismatch, false);
 });
+
+Deno.test("Financial Reconciliation audit: debt recovery from ledger, not capture mismatch", () => {
+  const trip = {
+    ...MK_260615_006,
+    id: "trip-mk-624-003",
+    trip_code: "MK-260624-003",
+    driver_net_pence: 1150,
+    capture_amount_pence: 1353,
+    commission_pence: 203,
+  };
+  const context = buildTripFinancialAuditContext({
+    payments: [{
+      trip_id: "trip-mk-624-003",
+      status: "captured",
+      provider_status: "available",
+      captured_amount_pence: 1353,
+    }],
+    payoutItems: [],
+    ledgerRows: [
+      { related_trip_id: "trip-mk-624-003", type: "TRIP_EARNING_NET", amount_pence: 1150 },
+      { related_trip_id: "trip-mk-624-003", type: "DEBT_RECOVERY", amount_pence: -75 },
+      { related_trip_id: "trip-mk-624-003", type: "COMMISSION_RECOVERED", amount_pence: 75 },
+    ],
+  });
+  const row = mapTripToFinancialAuditRow(trip, context);
+  assertEquals(row.driver_net_pence, 1150);
+  assertEquals(row.debt_recovered_pence, 75);
+  assertEquals(row.available_payout_created_pence, 1075);
+  assertEquals(row.capture_mismatch, false);
+});
+
+Deno.test("Financial Reconciliation audit: no debt recovery shows zero, not blank", () => {
+  const context = buildTripFinancialAuditContext({
+    payments: [{
+      trip_id: "trip-006",
+      status: "captured",
+      provider_status: "available",
+      captured_amount_pence: 512,
+    }],
+    payoutItems: [],
+    ledgerRows: [
+      { related_trip_id: "trip-006", type: "TRIP_EARNING_NET", amount_pence: 435 },
+    ],
+  });
+  const row = mapTripToFinancialAuditRow(MK_260615_006, context);
+  assertEquals(row.debt_recovered_pence, 0);
+  assertEquals(row.available_payout_created_pence, 435);
+});
+
+Deno.test("Financial Reconciliation audit: full debt recovery — available payout zero", () => {
+  const trip = {
+    ...MK_260615_006,
+    id: "trip-full-debt",
+    driver_net_pence: 500,
+  };
+  const context = buildTripFinancialAuditContext({
+    payments: [{
+      trip_id: "trip-full-debt",
+      status: "captured",
+      provider_status: "available",
+      captured_amount_pence: 600,
+    }],
+    payoutItems: [],
+    ledgerRows: [
+      { related_trip_id: "trip-full-debt", type: "TRIP_EARNING_NET", amount_pence: 500 },
+      { related_trip_id: "trip-full-debt", type: "DEBT_RECOVERY", amount_pence: -500 },
+    ],
+  });
+  const row = mapTripToFinancialAuditRow(trip, context);
+  assertEquals(row.debt_recovered_pence, 500);
+  assertEquals(row.available_payout_created_pence, 0);
+});

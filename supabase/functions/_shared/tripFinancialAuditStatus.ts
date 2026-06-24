@@ -3,7 +3,11 @@
  * Recalculated on every reconciliation request (no cached status text).
  */
 
-import { isCashTrip } from "./tripSettlementFinanceSSOT.ts";
+import {
+  getTripDebtRecoveredPence,
+  getTripDriverNetPence,
+  isCashTrip,
+} from "./tripSettlementFinanceSSOT.ts";
 import { type TripSSOTRow } from "./financialReconciliationSSOT.ts";
 
 export type TripAuditStatusTone = "green" | "yellow" | "blue" | "orange" | "gray" | "red";
@@ -214,6 +218,20 @@ export function deriveDriverPayoutAuditStatus(input: TripAuditStatusInput): Trip
   const payout = payoutStatus(input);
   if (payout === "completed" || hasCompletedPayout(input.payouts ?? []) || paidOutPence(input.payouts ?? []) > 0) {
     return { label: "Paid Out", tone: "green" };
+  }
+
+  const driverNet = getTripDriverNetPence({
+    driver_net_pence: input.trip.driver_net_pence,
+    ledger: input.ledger ?? [],
+  });
+  const debtRecovered = getTripDebtRecoveredPence(input.ledger ?? []);
+  if (
+    isCardCaptured(input)
+    && driverNet != null
+    && driverNet > 0
+    && debtRecovered >= driverNet
+  ) {
+    return { label: "Debt recovered / No payout due", tone: "blue" };
   }
 
   if (isCardCaptured(input) || hasPendingPayout(input.payouts ?? []) || payout === "pending" || payout === "batched") {

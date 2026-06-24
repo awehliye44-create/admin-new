@@ -12,7 +12,7 @@ export type PayoutLedgerType = (typeof PAYOUT_LEDGER_TYPES)[number];
 export function ledgerTypeForBatchKind(kind: string): PayoutLedgerType {
   if (kind === "EARLY_CASHOUT") return "EARLY_CASHOUT";
   if (kind === "WEEKLY_MONDAY") return "WEEKLY_PAYOUT";
-  if (kind === "MANUAL_ADMIN") return "MANUAL_PAYOUT";
+  if (kind === "MANUAL_ADMIN" || kind === "CONNECT_MANUAL") return "MANUAL_PAYOUT";
   return "PAYOUT";
 }
 

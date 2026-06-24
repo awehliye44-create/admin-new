@@ -118,6 +118,8 @@ export interface TripFinancialAuditRow {
   outstanding_pence?: number;
   capture_mismatch?: boolean;
   driver_net_pence: number | null;
+  debt_recovered_pence?: number;
+  available_payout_created_pence?: number | null;
   onecab_gross_commission_pence: number;
   processing_fee_pence: number;
   onecab_net_pence: number;

@@ -29,6 +29,8 @@ import {
 import {
   getPaymentRowCapturedPence,
   getTripCapturedPenceForAudit,
+  getTripAvailablePayoutCreatedPence,
+  getTripDebtRecoveredPence,
   getTripDriverNetPence,
   getTripSettlementFarePence,
   sumPaymentsCapturedPence,
@@ -441,6 +443,10 @@ export type TripFinancialAuditRow = {
   outstanding_pence: number;
   capture_mismatch: boolean;
   driver_net_pence: number | null;
+  /** Cash commission debt recovered from card earnings on this trip. */
+  debt_recovered_pence: number;
+  /** driver_net − debt_recovered — amount added to available payout liability. */
+  available_payout_created_pence: number | null;
   onecab_gross_commission_pence: number;
   processing_fee_pence: number;
   onecab_net_pence: number;
@@ -682,6 +688,13 @@ export function mapTripToFinancialAuditRow(
     payment_coverage_status: row.payment_coverage_status ?? null,
   });
 
+  const driverNet = tripDriverNetPenceForAudit(row, ledger);
+  const debtRecovered = getTripDebtRecoveredPence(ledger);
+  const availablePayoutCreated = getTripAvailablePayoutCreatedPence({
+    driverNetPence: driverNet,
+    debtRecoveredPence: debtRecovered,
+  });
+
   return {
     trip_id: row.id,
     trip_code: row.trip_code ?? null,
@@ -695,7 +708,9 @@ export function mapTripToFinancialAuditRow(
     net_customer_payment_pence: Math.max(0, customerPaid - refunded),
     outstanding_pence: outstanding,
     capture_mismatch: captureMismatch,
-    driver_net_pence: tripDriverNetPenceForAudit(row, ledger),
+    driver_net_pence: driverNet,
+    debt_recovered_pence: debtRecovered,
+    available_payout_created_pence: availablePayoutCreated,
     onecab_gross_commission_pence: tripGrossCommissionPence(row),
     processing_fee_pence: tripStripeFeePence(row),
     onecab_net_pence: tripOnecabNetPence(row),

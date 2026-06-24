@@ -45,12 +45,14 @@ import {
 import { FinanceReconciliationTotalsCards } from '@/components/finance/FinanceReconciliationTotalsCards';
 import { OnecabCommissionVisibility } from '@/components/finance/OnecabCommissionVisibility';
 import { FinancePayoutAuditSection } from '@/components/finance/FinancePayoutAuditSection';
+import { ConnectBalancePanel } from '@/components/finance/ConnectBalancePanel';
 import { FinanceRecoveryPanel } from '@/components/payment/FinanceRecoveryPanel';
 import { FinanceRecoveryMismatchSummary } from '@/components/payment/FinanceRecoveryMismatchSummary';
 import type { FinanceRecoveryAction } from '@/components/payment/PaymentControlsCard';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { MONDAY_PAYOUT_DIAGNOSTICS_OPTS } from '@/lib/financePageSSOT';
 import { useMondayPayoutDiagnostics } from '@/hooks/useMondayPayoutDiagnostics';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 function statusChipVariant(label: string | null | undefined): 'default' | 'secondary' | 'destructive' | 'outline' {
   const l = String(label ?? '').toLowerCase();
@@ -98,6 +100,10 @@ function normalizeAuditRow(row: TripFinancialAuditRow & Record<string, unknown>)
       payment_method: row.payment_method ?? null,
     } as TripFinancialAuditRow),
     driver_net_pence: row.driver_net_pence == null ? null : Number(row.driver_net_pence ?? 0),
+    debt_recovered_pence: Number(row.debt_recovered_pence ?? 0),
+    available_payout_created_pence: row.available_payout_created_pence == null
+      ? null
+      : Number(row.available_payout_created_pence ?? 0),
     onecab_gross_commission_pence: Number(row.onecab_gross_commission_pence ?? 0),
     processing_fee_pence: Number(row.processing_fee_pence ?? 0),
     onecab_net_pence: Number(row.onecab_net_pence ?? 0),
@@ -225,6 +231,17 @@ function FinancialReconciliationPage() {
   const [recoveryTripId, setRecoveryTripId] = useState<string | null>(null);
   const [recoveryTripCode, setRecoveryTripCode] = useState<string | null>(null);
   const [recoveryInitialAction, setRecoveryInitialAction] = useState<FinanceRecoveryAction | null>(null);
+  const mainTab = searchParams.get('tab') === 'connect-balance' ? 'connect-balance' : 'reconciliation';
+
+  const setMainTab = (tab: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (tab === 'reconciliation') {
+      next.delete('tab');
+    } else {
+      next.set('tab', tab);
+    }
+    setSearchParams(next, { replace: true });
+  };
 
   useEffect(() => {
     const tripCode = searchParams.get('trip')?.trim();
@@ -438,6 +455,18 @@ function FinancialReconciliationPage() {
           mondayPayouts={mondayPayouts}
           currencyCode={ccy}
         />
+
+        <Tabs value={mainTab} onValueChange={setMainTab}>
+          <TabsList>
+            <TabsTrigger value="reconciliation">Reconciliation</TabsTrigger>
+            <TabsTrigger value="connect-balance">Stripe Connect Balance</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="connect-balance" className="space-y-6 mt-4">
+            <ConnectBalancePanel regionId={filter.regionId} currencyCode={ccy} />
+          </TabsContent>
+
+          <TabsContent value="reconciliation" className="space-y-6 mt-4">
 
         {ssotBadge !== 'LIVE' && (
           <Alert variant="destructive">
@@ -967,29 +996,54 @@ function FinancialReconciliationPage() {
                         <TripAuditStatusChip badge={row.provider} />
                       </TableCell>
                       <TableCell className="align-top min-w-[220px]">
-                        {rowCaptureMismatch(row) && auditOutstandingPence(row) > 0 ? (
-                          <FinanceRecoveryMismatchSummary
-                            compact
-                            captureMismatch
-                            capturedPence={row.captured_pence}
-                            settlementTotalPence={rowSettlementPence(row)}
-                            outstandingPence={auditOutstandingPence(row)}
-                            currency={ccy}
-                            showActions
-                            onAction={(action) =>
-                              openFinanceRecovery(
-                                setRecoveryTripId,
-                                setRecoveryTripCode,
-                                setRecoveryInitialAction,
-                                row.trip_id,
-                                row.trip_code ?? safeTripDisplayId(row),
-                                action,
-                              )
-                            }
-                          />
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
+                        <div className="space-y-1.5">
+                          {(row.payment_method ?? '').toLowerCase() !== 'cash' ? (
+                            <div className="text-xs">
+                              <div className="flex justify-between gap-2">
+                                <span className="text-muted-foreground">Debt recovered</span>
+                                <span className={row.debt_recovered_pence > 0 ? 'font-medium text-foreground' : 'text-muted-foreground'}>
+                                  {formatPence(row.debt_recovered_pence ?? 0, ccy)}
+                                </span>
+                              </div>
+                              <div className="flex justify-between gap-2">
+                                <span className="text-muted-foreground">Avail payout</span>
+                                <span className="text-foreground">
+                                  {row.available_payout_created_pence == null
+                                    ? '—'
+                                    : formatPence(row.available_payout_created_pence, ccy)}
+                                </span>
+                              </div>
+                              {row.debt_recovered_pence === 0 && row.driver_net_pence != null && (
+                                <p className="text-[10px] text-muted-foreground pt-0.5">
+                                  No commission debt recovered on this trip
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">N/A (cash trip)</span>
+                          )}
+                          {rowCaptureMismatch(row) && auditOutstandingPence(row) > 0 ? (
+                            <FinanceRecoveryMismatchSummary
+                              compact
+                              captureMismatch
+                              capturedPence={row.captured_pence}
+                              settlementTotalPence={rowSettlementPence(row)}
+                              outstandingPence={auditOutstandingPence(row)}
+                              currency={ccy}
+                              showActions
+                              onAction={(action) =>
+                                openFinanceRecovery(
+                                  setRecoveryTripId,
+                                  setRecoveryTripCode,
+                                  setRecoveryInitialAction,
+                                  row.trip_id,
+                                  row.trip_code ?? safeTripDisplayId(row),
+                                  action,
+                                )
+                              }
+                            />
+                          ) : null}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -998,6 +1052,9 @@ function FinancialReconciliationPage() {
             </Table>
           </CardContent>
         </Card>
+
+          </TabsContent>
+        </Tabs>
 
         <Dialog
           open={!!recoveryTripId}

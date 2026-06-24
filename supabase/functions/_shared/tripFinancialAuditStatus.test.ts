@@ -52,6 +52,19 @@ Deno.test("card captured not paid out — awaiting payout, earned, captured", ()
   assertEquals(s.provider.tone, "blue");
 });
 
+Deno.test("card captured with full debt recovery — no payout due", () => {
+  const input = {
+    trip: { ...cardTrip, driver_net_pence: 500 },
+    payouts: [],
+    ledger: [
+      { type: "TRIP_EARNING_NET", amount_pence: 500 },
+      { type: "DEBT_RECOVERY", amount_pence: -500 },
+    ],
+  };
+  assertEquals(deriveDriverPayoutAuditStatus(input).label, "Debt recovered / No payout due");
+  assertEquals(deriveDriverPayoutAuditStatus(input).tone, "blue");
+});
+
 Deno.test("card settled — provider settled", () => {
   const input = { trip: { ...cardTrip, stripe_settlement_verified: true } };
   assertEquals(deriveProviderAuditStatus(input).label, "Settled");
