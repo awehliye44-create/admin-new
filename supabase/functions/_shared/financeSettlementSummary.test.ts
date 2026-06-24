@@ -261,3 +261,37 @@ Deno.test("Financial Reconciliation audit: capture mismatch + outstanding from s
   assertEquals(row.outstanding_pence, 449);
   assertEquals(row.capture_mismatch, true);
 });
+
+Deno.test("MK-260624-001 recovered: sum all payment PIs — no mismatch when £4.49 extra captured", () => {
+  const trip = {
+    ...MK_260615_006,
+    id: "trip-mk-624",
+    trip_code: "MK-260624-001",
+    final_fare_pence: 849,
+    outstanding_balance_pence: 0,
+    payment_coverage_status: "captured",
+  };
+  const context = buildTripFinancialAuditContext({
+    payments: [
+      {
+        trip_id: "trip-mk-624",
+        status: "captured",
+        provider_status: "available",
+        captured_amount_pence: 400,
+      },
+      {
+        trip_id: "trip-mk-624",
+        status: "captured",
+        provider_status: "available",
+        captured_amount_pence: 449,
+      },
+    ],
+    payoutItems: [],
+    ledgerRows: [],
+  });
+  const row = mapTripToFinancialAuditRow(trip, context);
+  assertEquals(row.settlement_total_pence, 849);
+  assertEquals(row.captured_pence, 849);
+  assertEquals(row.outstanding_pence, 0);
+  assertEquals(row.capture_mismatch, false);
+});

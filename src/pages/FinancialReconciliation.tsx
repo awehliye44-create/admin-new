@@ -171,14 +171,22 @@ function MetricCard({
 }
 
 function hasCaptureMismatch(row: TripFinancialAuditRow): boolean {
+  if (row.capture_mismatch === false) return false;
+  if (row.capture_mismatch === true) return true;
   const method = (row.payment_method ?? '').toLowerCase();
   if (method === 'cash') return false;
-  return row.customer_paid_pence > row.captured_pence + 1;
+  const settlement = row.settlement_total_pence ?? row.customer_paid_pence;
+  const captured = row.captured_pence;
+  const outstanding = row.outstanding_pence ?? Math.max(0, settlement - captured);
+  if (outstanding <= 1) return false;
+  return settlement > captured + 1;
 }
 
 function auditOutstandingPence(row: TripFinancialAuditRow): number {
+  const settlement = row.settlement_total_pence ?? row.customer_paid_pence;
+  if (row.captured_pence >= settlement - 1) return 0;
   if (row.outstanding_pence != null) return Math.max(0, row.outstanding_pence);
-  return Math.max(0, row.customer_paid_pence - row.captured_pence);
+  return Math.max(0, settlement - row.captured_pence);
 }
 
 function rowSettlementPence(row: TripFinancialAuditRow): number {

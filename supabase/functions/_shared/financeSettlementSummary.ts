@@ -24,12 +24,14 @@ import {
 } from "./tripFinancialAuditStatus.ts";
 import {
   computeSettlementTotalPence,
+  EXTRA_PAYMENT_TOLERANCE_PENCE,
 } from "./extraPaymentRecoverySSOT.ts";
 import {
   getPaymentRowCapturedPence,
   getTripCapturedPenceForAudit,
   getTripDriverNetPence,
   getTripSettlementFarePence,
+  sumPaymentsCapturedPence,
 } from "./tripSettlementFinanceSSOT.ts";
 
 export { SSOT_VERSION, type FinanceDataSourceBadge };
@@ -458,6 +460,7 @@ export type TripAuditSourceRow = TripFinanceRow & {
   trip_code?: string | null;
   refund_amount_pence?: number | null;
   outstanding_balance_pence?: number | null;
+  payment_coverage_status?: string | null;
   airport_charge_pence?: number | null;
   other_pass_through_charges_pence?: number | null;
   payment_status?: string | null;
@@ -471,6 +474,7 @@ export type TripAuditSourceRow = TripFinanceRow & {
 
 export type TripFinancialAuditContext = {
   paymentByTripId: Map<string, TripAuditPaymentRecord>;
+  paymentsByTripId: Map<string, TripAuditPaymentRecord[]>;
   payoutsByTripId: Map<string, TripAuditPayoutRecord[]>;
   ledgerByTripId: Map<string, TripAuditLedgerRecord[]>;
 };
@@ -595,9 +599,17 @@ export function computeAuditCaptureMismatch(args: {
   payment_method: string | null;
   settlement_pence: number;
   captured_pence: number;
+  outstanding_balance_pence?: number | null;
+  payment_coverage_status?: string | null;
 }): boolean {
   if ((args.payment_method ?? "").toLowerCase() === "cash") return false;
-  return args.settlement_pence > args.captured_pence + 1;
+  if ((args.payment_coverage_status ?? "").toLowerCase() === "captured") return false;
+  const outstanding = computeAuditOutstandingPence({
+    settlement_pence: args.settlement_pence,
+    captured_pence: args.captured_pence,
+    outstanding_balance_pence: args.outstanding_balance_pence,
+  });
+  return outstanding > EXTRA_PAYMENT_TOLERANCE_PENCE;
 }
 
 export function computeAuditOutstandingPence(args: {
@@ -607,7 +619,19 @@ export function computeAuditOutstandingPence(args: {
 }): number {
   const computed = Math.max(0, args.settlement_pence - args.captured_pence);
   const stored = Math.max(0, args.outstanding_balance_pence ?? 0);
-  if (stored > 0 && Math.abs(stored - computed) <= 1) return stored;
+
+  if (args.captured_pence >= args.settlement_pence - EXTRA_PAYMENT_TOLERANCE_PENCE) {
+    return 0;
+  }
+  if (stored === 0 && computed <= EXTRA_PAYMENT_TOLERANCE_PENCE) {
+    return 0;
+  }
+  if (
+    stored > 0 &&
+    Math.abs(stored - computed) <= EXTRA_PAYMENT_TOLERANCE_PENCE
+  ) {
+    return stored;
+  }
   return computed > 0 ? computed : stored;
 }
 
@@ -615,17 +639,22 @@ export function mapTripToFinancialAuditRow(
   row: TripAuditSourceRow,
   context: TripFinancialAuditContext = {
     paymentByTripId: new Map(),
+    paymentsByTripId: new Map(),
     payoutsByTripId: new Map(),
     ledgerByTripId: new Map(),
   },
 ): TripFinancialAuditRow {
   const payment = context.paymentByTripId.get(row.id) ?? null;
+  const tripPayments = context.paymentsByTripId.get(row.id) ?? [];
   const ledger = context.ledgerByTripId.get(row.id) ?? [];
   const paymentCaptured = payment ? getPaymentRowCapturedPence(payment) : 0;
-  const captured = getTripCapturedPenceForAudit({
-    paymentCapturedPence: paymentCaptured > 0 ? paymentCaptured : null,
-    tripCaptureAmountPence: row.capture_amount_pence,
-  });
+  const capturedFromAllPayments = sumPaymentsCapturedPence(tripPayments);
+  const captured = capturedFromAllPayments > 0
+    ? capturedFromAllPayments
+    : getTripCapturedPenceForAudit({
+      paymentCapturedPence: paymentCaptured > 0 ? paymentCaptured : null,
+      tripCaptureAmountPence: row.capture_amount_pence,
+    });
   const refunded = Math.max(0, row.refund_amount_pence ?? 0);
   const settlementTotal = computeSettlementTotalPence(row);
   const customerPaid = settlementTotal;
@@ -649,6 +678,8 @@ export function mapTripToFinancialAuditRow(
     payment_method: row.payment_method ?? null,
     settlement_pence: settlementTotal,
     captured_pence: captured,
+    outstanding_balance_pence: row.outstanding_balance_pence,
+    payment_coverage_status: row.payment_coverage_status ?? null,
   });
 
   return {
@@ -704,15 +735,26 @@ export function buildTripFinancialAuditContext(args: {
   }>;
 }): TripFinancialAuditContext {
   const paymentByTripId = new Map<string, TripAuditPaymentRecord>();
+  const paymentsByTripId = new Map<string, TripAuditPaymentRecord[]>();
   for (const p of args.payments) {
     if (!p.trip_id) continue;
-    paymentByTripId.set(p.trip_id, {
+    const record: TripAuditPaymentRecord = {
       status: p.status,
       provider_status: p.provider_status,
       captured_amount_pence: p.captured_amount_pence,
       stripe_payment_intent_id: p.stripe_payment_intent_id ?? null,
       provider_available_on: p.provider_available_on ?? null,
-    });
+    };
+    const list = paymentsByTripId.get(p.trip_id) ?? [];
+    list.push(record);
+    paymentsByTripId.set(p.trip_id, list);
+
+    const existing = paymentByTripId.get(p.trip_id);
+    const existingCap = Math.max(0, existing?.captured_amount_pence ?? 0);
+    const newCap = Math.max(0, record.captured_amount_pence ?? 0);
+    if (!existing || newCap >= existingCap) {
+      paymentByTripId.set(p.trip_id, record);
+    }
   }
 
   const payoutsByTripId = new Map<string, TripAuditPayoutRecord[]>();
@@ -742,7 +784,7 @@ export function buildTripFinancialAuditContext(args: {
     ledgerByTripId.set(entry.related_trip_id, list);
   }
 
-  return { paymentByTripId, payoutsByTripId, ledgerByTripId };
+  return { paymentByTripId, paymentsByTripId, payoutsByTripId, ledgerByTripId };
 }
 
 export function sumCommissionableFromTrips(rows: TripAuditSourceRow[]): number {
