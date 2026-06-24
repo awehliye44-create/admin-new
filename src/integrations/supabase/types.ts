@@ -13610,14 +13610,11 @@ export type Database = {
           created_at: string | null
           delivery_radius_km: number | null
           description: string | null
-          email: string | null
           id: string | null
           is_open: boolean | null
           logo_url: string | null
           min_order_amount: number | null
           opening_hours: Json | null
-          owner_name: string | null
-          phone: string | null
           postcode: string | null
           prep_time_minutes: number | null
           service_area_id: string | null
@@ -13633,14 +13630,11 @@ export type Database = {
           created_at?: string | null
           delivery_radius_km?: number | null
           description?: string | null
-          email?: string | null
           id?: string | null
           is_open?: boolean | null
           logo_url?: string | null
           min_order_amount?: number | null
           opening_hours?: Json | null
-          owner_name?: string | null
-          phone?: string | null
           postcode?: string | null
           prep_time_minutes?: number | null
           service_area_id?: string | null
@@ -13656,14 +13650,11 @@ export type Database = {
           created_at?: string | null
           delivery_radius_km?: number | null
           description?: string | null
-          email?: string | null
           id?: string | null
           is_open?: boolean | null
           logo_url?: string | null
           min_order_amount?: number | null
           opening_hours?: Json | null
-          owner_name?: string | null
-          phone?: string | null
           postcode?: string | null
           prep_time_minutes?: number | null
           service_area_id?: string | null
