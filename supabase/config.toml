@@ -169,3 +169,6 @@ verify_jwt = false
 
 [functions.customer-counter-offer]
 verify_jwt = false
+
+[functions.admin-request-extra-payment]
+verify_jwt = false

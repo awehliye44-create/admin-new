@@ -93,7 +93,7 @@ const formatPence = (pence: number, currency = 'GBP') => {
 
 const fmtTime = (iso: string | null) => (iso ? format(new Date(iso), 'dd MMM yyyy HH:mm') : '—');
 
-type Mode = 'capture' | 'refund' | 'partial_refund' | 'edit' | 'cancel';
+type Mode = 'capture' | 'refund' | 'partial_refund' | 'edit' | 'cancel' | 'extra_payment';
 
 const ACTION_LABEL: Record<AuditEntry['action'], string> = {
   capture: 'Capture',
@@ -229,10 +229,13 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
         input.mode === 'capture' ? 'admin-capture-trip-payment'
         : input.mode === 'refund' || input.mode === 'partial_refund' ? 'admin-refund-trip-payment'
         : input.mode === 'cancel' ? 'admin-cancel-trip-payment'
+        : input.mode === 'extra_payment' ? 'admin-request-extra-payment'
         : 'admin-edit-trip-fare';
       const body: Record<string, unknown> = { trip_id: tripId, reason: input.reason };
       if (input.mode === 'edit') body.new_total_pence = input.new_total_pence;
-      else if (input.mode !== 'cancel' && input.amount_pence !== undefined) body.amount_pence = input.amount_pence;
+      else if (input.mode === 'extra_payment' || (input.mode !== 'cancel' && input.amount_pence !== undefined)) {
+        body.amount_pence = input.amount_pence;
+      }
       const { data, error } = await supabase.functions.invoke(fn, { body });
       if (error) throw new Error(data?.error || error.message);
       if (data?.error) throw new Error(data.error);
@@ -316,9 +319,9 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
   };
 
   const openExtraPayment = () => {
-    setMode('edit');
+    setMode('extra_payment');
     setReason('');
-    setAmountInput((settlementTotalPence / 100).toFixed(2));
+    setAmountInput((extraDuePence / 100).toFixed(2));
   };
   const openWaive = () => {
     setMode('edit');
@@ -354,7 +357,12 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
       toast.error(`Cannot capture more than authorized (${formatPence(state.amount_capturable_pence ?? state.authorized_pence, currency)})`);
       return;
     }
+    if (mode === 'extra_payment' && pence > extraDuePence) {
+      toast.error(`Cannot charge more than outstanding balance (${formatPence(extraDuePence, currency)})`);
+      return;
+    }
     if (mode === 'edit') actionMutation.mutate({ mode, new_total_pence: pence, reason: reason.trim() });
+    else if (mode === 'extra_payment') actionMutation.mutate({ mode, amount_pence: pence, reason: reason.trim() });
     else if (mode) actionMutation.mutate({ mode, amount_pence: pence, reason: reason.trim() });
   };
 
@@ -364,6 +372,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
     partial_refund: 'Partial refund',
     edit: 'Edit trip fare',
     cancel: 'Cancel hold (release authorization)',
+    extra_payment: 'Request extra payment',
   }[mode ?? 'capture'];
 
   const dialogDesc = {
@@ -372,6 +381,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
     partial_refund: 'Enter the amount to refund. Cannot exceed the refundable balance.',
     edit: 'Sets the trip fare. Captures or refunds the difference automatically.',
     cancel: 'Cancels the uncaptured PaymentIntent and releases the customer’s bank hold. No money will move.',
+    extra_payment: 'Charges the outstanding balance only via a new PaymentIntent. Does not edit the trip fare.',
   }[mode ?? 'capture'];
 
   return (
