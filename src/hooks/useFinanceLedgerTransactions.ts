@@ -159,7 +159,7 @@ function mapPaymentRow(row: PaymentDbRow): FinanceLedgerTransactionRow {
 
 function mapDiscountRow(row: DiscountTripRow): FinanceLedgerTransactionRow {
   const meta = adminDiscountMeta();
-  const discountPence = row.voucher_discount_pence ?? 0;
+  const discountPence = row.discount_pence ?? 0;
   return {
     id: `discount-${row.id}`,
     created_at: row.completed_at ?? new Date(0).toISOString(),
@@ -167,7 +167,7 @@ function mapDiscountRow(row: DiscountTripRow): FinanceLedgerTransactionRow {
     trip_code: row.trip_code,
     driver_id: row.driver_id,
     driver_name: formatName(row.drivers?.first_name, row.drivers?.last_name),
-    customer_name: formatName(row.customers?.first_name, row.customers?.last_name),
+    customer_name: row.passenger_name ?? null,
     type: ADMIN_DISCOUNT_ROW_TYPE,
     type_label: row.discount_source === 'voucher' ? 'Voucher discount' : 'Global discount',
     party: meta.party,
