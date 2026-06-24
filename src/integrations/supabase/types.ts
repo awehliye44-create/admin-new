@@ -13610,14 +13610,11 @@ export type Database = {
           created_at: string | null
           delivery_radius_km: number | null
           description: string | null
-          email: string | null
           id: string | null
           is_open: boolean | null
           logo_url: string | null
           min_order_amount: number | null
           opening_hours: Json | null
-          owner_name: string | null
-          phone: string | null
           postcode: string | null
           prep_time_minutes: number | null
           service_area_id: string | null
@@ -13633,14 +13630,11 @@ export type Database = {
           created_at?: string | null
           delivery_radius_km?: number | null
           description?: string | null
-          email?: string | null
           id?: string | null
           is_open?: boolean | null
           logo_url?: string | null
           min_order_amount?: number | null
           opening_hours?: Json | null
-          owner_name?: string | null
-          phone?: string | null
           postcode?: string | null
           prep_time_minutes?: number | null
           service_area_id?: string | null
@@ -13656,14 +13650,11 @@ export type Database = {
           created_at?: string | null
           delivery_radius_km?: number | null
           description?: string | null
-          email?: string | null
           id?: string | null
           is_open?: boolean | null
           logo_url?: string | null
           min_order_amount?: number | null
           opening_hours?: Json | null
-          owner_name?: string | null
-          phone?: string | null
           postcode?: string | null
           prep_time_minutes?: number | null
           service_area_id?: string | null
@@ -14873,6 +14864,10 @@ export type Database = {
         Args: { p_next_status?: string; p_trip_id: string }
         Returns: undefined
       }
+      reset_auth_user_email_unconfirmed: {
+        Args: { _user_id: string }
+        Returns: undefined
+      }
       resolve_driver_alert: {
         Args: { p_alert_type: string; p_driver_id: string }
         Returns: number
@@ -14980,6 +14975,10 @@ export type Database = {
       }
       sweep_stale_searching_trips: { Args: never; Returns: Json }
       sync_customer_phone_verification: {
+        Args: { _user_id: string }
+        Returns: undefined
+      }
+      sync_driver_phone_verification: {
         Args: { _user_id: string }
         Returns: undefined
       }
