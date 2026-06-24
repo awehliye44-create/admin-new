@@ -299,7 +299,7 @@ export function useFinanceLedgerTransactions(args: {
 
         const { data: discountData, error: discountError } = await discountQuery;
         if (discountError) throw discountError;
-        for (const row of (discountData ?? []) as DiscountTripRow[]) {
+        for (const row of (discountData ?? []) as unknown as DiscountTripRow[]) {
           rows.push(mapDiscountRow(row));
         }
       }
