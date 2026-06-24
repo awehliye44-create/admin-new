@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   computeMaxManualConnectPayoutPence,
   evaluateConnectManualPayoutGate,
-} from '@shared/connectManualPayout.ts';
+} from '../../../supabase/functions/_shared/connectManualPayout.ts';
 
 const baseInput = {
   wallet_balance_pence: 973,
