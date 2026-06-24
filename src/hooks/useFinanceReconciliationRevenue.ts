@@ -160,6 +160,7 @@ export function useFinanceReconciliationRevenue({
 }
 
 /** Dashboard badge when reconciliation revenue API fails */
-export function financeRevenueDataSourceBadge(isError: boolean): 'LIVE' | 'FALLBACK' {
-  return isError ? 'FALLBACK' : 'LIVE';
+export function financeRevenueDataSourceBadge(isError: boolean): 'LIVE' | 'RECONSTRUCTED' {
+  return isError ? 'RECONSTRUCTED' : 'LIVE';
 }
+
