@@ -17,7 +17,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import { useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { FinanceRecoveryMismatchSummary } from '@/components/payment/FinanceRecoveryMismatchSummary';
 import {
   captureStatusColorClass,
   getCapturedTotalPence,
@@ -146,12 +148,18 @@ function settlementWarningLabel(
 
 export type PaymentControlsVariant = 'finance' | 'summary';
 
+export type FinanceRecoveryAction = 'extra_payment' | 'waive' | 'internal_adjustment';
+
 export function PaymentControlsCard({
   tripId,
   variant = 'finance',
+  initialAction = null,
+  onInitialActionConsumed,
 }: {
   tripId: string;
   variant?: PaymentControlsVariant;
+  initialAction?: FinanceRecoveryAction | null;
+  onInitialActionConsumed?: () => void;
 }) {
   const { isAdmin } = useAuth();
   const queryClient = useQueryClient();
@@ -355,6 +363,14 @@ export function PaymentControlsCard({
     setAmountInput((settlementTotalPence / 100).toFixed(2));
   };
 
+  useEffect(() => {
+    if (!initialAction || !state || stateQuery.isLoading) return;
+    if (initialAction === 'extra_payment') openExtraPayment();
+    else if (initialAction === 'waive') openWaive();
+    else if (initialAction === 'internal_adjustment') openInternalAdjustment();
+    onInitialActionConsumed?.();
+  }, [initialAction, state, stateQuery.isLoading]);
+
   const submit = () => {
     if (reason.trim().length < 5) {
       toast.error('Reason must be at least 5 characters');
@@ -416,6 +432,9 @@ export function PaymentControlsCard({
     extra_payment: 'Charges the outstanding balance only via a new PaymentIntent. Does not edit the trip fare.',
   }[mode ?? 'capture'];
 
+  const captureMismatch = !!captureStatus && !!captureContext && isCardTrip(captureContext)
+    && (captureStatus.kind === 'capture_mismatch' || extraDuePence > 0);
+
   return (
     <Card className="border-primary/30">
       <CardHeader className="pb-3">
@@ -442,6 +461,24 @@ export function PaymentControlsCard({
           </div>
         ) : state ? (
           <>
+            {/* Finance recovery SSOT — required mismatch metrics + actions */}
+            {isFinanceVariant && (
+              <FinanceRecoveryMismatchSummary
+                captureMismatch={captureMismatch}
+                capturedPence={capturedPence}
+                settlementTotalPence={settlementTotalPence}
+                outstandingPence={extraDuePence}
+                currency={currency}
+                showActions={showRecoveryActions && extraDuePence > 0 && !isLegacyIncomplete}
+                onAction={(action) => {
+                  if (action === 'extra_payment') openExtraPayment();
+                  else if (action === 'waive') openWaive();
+                  else openInternalAdjustment();
+                }}
+                actionsDisabled={actionMutation.isPending}
+              />
+            )}
+
             {/* Capture confirmation — payments SSOT vs fare + tip */}
             {captureStatus && isCardTrip(captureContext!) && (
               <div
@@ -530,7 +567,7 @@ export function PaymentControlsCard({
               </div>
             </div>
 
-            {/* Extra-payment summary (with legacy fallbacks) */}
+            {/* Extra-payment status (legacy / historical context) */}
             <div
               className={`rounded-md border p-3 text-xs space-y-2 ${
                 paymentFullyPaid
@@ -541,7 +578,7 @@ export function PaymentControlsCard({
               }`}
             >
               <div className="flex items-center justify-between">
-                <span className="font-medium">Extra payment reconciliation</span>
+                <span className="font-medium">Payment coverage</span>
                 {paymentFullyPaid ? (
                   <Badge variant="outline" className="bg-green-500/10 text-green-700 border-green-500/30">
                     Fully paid / Captured
@@ -566,7 +603,7 @@ export function PaymentControlsCard({
                 <div className="flex justify-between"><span className="text-muted-foreground">Captured</span><span>{formatPence(capturedPence, currency)}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Released buffer</span><span>{formatPence(releasedBufferPence, currency)}</span></div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Extra amount due</span>
+                  <span className="text-muted-foreground">Outstanding amount</span>
                   <span className={extraDuePence > 0 ? 'text-amber-700 font-semibold' : ''}>{formatPence(extraDuePence, currency)}</span>
                 </div>
               </div>
@@ -584,19 +621,6 @@ export function PaymentControlsCard({
                 <div className="rounded border border-amber-400 bg-amber-500/10 p-2 text-amber-800 flex items-start gap-2">
                   <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                   <span>Historical shortfall detected — final fare exceeds captured amount and authorised buffer is exhausted. No automatic charge will be made.</span>
-                </div>
-              )}
-              {extraDuePence > 0 && !isLegacyIncomplete && showRecoveryActions && (
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <Button size="sm" onClick={openExtraPayment} disabled={actionMutation.isPending}>
-                    <PlusCircle className="h-4 w-4 mr-1" /> Request extra payment
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={openWaive} disabled={actionMutation.isPending}>
-                    <MinusCircle className="h-4 w-4 mr-1" /> Waive extra amount
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={openInternalAdjustment} disabled={actionMutation.isPending}>
-                    <FileEdit className="h-4 w-4 mr-1" /> Mark as internal adjustment
-                  </Button>
                 </div>
               )}
             </div>

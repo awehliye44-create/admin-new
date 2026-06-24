@@ -238,3 +238,26 @@ Deno.test("Financial Reconciliation audit: cash trip uses final_fare_pence as cu
   assertEquals(row.customer_paid_pence, 793);
   assertEquals(row.driver_net_pence, 687);
 });
+
+Deno.test("Financial Reconciliation audit: capture mismatch + outstanding from settlement − captured", () => {
+  const trip = {
+    ...MK_260615_006,
+    final_fare_pence: 849,
+    outstanding_balance_pence: 449,
+  };
+  const context = buildTripFinancialAuditContext({
+    payments: [{
+      trip_id: "trip-006",
+      status: "captured",
+      provider_status: "available",
+      captured_amount_pence: 400,
+    }],
+    payoutItems: [],
+    ledgerRows: [],
+  });
+  const row = mapTripToFinancialAuditRow(trip, context);
+  assertEquals(row.settlement_total_pence, 849);
+  assertEquals(row.captured_pence, 400);
+  assertEquals(row.outstanding_pence, 449);
+  assertEquals(row.capture_mismatch, true);
+});
