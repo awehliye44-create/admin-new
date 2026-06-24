@@ -113,6 +113,17 @@ interface PaymentDetail {
     refund_reason: string | null;
     refunded_at: string | null;
   } | null;
+  payment_rows: Array<{
+    id: string;
+    stripe_payment_intent_id: string | null;
+    captured_amount_pence: number;
+    amount_pence: number;
+    status: string | null;
+    capture_method: string | null;
+    provider_charge_id: string | null;
+    source: string | null;
+    created_at: string | null;
+  }>;
 }
 
 const formatPence = (pence: number, currencyCode?: string): string => {
@@ -249,6 +260,27 @@ export default function AdminPayments() {
         refund_info: data.refund
           ? { refund_amount_pence: data.refund.amount || 0, refund_reason: data.refund.reason || null, refunded_at: data.refund.refundedAt || null }
           : null,
+        payment_rows: (data.paymentRows ?? []).map((row: {
+          id: string;
+          stripePaymentIntentId?: string | null;
+          capturedAmountPence?: number;
+          amountPence?: number;
+          status?: string | null;
+          captureMethod?: string | null;
+          providerChargeId?: string | null;
+          source?: string | null;
+          createdAt?: string | null;
+        }) => ({
+          id: row.id,
+          stripe_payment_intent_id: row.stripePaymentIntentId ?? null,
+          captured_amount_pence: row.capturedAmountPence ?? 0,
+          amount_pence: row.amountPence ?? 0,
+          status: row.status ?? null,
+          capture_method: row.captureMethod ?? null,
+          provider_charge_id: row.providerChargeId ?? null,
+          source: row.source ?? null,
+          created_at: row.createdAt ?? null,
+        })),
       };
     },
   });
@@ -698,6 +730,52 @@ export default function AdminPayments() {
                 </div>
 
                 {/* Stripe Info */}
+                {paymentDetail.payment_rows.length > 0 && (
+                  <div>
+                    <h4 className="font-medium mb-2">Payment intents ({paymentDetail.payment_rows.length})</h4>
+                    <Card>
+                      <CardContent className="pt-4">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="text-xs">Source</TableHead>
+                              <TableHead className="text-xs">Status</TableHead>
+                              <TableHead className="text-xs text-right">Captured</TableHead>
+                              <TableHead className="text-xs">PI</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {paymentDetail.payment_rows.map((row, idx) => (
+                              <TableRow key={row.id}>
+                                <TableCell className="text-xs">
+                                  {row.source === 'admin_extra_payment'
+                                    ? 'Extra payment'
+                                    : idx === 0
+                                      ? 'Primary'
+                                      : row.source ?? 'Payment'}
+                                </TableCell>
+                                <TableCell className="text-xs capitalize">{row.status ?? '—'}</TableCell>
+                                <TableCell className="text-xs text-right font-medium">
+                                  {formatPence(row.captured_amount_pence)}
+                                </TableCell>
+                                <TableCell className="text-xs">
+                                  {row.stripe_payment_intent_id ? (
+                                    <code className="bg-muted px-1.5 py-0.5 rounded text-[10px]">
+                                      {row.stripe_payment_intent_id}
+                                    </code>
+                                  ) : (
+                                    '—'
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+
                 {paymentDetail.payment_info.stripe_payment_intent_id && (
                   <div>
                     <h4 className="font-medium mb-2">Stripe Details</h4>

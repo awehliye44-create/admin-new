@@ -21,6 +21,7 @@ import {
   type TripAuditStatusBadge,
 } from '@/lib/tripAuditStatusBadge';
 import type { TripFinancialAuditRow } from '@/hooks/useFinanceReconciliation';
+import { supabase } from '@/integrations/supabase/client';
 import {
   safeCustomerRevenue,
   safeDriverMoney,
@@ -162,6 +163,10 @@ function hasCaptureMismatch(row: TripFinancialAuditRow): boolean {
   return row.customer_paid_pence > row.captured_pence + 1;
 }
 
+function auditOutstandingPence(row: TripFinancialAuditRow): number {
+  return Math.max(0, row.customer_paid_pence - row.captured_pence);
+}
+
 function FinancialReconciliationPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [filter, setFilter] = useState<ServiceAreaFinanceSelection>({
@@ -257,8 +262,14 @@ function FinancialReconciliationPage() {
     if (searchParams.get('recover') !== '1') return;
     const tripCode = searchParams.get('trip')?.trim();
     const tripIdParam = searchParams.get('tripId')?.trim();
+
+    if (tripIdParam) {
+      setRecoveryTripId(tripIdParam);
+      setRecoveryTripCode(tripCode ?? null);
+      return;
+    }
+
     const match = auditRows.find((row) => {
-      if (tripIdParam && row.trip_id === tripIdParam) return true;
       if (tripCode && row.trip_code?.toUpperCase() === tripCode.toUpperCase()) return true;
       if (tripCode && safeTripDisplayId(row).toUpperCase() === tripCode.toUpperCase()) return true;
       return false;
@@ -266,7 +277,26 @@ function FinancialReconciliationPage() {
     if (match) {
       setRecoveryTripId(match.trip_id);
       setRecoveryTripCode(match.trip_code ?? safeTripDisplayId(match));
+      return;
     }
+
+    if (!tripCode) return;
+
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('trips')
+        .select('id, trip_code, trip_number')
+        .or(`trip_code.eq.${tripCode},trip_number.eq.${tripCode}`)
+        .maybeSingle();
+      if (cancelled || error || !data) return;
+      setRecoveryTripId(data.id);
+      setRecoveryTripCode(data.trip_code ?? data.trip_number ?? tripCode);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [searchParams, auditRows]);
 
   const reconciliationChip = useMemo(() => {
@@ -813,6 +843,7 @@ function FinancialReconciliationPage() {
                   <TableHead>Driver</TableHead>
                   <TableHead className="text-right">Customer Paid</TableHead>
                   <TableHead className="text-right">Captured</TableHead>
+                  <TableHead className="text-right">Outstanding</TableHead>
                   <TableHead className="text-right">Refunded</TableHead>
                   <TableHead className="text-right">Net Payment</TableHead>
                   <TableHead className="text-right">Driver Net</TableHead>
@@ -828,7 +859,7 @@ function FinancialReconciliationPage() {
               <TableBody>
                 {auditRows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={16} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={17} className="text-center text-muted-foreground py-8">
                       {debouncedTripSearch
                         ? `No audit rows matching "${debouncedTripSearch}"`
                         : 'No trips in selected period'}
@@ -851,6 +882,15 @@ function FinancialReconciliationPage() {
                       <TableCell className="text-sm">{row.driver_name ?? '—'}</TableCell>
                       <TableCell className="text-right">{formatPence(row.customer_paid_pence, ccy)}</TableCell>
                       <TableCell className="text-right">{formatPence(row.captured_pence, ccy)}</TableCell>
+                      <TableCell className="text-right">
+                        {auditOutstandingPence(row) > 0 ? (
+                          <span className="text-amber-700 font-medium">
+                            {formatPence(auditOutstandingPence(row), ccy)}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right">{formatPence(row.refunded_pence, ccy)}</TableCell>
                       <TableCell className="text-right">{formatPence(row.net_customer_payment_pence, ccy)}</TableCell>
                       <TableCell className="text-right">

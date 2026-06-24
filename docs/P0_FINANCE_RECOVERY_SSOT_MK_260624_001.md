@@ -35,13 +35,22 @@
 - **Rejects** client `amount_pence` when it disagrees with server delta.
 - Audit metadata includes `settlement_total_pence`, `captured_total_pence`, `recovery_source`, `admin_user_id`.
 
+### Backend — `admin-edit-trip-fare` (gap closure)
+
+- **Blocks** fare increases that would charge outstanding delta — directs to `admin-request-extra-payment`.
+- **Updates** `outstanding_balance_pence` and `payment_coverage_status` on waive / internal adjustment.
+
 ### Admin UI
 
 | Page | Behaviour |
 |------|-----------|
-| **Financial Reconciliation** | Capture mismatch badge + **Recapture** → finance recovery dialog (SSOT owner) |
-| **Payments & Transactions** | `FinanceRecoveryPanel` (full recovery actions) |
+| **Financial Reconciliation** | Capture mismatch badge + **Outstanding** column + **Recapture** → finance recovery dialog (SSOT owner) |
+| **Payments & Transactions** | `FinanceRecoveryPanel` (full recovery actions) + per-PI payment rows |
 | **Trip History** | Read-only mismatch + **Open Financial Reconciliation** link (no standalone recovery workflow) |
+
+- Edit Fare hidden when outstanding balance exists (forces SSOT extra payment).
+- Deep link `?trip=…&recover=1` opens recovery even when trip is outside audit date filter.
+- CI guard: `scripts/check-finance-recovery-ssot.sh`
 
 All recovery actions still call the same `admin-request-extra-payment` / `admin-edit-trip-fare` via `PaymentControlsCard`.
 

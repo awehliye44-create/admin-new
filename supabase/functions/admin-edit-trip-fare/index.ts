@@ -9,6 +9,11 @@ import {
   tripSettlementDbColumns,
   tripSettlementSnapshotJson,
 } from "../_shared/tripSettlement.ts";
+import {
+  computeSettlementTotalPence,
+  resolveExtraPaymentChargePence,
+  sumTripPaymentsCapturedPence,
+} from "../_shared/extraPaymentRecoverySSOT.ts";
 
 const InputSchema = z.object({
   trip_id: z.string().uuid(),
@@ -34,12 +39,43 @@ serve(async (req) => {
 
     const { data: trip, error: tripErr } = await gate.supabase
       .from('trips')
-      .select('id, driver_id, stripe_payment_intent_id, stripe_charge_id, capture_amount_pence, authorised_amount_pence, refund_amount_pence, gross_fare_pence, final_fare_pence, commission_pence, commission_pct, driver_tier_commission_percent, airport_charge_pence, other_pass_through_charges_pence, tip_amount_pence, tip_pence, fare_snapshot_json, currency_code, currency')
+      .select('id, driver_id, stripe_payment_intent_id, stripe_charge_id, capture_amount_pence, authorised_amount_pence, refund_amount_pence, gross_fare_pence, final_fare_pence, commission_pence, commission_pct, driver_tier_commission_percent, airport_charge_pence, other_pass_through_charges_pence, tip_amount_pence, tip_pence, fare_snapshot_json, currency_code, currency, outstanding_balance_pence, payment_coverage_status, arrival_cancellation_applied, arrival_cancellation_fee')
       .eq('id', trip_id)
       .single();
     if (tripErr || !trip) return jsonResponse({ error: 'Trip not found' }, 404);
     if (!trip.stripe_payment_intent_id) return jsonResponse({ error: 'Trip has no PaymentIntent' }, 400);
     if (!trip.driver_id) return jsonResponse({ error: 'Trip has no assigned driver' }, 400);
+
+    const { data: paymentRows, error: paymentsErr } = await gate.supabase
+      .from('payments')
+      .select('captured_amount_pence, amount_pence, status')
+      .eq('trip_id', trip_id);
+    if (paymentsErr) {
+      return jsonResponse({ error: 'Failed to load trip payments' }, 500);
+    }
+
+    const preEditRecovery = resolveExtraPaymentChargePence({
+      trip,
+      payments: paymentRows ?? [],
+    });
+    if (preEditRecovery.charge_pence > 0) {
+      const settlementAfterRequest = computeSettlementTotalPence({
+        final_fare_pence: new_total_pence,
+        tip_pence: trip.tip_amount_pence ?? trip.tip_pence,
+        tip_amount_pence: trip.tip_amount_pence,
+        arrival_cancellation_applied: trip.arrival_cancellation_applied,
+        arrival_cancellation_fee: trip.arrival_cancellation_fee,
+      });
+      const capturedTotal = sumTripPaymentsCapturedPence(paymentRows ?? []);
+      if (settlementAfterRequest > capturedTotal) {
+        return jsonResponse({
+          error: 'Outstanding balance must be recovered via admin-request-extra-payment (Financial Reconciliation SSOT). Edit Fare cannot charge the delta.',
+          settlement_total_pence: preEditRecovery.settlement_total_pence,
+          captured_total_pence: preEditRecovery.captured_total_pence,
+          outstanding_balance_pence: preEditRecovery.charge_pence,
+        }, 400);
+      }
+    }
 
     const tipPence = trip.tip_amount_pence ?? trip.tip_pence ?? 0;
     const airportPence = trip.airport_charge_pence ?? 0;
@@ -140,60 +176,24 @@ serve(async (req) => {
         resultingRefunded = alreadyRefunded + delta;
         scenario = 'refunded_delta';
       } else {
-        // Stripe forbids increasing a captured PaymentIntent. Create a NEW off-session
-        // PaymentIntent for the delta against the same customer/payment method and capture it.
-        const delta = captureWithTipPence - netCaptured;
-        const customerId = typeof pi.customer === 'string' ? pi.customer : pi.customer?.id ?? null;
-        const paymentMethodId = typeof pi.payment_method === 'string'
-          ? pi.payment_method
-          : pi.payment_method?.id ?? charge.payment_method ?? null;
-        if (!customerId || !paymentMethodId) {
-          return jsonResponse({
-            error: 'Cannot charge delta: original PaymentIntent is missing customer or saved payment method.',
-          }, 400);
-        }
-        const currency = (trip.currency_code ?? trip.currency ?? pi.currency ?? 'gbp').toLowerCase();
-        const deltaPi = await stripe.paymentIntents.create(
-          {
-            amount: delta,
-            currency,
-            customer: customerId,
-            payment_method: paymentMethodId,
-            off_session: true,
-            confirm: true,
-            capture_method: 'automatic',
-            description: `Fare adjustment for trip ${trip_id}`,
-            metadata: {
-              trip_id,
-              admin_reason: reason,
-              edit_fare: 'true',
-              parent_payment_intent_id: trip.stripe_payment_intent_id,
-            },
-          },
-          { idempotencyKey: `admin_edit_delta_${trip_id}_${delta}_${Date.now()}` },
-        );
-        if (deltaPi.status !== 'succeeded') {
-          return jsonResponse({
-            error: `Delta PaymentIntent did not succeed (status=${deltaPi.status}).`,
-          }, 400);
-        }
-        const deltaCharge = typeof deltaPi.latest_charge === 'string'
-          ? await stripe.charges.retrieve(deltaPi.latest_charge)
-          : (deltaPi.latest_charge as Stripe.Charge | null);
-        stripeChargeId = deltaCharge?.id ?? stripeChargeId;
-        resultingCaptured = captured + (deltaCharge?.amount_captured ?? delta);
-        resultingRefunded = alreadyRefunded;
-        settlementMetadata = {
-          ...settlementMetadata,
-          delta_payment_intent_id: deltaPi.id,
-          delta_charge_id: deltaCharge?.id ?? null,
-          delta_amount_pence: delta,
-        };
-        scenario = 'delta_charged_new_pi';
+        return jsonResponse({
+          error: 'Cannot increase fare after capture — use admin-request-extra-payment (Financial Reconciliation SSOT).',
+          outstanding_balance_pence: preEditRecovery.charge_pence,
+        }, 400);
       }
     }
 
     const netCapturedAfter = Math.max(0, resultingCaptured - resultingRefunded);
+    const settlementAfterPence = computeSettlementTotalPence({
+      final_fare_pence: new_total_pence,
+      tip_pence: tipPence,
+      tip_amount_pence: trip.tip_amount_pence,
+      arrival_cancellation_applied: trip.arrival_cancellation_applied,
+      arrival_cancellation_fee: trip.arrival_cancellation_fee,
+    });
+    const capturedAfterPaymentsPence = sumTripPaymentsCapturedPence(paymentRows ?? []);
+    const outstandingAfterPence = Math.max(0, settlementAfterPence - capturedAfterPaymentsPence);
+    const coverageStatus = outstandingAfterPence === 0 ? 'captured' : 'under_captured';
     const existingSnapshot =
       typeof trip.fare_snapshot_json === 'object' && trip.fare_snapshot_json
         ? trip.fare_snapshot_json as Record<string, unknown>
@@ -211,6 +211,8 @@ serve(async (req) => {
         payment_status: netCapturedAfter > 0
           ? (resultingRefunded > 0 ? 'partially_refunded' : 'captured')
           : 'refunded',
+        outstanding_balance_pence: outstandingAfterPence,
+        payment_coverage_status: coverageStatus,
         fare_snapshot_json: {
           ...existingSnapshot,
           ...tripSettlementSnapshotJson(settlementResult),
@@ -245,6 +247,10 @@ serve(async (req) => {
         settlement_formula_version: settlementResult.formula_version,
         commission_pence: settlementResult.commission_pence,
         driver_net_pence: settlementResult.driver_net_pence,
+        settlement_total_pence: settlementAfterPence,
+        captured_total_pence: capturedAfterPaymentsPence,
+        outstanding_balance_pence: outstandingAfterPence,
+        payment_coverage_status: coverageStatus,
         ...settlementMetadata,
       },
     });
@@ -259,6 +265,8 @@ serve(async (req) => {
       settlement: settlementResult,
       captured_pence: resultingCaptured,
       refunded_pence: resultingRefunded,
+      outstanding_balance_pence: outstandingAfterPence,
+      payment_coverage_status: coverageStatus,
       message:
         scenario === 'captured_at_new_total' ? `Captured ${(new_total_pence / 100).toFixed(2)}; remainder voided.`
         : scenario === 'refunded_delta' ? `Refunded delta to set fare to ${(new_total_pence / 100).toFixed(2)}.`

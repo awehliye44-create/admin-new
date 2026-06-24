@@ -232,13 +232,29 @@ serve(async (req) => {
 
     const { data: payments } = await supabase
       .from('payments')
-      .select('captured_amount_pence, amount_pence, status')
-      .eq('trip_id', tripId);
+      .select('id, stripe_payment_intent_id, captured_amount_pence, amount_pence, status, metadata, capture_method, created_at, provider_charge_id')
+      .eq('trip_id', tripId)
+      .order('created_at', { ascending: true });
 
     let paymentCaptured = 0;
-    for (const payment of payments ?? []) {
-      paymentCaptured += getPaymentRowCapturedPence(payment);
-    }
+    const paymentRows = (payments ?? []).map((payment) => {
+      const captured = getPaymentRowCapturedPence(payment);
+      paymentCaptured += captured;
+      const meta = (payment.metadata && typeof payment.metadata === 'object')
+        ? payment.metadata as Record<string, unknown>
+        : {};
+      return {
+        id: payment.id,
+        stripePaymentIntentId: payment.stripe_payment_intent_id ?? null,
+        capturedAmountPence: captured,
+        amountPence: payment.amount_pence ?? 0,
+        status: payment.status ?? null,
+        captureMethod: payment.capture_method ?? null,
+        providerChargeId: payment.provider_charge_id ?? null,
+        source: typeof meta.source === 'string' ? meta.source : null,
+        createdAt: payment.created_at ?? null,
+      };
+    });
 
     const customerPaidPence = getTripSettlementFarePence(trip, {
       paymentCapturedPence: paymentCaptured > 0 ? paymentCaptured : null,
@@ -319,6 +335,7 @@ serve(async (req) => {
         chargeId: trip.stripe_charge_id,
         captureStatus: trip.payment_status,
       },
+      paymentRows,
       refund: trip.refund_amount_pence ? {
         amount: trip.refund_amount_pence,
         reason: trip.refund_reason,

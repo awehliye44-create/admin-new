@@ -70,7 +70,7 @@ interface PaymentState {
 
 interface AuditEntry {
   id: string;
-  action: 'capture' | 'refund' | 'edit_fare' | 'cancel';
+  action: 'capture' | 'refund' | 'edit_fare' | 'cancel' | 'extra_payment';
   reason: string;
   amount_pence_before: number | null;
   amount_pence_after: number | null;
@@ -95,11 +95,12 @@ const fmtTime = (iso: string | null) => (iso ? format(new Date(iso), 'dd MMM yyy
 
 type Mode = 'capture' | 'refund' | 'partial_refund' | 'edit' | 'cancel' | 'extra_payment';
 
-const ACTION_LABEL: Record<AuditEntry['action'], string> = {
+const ACTION_LABEL: Record<AuditEntry['action'] | 'extra_payment', string> = {
   capture: 'Capture',
   refund: 'Refund',
   edit_fare: 'Edit fare',
   cancel: 'Hold released',
+  extra_payment: 'Extra payment',
 };
 
 const INFORMATIONAL_SETTLEMENT_WARNINGS = new Set([
@@ -321,7 +322,13 @@ export function PaymentControlsCard({
   const isHistoricalShortfall = !!ctx && extraDuePence > 0 && capturedPence > 0
     && authorisedPence > 0 && releasedBufferPence === 0;
 
+  const blockEditFareForOutstanding = extraDuePence > 0 && !isLegacyIncomplete;
+
   const openMode = (m: Mode) => {
+    if (m === 'edit' && blockEditFareForOutstanding) {
+      toast.error('Use Request extra payment on Financial Reconciliation — Edit Fare cannot charge outstanding balance.');
+      return;
+    }
     setMode(m);
     setReason('');
     if (!state) { setAmountInput(''); return; }
@@ -359,6 +366,10 @@ export function PaymentControlsCard({
     }
     if (mode === 'extra_payment') {
       actionMutation.mutate({ mode, reason: reason.trim() });
+      return;
+    }
+    if (mode === 'edit' && blockEditFareForOutstanding) {
+      toast.error('Use Request extra payment — Edit Fare cannot charge outstanding balance.');
       return;
     }
     const value = Number(amountInput);
@@ -652,10 +663,15 @@ export function PaymentControlsCard({
                   </Button>
                 </>
               )}
-              {(isUncaptured || hasCharge) && (
+              {(isUncaptured || hasCharge) && !blockEditFareForOutstanding && (
                 <Button size="sm" variant="outline" onClick={() => openMode('edit')} disabled={actionMutation.isPending}>
                   <Pencil className="h-4 w-4 mr-1" /> Edit Fare
                 </Button>
+              )}
+              {blockEditFareForOutstanding && (
+                <p className="text-xs text-amber-700 w-full">
+                  Edit Fare is disabled while an outstanding balance exists — use Request extra payment (SSOT).
+                </p>
               )}
               {!isUncaptured && !hasCharge && (
                 <p className="text-xs text-muted-foreground">
