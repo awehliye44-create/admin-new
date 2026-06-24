@@ -50,10 +50,10 @@ type LedgerDbRow = {
   trips: {
     trip_code: string | null;
     payment_method: string | null;
-    customer_id: string | null;
-    voucher_discount_pence: number | null;
+    passenger_id: string | null;
+    passenger_name: string | null;
+    discount_pence: number | null;
     discount_source: string | null;
-    customers: { first_name: string | null; last_name: string | null } | null;
   } | null;
 };
 
@@ -72,8 +72,8 @@ type PaymentDbRow = {
   trips: {
     trip_code: string | null;
     payment_method: string | null;
-    customer_id: string | null;
-    customers: { first_name: string | null; last_name: string | null } | null;
+    passenger_id: string | null;
+    passenger_name: string | null;
   } | null;
   drivers: { first_name: string | null; last_name: string | null; region_id?: string | null } | null;
 };
@@ -83,21 +83,21 @@ type DiscountTripRow = {
   trip_code: string | null;
   payment_method: string | null;
   completed_at: string | null;
-  voucher_discount_pence: number | null;
+  discount_pence: number | null;
   discount_source: string | null;
   driver_id: string | null;
-  customer_id: string | null;
+  passenger_id: string | null;
+  passenger_name: string | null;
   drivers: { first_name: string | null; last_name: string | null } | null;
-  customers: { first_name: string | null; last_name: string | null } | null;
 };
 
 const LEDGER_SELECT = `
   id, type, amount_pence, currency, description, created_at, related_trip_id,
   driver_id, stripe_transfer_id, stripe_payout_id,
   drivers(first_name, last_name, region_id),
-  trips(trip_code, payment_method, customer_id, voucher_discount_pence, discount_source,
-    customers(first_name, last_name))
+  trips(trip_code, payment_method, passenger_id, passenger_name, discount_pence, discount_source)
 `;
+
 
 function formatName(first: string | null | undefined, last: string | null | undefined): string | null {
   const name = `${first ?? ''} ${last ?? ''}`.trim();
@@ -114,7 +114,7 @@ function mapLedgerRow(row: LedgerDbRow): FinanceLedgerTransactionRow {
     trip_code: trip?.trip_code ?? null,
     driver_id: row.driver_id,
     driver_name: formatName(row.drivers?.first_name, row.drivers?.last_name),
-    customer_name: formatName(trip?.customers?.first_name, trip?.customers?.last_name),
+    customer_name: trip?.passenger_name ?? null,
     type: row.type,
     type_label: meta.label,
     party: meta.party,
@@ -140,7 +140,7 @@ function mapPaymentRow(row: PaymentDbRow): FinanceLedgerTransactionRow {
     trip_code: trip?.trip_code ?? null,
     driver_id: row.driver_id,
     driver_name: formatName(row.drivers?.first_name, row.drivers?.last_name),
-    customer_name: formatName(trip?.customers?.first_name, trip?.customers?.last_name),
+    customer_name: trip?.passenger_name ?? null,
     type: ADMIN_CUSTOMER_PAYMENT_ROW_TYPE,
     type_label: meta.label,
     party: meta.party,
@@ -159,7 +159,7 @@ function mapPaymentRow(row: PaymentDbRow): FinanceLedgerTransactionRow {
 
 function mapDiscountRow(row: DiscountTripRow): FinanceLedgerTransactionRow {
   const meta = adminDiscountMeta();
-  const discountPence = row.voucher_discount_pence ?? 0;
+  const discountPence = row.discount_pence ?? 0;
   return {
     id: `discount-${row.id}`,
     created_at: row.completed_at ?? new Date(0).toISOString(),
@@ -167,7 +167,7 @@ function mapDiscountRow(row: DiscountTripRow): FinanceLedgerTransactionRow {
     trip_code: row.trip_code,
     driver_id: row.driver_id,
     driver_name: formatName(row.drivers?.first_name, row.drivers?.last_name),
-    customer_name: formatName(row.customers?.first_name, row.customers?.last_name),
+    customer_name: row.passenger_name ?? null,
     type: ADMIN_DISCOUNT_ROW_TYPE,
     type_label: row.discount_source === 'voucher' ? 'Voucher discount' : 'Global discount',
     party: meta.party,
@@ -267,7 +267,7 @@ export function useFinanceLedgerTransactions(args: {
           .select(`
             id, trip_id, driver_id, status, captured_amount_pence, amount_pence, currency,
             stripe_fee_pence, payment_provider, provider_webhook_event_id, created_at,
-            trips(trip_code, payment_method, customer_id, customers(first_name, last_name)),
+            trips(trip_code, payment_method, passenger_id, passenger_name),
             drivers(first_name, last_name, region_id)
           `)
           .in('status', ['captured', 'paid', 'succeeded'])
@@ -275,7 +275,7 @@ export function useFinanceLedgerTransactions(args: {
           .limit(includePayments && !includeLedger ? limit : Math.min(limit, 150));
 
         if (paymentError) throw paymentError;
-        for (const row of (paymentData ?? []) as PaymentDbRow[]) {
+        for (const row of (paymentData ?? []) as unknown as PaymentDbRow[]) {
           if (!regionMatches(args.regionId, row.drivers?.region_id)) continue;
           rows.push(mapPaymentRow(row));
         }
@@ -285,12 +285,11 @@ export function useFinanceLedgerTransactions(args: {
         let discountQuery = supabase
           .from('trips')
           .select(`
-            id, trip_code, payment_method, completed_at, voucher_discount_pence, discount_source,
-            driver_id, customer_id, region_id,
-            drivers(first_name, last_name),
-            customers(first_name, last_name)
+            id, trip_code, payment_method, completed_at, discount_pence, discount_source,
+            driver_id, passenger_id, passenger_name, region_id,
+            drivers(first_name, last_name)
           `)
-          .gt('voucher_discount_pence', 0)
+          .gt('discount_pence', 0)
           .order('completed_at', { ascending: false })
           .limit(Math.min(limit, 100));
 
@@ -300,7 +299,7 @@ export function useFinanceLedgerTransactions(args: {
 
         const { data: discountData, error: discountError } = await discountQuery;
         if (discountError) throw discountError;
-        for (const row of (discountData ?? []) as DiscountTripRow[]) {
+        for (const row of (discountData ?? []) as unknown as DiscountTripRow[]) {
           rows.push(mapDiscountRow(row));
         }
       }

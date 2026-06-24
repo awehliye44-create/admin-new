@@ -140,9 +140,56 @@ serve(async (req) => {
         resultingRefunded = alreadyRefunded + delta;
         scenario = 'refunded_delta';
       } else {
-        return jsonResponse({
-          error: 'Cannot charge more after capture; create a new PaymentIntent for the additional amount.',
-        }, 400);
+        // Stripe forbids increasing a captured PaymentIntent. Create a NEW off-session
+        // PaymentIntent for the delta against the same customer/payment method and capture it.
+        const delta = captureWithTipPence - netCaptured;
+        const customerId = typeof pi.customer === 'string' ? pi.customer : pi.customer?.id ?? null;
+        const paymentMethodId = typeof pi.payment_method === 'string'
+          ? pi.payment_method
+          : pi.payment_method?.id ?? charge.payment_method ?? null;
+        if (!customerId || !paymentMethodId) {
+          return jsonResponse({
+            error: 'Cannot charge delta: original PaymentIntent is missing customer or saved payment method.',
+          }, 400);
+        }
+        const currency = (trip.currency_code ?? trip.currency ?? pi.currency ?? 'gbp').toLowerCase();
+        const deltaPi = await stripe.paymentIntents.create(
+          {
+            amount: delta,
+            currency,
+            customer: customerId,
+            payment_method: paymentMethodId,
+            off_session: true,
+            confirm: true,
+            capture_method: 'automatic',
+            description: `Fare adjustment for trip ${trip_id}`,
+            metadata: {
+              trip_id,
+              admin_reason: reason,
+              edit_fare: 'true',
+              parent_payment_intent_id: trip.stripe_payment_intent_id,
+            },
+          },
+          { idempotencyKey: `admin_edit_delta_${trip_id}_${delta}_${Date.now()}` },
+        );
+        if (deltaPi.status !== 'succeeded') {
+          return jsonResponse({
+            error: `Delta PaymentIntent did not succeed (status=${deltaPi.status}).`,
+          }, 400);
+        }
+        const deltaCharge = typeof deltaPi.latest_charge === 'string'
+          ? await stripe.charges.retrieve(deltaPi.latest_charge)
+          : (deltaPi.latest_charge as Stripe.Charge | null);
+        stripeChargeId = deltaCharge?.id ?? stripeChargeId;
+        resultingCaptured = captured + (deltaCharge?.amount_captured ?? delta);
+        resultingRefunded = alreadyRefunded;
+        settlementMetadata = {
+          ...settlementMetadata,
+          delta_payment_intent_id: deltaPi.id,
+          delta_charge_id: deltaCharge?.id ?? null,
+          delta_amount_pence: delta,
+        };
+        scenario = 'delta_charged_new_pi';
       }
     }
 

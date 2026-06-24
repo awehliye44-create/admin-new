@@ -170,7 +170,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
       const [tripRes, paymentsRes, ledgerRes] = await Promise.all([
         supabase
           .from('trips')
-          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, authorised_amount_pence, estimated_fare_pence, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee, driver_net_pence, total_waiting_charge_pence, waiting_charge_pence, pickup_waiting_charge_pence')
+          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, authorised_amount_pence, estimated_fare, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee, driver_net_pence, total_waiting_charge_pence, waiting_charge_pence, pickup_waiting_charge_pence')
           .eq('id', tripId)
           .single(),
         supabase
@@ -277,7 +277,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
   // ---- Extra-payment derivation (with legacy/past-trip fallbacks) ----
   const ctx = captureContext as (TripCaptureFields & {
     authorised_amount_pence?: number | null;
-    estimated_fare_pence?: number | null;
+    estimated_fare?: number | null;
   }) | undefined;
   const authorisedPence = Math.max(
     0,
@@ -293,7 +293,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
   );
   const settlementBreakdown = ctx ? getTripSettlementBreakdown(ctx) : null;
   const driverNetPence = ctx ? getTripDriverNetPence(ctx) : (state?.driver_net_pence ?? null);
-  const quotedEstimatePence = Math.max(0, ctx?.estimated_fare_pence ?? 0);
+  const quotedEstimatePence = Math.max(0, Math.round((ctx?.estimated_fare ?? 0) * 100));
   const extraDuePence = Math.max(0, settlementTotalPence - capturedPence);
   const releasedBufferPence = Math.max(0, authorisedPence - capturedPence);
   const paymentFullyPaid = capturedPence >= settlementTotalPence && settlementTotalPence > 0;

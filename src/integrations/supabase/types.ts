@@ -1897,6 +1897,69 @@ export type Database = {
           },
         ]
       }
+      customer_personal_vouchers: {
+        Row: {
+          code: string
+          created_at: string
+          created_by: string | null
+          customer_id: string
+          discount_type: string
+          discount_value: number
+          expires_at: string | null
+          id: string
+          is_active: boolean
+          max_uses: number
+          min_fare: number
+          notes: string | null
+          used_count: number
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          created_by?: string | null
+          customer_id: string
+          discount_type: string
+          discount_value: number
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          max_uses?: number
+          min_fare?: number
+          notes?: string | null
+          used_count?: number
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          customer_id?: string
+          discount_type?: string
+          discount_value?: number
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          max_uses?: number
+          min_fare?: number
+          notes?: string | null
+          used_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_personal_vouchers_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "admin_riders_with_trip_stats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_personal_vouchers_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customer_push_tokens: {
         Row: {
           app_type: string
@@ -3143,6 +3206,7 @@ export type Database = {
           radius_meters: number
           region_id: string | null
           service_area_id: string | null
+          source: string
           updated_at: string
         }
         Insert: {
@@ -3156,6 +3220,7 @@ export type Database = {
           radius_meters?: number
           region_id?: string | null
           service_area_id?: string | null
+          source?: string
           updated_at?: string
         }
         Update: {
@@ -3169,6 +3234,7 @@ export type Database = {
           radius_meters?: number
           region_id?: string | null
           service_area_id?: string | null
+          source?: string
           updated_at?: string
         }
         Relationships: [
@@ -7304,6 +7370,77 @@ export type Database = {
         }
         Relationships: []
       }
+      ops_workflow_events: {
+        Row: {
+          alert_id: string | null
+          app_name: string
+          app_version: string | null
+          created_at: string
+          customer_id: string | null
+          device_model: string | null
+          driver_id: string | null
+          duration_ms: number | null
+          error_code: string | null
+          event_type: string
+          id: string
+          message: string | null
+          metadata: Json
+          os_version: string | null
+          platform: string | null
+          session_id: string | null
+          severity: string
+          trip_id: string | null
+        }
+        Insert: {
+          alert_id?: string | null
+          app_name: string
+          app_version?: string | null
+          created_at?: string
+          customer_id?: string | null
+          device_model?: string | null
+          driver_id?: string | null
+          duration_ms?: number | null
+          error_code?: string | null
+          event_type: string
+          id?: string
+          message?: string | null
+          metadata?: Json
+          os_version?: string | null
+          platform?: string | null
+          session_id?: string | null
+          severity?: string
+          trip_id?: string | null
+        }
+        Update: {
+          alert_id?: string | null
+          app_name?: string
+          app_version?: string | null
+          created_at?: string
+          customer_id?: string | null
+          device_model?: string | null
+          driver_id?: string | null
+          duration_ms?: number | null
+          error_code?: string | null
+          event_type?: string
+          id?: string
+          message?: string | null
+          metadata?: Json
+          os_version?: string | null
+          platform?: string | null
+          session_id?: string | null
+          severity?: string
+          trip_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ops_workflow_events_alert_id_fkey"
+            columns: ["alert_id"]
+            isOneToOne: false
+            referencedRelation: "ops_alerts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       otp_allowed_countries: {
         Row: {
           country_code: string
@@ -11125,6 +11262,8 @@ export type Database = {
           airport_charge_pence: number
           applied_offer_code: string | null
           applied_offer_id: string | null
+          applied_personal_voucher_code: string | null
+          applied_personal_voucher_id: string | null
           arrival_cancellation_applied: boolean
           arrival_cancellation_applied_at: string | null
           arrival_cancellation_fee: number | null
@@ -11176,6 +11315,7 @@ export type Database = {
           delivery_type: string | null
           destination_change_adjustment_pence: number | null
           discount_pence: number | null
+          discount_source: string | null
           dispatch_mode: string | null
           dispatch_status: string | null
           distance_unit: string | null
@@ -11361,6 +11501,7 @@ export type Database = {
           updated_at: string
           vehicle_type: string | null
           vehicle_type_id: string | null
+          voucher_discount_pence: number
           waiting_charge_pence: number | null
           waiting_minutes: number | null
           wallet_applied_pence: number | null
@@ -11374,6 +11515,8 @@ export type Database = {
           airport_charge_pence?: number
           applied_offer_code?: string | null
           applied_offer_id?: string | null
+          applied_personal_voucher_code?: string | null
+          applied_personal_voucher_id?: string | null
           arrival_cancellation_applied?: boolean
           arrival_cancellation_applied_at?: string | null
           arrival_cancellation_fee?: number | null
@@ -11425,6 +11568,7 @@ export type Database = {
           delivery_type?: string | null
           destination_change_adjustment_pence?: number | null
           discount_pence?: number | null
+          discount_source?: string | null
           dispatch_mode?: string | null
           dispatch_status?: string | null
           distance_unit?: string | null
@@ -11610,6 +11754,7 @@ export type Database = {
           updated_at?: string
           vehicle_type?: string | null
           vehicle_type_id?: string | null
+          voucher_discount_pence?: number
           waiting_charge_pence?: number | null
           waiting_minutes?: number | null
           wallet_applied_pence?: number | null
@@ -11623,6 +11768,8 @@ export type Database = {
           airport_charge_pence?: number
           applied_offer_code?: string | null
           applied_offer_id?: string | null
+          applied_personal_voucher_code?: string | null
+          applied_personal_voucher_id?: string | null
           arrival_cancellation_applied?: boolean
           arrival_cancellation_applied_at?: string | null
           arrival_cancellation_fee?: number | null
@@ -11674,6 +11821,7 @@ export type Database = {
           delivery_type?: string | null
           destination_change_adjustment_pence?: number | null
           discount_pence?: number | null
+          discount_source?: string | null
           dispatch_mode?: string | null
           dispatch_status?: string | null
           distance_unit?: string | null
@@ -11859,6 +12007,7 @@ export type Database = {
           updated_at?: string
           vehicle_type?: string | null
           vehicle_type_id?: string | null
+          voucher_discount_pence?: number
           waiting_charge_pence?: number | null
           waiting_minutes?: number | null
           wallet_applied_pence?: number | null
@@ -11871,6 +12020,13 @@ export type Database = {
             columns: ["applied_offer_id"]
             isOneToOne: false
             referencedRelation: "offers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_applied_personal_voucher_id_fkey"
+            columns: ["applied_personal_voucher_id"]
+            isOneToOne: false
+            referencedRelation: "customer_personal_vouchers"
             referencedColumns: ["id"]
           },
           {
@@ -13621,6 +13777,10 @@ export type Database = {
         Args: { p_offer_id: string; p_reason?: string }
         Returns: Json
       }
+      apply_terminal_trip_cancellation: {
+        Args: { p_cancelled_by?: string; p_reason?: string; p_trip_id: string }
+        Returns: Json
+      }
       apply_trip_modification_to_trip: {
         Args: {
           p_after_snapshot: Json
@@ -13765,6 +13925,14 @@ export type Database = {
         }
         Returns: number
       }
+      compute_ride_offer_preset_options: {
+        Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
+        Returns: Json
+      }
+      consume_personal_voucher: {
+        Args: { p_trip_id: string; p_voucher_id: string }
+        Returns: boolean
+      }
       create_driver_vehicle: {
         Args: {
           p_color: string
@@ -13802,6 +13970,10 @@ export type Database = {
           p_settings: Database["public"]["Tables"]["dispatch_settings"]["Row"]
           p_trip_max_rounds?: number
         }
+        Returns: number
+      }
+      dispatch_max_driver_find_minutes: {
+        Args: { p_service_area_id?: string }
         Returns: number
       }
       dispatch_trip_offers:
@@ -14248,6 +14420,10 @@ export type Database = {
         }
         Returns: string
       }
+      is_active_driver_cancel_rematch_row: {
+        Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
+        Returns: boolean
+      }
       is_admin: { Args: never; Returns: boolean }
       is_customer: { Args: { _user_id: string }; Returns: boolean }
       is_driver: { Args: { _user_id: string }; Returns: boolean }
@@ -14269,6 +14445,14 @@ export type Database = {
           p_offer?: Database["public"]["Tables"]["ride_offers"]["Row"]
           p_trip: Database["public"]["Tables"]["trips"]["Row"]
         }
+        Returns: boolean
+      }
+      is_trip_active_dispatch_status: {
+        Args: { p_dispatch: string }
+        Returns: boolean
+      }
+      is_trip_terminal_cancel_status: {
+        Args: { p_status: string }
         Returns: boolean
       }
       is_user_suspended: {
@@ -14368,9 +14552,11 @@ export type Database = {
       ops_detect_admin_panel_issues: { Args: never; Returns: Json }
       ops_detect_api_latency_spikes: { Args: never; Returns: Json }
       ops_detect_commission_gaps: { Args: never; Returns: Json }
+      ops_detect_contradictory_trip_state: { Args: never; Returns: Json }
       ops_detect_corporate_booking_issues: { Args: never; Returns: Json }
       ops_detect_corporate_web_issues: { Args: never; Returns: Json }
       ops_detect_customer_app_issues: { Args: never; Returns: Json }
+      ops_detect_dispatch_timeout_exceeded: { Args: never; Returns: Json }
       ops_detect_driver_app_issues: { Args: never; Returns: Json }
       ops_detect_duplicate_bookings: { Args: never; Returns: Json }
       ops_detect_duplicate_commissions: { Args: never; Returns: number }
@@ -14396,14 +14582,39 @@ export type Database = {
       ops_detect_missing_commissions: { Args: never; Returns: number }
       ops_detect_missing_earnings: { Args: never; Returns: number }
       ops_detect_money_screen_delays: { Args: never; Returns: Json }
+      ops_detect_notification_failures: { Args: never; Returns: Json }
+      ops_detect_offer_presets_missing: { Args: never; Returns: Json }
       ops_detect_payment_gaps: { Args: never; Returns: Json }
       ops_detect_payout_failures: { Args: never; Returns: Json }
+      ops_detect_rematch_assignment_failed: { Args: never; Returns: Json }
       ops_detect_repeated_guest_submissions: { Args: never; Returns: number }
       ops_detect_repeated_webhooks: { Args: never; Returns: number }
       ops_detect_slow_screens: { Args: never; Returns: Json }
       ops_detect_stuck_dispatch: { Args: never; Returns: Json }
       ops_detect_version_issues: { Args: never; Returns: Json }
       ops_detect_webhook_failures: { Args: never; Returns: number }
+      ops_detect_workflow_event_spikes: { Args: never; Returns: Json }
+      ops_ingest_workflow_event: {
+        Args: {
+          p_app_name: string
+          p_app_version?: string
+          p_create_alert?: boolean
+          p_customer_id?: string
+          p_device_model?: string
+          p_driver_id?: string
+          p_duration_ms?: number
+          p_error_code?: string
+          p_event_type: string
+          p_message?: string
+          p_metadata?: Json
+          p_os_version?: string
+          p_platform?: string
+          p_session_id?: string
+          p_severity?: string
+          p_trip_id?: string
+        }
+        Returns: string
+      }
       ops_reconciliation_diagnostics: { Args: never; Returns: Json }
       ops_record_event: {
         Args: {
@@ -14474,6 +14685,14 @@ export type Database = {
           p_source: string
           p_title: string
         }
+        Returns: string
+      }
+      ops_workflow_event_app: {
+        Args: { p_event_type: string }
+        Returns: string
+      }
+      ops_workflow_event_category: {
+        Args: { p_event_type: string }
         Returns: string
       }
       passenger_map_nearby_drivers: {
