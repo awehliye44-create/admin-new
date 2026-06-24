@@ -317,7 +317,7 @@ export default function DriversAndPayouts() {
               </Card>
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Cash Commission Debt</CardTitle>
+                  <CardTitle className="text-sm font-medium">Owed to ONECAB</CardTitle>
                   <AlertTriangle className="h-4 w-4 text-red-500" />
                 </CardHeader>
                 <CardContent>
@@ -383,7 +383,7 @@ export default function DriversAndPayouts() {
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Trips</TableHead>
                       <TableHead className="text-right">Card Credits</TableHead>
-                      <TableHead className="text-right">Cash Debt</TableHead>
+                      <TableHead className="text-right">Owed to ONECAB</TableHead>
                       <TableHead className="text-right">Wallet</TableHead>
                       <TableHead className="text-right">Ready</TableHead>
                       <TableHead className="text-right">In-flight</TableHead>
@@ -419,7 +419,7 @@ export default function DriversAndPayouts() {
                           <TableCell className="text-right">{d.completed_trips}</TableCell>
                           <TableCell className="text-right text-green-600">{dFmt(d, d.card_net_credits)}</TableCell>
                           <TableCell className="text-right text-red-500">
-                            {d.cash_commission_debits > 0 ? `-${dFmt(d, d.cash_commission_debits)}` : dFmt(d, 0)}
+                            {d.amount_owed_to_onecab > 0 ? dFmt(d, d.amount_owed_to_onecab) : dFmt(d, 0)}
                           </TableCell>
                           <TableCell className={`text-right font-medium ${d.wallet_balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                             {dFmt(d, d.wallet_balance)}
