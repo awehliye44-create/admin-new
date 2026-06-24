@@ -89,7 +89,7 @@ export async function fetchTripHistoryRows(args: {
 
     const { data, error } = await query;
     if (!error) {
-      return (data ?? []) as TripHistoryRow[];
+      return (data ?? []) as unknown as TripHistoryRow[];
     }
     lastError = error;
     if (!isRecoverableTripHistoryQueryError(error)) {
