@@ -247,6 +247,21 @@ serve(async (req) => {
     if (walletLedgerResult.error) throw walletLedgerResult.error;
 
     const trips = (tripResult.data || []) as TripAuditSourceRow[];
+    const tripIds = trips.map((t) => t.id);
+    let paymentRows: Array<{
+      trip_id: string | null;
+      captured_amount_pence: number | null;
+      status: string | null;
+    }> = [];
+    if (tripIds.length > 0) {
+      const { data: payments, error: paymentsErr } = await supabase
+        .from("payments")
+        .select("trip_id, captured_amount_pence, status")
+        .in("trip_id", tripIds);
+      if (paymentsErr) throw paymentsErr;
+      paymentRows = payments ?? [];
+    }
+
     const ledgerRows = (ledgerResult.data || []) as LedgerRow[];
     const payoutItems = ((payoutResult.data || []) as Array<PayoutItemRow & {
       payout_batches?: { kind?: string | null } | null;
@@ -338,6 +353,7 @@ serve(async (req) => {
       period: { from: periodFrom, to: periodTo },
       currencyCode: currency,
       trips,
+      payments: paymentRows,
       ledgerRows,
       payoutItems,
       earlyCashouts,

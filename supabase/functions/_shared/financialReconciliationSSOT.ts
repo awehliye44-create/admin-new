@@ -184,6 +184,20 @@ export function filterDigitalTrips<T extends { payment_method?: string | null }>
   return trips.filter((t) => isDigitalTripPaymentMethod(t.payment_method));
 }
 
+/** Sum captured payment rows per trip (primary PI + shortfall/extra recovery PIs). */
+export function sumCapturedPaymentsByTripId(
+  payments: PaymentCaptureRow[],
+): Map<string, number> {
+  const byTrip = new Map<string, number>();
+  for (const p of payments) {
+    if (!p.trip_id) continue;
+    if (!CAPTURED_PAYMENT_STATUSES.has(String(p.status ?? "").toLowerCase())) continue;
+    const cap = Math.max(0, p.captured_amount_pence ?? 0);
+    byTrip.set(p.trip_id, (byTrip.get(p.trip_id) ?? 0) + cap);
+  }
+  return byTrip;
+}
+
 /** Digital customer revenue — captured payments on non-cash trips only. */
 export function sumDigitalCustomerRevenuePence(args: {
   payments: PaymentCaptureRow[];
@@ -493,12 +507,7 @@ export function computePaymentMethodLedgerMetrics(args: {
   trips: TripSSOTRow[];
   payments?: PaymentCaptureRow[];
 }): PaymentMethodLedgerMetrics {
-  const paymentByTrip = new Map<string, number>();
-  for (const p of args.payments ?? []) {
-    if (!p.trip_id) continue;
-    if (!CAPTURED_PAYMENT_STATUSES.has(String(p.status ?? "").toLowerCase())) continue;
-    paymentByTrip.set(p.trip_id, Math.max(0, p.captured_amount_pence ?? 0));
-  }
+  const paymentByTrip = sumCapturedPaymentsByTripId(args.payments ?? []);
 
   let cardCustomerRevenue = 0;
   let cardDriverPayable = 0;

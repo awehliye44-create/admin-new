@@ -168,3 +168,23 @@ Deno.test("total commission and net platform revenue — card + cash, Stripe fee
   assertEquals(m.net_platform_revenue_pence, 267);
   assertEquals(m.onecab_card_net_commission_pence, 45);
 });
+
+Deno.test("computePaymentMethodLedgerMetrics sums all payment PIs per trip (MK-260624-001)", () => {
+  const ledger = computePaymentMethodLedgerMetrics({
+    trips: [{
+      id: "trip-mk-624",
+      payment_method: "card",
+      capture_amount_pence: 400,
+      final_fare_pence: 849,
+      commission_pence: 127,
+      driver_net_pence: 722,
+      stripe_processing_fee_pence: 0,
+    }] as import("./financialReconciliationSSOT.ts").TripSSOTRow[],
+    payments: [
+      { trip_id: "trip-mk-624", captured_amount_pence: 400, status: "captured" },
+      { trip_id: "trip-mk-624", captured_amount_pence: 449, status: "captured" },
+    ],
+  });
+  assertEquals(ledger.card_customer_revenue_pence, 849);
+  assertEquals(ledger.net_card_revenue_pence, 849);
+});

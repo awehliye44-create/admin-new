@@ -13,6 +13,7 @@ import {
   computePaymentMethodLedgerMetrics,
   isCashTrip,
   tripTipsPence,
+  type PaymentCaptureRow,
 } from "./financialReconciliationSSOT.ts";
 import {
   sumRefundedAmountPence,
@@ -331,6 +332,7 @@ export function buildFinanceBackendAuditV1(args: {
   period: { from: string; to: string };
   currencyCode: string;
   trips: TripAuditSourceRow[];
+  payments?: PaymentCaptureRow[];
   ledgerRows: LedgerRow[];
   payoutItems: PayoutItemRow[];
   earlyCashouts: EarlyCashoutRow[];
@@ -345,7 +347,10 @@ export function buildFinanceBackendAuditV1(args: {
   tolerancePence?: number;
 }): FinanceBackendAuditV1 {
   const tolerance = args.tolerancePence ?? 100;
-  const ledgerSplit = computePaymentMethodLedgerMetrics({ trips: args.trips });
+  const ledgerSplit = computePaymentMethodLedgerMetrics({
+    trips: args.trips,
+    payments: args.payments,
+  });
   const refunded = sumRefundedAmountPence(args.trips);
   const splitCheck = buildSplitReconciliationCheck({ ledger: ledgerSplit, tolerancePence: tolerance });
 
