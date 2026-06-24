@@ -170,7 +170,7 @@ export function PaymentControlsCard({ tripId }: { tripId: string }) {
       const [tripRes, paymentsRes, ledgerRes] = await Promise.all([
         supabase
           .from('trips')
-          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, authorised_amount_pence, estimated_fare_pence, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee, driver_net_pence, total_waiting_charge_pence, waiting_charge_pence, pickup_waiting_charge_pence')
+          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, authorised_amount_pence, estimated_fare, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee, driver_net_pence, total_waiting_charge_pence, waiting_charge_pence, pickup_waiting_charge_pence')
           .eq('id', tripId)
           .single(),
         supabase
