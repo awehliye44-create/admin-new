@@ -46,6 +46,7 @@ import {
 import { toast } from 'sonner';
 import { formatDriverAddressFull, formatCountryWithFlag } from '@/lib/driverAddress';
 import { isDriverStripeOnboardingComplete } from '@/lib/manualPayoutGate';
+import { DriverStandardsPanel } from '@/components/drivers/DriverStandardsPanel';
 
 interface Driver {
   id: string;
@@ -663,8 +664,9 @@ export function DriverDetailsDialog({
 
             {/* Tabs */}
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid w-full grid-cols-6">
+              <TabsList className="grid w-full grid-cols-4 md:grid-cols-7 h-auto">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="standards">Driver Standards</TabsTrigger>
                 <TabsTrigger value="documents">Documents</TabsTrigger>
                 <TabsTrigger value="vehicles">Vehicles ({driverVehicles.length})</TabsTrigger>
                 <TabsTrigger value="commission">Commission</TabsTrigger>
@@ -872,6 +874,14 @@ export function DriverDetailsDialog({
                     </Button>
                   )}
                 </div>
+              </TabsContent>
+
+              <TabsContent value="standards" className="space-y-4">
+                <DriverStandardsPanel
+                  driverId={driver.id}
+                  driverName={`${driver.first_name} ${driver.last_name}`.trim()}
+                  displayRating={driver.rating}
+                />
               </TabsContent>
 
               {/* Documents Tab — Approved Only */}
