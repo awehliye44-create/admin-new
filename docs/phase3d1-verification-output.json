@@ -1,17 +1,17 @@
 {
   "phase": "3D.1",
-  "timestamp": "2026-06-18T11:53:14.318Z",
+  "timestamp": "2026-06-18T12:38:29.149Z",
   "counts_before": {
     "batches_since_window": 0,
     "items_since_window": 0,
     "ledger_since_window": 0,
-    "window_since": "2026-06-18T11:48:09.786Z"
+    "window_since": "2026-06-18T12:33:27.657Z"
   },
   "counts_after": {
     "batches_since_window": 0,
     "items_since_window": 0,
     "ledger_since_window": 0,
-    "window_since": "2026-06-18T11:48:13.105Z"
+    "window_since": "2026-06-18T12:33:28.949Z"
   },
   "delta": {
     "batches": 0,

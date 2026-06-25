@@ -30,6 +30,8 @@ const TRIP_AUDIT_SELECT = `
         final_fare_pence,
         commissionable_fare_pence,
         capture_amount_pence,
+        outstanding_balance_pence,
+        payment_coverage_status,
         refund_amount_pence,
         pickup_waiting_charge_pence,
         stop_waiting_charge_pence,

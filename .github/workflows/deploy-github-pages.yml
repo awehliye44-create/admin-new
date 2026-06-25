@@ -36,6 +36,9 @@ jobs:
       - name: Finance recovery SSOT guard
         run: bash scripts/check-finance-recovery-ssot.sh
 
+      - name: Finance payout SSOT parity guard
+        run: bash scripts/check-finance-payout-ssot-parity.sh
+
       - name: Build
         run: npm run build
         env:

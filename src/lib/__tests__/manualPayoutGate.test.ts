@@ -3,6 +3,7 @@ import {
   MANUAL_PAYOUT_NO_SSOT_BALANCE_MESSAGE,
   canManualPayout,
   formatPayoutEligibilityStatus,
+  isDriverStripeOnboardingComplete,
   manualPayoutBlockedHeadline,
 } from '../manualPayoutGate';
 import type { PerDriverFinanceSSOT } from '@/hooks/usePerDriverFinancialReconciliation';
@@ -100,5 +101,29 @@ describe('manualPayoutGate', () => {
         ssot: baseSsot,
       }),
     ).toBe('Connected — No SSOT Available Balance');
+  });
+
+  it('isDriverStripeOnboardingComplete requires account, onboarding, and payouts', () => {
+    expect(
+      isDriverStripeOnboardingComplete({
+        stripe_account_id: 'acct_1',
+        onboarding_complete: true,
+        payouts_enabled: true,
+      }),
+    ).toBe(true);
+    expect(
+      isDriverStripeOnboardingComplete({
+        stripe_account_id: 'acct_1',
+        onboarding_complete: true,
+        payouts_enabled: false,
+      }),
+    ).toBe(false);
+    expect(
+      isDriverStripeOnboardingComplete({
+        stripe_account_id: null,
+        onboarding_complete: false,
+        payouts_enabled: false,
+      }),
+    ).toBe(false);
   });
 });

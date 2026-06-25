@@ -194,13 +194,10 @@ export default function Drivers() {
       // Only show full loading spinner on initial load, not background refreshes
       if (!isBackground) setIsLoading(true);
 
-      const { data, error } = await supabase
-        .from('drivers')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const { data, error } = await supabase.rpc('admin_list_drivers');
 
       if (error) throw error;
-      setDrivers(data || []);
+      setDrivers((data as Driver[]) || []);
 
       // Fetch driver categories/tiers
       const { data: categoriesData } = await supabase
@@ -262,7 +259,14 @@ export default function Drivers() {
       }
     } catch (err) {
       console.error('Error fetching drivers:', err);
-      if (!isBackground) setError('Failed to load drivers. Please try again.');
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      if (!isBackground) {
+        setError(
+          message.includes('42501') || message.toLowerCase().includes('forbidden')
+            ? 'You do not have permission to view drivers.'
+            : 'Failed to load drivers. Please try again.',
+        );
+      }
     } finally {
       setIsLoading(false);
     }

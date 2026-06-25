@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Calculator } from 'lucide-react';
-import { PaymentControlsCard, type PaymentControlsVariant } from '@/components/payment/PaymentControlsCard';
+import { PaymentControlsCard, type PaymentControlsVariant, type FinanceRecoveryAction } from '@/components/payment/PaymentControlsCard';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
@@ -20,6 +20,8 @@ type FinanceRecoveryPanelProps = {
   tripCode?: string | null;
   source: FinanceRecoverySource;
   variant?: PaymentControlsVariant;
+  initialAction?: FinanceRecoveryAction | null;
+  onInitialActionConsumed?: () => void;
 };
 
 export function financeReconciliationTripUrl(tripId: string, tripCode?: string | null): string {
@@ -37,6 +39,8 @@ export function FinanceRecoveryPanel({
   tripCode,
   source,
   variant = 'finance',
+  initialAction = null,
+  onInitialActionConsumed,
 }: FinanceRecoveryPanelProps) {
   const isSummary = variant === 'summary';
 
@@ -65,7 +69,12 @@ export function FinanceRecoveryPanel({
           <code className="text-[10px]">admin-edit-trip-fare</code>. Amounts are validated server-side.
         </p>
       )}
-      <PaymentControlsCard tripId={tripId} variant={variant} />
+      <PaymentControlsCard
+        tripId={tripId}
+        variant={variant}
+        initialAction={initialAction}
+        onInitialActionConsumed={onInitialActionConsumed}
+      />
     </div>
   );
 }

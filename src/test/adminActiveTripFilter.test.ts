@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   filterAdminActiveTrips,
+  formatAdminActiveTripTimerLabel,
   isAdminStaleSearchingTrip,
 } from '@/lib/adminActiveTripFilter';
 
@@ -52,5 +53,32 @@ describe('adminActiveTripFilter', () => {
       { trip_code: 'MK-2', status: 'arrived_pickup', driver_id: 'd2' },
     ];
     expect(filterAdminActiveTrips(trips, now)).toHaveLength(2);
+  });
+
+  it('shows search time left for unassigned searching trips', () => {
+    expect(
+      formatAdminActiveTripTimerLabel(
+        {
+          status: 'searching',
+          searching_expires_at: '2030-06-05T12:04:00.000Z',
+          driver_id: null,
+        },
+        now,
+      ),
+    ).toBe('4m left');
+  });
+
+  it('does not stale-filter searching trips without searching_expires_at', () => {
+    const trips = [
+      {
+        trip_code: 'MK-no-deadline',
+        status: 'searching',
+        searching_expires_at: null,
+        driver_id: null,
+        created_at: '2020-01-01T00:00:00.000Z',
+      },
+    ];
+    expect(filterAdminActiveTrips(trips, now)).toHaveLength(1);
+    expect(isAdminStaleSearchingTrip(trips[0], now)).toBe(false);
   });
 });

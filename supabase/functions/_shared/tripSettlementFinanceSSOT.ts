@@ -124,6 +124,26 @@ export function getTripDriverNetPence(args: {
   return null;
 }
 
+/** Cash commission debt recovered from card earnings on this trip (DEBT_RECOVERY ledger abs sum). */
+export function getTripDebtRecoveredPence(ledger: LedgerEarningFields[] = []): number {
+  let total = 0;
+  for (const entry of ledger) {
+    if (entry.type === "DEBT_RECOVERY") {
+      total += Math.abs(entry.amount_pence);
+    }
+  }
+  return total;
+}
+
+/** Driver net credited to wallet minus cash-commission debt recovered on capture. */
+export function getTripAvailablePayoutCreatedPence(args: {
+  driverNetPence: number | null;
+  debtRecoveredPence: number;
+}): number | null {
+  if (args.driverNetPence == null) return null;
+  return Math.max(0, args.driverNetPence - args.debtRecoveredPence);
+}
+
 /** Captured amount for audit — payments.captured_amount_pence primary, trips.capture_amount_pence fallback. */
 export function getTripCapturedPenceForAudit(args: {
   paymentCapturedPence?: number | null;

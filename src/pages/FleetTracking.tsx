@@ -282,7 +282,9 @@ export default function FleetTracking() {
       const [driversRes, regionsRes, serviceAreasRes, tripsRes] = await Promise.all([
         supabase
           .from('drivers')
-          .select('*, region:regions(name)')
+          .select(
+            'id, first_name, last_name, driver_code, is_online, approval_status, documents_approved, current_lat, current_lng, heading, region_id, service_area_id, profile_photo_url, rating, total_trips, driver_status, region:regions(name)',
+          )
           .eq('approval_status', 'approved')
           .eq('documents_approved', true)
           .order('is_online', { ascending: false }),

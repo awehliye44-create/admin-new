@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Test / Playwright artifacts
+playwright-report/
+test-results/
+
+# Supabase CLI local cache (not source of truth)
+supabase/.temp/

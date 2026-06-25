@@ -52,7 +52,7 @@ import { ServiceAreaBoundaryMap } from '@/components/maps/ServiceAreaBoundaryMap
 import { supabase } from '@/integrations/supabase/client';
 import { 
   Plus, Navigation, Loader2, MoreHorizontal, Pencil, Trash2, MapPin, Search, Users, DollarSign,
-  Ruler, Globe, CheckCircle2, XCircle, Eye, Settings, Car, Clock, Map
+  Ruler, Globe, CheckCircle2, XCircle, Eye, Settings, Car, Clock, Map, Gift
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -89,6 +89,7 @@ interface ServiceArea {
   distance_unit: string;
   region_id: string;
   is_active: boolean;
+  tips_enabled?: boolean;
   geo_boundary?: any;
   created_at: string;
   updated_at: string;
@@ -499,6 +500,26 @@ export default function Services() {
     }
   };
 
+  const toggleTipsEnabled = async (area: ServiceArea) => {
+    const next = !area.tips_enabled;
+    try {
+      const { error } = await supabase
+        .from('service_areas')
+        .update({ tips_enabled: next })
+        .eq('id', area.id);
+
+      if (error) throw error;
+
+      setServiceAreas(prev =>
+        prev.map(a => a.id === area.id ? { ...a, tips_enabled: next } : a)
+      );
+      toast.success(`Tips ${next ? 'enabled' : 'disabled'} for ${area.name}`);
+    } catch (err: unknown) {
+      console.error('Error toggling tips:', err);
+      toast.error('Failed to update tips setting');
+    }
+  };
+
   const toggleStatus = async (area: ServiceArea) => {
     try {
       const { error } = await supabase
@@ -729,6 +750,7 @@ export default function Services() {
                   <TableHead>Inherited Settings</TableHead>
                   <TableHead>Pricing Status</TableHead>
                   <TableHead>Drivers</TableHead>
+                  <TableHead>Tips</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -803,6 +825,25 @@ export default function Services() {
                           <Users className="h-4 w-4 text-muted-foreground" />
                           <span>{driverCounts[area.id] || 0}</span>
                         </Button>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={area.tips_enabled === true}
+                            onCheckedChange={() => toggleTipsEnabled(area)}
+                          />
+                          <Badge
+                            variant="outline"
+                            className={
+                              area.tips_enabled
+                                ? 'border-amber-200 bg-amber-50 text-amber-800'
+                                : 'border-gray-200 bg-gray-50 text-gray-600'
+                            }
+                          >
+                            <Gift className="h-3 w-3 mr-1" />
+                            {area.tips_enabled ? 'On' : 'Off'}
+                          </Badge>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">

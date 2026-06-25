@@ -23,10 +23,17 @@ import {
   type TripAuditStatusBadge,
 } from "./tripFinancialAuditStatus.ts";
 import {
+  computeSettlementTotalPence,
+  EXTRA_PAYMENT_TOLERANCE_PENCE,
+} from "./extraPaymentRecoverySSOT.ts";
+import {
   getPaymentRowCapturedPence,
   getTripCapturedPenceForAudit,
+  getTripAvailablePayoutCreatedPence,
+  getTripDebtRecoveredPence,
   getTripDriverNetPence,
   getTripSettlementFarePence,
+  sumPaymentsCapturedPence,
 } from "./tripSettlementFinanceSSOT.ts";
 
 export { SSOT_VERSION, type FinanceDataSourceBadge };
@@ -427,10 +434,19 @@ export type TripFinancialAuditRow = {
   driver_name: string | null;
   payment_method: string | null;
   customer_paid_pence: number;
+  /** Settlement total (fare + tip + fees) — same as customer_paid_pence for audit rows. */
+  settlement_total_pence: number;
   captured_pence: number;
   refunded_pence: number;
   net_customer_payment_pence: number;
+  /** Amount still owed when captured < settlement. */
+  outstanding_pence: number;
+  capture_mismatch: boolean;
   driver_net_pence: number | null;
+  /** Cash commission debt recovered from card earnings on this trip. */
+  debt_recovered_pence: number;
+  /** driver_net − debt_recovered — amount added to available payout liability. */
+  available_payout_created_pence: number | null;
   onecab_gross_commission_pence: number;
   processing_fee_pence: number;
   onecab_net_pence: number;
@@ -449,6 +465,8 @@ export type TripAuditSourceRow = TripFinanceRow & {
   id: string;
   trip_code?: string | null;
   refund_amount_pence?: number | null;
+  outstanding_balance_pence?: number | null;
+  payment_coverage_status?: string | null;
   airport_charge_pence?: number | null;
   other_pass_through_charges_pence?: number | null;
   payment_status?: string | null;
@@ -462,6 +480,7 @@ export type TripAuditSourceRow = TripFinanceRow & {
 
 export type TripFinancialAuditContext = {
   paymentByTripId: Map<string, TripAuditPaymentRecord>;
+  paymentsByTripId: Map<string, TripAuditPaymentRecord[]>;
   payoutsByTripId: Map<string, TripAuditPayoutRecord[]>;
   ledgerByTripId: Map<string, TripAuditLedgerRecord[]>;
 };
@@ -582,25 +601,69 @@ export function buildFinanceReconciliationSummary(args: {
   };
 }
 
+export function computeAuditCaptureMismatch(args: {
+  payment_method: string | null;
+  settlement_pence: number;
+  captured_pence: number;
+  outstanding_balance_pence?: number | null;
+  payment_coverage_status?: string | null;
+}): boolean {
+  if ((args.payment_method ?? "").toLowerCase() === "cash") return false;
+  if ((args.payment_coverage_status ?? "").toLowerCase() === "captured") return false;
+  const outstanding = computeAuditOutstandingPence({
+    settlement_pence: args.settlement_pence,
+    captured_pence: args.captured_pence,
+    outstanding_balance_pence: args.outstanding_balance_pence,
+  });
+  return outstanding > EXTRA_PAYMENT_TOLERANCE_PENCE;
+}
+
+export function computeAuditOutstandingPence(args: {
+  settlement_pence: number;
+  captured_pence: number;
+  outstanding_balance_pence?: number | null;
+}): number {
+  const computed = Math.max(0, args.settlement_pence - args.captured_pence);
+  const stored = Math.max(0, args.outstanding_balance_pence ?? 0);
+
+  if (args.captured_pence >= args.settlement_pence - EXTRA_PAYMENT_TOLERANCE_PENCE) {
+    return 0;
+  }
+  if (stored === 0 && computed <= EXTRA_PAYMENT_TOLERANCE_PENCE) {
+    return 0;
+  }
+  if (
+    stored > 0 &&
+    Math.abs(stored - computed) <= EXTRA_PAYMENT_TOLERANCE_PENCE
+  ) {
+    return stored;
+  }
+  return computed > 0 ? computed : stored;
+}
+
 export function mapTripToFinancialAuditRow(
   row: TripAuditSourceRow,
   context: TripFinancialAuditContext = {
     paymentByTripId: new Map(),
+    paymentsByTripId: new Map(),
     payoutsByTripId: new Map(),
     ledgerByTripId: new Map(),
   },
 ): TripFinancialAuditRow {
   const payment = context.paymentByTripId.get(row.id) ?? null;
+  const tripPayments = context.paymentsByTripId.get(row.id) ?? [];
   const ledger = context.ledgerByTripId.get(row.id) ?? [];
   const paymentCaptured = payment ? getPaymentRowCapturedPence(payment) : 0;
-  const captured = getTripCapturedPenceForAudit({
-    paymentCapturedPence: paymentCaptured > 0 ? paymentCaptured : null,
-    tripCaptureAmountPence: row.capture_amount_pence,
-  });
+  const capturedFromAllPayments = sumPaymentsCapturedPence(tripPayments);
+  const captured = capturedFromAllPayments > 0
+    ? capturedFromAllPayments
+    : getTripCapturedPenceForAudit({
+      paymentCapturedPence: paymentCaptured > 0 ? paymentCaptured : null,
+      tripCaptureAmountPence: row.capture_amount_pence,
+    });
   const refunded = Math.max(0, row.refund_amount_pence ?? 0);
-  const customerPaid = getTripSettlementFarePence(row, {
-    paymentCapturedPence: paymentCaptured > 0 ? paymentCaptured : null,
-  });
+  const settlementTotal = computeSettlementTotalPence(row);
+  const customerPaid = settlementTotal;
   const driverName = row.driver
     ? [row.driver.first_name, row.driver.last_name].filter(Boolean).join(" ").trim() || null
     : null;
@@ -612,6 +675,26 @@ export function mapTripToFinancialAuditRow(
     ledger,
   });
 
+  const outstanding = computeAuditOutstandingPence({
+    settlement_pence: settlementTotal,
+    captured_pence: captured,
+    outstanding_balance_pence: row.outstanding_balance_pence,
+  });
+  const captureMismatch = computeAuditCaptureMismatch({
+    payment_method: row.payment_method ?? null,
+    settlement_pence: settlementTotal,
+    captured_pence: captured,
+    outstanding_balance_pence: row.outstanding_balance_pence,
+    payment_coverage_status: row.payment_coverage_status ?? null,
+  });
+
+  const driverNet = tripDriverNetPenceForAudit(row, ledger);
+  const debtRecovered = getTripDebtRecoveredPence(ledger);
+  const availablePayoutCreated = getTripAvailablePayoutCreatedPence({
+    driverNetPence: driverNet,
+    debtRecoveredPence: debtRecovered,
+  });
+
   return {
     trip_id: row.id,
     trip_code: row.trip_code ?? null,
@@ -619,10 +702,15 @@ export function mapTripToFinancialAuditRow(
     driver_name: driverName,
     payment_method: row.payment_method ?? null,
     customer_paid_pence: customerPaid,
+    settlement_total_pence: settlementTotal,
     captured_pence: captured,
     refunded_pence: refunded,
     net_customer_payment_pence: Math.max(0, customerPaid - refunded),
-    driver_net_pence: tripDriverNetPenceForAudit(row, ledger),
+    outstanding_pence: outstanding,
+    capture_mismatch: captureMismatch,
+    driver_net_pence: driverNet,
+    debt_recovered_pence: debtRecovered,
+    available_payout_created_pence: availablePayoutCreated,
     onecab_gross_commission_pence: tripGrossCommissionPence(row),
     processing_fee_pence: tripStripeFeePence(row),
     onecab_net_pence: tripOnecabNetPence(row),
@@ -662,15 +750,26 @@ export function buildTripFinancialAuditContext(args: {
   }>;
 }): TripFinancialAuditContext {
   const paymentByTripId = new Map<string, TripAuditPaymentRecord>();
+  const paymentsByTripId = new Map<string, TripAuditPaymentRecord[]>();
   for (const p of args.payments) {
     if (!p.trip_id) continue;
-    paymentByTripId.set(p.trip_id, {
+    const record: TripAuditPaymentRecord = {
       status: p.status,
       provider_status: p.provider_status,
       captured_amount_pence: p.captured_amount_pence,
       stripe_payment_intent_id: p.stripe_payment_intent_id ?? null,
       provider_available_on: p.provider_available_on ?? null,
-    });
+    };
+    const list = paymentsByTripId.get(p.trip_id) ?? [];
+    list.push(record);
+    paymentsByTripId.set(p.trip_id, list);
+
+    const existing = paymentByTripId.get(p.trip_id);
+    const existingCap = Math.max(0, existing?.captured_amount_pence ?? 0);
+    const newCap = Math.max(0, record.captured_amount_pence ?? 0);
+    if (!existing || newCap >= existingCap) {
+      paymentByTripId.set(p.trip_id, record);
+    }
   }
 
   const payoutsByTripId = new Map<string, TripAuditPayoutRecord[]>();
@@ -700,7 +799,7 @@ export function buildTripFinancialAuditContext(args: {
     ledgerByTripId.set(entry.related_trip_id, list);
   }
 
-  return { paymentByTripId, payoutsByTripId, ledgerByTripId };
+  return { paymentByTripId, paymentsByTripId, payoutsByTripId, ledgerByTripId };
 }
 
 export function sumCommissionableFromTrips(rows: TripAuditSourceRow[]): number {

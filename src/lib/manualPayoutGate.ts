@@ -14,6 +14,17 @@ export type ManualPayoutDriverFlags = {
   payouts_enabled?: boolean | null;
 };
 
+/** True when Stripe Connect onboarding is finished and payouts are live. */
+export function isDriverStripeOnboardingComplete(
+  driver: ManualPayoutDriverFlags,
+): boolean {
+  return (
+    Boolean(driver.stripe_account_id) &&
+    Boolean(driver.onboarding_complete) &&
+    Boolean(driver.payouts_enabled)
+  );
+}
+
 export type ManualPayoutSsotSnapshot = {
   settled_card_earnings_pence: number;
   outstanding_cash_commission_pence: number;

@@ -52,12 +52,12 @@ import {
   MoreHorizontal, UserX, XCircle, CheckCircle2, Clock, Phone,
   ArrowRight, AlertTriangle, Ban, Play, Square
 } from 'lucide-react';
-import { format, formatDistanceToNow } from 'date-fns';
+import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { getCurrencySymbol, getDistanceUnitShort, convertDistance } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
-import { filterAdminActiveTrips } from '@/lib/adminActiveTripFilter';
+import { filterAdminActiveTrips, formatAdminActiveTripTimerLabel } from '@/lib/adminActiveTripFilter';
 
 interface Trip {
   id: string;
@@ -71,6 +71,7 @@ interface Trip {
   fare: number;
   currency_code: string;
   created_at: string;
+  searching_expires_at: string | null;
   started_at: string | null;
   driver_id: string | null;
   // Fare Engine source-of-truth fields
@@ -458,7 +459,7 @@ export default function ActiveTrips() {
                   <TableHead>Route</TableHead>
                   <TableHead>Driver</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Duration</TableHead>
+                  <TableHead>Search / Age</TableHead>
                   <TableHead>Fare</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -520,7 +521,7 @@ export default function ActiveTrips() {
                       <TableCell>
                         <div className="flex items-center gap-1 text-sm text-muted-foreground">
                           <Clock className="h-3 w-3" />
-                          {formatDistanceToNow(new Date(trip.created_at), { addSuffix: false })}
+                          {formatAdminActiveTripTimerLabel(trip)}
                         </div>
                       </TableCell>
                       <TableCell>

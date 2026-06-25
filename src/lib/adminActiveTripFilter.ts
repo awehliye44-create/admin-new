@@ -19,14 +19,20 @@ export type AdminTripSearchTiming = {
   driver_id?: string | null;
 };
 
-const DEFAULT_SEARCH_WINDOW_MS = 3 * 60 * 1000;
-
 function normalizeStatus(status: string | null | undefined): string {
   return (status ?? '').trim().toLowerCase();
 }
 
 function isAdminSearchingStatus(status: string): boolean {
   return (ADMIN_SEARCHING_TRIP_STATUSES as readonly string[]).includes(status);
+}
+
+function formatDurationMs(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  if (min > 0) return sec > 0 ? `${min}m ${sec}s` : `${min}m`;
+  return `${sec}s`;
 }
 
 /** Resolve search deadline from backend searching_expires_at (search_cycle_expires_at SSOT). */
@@ -43,12 +49,34 @@ export function resolveAdminSearchDeadlineMs(
     if (Number.isFinite(ms)) return ms;
   }
 
-  if (trip.created_at) {
-    const created = new Date(trip.created_at).getTime();
-    if (Number.isFinite(created)) return created + DEFAULT_SEARCH_WINDOW_MS;
+  return null;
+}
+
+/** Search countdown for unassigned searching trips; trip age for assigned/in-progress rows. */
+export function formatAdminActiveTripTimerLabel(
+  trip: AdminTripSearchTiming | null | undefined,
+  nowMs = Date.now(),
+): string {
+  if (!trip) return '—';
+
+  const status = normalizeStatus(trip.status);
+  const searching = isAdminSearchingStatus(status) && !trip.driver_id;
+
+  if (searching) {
+    const deadlineMs = resolveAdminSearchDeadlineMs(trip);
+    if (deadlineMs == null) return 'searching';
+    if (nowMs >= deadlineMs) return 'search expired';
+    return `${formatDurationMs(deadlineMs - nowMs)} left`;
   }
 
-  return null;
+  if (trip.created_at) {
+    const created = new Date(trip.created_at).getTime();
+    if (Number.isFinite(created)) {
+      return `${formatDurationMs(nowMs - created)} trip age`;
+    }
+  }
+
+  return '—';
 }
 
 export function isAdminStaleSearchingTrip(
