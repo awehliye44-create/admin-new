@@ -1,15 +1,12 @@
 import { useState } from 'react';
 import {
   AlertTriangle,
-  CheckCircle2,
-  Clock,
   Loader2,
   Shield,
   Star,
   ThumbsDown,
   ThumbsUp,
   TrendingUp,
-  XCircle,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -382,44 +379,11 @@ export function DriverStandardsPanelContent({
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium">Recent activity</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {data.recent_activity.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{DRIVER_STANDARDS_COPY.notEnoughData}</p>
-            ) : (
-              <ul className="space-y-3">
-                {data.recent_activity.map((item, idx) => (
-                  <li key={`${item.kind}-${item.at}-${idx}`} className="flex items-center justify-between gap-3 text-sm">
-                    <span className="inline-flex items-center gap-2 min-w-0">
-                      {item.kind === 'trip_completed' ? (
-                        <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                      ) : item.kind === 'new_rating' ? (
-                        <Star className="h-4 w-4 text-amber-500 fill-amber-500" />
-                      ) : (
-                        <XCircle className="h-4 w-4 text-red-500" />
-                      )}
-                      <span className="truncate">{item.label}</span>
-                    </span>
-                    <span className="text-xs text-muted-foreground inline-flex items-center gap-1 shrink-0">
-                      <Clock className="h-3 w-3" />
-                      {formatActivityTime(item.at)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium">Data overview</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">Data overview</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
             <div className="flex justify-between gap-3">
               <span className="text-muted-foreground">Period</span>
               <span className="font-medium">Last {data.period_days} days</span>
@@ -445,7 +409,6 @@ export function DriverStandardsPanelContent({
             </div>
           </CardContent>
         </Card>
-      </div>
     </div>
   );
 }
