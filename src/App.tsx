@@ -42,6 +42,7 @@ import CorporateReports from "./pages/CorporateReports";
 import CorporateSettings from "./pages/CorporateSettings";
 import AccountRequests from "./pages/AccountRequests";
 import Riders from "./pages/Riders";
+import PendingCustomerSignups from "./pages/PendingCustomerSignups";
 import RiderFeedback from "./pages/RiderFeedback";
 import AccountSuspension from "./pages/AccountSuspension";
 import ComplaintsDashboard from "./pages/ComplaintsDashboard";
@@ -136,6 +137,7 @@ const App = () => (
               <Route path="drivers" element={<Drivers />} />
               <Route path="vehicles" element={<Vehicles />} />
               <Route path="riders" element={<Riders />} />
+              <Route path="pending-customer-signups" element={<PendingCustomerSignups />} />
 
               {/* Pricing & Fares */}
               <Route path="promo-codes" element={<PromoCodes />} />

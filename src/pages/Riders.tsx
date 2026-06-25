@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
@@ -46,7 +47,7 @@ interface Rider {
   default_payment_method?: string | null;
 }
 
-type StatusFilter = 'all' | 'active' | 'disabled' | 'suspended' | 'deleted' | 'pending_verification';
+type StatusFilter = 'all' | 'active' | 'disabled' | 'suspended' | 'deleted';
 type ActionType = 'disable' | 'suspend' | 'enable' | 'delete';
 
 export default function Riders() {
@@ -229,7 +230,6 @@ export default function Riders() {
     disabled: riders.filter(r => r.rider_status === 'disabled').length,
     suspended: riders.filter(r => r.rider_status === 'suspended').length,
     deleted: riders.filter(r => r.rider_status === 'deleted').length,
-    pending_verification: riders.filter(r => r.rider_status === 'pending_verification').length,
   };
 
   const totalRiders = counts.active;
@@ -270,7 +270,14 @@ export default function Riders() {
   const currentAction = actionLabels[actionType];
 
   return (
-    <AdminLayout title="Riders" description="Manage registered riders (customers) from your apps">
+    <AdminLayout title="Riders" description="Active rider accounts only — incomplete signups are under Pending Signups">
+      <div className="mb-4 text-sm text-muted-foreground">
+        Showing activated customers with a customer ID.
+        {' '}
+        <Link to="/pending-customer-signups" className="font-medium text-primary underline-offset-2 hover:underline">
+          View pending signups
+        </Link>
+      </div>
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <Card>
@@ -324,7 +331,6 @@ export default function Riders() {
         <TabsList>
           <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
           <TabsTrigger value="active">Active ({counts.active})</TabsTrigger>
-          <TabsTrigger value="pending_verification">Pending ({counts.pending_verification})</TabsTrigger>
           <TabsTrigger value="disabled">Disabled ({counts.disabled})</TabsTrigger>
           <TabsTrigger value="suspended">Suspended ({counts.suspended})</TabsTrigger>
           <TabsTrigger value="deleted">Deleted ({counts.deleted})</TabsTrigger>
