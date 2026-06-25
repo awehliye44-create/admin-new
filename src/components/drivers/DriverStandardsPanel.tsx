@@ -381,6 +381,36 @@ export function DriverStandardsPanelContent({
 
       <Card>
         <CardHeader>
+          <CardTitle className="text-sm font-medium">Commitment warnings</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {data.commitment_warnings.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No pickup commitment reminders in this period.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {data.commitment_warnings.map((warning) => (
+                <li
+                  key={`${warning.trip_id}-${warning.at}-${warning.warning_type}`}
+                  className="flex items-start gap-2 text-sm"
+                >
+                  <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p>{warning.message}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatActivityTime(warning.at)} · Advisory only
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle className="text-sm font-medium">Data overview</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">

@@ -28,9 +28,16 @@ export interface DriverStandardsTrendPoint {
   cancellation_rate: number | null;
 }
 
+export interface DriverStandardsCommitmentWarning {
+  at: string;
+  warning_type: "moving_away" | "no_progress";
+  message: string;
+  trip_id: string;
+}
+
 export interface DriverStandardsActivity {
   at: string;
-  kind: "trip_completed" | "new_rating" | "trip_cancelled";
+  kind: "trip_completed" | "new_rating" | "trip_cancelled" | "commitment_warning";
   label: string;
 }
 
@@ -58,6 +65,8 @@ export interface DriverStandardsData {
   customer_feedback_tags: DriverStandardsFeedbackTag[];
   performance_trend: DriverStandardsTrendPoint[];
   recent_activity: DriverStandardsActivity[];
+  commitment_warnings: DriverStandardsCommitmentWarning[];
+  commitment_warning_count: number;
   driver_status: DriverStandardsStatus;
   warning_banner: DriverStandardsWarningBanner | null;
   last_updated_at: string;
@@ -174,6 +183,10 @@ export function parseDriverStandards(data: unknown): DriverStandardsData | null 
     recent_activity: Array.isArray(row.recent_activity)
       ? (row.recent_activity as DriverStandardsActivity[])
       : [],
+    commitment_warnings: Array.isArray(row.commitment_warnings)
+      ? (row.commitment_warnings as DriverStandardsCommitmentWarning[])
+      : [],
+    commitment_warning_count: Number(row.commitment_warning_count ?? 0),
     driver_status: (row.driver_status as DriverStandardsStatus) ?? "needs_improvement",
     warning_banner: (row.warning_banner as DriverStandardsWarningBanner | null) ?? null,
     last_updated_at: String(row.last_updated_at ?? ""),
