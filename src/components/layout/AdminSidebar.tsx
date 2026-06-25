@@ -68,6 +68,7 @@ import {
   Store,
   Coins,
   Lock,
+  UserPlus,
 } from 'lucide-react';
 import {
   Collapsible,
@@ -309,8 +310,9 @@ export function AdminSidebar() {
           </Section>
 
           {/* RIDER MANAGEMENT */}
-          <Section label="Rider Management" slugs={['riders','rider-feedback']}>
+          <Section label="Rider Management" slugs={['riders','pending-customer-signups','rider-feedback']}>
             <P pageSlug="riders" to="/riders" icon={<Users className="h-4 w-4" />} label="Rider List" active={currentPath === '/riders'} collapsed={isCollapsed} />
+            <P pageSlug="pending-customer-signups" to="/pending-customer-signups" icon={<UserPlus className="h-4 w-4" />} label="Pending Signups" active={currentPath === '/pending-customer-signups'} collapsed={isCollapsed} />
             <P pageSlug="rider-feedback" to="/rider-feedback" icon={<MessageSquare className="h-4 w-4" />} label="Rider Feedback" active={currentPath === '/rider-feedback'} badge={counts.pendingFeedback > 0 ? counts.pendingFeedback : undefined} collapsed={isCollapsed} />
           </Section>
 
