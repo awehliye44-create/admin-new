@@ -74,6 +74,41 @@ function endOfTodayUtc(): string {
   return d.toISOString();
 }
 
+const MAX_LEDGER_DRIVER_IN = 150;
+
+async function fetchLedgerRowsForPeriod(
+  supabase: ReturnType<typeof createClient>,
+  periodFrom: string,
+  periodTo: string,
+  driverIds: string[],
+): Promise<Array<{ type: string; amount_pence: number; driver_id: string; related_trip_id: string | null }>> {
+  const base = () =>
+    supabase
+      .from("driver_wallet_ledger")
+      .select("type, amount_pence, driver_id, related_trip_id")
+      .gte("created_at", periodFrom)
+      .lte("created_at", periodTo);
+
+  if (driverIds.length === 0) {
+    return [];
+  }
+
+  if (driverIds.length <= MAX_LEDGER_DRIVER_IN) {
+    const { data, error } = await base().in("driver_id", driverIds);
+    if (error) throw error;
+    return data ?? [];
+  }
+
+  const rows: Array<{ type: string; amount_pence: number; driver_id: string; related_trip_id: string | null }> = [];
+  for (let i = 0; i < driverIds.length; i += MAX_LEDGER_DRIVER_IN) {
+    const chunk = driverIds.slice(i, i + MAX_LEDGER_DRIVER_IN);
+    const { data, error } = await base().in("driver_id", chunk);
+    if (error) throw error;
+    rows.push(...(data ?? []));
+  }
+  return rows;
+}
+
 function settlementStatusLabel(status: string): string {
   switch (status) {
     case "calculated_only":
@@ -192,28 +227,19 @@ serve(async (req) => {
     const financialResult = await financialPromise;
     if (financialResult.error) throw financialResult.error;
 
-    const driverIds = financialResult.data?.map((d) => d.driver_id) ?? [];
-
-    let ledgerQuery = supabase
-      .from("driver_wallet_ledger")
-      .select("type, amount_pence, driver_id, related_trip_id")
-      .gte("created_at", periodFrom)
-      .lte("created_at", periodTo);
-
-    if (driverIds.length > 0) {
-      ledgerQuery = ledgerQuery.in("driver_id", driverIds);
-    }
+    const financialRows = financialResult.data ?? [];
+    const driverIds = financialRows.map((d) => d.driver_id);
 
     const [
       tripResult,
-      ledgerResult,
+      ledgerRows,
       pendingPayoutsResult,
       pendingCashoutsResult,
       webhookResult,
       failedWebhooksResult,
     ] = await Promise.all([
       tripQuery,
-      ledgerQuery,
+      fetchLedgerRowsForPeriod(supabase, periodFrom, periodTo, driverIds),
       supabase.from("payout_items").select("amount_pence").in("status", ["pending", "processing"]),
       supabase
         .from("driver_early_cashouts")
@@ -233,7 +259,6 @@ serve(async (req) => {
     ]);
 
     if (tripResult.error) throw tripResult.error;
-    if (ledgerResult.error) throw ledgerResult.error;
 
     const tripRows = (tripResult.data || []) as TripAuditSourceRow[];
     const finance = sumTripFinanceMetrics(tripRows);
@@ -298,7 +323,6 @@ serve(async (req) => {
       ledgerRows: auditLedgerRows,
     });
 
-    const financialRows = financialResult.data || [];
     const walletBalance = financialRows.reduce((s, d) => s + Number(d.wallet_balance || 0), 0);
     const reservedCashout = financialRows.reduce((s, d) => s + Number(d.reserved_cashout_pence || 0), 0);
 
@@ -369,7 +393,7 @@ serve(async (req) => {
     const ssotMetrics = computeSSOTMetrics({
       payments: paymentRows,
       trips: tripRows,
-      ledger: ledgerResult.data || [],
+      ledger: ledgerRows,
       providerAvailableBalancePence: stripeAvailablePence,
       providerPendingBalancePence: stripePendingPence,
     });
@@ -500,7 +524,12 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error("[admin-finance-reconciliation]", error);
-    return new Response(JSON.stringify({ error: (error as Error).message }), {
+    const message = error instanceof Error
+      ? error.message
+      : typeof error === "object" && error && "message" in error
+      ? String((error as { message: unknown }).message)
+      : "Finance reconciliation query failed";
+    return new Response(JSON.stringify({ error: message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

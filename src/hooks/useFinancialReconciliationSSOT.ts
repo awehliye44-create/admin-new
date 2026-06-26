@@ -299,15 +299,24 @@ export function useFinancialReconciliationSSOT(args?: {
     || (liveUnavailable && summaryFallback.isLoading)
     || (liveUnavailable && !summaryFallback.data && ledgerFallback.isLoading);
 
+  const resolvedSummary =
+    live.data?.finance_reconciliation_summary
+    ?? summaryFallback.data
+    ?? ledgerFallback.data
+    ?? null;
+
   return {
     ...result,
+    summary: resolvedSummary ?? result.summary,
     isLoading,
     isFetching: live.isFetching,
     error:
-      (live.error as Error)
-      ?? (summaryFallback.error as Error)
-      ?? (ledgerFallback.error as Error)
-      ?? null,
+      !resolvedSummary && !isLoading
+        ? ((live.error as Error)
+          ?? (summaryFallback.error as Error)
+          ?? (ledgerFallback.error as Error)
+          ?? null)
+        : null,
     refetch: () => {
       live.refetch();
       summaryFallback.refetch();

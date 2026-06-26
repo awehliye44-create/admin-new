@@ -2,6 +2,7 @@ import { AlertTriangle, Banknote, CheckCircle2, Clock, CreditCard, Landmark, Tre
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getCurrencySymbol } from '@/lib/regionSettings';
+import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 import { FinanceSSOT, type FinancialReconciliationSSOTResult } from '@/hooks/useFinancialReconciliationSSOT';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
 
@@ -137,7 +138,7 @@ export function FinanceReconciliationTotalsCards({
               <span className="text-emerald-500 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> BALANCED</span>
             )}
             <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
-              <Clock className="h-3 w-3" /> Period {ssot.period.from.slice(0, 10)} → {ssot.period.to.slice(0, 10)}
+              <Clock className="h-3 w-3" /> Period {formatFinanceDateSafe(ssot.period.from, 'yyyy-MM-dd', '—')} → {formatFinanceDateSafe(ssot.period.to, 'yyyy-MM-dd', '—')}
             </p>
           </CardContent>
         </Card>

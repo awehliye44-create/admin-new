@@ -29,6 +29,7 @@ import {
   safeProviderMoney,
   safeReconciliationCheck,
   safeReconciliationStatus,
+  formatFinanceDateSafe,
 } from '@/lib/financialReconciliationGuards';
 import { cn } from '@/lib/utils';
 import {
@@ -637,9 +638,7 @@ function FinancialReconciliationPage() {
             <div className="rounded-lg border bg-card p-3">
               <p className="text-xs text-muted-foreground">Last Webhook Received</p>
               <p className="text-sm font-medium mt-1">
-                {providerMoney.last_webhook_received_at
-                  ? format(new Date(providerMoney.last_webhook_received_at), 'dd MMM yyyy HH:mm')
-                  : '—'}
+                {formatFinanceDateSafe(providerMoney.last_webhook_received_at, 'dd MMM yyyy HH:mm')}
               </p>
             </div>
           </CardContent>
@@ -826,7 +825,7 @@ function FinancialReconciliationPage() {
                               )}
                             </TableCell>
                             <TableCell className="text-xs whitespace-nowrap">
-                              {row.paid_at ? format(new Date(row.paid_at), 'dd MMM HH:mm') : '—'}
+                              {formatFinanceDateSafe(row.paid_at, 'dd MMM HH:mm')}
                             </TableCell>
                           </TableRow>
                         );})
@@ -930,7 +929,7 @@ function FinancialReconciliationPage() {
                         {safeTripDisplayId(row)}
                       </TableCell>
                       <TableCell className="text-xs whitespace-nowrap">
-                        {row.date ? format(new Date(row.date), 'dd MMM yyyy HH:mm') : '—'}
+                        {formatFinanceDateSafe(row.date, 'dd MMM yyyy HH:mm')}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className="text-xs uppercase">

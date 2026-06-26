@@ -105,14 +105,25 @@ export function useFinanceReconciliationRevenue({
       const saId = serviceAreaId || null;
       const epochStart = new Date('2020-01-01');
       const filter = saId ? { serviceAreaId: saId, regionId: null, currencyCode: null } : undefined;
+      const empty: FinanceReconciliationRevenueResult = {
+        todayRevenue: 0,
+        weeklyRevenue: 0,
+        monthlyRevenue: 0,
+        allTimeRevenue: 0,
+        customRevenue: 0,
+        chartData: [],
+        serviceAreaBreakdown: [],
+        dataSourceBadge: 'FALLBACK',
+      };
 
+      try {
       const [todayNet, weeklyNet, monthlyNet, allTimeNet, chartResponse] = await Promise.all([
         fetchOnecabNetCommissionPence(todayStart, todayEnd, saId),
         fetchOnecabNetCommissionPence(weekStart, todayEnd, saId),
         fetchOnecabNetCommissionPence(monthStart, todayEnd, saId),
         fetchOnecabNetCommissionPence(epochStart, todayEnd, saId),
         invokeFinanceReconciliation(filter, chartFrom.toISOString(), chartTo.toISOString(), {
-          audit_limit: '500',
+          audit_limit: '200',
         }),
       ]);
 
@@ -152,10 +163,14 @@ export function useFinanceReconciliationRevenue({
         serviceAreaBreakdown,
         dataSourceBadge: 'LIVE' as const,
       };
+      } catch (error) {
+        console.error('[useFinanceReconciliationRevenue]', error);
+        return empty;
+      }
     },
     staleTime: 30_000,
     refetchInterval: 60_000,
-    meta: { londonDay: true },
+    meta: { suppressErrorToast: true, londonDay: true },
   });
 }
 

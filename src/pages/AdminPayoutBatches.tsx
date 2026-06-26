@@ -539,6 +539,13 @@ export default function AdminPayoutBatches() {
           )}
         </div>
 
+        {financeSSOT.error && (
+          <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
+            Live finance reconciliation unavailable — batch totals may use summary fallback.{' '}
+            {(financeSSOT.error as Error).message}
+          </div>
+        )}
+
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList className="flex flex-wrap h-auto gap-1">
             <TabsTrigger value="batches">Payout Batches</TabsTrigger>

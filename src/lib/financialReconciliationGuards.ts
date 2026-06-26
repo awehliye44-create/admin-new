@@ -1,4 +1,5 @@
 import type { FinanceReconciliationSummary } from '@/hooks/useFinanceReconciliation';
+import { format, isValid, parseISO } from 'date-fns';
 
 const EMPTY_LEDGER_CHECK = {
   expected_sum_pence: 0,
@@ -13,6 +14,21 @@ const EMPTY_LEDGER_CHECK = {
   cash_driver_already_received_pence: 0,
   onecab_cash_commission_receivable_pence: 0,
 };
+
+export function formatFinanceDateSafe(
+  value: string | null | undefined,
+  pattern: string,
+  fallback = '—',
+): string {
+  if (!value) return fallback;
+  const d = parseISO(value);
+  if (!isValid(d)) return fallback;
+  try {
+    return format(d, pattern);
+  } catch {
+    return fallback;
+  }
+}
 
 export function safeReconciliationCheck(
   summary: FinanceReconciliationSummary | null | undefined,

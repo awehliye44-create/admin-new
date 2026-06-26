@@ -245,5 +245,7 @@ export function useFinanceReconciliation(args?: {
     staleTime: 30_000,
     refetchInterval: tripSearch ? false : 60_000,
     placeholderData: keepPreviousData,
+    retry: 1,
+    meta: { suppressErrorToast: true },
   });
 }
