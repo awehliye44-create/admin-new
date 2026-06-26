@@ -12,6 +12,53 @@ export type ConnectInFlightPayout = {
   orphan_risk: boolean;
 };
 
+export type OnecabWalletSsot = {
+  driver_earned_owed_pence: number;
+  ledger_balance_pence: number;
+  trip_earnings_pence: number;
+  debt_recovery_pence: number;
+  adjustments_pence: number;
+  paid_out_pence: number;
+};
+
+export type StripeConnectSsot = {
+  stripe_account_id: string;
+  account_type: string | null;
+  payouts_enabled: boolean;
+  available_to_payout_pence: number;
+  instant_available_pence: number;
+  pending_pence: number;
+  in_transit_pence: number;
+  last_payout_id: string | null;
+  last_payout_amount_pence: number | null;
+  last_payout_date: string | null;
+  last_payout_status: string | null;
+  next_payout_date: string | null;
+};
+
+export type PlatformReconciliationSsot = {
+  platform_available_pence: number;
+  platform_pending_pence: number;
+  platform_allocated_to_driver_pence: number;
+  application_fees_pence: number;
+  transfers_to_connect_count: number;
+  transfers_to_connect_pence: number;
+  reconciliation_status: string;
+  reconciliation_variance_pence: number;
+  source_tier: string;
+  provider_settlement_evidence: string;
+};
+
+export type CashoutDecisionSsot = {
+  wallet_owed_pence: number;
+  finance_cleared_pence: number;
+  connect_available_pence: number;
+  cashout_now_pence: number;
+  awaiting_settlement_pence: number;
+  block_reasons: string[];
+  cashout_enabled: boolean;
+};
+
 export type ConnectBalanceAccount = {
   driver_id: string;
   driver_code: string | null;
@@ -24,11 +71,22 @@ export type ConnectBalanceAccount = {
   db_payouts_enabled: boolean | null;
   requirements_due: string[];
   currency: string;
+  onecab_wallet?: OnecabWalletSsot;
+  stripe_connect?: StripeConnectSsot;
+  platform_reconciliation?: PlatformReconciliationSsot;
+  cashout_decision?: CashoutDecisionSsot;
   connect_available_pence: number;
+  connect_instant_available_pence?: number;
   connect_pending_pence: number;
+  connect_in_transit_pence?: number;
   wallet_balance_pence: number;
+  wallet_owed_pence?: number;
   onecab_available_now_pence: number;
+  finance_cleared_pence?: number;
   awaiting_settlement_pence: number;
+  cashout_now_pence: number;
+  cashout_block_reasons?: string[];
+  cashout_enabled?: boolean;
   wallet_connect_difference_pence: number;
   max_manual_connect_payout_pence: number;
   manual_connect_payout_allowed: boolean;
@@ -36,6 +94,7 @@ export type ConnectBalanceAccount = {
   payout_blocked: boolean;
   payout_blocked_reasons?: string[];
   reconciliation_status?: string;
+  next_payout_date?: string | null;
   last_stripe_transfer_id: string | null;
   last_transfer_amount_pence: number | null;
   last_transfer_date: string | null;

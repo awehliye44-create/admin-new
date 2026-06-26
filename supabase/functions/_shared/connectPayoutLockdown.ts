@@ -26,12 +26,14 @@ export function isAutomaticPayoutSchedule(interval: string | null | undefined): 
 export async function readConnectPayoutSnapshot(
   stripe: Stripe,
   stripeAccountId: string,
+  currency = "gbp",
 ): Promise<ConnectPayoutScheduleSnapshot> {
   const account = await stripe.accounts.retrieve(stripeAccountId);
   const schedule = account.settings?.payouts?.schedule;
   const balance = await stripe.balance.retrieve({ stripeAccount: stripeAccountId });
-  const avail = balance.available.find((b) => b.currency === "gbp")?.amount ?? 0;
-  const pend = balance.pending.find((b) => b.currency === "gbp")?.amount ?? 0;
+  const ccy = currency.toLowerCase();
+  const avail = balance.available.find((b) => b.currency === ccy)?.amount ?? 0;
+  const pend = balance.pending.find((b) => b.currency === ccy)?.amount ?? 0;
   const interval = schedule?.interval ?? null;
 
   return {

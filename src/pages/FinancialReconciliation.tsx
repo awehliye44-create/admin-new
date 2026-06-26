@@ -459,7 +459,7 @@ function FinancialReconciliationPage() {
         <Tabs value={mainTab} onValueChange={setMainTab}>
           <TabsList>
             <TabsTrigger value="reconciliation">Reconciliation</TabsTrigger>
-            <TabsTrigger value="connect-balance">Stripe Connect Balance</TabsTrigger>
+            <TabsTrigger value="connect-balance">Driver Payout SSOT / Stripe Connect Balance</TabsTrigger>
           </TabsList>
 
           <TabsContent value="connect-balance" className="space-y-6 mt-4">
