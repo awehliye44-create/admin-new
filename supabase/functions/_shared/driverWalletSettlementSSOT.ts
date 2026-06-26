@@ -1,4 +1,7 @@
-/** Driver wallet settlement SSOT — shared by admin-connect-payout-status. */
+/** Driver wallet settlement SSOT — ONECAB executes Instant Payout only. */
+
+export const ONECAB_CASHOUT_FEE_PENCE = 100;
+export const STRIPE_PAYOUT_METHOD = "instant" as const;
 
 export function isStripeConnectBalanceKnown(
   connectAvailableBalancePence: number | null | undefined,
@@ -19,11 +22,11 @@ export function computeConnectAwaitingSettlementPence(
 export function computeDriverCashoutExecutablePence(
   ledgerEarnedPence: number,
   financeClearedPence: number,
-  connectAvailableBalancePence: number | null | undefined,
+  connectInstantAvailablePence: number | null | undefined,
 ): number | null {
-  if (!isStripeConnectBalanceKnown(connectAvailableBalancePence)) return null;
+  if (!isStripeConnectBalanceKnown(connectInstantAvailablePence)) return null;
   const ledger = Math.max(0, Math.round(ledgerEarnedPence));
   const financeCleared = Math.max(0, Math.round(financeClearedPence));
-  const connect = Math.max(0, Math.round(connectAvailableBalancePence as number));
-  return Math.min(ledger, financeCleared, connect);
+  const instant = Math.max(0, Math.round(connectInstantAvailablePence as number));
+  return Math.min(ledger, financeCleared, instant);
 }

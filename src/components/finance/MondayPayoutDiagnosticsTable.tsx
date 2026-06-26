@@ -8,6 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { formatPayoutDisplayStatus } from "@/lib/payoutStatusLabels";
 import { formatPence } from "@/hooks/useDriverWallet";
 import {
   PARTIAL_SETTLEMENT_MESSAGE,
@@ -29,12 +30,12 @@ function statusBadge(row: MondayPayoutDiagnosticsRow) {
     return <Badge variant="outline" className="border-amber-500 text-amber-700">PARTIAL_SETTLEMENT</Badge>;
   }
   if (row.payout_status === "failed" || row.payout_status === "ledger_sync_failed") {
-    return <Badge variant="destructive">FAILED</Badge>;
+    return <Badge variant="destructive">{formatPayoutDisplayStatus("failed")}</Badge>;
   }
   if (row.payout_status === "completed") {
-    return <Badge variant="default">COMPLETE</Badge>;
+    return <Badge variant="default">{formatPayoutDisplayStatus("paid")}</Badge>;
   }
-  return <Badge variant="secondary">{row.payout_status}</Badge>;
+  return <Badge variant="secondary">{formatPayoutDisplayStatus(row.payout_status)}</Badge>;
 }
 
 export function MondayPayoutDiagnosticsTable({

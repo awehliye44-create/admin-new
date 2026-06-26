@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrencySymbol } from "@/lib/regionSettings";
 import { AlertTriangle, ArrowDownLeft, Banknote, CheckCircle2, Clock, XCircle } from "lucide-react";
@@ -33,25 +34,33 @@ export function MondayPayoutTodayCards({
 
   if (!cards) return null;
 
-  const items = [
+  const items: Array<{
+    title: string;
+    value: number;
+    icon: ReactNode;
+    destructive?: boolean;
+    subLabel?: string;
+  }> = [
     {
       title: "ONECAB Commission Recovered Today",
       value: cards.onecab_commission_recovered_pence,
       icon: <Banknote className="h-4 w-4 text-emerald-600" />,
     },
     {
-      title: "Driver Payout Sent Today",
+      title: "Driver payout activity today",
       value: cards.driver_payout_sent_pence,
       icon: <CheckCircle2 className="h-4 w-4 text-green-600" />,
+      subLabel:
+        "Recorded payout items today. Bank arrival depends on Stripe payout status.",
     },
     {
-      title: "Driver Payout Failed Today",
+      title: "Failed today",
       value: cards.driver_payout_failed_pence,
       icon: <XCircle className="h-4 w-4 text-destructive" />,
       destructive: cards.driver_payout_failed_pence > 0,
     },
     {
-      title: "Driver Payout Pending Today",
+      title: "Pending today",
       value: cards.driver_payout_pending_pence,
       icon: <Clock className="h-4 w-4 text-amber-600" />,
     },
@@ -86,6 +95,9 @@ export function MondayPayoutTodayCards({
             <div className={`text-xl font-bold ${item.destructive ? "text-destructive" : ""}`}>
               {fmt(item.value, currencyCode)}
             </div>
+            {item.subLabel && (
+              <p className="text-[11px] text-muted-foreground mt-1 leading-snug">{item.subLabel}</p>
+            )}
           </CardContent>
         </Card>
       ))}

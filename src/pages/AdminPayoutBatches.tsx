@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '@/components/layout/AdminLayout';
-import { FinanceReconciliationTotalsCards } from '@/components/finance/FinanceReconciliationTotalsCards';
 import { FinanceSSOT, useFinancialReconciliationSSOT } from '@/hooks/useFinancialReconciliationSSOT';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -17,13 +18,15 @@ import { getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 import { format } from 'date-fns';
 import { 
   RefreshCw, CheckCircle2, Clock, XCircle, Eye, Calendar,
-  DollarSign, Wallet, AlertTriangle
+  DollarSign, Wallet, AlertTriangle, BookOpen, Landmark
 } from 'lucide-react';
 import { FinancePayoutAuditSection } from '@/components/finance/FinancePayoutAuditSection';
+import { FinanceLedgerPanel } from '@/components/finance/FinanceLedgerPanel';
+import { ConnectBalancePanel } from '@/components/finance/ConnectBalancePanel';
+import { formatPayoutDisplayStatus } from '@/lib/payoutStatusLabels';
 import { retryMondayPayoutItem, canRetryMondayPayoutItem, useMondayPayoutDiagnostics } from '@/hooks/useMondayPayoutDiagnostics';
 import { MONDAY_PAYOUT_DIAGNOSTICS_OPTS } from '@/lib/financePageSSOT';
 import { WeeklyMondaySettlementPanel } from '@/components/finance/WeeklyMondaySettlementPanel';
-import { OnecabCommissionVisibility } from '@/components/finance/OnecabCommissionVisibility';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -298,6 +301,20 @@ async function fetchEarlyCashoutsDirect(): Promise<EarlyCashoutRow[]> {
 }
 
 export default function AdminPayoutBatches() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = (() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'early-cashouts' || tab === 'ledger' || tab === 'connect-balance') return tab;
+    return 'batches';
+  })();
+
+  const setActiveTab = (tab: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (tab === 'batches') next.delete('tab');
+    else next.set('tab', tab);
+    setSearchParams(next, { replace: true });
+  };
+
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
 
@@ -468,7 +485,8 @@ export default function AdminPayoutBatches() {
       ledger_sync_failed: { variant: 'destructive', icon: <AlertTriangle className="h-3 w-3 mr-1" /> },
     };
     const { variant, icon } = config[status] || { variant: 'outline' as const, icon: null };
-    return <Badge variant={variant} className="flex items-center w-fit">{icon}{status}</Badge>;
+    const label = formatPayoutDisplayStatus(status);
+    return <Badge variant={variant} className="flex items-center w-fit">{icon}{label}</Badge>;
   };
 
   const getKindDisplay = (kind: string) => {
@@ -482,7 +500,7 @@ export default function AdminPayoutBatches() {
 
   if (isLoading) {
     return (
-      <AdminLayout title="Payout Batches" description="View payout history">
+      <AdminLayout title="Payouts & Ledger Audit" description="Payout batches, early cashouts, ledger audit, and Stripe Connect">
         <div className="flex items-center justify-center h-64">
           <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -492,8 +510,8 @@ export default function AdminPayoutBatches() {
 
   return (
     <AdminLayout 
-      title="Payout Batches & Audit" 
-      description="Financial Reconciliation SSOT — platform totals and per-driver payout values from reconciliation"
+      title="Payouts & Ledger Audit" 
+      description="Payout operations and audit — batches, early cashouts, driver wallet ledger, and Stripe Connect balances"
     >
       <div className="space-y-6">
         {isDriversError && (
@@ -521,15 +539,21 @@ export default function AdminPayoutBatches() {
           )}
         </div>
 
-        {/* Canonical finance cards — ONECAB commission separated from Stripe platform balance */}
-        <FinanceReconciliationTotalsCards ssot={financeSSOT} />
-        <OnecabCommissionVisibility
-          summary={financeSSOT.summary}
-          currencyCode={resolvedCurrency}
-          filter={serviceFilter}
-          dataBadge={financeSSOT.badge}
-        />
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+          <TabsList className="flex flex-wrap h-auto gap-1">
+            <TabsTrigger value="batches">Payout Batches</TabsTrigger>
+            <TabsTrigger value="early-cashouts">Early Cashouts</TabsTrigger>
+            <TabsTrigger value="ledger">
+              <BookOpen className="h-4 w-4 mr-1.5" />
+              Ledger Audit
+            </TabsTrigger>
+            <TabsTrigger value="connect-balance">
+              <Landmark className="h-4 w-4 mr-1.5" />
+              Stripe Connect Balance
+            </TabsTrigger>
+          </TabsList>
 
+          <TabsContent value="batches" className="space-y-6 mt-4">
         {hasRegionScope && (
           <WeeklyMondaySettlementPanel filter={serviceFilter} currencyCode={resolvedCurrency} />
         )}
@@ -594,12 +618,87 @@ export default function AdminPayoutBatches() {
           </Card>
         </div>
 
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Payout Batches</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">Weekly, manual admin, and early-cashout batch runs</p>
+            </div>
+            <Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
+          </CardHeader>
+          <CardContent className="p-0">
+            {isLoadingBatches ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Run Date</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Drivers</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="text-right">Success</TableHead>
+                  <TableHead className="text-right">Failed</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isBatchesError ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      Unable to load payout batches — see error above
+                    </TableCell>
+                  </TableRow>
+                ) : filteredBatches.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      <div className="space-y-1">
+                        <p>
+                          {regionScope
+                            ? 'No weekly or admin payout batches for this service area'
+                            : 'No weekly or admin payout batches yet'}
+                        </p>
+                        <p className="text-xs">
+                          Driver early cashouts are on the Early Cashouts tab — they are not stored as payout batches.
+                        </p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredBatches.map((batch) => (
+                    <TableRow key={batch.id}>
+                      <TableCell className="font-medium">
+                        {batch.runDate ? format(new Date(batch.runDate), 'dd MMM yyyy') : format(new Date(batch.createdAt), 'dd MMM yyyy')}
+                      </TableCell>
+                      <TableCell>{getKindDisplay(batch.kind)}</TableCell>
+                      <TableCell>{getStatusBadge(batch.status)}</TableCell>
+                      <TableCell className="text-right">{batch.totalDrivers || 0}</TableCell>
+                      <TableCell className="text-right font-medium text-green-600">{formatPence(batch.totalAmount || 0, resolvedCurrency)}</TableCell>
+                      <TableCell className="text-right text-green-600">{batch.successfulPayouts || 0}</TableCell>
+                      <TableCell className="text-right text-red-600">{batch.failedPayouts || 0}</TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="sm" onClick={() => setSelectedBatchId(batch.id)}><Eye className="h-4 w-4" /></Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+            )}
+          </CardContent>
+        </Card>
+          </TabsContent>
+
+          <TabsContent value="early-cashouts" className="space-y-6 mt-4">
         <Card className="border-blue-200/60">
           <CardHeader className="flex flex-row items-center justify-between gap-4">
             <div className="space-y-2">
               <CardTitle>Driver Early Cashouts</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Individual driver-initiated cashouts — always listed here (processing, paid, and failed).
+                Individual driver-initiated cashouts — processing, paid, failed, and in transit.
                 Separate from weekly/admin payout batch runs.
               </p>
               {!isLoadingEarlyCashouts && !isEarlyCashoutsError && (
@@ -699,79 +798,27 @@ export default function AdminPayoutBatches() {
             )}
           </CardContent>
         </Card>
+          </TabsContent>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div>
-              <CardTitle>Payout Batches</CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">Weekly and admin batch payout runs only</p>
-            </div>
-            <Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
-          </CardHeader>
-          <CardContent className="p-0">
-            {isLoadingBatches ? (
-              <div className="flex items-center justify-center py-12">
-                <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Run Date</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Drivers</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="text-right">Success</TableHead>
-                  <TableHead className="text-right">Failed</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isBatchesError ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                      Unable to load payout batches — see error above
-                    </TableCell>
-                  </TableRow>
-                ) : filteredBatches.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                      <div className="space-y-1">
-                        <p>
-                          {regionScope
-                            ? 'No weekly or admin payout batches for this service area'
-                            : 'No weekly or admin payout batches yet'}
-                        </p>
-                        <p className="text-xs">
-                          Driver early cashouts are listed above — they are not stored as payout batches.
-                        </p>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredBatches.map((batch) => (
-                    <TableRow key={batch.id}>
-                      <TableCell className="font-medium">
-                        {batch.runDate ? format(new Date(batch.runDate), 'dd MMM yyyy') : format(new Date(batch.createdAt), 'dd MMM yyyy')}
-                      </TableCell>
-                      <TableCell>{getKindDisplay(batch.kind)}</TableCell>
-                      <TableCell>{getStatusBadge(batch.status)}</TableCell>
-                      <TableCell className="text-right">{batch.totalDrivers || 0}</TableCell>
-                      <TableCell className="text-right font-medium text-green-600">{formatPence(batch.totalAmount || 0, resolvedCurrency)}</TableCell>
-                      <TableCell className="text-right text-green-600">{batch.successfulPayouts || 0}</TableCell>
-                      <TableCell className="text-right text-red-600">{batch.failedPayouts || 0}</TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="sm" onClick={() => setSelectedBatchId(batch.id)}><Eye className="h-4 w-4" /></Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-            )}
-          </CardContent>
-        </Card>
+          <TabsContent value="ledger" className="space-y-6 mt-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Driver wallet ledger audit</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Trip earnings, cash commission recovery, debt recovery, adjustments, payout debits,
+                  and wallet balance before/after — with trip and payout references.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <FinanceLedgerPanel serviceFilter={serviceFilter} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="connect-balance" className="space-y-6 mt-4">
+            <ConnectBalancePanel regionId={serviceFilter.regionId} currencyCode={resolvedCurrency} />
+          </TabsContent>
+        </Tabs>
 
         <Dialog open={!!selectedBatchId} onOpenChange={() => setSelectedBatchId(null)}>
           <DialogContent className="max-w-2xl">

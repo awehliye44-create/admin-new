@@ -327,10 +327,9 @@ export function AdminSidebar() {
           </Section>
 
           {/* FINANCE & PAYOUTS */}
-          <Section label="Finance & Payouts" slugs={['payments','drivers-and-payouts','payout-batches','disputes','invoices','invoice-templates','statement-runs']}>
+          <Section label="Finance & Payouts" slugs={['payments','payout-batches','disputes','invoices','invoice-templates','statement-runs']}>
             <P pageSlug="payments" to="/payments" icon={<CreditCard className="h-4 w-4" />} label="Payments & Transactions" active={currentPath === '/payments'} collapsed={isCollapsed} />
-            <P pageSlug="drivers-and-payouts" to="/drivers-and-payouts" icon={<Wallet className="h-4 w-4" />} label="Drivers & Payouts" active={currentPath === '/drivers-and-payouts'} collapsed={isCollapsed} />
-            <P pageSlug="payout-batches" to="/payout-batches" icon={<History className="h-4 w-4" />} label="Payout Batches & Audit" active={currentPath === '/payout-batches'} collapsed={isCollapsed} />
+            <P pageSlug="payout-batches" to="/payout-batches" icon={<History className="h-4 w-4" />} label="Payouts & Ledger Audit" active={currentPath === '/payout-batches'} collapsed={isCollapsed} />
             <P pageSlug="disputes" to="/disputes" icon={<Scale className="h-4 w-4" />} label="Disputes & Adjustments" active={currentPath === '/disputes'} collapsed={isCollapsed} />
             <P pageSlug="invoices" to="/invoices" icon={<FileText className="h-4 w-4" />} label="Invoices" active={currentPath === '/invoices'} collapsed={isCollapsed} />
             <P pageSlug="invoice-templates" to="/invoice-templates" icon={<FileEdit className="h-4 w-4" />} label="Invoice Templates" active={currentPath === '/invoice-templates'} collapsed={isCollapsed} />

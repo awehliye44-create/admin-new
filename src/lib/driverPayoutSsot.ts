@@ -1,9 +1,19 @@
 /**
- * Driver payout SSOT — admin visibility mirrors drive-hub-buddy settlement rules.
+ * Driver payout SSOT — ONECAB executes Instant Payout only.
  *
- * cashout_now = min(ledger owed, finance-cleared, Stripe Connect available)
- * awaiting_settlement = max(0, ledger − Connect available)
+ * Display: show Stripe Standard Available (balance.available) and Instant Available separately.
+ * Execution: cashout_now = min(ledger owed, finance-cleared, Stripe Instant Available)
+ * awaiting_settlement = max(0, ledger − Stripe Standard Available)
  */
+
+export const ONECAB_CASHOUT_FEE_PENCE = 100;
+
+export const STRIPE_PAYOUT_METHOD = "instant" as const;
+
+export const PAYOUT_TYPE = {
+  WEEKLY_AUTO: "weekly_auto",
+  MANUAL_CASHOUT: "manual_cashout",
+} as const;
 
 export const MIN_CASHOUT_AMOUNT_PENCE = 500;
 
@@ -23,16 +33,41 @@ export function computeConnectAwaitingSettlementPence(
   return Math.max(0, ledger - connect);
 }
 
+/** Instant execution cap — ONECAB never uses Standard payout method. */
 export function computeDriverCashoutExecutablePence(
   ledgerEarnedPence: number,
   financeClearedPence: number,
-  connectAvailableBalancePence: number | null | undefined,
+  connectInstantAvailablePence: number | null | undefined,
 ): number | null {
-  if (!isStripeConnectBalanceKnown(connectAvailableBalancePence)) return null;
+  if (!isStripeConnectBalanceKnown(connectInstantAvailablePence)) return null;
   const ledger = Math.max(0, Math.round(ledgerEarnedPence));
   const financeCleared = Math.max(0, Math.round(financeClearedPence));
-  const connect = Math.max(0, Math.round(connectAvailableBalancePence as number));
-  return Math.min(ledger, financeCleared, connect);
+  const instant = Math.max(0, Math.round(connectInstantAvailablePence as number));
+  return Math.min(ledger, financeCleared, instant);
+}
+
+export function computeWeeklyInstantEligiblePence(
+  ledgerEarnedPence: number,
+  financeClearedPence: number,
+  connectInstantAvailablePence: number | null | undefined,
+): number | null {
+  return computeDriverCashoutExecutablePence(
+    ledgerEarnedPence,
+    financeClearedPence,
+    connectInstantAvailablePence,
+  );
+}
+
+export function computeManualInstantEligiblePence(
+  ledgerEarnedPence: number,
+  financeClearedPence: number,
+  connectInstantAvailablePence: number | null | undefined,
+): number | null {
+  return computeDriverCashoutExecutablePence(
+    ledgerEarnedPence,
+    financeClearedPence,
+    connectInstantAvailablePence,
+  );
 }
 
 export function currencySymbolForCode(currencyCode: string): string {

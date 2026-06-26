@@ -6,7 +6,10 @@
 export type ConnectManualPayoutGateInput = {
   wallet_balance_pence: number;
   driver_available_now_pence: number;
+  /** Stripe balance.available (standard — display / settlement gap). */
   connect_available_pence: number;
+  /** Stripe balance.instant_available — ONECAB execution cap. */
+  connect_instant_available_pence: number;
   payouts_enabled: boolean;
   charges_enabled: boolean;
   stripe_account_id: string | null;
@@ -22,7 +25,7 @@ export function computeMaxManualConnectPayoutPence(
   return Math.min(
     Math.max(0, input.wallet_balance_pence),
     Math.max(0, input.driver_available_now_pence),
-    Math.max(0, input.connect_available_pence),
+    Math.max(0, input.connect_instant_available_pence),
   );
 }
 
@@ -50,8 +53,8 @@ export function evaluateConnectManualPayoutGate(
   if (input.driver_available_now_pence <= 0) {
     block_reasons.push("ONECAB available now is zero (finance SSOT)");
   }
-  if (input.connect_available_pence <= 0) {
-    block_reasons.push("Connect available balance is zero");
+  if (input.connect_instant_available_pence <= 0) {
+    block_reasons.push("Stripe Instant Available balance is zero");
   }
   if (input.payout_blocked) {
     block_reasons.push("Finance payout block active");

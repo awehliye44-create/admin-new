@@ -7,7 +7,10 @@ export type ConnectPayoutScheduleSnapshot = {
   delay_days: number | null;
   automatic_payouts_enabled: boolean;
   payouts_enabled: boolean | null;
+  /** Stripe balance.available — standard payout schedule (display only). */
   available_pence: number;
+  /** Stripe balance.instant_available — ONECAB execution cap (Instant Payout only). */
+  instant_available_pence: number;
   pending_pence: number;
 };
 
@@ -34,6 +37,10 @@ export async function readConnectPayoutSnapshot(
   const ccy = currency.toLowerCase();
   const avail = balance.available.find((b) => b.currency === ccy)?.amount ?? 0;
   const pend = balance.pending.find((b) => b.currency === ccy)?.amount ?? 0;
+  const instantRows = (balance as Stripe.Balance & {
+    instant_available?: Array<{ amount: number; currency: string }>;
+  }).instant_available ?? [];
+  const instantAvail = instantRows.find((b) => b.currency === ccy)?.amount ?? 0;
   const interval = schedule?.interval ?? null;
 
   return {
@@ -43,6 +50,7 @@ export async function readConnectPayoutSnapshot(
     automatic_payouts_enabled: isAutomaticPayoutSchedule(interval),
     payouts_enabled: account.payouts_enabled ?? null,
     available_pence: avail,
+    instant_available_pence: instantAvail,
     pending_pence: pend,
   };
 }

@@ -42,17 +42,14 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
+import { ConnectBalancePanel } from '@/components/finance/ConnectBalancePanel';
 import { FinanceReconciliationTotalsCards } from '@/components/finance/FinanceReconciliationTotalsCards';
 import { OnecabCommissionVisibility } from '@/components/finance/OnecabCommissionVisibility';
-import { FinancePayoutAuditSection } from '@/components/finance/FinancePayoutAuditSection';
-import { ConnectBalancePanel } from '@/components/finance/ConnectBalancePanel';
 import { FinanceRecoveryPanel } from '@/components/payment/FinanceRecoveryPanel';
 import { FinanceRecoveryMismatchSummary } from '@/components/payment/FinanceRecoveryMismatchSummary';
 import type { FinanceRecoveryAction } from '@/components/payment/PaymentControlsCard';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { MONDAY_PAYOUT_DIAGNOSTICS_OPTS } from '@/lib/financePageSSOT';
-import { useMondayPayoutDiagnostics } from '@/hooks/useMondayPayoutDiagnostics';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Navigate } from 'react-router-dom';
 
 function statusChipVariant(label: string | null | undefined): 'default' | 'secondary' | 'destructive' | 'outline' {
   const l = String(label ?? '').toLowerCase();
@@ -231,17 +228,6 @@ function FinancialReconciliationPage() {
   const [recoveryTripId, setRecoveryTripId] = useState<string | null>(null);
   const [recoveryTripCode, setRecoveryTripCode] = useState<string | null>(null);
   const [recoveryInitialAction, setRecoveryInitialAction] = useState<FinanceRecoveryAction | null>(null);
-  const mainTab = searchParams.get('tab') === 'connect-balance' ? 'connect-balance' : 'reconciliation';
-
-  const setMainTab = (tab: string) => {
-    const next = new URLSearchParams(searchParams);
-    if (tab === 'reconciliation') {
-      next.delete('tab');
-    } else {
-      next.set('tab', tab);
-    }
-    setSearchParams(next, { replace: true });
-  };
 
   useEffect(() => {
     const tripCode = searchParams.get('trip')?.trim();
@@ -283,8 +269,6 @@ function FinancialReconciliationPage() {
     from: from || undefined,
     to: to || undefined,
   });
-
-  const mondayPayouts = useMondayPayoutDiagnostics(filter, MONDAY_PAYOUT_DIAGNOSTICS_OPTS);
 
   const summary = ssot.summary;
   const ccy = ssot.currencyCode || filter.currencyCode || 'GBP';
@@ -371,6 +355,10 @@ function FinancialReconciliationPage() {
 
   const ssotBadge = ssot.badge;
 
+  if (searchParams.get('tab') === 'connect-balance') {
+    return <Navigate to="/payout-batches?tab=connect-balance" replace />;
+  }
+
   if (isLoading && !summary) {
     return (
       <AdminLayout title="Financial Reconciliation">
@@ -451,22 +439,18 @@ function FinancialReconciliationPage() {
           dataBadge={ssotBadge}
         />
 
-        <FinancePayoutAuditSection
-          mondayPayouts={mondayPayouts}
-          currencyCode={ccy}
-        />
-
-        <Tabs value={mainTab} onValueChange={setMainTab}>
-          <TabsList>
-            <TabsTrigger value="reconciliation">Reconciliation</TabsTrigger>
-            <TabsTrigger value="connect-balance">Driver Payout SSOT / Stripe Connect Balance</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="connect-balance" className="space-y-6 mt-4">
-            <ConnectBalancePanel regionId={filter.regionId} currencyCode={ccy} />
-          </TabsContent>
-
-          <TabsContent value="reconciliation" className="space-y-6 mt-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Driver payout overview (Instant SSOT)</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Operational dashboard — both Stripe Standard and Instant balances are shown for transparency.
+              ONECAB executes Instant Payout only. No payout actions on this page.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <ConnectBalancePanel regionId={filter.regionId} currencyCode={ccy} readOnly />
+          </CardContent>
+        </Card>
 
         {ssotBadge !== 'LIVE' && (
           <Alert variant="destructive">
@@ -1052,9 +1036,6 @@ function FinancialReconciliationPage() {
             </Table>
           </CardContent>
         </Card>
-
-          </TabsContent>
-        </Tabs>
 
         <Dialog
           open={!!recoveryTripId}

@@ -73,13 +73,14 @@ const ROUTE_PERMISSION_ALIASES: Record<string, string[]> = {
     'onecab-revenue-profit',
     'financial-reconciliation',
   ],
-  'drivers-and-payouts': [
+  'payout-batches': [
+    'payout-batches',
+    'connect-payout-lockdown',
     'drivers-and-payouts',
     'driver-wallet',
     'admin-settlements',
     'finance-ledger-transactions',
   ],
-  'payout-batches': ['payout-batches', 'connect-payout-lockdown'],
 };
 
 export function StaffProfileProvider({ children }: { children: ReactNode }) {

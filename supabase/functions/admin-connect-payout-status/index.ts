@@ -177,15 +177,16 @@ serve(async (req) => {
       );
       const walletOwed = Math.max(0, walletBalance);
       const financeCleared = finance.driver_available_now_pence;
-      const connectAvailable = snapshot.available_pence;
-      const connectInstantAvailable = snapshot.payouts_enabled ? connectAvailable : 0;
-      const awaitingSettlement = computeConnectAwaitingSettlementPence(walletOwed, connectAvailable) ?? 0;
+      const connectStandardAvailable = snapshot.available_pence;
+      const connectInstantAvailable = snapshot.instant_available_pence;
+      const awaitingSettlement = computeConnectAwaitingSettlementPence(walletOwed, connectStandardAvailable) ?? 0;
       const cashoutNow = computeDriverCashoutExecutablePence(
         walletOwed,
         financeCleared,
-        connectAvailable,
+        connectInstantAvailable,
       );
-      const walletConnectDifference = connectAvailable - walletBalance;
+      const weeklyInstantEligible = cashoutNow;
+      const walletConnectDifference = connectStandardAvailable - walletBalance;
 
       const { data: driverLedgerRows } = await supabase
         .from("driver_wallet_ledger")
@@ -211,6 +212,16 @@ serve(async (req) => {
         .select("stripe_transfer_id, amount_pence, net_driver_payout_pence, created_at, completed_at")
         .eq("driver_id", driver.id)
         .not("stripe_transfer_id", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const { data: lastInstantCashout } = await supabase
+        .from("driver_early_cashouts")
+        .select("stripe_payout_id, driver_receives_pence, paid_at, created_at, status, payout_method")
+        .eq("driver_id", driver.id)
+        .eq("payout_method", "instant")
+        .in("status", ["paid", "completed", "processing"])
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -256,7 +267,8 @@ serve(async (req) => {
       const manualGate = evaluateConnectManualPayoutGate({
         wallet_balance_pence: walletBalance,
         driver_available_now_pence: financeCleared,
-        connect_available_pence: connectAvailable,
+        connect_available_pence: connectStandardAvailable,
+        connect_instant_available_pence: connectInstantAvailable,
         payouts_enabled: snapshot.payouts_enabled === true,
         charges_enabled: account.charges_enabled === true,
         stripe_account_id: acct,
@@ -295,16 +307,28 @@ serve(async (req) => {
           stripe_account_id: acct,
           account_type: account.type,
           payouts_enabled: snapshot.payouts_enabled ?? false,
-          available_to_payout_pence: connectAvailable,
+          available_to_payout_pence: connectStandardAvailable,
           instant_available_pence: connectInstantAvailable,
           pending_pence: snapshot.pending_pence,
           in_transit_pence: connectInTransitPence,
-          last_payout_id: lastPayoutItem?.stripe_payout_id ?? null,
-          last_payout_amount_pence: lastPayoutItem?.net_driver_payout_pence
+          last_payout_id: lastInstantCashout?.stripe_payout_id
+            ?? lastPayoutItem?.stripe_payout_id ?? null,
+          last_payout_amount_pence: lastInstantCashout?.driver_receives_pence
+            ?? lastPayoutItem?.net_driver_payout_pence
             ?? lastPayoutItem?.amount_pence ?? null,
-          last_payout_date: lastPayoutItem?.completed_at ?? lastPayoutItem?.created_at ?? null,
-          last_payout_status: lastPayoutItem?.provider_status ?? lastPayoutItem?.status ?? null,
+          last_payout_date: lastInstantCashout?.paid_at
+            ?? lastInstantCashout?.created_at
+            ?? lastPayoutItem?.completed_at
+            ?? lastPayoutItem?.created_at ?? null,
+          last_payout_status: lastInstantCashout?.status
+            ?? lastPayoutItem?.provider_status
+            ?? lastPayoutItem?.status ?? null,
           next_payout_date: finance.next_payout_date,
+        },
+        payout_eligibility: {
+          weekly_instant_eligible_pence: weeklyInstantEligible ?? 0,
+          manual_instant_eligible_pence: manualGate.max_manual_payout_pence,
+          stripe_method: "instant",
         },
         platform_reconciliation: {
           platform_available_pence: finance.provider_available_balance_pence,
@@ -323,7 +347,8 @@ serve(async (req) => {
         cashout_decision: {
           wallet_owed_pence: walletOwed,
           finance_cleared_pence: financeCleared,
-          connect_available_pence: connectAvailable,
+          connect_available_pence: connectStandardAvailable,
+          connect_instant_available_pence: connectInstantAvailable,
           cashout_now_pence: cashoutNow ?? 0,
           awaiting_settlement_pence: awaitingSettlement,
           block_reasons: allCashoutBlocks,
@@ -331,10 +356,23 @@ serve(async (req) => {
             && cashoutNow != null
             && cashoutNow >= MIN_CASHOUT_AMOUNT_PENCE,
         },
-        connect_available_pence: connectAvailable,
+        connect_available_pence: connectStandardAvailable,
         connect_instant_available_pence: connectInstantAvailable,
+        connect_standard_available_pence: connectStandardAvailable,
         connect_pending_pence: snapshot.pending_pence,
         connect_in_transit_pence: connectInTransitPence,
+        weekly_instant_eligible_pence: weeklyInstantEligible ?? 0,
+        manual_instant_eligible_pence: manualGate.max_manual_payout_pence,
+        last_stripe_sync_at: new Date().toISOString(),
+        last_instant_payout_id: lastInstantCashout?.stripe_payout_id
+          ?? lastPayoutItem?.stripe_payout_id ?? null,
+        last_instant_payout_date: lastInstantCashout?.paid_at
+          ?? lastInstantCashout?.created_at
+          ?? lastPayoutItem?.completed_at
+          ?? lastPayoutItem?.created_at ?? null,
+        last_instant_payout_amount_pence: lastInstantCashout?.driver_receives_pence
+          ?? lastPayoutItem?.net_driver_payout_pence
+          ?? lastPayoutItem?.amount_pence ?? null,
         wallet_balance_pence: walletBalance,
         wallet_owed_pence: walletOwed,
         onecab_available_now_pence: financeCleared,
@@ -381,9 +419,11 @@ serve(async (req) => {
       ssot_note: {
         wallet_balance: "driver_wallet_ledger — ONECAB ledger truth (what ONECAB owes the driver)",
         finance_cleared: "finance reconciliation driver_available_now — finance-cleared cap",
-        connect_available: "Stripe Connect balance.available — Connect payout truth",
-        cashout_now: "min(ledger owed, finance-cleared, Connect available)",
-        awaiting_settlement: "max(0, ledger owed − Connect available)",
+        connect_standard_available: "Stripe balance.available — standard schedule (display only; may differ from Instant)",
+        connect_instant_available: "Stripe balance.instant_available — ONECAB execution cap (Instant Payout only)",
+        cashout_now: "min(ledger owed, finance-cleared, Stripe Instant Available)",
+        awaiting_settlement: "max(0, ledger owed − Stripe Standard Available)",
+        execution: "ONECAB never executes Standard payout — Instant Payout only",
         platform_balance: "Platform Stripe balance — reconciliation only, not cash-out cap",
       },
       platform_stripe: {

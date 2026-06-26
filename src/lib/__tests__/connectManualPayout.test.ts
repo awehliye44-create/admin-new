@@ -8,6 +8,7 @@ const baseInput = {
   wallet_balance_pence: 973,
   driver_available_now_pence: 45,
   connect_available_pence: 1449,
+  connect_instant_available_pence: 45,
   payouts_enabled: true,
   charges_enabled: true,
   stripe_account_id: 'acct_test',
@@ -18,12 +19,12 @@ const baseInput = {
 };
 
 describe('connectManualPayout', () => {
-  it('max manual payout is min of wallet, available now, and connect available', () => {
+  it('max manual payout is min of wallet, available now, and instant available', () => {
     expect(computeMaxManualConnectPayoutPence(baseInput)).toBe(45);
     expect(computeMaxManualConnectPayoutPence({
       ...baseInput,
       driver_available_now_pence: 500,
-      connect_available_pence: 300,
+      connect_instant_available_pence: 300,
     })).toBe(300);
   });
 
@@ -36,10 +37,10 @@ describe('connectManualPayout', () => {
     expect(gate.block_reasons.some((r) => r.includes('wallet'))).toBe(true);
   });
 
-  it('blocks when connect available <= 0', () => {
+  it('blocks when instant available <= 0', () => {
     const gate = evaluateConnectManualPayoutGate({
       ...baseInput,
-      connect_available_pence: 0,
+      connect_instant_available_pence: 0,
     });
     expect(gate.allowed).toBe(false);
   });

@@ -79,6 +79,18 @@ export type ConnectBalanceAccount = {
   connect_instant_available_pence?: number;
   connect_pending_pence: number;
   connect_in_transit_pence?: number;
+  connect_standard_available_pence?: number;
+  weekly_instant_eligible_pence?: number;
+  manual_instant_eligible_pence?: number;
+  last_stripe_sync_at?: string | null;
+  last_instant_payout_id?: string | null;
+  last_instant_payout_date?: string | null;
+  last_instant_payout_amount_pence?: number | null;
+  payout_eligibility?: {
+    weekly_instant_eligible_pence: number;
+    manual_instant_eligible_pence: number;
+    stripe_method: string;
+  };
   wallet_balance_pence: number;
   wallet_owed_pence?: number;
   onecab_available_now_pence: number;
@@ -116,6 +128,7 @@ export type ConnectPayoutStatusResponse = {
     pending_pence: number;
   };
   ssot_note?: Record<string, string>;
+  timestamp?: string;
   summary: {
     total: number;
     automatic_count: number;

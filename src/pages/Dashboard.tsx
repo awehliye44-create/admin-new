@@ -137,8 +137,8 @@ function QuickActionsPanel({ navigate }: { navigate: (path: string) => void }) {
       label: 'Finance & Payouts',
       description: counts.pendingDocuments > 0
         ? `${counts.pendingDocuments} driver document${counts.pendingDocuments !== 1 ? 's' : ''} pending review`
-        : 'Driver wallets, payouts, and ledger',
-      path: '/drivers-and-payouts',
+        : 'Payout batches, ledger audit, and Connect balances',
+      path: '/payout-batches',
       badge: counts.pendingDocuments,
     },
     {

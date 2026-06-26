@@ -27,9 +27,12 @@ function statusBadgeVariant(status: string): 'default' | 'secondary' | 'destruct
 export function ConnectBalancePanel({
   regionId,
   currencyCode,
+  readOnly = false,
 }: {
   regionId?: string | null;
   currencyCode: string;
+  /** Overview mode — no payout actions (Financial Reconciliation). */
+  readOnly?: boolean;
 }) {
   const { data, isLoading, error, refetch, isFetching } = useConnectPayoutStatus(regionId);
   const [reviewDriver, setReviewDriver] = useState<ConnectBalanceAccount | null>(null);
@@ -55,16 +58,19 @@ export function ConnectBalancePanel({
     <div className="space-y-4">
       <Alert>
         <Wallet className="h-4 w-4" />
-        <AlertTitle>Driver Payout SSOT — ledger, Connect, and platform truth</AlertTitle>
+        <AlertTitle>
+          {readOnly
+            ? 'Driver payout overview — Instant Payout SSOT (read-only)'
+            : 'Driver Payout SSOT — ledger, Connect, and platform truth'}
+        </AlertTitle>
         <AlertDescription className="space-y-1">
           <p>
-            Admins always see three layers: <strong>ONECAB wallet ledger</strong> (what we owe),{' '}
-            <strong>Stripe Connect balance</strong> (payout executable on Connect), and{' '}
-            <strong>platform reconciliation</strong> (ONECAB Stripe pool — not the cash-out cap).
+            ONECAB executes <strong>Stripe Instant Payout only</strong> — no Standard payout method.
+            Show both Stripe balances so operations understand why Instant Available may differ from Standard Available.
           </p>
           <p>
-            <strong>Cash out now</strong> = min(ledger owed, finance-cleared, Connect available).{' '}
-            <strong>Awaiting settlement</strong> = max(0, ledger − Connect available).
+            <strong>Cash out now</strong> = min(ONECAB wallet owed, finance-cleared, Stripe Instant Available).{' '}
+            <strong>Awaiting settlement</strong> = max(0, ledger − Stripe Standard Available).
           </p>
         </AlertDescription>
       </Alert>
@@ -80,6 +86,13 @@ export function ConnectBalancePanel({
               Platform pending {formatPence(platform.pending_pence, currencyCode)}
             </>
           ) : null}
+          {data?.timestamp ? (
+            <>
+              {' · '}
+              Last Stripe sync{' '}
+              {new Date(data.timestamp).toLocaleString('en-GB', { timeZone: 'Europe/London' })}
+            </>
+          ) : null}
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
           <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
@@ -89,44 +102,51 @@ export function ConnectBalancePanel({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Driver payout SSOT overview</CardTitle>
+          <CardTitle className="text-lg">
+            {readOnly ? 'Per-driver payout overview' : 'Driver payout SSOT overview'}
+          </CardTitle>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Driver</TableHead>
-                <TableHead>Connect</TableHead>
-                <TableHead className="text-right">Ledger owed</TableHead>
+                <TableHead className="text-right">ONECAB wallet</TableHead>
                 <TableHead className="text-right">Finance cleared</TableHead>
-                <TableHead className="text-right">Connect avail.</TableHead>
-                <TableHead className="text-right">Cash out now</TableHead>
-                <TableHead className="text-right">Awaiting</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead className="text-right">Stripe Standard</TableHead>
+                <TableHead className="text-right">Stripe Instant</TableHead>
+                <TableHead className="text-right">Pending</TableHead>
+                <TableHead className="text-right">Weekly instant</TableHead>
+                <TableHead className="text-right">Manual instant</TableHead>
+                <TableHead>Last instant payout</TableHead>
+                <TableHead>Next weekly</TableHead>
+                {!readOnly && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {accounts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={readOnly ? 10 : 11} className="text-center text-muted-foreground py-8">
                     No drivers with Stripe Connect accounts in this filter.
                   </TableCell>
                 </TableRow>
               ) : (
                 accounts.map((row) => {
                   const ccy = row.currency ?? currencyCode;
+                  const standardAvail = row.connect_standard_available_pence ?? row.connect_available_pence;
+                  const instantAvail = row.connect_instant_available_pence ?? 0;
                   return (
                     <TableRow key={row.driver_id}>
                       <TableCell>
-                        <div className="font-medium">{row.driver_name}</div>
-                        <div className="text-xs text-muted-foreground">{row.driver_code ?? row.driver_id.slice(0, 8)}</div>
-                      </TableCell>
-                      <TableCell>
-                        <code className="text-xs">{row.stripe_account_id}</code>
-                        <div className="text-xs text-muted-foreground mt-1">
-                          {row.connect_account_type ?? '—'} · payouts {row.payouts_enabled ? 'on' : 'off'}
-                        </div>
+                        <button
+                          type="button"
+                          className="text-left"
+                          onClick={() => setReviewDriver(row)}
+                        >
+                          <div className="font-medium hover:underline">{row.driver_name}</div>
+                          <div className="text-xs text-muted-foreground">{row.driver_code ?? row.driver_id.slice(0, 8)}</div>
+                          <code className="text-[10px] text-muted-foreground">{row.stripe_account_id}</code>
+                        </button>
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         {formatPence(row.wallet_owed_pence ?? Math.max(0, row.wallet_balance_pence), ccy)}
@@ -135,40 +155,47 @@ export function ConnectBalancePanel({
                         {formatPence(row.finance_cleared_pence ?? row.onecab_available_now_pence, ccy)}
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        {formatPence(row.connect_available_pence, ccy)}
+                        {formatPence(standardAvail, ccy)}
                       </TableCell>
-                      <TableCell className="text-right font-mono font-semibold">
-                        {formatPence(row.cashout_now_pence, ccy)}
+                      <TableCell className="text-right font-mono font-semibold text-green-700 dark:text-green-400">
+                        {formatPence(instantAvail, ccy)}
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        {formatPence(row.awaiting_settlement_pence, ccy)}
+                        {formatPence(row.connect_pending_pence, ccy)}
                       </TableCell>
-                      <TableCell>
-                        <Badge variant={statusBadgeVariant(row.connect_account_status)}>
-                          {row.connect_account_status}
-                        </Badge>
-                        {row.payout_blocked && (
-                          <Badge variant="destructive" className="ml-1 mt-1">
-                            blocked
-                          </Badge>
-                        )}
-                        {(row.cashout_block_reasons?.length ?? 0) > 0 && !row.cashout_enabled && (
-                          <div className="text-xs text-destructive mt-1 flex items-center gap-1">
-                            <AlertTriangle className="h-3 w-3" />
-                            {row.cashout_block_reasons![0]}
+                      <TableCell className="text-right font-mono">
+                        {formatPence(row.weekly_instant_eligible_pence ?? row.cashout_now_pence, ccy)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {formatPence(row.manual_instant_eligible_pence ?? row.max_manual_connect_payout_pence, ccy)}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {row.last_instant_payout_date
+                          ? new Date(row.last_instant_payout_date).toLocaleDateString('en-GB')
+                          : '—'}
+                        {row.last_instant_payout_amount_pence != null && (
+                          <div className="font-mono text-muted-foreground">
+                            {formatPence(row.last_instant_payout_amount_pence, ccy)}
                           </div>
                         )}
                       </TableCell>
+                      <TableCell className="text-xs">
+                        {row.next_payout_date
+                          ? new Date(row.next_payout_date).toLocaleDateString('en-GB')
+                          : '—'}
+                      </TableCell>
+                      {!readOnly && (
                       <TableCell className="text-right space-x-1">
                         <Button variant="outline" size="sm" onClick={() => setReviewDriver(row)}>
                           SSOT detail
                         </Button>
                         {row.manual_connect_payout_allowed && (
                           <Button size="sm" onClick={() => setPayoutDriver(row)}>
-                            Manual payout
+                            Instant cash out
                           </Button>
                         )}
                       </TableCell>
+                      )}
                     </TableRow>
                   );
                 })
@@ -198,6 +225,7 @@ export function ConnectBalancePanel({
         </Card>
       )}
 
+      {!readOnly && (
       <ConnectManualPayoutDialog
         driver={payoutDriver}
         currencyCode={currencyCode}
@@ -210,6 +238,7 @@ export function ConnectBalancePanel({
           void refetch();
         }}
       />
+      )}
     </div>
   );
 }

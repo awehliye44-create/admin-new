@@ -144,6 +144,7 @@ serve(async (req) => {
       wallet_balance_pence: walletBalance,
       driver_available_now_pence: finance.driver_available_now_pence,
       connect_available_pence: connectSnapshot.available_pence,
+      connect_instant_available_pence: connectSnapshot.instant_available_pence,
       payouts_enabled: connectSnapshot.payouts_enabled === true,
       charges_enabled: account.charges_enabled === true,
       stripe_account_id: driver.stripe_account_id,
@@ -320,11 +321,14 @@ serve(async (req) => {
       const payout = await stripe.payouts.create({
         amount: amount_pence,
         currency: currency_code.toLowerCase(),
+        method: "instant",
         metadata: {
           driver_id,
           payout_item_id: payoutItem.id,
           batch_id: batch.id,
           type: "connect_manual_payout",
+          stripe_method: "instant",
+          payout_type: "manual_cashout",
           admin_id: user.id,
         },
       }, {
