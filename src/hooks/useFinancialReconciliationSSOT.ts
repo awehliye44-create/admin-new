@@ -38,15 +38,11 @@ export type FinancialReconciliationSSOTResult = {
 async function fetchSummaryFallback(
   filter?: ServiceAreaFinanceSelection,
 ): Promise<FinanceReconciliationSummary | null> {
-  let q = supabase
-    .from('driver_financial_summary')
-    .select(
-      'wallet_balance, net_available_for_payout, total_payouts_sent, reserved_cashout_pence, company_commission_total, card_gross_total',
-    );
+  const { data, error } = await supabase.rpc('admin_driver_financial_summaries', {
+    p_region_id: filter?.regionId ?? null,
+    p_driver_id: null,
+  });
 
-  if (filter?.regionId) q = q.eq('region_id', filter.regionId);
-
-  const { data, error } = await q;
   if (error || !data?.length) return null;
 
   const walletBalance = data.reduce((s, d) => s + Number(d.wallet_balance || 0), 0);
