@@ -1,4 +1,6 @@
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { RefreshCw } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertTriangle } from 'lucide-react';
 import {
@@ -22,7 +24,12 @@ export function FinancePayoutAuditSection({
   showFailedSection = true,
   compact,
 }: {
-  mondayPayouts: MondayPayoutQuery;
+  mondayPayouts: MondayPayoutQuery & {
+    isError?: boolean;
+    error?: Error | null;
+    refetch?: () => void;
+    isFetching?: boolean;
+  };
   currencyCode: string;
   onRetry?: (row: MondayPayoutDiagnosticsRow) => void;
   retryingId?: string | null;
@@ -30,6 +37,31 @@ export function FinancePayoutAuditSection({
   compact?: boolean;
 }) {
   const data = mondayPayouts.data;
+
+  if (mondayPayouts.isError) {
+    return (
+      <Alert variant="destructive">
+        <AlertTitle>Payout audit unavailable</AlertTitle>
+        <AlertDescription className="space-y-3">
+          <p>
+            {(mondayPayouts.error as Error | null)?.message ??
+              'Could not load payout diagnostics from admin-monday-payout-diagnostics.'}
+          </p>
+          {mondayPayouts.refetch && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => mondayPayouts.refetch?.()}
+              disabled={mondayPayouts.isFetching}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${mondayPayouts.isFetching ? 'animate-spin' : ''}`} />
+              Retry payout audit
+            </Button>
+          )}
+        </AlertDescription>
+      </Alert>
+    );
+  }
 
   return (
     <div className="space-y-4">

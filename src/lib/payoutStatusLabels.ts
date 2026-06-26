@@ -12,7 +12,9 @@ const STATUS_LABELS: Record<string, string> = {
   returned_to_wallet: 'Returned to wallet',
 };
 
-export function formatPayoutDisplayStatus(status: string): string {
-  const normalized = status.trim().toLowerCase().replace(/\s+/g, '_');
-  return STATUS_LABELS[normalized] ?? status;
+export function formatPayoutDisplayStatus(status: string | null | undefined): string {
+  const raw = (status ?? '').trim();
+  if (!raw) return 'Unknown';
+  const normalized = raw.toLowerCase().replace(/\s+/g, '_');
+  return STATUS_LABELS[normalized] ?? raw;
 }

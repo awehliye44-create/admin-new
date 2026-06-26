@@ -37,6 +37,7 @@ export type MondayPayoutDiagnosticsRow = {
   provider_status: string | null;
   provider_reference: string | null;
   failure_reason: string | null;
+  failure_code?: string | null;
   failed_at: string | null;
   reconciliation_status: "BALANCED" | "RECONCILIATION_MISMATCH";
   reconciliation_detail: string | null;
@@ -252,6 +253,7 @@ export function buildMondayPayoutDiagnosticsRow(args: {
         (item.error_message as string | null) ??
         (item.ledger_sync_error as string | null),
     ),
+    failure_code: (item.failure_code as string | null) ?? null,
     failed_at: (item.failed_at as string | null) ??
       (payoutStatus === "failed" ? (item.updated_at as string | null) : null),
     reconciliation_status: recon.status,

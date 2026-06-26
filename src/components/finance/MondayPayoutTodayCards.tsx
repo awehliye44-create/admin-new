@@ -7,7 +7,19 @@ import type { MondayPayoutTodayCards } from "@/hooks/useMondayPayoutDiagnostics"
 
 function fmt(pence: number, currencyCode: string): string {
   const cc = (currencyCode || "gbp").toLowerCase();
-  return `${getCurrencySymbol(cc)}${(pence / 100).toFixed(2)}`;
+  const safe = Number.isFinite(pence) ? pence : 0;
+  return `${getCurrencySymbol(cc)}${(safe / 100).toFixed(2)}`;
+}
+
+function formatLondonDayLabel(iso: string | undefined): string {
+  if (!iso) return "today (London)";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "today (London)";
+  try {
+    return format(d, "EEE d MMM yyyy");
+  } catch {
+    return "today (London)";
+  }
 }
 
 export function MondayPayoutTodayCards({
@@ -71,9 +83,7 @@ export function MondayPayoutTodayCards({
     },
   ];
 
-  const periodLabel = todayPeriodStart
-    ? format(new Date(todayPeriodStart), "EEE d MMM yyyy")
-    : "today (London)";
+  const periodLabel = formatLondonDayLabel(todayPeriodStart);
 
   return (
     <div className="space-y-2">

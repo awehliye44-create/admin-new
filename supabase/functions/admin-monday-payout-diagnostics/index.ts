@@ -108,6 +108,7 @@ serve(async (req) => {
         payouts: [] as MondayPayoutDiagnosticsRow[],
         failed_payouts: [] as MondayPayoutDiagnosticsRow[],
         partial_settlements: [] as MondayPayoutDiagnosticsRow[],
+        reconciliation_mismatches: [] as MondayPayoutDiagnosticsRow[],
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -121,12 +122,14 @@ serve(async (req) => {
         driver_paid_out_pence, failed_payout_amount_pence, returned_to_wallet_pence,
         settlement_status, provider_status, provider_reference,
         failure_reason, error_message, ledger_sync_error,
+        failure_code,
         stripe_transfer_id, stripe_payout_id,
         failed_at, created_at, completed_at, updated_at,
         drivers:driver_id (first_name, last_name, region_id)
       `)
       .in("batch_id", batchIds)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(500);
 
     if (driverId) {
       itemQuery = itemQuery.eq("driver_id", driverId);
@@ -194,7 +197,12 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error("[admin-monday-payout-diagnostics]", error);
-    return new Response(JSON.stringify({ error: (error as Error).message }), {
+    const message = error instanceof Error
+      ? error.message
+      : typeof error === "object" && error && "message" in error
+      ? String((error as { message: unknown }).message)
+      : "Diagnostics query failed";
+    return new Response(JSON.stringify({ error: message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

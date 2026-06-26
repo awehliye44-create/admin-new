@@ -15,8 +15,19 @@ import {
   canRetryMondayPayoutItem,
   type MondayPayoutDiagnosticsRow,
 } from "@/hooks/useMondayPayoutDiagnostics";
-import { format } from "date-fns";
+import { format, isValid, parseISO } from "date-fns";
 import { AlertTriangle, RefreshCw } from "lucide-react";
+
+function formatActivityAt(value: string | null | undefined, pattern: string): string {
+  if (!value) return "—";
+  const d = parseISO(value);
+  if (!isValid(d)) return "—";
+  try {
+    return format(d, pattern);
+  } catch {
+    return "—";
+  }
+}
 
 function statusBadge(row: MondayPayoutDiagnosticsRow) {
   if (row.payout_policy_violation) {
@@ -119,13 +130,10 @@ export function MondayPayoutDiagnosticsTable({
               )}
               {!compact && (
                 <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
-                  {row.completed_at
-                    ? format(new Date(row.completed_at), "d MMM yyyy HH:mm")
-                    : row.failed_at
-                    ? format(new Date(row.failed_at), "d MMM yyyy HH:mm")
-                    : row.created_at
-                    ? format(new Date(row.created_at), "d MMM yyyy HH:mm")
-                    : "—"}
+                  {formatActivityAt(
+                    row.completed_at ?? row.failed_at ?? row.created_at,
+                    "d MMM yyyy HH:mm",
+                  )}
                 </TableCell>
               )}
               {!compact && (
@@ -175,7 +183,7 @@ export function MondayPayoutDiagnosticsTable({
                 {row.failure_reason ?? "—"}
               </TableCell>
               <TableCell className="text-xs whitespace-nowrap">
-                {row.failed_at ? format(new Date(row.failed_at), "d MMM HH:mm") : "—"}
+                {formatActivityAt(row.failed_at, "d MMM HH:mm")}
               </TableCell>
               <TableCell>
                 {row.reconciliation_status === "RECONCILIATION_MISMATCH" ? (
