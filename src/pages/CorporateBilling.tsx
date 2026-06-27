@@ -128,7 +128,7 @@ export default function CorporateBilling() {
   const { data: corporateTrips = [], isLoading: loadingTrips } = useQuery<CorporateTrip[]>({
     queryKey: ['corporate-trips'],
     queryFn: async () => {
-      const { data: trips, error } = await supabase
+      const { data: trips, error } = await (supabase as any)
         .from('trips')
         .select(`
           id, trip_number, trip_code, status, fare, estimated_fare, gross_fare_pence,

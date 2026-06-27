@@ -339,7 +339,7 @@ export default function FleetTracking() {
         }
       }
 
-      setDrivers(driversWithTrips);
+      setDrivers(driversWithTrips as any);
       setRegions(regionsRes.data || []);
       setServiceAreas(serviceAreasData || []);
       setLastRefresh(new Date());
