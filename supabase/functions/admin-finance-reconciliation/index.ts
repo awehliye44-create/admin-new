@@ -76,6 +76,47 @@ function endOfTodayUtc(): string {
 
 const MAX_LEDGER_DRIVER_IN = 150;
 
+async function fetchWebhookHealth(
+  supabase: ReturnType<typeof createClient>,
+): Promise<{ lastWebhookAt: string | null; failedWebhookCount: number }> {
+  try {
+    const [webhookResult, failedWebhooksResult] = await Promise.all([
+      supabase
+        .from("webhook_events")
+        .select("created_at, status")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("webhook_events")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "failed")
+        .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()),
+    ]);
+    if (webhookResult.error || failedWebhooksResult.error) {
+      return { lastWebhookAt: null, failedWebhookCount: 0 };
+    }
+    return {
+      lastWebhookAt: webhookResult.data?.created_at ?? null,
+      failedWebhookCount: failedWebhooksResult.count ?? 0,
+    };
+  } catch {
+    return { lastWebhookAt: null, failedWebhookCount: 0 };
+  }
+}
+
+function safeMapTripAuditRow(
+  row: TripAuditSourceRow,
+  context: ReturnType<typeof buildTripFinancialAuditContext>,
+): ReturnType<typeof mapTripToFinancialAuditRow> | null {
+  try {
+    return mapTripToFinancialAuditRow(row, context);
+  } catch (e) {
+    console.warn("[admin-finance-reconciliation] Skipping audit row", row.id, e);
+    return null;
+  }
+}
+
 async function fetchLedgerRowsForPeriod(
   supabase: ReturnType<typeof createClient>,
   periodFrom: string,
@@ -176,7 +217,12 @@ serve(async (req) => {
     const driverId = url.searchParams.get("driver_id");
     const search = url.searchParams.get("search");
     const searchType = url.searchParams.get("search_type");
-    const auditLimit = Math.min(Number(url.searchParams.get("audit_limit") || 100), 500);
+    const summaryOnly =
+      url.searchParams.get("summary_only") === "1"
+      || url.searchParams.get("summary_only") === "true";
+    const auditLimit = summaryOnly
+      ? Math.min(Number(url.searchParams.get("audit_limit") || 500), 2000)
+      : Math.min(Number(url.searchParams.get("audit_limit") || 100), 500);
 
     let resolvedRegionId = regionId;
     if (!resolvedRegionId && serviceAreaId) {
@@ -235,8 +281,7 @@ serve(async (req) => {
       ledgerRows,
       pendingPayoutsResult,
       pendingCashoutsResult,
-      webhookResult,
-      failedWebhooksResult,
+      webhookHealth,
     ] = await Promise.all([
       tripQuery,
       fetchLedgerRowsForPeriod(supabase, periodFrom, periodTo, driverIds),
@@ -245,17 +290,7 @@ serve(async (req) => {
         .from("driver_early_cashouts")
         .select("requested_cashout_pence, driver_receives_pence")
         .in("status", ["processing", "pending", "transfer_created"]),
-      supabase
-        .from("webhook_events")
-        .select("created_at, status")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      supabase
-        .from("webhook_events")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "failed")
-        .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()),
+      fetchWebhookHealth(supabase),
     ]);
 
     if (tripResult.error) throw tripResult.error;
@@ -288,7 +323,7 @@ serve(async (req) => {
       stripe_transfer_id?: string | null;
     }> = [];
 
-    if (tripIds.length > 0) {
+    if (tripIds.length > 0 && !summaryOnly) {
       const [paymentsRes, payoutItemsRes, tripLedgerRes] = await Promise.all([
         supabase
           .from("payments")
@@ -315,6 +350,13 @@ serve(async (req) => {
         stripe_payout_id: row.stripe_payout_id ?? null,
         stripe_transfer_id: row.stripe_transfer_id ?? null,
       }));
+    } else if (tripIds.length > 0 && summaryOnly) {
+      const paymentsRes = await supabase
+        .from("payments")
+        .select("captured_amount_pence, status, trip_id, provider_status, stripe_payment_intent_id, provider_available_on")
+        .in("trip_id", tripIds);
+      if (paymentsRes.error) throw paymentsRes.error;
+      paymentRows = paymentsRes.data || [];
     }
 
     const auditContext = buildTripFinancialAuditContext({
@@ -379,8 +421,7 @@ serve(async (req) => {
       });
     }
 
-    const failedWebhookCount = failedWebhooksResult.count ?? 0;
-    const lastWebhookAt = webhookResult.data?.created_at ?? null;
+    const { failedWebhookCount, lastWebhookAt } = webhookHealth;
     let providerHealth: "healthy" | "degraded" | "failing" | "unknown" = "unknown";
     if (stripeBalanceError) {
       providerHealth = "failing";
@@ -420,7 +461,9 @@ serve(async (req) => {
       dataSourceBadge: "LIVE",
     });
 
-    const trip_financial_audit = search?.trim()
+    const trip_financial_audit = summaryOnly
+      ? []
+      : search?.trim()
       ? await (async () => {
         let auditSearchQuery = supabase
           .from("trips")
@@ -487,9 +530,13 @@ serve(async (req) => {
           })),
         });
 
-        return auditSourceRows.map((row) => mapTripToFinancialAuditRow(row, searchAuditContext));
+        return auditSourceRows
+          .map((row) => safeMapTripAuditRow(row, searchAuditContext))
+          .filter((row): row is NonNullable<typeof row> => row !== null);
       })()
-      : tripRows.map((row) => mapTripToFinancialAuditRow(row, auditContext));
+      : tripRows
+        .map((row) => safeMapTripAuditRow(row, auditContext))
+        .filter((row): row is NonNullable<typeof row> => row !== null);
 
     return new Response(JSON.stringify({
       period: { from: periodFrom, to: periodTo },

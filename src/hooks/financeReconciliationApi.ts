@@ -49,7 +49,14 @@ export async function fetchOnecabNetCommissionPence(
   to: Date,
   serviceAreaId: string | null,
 ): Promise<number> {
-  const filter = serviceAreaId ? { serviceAreaId, regionId: null, currencyCode: null } : undefined;
-  const data = await invokeFinanceReconciliation(filter, from.toISOString(), to.toISOString());
-  return data.finance_reconciliation_summary?.onecab_money?.onecab_net_commission_pence ?? 0;
+  try {
+    const filter = serviceAreaId ? { serviceAreaId, regionId: null, currencyCode: null } : undefined;
+    const data = await invokeFinanceReconciliation(filter, from.toISOString(), to.toISOString(), {
+      summary_only: '1',
+    });
+    return data.finance_reconciliation_summary?.onecab_money?.onecab_net_commission_pence ?? 0;
+  } catch (error) {
+    console.warn('[fetchOnecabNetCommissionPence]', error);
+    return 0;
+  }
 }

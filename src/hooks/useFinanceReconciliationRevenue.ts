@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
-import { subDays, format } from 'date-fns';
+import { subDays, isValid, parseISO } from 'date-fns';
 import {
   getLondonDayBounds,
   getLondonMonthStart,
   getLondonWeekStart,
 } from '@/lib/financeLondonDay';
+import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 import {
   fetchOnecabNetCommissionPence,
   invokeFinanceReconciliation,
@@ -50,15 +51,17 @@ function bucketAuditChart(
   const buckets = new Map<string, number>();
   for (const row of rows) {
     if (!row.date) continue;
-    const d = new Date(row.date);
+    const d = parseISO(row.date);
+    if (!isValid(d)) continue;
     let key: string;
     if (period === 'daily' || period === 'custom') {
-      key = format(d, 'MMM d');
+      key = formatFinanceDateSafe(row.date, 'MMM d', '');
     } else if (period === 'weekly') {
-      key = format(getLondonWeekStart(d), 'MMM d');
+      key = formatFinanceDateSafe(getLondonWeekStart(d).toISOString(), 'MMM d', '');
     } else {
-      key = format(d, 'MMM yyyy');
+      key = formatFinanceDateSafe(row.date, 'MMM yyyy', '');
     }
+    if (!key) continue;
     buckets.set(key, (buckets.get(key) || 0) + row.onecab_net_pence);
   }
   return Array.from(buckets.entries()).map(([label, revenue]) => ({ label, revenue }));
@@ -117,14 +120,15 @@ export function useFinanceReconciliationRevenue({
       };
 
       try {
-      const [todayNet, weeklyNet, monthlyNet, allTimeNet, chartResponse] = await Promise.all([
+      const chartResponse = await invokeFinanceReconciliation(filter, chartFrom.toISOString(), chartTo.toISOString(), {
+        audit_limit: '200',
+      });
+
+      const [todayNet, weeklyNet, monthlyNet, allTimeNet] = await Promise.all([
         fetchOnecabNetCommissionPence(todayStart, todayEnd, saId),
         fetchOnecabNetCommissionPence(weekStart, todayEnd, saId),
         fetchOnecabNetCommissionPence(monthStart, todayEnd, saId),
         fetchOnecabNetCommissionPence(epochStart, todayEnd, saId),
-        invokeFinanceReconciliation(filter, chartFrom.toISOString(), chartTo.toISOString(), {
-          audit_limit: '200',
-        }),
       ]);
 
       let customRev = 0;

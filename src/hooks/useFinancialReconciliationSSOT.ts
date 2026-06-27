@@ -22,7 +22,7 @@ export { buildFinanceReconciliationPath };
 export type FinanceDataSourceBadge = 'LIVE' | 'SUMMARY' | 'LEDGER' | 'RECONSTRUCTED';
 
 export type FinancialReconciliationSSOTResult = {
-  summary: FinanceReconciliationSummary;
+  summary: FinanceReconciliationSummary | null;
   badge: FinanceDataSourceBadge;
   currencyCode: string;
   period: { from: string; to: string };
@@ -281,8 +281,8 @@ export function useFinancialReconciliationSSOT(args?: {
     }
 
     return {
-      summary: null as unknown as FinanceReconciliationSummary,
-      badge: 'RECONSTRUCTED',
+      summary: null,
+      badge: 'RECONSTRUCTED' as FinanceDataSourceBadge,
       currencyCode: 'GBP',
       period: { from: from ?? '', to: to ?? '' },
       response: null,
@@ -323,38 +323,58 @@ export function useFinancialReconciliationSSOT(args?: {
 
 /** Read-only accessors — pages must use these, never compute locally. */
 export const FinanceSSOT = {
-  cardCustomerRevenue: (s: FinanceReconciliationSummary) => s.customer_revenue.card_customer_revenue_pence,
-  cashCollectedByDriver: (s: FinanceReconciliationSummary) => s.customer_revenue.cash_collected_by_driver_pence,
-  totalCustomerRevenue: (s: FinanceReconciliationSummary) => s.customer_revenue.total_customer_revenue_pence,
-  refundedAmount: (s: FinanceReconciliationSummary) => s.customer_revenue.refunded_amount_pence,
-  netCardRevenue: (s: FinanceReconciliationSummary) => s.customer_revenue.net_card_revenue_pence,
-  netCustomerRevenue: (s: FinanceReconciliationSummary) => s.customer_revenue.net_card_revenue_pence,
-  cardDriverPayable: (s: FinanceReconciliationSummary) => s.driver_money.card_driver_payable_pence,
-  cashDriverAlreadyReceived: (s: FinanceReconciliationSummary) => s.driver_money.cash_driver_already_received_pence,
-  driverGrossEarnings: (s: FinanceReconciliationSummary) => s.driver_money.driver_gross_earnings_pence ?? 0,
-  driverNetEarnings: (s: FinanceReconciliationSummary) => s.driver_money.driver_net_earnings_pence ?? s.driver_money.card_driver_payable_pence,
-  onecabCardCommission: (s: FinanceReconciliationSummary) => s.onecab_money.onecab_card_commission_pence,
-  onecabCashCommissionReceivable: (s: FinanceReconciliationSummary) => s.onecab_money.onecab_cash_commission_receivable_pence,
-  onecabGrossCommission: (s: FinanceReconciliationSummary) => s.onecab_money.onecab_gross_commission_pence,
-  onecabCardNetCommission: (s: FinanceReconciliationSummary) =>
-    s.onecab_money.onecab_card_net_commission_pence
-    ?? Math.max(0, s.onecab_money.onecab_card_commission_pence - s.onecab_money.provider_processing_fee_pence),
-  totalCommissionEarned: (s: FinanceReconciliationSummary) =>
-    s.onecab_money.total_commission_earned_pence
-    ?? (s.onecab_money.onecab_card_commission_pence + s.onecab_money.onecab_cash_commission_receivable_pence),
-  providerProcessingFee: (s: FinanceReconciliationSummary) => s.onecab_money.provider_processing_fee_pence,
-  netPlatformRevenue: (s: FinanceReconciliationSummary) =>
-    s.onecab_money.net_platform_revenue_pence ?? s.onecab_money.onecab_net_commission_pence,
-  onecabNetCommission: (s: FinanceReconciliationSummary) =>
-    s.onecab_money.net_platform_revenue_pence ?? s.onecab_money.onecab_net_commission_pence,
-  driverPaidOut: (s: FinanceReconciliationSummary) => s.driver_money.driver_paid_out_pence,
-  driverRemainingLiability: (s: FinanceReconciliationSummary) => s.driver_money.driver_payout_liability_pence,
-  driverAvailableNow: (s: FinanceReconciliationSummary) => s.driver_money.driver_available_payout_pence,
-  driverPendingPayout: (s: FinanceReconciliationSummary) => s.driver_money.driver_pending_payout_pence,
-  providerAvailableBalance: (s: FinanceReconciliationSummary) => s.provider_money.provider_available_balance_pence,
-  providerPendingBalance: (s: FinanceReconciliationSummary) => s.provider_money.provider_pending_balance_pence,
-  reconciliationStatus: (s: FinanceReconciliationSummary) =>
-    s.reconciliation_check?.status ?? 'BALANCED',
-  reconciliationVariance: (s: FinanceReconciliationSummary) =>
-    s.reconciliation_check?.variance_pence ?? s.reconciliation_check?.delta_pence ?? 0,
+  cardCustomerRevenue: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.customer_revenue?.card_customer_revenue_pence ?? 0,
+  cashCollectedByDriver: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.customer_revenue?.cash_collected_by_driver_pence ?? 0,
+  totalCustomerRevenue: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.customer_revenue?.total_customer_revenue_pence ?? 0,
+  refundedAmount: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.customer_revenue?.refunded_amount_pence ?? 0,
+  netCardRevenue: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.customer_revenue?.net_card_revenue_pence ?? 0,
+  netCustomerRevenue: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.customer_revenue?.net_card_revenue_pence ?? 0,
+  cardDriverPayable: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.driver_money?.card_driver_payable_pence ?? 0,
+  cashDriverAlreadyReceived: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.driver_money?.cash_driver_already_received_pence ?? 0,
+  driverGrossEarnings: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.driver_money?.driver_gross_earnings_pence ?? 0,
+  driverNetEarnings: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.driver_money?.driver_net_earnings_pence ?? s?.driver_money?.card_driver_payable_pence ?? 0,
+  onecabCardCommission: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.onecab_money?.onecab_card_commission_pence ?? 0,
+  onecabCashCommissionReceivable: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.onecab_money?.onecab_cash_commission_receivable_pence ?? 0,
+  onecabGrossCommission: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.onecab_money?.onecab_gross_commission_pence ?? 0,
+  onecabCardNetCommission: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.onecab_money?.onecab_card_net_commission_pence
+    ?? Math.max(0, (s?.onecab_money?.onecab_card_commission_pence ?? 0) - (s?.onecab_money?.provider_processing_fee_pence ?? 0)),
+  totalCommissionEarned: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.onecab_money?.total_commission_earned_pence
+    ?? ((s?.onecab_money?.onecab_card_commission_pence ?? 0) + (s?.onecab_money?.onecab_cash_commission_receivable_pence ?? 0)),
+  providerProcessingFee: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.onecab_money?.provider_processing_fee_pence ?? 0,
+  netPlatformRevenue: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.onecab_money?.net_platform_revenue_pence ?? s?.onecab_money?.onecab_net_commission_pence ?? 0,
+  onecabNetCommission: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.onecab_money?.net_platform_revenue_pence ?? s?.onecab_money?.onecab_net_commission_pence ?? 0,
+  driverPaidOut: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.driver_money?.driver_paid_out_pence ?? 0,
+  driverRemainingLiability: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.driver_money?.driver_payout_liability_pence ?? 0,
+  driverAvailableNow: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.driver_money?.driver_available_payout_pence ?? 0,
+  driverPendingPayout: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.driver_money?.driver_pending_payout_pence ?? 0,
+  providerAvailableBalance: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.provider_money?.provider_available_balance_pence ?? 0,
+  providerPendingBalance: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.provider_money?.provider_pending_balance_pence ?? 0,
+  reconciliationStatus: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.reconciliation_check?.status ?? 'BALANCED',
+  reconciliationVariance: (s: FinanceReconciliationSummary | null | undefined) =>
+    s?.reconciliation_check?.variance_pence ?? s?.reconciliation_check?.delta_pence ?? 0,
 };

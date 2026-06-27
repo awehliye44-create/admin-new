@@ -7,7 +7,7 @@ import type { FinanceReconciliationSummary } from '@/hooks/useFinanceReconciliat
 import type { FinanceDataSourceBadge } from '@/hooks/useFinancialReconciliationSSOT';
 import { useFinanceBackendAudit } from '@/hooks/useFinanceBackendAudit';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
-import { format } from 'date-fns';
+import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 
 export function OnecabCommissionVisibility({
   summary,
@@ -115,7 +115,9 @@ export function OnecabCommissionVisibility({
                       <td className="p-2 text-right">{formatPence(p.amount_pence, currencyCode)}</td>
                       <td className="p-2">{p.status}</td>
                       <td className="p-2 whitespace-nowrap">
-                        {p.arrival_date ? format(new Date(p.arrival_date), 'd MMM yyyy HH:mm') : '—'}
+                        {p.arrival_date
+                          ? formatFinanceDateSafe(p.arrival_date, 'd MMM yyyy HH:mm')
+                          : '—'}
                       </td>
                     </tr>
                   ))}
