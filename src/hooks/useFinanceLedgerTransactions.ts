@@ -282,7 +282,7 @@ export function useFinanceLedgerTransactions(args: {
       }
 
       if (includeDiscounts) {
-        let discountQuery = supabase
+        let discountQuery: any = supabase
           .from('trips')
           .select(`
             id, trip_code, payment_method, completed_at, discount_pence, discount_source,
