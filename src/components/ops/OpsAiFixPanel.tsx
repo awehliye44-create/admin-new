@@ -94,7 +94,12 @@ export function OpsAiFixPanel({ alertId, alertStatus }: OpsAiFixPanelProps) {
       });
 
       if (fnErr) throw fnErr;
-      if (data?.error) throw new Error(data.error);
+      if (data?.fallback || (data?.error && !data?.success)) {
+        const msg = data?.error || 'Fix execution unavailable';
+        setError(msg);
+        toast.warning('Fix execution unavailable', { description: msg });
+        return;
+      }
 
       setExecutionResult(data);
       if (data.success) {
