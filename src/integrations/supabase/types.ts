@@ -8528,6 +8528,115 @@ export type Database = {
           },
         ]
       }
+      payout_authorization: {
+        Row: {
+          allocation_snapshot: Json
+          authorization_id: string
+          authorized_amount_pence: number
+          authorized_at: string
+          calculation_hash: string
+          created_at: string
+          driver_id: string
+          eligible_settled_unpaid_pence: number
+          expires_at: string
+          in_flight_pence_at_auth: number
+          invalidated_at: string | null
+          invalidation_reason: string | null
+          ledger_snapshot_hash: string
+          manual_review_holdback_pence: number
+          payout_item_id: string | null
+          settlement_snapshot_hash: string
+          status: string
+          updated_at: string
+          wallet_balance_pence_at_auth: number
+        }
+        Insert: {
+          allocation_snapshot?: Json
+          authorization_id?: string
+          authorized_amount_pence: number
+          authorized_at?: string
+          calculation_hash: string
+          created_at?: string
+          driver_id: string
+          eligible_settled_unpaid_pence?: number
+          expires_at: string
+          in_flight_pence_at_auth?: number
+          invalidated_at?: string | null
+          invalidation_reason?: string | null
+          ledger_snapshot_hash: string
+          manual_review_holdback_pence?: number
+          payout_item_id?: string | null
+          settlement_snapshot_hash: string
+          status?: string
+          updated_at?: string
+          wallet_balance_pence_at_auth?: number
+        }
+        Update: {
+          allocation_snapshot?: Json
+          authorization_id?: string
+          authorized_amount_pence?: number
+          authorized_at?: string
+          calculation_hash?: string
+          created_at?: string
+          driver_id?: string
+          eligible_settled_unpaid_pence?: number
+          expires_at?: string
+          in_flight_pence_at_auth?: number
+          invalidated_at?: string | null
+          invalidation_reason?: string | null
+          ledger_snapshot_hash?: string
+          manual_review_holdback_pence?: number
+          payout_item_id?: string | null
+          settlement_snapshot_hash?: string
+          status?: string
+          updated_at?: string
+          wallet_balance_pence_at_auth?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payout_authorization_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_authorization_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "payout_authorization_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "payout_authorization_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "payout_authorization_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_authorization_payout_item_id_fkey"
+            columns: ["payout_item_id"]
+            isOneToOne: false
+            referencedRelation: "payout_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payout_batches: {
         Row: {
           completed_at: string | null
@@ -8643,6 +8752,7 @@ export type Database = {
       payout_items: {
         Row: {
           amount_pence: number
+          authorization_id: string | null
           batch_id: string | null
           cash_commission_recovered_pence: number | null
           commission_amount_pence: number | null
@@ -8690,6 +8800,7 @@ export type Database = {
         }
         Insert: {
           amount_pence: number
+          authorization_id?: string | null
           batch_id?: string | null
           cash_commission_recovered_pence?: number | null
           commission_amount_pence?: number | null
@@ -8737,6 +8848,7 @@ export type Database = {
         }
         Update: {
           amount_pence?: number
+          authorization_id?: string | null
           batch_id?: string | null
           cash_commission_recovered_pence?: number | null
           commission_amount_pence?: number | null
@@ -8783,6 +8895,13 @@ export type Database = {
           wallet_recalculated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "payout_items_authorization_id_fkey"
+            columns: ["authorization_id"]
+            isOneToOne: false
+            referencedRelation: "payout_authorization"
+            referencedColumns: ["authorization_id"]
+          },
           {
             foreignKeyName: "payout_items_batch_id_fkey"
             columns: ["batch_id"]
