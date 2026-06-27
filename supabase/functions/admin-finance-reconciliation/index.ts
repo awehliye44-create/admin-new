@@ -179,35 +179,53 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
+    if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
+    const anonClient = createClient(
+      supabaseUrl,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } },
+    );
     const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
+    const { data: claimsData, error: authError } = await anonClient.auth.getClaims(token);
+    if (authError || !claimsData?.claims) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    const userId = claimsData.claims.sub as string;
 
     const { data: roleData } = await supabase
       .from("user_roles")
       .select("role")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("role", "admin")
       .maybeSingle();
 
-    if (!roleData) {
+    let isAuthorized = !!roleData;
+    if (!isAuthorized) {
+      const { data: staffRow } = await supabase
+        .from("staff_profiles")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("is_active", true)
+        .maybeSingle();
+      isAuthorized = !!staffRow;
+    }
+
+    if (!isAuthorized) {
       return new Response(JSON.stringify({ error: "Admin access required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
 
     const url = new URL(req.url);
     const regionId = url.searchParams.get("region_id") || req.headers.get("x-region-id");
