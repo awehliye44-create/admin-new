@@ -57,7 +57,12 @@ export function OpsAiFixPanel({ alertId, alertStatus }: OpsAiFixPanelProps) {
       });
 
       if (fnErr) throw fnErr;
-      if (data?.error) throw new Error(data.error);
+      if (data?.fallback || data?.error) {
+        const msg = data?.error || 'AI analysis unavailable';
+        setError(msg);
+        toast.warning('AI analysis unavailable', { description: msg });
+        return;
+      }
 
       setProposal(data.proposal);
     } catch (e: any) {
