@@ -170,11 +170,11 @@ ${contextParts.join("\n")}`;
       }
 
       if (!aiResponse!.ok) {
-        if (aiResponse!.status === 429) return json({ error: "Rate limited. Try again shortly." }, 429);
-        if (aiResponse!.status === 402) return json({ error: "AI credits exhausted." }, 402);
-        if (aiResponse!.status >= 500) return json({ error: "AI Gateway temporarily unavailable. Please retry in a moment." }, 503);
+        if (aiResponse!.status === 429) return json({ error: "Rate limited. Try again shortly.", fallback: true }, 200);
+        if (aiResponse!.status === 402) return json({ error: "AI credits exhausted.", fallback: true }, 200);
+        if (aiResponse!.status >= 500) return json({ error: "AI Gateway temporarily unavailable. Please retry in a moment.", fallback: true }, 200);
         const errText = await aiResponse!.text();
-        return json({ error: "AI analysis failed", detail: errText }, 500);
+        return json({ error: "AI analysis failed", detail: errText, fallback: true }, 200);
       }
 
       const aiResult = await aiResponse!.json();
