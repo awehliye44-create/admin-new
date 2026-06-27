@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ServiceAreaPaymentConfig } from '@/components/payment/ServiceAreaPaymentConfig';
+import { ServiceAreaDriverWalletConfig } from '@/components/finance/ServiceAreaDriverWalletConfig';
 import { PreauthBufferConfig } from '@/components/payment/PreauthBufferConfig';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { PresetOffersConfig } from '@/components/pricing/PresetOffersConfig';
@@ -61,6 +62,7 @@ interface ServiceArea {
   tips_enabled: boolean;
   per_booking_fee_enabled: boolean;
   per_booking_fee_pence: number;
+  early_cashout_enabled: boolean;
   region?: { 
     name: string;
     currency_code: string;
@@ -110,7 +112,7 @@ export default function ServiceAreaPricing() {
       const [areasRes, vtRes] = await Promise.all([
         supabase
           .from('service_areas')
-          .select('id, name, region_id, is_active, tips_enabled, per_booking_fee_enabled, per_booking_fee_pence, region:regions(name, currency_code, distance_unit)')
+          .select('id, name, region_id, is_active, tips_enabled, per_booking_fee_enabled, per_booking_fee_pence, early_cashout_enabled, region:regions(name, currency_code, distance_unit)')
           .order('name'),
         supabase
           .from('vehicle_types')
@@ -189,6 +191,15 @@ export default function ServiceAreaPricing() {
     setHasChanges(true);
   };
 
+  const updateEarlyCashoutEnabled = (enabled: boolean) => {
+    setServiceAreas(prev => prev.map(sa =>
+      sa.id === selectedServiceAreaId
+        ? { ...sa, early_cashout_enabled: enabled }
+        : sa
+    ));
+    setHasChanges(true);
+  };
+
   const handleSave = async () => {
     if (!selectedServiceAreaId) return;
 
@@ -202,6 +213,7 @@ export default function ServiceAreaPricing() {
             per_booking_fee_enabled: selectedServiceArea.per_booking_fee_enabled,
             per_booking_fee_pence: selectedServiceArea.per_booking_fee_pence,
             tips_enabled: selectedServiceArea.tips_enabled,
+            early_cashout_enabled: selectedServiceArea.early_cashout_enabled ?? false,
           })
           .eq('id', selectedServiceAreaId);
       }
@@ -450,6 +462,14 @@ export default function ServiceAreaPricing() {
             <PresetOffersConfig
               serviceAreaId={selectedServiceAreaId}
               currencySymbol={getCurrencySymbol(regionCurrency)}
+            />
+          )}
+          {selectedServiceAreaId && (
+            <ServiceAreaDriverWalletConfig
+              enabled={selectedServiceArea?.early_cashout_enabled ?? false}
+              onChange={updateEarlyCashoutEnabled}
+              serviceAreaName={selectedServiceArea?.name}
+              disabled={isSaving}
             />
           )}
           {selectedServiceAreaId && (
