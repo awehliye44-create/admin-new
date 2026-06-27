@@ -14,6 +14,63 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_email_change_requests: {
+        Row: {
+          account_id: string | null
+          account_type: string
+          attempt_count: number
+          cancelled_at: string | null
+          created_at: string
+          created_ip: string | null
+          current_email: string
+          expires_at: string
+          id: string
+          new_email: string
+          requested_at: string
+          status: string
+          token_hash: string
+          user_agent: string | null
+          user_id: string
+          verified_at: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          account_type: string
+          attempt_count?: number
+          cancelled_at?: string | null
+          created_at?: string
+          created_ip?: string | null
+          current_email: string
+          expires_at: string
+          id?: string
+          new_email: string
+          requested_at?: string
+          status?: string
+          token_hash: string
+          user_agent?: string | null
+          user_id: string
+          verified_at?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          account_type?: string
+          attempt_count?: number
+          cancelled_at?: string | null
+          created_at?: string
+          created_ip?: string | null
+          current_email?: string
+          expires_at?: string
+          id?: string
+          new_email?: string
+          requested_at?: string
+          status?: string
+          token_hash?: string
+          user_agent?: string | null
+          user_id?: string
+          verified_at?: string | null
+        }
+        Relationships: []
+      }
       account_email_verifications: {
         Row: {
           app_type: string
@@ -682,6 +739,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "call_masking_sessions_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "admin_customer_code_audit"
+            referencedColumns: ["customer_id"]
+          },
           {
             foreignKeyName: "call_masking_sessions_customer_id_fkey"
             columns: ["customer_id"]
@@ -1864,6 +1928,13 @@ export type Database = {
             foreignKeyName: "customer_live_locations_customer_id_fkey"
             columns: ["customer_id"]
             isOneToOne: false
+            referencedRelation: "admin_customer_code_audit"
+            referencedColumns: ["customer_id"]
+          },
+          {
+            foreignKeyName: "customer_live_locations_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
             referencedRelation: "admin_riders_with_trip_stats"
             referencedColumns: ["id"]
           },
@@ -1944,6 +2015,13 @@ export type Database = {
           used_count?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "customer_personal_vouchers_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "admin_customer_code_audit"
+            referencedColumns: ["customer_id"]
+          },
           {
             foreignKeyName: "customer_personal_vouchers_customer_id_fkey"
             columns: ["customer_id"]
@@ -2088,6 +2166,13 @@ export type Database = {
             foreignKeyName: "customer_wallets_customer_id_fkey"
             columns: ["customer_id"]
             isOneToOne: true
+            referencedRelation: "admin_customer_code_audit"
+            referencedColumns: ["customer_id"]
+          },
+          {
+            foreignKeyName: "customer_wallets_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: true
             referencedRelation: "admin_riders_with_trip_stats"
             referencedColumns: ["id"]
           },
@@ -2104,13 +2189,22 @@ export type Database = {
         Row: {
           active_trip_id: string | null
           created_at: string
-          customer_code: string
+          customer_code: string | null
           deleted_at: string | null
           email_verified: boolean
           email_verified_at: string | null
           first_name: string
           id: string
           last_name: string
+          pending_email_change: string | null
+          pending_email_change_expires_at: string | null
+          pending_email_change_requested_at: string | null
+          pending_email_change_verified_at: string | null
+          pending_phone_change: string | null
+          pending_phone_change_expires_at: string | null
+          pending_phone_change_otp_sent_at: string | null
+          pending_phone_change_requested_at: string | null
+          pending_phone_change_verified_at: string | null
           phone: string | null
           phone_verified: boolean
           phone_verified_at: string | null
@@ -2122,13 +2216,22 @@ export type Database = {
         Insert: {
           active_trip_id?: string | null
           created_at?: string
-          customer_code: string
+          customer_code?: string | null
           deleted_at?: string | null
           email_verified?: boolean
           email_verified_at?: string | null
           first_name: string
           id?: string
           last_name: string
+          pending_email_change?: string | null
+          pending_email_change_expires_at?: string | null
+          pending_email_change_requested_at?: string | null
+          pending_email_change_verified_at?: string | null
+          pending_phone_change?: string | null
+          pending_phone_change_expires_at?: string | null
+          pending_phone_change_otp_sent_at?: string | null
+          pending_phone_change_requested_at?: string | null
+          pending_phone_change_verified_at?: string | null
           phone?: string | null
           phone_verified?: boolean
           phone_verified_at?: string | null
@@ -2140,13 +2243,22 @@ export type Database = {
         Update: {
           active_trip_id?: string | null
           created_at?: string
-          customer_code?: string
+          customer_code?: string | null
           deleted_at?: string | null
           email_verified?: boolean
           email_verified_at?: string | null
           first_name?: string
           id?: string
           last_name?: string
+          pending_email_change?: string | null
+          pending_email_change_expires_at?: string | null
+          pending_email_change_requested_at?: string | null
+          pending_email_change_verified_at?: string | null
+          pending_phone_change?: string | null
+          pending_phone_change_expires_at?: string | null
+          pending_phone_change_otp_sent_at?: string | null
+          pending_phone_change_requested_at?: string | null
+          pending_phone_change_verified_at?: string | null
           phone?: string | null
           phone_verified?: boolean
           phone_verified_at?: string | null
@@ -3194,6 +3306,211 @@ export type Database = {
         }
         Relationships: []
       }
+      driver_commitment_sessions: {
+        Row: {
+          created_at: string
+          driver_id: string
+          id: string
+          last_distance_m: number | null
+          last_progress_at: string
+          min_distance_m: number | null
+          moving_away_warned_at: string | null
+          no_progress_warned_at: string | null
+          pickup_lat: number
+          pickup_lng: number
+          started_at: string
+          stop_reason: string | null
+          stopped_at: string | null
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          driver_id: string
+          id?: string
+          last_distance_m?: number | null
+          last_progress_at?: string
+          min_distance_m?: number | null
+          moving_away_warned_at?: string | null
+          no_progress_warned_at?: string | null
+          pickup_lat: number
+          pickup_lng: number
+          started_at?: string
+          stop_reason?: string | null
+          stopped_at?: string | null
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          driver_id?: string
+          id?: string
+          last_distance_m?: number | null
+          last_progress_at?: string
+          min_distance_m?: number | null
+          moving_away_warned_at?: string | null
+          no_progress_warned_at?: string | null
+          pickup_lat?: number
+          pickup_lng?: number
+          started_at?: string
+          stop_reason?: string | null
+          stopped_at?: string | null
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_commitment_sessions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commitment_sessions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commitment_sessions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commitment_sessions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commitment_sessions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commitment_sessions_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commitment_sessions_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commitment_sessions_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      driver_commitment_warnings: {
+        Row: {
+          created_at: string
+          driver_id: string
+          id: string
+          message: string
+          session_id: string
+          trip_id: string
+          warning_type: string
+        }
+        Insert: {
+          created_at?: string
+          driver_id: string
+          id?: string
+          message: string
+          session_id: string
+          trip_id: string
+          warning_type: string
+        }
+        Update: {
+          created_at?: string
+          driver_id?: string
+          id?: string
+          message?: string
+          session_id?: string
+          trip_id?: string
+          warning_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_commitment_warnings_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commitment_warnings_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commitment_warnings_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commitment_warnings_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commitment_warnings_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commitment_warnings_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "driver_commitment_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commitment_warnings_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commitment_warnings_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commitment_warnings_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_demand_zones: {
         Row: {
           active: boolean
@@ -3270,11 +3587,17 @@ export type Database = {
           onecab_cashout_fee_pence: number
           paid_at: string | null
           payout_method: string | null
+          payout_type: string
           requested_cashout_pence: number
           status: string
+          stripe_fee_pence: number | null
+          stripe_instant_available_before_pence: number | null
+          stripe_method: string
           stripe_payout_id: string | null
           stripe_transfer_id: string | null
           updated_at: string
+          wallet_after_pence: number | null
+          wallet_before_pence: number | null
         }
         Insert: {
           created_at?: string
@@ -3291,11 +3614,17 @@ export type Database = {
           onecab_cashout_fee_pence: number
           paid_at?: string | null
           payout_method?: string | null
+          payout_type?: string
           requested_cashout_pence: number
           status?: string
+          stripe_fee_pence?: number | null
+          stripe_instant_available_before_pence?: number | null
+          stripe_method?: string
           stripe_payout_id?: string | null
           stripe_transfer_id?: string | null
           updated_at?: string
+          wallet_after_pence?: number | null
+          wallet_before_pence?: number | null
         }
         Update: {
           created_at?: string
@@ -3312,11 +3641,17 @@ export type Database = {
           onecab_cashout_fee_pence?: number
           paid_at?: string | null
           payout_method?: string | null
+          payout_type?: string
           requested_cashout_pence?: number
           status?: string
+          stripe_fee_pence?: number | null
+          stripe_instant_available_before_pence?: number | null
+          stripe_method?: string
           stripe_payout_id?: string | null
           stripe_transfer_id?: string | null
           updated_at?: string
+          wallet_after_pence?: number | null
+          wallet_before_pence?: number | null
         }
         Relationships: [
           {
@@ -4475,6 +4810,15 @@ export type Database = {
           onboarding_complete: boolean | null
           online_since: string | null
           payouts_enabled: boolean | null
+          pending_email_change: string | null
+          pending_email_change_expires_at: string | null
+          pending_email_change_requested_at: string | null
+          pending_email_change_verified_at: string | null
+          pending_phone_change: string | null
+          pending_phone_change_expires_at: string | null
+          pending_phone_change_otp_sent_at: string | null
+          pending_phone_change_requested_at: string | null
+          pending_phone_change_verified_at: string | null
           phone: string
           phone_verified: boolean
           phone_verified_at: string | null
@@ -4529,6 +4873,15 @@ export type Database = {
           onboarding_complete?: boolean | null
           online_since?: string | null
           payouts_enabled?: boolean | null
+          pending_email_change?: string | null
+          pending_email_change_expires_at?: string | null
+          pending_email_change_requested_at?: string | null
+          pending_email_change_verified_at?: string | null
+          pending_phone_change?: string | null
+          pending_phone_change_expires_at?: string | null
+          pending_phone_change_otp_sent_at?: string | null
+          pending_phone_change_requested_at?: string | null
+          pending_phone_change_verified_at?: string | null
           phone: string
           phone_verified?: boolean
           phone_verified_at?: string | null
@@ -4583,6 +4936,15 @@ export type Database = {
           onboarding_complete?: boolean | null
           online_since?: string | null
           payouts_enabled?: boolean | null
+          pending_email_change?: string | null
+          pending_email_change_expires_at?: string | null
+          pending_email_change_requested_at?: string | null
+          pending_email_change_verified_at?: string | null
+          pending_phone_change?: string | null
+          pending_phone_change_expires_at?: string | null
+          pending_phone_change_otp_sent_at?: string | null
+          pending_phone_change_requested_at?: string | null
+          pending_phone_change_verified_at?: string | null
           phone?: string
           phone_verified?: boolean
           phone_verified_at?: string | null
@@ -7545,6 +7907,13 @@ export type Database = {
             foreignKeyName: "passenger_ratings_passenger_id_fkey"
             columns: ["passenger_id"]
             isOneToOne: false
+            referencedRelation: "admin_customer_code_audit"
+            referencedColumns: ["customer_id"]
+          },
+          {
+            foreignKeyName: "passenger_ratings_passenger_id_fkey"
+            columns: ["passenger_id"]
+            isOneToOne: false
             referencedRelation: "admin_riders_with_trip_stats"
             referencedColumns: ["id"]
           },
@@ -8083,7 +8452,9 @@ export type Database = {
           ledger_entry_id: string | null
           ledger_sync_error: string | null
           net_driver_payout_pence: number | null
+          onecab_fee_pence: number | null
           payment_id: string | null
+          payout_type: string | null
           provider_reference: string | null
           provider_response: Json | null
           provider_status: string | null
@@ -8091,10 +8462,15 @@ export type Database = {
           returned_to_wallet_pence: number | null
           settlement_status: string | null
           status: string
+          stripe_fee_pence: number | null
+          stripe_instant_available_before_pence: number | null
+          stripe_method: string
           stripe_payout_id: string | null
           stripe_transfer_id: string | null
           trip_id: string | null
           updated_at: string
+          wallet_after_pence: number | null
+          wallet_before_pence: number | null
           wallet_recalculated_at: string | null
         }
         Insert: {
@@ -8120,7 +8496,9 @@ export type Database = {
           ledger_entry_id?: string | null
           ledger_sync_error?: string | null
           net_driver_payout_pence?: number | null
+          onecab_fee_pence?: number | null
           payment_id?: string | null
+          payout_type?: string | null
           provider_reference?: string | null
           provider_response?: Json | null
           provider_status?: string | null
@@ -8128,10 +8506,15 @@ export type Database = {
           returned_to_wallet_pence?: number | null
           settlement_status?: string | null
           status?: string
+          stripe_fee_pence?: number | null
+          stripe_instant_available_before_pence?: number | null
+          stripe_method?: string
           stripe_payout_id?: string | null
           stripe_transfer_id?: string | null
           trip_id?: string | null
           updated_at?: string
+          wallet_after_pence?: number | null
+          wallet_before_pence?: number | null
           wallet_recalculated_at?: string | null
         }
         Update: {
@@ -8157,7 +8540,9 @@ export type Database = {
           ledger_entry_id?: string | null
           ledger_sync_error?: string | null
           net_driver_payout_pence?: number | null
+          onecab_fee_pence?: number | null
           payment_id?: string | null
+          payout_type?: string | null
           provider_reference?: string | null
           provider_response?: Json | null
           provider_status?: string | null
@@ -8165,10 +8550,15 @@ export type Database = {
           returned_to_wallet_pence?: number | null
           settlement_status?: string | null
           status?: string
+          stripe_fee_pence?: number | null
+          stripe_instant_available_before_pence?: number | null
+          stripe_method?: string
           stripe_payout_id?: string | null
           stripe_transfer_id?: string | null
           trip_id?: string | null
           updated_at?: string
+          wallet_after_pence?: number | null
+          wallet_before_pence?: number | null
           wallet_recalculated_at?: string | null
         }
         Relationships: [
@@ -8257,6 +8647,54 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      pending_customer_signups: {
+        Row: {
+          created_at: string
+          email: string
+          email_verified_at: string | null
+          expires_at: string
+          first_name: string
+          id: string
+          last_name: string
+          phone: string
+          phone_verified_at: string | null
+          signup_source: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          email_verified_at?: string | null
+          expires_at?: string
+          first_name: string
+          id?: string
+          last_name: string
+          phone: string
+          phone_verified_at?: string | null
+          signup_source?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          email_verified_at?: string | null
+          expires_at?: string
+          first_name?: string
+          id?: string
+          last_name?: string
+          phone?: string
+          phone_verified_at?: string | null
+          signup_source?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       places: {
         Row: {
@@ -10344,6 +10782,13 @@ export type Database = {
             foreignKeyName: "support_conversations_customer_id_fkey"
             columns: ["customer_id"]
             isOneToOne: false
+            referencedRelation: "admin_customer_code_audit"
+            referencedColumns: ["customer_id"]
+          },
+          {
+            foreignKeyName: "support_conversations_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
             referencedRelation: "admin_riders_with_trip_stats"
             referencedColumns: ["id"]
           },
@@ -11438,6 +11883,7 @@ export type Database = {
           platform_net_revenue_pence: number | null
           pre_assigned_driver_id: string | null
           preauth_buffer_pence: number
+          previous_driver_id: string | null
           pricing_mode: string | null
           pricing_version: string | null
           provider_available_on: string | null
@@ -11691,6 +12137,7 @@ export type Database = {
           platform_net_revenue_pence?: number | null
           pre_assigned_driver_id?: string | null
           preauth_buffer_pence?: number
+          previous_driver_id?: string | null
           pricing_mode?: string | null
           pricing_version?: string | null
           provider_available_on?: string | null
@@ -11944,6 +12391,7 @@ export type Database = {
           platform_net_revenue_pence?: number | null
           pre_assigned_driver_id?: string | null
           preauth_buffer_pence?: number
+          previous_driver_id?: string | null
           pricing_mode?: string | null
           pricing_version?: string | null
           provider_available_on?: string | null
@@ -12273,6 +12721,41 @@ export type Database = {
           {
             foreignKeyName: "trips_pre_assigned_driver_id_fkey"
             columns: ["pre_assigned_driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_previous_driver_id_fkey"
+            columns: ["previous_driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_previous_driver_id_fkey"
+            columns: ["previous_driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_previous_driver_id_fkey"
+            columns: ["previous_driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_previous_driver_id_fkey"
+            columns: ["previous_driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_previous_driver_id_fkey"
+            columns: ["previous_driver_id"]
             isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
@@ -12810,6 +13293,27 @@ export type Database = {
           },
         ]
       }
+      admin_customer_code_audit: {
+        Row: {
+          classification: string | null
+          created_at: string | null
+          customer_code: string | null
+          customer_id: string | null
+          deleted_at: string | null
+          email_confirmed_at: string | null
+          email_verified: boolean | null
+          first_name: string | null
+          last_name: string | null
+          likely_origin: string | null
+          pending_signup_status: string | null
+          phone: string | null
+          phone_confirmed_at: string | null
+          phone_verified: boolean | null
+          rider_status: string | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
       admin_driver_online_snapshot: {
         Row: {
           app_state: string | null
@@ -12873,6 +13377,28 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      admin_pending_customer_signups: {
+        Row: {
+          auth_email_confirmed_at: string | null
+          auth_phone_confirmed_at: string | null
+          created_at: string | null
+          email: string | null
+          email_verified_at: string | null
+          expires_at: string | null
+          first_name: string | null
+          id: string | null
+          last_name: string | null
+          legacy_customer_code: string | null
+          phone: string | null
+          phone_verified_at: string | null
+          record_type: string | null
+          signup_source: string | null
+          status: string | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Relationships: []
       }
       admin_riders_with_trip_stats: {
         Row: {
@@ -13742,6 +14268,125 @@ export type Database = {
         Args: { p_reason?: string; p_trip_id: string }
         Returns: Json
       }
+      admin_driver_financial_summaries: {
+        Args: { p_driver_id?: string; p_region_id?: string }
+        Returns: {
+          adjustments_total: number | null
+          amount_owed_to_onecab: number | null
+          approval_status: string | null
+          available_for_payout: number | null
+          card_commission_total: number | null
+          card_gross_total: number | null
+          card_net_credits: number | null
+          card_trip_count: number | null
+          cash_commission_debits: number | null
+          cash_gross_total: number | null
+          cash_net_earnings: number | null
+          cash_trip_count: number | null
+          company_commission_total: number | null
+          completed_trips: number | null
+          currency_code: string | null
+          driver_id: string | null
+          email: string | null
+          first_name: string | null
+          gross_trip_total: number | null
+          is_online: boolean | null
+          last_name: string | null
+          net_available_for_payout: number | null
+          onboarding_complete: boolean | null
+          payouts_enabled: boolean | null
+          phone: string | null
+          rating: number | null
+          region_id: string | null
+          reserved_cashout_pence: number | null
+          stripe_account_id: string | null
+          today_card_earnings: number | null
+          today_cash_earnings: number | null
+          today_gross_earnings: number | null
+          today_trip_count: number | null
+          total_fees: number | null
+          total_payouts_sent: number | null
+          wallet_balance: number | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "driver_financial_summary"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      admin_list_drivers: {
+        Args: never
+        Returns: {
+          approval_status: string
+          business_website_url: string | null
+          category_id: string | null
+          charges_enabled: boolean | null
+          city: string | null
+          country: string | null
+          country_code: string | null
+          created_at: string
+          current_lat: number | null
+          current_lng: number | null
+          current_trip_id: string | null
+          deleted_at: string | null
+          display_rating: number
+          documents_approved: boolean
+          driver_code: string | null
+          driver_online_intent: boolean
+          driver_status: Database["public"]["Enums"]["driver_status"]
+          email: string
+          email_verified: boolean
+          email_verified_at: string | null
+          first_name: string
+          heading: number | null
+          id: string
+          is_online: boolean
+          is_pet_friendly: boolean
+          last_location_updated_at: string | null
+          last_name: string
+          last_offer_at: string | null
+          last_seen_at: string | null
+          last_trip_end_at: string | null
+          onboarding_complete: boolean | null
+          online_since: string | null
+          payouts_enabled: boolean | null
+          pending_email_change: string | null
+          pending_email_change_expires_at: string | null
+          pending_email_change_requested_at: string | null
+          pending_email_change_verified_at: string | null
+          pending_phone_change: string | null
+          pending_phone_change_expires_at: string | null
+          pending_phone_change_otp_sent_at: string | null
+          pending_phone_change_requested_at: string | null
+          pending_phone_change_verified_at: string | null
+          phone: string
+          phone_verified: boolean
+          phone_verified_at: string | null
+          postcode: string | null
+          profile_photo_url: string | null
+          rating: number | null
+          rating_count: number
+          rating_sum: number
+          region_id: string
+          residential_address: string | null
+          service_area_id: string | null
+          speed: number | null
+          stripe_account_id: string | null
+          total_trips: number | null
+          updated_at: string
+          user_id: string
+          using_platform_business_profile: boolean
+          vehicle_edit_request_status: string | null
+          vehicle_locked: boolean
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "drivers"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       admin_user_directory: {
         Args: never
         Returns: {
@@ -13851,8 +14496,16 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: boolean
       }
+      check_email_available_for_change: {
+        Args: { _email: string; _user_id: string }
+        Returns: boolean
+      }
       check_identity_exists: {
         Args: { p_email?: string; p_phone?: string }
+        Returns: Json
+      }
+      check_phone_available_for_change: {
+        Args: { p_app_type: string; p_phone: string; p_user_id: string }
         Returns: Json
       }
       check_schedule_overlap: {
@@ -13875,9 +14528,19 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
       }
+      cleanup_expired_pending_email_changes: { Args: never; Returns: Json }
+      cleanup_expired_pending_phone_changes: { Args: never; Returns: Json }
+      cleanup_stale_auth_identities: {
+        Args: { _dry_run?: boolean; _user_id?: string }
+        Returns: Json
+      }
       cleanup_unverified_accounts: {
         Args: { _older_than?: string }
         Returns: Json
+      }
+      clear_phone_change_pending: {
+        Args: { _app_type: string; _user_id: string }
+        Returns: undefined
       }
       commit_negotiation_fare: {
         Args: {
@@ -13888,6 +14551,22 @@ export type Database = {
           p_trip_id: string
         }
         Returns: Json
+      }
+      complete_email_change_customer: {
+        Args: { _new_email: string; _user_id: string }
+        Returns: undefined
+      }
+      complete_email_change_driver: {
+        Args: { _new_email: string; _user_id: string }
+        Returns: undefined
+      }
+      complete_phone_change_customer: {
+        Args: { _user_id: string }
+        Returns: undefined
+      }
+      complete_phone_change_driver: {
+        Args: { _user_id: string }
+        Returns: undefined
       }
       compute_dispatch_score:
         | {
@@ -13951,6 +14630,7 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
       }
+      detect_driver_commitment_monitoring: { Args: never; Returns: undefined }
       detect_driver_problems: { Args: never; Returns: undefined }
       dispatch_effective_radius_meters: {
         Args: {
@@ -14333,7 +15013,15 @@ export type Database = {
           total_pence: number
         }[]
       }
+      get_driver_own_profile_contact: {
+        Args: { p_driver_id?: string }
+        Returns: Json
+      }
       get_driver_pending_ride_offers: { Args: never; Returns: Json }
+      get_driver_standards: {
+        Args: { p_driver_id: string; p_period_days?: number }
+        Returns: Json
+      }
       get_driver_wallet_balance: {
         Args: { p_driver_id: string }
         Returns: {
@@ -14430,6 +15118,15 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_email_pending_active: {
+        Args: {
+          p_expires_at: string
+          p_pending_email: string
+          p_requested_at: string
+          p_verified_at: string
+        }
+        Returns: boolean
+      }
       is_explicit_offline_reason: {
         Args: { p_reason: string }
         Returns: boolean
@@ -14441,8 +15138,39 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_phone_pending_active: {
+        Args: {
+          p_expires_at: string
+          p_pending_phone: string
+          p_requested_at: string
+          p_verified_at: string
+        }
+        Returns: boolean
+      }
+      is_stale_unverified_email_identity: {
+        Args: {
+          p_auth_email: string
+          p_auth_email_confirmed_at: string
+          p_identity_email: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      is_stale_unverified_phone_identity: {
+        Args: {
+          p_auth_phone: string
+          p_auth_phone_confirmed_at: string
+          p_identity_phone: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
       is_trip_active_dispatch_status: {
         Args: { p_dispatch: string }
+        Returns: boolean
+      }
+      is_trip_commitment_monitoring_active: {
+        Args: { p_trip_id: string }
         Returns: boolean
       }
       is_trip_terminal_cancel_status: {
@@ -14529,6 +15257,7 @@ export type Database = {
         Args: { p_reason: string }
         Returns: string
       }
+      normalize_phone_digits: { Args: { p_phone: string }; Returns: string }
       notify_drivers_trip_cancelled: {
         Args: { p_reason: string; p_trip_id: string }
         Returns: undefined
@@ -14711,6 +15440,14 @@ export type Database = {
         Args: { p_kind: string }
         Returns: string
       }
+      phone_is_pending_reserved: {
+        Args: { p_exclude_user_id?: string; p_phone_digits: string }
+        Returns: boolean
+      }
+      phone_is_verified_protected: {
+        Args: { p_exclude_user_id?: string; p_phone_digits: string }
+        Returns: boolean
+      }
       point_in_circle: {
         Args: {
           center_lat: number
@@ -14830,6 +15567,14 @@ export type Database = {
         }
         Returns: undefined
       }
+      record_driver_commitment_warning: {
+        Args: {
+          p_message: string
+          p_session_id: string
+          p_warning_type: string
+        }
+        Returns: undefined
+      }
       record_push_send_result: {
         Args: {
           p_detail?: Json
@@ -14866,6 +15611,10 @@ export type Database = {
       release_trip_negotiation_lock: {
         Args: { p_next_status?: string; p_trip_id: string }
         Returns: undefined
+      }
+      repair_user_stale_auth_identities: {
+        Args: { _user_id: string }
+        Returns: Json
       }
       reset_auth_user_email_unconfirmed: {
         Args: { _user_id: string }
@@ -14956,6 +15705,18 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: number
       }
+      stage_email_change: {
+        Args: { _app_type: string; _new_email: string; _user_id: string }
+        Returns: undefined
+      }
+      stage_phone_change: {
+        Args: { _app_type: string; _new_phone: string; _user_id: string }
+        Returns: undefined
+      }
+      start_driver_commitment_session: {
+        Args: { p_driver_id?: string; p_trip_id: string }
+        Returns: undefined
+      }
       start_stop_waiting: {
         Args: {
           p_charge_interval_seconds?: number
@@ -14966,6 +15727,10 @@ export type Database = {
           p_trip_id: string
         }
         Returns: string
+      }
+      stop_driver_commitment_session: {
+        Args: { p_reason?: string; p_trip_id: string }
+        Returns: undefined
       }
       stop_stop_waiting: { Args: { p_waiting_id: string }; Returns: Json }
       suspend_corporate_account: {
@@ -15094,6 +15859,21 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      upsert_pending_customer_signup: {
+        Args: {
+          p_email: string
+          p_first_name: string
+          p_last_name: string
+          p_phone: string
+          p_signup_source?: string
+          p_user_id: string
+        }
+        Returns: string
+      }
+      validate_driver_offer: {
+        Args: { p_driver_id: string; p_offer_id: string }
+        Returns: Json
       }
       verify_active_device: {
         Args: { p_device_id: string }
