@@ -3705,6 +3705,166 @@ export type Database = {
           },
         ]
       }
+      driver_earning_settlement: {
+        Row: {
+          allocated_amount_pence: number
+          allocated_at: string | null
+          allocated_to_payout: boolean
+          capture_time: string | null
+          created_at: string
+          driver_id: string
+          eligible_for_payout: boolean
+          id: string
+          ineligible_reason: string | null
+          ledger_entry_id: string
+          paid_at: string | null
+          paid_in_batch_id: string | null
+          paid_in_payout_item_id: string | null
+          payment_id: string | null
+          settled_at: string | null
+          settlement_status: string
+          stripe_available_on: string | null
+          stripe_balance_tx_id: string | null
+          stripe_charge_id: string | null
+          stripe_transfer_id: string | null
+          trip_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          allocated_amount_pence?: number
+          allocated_at?: string | null
+          allocated_to_payout?: boolean
+          capture_time?: string | null
+          created_at?: string
+          driver_id: string
+          eligible_for_payout?: boolean
+          id?: string
+          ineligible_reason?: string | null
+          ledger_entry_id: string
+          paid_at?: string | null
+          paid_in_batch_id?: string | null
+          paid_in_payout_item_id?: string | null
+          payment_id?: string | null
+          settled_at?: string | null
+          settlement_status?: string
+          stripe_available_on?: string | null
+          stripe_balance_tx_id?: string | null
+          stripe_charge_id?: string | null
+          stripe_transfer_id?: string | null
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          allocated_amount_pence?: number
+          allocated_at?: string | null
+          allocated_to_payout?: boolean
+          capture_time?: string | null
+          created_at?: string
+          driver_id?: string
+          eligible_for_payout?: boolean
+          id?: string
+          ineligible_reason?: string | null
+          ledger_entry_id?: string
+          paid_at?: string | null
+          paid_in_batch_id?: string | null
+          paid_in_payout_item_id?: string | null
+          payment_id?: string | null
+          settled_at?: string | null
+          settlement_status?: string
+          stripe_available_on?: string | null
+          stripe_balance_tx_id?: string | null
+          stripe_charge_id?: string | null
+          stripe_transfer_id?: string | null
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_earning_settlement_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_earning_settlement_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_earning_settlement_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_earning_settlement_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_earning_settlement_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_earning_settlement_ledger_entry_id_fkey"
+            columns: ["ledger_entry_id"]
+            isOneToOne: true
+            referencedRelation: "driver_wallet_ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_earning_settlement_paid_in_batch_id_fkey"
+            columns: ["paid_in_batch_id"]
+            isOneToOne: false
+            referencedRelation: "payout_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_earning_settlement_paid_in_payout_item_id_fkey"
+            columns: ["paid_in_payout_item_id"]
+            isOneToOne: false
+            referencedRelation: "payout_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_earning_settlement_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_earning_settlement_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_earning_settlement_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_earning_settlement_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_inbox_messages: {
         Row: {
           body: string
@@ -8368,6 +8528,115 @@ export type Database = {
           },
         ]
       }
+      payout_authorization: {
+        Row: {
+          allocation_snapshot: Json
+          authorization_id: string
+          authorized_amount_pence: number
+          authorized_at: string
+          calculation_hash: string
+          created_at: string
+          driver_id: string
+          eligible_settled_unpaid_pence: number
+          expires_at: string
+          in_flight_pence_at_auth: number
+          invalidated_at: string | null
+          invalidation_reason: string | null
+          ledger_snapshot_hash: string
+          manual_review_holdback_pence: number
+          payout_item_id: string | null
+          settlement_snapshot_hash: string
+          status: string
+          updated_at: string
+          wallet_balance_pence_at_auth: number
+        }
+        Insert: {
+          allocation_snapshot?: Json
+          authorization_id?: string
+          authorized_amount_pence: number
+          authorized_at?: string
+          calculation_hash: string
+          created_at?: string
+          driver_id: string
+          eligible_settled_unpaid_pence?: number
+          expires_at: string
+          in_flight_pence_at_auth?: number
+          invalidated_at?: string | null
+          invalidation_reason?: string | null
+          ledger_snapshot_hash: string
+          manual_review_holdback_pence?: number
+          payout_item_id?: string | null
+          settlement_snapshot_hash: string
+          status?: string
+          updated_at?: string
+          wallet_balance_pence_at_auth?: number
+        }
+        Update: {
+          allocation_snapshot?: Json
+          authorization_id?: string
+          authorized_amount_pence?: number
+          authorized_at?: string
+          calculation_hash?: string
+          created_at?: string
+          driver_id?: string
+          eligible_settled_unpaid_pence?: number
+          expires_at?: string
+          in_flight_pence_at_auth?: number
+          invalidated_at?: string | null
+          invalidation_reason?: string | null
+          ledger_snapshot_hash?: string
+          manual_review_holdback_pence?: number
+          payout_item_id?: string | null
+          settlement_snapshot_hash?: string
+          status?: string
+          updated_at?: string
+          wallet_balance_pence_at_auth?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payout_authorization_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_authorization_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "payout_authorization_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "payout_authorization_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "payout_authorization_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_authorization_payout_item_id_fkey"
+            columns: ["payout_item_id"]
+            isOneToOne: false
+            referencedRelation: "payout_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payout_batches: {
         Row: {
           completed_at: string | null
@@ -8428,9 +8697,62 @@ export type Database = {
         }
         Relationships: []
       }
+      payout_item_ledger_allocations: {
+        Row: {
+          allocated_at: string | null
+          amount_pence: number
+          created_at: string
+          id: string
+          ledger_entry_id: string
+          payout_item_id: string | null
+          source_ledger_debit_id: string | null
+        }
+        Insert: {
+          allocated_at?: string | null
+          amount_pence: number
+          created_at?: string
+          id?: string
+          ledger_entry_id: string
+          payout_item_id?: string | null
+          source_ledger_debit_id?: string | null
+        }
+        Update: {
+          allocated_at?: string | null
+          amount_pence?: number
+          created_at?: string
+          id?: string
+          ledger_entry_id?: string
+          payout_item_id?: string | null
+          source_ledger_debit_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payout_item_ledger_allocations_ledger_entry_id_fkey"
+            columns: ["ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_item_ledger_allocations_payout_item_id_fkey"
+            columns: ["payout_item_id"]
+            isOneToOne: false
+            referencedRelation: "payout_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_item_ledger_allocations_source_ledger_debit_id_fkey"
+            columns: ["source_ledger_debit_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_ledger"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payout_items: {
         Row: {
           amount_pence: number
+          authorization_id: string | null
           batch_id: string | null
           cash_commission_recovered_pence: number | null
           commission_amount_pence: number | null
@@ -8442,6 +8764,7 @@ export type Database = {
           driver_paid_out_pence: number | null
           driver_stripe_account_id: string | null
           error_message: string | null
+          excluded_from_auto_allocation: boolean
           failed_at: string | null
           failed_payout_amount_pence: number | null
           failure_code: string | null
@@ -8451,6 +8774,8 @@ export type Database = {
           id: string
           ledger_entry_id: string | null
           ledger_sync_error: string | null
+          manual_review_reason: string | null
+          manual_review_required: boolean
           net_driver_payout_pence: number | null
           onecab_fee_pence: number | null
           payment_id: string | null
@@ -8475,6 +8800,7 @@ export type Database = {
         }
         Insert: {
           amount_pence: number
+          authorization_id?: string | null
           batch_id?: string | null
           cash_commission_recovered_pence?: number | null
           commission_amount_pence?: number | null
@@ -8486,6 +8812,7 @@ export type Database = {
           driver_paid_out_pence?: number | null
           driver_stripe_account_id?: string | null
           error_message?: string | null
+          excluded_from_auto_allocation?: boolean
           failed_at?: string | null
           failed_payout_amount_pence?: number | null
           failure_code?: string | null
@@ -8495,6 +8822,8 @@ export type Database = {
           id?: string
           ledger_entry_id?: string | null
           ledger_sync_error?: string | null
+          manual_review_reason?: string | null
+          manual_review_required?: boolean
           net_driver_payout_pence?: number | null
           onecab_fee_pence?: number | null
           payment_id?: string | null
@@ -8519,6 +8848,7 @@ export type Database = {
         }
         Update: {
           amount_pence?: number
+          authorization_id?: string | null
           batch_id?: string | null
           cash_commission_recovered_pence?: number | null
           commission_amount_pence?: number | null
@@ -8530,6 +8860,7 @@ export type Database = {
           driver_paid_out_pence?: number | null
           driver_stripe_account_id?: string | null
           error_message?: string | null
+          excluded_from_auto_allocation?: boolean
           failed_at?: string | null
           failed_payout_amount_pence?: number | null
           failure_code?: string | null
@@ -8539,6 +8870,8 @@ export type Database = {
           id?: string
           ledger_entry_id?: string | null
           ledger_sync_error?: string | null
+          manual_review_reason?: string | null
+          manual_review_required?: boolean
           net_driver_payout_pence?: number | null
           onecab_fee_pence?: number | null
           payment_id?: string | null
@@ -8562,6 +8895,13 @@ export type Database = {
           wallet_recalculated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "payout_items_authorization_id_fkey"
+            columns: ["authorization_id"]
+            isOneToOne: false
+            referencedRelation: "payout_authorization"
+            referencedColumns: ["authorization_id"]
+          },
           {
             foreignKeyName: "payout_items_batch_id_fkey"
             columns: ["batch_id"]
@@ -10175,6 +10515,7 @@ export type Database = {
           created_at: string
           currency_code: string | null
           distance_unit: string | null
+          early_cashout_enabled: boolean
           geo_boundary: Json | null
           id: string
           is_active: boolean
@@ -10196,6 +10537,7 @@ export type Database = {
           created_at?: string
           currency_code?: string | null
           distance_unit?: string | null
+          early_cashout_enabled?: boolean
           geo_boundary?: Json | null
           id?: string
           is_active?: boolean
@@ -10217,6 +10559,7 @@ export type Database = {
           created_at?: string
           currency_code?: string | null
           distance_unit?: string | null
+          early_cashout_enabled?: boolean
           geo_boundary?: Json | null
           id?: string
           is_active?: boolean
