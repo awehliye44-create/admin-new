@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { completePayoutSettlementLifecycle } from "./settlementLifecycleSSOT.ts";
 
 export const PAYOUT_LEDGER_TYPES = [
   "WEEKLY_PAYOUT",
@@ -140,6 +141,20 @@ export async function finalizePayoutAfterProviderSuccess(args: {
     completed_at: completedAt,
     updated_at: completedAt,
   }).eq("id", args.batchId);
+
+  try {
+    await completePayoutSettlementLifecycle({
+      supabase: args.supabase,
+      payoutItemId: args.payoutItemId,
+      batchId: args.batchId,
+      driverId: args.driverId,
+      payoutAmountPence: args.payoutAmount,
+      paidAt: completedAt,
+      sourceLedgerDebitId: ledgerEntry.id,
+    });
+  } catch (lifecycleErr) {
+    console.error("[payout] Settlement lifecycle sync failed:", lifecycleErr);
+  }
 
   return {
     success: true,

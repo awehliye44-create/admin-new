@@ -5,6 +5,7 @@ import { getCurrencySymbol } from '@/lib/regionSettings';
 import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 import { FinanceSSOT, type FinancialReconciliationSSOTResult } from '@/hooks/useFinancialReconciliationSSOT';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
+import { cn } from '@/lib/utils';
 
 function fmt(pence: number, cc: string): string {
   return `${getCurrencySymbol(cc)}${(pence / 100).toFixed(2)}`;
@@ -38,6 +39,9 @@ export function FinanceReconciliationTotalsCards({
   }
 
   const mismatch = FinanceSSOT.reconciliationStatus(summary) === 'RECONCILIATION_MISMATCH';
+  const providerAvailable = FinanceSSOT.providerAvailableBalance(summary);
+  const providerNegative = providerAvailable < 0;
+  const ledgerBalanced = !mismatch && !providerNegative;
 
   return (
     <div className="space-y-4">
@@ -52,6 +56,16 @@ export function FinanceReconciliationTotalsCards({
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
             RECONCILIATION_MISMATCH — variance {fmt(FinanceSSOT.reconciliationVariance(summary), cc)}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {providerNegative && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            Platform Stripe available is negative ({fmt(providerAvailable, cc)}) — reserve or payout timing issue.
+            Card/cash ledger may still reconcile; this is a platform cash warning, not a balanced wallet state.
           </AlertDescription>
         </Alert>
       )}
@@ -96,15 +110,17 @@ export function FinanceReconciliationTotalsCards({
           </CardContent>
         </Card>
 
-        <Card className="border-dashed">
+        <Card className={cn('border-dashed', providerNegative && 'border-destructive/50 bg-destructive/5')}>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Provider Available</CardTitle>
-            <Landmark className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Stripe platform available</CardTitle>
+            <Landmark className={cn('h-4 w-4', providerNegative ? 'text-destructive' : 'text-muted-foreground')} />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{fmt(FinanceSSOT.providerAvailableBalance(summary), cc)}</div>
+            <div className={cn('text-2xl font-bold', providerNegative && 'text-destructive')}>
+              {fmt(providerAvailable, cc)}
+            </div>
             <p className="text-xs text-muted-foreground">
-              Pending {fmt(FinanceSSOT.providerPendingBalance(summary), cc)} — cash position only
+              Pending {fmt(FinanceSSOT.providerPendingBalance(summary), cc)} — physical Stripe platform cash only
             </p>
           </CardContent>
         </Card>
@@ -134,8 +150,16 @@ export function FinanceReconciliationTotalsCards({
           <CardContent className="text-sm">
             {mismatch ? (
               <span className="text-destructive flex items-center gap-1"><AlertTriangle className="h-3 w-3" /> MISMATCH</span>
+            ) : providerNegative ? (
+              <span className="text-destructive flex items-center gap-1"><AlertTriangle className="h-3 w-3" /> PLATFORM CASH WARNING</span>
             ) : (
               <span className="text-emerald-500 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> BALANCED</span>
+            )}
+            {!mismatch && providerNegative && (
+              <p className="text-xs text-muted-foreground mt-1">Card/cash ledger balanced; platform Stripe available is negative.</p>
+            )}
+            {ledgerBalanced && (
+              <p className="text-xs text-muted-foreground mt-1">Period card/cash ledger equation only — not Connect vs liability.</p>
             )}
             <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
               <Clock className="h-3 w-3" /> Period {formatFinanceDateSafe(ssot.period.from, 'yyyy-MM-dd', '—')} → {formatFinanceDateSafe(ssot.period.to, 'yyyy-MM-dd', '—')}

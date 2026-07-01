@@ -11,7 +11,7 @@ const BADGE_STYLES: Record<FinanceDataSourceBadge, string> = {
 const BADGE_HINTS: Record<FinanceDataSourceBadge, string> = {
   LIVE: 'Financial Reconciliation Live — official SSOT calculations',
   SUMMARY: 'Driver Financial Summary fallback',
-  LEDGER: 'Driver Wallet Ledger fallback',
+  LEDGER: 'ONECAB wallet ledger liability (excludes platform commission & cash trip earning)',
   RECONSTRUCTED: 'Historical payout reconstruction',
 };
 

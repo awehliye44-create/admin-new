@@ -60,18 +60,27 @@ export function ConnectBalancePanel({
         <Wallet className="h-4 w-4" />
         <AlertTitle>
           {readOnly
-            ? 'Driver payout overview — Instant Payout SSOT (read-only)'
+            ? 'Stripe Connect balances — physical cash only'
             : 'Driver Payout SSOT — ledger, Connect, and platform truth'}
         </AlertTitle>
         <AlertDescription className="space-y-1">
-          <p>
-            ONECAB executes <strong>Stripe Instant Payout only</strong> — no Standard payout method.
-            Show both Stripe balances so operations understand why Instant Available may differ from Standard Available.
-          </p>
-          <p>
-            <strong>Cash out now</strong> = min(ONECAB wallet owed, finance-cleared, Stripe Instant Available).{' '}
-            <strong>Awaiting settlement</strong> = max(0, ledger − Stripe Standard Available).
-          </p>
+          {readOnly ? (
+            <p>
+              Stripe Standard and Instant available balances on each Express account. This is physical Stripe cash —
+              not ONECAB ledger liability. Compare against ledger on Money Movement or Driver SSOT detail.
+            </p>
+          ) : (
+            <>
+              <p>
+                ONECAB executes <strong>Stripe Instant Payout only</strong> — no Standard payout method.
+                Show both Stripe balances so operations understand why Instant Available may differ from Standard Available.
+              </p>
+              <p>
+                <strong>Cash out now</strong> = min(ONECAB wallet owed, finance-cleared, Stripe Instant Available).{' '}
+                <strong>Awaiting settlement</strong> = max(0, ledger − Stripe Standard Available).
+              </p>
+            </>
+          )}
         </AlertDescription>
       </Alert>
 

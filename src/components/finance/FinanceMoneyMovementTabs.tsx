@@ -98,6 +98,20 @@ export function FinanceMoneyMovementTabs({
   const ccy = currencyCode.toLowerCase();
   const mm = summary?.money_movement;
   const pending = summary?.pending_stripe_confirmation;
+  const connectLiabilityTotal = mm?.connect_accounts.reduce(
+    (s, a) => s + a.expected_wallet_balance_pence,
+    0,
+  ) ?? 0;
+  const connectStripeTotal = mm?.connect_accounts.reduce(
+    (s, a) => s + a.actual_stripe_balance_pence,
+    0,
+  ) ?? 0;
+  const connectMismatchCount = mm?.connect_accounts.filter(
+    (a) => a.reconciliation_status === 'mismatch',
+  ).length ?? 0;
+  const payoutMatchedCount = mm?.payouts.filter(
+    (p) => p.reconciliation_status === 'matched' || p.reconciliation_status === 'paid_out',
+  ).length ?? 0;
 
   if (!mm) {
     return (
@@ -131,6 +145,32 @@ export function FinanceMoneyMovementTabs({
         )}
       </CardHeader>
       <CardContent>
+        <div className="mb-6 rounded-lg border bg-muted/20 p-4">
+          <h4 className="text-sm font-semibold mb-1">Separate money buckets (do not mix)</h4>
+          <p className="text-xs text-muted-foreground mb-3">
+            ONECAB liability, Stripe Connect cash, and Stripe platform cash are independent views.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Metric label="ONECAB liability (ledger SSOT)" value={connectLiabilityTotal} ccy={ccy} />
+            <Metric label="Stripe Connect available (physical)" value={connectStripeTotal} ccy={ccy} />
+            <Metric
+              label="Stripe platform available"
+              value={summary?.provider_money.provider_available_balance_pence ?? 0}
+              ccy={ccy}
+            />
+            <div className="rounded-lg border p-3">
+              <div className="text-xs text-muted-foreground">Payout reconciliation</div>
+              <div className="text-lg font-semibold mt-1">
+                {payoutMatchedCount}/{mm?.payouts.length ?? 0} matched
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {connectMismatchCount > 0
+                  ? `${connectMismatchCount} Connect account(s) with liability vs cash gap`
+                  : 'Connect liability vs cash aligned'}
+              </p>
+            </div>
+          </div>
+        </div>
         <Tabs defaultValue="payouts">
           <TabsList className="flex flex-wrap h-auto gap-1">
             <TabsTrigger value="payments">Payments</TabsTrigger>
@@ -290,7 +330,11 @@ export function FinanceMoneyMovementTabs({
         </Tabs>
 
         <div className="mt-6">
-          <h3 className="text-sm font-semibold mb-2">Connect account balances (Stripe dashboard parity)</h3>
+          <h3 className="text-sm font-semibold mb-1">Stripe Connect balances (physical cash only)</h3>
+          <p className="text-xs text-muted-foreground mb-2">
+            Compare ONECAB ledger liability (what we owe the driver) against Stripe Connect available (cash on Express).
+            These are separate buckets — recovery debt is informational and is not subtracted from either side.
+          </p>
           <Table>
             <TableHeader>
               <TableRow>
@@ -300,8 +344,8 @@ export function FinanceMoneyMovementTabs({
                 <TableHead className="text-right">Future payout</TableHead>
                 <TableHead className="text-right">In transit</TableHead>
                 <TableHead className="text-right">Lifetime volume</TableHead>
-                <TableHead className="text-right">Expected wallet</TableHead>
-                <TableHead className="text-right">Actual Stripe</TableHead>
+                <TableHead className="text-right">ONECAB liability</TableHead>
+                <TableHead className="text-right">Stripe available</TableHead>
                 <TableHead className="text-right">Diff</TableHead>
                 <TableHead>Status</TableHead>
               </TableRow>

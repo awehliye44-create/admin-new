@@ -610,7 +610,7 @@ export default function AdminPayoutBatches() {
             <TabsTrigger value="early-cashouts">Early Cashouts</TabsTrigger>
             <TabsTrigger value="ledger">
               <BookOpen className="h-4 w-4 mr-1.5" />
-              Ledger Audit
+              Driver Wallet Ledger
             </TabsTrigger>
             <TabsTrigger value="connect-balance">
               <Landmark className="h-4 w-4 mr-1.5" />
@@ -869,10 +869,10 @@ export default function AdminPayoutBatches() {
           <TabsContent value="ledger" className="space-y-6 mt-4">
             <Card>
               <CardHeader>
-                <CardTitle>Driver wallet ledger audit</CardTitle>
+                <CardTitle>Driver Wallet Ledger (ONECAB liability)</CardTitle>
                 <p className="text-sm text-muted-foreground">
-                  Trip earnings, cash commission recovery, debt recovery, adjustments, payout debits,
-                  and wallet balance before/after — with trip and payout references.
+                  Current ONECAB liability only — trip earnings, cash commission recovery, debt recovery,
+                  adjustments, and payout debits. Not Stripe Connect cash or lifetime earnings.
                   {' '}
                   <span className="font-medium">{periodBounds.label}</span>
                 </p>

@@ -449,10 +449,9 @@ function FinancialReconciliationPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Driver payout overview (Instant SSOT)</CardTitle>
+            <CardTitle className="text-lg">Stripe Connect balances (physical cash)</CardTitle>
             <p className="text-sm text-muted-foreground">
-              Operational dashboard — both Stripe Standard and Instant balances are shown for transparency.
-              ONECAB executes Instant Payout only. No payout actions on this page.
+              Express account Standard and Instant available — Stripe-side cash only. Ledger liability is shown in Money Movement.
             </p>
           </CardHeader>
           <CardContent>

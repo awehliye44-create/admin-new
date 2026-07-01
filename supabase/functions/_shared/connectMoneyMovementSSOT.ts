@@ -5,11 +5,16 @@
 import type Stripe from "https://esm.sh/stripe@14.21.0";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
+  computeCashCommissionOutstanding,
+  computeLedgerWalletBalancePence,
+  type LedgerRow,
+} from "./onecabFinanceLedger.ts";
+import {
   listInFlightConnectPayouts,
   readConnectPayoutSnapshot,
 } from "./connectPayoutLockdown.ts";
 
-export const MONEY_MOVEMENT_SSOT_VERSION = "connect_money_movement_ssot_v1";
+export const MONEY_MOVEMENT_SSOT_VERSION = "connect_money_movement_ssot_v2";
 
 export type MoneyMovementReconciliationStatus =
   | "pending_stripe_confirmation"
@@ -135,11 +140,37 @@ const PAYOUT_LEDGER_TYPES = new Set([
   "MANUAL_PAYOUT",
 ]);
 
-const RECOVERY_DEBT_LEDGER_TYPES = new Set([
-  "DEBT_RECOVERY",
-  "CASH_COMMISSION_DEBT",
-  "CHARGEBACK_DEBIT",
-]);
+function sumLedgerWalletByDriver(
+  rows: Array<{ driver_id: string; type: string; amount_pence: number }>,
+): Map<string, number> {
+  const byDriver = new Map<string, LedgerRow[]>();
+  for (const row of rows) {
+    const list = byDriver.get(row.driver_id) ?? [];
+    list.push({ type: String(row.type), amount_pence: Number(row.amount_pence ?? 0) });
+    byDriver.set(row.driver_id, list);
+  }
+  const wallets = new Map<string, number>();
+  for (const [driverId, ledger] of byDriver) {
+    wallets.set(driverId, computeLedgerWalletBalancePence(ledger));
+  }
+  return wallets;
+}
+
+function sumRecoveryDebtSsotByDriver(
+  rows: Array<{ driver_id: string; type: string; amount_pence: number }>,
+): Map<string, number> {
+  const byDriver = new Map<string, LedgerRow[]>();
+  for (const row of rows) {
+    const list = byDriver.get(row.driver_id) ?? [];
+    list.push({ type: String(row.type), amount_pence: Number(row.amount_pence ?? 0) });
+    byDriver.set(row.driver_id, list);
+  }
+  const debt = new Map<string, number>();
+  for (const [driverId, ledger] of byDriver) {
+    debt.set(driverId, computeCashCommissionOutstanding(ledger));
+  }
+  return debt;
+}
 
 function driverDisplayName(row: {
   first_name?: string | null;
@@ -159,6 +190,20 @@ function payoutMethodLabel(payout: Stripe.Payout): string {
   if (payout.method === "instant") return "Instant";
   if (payout.type === "bank_account") return "Standard";
   return String(payout.method ?? payout.type ?? "standard");
+}
+
+export function connectBalanceMismatchMessage(
+  onecabLiabilityPence: number,
+  stripeAvailablePence: number,
+): string {
+  const diff = stripeAvailablePence - onecabLiabilityPence;
+  if (diff > 100) {
+    return "Stripe physical cash exceeds ONECAB liability (separate buckets — Connect may hold settled earnings not yet reflected on ledger).";
+  }
+  if (diff < -100) {
+    return "ONECAB ledger liability exceeds Stripe Connect available (separate buckets — ledger may include entitlements not yet on Connect).";
+  }
+  return "ONECAB ledger liability and Stripe Connect available are aligned within tolerance.";
 }
 
 function classifyPayoutMatch(args: {
@@ -296,22 +341,27 @@ export async function fetchConnectMoneyMovementBundle(args: {
     : { data: [] as Array<Record<string, unknown>> };
 
   const ledgerByPayoutId = new Map<string, Array<{ id: string; amount_pence: number }>>();
-  const recoveryByDriver = new Map<string, number>();
-  const walletByDriver = new Map<string, number>();
+  const walletByDriver = sumLedgerWalletByDriver(
+    (ledgerRows ?? []).map((r) => ({
+      driver_id: String(r.driver_id),
+      type: String(r.type),
+      amount_pence: Number(r.amount_pence ?? 0),
+    })),
+  );
+  const recoveryByDriver = sumRecoveryDebtSsotByDriver(
+    (ledgerRows ?? []).map((r) => ({
+      driver_id: String(r.driver_id),
+      type: String(r.type),
+      amount_pence: Number(r.amount_pence ?? 0),
+    })),
+  );
 
   for (const row of ledgerRows ?? []) {
-    const driverId = String(row.driver_id);
-    const amt = Number(row.amount_pence ?? 0);
-    walletByDriver.set(driverId, (walletByDriver.get(driverId) ?? 0) + amt);
-
     if (row.stripe_payout_id) {
+      const driverId = String(row.driver_id);
       const list = ledgerByPayoutId.get(row.stripe_payout_id) ?? [];
-      list.push({ id: String(row.id), amount_pence: amt });
+      list.push({ id: String(row.id), amount_pence: Number(row.amount_pence ?? 0) });
       ledgerByPayoutId.set(row.stripe_payout_id, list);
-    }
-
-    if (RECOVERY_DEBT_LEDGER_TYPES.has(String(row.type))) {
-      recoveryByDriver.set(driverId, (recoveryByDriver.get(driverId) ?? 0) + Math.abs(amt));
     }
   }
 
@@ -346,11 +396,10 @@ export async function fetchConnectMoneyMovementBundle(args: {
       .filter((p) => p.status === "in_transit")
       .reduce((s, p) => s + p.amount_pence, 0);
     const lifetimeVolume = await sumLifetimeVolumePence(args.supabase, driver.id);
-    const expectedWallet = walletByDriver.get(driver.id) ?? 0;
+    const onecabLiabilityPence = walletByDriver.get(driver.id) ?? 0;
     const recoveryDebt = recoveryByDriver.get(driver.id) ?? 0;
-    const netPayable = Math.max(0, expectedWallet - recoveryDebt);
     const actualBalance = snapshot.available_pence;
-    const balanceDiff = actualBalance - netPayable;
+    const balanceDiff = actualBalance - onecabLiabilityPence;
 
     const acctStatus: MoneyMovementReconciliationStatus =
       Math.abs(balanceDiff) <= 100 ? "matched" : "mismatch";
@@ -367,11 +416,11 @@ export async function fetchConnectMoneyMovementBundle(args: {
       last_synced_at: syncedAt,
       duplicate_connect_account: duplicateByDriverId.get(driver.id) ?? false,
       duplicate_connect_group_key: duplicateGroupKeyByDriverId.get(driver.id) ?? null,
-      expected_wallet_balance_pence: expectedWallet,
+      expected_wallet_balance_pence: onecabLiabilityPence,
       actual_stripe_balance_pence: actualBalance,
       difference_pence: balanceDiff,
       recovery_debt_pence: recoveryDebt,
-      net_payable_after_recovery_pence: netPayable,
+      net_payable_after_recovery_pence: Math.max(0, onecabLiabilityPence),
       reconciliation_status: acctStatus,
     });
 
@@ -381,9 +430,9 @@ export async function fetchConnectMoneyMovementBundle(args: {
         driver_name: name,
         connected_account_id: acctId,
         recovery_debt_pence: recoveryDebt,
-        ledger_types: [...RECOVERY_DEBT_LEDGER_TYPES],
-        reduces_net_payable: true,
-        note: "Recovery debt reduces net payable — do not confuse with Stripe live balance.",
+        ledger_types: ["CASH_COMMISSION_DEBT", "DEBT_RECOVERY"],
+        reduces_net_payable: false,
+        note: "Cash commission owed to ONECAB (ledger SSOT). Shown separately — not subtracted from Stripe Connect comparison.",
       });
     }
 
@@ -394,11 +443,11 @@ export async function fetchConnectMoneyMovementBundle(args: {
         driver_name: name,
         connected_account_id: acctId,
         reference_id: acctId,
-        expected_pence: netPayable,
+        expected_pence: onecabLiabilityPence,
         actual_pence: actualBalance,
         difference_pence: balanceDiff,
         status: "mismatch",
-        message: "Expected wallet (after recovery debt) differs from Stripe Connect available balance.",
+        message: connectBalanceMismatchMessage(onecabLiabilityPence, actualBalance),
       });
     }
 

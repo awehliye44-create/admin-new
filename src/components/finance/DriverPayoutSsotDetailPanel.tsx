@@ -92,7 +92,10 @@ export function DriverPayoutSsotDetailPanel({
       </Alert>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <SectionCard title="1. ONECAB Wallet Ledger" icon={Wallet}>
+        <SectionCard title="1. ONECAB Wallet Ledger (current liability)" icon={Wallet}>
+          <p className="text-xs text-muted-foreground mb-2">
+            Ledger SSOT only — what ONECAB owes the driver. Not Stripe cash and not lifetime earnings.
+          </p>
           <SsotRow
             label="Driver earned / owed"
             value={formatPence(wallet?.driver_earned_owed_pence ?? row.wallet_owed_pence ?? 0, ccy)}
@@ -127,9 +130,10 @@ export function DriverPayoutSsotDetailPanel({
           )}
         </SectionCard>
 
-        <SectionCard title="2. Stripe Connect Balance" icon={Banknote}>
+        <SectionCard title="2. Stripe Connect Balance (physical money)" icon={Banknote}>
           <p className="text-xs text-muted-foreground mb-2">
-            Ledger entitlement ≠ Stripe cash. Standard available supports scheduled payout; instant available supports Early Cash Out when enabled.
+            Cash on the driver&apos;s Express account only. Ledger entitlement ≠ Stripe cash.
+            Standard available supports scheduled payout; instant available supports Early Cash Out when enabled.
           </p>
           <SsotRow
             label="Connected account ID"
@@ -181,7 +185,10 @@ export function DriverPayoutSsotDetailPanel({
           />
         </SectionCard>
 
-        <SectionCard title="3. Platform Reconciliation" icon={Landmark}>
+        <SectionCard title="3. Financial Reconciliation (liability vs Connect)" icon={Landmark}>
+          <p className="text-xs text-muted-foreground mb-2">
+            Compares ONECAB ledger liability to Stripe Connect cash evidence without mixing buckets.
+          </p>
           <SsotRow
             label="Platform Stripe available"
             value={formatPence(platform?.platform_available_pence ?? platformStripe?.available_pence ?? 0, ccy)}
@@ -217,7 +224,7 @@ export function DriverPayoutSsotDetailPanel({
           />
         </SectionCard>
 
-        <SectionCard title="4. Cash-out Decision" icon={Calculator}>
+        <SectionCard title="4. Payout / cash-out decision" icon={Calculator}>
           <p className="text-xs text-muted-foreground mb-2 font-mono">
             scheduled = min(ledger owed, finance-cleared, Connect standard) · instant = min(ledger, finance-cleared, Connect instant) when platform + service area allow
           </p>
