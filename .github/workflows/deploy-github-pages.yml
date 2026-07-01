@@ -2,7 +2,7 @@ name: Deploy Admin Panel
 
 on:
   push:
-    branches: [main]
+    branches: [main, ai-locavale]
   workflow_dispatch:
 
 permissions:
