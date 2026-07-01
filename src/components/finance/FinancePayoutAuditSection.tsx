@@ -23,6 +23,7 @@ export function FinancePayoutAuditSection({
   retryingId,
   showFailedSection = true,
   compact,
+  periodLabel,
 }: {
   mondayPayouts: MondayPayoutQuery & {
     isError?: boolean;
@@ -35,6 +36,7 @@ export function FinancePayoutAuditSection({
   retryingId?: string | null;
   showFailedSection?: boolean;
   compact?: boolean;
+  periodLabel?: string;
 }) {
   const data = mondayPayouts.data;
 
@@ -70,6 +72,7 @@ export function FinancePayoutAuditSection({
         currencyCode={currencyCode}
         isLoading={mondayPayouts.isLoading}
         todayPeriodStart={data?.today_period_start}
+        periodLabel={periodLabel}
       />
       <PartialSettlementAlert count={data?.partial_settlements?.length ?? 0} />
 

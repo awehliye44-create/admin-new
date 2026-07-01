@@ -27,12 +27,14 @@ export function MondayPayoutTodayCards({
   currencyCode,
   isLoading,
   todayPeriodStart,
+  periodLabel,
 }: {
   cards: MondayPayoutTodayCards | undefined;
   currencyCode: string;
   isLoading?: boolean;
-  /** London calendar day start — cards only count activity on this day */
+  /** London calendar period start — cards only count activity in selected period */
   todayPeriodStart?: string;
+  periodLabel?: string;
 }) {
   if (isLoading) {
     return (
@@ -54,41 +56,41 @@ export function MondayPayoutTodayCards({
     subLabel?: string;
   }> = [
     {
-      title: "ONECAB Commission Recovered Today",
+      title: "ONECAB Commission Recovered",
       value: cards.onecab_commission_recovered_pence,
       icon: <Banknote className="h-4 w-4 text-emerald-600" />,
     },
     {
-      title: "Driver payout activity today",
+      title: "Driver payout sent",
       value: cards.driver_payout_sent_pence,
       icon: <CheckCircle2 className="h-4 w-4 text-green-600" />,
       subLabel:
-        "Recorded payout items today. Bank arrival depends on Stripe payout status.",
+        "Recorded payout items in period. Bank arrival depends on Stripe payout status.",
     },
     {
-      title: "Failed today",
+      title: "Failed payouts",
       value: cards.driver_payout_failed_pence,
       icon: <XCircle className="h-4 w-4 text-destructive" />,
       destructive: cards.driver_payout_failed_pence > 0,
     },
     {
-      title: "Pending today",
+      title: "Pending payouts",
       value: cards.driver_payout_pending_pence,
       icon: <Clock className="h-4 w-4 text-amber-600" />,
     },
     {
-      title: "Returned to Wallet Today",
+      title: "Returned to wallet",
       value: cards.returned_to_wallet_pence,
       icon: <ArrowDownLeft className="h-4 w-4 text-blue-600" />,
     },
   ];
 
-  const periodLabel = formatLondonDayLabel(todayPeriodStart);
+  const resolvedPeriodLabel = periodLabel ?? formatLondonDayLabel(todayPeriodStart);
 
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
-        Totals below are for <span className="font-medium">{periodLabel}</span> only — not all-time.
+        Totals below are for <span className="font-medium">{resolvedPeriodLabel}</span> only — not all-time.
         Driver payouts go to driver Stripe Connect accounts; ONECAB commission above is calculated from trips, not bank sweeps.
       </p>
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">

@@ -198,12 +198,17 @@ async function fetchLedgerRows(args: {
   filter: AdminFinanceLedgerFilter;
   regionId?: string | null;
   limit: number;
+  from?: string;
+  to?: string;
 }): Promise<FinanceLedgerTransactionRow[]> {
   let query = supabase
     .from('driver_wallet_ledger')
     .select(LEDGER_SELECT)
     .order('created_at', { ascending: false })
     .limit(args.limit);
+
+  if (args.from) query = query.gte('created_at', args.from);
+  if (args.to) query = query.lte('created_at', args.to);
 
   if (args.filter === 'debt_recovery') {
     query = query.in('type', [...ADMIN_DEBT_RECOVERY_LEDGER_TYPES]);
@@ -239,12 +244,14 @@ export function useFinanceLedgerTransactions(args: {
   filter: AdminFinanceLedgerFilter;
   regionId?: string | null;
   limit?: number;
+  from?: string;
+  to?: string;
 }) {
   const limit = args.limit ?? 300;
   const ledgerLimit = args.filter === 'all' ? limit : limit;
 
   return useQuery({
-    queryKey: ['finance-ledger-transactions', args.filter, args.regionId, limit],
+    queryKey: ['finance-ledger-transactions', args.filter, args.regionId, limit, args.from, args.to],
     queryFn: async (): Promise<FinanceLedgerTransactionRow[]> => {
       const includePayments = args.filter === 'all' || args.filter === 'customer_payments';
       const includeDiscounts = args.filter === 'all' || args.filter === 'discounts';
@@ -258,11 +265,13 @@ export function useFinanceLedgerTransactions(args: {
           filter: args.filter,
           regionId: args.regionId,
           limit: ledgerLimit,
+          from: args.from,
+          to: args.to,
         }));
       }
 
       if (includePayments) {
-        const { data: paymentData, error: paymentError } = await supabase
+        let paymentQuery = supabase
           .from('payments')
           .select(`
             id, trip_id, driver_id, status, captured_amount_pence, amount_pence, currency,
@@ -274,6 +283,10 @@ export function useFinanceLedgerTransactions(args: {
           .order('created_at', { ascending: false })
           .limit(includePayments && !includeLedger ? limit : Math.min(limit, 150));
 
+        if (args.from) paymentQuery = paymentQuery.gte('created_at', args.from);
+        if (args.to) paymentQuery = paymentQuery.lte('created_at', args.to);
+
+        const { data: paymentData, error: paymentError } = await paymentQuery;
         if (paymentError) throw paymentError;
         for (const row of (paymentData ?? []) as unknown as PaymentDbRow[]) {
           if (!regionMatches(args.regionId, row.drivers?.region_id)) continue;
@@ -296,6 +309,8 @@ export function useFinanceLedgerTransactions(args: {
         if (args.regionId) {
           discountQuery = discountQuery.eq('region_id', args.regionId);
         }
+        if (args.from) discountQuery = discountQuery.gte('completed_at', args.from);
+        if (args.to) discountQuery = discountQuery.lte('completed_at', args.to);
 
         const { data: discountData, error: discountError } = await discountQuery;
         if (discountError) throw discountError;

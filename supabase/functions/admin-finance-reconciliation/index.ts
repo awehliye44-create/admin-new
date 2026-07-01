@@ -76,6 +76,38 @@ function endOfTodayUtc(): string {
 
 const MAX_LEDGER_DRIVER_IN = 150;
 
+async function fetchLegacyManualReviewItems(
+  supabase: ReturnType<typeof createClient>,
+): Promise<Array<{
+  payout_item_id: string;
+  driver_id: string;
+  amount_pence: number;
+  completed_at: string | null;
+  manual_review_reason: string | null;
+  excluded_from_auto_allocation: boolean;
+}>> {
+  const { data, error } = await supabase
+    .from("payout_items")
+    .select("id, driver_id, amount_pence, driver_amount_pence, completed_at, manual_review_reason, excluded_from_auto_allocation")
+    .or("manual_review_required.eq.true,excluded_from_auto_allocation.eq.true")
+    .in("status", ["completed", "COMPLETED", "SENT", "PAID", "paid"])
+    .order("completed_at", { ascending: false });
+
+  if (error) {
+    console.warn("[admin-finance-reconciliation] legacy manual review fetch failed:", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((row) => ({
+    payout_item_id: row.id as string,
+    driver_id: row.driver_id as string,
+    amount_pence: Math.abs(Number(row.driver_amount_pence ?? row.amount_pence ?? 0)),
+    completed_at: (row.completed_at as string | null) ?? null,
+    manual_review_reason: (row.manual_review_reason as string | null) ?? null,
+    excluded_from_auto_allocation: row.excluded_from_auto_allocation === true,
+  }));
+}
+
 async function fetchWebhookHealth(
   supabase: ReturnType<typeof createClient>,
 ): Promise<{ lastWebhookAt: string | null; failedWebhookCount: number }> {
@@ -300,6 +332,7 @@ serve(async (req) => {
       pendingPayoutsResult,
       pendingCashoutsResult,
       webhookHealth,
+      legacyManualReviewItems,
     ] = await Promise.all([
       tripQuery,
       fetchLedgerRowsForPeriod(supabase, periodFrom, periodTo, driverIds),
@@ -309,6 +342,7 @@ serve(async (req) => {
         .select("requested_cashout_pence, driver_receives_pence")
         .in("status", ["processing", "pending", "transfer_created"]),
       fetchWebhookHealth(supabase),
+      fetchLegacyManualReviewItems(supabase),
     ]);
 
     if (tripResult.error) throw tripResult.error;
@@ -561,6 +595,7 @@ serve(async (req) => {
       currency_code: currency.toUpperCase(),
       finance_reconciliation_summary,
       trip_financial_audit,
+      legacy_manual_review_items: legacyManualReviewItems,
       meta: {
         trip_count: finance.tripCount,
         audit_row_count: trip_financial_audit.length,

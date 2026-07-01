@@ -14,6 +14,7 @@ import { useQuery } from '@tanstack/react-query';
 import { formatPence, useDriverFinancialSummaries } from '@/hooks/useDriverWallet';
 import { useRegionsMap } from '@/hooks/useRegions';
 import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
+import { FinancePeriodFilter } from '@/components/finance/FinancePeriodFilter';
 import { getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 import { format } from 'date-fns';
 import { 
@@ -25,7 +26,12 @@ import { FinanceLedgerPanel } from '@/components/finance/FinanceLedgerPanel';
 import { ConnectBalancePanel } from '@/components/finance/ConnectBalancePanel';
 import { formatPayoutDisplayStatus } from '@/lib/payoutStatusLabels';
 import { retryMondayPayoutItem, canRetryMondayPayoutItem, useMondayPayoutDiagnostics } from '@/hooks/useMondayPayoutDiagnostics';
-import { MONDAY_PAYOUT_DIAGNOSTICS_OPTS } from '@/lib/financePageSSOT';
+import {
+  isTimestampInPeriod,
+  payoutActivityTimestamp,
+  resolveFinancePeriodBounds,
+  type FinancePeriod,
+} from '@/lib/financePeriodFilter';
 import { WeeklyMondaySettlementPanel } from '@/components/finance/WeeklyMondaySettlementPanel';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
@@ -317,12 +323,29 @@ export default function AdminPayoutBatches() {
 
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
+  const [period, setPeriod] = useState<FinancePeriod>('week');
+  const [customDateFrom, setCustomDateFrom] = useState<Date | undefined>(undefined);
+  const [customDateTo, setCustomDateTo] = useState<Date | undefined>(undefined);
+
+  const periodBounds = useMemo(
+    () => resolveFinancePeriodBounds(period, customDateFrom, customDateTo),
+    [period, customDateFrom, customDateTo],
+  );
 
   const [retryingPayoutId, setRetryingPayoutId] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const regionScope = serviceFilter.regionId ?? null;
-  const financeSSOT = useFinancialReconciliationSSOT({ filter: serviceFilter });
-  const mondayPayouts = useMondayPayoutDiagnostics(serviceFilter, MONDAY_PAYOUT_DIAGNOSTICS_OPTS);
+  const financeSSOT = useFinancialReconciliationSSOT({
+    filter: serviceFilter,
+    from: periodBounds.from,
+    to: periodBounds.to,
+  });
+  const mondayPayouts = useMondayPayoutDiagnostics(serviceFilter, {
+    allKinds: true,
+    today: false,
+    from: periodBounds.from,
+    to: periodBounds.to,
+  });
   const hasRegionScope = !!regionScope;
 
   const { data: allDrivers = [], isLoading: isLoadingDrivers, isError: isDriversError, error: driversError, refetch: refetchDrivers } =
@@ -367,8 +390,19 @@ export default function AdminPayoutBatches() {
   );
 
   const filteredBatches = useMemo(() => {
-    if (!regionScope) return batches;
-    return batches
+    const inPeriod = batches.filter((batch) =>
+      isTimestampInPeriod(
+        payoutActivityTimestamp({
+          completedAt: batch.completedAt,
+          createdAt: batch.createdAt,
+          runDate: batch.runDate,
+        }),
+        periodBounds.from,
+        periodBounds.to,
+      ),
+    );
+    if (!regionScope) return inPeriod;
+    return inPeriod
       .map(batch => {
         const items = batch.items.filter(item => filteredDriverIds.has(item.driverId));
         if (items.length === 0) return null;
@@ -382,12 +416,23 @@ export default function AdminPayoutBatches() {
         };
       })
       .filter((batch): batch is PayoutBatch => batch !== null);
-  }, [batches, regionScope, filteredDriverIds]);
+  }, [batches, regionScope, filteredDriverIds, periodBounds.from, periodBounds.to]);
 
   const filteredEarlyCashouts = useMemo(() => {
-    if (!regionScope) return earlyCashouts;
-    return earlyCashouts.filter(c => filteredDriverIds.has(c.driverId));
-  }, [earlyCashouts, regionScope, filteredDriverIds]);
+    const inPeriod = earlyCashouts.filter((cashout) =>
+      isTimestampInPeriod(
+        payoutActivityTimestamp({
+          createdAt: cashout.createdAt,
+          paidAt: cashout.paidAt,
+          status: cashout.status,
+        }),
+        periodBounds.from,
+        periodBounds.to,
+      ),
+    );
+    if (!regionScope) return inPeriod;
+    return inPeriod.filter(c => filteredDriverIds.has(c.driverId));
+  }, [earlyCashouts, regionScope, filteredDriverIds, periodBounds.from, periodBounds.to]);
 
   const earlyCashoutStats = useMemo(() => ({
     total: filteredEarlyCashouts.length,
@@ -416,9 +461,14 @@ export default function AdminPayoutBatches() {
 
   // SSOT totals — never aggregate commission/liability locally
   const ssotSummary = financeSSOT.summary;
-  const totalPaidOut = hasRegionScope && ssotSummary
-    ? FinanceSSOT.driverPaidOut(ssotSummary)
-    : 0;
+  const periodPaidOut = mondayPayouts.data?.today_cards?.driver_payout_sent_pence
+    ?? filteredBatches.reduce(
+      (sum, batch) => sum + batch.items
+        .filter((item) => item.status === 'completed')
+        .reduce((itemSum, item) => itemSum + item.amount, 0),
+      0,
+    );
+  const totalPaidOut = hasRegionScope ? periodPaidOut : 0;
   const availableForPayout = hasRegionScope && ssotSummary
     ? FinanceSSOT.driverAvailableNow(ssotSummary)
     : 0;
@@ -530,8 +580,16 @@ export default function AdminPayoutBatches() {
           </div>
         )}
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <ServiceAreaFinanceFilter value={serviceFilter} onChange={handleServiceFilterChange} />
+          <FinancePeriodFilter
+            period={period}
+            onPeriodChange={setPeriod}
+            customFrom={customDateFrom}
+            customTo={customDateTo}
+            onCustomFromChange={setCustomDateFrom}
+            onCustomToChange={setCustomDateTo}
+          />
           {isMixedCurrency && (
             <Badge variant="outline" className="text-amber-600 border-amber-300">
               <AlertTriangle className="h-3 w-3 mr-1" /> Mixed currencies — select a service for totals
@@ -570,6 +628,7 @@ export default function AdminPayoutBatches() {
           currencyCode={resolvedCurrency}
           onRetry={handleRetryMondayPayout}
           retryingId={retryingPayoutId}
+          periodLabel={periodBounds.label}
         />
 
         <div className="grid gap-4 md:grid-cols-5">
@@ -580,7 +639,7 @@ export default function AdminPayoutBatches() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{summary.totalBatches}</div>
-              <p className="text-xs text-muted-foreground">All time</p>
+              <p className="text-xs text-muted-foreground">{periodBounds.label}</p>
             </CardContent>
           </Card>
           <Card>
@@ -590,7 +649,7 @@ export default function AdminPayoutBatches() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-500">{formatPence(totalPaidOut, resolvedCurrency)}</div>
-              <p className="text-xs text-muted-foreground">From unified ledger</p>
+              <p className="text-xs text-muted-foreground">Sent in selected period</p>
             </CardContent>
           </Card>
           <Card>
@@ -814,10 +873,16 @@ export default function AdminPayoutBatches() {
                 <p className="text-sm text-muted-foreground">
                   Trip earnings, cash commission recovery, debt recovery, adjustments, payout debits,
                   and wallet balance before/after — with trip and payout references.
+                  {' '}
+                  <span className="font-medium">{periodBounds.label}</span>
                 </p>
               </CardHeader>
               <CardContent>
-                <FinanceLedgerPanel serviceFilter={serviceFilter} />
+                <FinanceLedgerPanel
+                  serviceFilter={serviceFilter}
+                  periodFrom={periodBounds.from}
+                  periodTo={periodBounds.to}
+                />
               </CardContent>
             </Card>
           </TabsContent>

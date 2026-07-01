@@ -10,7 +10,7 @@ export const MONDAY_PAYOUT_DIAGNOSTICS_OPTS = {
 export const PAYOUT_AUDIT_TABLE_TITLE = 'Payout Audit — who was paid';
 
 export const PAYOUT_AUDIT_TABLE_DESCRIPTION =
-  'All recorded payout items (weekly, manual, early cashout). Status reflects ledger/provider state — Paid does not mean bank arrival until Stripe reports in transit or paid. “Today” cards sum London-day activity only.';
+  'All recorded payout items (weekly, manual, early cashout) for the selected period. Status reflects ledger/provider state — Paid does not mean bank arrival until Stripe reports in transit or paid.';
 
 export const PAYOUT_AUDIT_EMPTY_MESSAGE =
   'No payout records yet. Failed payouts always appear here once recorded.';

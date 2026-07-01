@@ -134,11 +134,21 @@ export interface TripFinancialAuditRow {
   provider_status?: string;
 }
 
+export interface LegacyManualReviewItem {
+  payout_item_id: string;
+  driver_id: string;
+  amount_pence: number;
+  completed_at: string | null;
+  manual_review_reason: string | null;
+  excluded_from_auto_allocation: boolean;
+}
+
 export interface FinanceReconciliationResponse {
   period: { from: string; to: string };
   currency_code: string;
   finance_reconciliation_summary: FinanceReconciliationSummary;
   trip_financial_audit: TripFinancialAuditRow[];
+  legacy_manual_review_items?: LegacyManualReviewItem[];
   meta: {
     trip_count: number;
     audit_row_count: number;

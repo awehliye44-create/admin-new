@@ -50,8 +50,9 @@ export type MondayPayoutTodayCards = {
 
 export type MondayPayoutDiagnosticsResponse = {
   today_cards: MondayPayoutTodayCards;
-  /** London midnight ISO — scope for today_cards totals */
+  /** London period start ISO — scope for summary cards */
   today_period_start?: string;
+  period_end?: string | null;
   payouts: MondayPayoutDiagnosticsRow[];
   failed_payouts: MondayPayoutDiagnosticsRow[];
   partial_settlements: MondayPayoutDiagnosticsRow[];
@@ -63,12 +64,20 @@ export const PARTIAL_SETTLEMENT_MESSAGE =
 
 function buildDiagnosticsQuery(
   filter: ServiceAreaFinanceSelection,
-  opts?: { driverId?: string | null; today?: boolean; allKinds?: boolean },
+  opts?: {
+    driverId?: string | null;
+    today?: boolean;
+    allKinds?: boolean;
+    from?: string;
+    to?: string;
+  },
 ): string {
   const params = new URLSearchParams();
   if (filter.regionId) params.set("region_id", filter.regionId);
   else if (filter.serviceAreaId) params.set("service_area_id", filter.serviceAreaId);
   if (opts?.driverId) params.set("driver_id", opts.driverId);
+  if (opts?.from) params.set("from", opts.from);
+  if (opts?.to) params.set("to", opts.to);
   if (opts?.today === false) params.set("today", "false");
   if (opts?.allKinds) params.set("all_kinds", "true");
   return params.toString();
@@ -76,7 +85,14 @@ function buildDiagnosticsQuery(
 
 export function useMondayPayoutDiagnostics(
   filter: ServiceAreaFinanceSelection,
-  opts?: { driverId?: string | null; today?: boolean; allKinds?: boolean; enabled?: boolean },
+  opts?: {
+    driverId?: string | null;
+    today?: boolean;
+    allKinds?: boolean;
+    from?: string;
+    to?: string;
+    enabled?: boolean;
+  },
 ) {
   return useQuery({
     queryKey: [
@@ -86,6 +102,8 @@ export function useMondayPayoutDiagnostics(
       opts?.driverId,
       opts?.today,
       opts?.allKinds,
+      opts?.from,
+      opts?.to,
     ],
     enabled: opts?.enabled !== false,
     queryFn: async (): Promise<MondayPayoutDiagnosticsResponse> => {

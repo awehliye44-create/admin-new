@@ -310,6 +310,15 @@ export default function AutoDispatchRules() {
         .update({
           max_driver_find_time_minutes: settings.maxDriverFindTimeMinutes,
           stacked_rides_enabled: !!settings.stackedRidesEnabled,
+          wave1_offer_expiry_seconds: settings.wave1OfferExpirySeconds,
+          wave2_offer_expiry_seconds: settings.wave2OfferExpirySeconds,
+          wave3_offer_expiry_seconds: settings.wave3OfferExpirySeconds,
+          wave1_size: settings.wave1Size,
+          wave2_size: settings.wave2Size,
+          wave3_size: settings.wave3Size,
+          search_radius_start_km: settings.searchRadiusStartKm,
+          search_radius_expand_km: settings.searchRadiusExpandKm,
+          search_radius_max_km: settings.searchRadiusMaxKm,
           updated_at: new Date().toISOString(),
         })
         .not('id', 'is', null);

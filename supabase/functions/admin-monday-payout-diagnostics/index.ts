@@ -4,6 +4,7 @@ import {
   aggregateMondayPayoutTodayCards,
   buildMondayPayoutDiagnosticsRow,
   filterMondayPayoutRowsForLondonToday,
+  filterMondayPayoutRowsForPeriod,
   londonTodayStartIso,
   type MondayPayoutDiagnosticsRow,
 } from "../_shared/mondayPayoutDiagnostics.ts";
@@ -78,21 +79,28 @@ serve(async (req) => {
     const driverId = url.searchParams.get("driver_id");
     const includeAllKinds = url.searchParams.get("all_kinds") === "true";
     const todayOnly = url.searchParams.get("today") !== "false";
+    const periodFrom = url.searchParams.get("from");
+    const periodTo = url.searchParams.get("to");
 
     const regionId = await resolveRegionId(supabase, rawRegionId, rawServiceAreaId);
     const todayStart = londonTodayStartIso();
+    const resolvedFrom = periodFrom ?? (todayOnly ? todayStart : null);
+    const resolvedTo = periodTo ?? null;
 
     let batchQuery = supabase
       .from("payout_batches")
       .select("id, kind, run_date, status, created_at")
       .order("created_at", { ascending: false })
-      .limit(100);
+      .limit(500);
 
     if (!includeAllKinds) {
       batchQuery = batchQuery.eq("kind", "WEEKLY_MONDAY");
     }
-    if (todayOnly) {
-      batchQuery = batchQuery.gte("created_at", todayStart);
+    if (resolvedFrom) {
+      batchQuery = batchQuery.gte("created_at", resolvedFrom);
+    }
+    if (resolvedTo) {
+      batchQuery = batchQuery.lte("created_at", resolvedTo);
     }
 
     const { data: batches, error: batchError } = await batchQuery;
@@ -104,7 +112,8 @@ serve(async (req) => {
     if (batchIds.length === 0) {
       return new Response(JSON.stringify({
         today_cards: aggregateMondayPayoutTodayCards([]),
-        today_period_start: todayStart,
+        today_period_start: resolvedFrom ?? todayStart,
+        period_end: resolvedTo ?? null,
         payouts: [] as MondayPayoutDiagnosticsRow[],
         failed_payouts: [] as MondayPayoutDiagnosticsRow[],
         partial_settlements: [] as MondayPayoutDiagnosticsRow[],
@@ -181,11 +190,16 @@ serve(async (req) => {
       r.settlement_status === "PARTIAL_SETTLEMENT"
     );
 
-    const todayRows = filterMondayPayoutRowsForLondonToday(rows, todayStart);
+    const periodRows = resolvedFrom && resolvedTo
+      ? filterMondayPayoutRowsForPeriod(rows, resolvedFrom, resolvedTo)
+      : resolvedFrom
+      ? filterMondayPayoutRowsForLondonToday(rows, resolvedFrom)
+      : rows;
 
     return new Response(JSON.stringify({
-      today_cards: aggregateMondayPayoutTodayCards(todayRows),
-      today_period_start: todayStart,
+      today_cards: aggregateMondayPayoutTodayCards(periodRows),
+      today_period_start: resolvedFrom ?? todayStart,
+      period_end: resolvedTo ?? null,
       payouts: rows,
       failed_payouts: failedPayouts,
       partial_settlements: partialSettlements,

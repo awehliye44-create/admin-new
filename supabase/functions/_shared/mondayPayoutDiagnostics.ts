@@ -322,3 +322,34 @@ export function filterMondayPayoutRowsForLondonToday(
 ): MondayPayoutDiagnosticsRow[] {
   return rows.filter((row) => isMondayPayoutRowActivityToday(row, todayStartIso));
 }
+
+function payoutRowActivityAt(
+  row: Pick<
+    MondayPayoutDiagnosticsRow,
+    "completed_at" | "created_at" | "failed_at" | "payout_status"
+  >,
+): string | null {
+  return row.completed_at ??
+    row.failed_at ??
+    (row.payout_status === "pending" || row.payout_status === "processing"
+      ? row.created_at
+      : null) ??
+    row.created_at ??
+    null;
+}
+
+/** Payout rows with activity within [periodFrom, periodTo] (inclusive ISO). */
+export function filterMondayPayoutRowsForPeriod(
+  rows: MondayPayoutDiagnosticsRow[],
+  periodFrom: string,
+  periodTo: string,
+): MondayPayoutDiagnosticsRow[] {
+  const fromMs = new Date(periodFrom).getTime();
+  const toMs = new Date(periodTo).getTime();
+  return rows.filter((row) => {
+    const activityAt = payoutRowActivityAt(row);
+    if (!activityAt) return false;
+    const t = new Date(activityAt).getTime();
+    return t >= fromMs && t <= toMs;
+  });
+}

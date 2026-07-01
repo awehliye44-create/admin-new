@@ -45,6 +45,7 @@ import {
 } from 'lucide-react';
 import { ConnectBalancePanel } from '@/components/finance/ConnectBalancePanel';
 import { FinanceReconciliationTotalsCards } from '@/components/finance/FinanceReconciliationTotalsCards';
+import { LegacyManualReviewPanel } from '@/components/finance/LegacyManualReviewPanel';
 import { OnecabCommissionVisibility } from '@/components/finance/OnecabCommissionVisibility';
 import { FinanceRecoveryPanel } from '@/components/payment/FinanceRecoveryPanel';
 import { FinanceRecoveryMismatchSummary } from '@/components/payment/FinanceRecoveryMismatchSummary';
@@ -433,6 +434,10 @@ function FinancialReconciliationPage() {
         </div>
 
         <FinanceReconciliationTotalsCards ssot={ssot} />
+        <LegacyManualReviewPanel
+          items={data?.legacy_manual_review_items ?? []}
+          currencyCode={ccy}
+        />
         <OnecabCommissionVisibility
           summary={ssot.summary}
           currencyCode={ccy}

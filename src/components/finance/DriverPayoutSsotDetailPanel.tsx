@@ -128,6 +128,9 @@ export function DriverPayoutSsotDetailPanel({
         </SectionCard>
 
         <SectionCard title="2. Stripe Connect Balance" icon={Banknote}>
+          <p className="text-xs text-muted-foreground mb-2">
+            Ledger entitlement ≠ Stripe cash. Standard available supports scheduled payout; instant available supports Early Cash Out when enabled.
+          </p>
           <SsotRow
             label="Connected account ID"
             value={connect?.stripe_account_id ?? row.stripe_account_id}
@@ -142,13 +145,13 @@ export function DriverPayoutSsotDetailPanel({
             value={(connect?.payouts_enabled ?? row.payouts_enabled) ? 'Yes' : 'No'}
           />
           <SsotRow
-            label="Available to pay out"
+            label="Stripe Connect standard (scheduled payout)"
             value={formatPence(connect?.available_to_payout_pence ?? row.connect_available_pence, ccy)}
             mono
             highlight
           />
           <SsotRow
-            label="Available to instantly pay out"
+            label="Stripe Connect instant (Early Cash Out cap)"
             value={formatPence(connect?.instant_available_pence ?? row.connect_instant_available_pence ?? 0, ccy)}
             mono
           />
@@ -216,12 +219,13 @@ export function DriverPayoutSsotDetailPanel({
 
         <SectionCard title="4. Cash-out Decision" icon={Calculator}>
           <p className="text-xs text-muted-foreground mb-2 font-mono">
-            cashout_now = min(ledger owed, finance-cleared, Connect available)
+            scheduled = min(ledger owed, finance-cleared, Connect standard) · instant = min(ledger, finance-cleared, Connect instant) when platform + service area allow
           </p>
           <SsotRow
-            label="Wallet owed"
-            value={formatPence(cashout?.wallet_owed_pence ?? row.wallet_owed_pence ?? 0, ccy)}
+            label="Driver wallet balance (ledger)"
+            value={formatPence(cashout?.wallet_owed_pence ?? row.wallet_owed_pence ?? row.wallet_balance_pence ?? 0, ccy)}
             mono
+            highlight
           />
           <SsotRow
             label="Finance cleared"
@@ -229,12 +233,22 @@ export function DriverPayoutSsotDetailPanel({
             mono
           />
           <SsotRow
-            label="Connect available"
+            label="Stripe Connect standard"
             value={formatPence(cashout?.connect_available_pence ?? row.connect_available_pence, ccy)}
             mono
           />
           <SsotRow
-            label="Cash out now"
+            label="Stripe Connect instant"
+            value={formatPence(row.connect_instant_available_pence ?? 0, ccy)}
+            mono
+          />
+          <SsotRow
+            label="Scheduled payout available (Stripe standard cap)"
+            value={formatPence(cashout?.connect_available_pence ?? row.connect_available_pence, ccy)}
+            mono
+          />
+          <SsotRow
+            label="Instant cash out now"
             value={formatPence(cashout?.cashout_now_pence ?? row.cashout_now_pence, ccy)}
             mono
             highlight

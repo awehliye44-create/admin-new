@@ -36,8 +36,12 @@ function partyBadgeClass(party: string): string {
 
 export function FinanceLedgerPanel({
   serviceFilter,
+  periodFrom,
+  periodTo,
 }: {
   serviceFilter: ServiceAreaFinanceSelection;
+  periodFrom?: string;
+  periodTo?: string;
 }) {
   const [filter, setFilter] = useState<AdminFinanceLedgerFilter>('all');
   const [search, setSearch] = useState('');
@@ -46,6 +50,8 @@ export function FinanceLedgerPanel({
     filter,
     regionId: serviceFilter.regionId,
     limit: 300,
+    from: periodFrom,
+    to: periodTo,
   });
 
   const filteredRows = useMemo(() => {
