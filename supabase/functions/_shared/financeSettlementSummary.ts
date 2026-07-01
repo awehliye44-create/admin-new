@@ -420,11 +420,19 @@ export type FinanceReconciliationSummary = {
     balanced: boolean;
     status: "BALANCED" | "RECONCILIATION_MISMATCH" | "balanced" | "reconciliation_error";
   };
-  ssot: {
+  ssot?: {
     version: string;
     data_source_badge: FinanceDataSourceBadge;
     customer_revenue_source: string;
   };
+  pending_stripe_confirmation?: {
+    label: string;
+    trip_count: number;
+    expected_revenue_pence: number;
+    expected_commission_pence: number;
+    expected_driver_net_pence: number;
+  };
+  money_movement?: import("./connectMoneyMovementSSOT.ts").ConnectMoneyMovementBundle;
 };
 
 export type TripFinancialAuditRow = {
@@ -517,6 +525,7 @@ export function buildFinanceReconciliationSummary(args: {
   dataSourceBadge?: FinanceDataSourceBadge;
   /** When true, BALANCED status uses trip-earnings split (correct for date-filtered reports). */
   periodScoped?: boolean;
+  moneyMovement?: import("./connectMoneyMovementSSOT.ts").ConnectMoneyMovementBundle;
 }): FinanceReconciliationSummary {
   const m = args.ssot;
   const driverAvailablePayout = Math.max(0, m.driver_available_now_pence - args.inFlightCashoutPence);
@@ -596,9 +605,36 @@ export function buildFinanceReconciliationSummary(args: {
     ssot: {
       version: SSOT_VERSION,
       data_source_badge: args.dataSourceBadge ?? "LIVE",
-      customer_revenue_source: m.customer_revenue_source,
+      customer_revenue_source: formatCustomerRevenueSourceLabel(m.customer_revenue_source),
     },
+    pending_stripe_confirmation: m.pending_trip_count > 0
+      ? {
+        label: "Expected / Pending Stripe confirmation",
+        trip_count: m.pending_trip_count,
+        expected_revenue_pence: m.pending_stripe_confirmation_revenue_pence,
+        expected_commission_pence: m.pending_stripe_confirmation_commission_pence,
+        expected_driver_net_pence: m.pending_stripe_confirmation_driver_net_pence,
+      }
+      : undefined,
+    money_movement: args.moneyMovement,
   };
+}
+
+function formatCustomerRevenueSourceLabel(
+  source: import("./financialReconciliationSSOT.ts").CustomerRevenueSourceLabel,
+): string {
+  switch (source) {
+    case "payments_captured":
+      return "Reconciled — captured payments only";
+    case "expected_pending_stripe_confirmation":
+      return "Expected / Pending Stripe confirmation";
+    case "trips_capture_fallback_pending":
+      return "Expected / Pending Stripe confirmation (trip capture fallback)";
+    case "trips_final_fare_fallback_pending":
+      return "Expected / Pending Stripe confirmation (trip fare fallback)";
+    default:
+      return String(source);
+  }
 }
 
 export function computeAuditCaptureMismatch(args: {

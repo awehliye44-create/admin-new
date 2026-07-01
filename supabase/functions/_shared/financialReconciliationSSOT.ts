@@ -14,7 +14,7 @@
 import { computeLedgerWalletBalancePence } from "./onecabFinanceLedger.ts";
 import { availablePayoutPence } from "./payoutAvailability.ts";
 
-export const SSOT_VERSION = "financial_reconciliation_ssot_v3";
+export const SSOT_VERSION = "financial_reconciliation_ssot_v4";
 
 /** Default digital reconciliation tolerance — hard block only when unexplained or negative. */
 export const RECONCILIATION_VARIANCE_TOLERANCE_PENCE = 100;
@@ -83,6 +83,15 @@ export const ADJUSTMENT_LEDGER_TYPES = [
 
 export const CAPTURED_PAYMENT_STATUSES = new Set(["captured", "paid", "succeeded"]);
 
+/** Trip-level payment_status values that confirm Stripe capture (card trips). */
+export const CAPTURE_CONFIRMED_TRIP_PAYMENT_STATUSES = CAPTURED_PAYMENT_STATUSES;
+
+export type CustomerRevenueSourceLabel =
+  | "payments_captured"
+  | "expected_pending_stripe_confirmation"
+  | "trips_capture_fallback_pending"
+  | "trips_final_fare_fallback_pending";
+
 export type PaymentCaptureRow = {
   captured_amount_pence: number | null;
   status: string | null;
@@ -100,6 +109,7 @@ export type TripSSOTRow = {
   commissionable_fare_pence: number | null;
   capture_amount_pence: number | null;
   refund_amount_pence?: number | null;
+  payment_status?: string | null;
   pickup_waiting_charge_pence?: number | null;
   stop_waiting_charge_pence?: number | null;
   tip_pence?: number | null;
@@ -108,6 +118,71 @@ export type TripSSOTRow = {
   other_pass_through_charges_pence?: number | null;
   payment_method?: string | null;
 };
+
+export function isTripPaymentCaptureConfirmed(
+  trip: TripSSOTRow,
+  paymentByTrip: Map<string, number>,
+): boolean {
+  if (isCashTrip(trip)) return true;
+  const tripStatus = String(trip.payment_status ?? "").toLowerCase();
+  if (CAPTURE_CONFIRMED_TRIP_PAYMENT_STATUSES.has(tripStatus)) return true;
+  const tripId = trip.id ?? "";
+  return tripId !== "" && (paymentByTrip.get(tripId) ?? 0) > 0;
+}
+
+export function partitionTripsForReconciliation(args: {
+  trips: TripSSOTRow[];
+  payments: PaymentCaptureRow[];
+}): {
+  reconciledTrips: TripSSOTRow[];
+  pendingTrips: TripSSOTRow[];
+  paymentByTrip: Map<string, number>;
+} {
+  const paymentByTrip = sumCapturedPaymentsByTripId(args.payments);
+  const reconciledTrips: TripSSOTRow[] = [];
+  const pendingTrips: TripSSOTRow[] = [];
+
+  for (const trip of args.trips) {
+    if (isTripPaymentCaptureConfirmed(trip, paymentByTrip)) {
+      reconciledTrips.push(trip);
+    } else if (!isCashTrip(trip)) {
+      pendingTrips.push(trip);
+    } else {
+      reconciledTrips.push(trip);
+    }
+  }
+
+  return { reconciledTrips, pendingTrips, paymentByTrip };
+}
+
+/** Reduce commission/driver amounts when trip has partial/full refund. */
+export function applyRefundToTripAmounts(args: {
+  capturedPence: number;
+  refundPence: number;
+  commissionPence: number;
+  driverNetPence: number;
+}): {
+  net_captured_pence: number;
+  commission_pence: number;
+  driver_net_pence: number;
+} {
+  const captured = Math.max(0, args.capturedPence);
+  const refund = Math.max(0, args.refundPence);
+  const netCaptured = Math.max(0, captured - refund);
+  if (captured <= 0 || refund <= 0) {
+    return {
+      net_captured_pence: netCaptured,
+      commission_pence: Math.max(0, args.commissionPence),
+      driver_net_pence: Math.max(0, args.driverNetPence),
+    };
+  }
+  const ratio = netCaptured / captured;
+  return {
+    net_captured_pence: netCaptured,
+    commission_pence: Math.max(0, Math.round(args.commissionPence * ratio)),
+    driver_net_pence: Math.max(0, Math.round(args.driverNetPence * ratio)),
+  };
+}
 
 export type LedgerSSOTRow = {
   type: string;
@@ -128,29 +203,31 @@ export function tripDriverGrossEarningsPence(row: TripSSOTRow): number {
   return fare + pickupWaiting + stopWaiting + tips + airport + passThrough;
 }
 
-/** 1. Total customer revenue — payments primary, trips fallback. */
+/** 1. Total customer revenue — captured payments only (reconciled). */
 export function sumCustomerRevenuePence(args: {
   payments: PaymentCaptureRow[];
   trips: TripSSOTRow[];
-}): { total_pence: number; source: "payments" | "trips_capture" | "trips_final_fare" } {
+}): { total_pence: number; source: CustomerRevenueSourceLabel } {
   const fromPayments = args.payments
     .filter((p) => CAPTURED_PAYMENT_STATUSES.has(String(p.status ?? "").toLowerCase()))
     .reduce((s, p) => s + Math.max(0, p.captured_amount_pence ?? 0), 0);
 
   if (fromPayments > 0) {
-    return { total_pence: fromPayments, source: "payments" };
+    return { total_pence: fromPayments, source: "payments_captured" };
   }
 
-  const fromCapture = args.trips.reduce((s, t) => s + Math.max(0, t.capture_amount_pence ?? 0), 0);
-  if (fromCapture > 0) {
-    return { total_pence: fromCapture, source: "trips_capture" };
-  }
+  return { total_pence: 0, source: "payments_captured" };
+}
 
-  const fromFinal = args.trips.reduce(
-    (s, t) => s + Math.max(0, t.final_fare_pence ?? t.commissionable_fare_pence ?? 0),
-    0,
-  );
-  return { total_pence: fromFinal, source: "trips_final_fare" };
+/** Expected revenue from completed card trips awaiting Stripe capture confirmation. */
+export function sumPendingStripeConfirmationRevenuePence(args: {
+  pendingTrips: TripSSOTRow[];
+}): number {
+  return args.pendingTrips.reduce((s, t) => {
+    const tip = Math.max(0, t.tip_pence ?? t.tip_amount_pence ?? 0);
+    const fare = Math.max(0, t.final_fare_pence ?? t.commissionable_fare_pence ?? t.capture_amount_pence ?? 0);
+    return s + fare + tip;
+  }, 0);
 }
 
 /** 2. Refunded amount */
@@ -224,14 +301,36 @@ export function sumDigitalNetCustomerRevenuePence(args: {
   return netCustomerRevenuePence(captured, refunded);
 }
 
-/** 5. ONECAB gross commission — trips.commission_pence only */
-export function sumOnecabGrossCommissionPence(trips: TripSSOTRow[]): number {
-  return trips.reduce((s, t) => s + Math.max(0, t.commission_pence ?? 0), 0);
+/** 5. ONECAB gross commission — capture-confirmed trips only */
+export function sumOnecabGrossCommissionPence(
+  trips: TripSSOTRow[],
+  paymentByTrip?: Map<string, number>,
+): number {
+  const byTrip = paymentByTrip ?? new Map<string, number>();
+  return trips.reduce((s, t) => {
+    if (!isTripPaymentCaptureConfirmed(t, byTrip)) return s;
+    const refund = Math.max(0, t.refund_amount_pence ?? 0);
+    const captured = byTrip.get(t.id ?? "") ?? Math.max(0, t.capture_amount_pence ?? 0);
+    const adjusted = applyRefundToTripAmounts({
+      capturedPence: captured,
+      refundPence: refund,
+      commissionPence: Math.max(0, t.commission_pence ?? 0),
+      driverNetPence: Math.max(0, t.driver_net_pence ?? 0),
+    });
+    return s + adjusted.commission_pence;
+  }, 0);
 }
 
-/** 6. Provider processing fees — confirmed trip fees */
-export function sumProviderProcessingFeesPence(trips: TripSSOTRow[]): number {
-  return trips.reduce((s, t) => s + Math.max(0, t.stripe_processing_fee_pence ?? 0), 0);
+/** 6. Provider processing fees — capture-confirmed card trips only */
+export function sumProviderProcessingFeesPence(
+  trips: TripSSOTRow[],
+  paymentByTrip?: Map<string, number>,
+): number {
+  const byTrip = paymentByTrip ?? new Map<string, number>();
+  return trips.reduce((s, t) => {
+    if (isCashTrip(t) || !isTripPaymentCaptureConfirmed(t, byTrip)) return s;
+    return s + Math.max(0, t.stripe_processing_fee_pence ?? 0);
+  }, 0);
 }
 
 /** 7. ONECAB net commission */
@@ -239,10 +338,30 @@ export function onecabNetCommissionPence(gross: number, providerFees: number): n
   return Math.max(0, gross - providerFees);
 }
 
-/** 8. Driver net earnings */
-export function sumDriverNetEarningsPence(trips: TripSSOTRow[]): number {
+/** 8. Driver net earnings — capture-confirmed trips only */
+export function sumDriverNetEarningsPence(
+  trips: TripSSOTRow[],
+  paymentByTrip?: Map<string, number>,
+): number {
+  const byTrip = paymentByTrip ?? new Map<string, number>();
   return trips.reduce((s, t) => {
-    if (t.driver_net_pence != null) return s + Math.max(0, t.driver_net_pence);
+    if (!isTripPaymentCaptureConfirmed(t, byTrip)) {
+      if (isCashTrip(t) && t.driver_net_pence != null) {
+        return s + Math.max(0, t.driver_net_pence);
+      }
+      return s;
+    }
+    const refund = Math.max(0, t.refund_amount_pence ?? 0);
+    const captured = byTrip.get(t.id ?? "") ?? Math.max(0, t.capture_amount_pence ?? 0);
+    if (t.driver_net_pence != null) {
+      const adjusted = applyRefundToTripAmounts({
+        capturedPence: captured,
+        refundPence: refund,
+        commissionPence: Math.max(0, t.commission_pence ?? 0),
+        driverNetPence: Math.max(0, t.driver_net_pence),
+      });
+      return s + adjusted.driver_net_pence;
+    }
     const gross = tripDriverGrossEarningsPence(t);
     const commission = Math.max(0, t.commission_pence ?? 0);
     return s + Math.max(0, gross - commission);
@@ -454,9 +573,13 @@ export function buildReconciliationCheck(args: {
 
 export type SSOTComputedMetrics = {
   total_customer_revenue_pence: number;
-  customer_revenue_source: "payments" | "trips_capture" | "trips_final_fare";
+  customer_revenue_source: CustomerRevenueSourceLabel;
   refunded_amount_pence: number;
   net_customer_revenue_pence: number;
+  pending_stripe_confirmation_revenue_pence: number;
+  pending_stripe_confirmation_commission_pence: number;
+  pending_stripe_confirmation_driver_net_pence: number;
+  pending_trip_count: number;
   driver_gross_earnings_pence: number;
   driver_net_earnings_pence: number;
   onecab_gross_commission_pence: number;
@@ -486,6 +609,11 @@ export type PaymentMethodLedgerMetrics = {
   onecab_cash_commission_receivable_pence: number;
   onecab_card_net_commission_pence: number;
   stripe_processing_fees_pence: number;
+  /** Completed card trips not yet capture-confirmed — not reconciled totals. */
+  pending_stripe_confirmation_revenue_pence: number;
+  pending_stripe_confirmation_commission_pence: number;
+  pending_stripe_confirmation_driver_net_pence: number;
+  pending_trip_count: number;
 };
 
 export function totalCommissionEarnedPence(
@@ -508,6 +636,10 @@ export function computePaymentMethodLedgerMetrics(args: {
   payments?: PaymentCaptureRow[];
 }): PaymentMethodLedgerMetrics {
   const paymentByTrip = sumCapturedPaymentsByTripId(args.payments ?? []);
+  const { reconciledTrips, pendingTrips } = partitionTripsForReconciliation({
+    trips: args.trips,
+    payments: args.payments ?? [],
+  });
 
   let cardCustomerRevenue = 0;
   let cardDriverPayable = 0;
@@ -517,7 +649,7 @@ export function computePaymentMethodLedgerMetrics(args: {
   let cashDriverReceived = 0;
   let onecabCashCommission = 0;
 
-  for (const trip of args.trips) {
+  for (const trip of reconciledTrips) {
     const commission = Math.max(0, trip.commission_pence ?? 0);
     if (isCashTripPaymentMethod(trip.payment_method)) {
       const collected = Math.max(
@@ -531,13 +663,30 @@ export function computePaymentMethodLedgerMetrics(args: {
     }
 
     const tripId = trip.id ?? "";
-    const captured =
-      (tripId && paymentByTrip.has(tripId) ? paymentByTrip.get(tripId)! : 0) ||
-      Math.max(0, trip.capture_amount_pence ?? 0);
-    cardCustomerRevenue += captured;
-    cardDriverPayable += Math.max(0, trip.driver_net_pence ?? 0);
-    onecabCardCommission += commission;
+    const capturedRaw = tripId && paymentByTrip.has(tripId)
+      ? paymentByTrip.get(tripId)!
+      : Math.max(0, trip.capture_amount_pence ?? 0);
+    const refund = Math.max(0, trip.refund_amount_pence ?? 0);
+    const adjusted = applyRefundToTripAmounts({
+      capturedPence: capturedRaw,
+      refundPence: refund,
+      commissionPence: commission,
+      driverNetPence: Math.max(0, trip.driver_net_pence ?? 0),
+    });
+
+    cardCustomerRevenue += adjusted.net_captured_pence;
+    cardDriverPayable += adjusted.driver_net_pence;
+    onecabCardCommission += adjusted.commission_pence;
     cardStripeFees += Math.max(0, trip.stripe_processing_fee_pence ?? 0);
+  }
+
+  let pendingRevenue = 0;
+  let pendingCommission = 0;
+  let pendingDriverNet = 0;
+  for (const trip of pendingTrips) {
+    pendingRevenue += sumPendingStripeConfirmationRevenuePence({ pendingTrips: [trip] });
+    pendingCommission += Math.max(0, trip.commission_pence ?? 0);
+    pendingDriverNet += Math.max(0, trip.driver_net_pence ?? 0);
   }
 
   return {
@@ -550,6 +699,10 @@ export function computePaymentMethodLedgerMetrics(args: {
     onecab_cash_commission_receivable_pence: onecabCashCommission,
     onecab_card_net_commission_pence: onecabNetCommissionPence(onecabCardCommission, cardStripeFees),
     stripe_processing_fees_pence: cardStripeFees,
+    pending_stripe_confirmation_revenue_pence: pendingRevenue,
+    pending_stripe_confirmation_commission_pence: pendingCommission,
+    pending_stripe_confirmation_driver_net_pence: pendingDriverNet,
+    pending_trip_count: pendingTrips.length,
   };
 }
 
@@ -638,21 +791,25 @@ export function computeSSOTMetrics(args: {
   providerAvailableBalancePence: number;
   providerPendingBalancePence: number;
 }): SSOTComputedMetrics {
+  const { reconciledTrips, pendingTrips, paymentByTrip } = partitionTripsForReconciliation({
+    trips: args.trips,
+    payments: args.payments,
+  });
+
   const customerRev = sumCustomerRevenuePence({ payments: args.payments, trips: args.trips });
   const refunded = sumRefundedPence(args.trips);
   const netCustomer = netCustomerRevenuePence(customerRev.total_pence, refunded);
-  const driverGross = sumDriverGrossEarningsPence(args.trips);
-  const driverNet = sumDriverNetEarningsPence(args.trips);
-  const onecabGross = sumOnecabGrossCommissionPence(args.trips);
-  const providerFees = sumProviderProcessingFeesPence(args.trips);
+  const pendingRevenue = sumPendingStripeConfirmationRevenuePence({ pendingTrips });
+  const driverGross = sumDriverGrossEarningsPence(reconciledTrips);
+  const driverNet = sumDriverNetEarningsPence(reconciledTrips, paymentByTrip);
+  const onecabGross = sumOnecabGrossCommissionPence(reconciledTrips, paymentByTrip);
+  const providerFees = sumProviderProcessingFeesPence(reconciledTrips, paymentByTrip);
   const onecabNet = onecabNetCommissionPence(onecabGross, providerFees);
   const paidOut = sumDriverPaidOutPence(args.ledger);
   const adjustments = sumAdjustmentsPence(args.ledger);
-  const walletBalance = computeLedgerWalletBalancePence(args.ledger); // signed
+  const walletBalance = computeLedgerWalletBalancePence(args.ledger);
   const remaining = Math.max(0, walletBalance);
-  // SSOT: available_payout = max(walletBalance, 0). No provider cap, no in-flight cap.
   const availableNow = availablePayoutPence(walletBalance);
-  // Pending is meaningless under the SSOT (wallet is either available or debt).
   const pendingPayout = 0;
 
   const ledgerSplit = computePaymentMethodLedgerMetrics({
@@ -677,6 +834,10 @@ export function computeSSOTMetrics(args: {
     customer_revenue_source: customerRev.source,
     refunded_amount_pence: refunded,
     net_customer_revenue_pence: netCustomer,
+    pending_stripe_confirmation_revenue_pence: pendingRevenue,
+    pending_stripe_confirmation_commission_pence: ledgerSplit.pending_stripe_confirmation_commission_pence,
+    pending_stripe_confirmation_driver_net_pence: ledgerSplit.pending_stripe_confirmation_driver_net_pence,
+    pending_trip_count: ledgerSplit.pending_trip_count,
     driver_gross_earnings_pence: driverGross,
     driver_net_earnings_pence: driverNet,
     onecab_gross_commission_pence: onecabGross,

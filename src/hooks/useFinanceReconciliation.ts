@@ -97,6 +97,119 @@ export interface FinanceReconciliationSummary {
     data_source_badge: 'LIVE' | 'SUMMARY' | 'LEDGER' | 'RECONSTRUCTED';
     customer_revenue_source: string;
   };
+  pending_stripe_confirmation?: {
+    label: string;
+    trip_count: number;
+    expected_revenue_pence: number;
+    expected_commission_pence: number;
+    expected_driver_net_pence: number;
+  };
+  money_movement?: ConnectMoneyMovementBundle;
+}
+
+export type MoneyMovementReconciliationStatus =
+  | 'pending_stripe_confirmation'
+  | 'matched'
+  | 'mismatch'
+  | 'refunded_reversed'
+  | 'paid_out';
+
+export interface ConnectMoneyMovementBundle {
+  version: string;
+  last_synced_at: string;
+  connect_accounts: Array<{
+    connected_account_id: string;
+    driver_id: string;
+    driver_name: string;
+    driver_code: string | null;
+    stripe_live_balance_pence: number;
+    future_payout_pence: number;
+    in_transit_to_bank_pence: number;
+    lifetime_volume_pence: number;
+    last_synced_at: string;
+    duplicate_connect_account: boolean;
+    duplicate_connect_group_key: string | null;
+    expected_wallet_balance_pence: number;
+    actual_stripe_balance_pence: number;
+    difference_pence: number;
+    recovery_debt_pence: number;
+    net_payable_after_recovery_pence: number;
+    reconciliation_status: MoneyMovementReconciliationStatus;
+  }>;
+  payouts: Array<{
+    connected_account_id: string;
+    driver_id: string;
+    driver_name: string;
+    driver_code: string | null;
+    stripe_live_balance_pence: number;
+    future_payout_pence: number;
+    in_transit_to_bank_pence: number;
+    lifetime_volume_pence: number;
+    payout_id: string;
+    payout_amount_pence: number;
+    payout_status: string;
+    payout_initiated_at: string | null;
+    estimated_arrival_at: string | null;
+    external_bank_last4: string | null;
+    payout_method: string;
+    statement_descriptor: string | null;
+    last_synced_at: string;
+    expected_ledger_pence: number | null;
+    actual_stripe_pence: number;
+    difference_pence: number;
+    reconciliation_status: MoneyMovementReconciliationStatus;
+    ledger_entry_ids: string[];
+    ledger_linked: boolean;
+    duplicate_connect_account: boolean;
+    duplicate_connect_group_key: string | null;
+  }>;
+  transfers: Array<{
+    transfer_id: string;
+    connected_account_id: string;
+    driver_id: string;
+    driver_name: string;
+    amount_pence: number;
+    trip_id: string | null;
+    created_at: string | null;
+    reconciliation_status: MoneyMovementReconciliationStatus;
+  }>;
+  collected_fees: Array<{
+    connected_account_id: string;
+    driver_id: string;
+    driver_name: string;
+    application_fee_id: string | null;
+    charge_id: string | null;
+    trip_id: string | null;
+    amount_pence: number;
+    created_at: string | null;
+  }>;
+  recovery_debt: Array<{
+    driver_id: string;
+    driver_name: string;
+    connected_account_id: string | null;
+    recovery_debt_pence: number;
+    ledger_types: string[];
+    reduces_net_payable: boolean;
+    note: string;
+  }>;
+  mismatches: Array<{
+    kind: string;
+    driver_id: string | null;
+    driver_name: string | null;
+    connected_account_id: string | null;
+    reference_id: string | null;
+    expected_pence: number | null;
+    actual_pence: number | null;
+    difference_pence: number;
+    status: MoneyMovementReconciliationStatus;
+    message: string;
+  }>;
+  duplicate_connect_groups: Array<{
+    group_key: string;
+    driver_ids: string[];
+    connected_account_ids: string[];
+    driver_names: string[];
+  }>;
 }
 
 export interface TripAuditStatusBadge {
@@ -149,6 +262,7 @@ export interface FinanceReconciliationResponse {
   finance_reconciliation_summary: FinanceReconciliationSummary;
   trip_financial_audit: TripFinancialAuditRow[];
   legacy_manual_review_items?: LegacyManualReviewItem[];
+  money_movement?: ConnectMoneyMovementBundle;
   meta: {
     trip_count: number;
     audit_row_count: number;

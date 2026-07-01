@@ -1,7 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@14.21.0";
-import { computeSSOTMetrics } from "../_shared/financialReconciliationSSOT.ts";
+import { computeSSOTMetrics, SSOT_VERSION } from "../_shared/financialReconciliationSSOT.ts";
+import { fetchConnectMoneyMovementBundle } from "../_shared/connectMoneyMovementSSOT.ts";
 import { fetchPerDriverFinancialReconciliation } from "../_shared/perDriverFinancialReconciliation.ts";
 import {
   buildFinanceReconciliationSummary,
@@ -431,6 +432,7 @@ serve(async (req) => {
     let stripeAvailablePence = 0;
     let stripePendingPence = 0;
     let stripeBalanceError: string | null = null;
+    let moneyMovement = undefined;
 
     if (stripeSecretKey) {
       try {
@@ -440,6 +442,18 @@ serve(async (req) => {
         const pend = balance.pending.find((b: { currency: string }) => b.currency === currency);
         stripeAvailablePence = avail?.amount ?? 0;
         stripePendingPence = pend?.amount ?? 0;
+
+        if (!summaryOnly) {
+          moneyMovement = await fetchConnectMoneyMovementBundle({
+            supabase,
+            stripe,
+            currency,
+            regionId: resolvedRegionId,
+            serviceAreaId: serviceAreaId ?? null,
+            periodFrom,
+            periodTo,
+          });
+        }
       } catch (e) {
         stripeBalanceError = (e as Error).message;
       }
@@ -511,6 +525,7 @@ serve(async (req) => {
       lastWebhookReceivedAt: lastWebhookAt,
       onecabBankPayoutPence: settlementStatus === "paid_to_onecab_bank" ? ssotMetrics.net_platform_revenue_pence : 0,
       dataSourceBadge: "LIVE",
+      moneyMovement,
     });
 
     const trip_financial_audit = summaryOnly
@@ -596,16 +611,18 @@ serve(async (req) => {
       finance_reconciliation_summary,
       trip_financial_audit,
       legacy_manual_review_items: legacyManualReviewItems,
+      money_movement: moneyMovement,
       meta: {
         trip_count: finance.tripCount,
         audit_row_count: trip_financial_audit.length,
         stripe_balance_error: stripeBalanceError,
-        ssot_version: "financial_reconciliation_ssot_v1",
+        ssot_version: SSOT_VERSION,
         data_source_badge: "LIVE",
         accounting_rules: {
-          card_customer_revenue: "sum(card trip fare + card tips) from payments/trips — card trips only",
+          card_customer_revenue: "sum(captured_amount_pence) where payments.status in captured|paid|succeeded — card only",
+          pending_stripe_confirmation: "completed card trips without capture confirmation — excluded from reconciled totals",
           cash_collected_by_driver: "sum(cash trip fare) — not ONECAB Stripe revenue",
-          onecab_card_commission: "sum(card trip commission_pence)",
+          onecab_card_commission: "sum(card trip commission_pence) capture-confirmed only, refund-adjusted",
           onecab_cash_commission_receivable: "sum(cash trip commission_pence) — owed by driver",
           onecab_card_net_commission: "onecab_card_commission - stripe_processing_fees (card trips only)",
           total_commission_earned: "onecab_card_commission + onecab_cash_commission_receivable",
@@ -613,6 +630,7 @@ serve(async (req) => {
           cash_stripe_fees: "always 0 — cash trips have no Stripe processing fee",
           driver_payout_liability: "card_driver_payable - driver_paid_out + adjustments (excludes cash driver_net)",
           driver_wallet: "card: +driver_net+tips; cash: -commission (fare already with driver)",
+          stripe_payout_confirmation: "driver bank receipt requires Stripe Connect payout paid + ledger stripe_payout_id",
           card_reconciliation:
             "card_customer_revenue = card_driver_payable + onecab_card_commission",
           cash_reconciliation:

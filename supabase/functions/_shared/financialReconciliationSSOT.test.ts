@@ -17,7 +17,7 @@ Deno.test("customer revenue prefers payments over trips", () => {
     trips: [{ capture_amount_pence: 3000, final_fare_pence: 3000 } as import("./financialReconciliationSSOT.ts").TripSSOTRow],
   });
   assertEquals(r.total_pence, 5000);
-  assertEquals(r.source, "payments");
+  assertEquals(r.source, "payments_captured");
 });
 
 Deno.test("cash reconciliation does not double-count adjustments", () => {
@@ -62,6 +62,7 @@ Deno.test("computeSSOTMetrics end-to-end", () => {
     trips: [{
       id: "t1",
       payment_method: "card",
+      payment_status: "captured",
       commission_pence: 1500,
       stripe_processing_fee_pence: 200,
       driver_net_pence: 8500,
@@ -105,6 +106,7 @@ Deno.test("mixed card+cash balances separately — no false mismatch from mixing
       {
         id: "c1",
         payment_method: "card",
+        payment_status: "captured",
         commissionable_fare_pence: 5783,
         capture_amount_pence: 5783,
         commission_pence: 867,
@@ -141,6 +143,7 @@ Deno.test("total commission and net platform revenue — card + cash, Stripe fee
       {
         id: "c1",
         payment_method: "card",
+        payment_status: "captured",
         commissionable_fare_pence: 480,
         capture_amount_pence: 480,
         commission_pence: 72,
@@ -174,6 +177,7 @@ Deno.test("computePaymentMethodLedgerMetrics sums all payment PIs per trip (MK-2
     trips: [{
       id: "trip-mk-624",
       payment_method: "card",
+      payment_status: "captured",
       capture_amount_pence: 400,
       final_fare_pence: 849,
       commission_pence: 127,
@@ -187,4 +191,25 @@ Deno.test("computePaymentMethodLedgerMetrics sums all payment PIs per trip (MK-2
   });
   assertEquals(ledger.card_customer_revenue_pence, 849);
   assertEquals(ledger.net_card_revenue_pence, 849);
+});
+
+Deno.test("completed card trip without capture does not increase reconciled commission", () => {
+  const m = computeSSOTMetrics({
+    payments: [],
+    trips: [{
+      id: "pending1",
+      payment_method: "card",
+      payment_status: "capture_requested",
+      commission_pence: 500,
+      driver_net_pence: 2000,
+      final_fare_pence: 2500,
+    } as import("./financialReconciliationSSOT.ts").TripSSOTRow],
+    ledger: [],
+    providerAvailableBalancePence: 0,
+    providerPendingBalancePence: 0,
+  });
+  assertEquals(m.onecab_gross_commission_pence, 0);
+  assertEquals(m.total_customer_revenue_pence, 0);
+  assertEquals(m.pending_trip_count, 1);
+  assertEquals(m.pending_stripe_confirmation_commission_pence, 500);
 });
