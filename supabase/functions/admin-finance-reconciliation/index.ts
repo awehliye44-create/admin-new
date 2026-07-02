@@ -531,15 +531,25 @@ serve(async (req) => {
         stripePendingPence = pend?.amount ?? 0;
 
         if (!summaryOnly) {
-          moneyMovement = await fetchConnectMoneyMovementBundle({
-            supabase,
-            stripe,
-            currency,
-            regionId: resolvedRegionId,
-            serviceAreaId: serviceAreaId ?? null,
-            periodFrom,
-            periodTo,
-          });
+          const mm = await withTimeout(
+            "connect_money_movement",
+            STRIPE_SECTION_TIMEOUT_MS,
+            fetchConnectMoneyMovementBundle({
+              supabase,
+              stripe,
+              currency,
+              regionId: resolvedRegionId,
+              serviceAreaId: serviceAreaId ?? null,
+              periodFrom,
+              periodTo,
+            }),
+          );
+          if (mm && typeof mm === "object" && "__timeout" in mm) {
+            stripeBalanceError = "connect_money_movement_timeout";
+            moneyMovement = undefined;
+          } else {
+            moneyMovement = mm;
+          }
         }
       } catch (e) {
         stripeBalanceError = (e as Error).message;
