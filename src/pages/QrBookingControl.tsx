@@ -24,7 +24,7 @@ interface QrConfig {
   status: string;
   qr_url: string;
   updated_at: string;
-  allow_cash: boolean;
+  
   allow_card: boolean;
   allow_apple_pay: boolean;
   allow_google_pay: boolean;
