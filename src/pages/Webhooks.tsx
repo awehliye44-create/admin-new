@@ -240,7 +240,10 @@ export default function Webhooks() {
     resetForm();
   };
 
-  const handleDeleteWebhook = (id: string) => {
+  const handleDeleteWebhook = async (id: string) => {
+    await supabase.functions.invoke('admin-integration-secrets', {
+      body: { namespace: 'webhook', owner_id: id, action: 'delete_owner' },
+    });
     const updatedWebhooks = webhooks.filter(w => w.id !== id);
     saveWebhooksMutation.mutate(updatedWebhooks);
     toast({ title: "Webhook deleted" });
