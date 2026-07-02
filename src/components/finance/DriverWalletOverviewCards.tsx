@@ -60,7 +60,7 @@ export function DriverWalletOverviewCards({
   }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <CompactCard
         title="ONECAB Wallet Balance"
         value={driver.wallet_balance_pence}
@@ -83,12 +83,6 @@ export function DriverWalletOverviewCards({
         title="Available Cash Out"
         value={driver.cashout_limit_pence}
         badge="Cash Out"
-        currencyCode={currencyCode}
-      />
-      <CompactCard
-        title="Outstanding Recovery Debt"
-        value={driver.recovery_debt_pence}
-        badge="Recovery"
         currencyCode={currencyCode}
       />
     </div>
