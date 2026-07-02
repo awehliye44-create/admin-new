@@ -354,7 +354,7 @@ export default function ManualTrip() {
     setIsScheduled(false);
     setScheduledDate('');
     setScheduledTime('');
-    setPaymentMethod('cash');
+    setPaymentMethod('card');
     setJobType('ride');
     setIsCorporateTrip(false);
     setSelectedCorporateAccountId('');
@@ -363,7 +363,7 @@ export default function ManualTrip() {
 
   const getEnabledPaymentMethods = useCallback(() => {
     if (!paymentConfig) {
-      return ALL_PAYMENT_METHODS.filter(m => m.id === 'cash' || m.id === 'card');
+      return ALL_PAYMENT_METHODS.filter(m => m.id === 'card');
     }
     
     return ALL_PAYMENT_METHODS.filter(method => {
