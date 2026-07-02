@@ -39,6 +39,7 @@ import {
   Navigation, User, Car, Globe, Settings2, AlertTriangle, Briefcase
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
