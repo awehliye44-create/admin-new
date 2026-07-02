@@ -57,6 +57,27 @@ function isRecoverableTripHistoryQueryError(error: { message?: string; code?: st
 
 export type TripHistoryRow = Record<string, unknown> & { id: string };
 
+async function applyTripHistoryLocationFilter(
+  query: ReturnType<ReturnType<typeof supabase.from>['select']>,
+  args: { regionId?: string; serviceAreaId?: string },
+) {
+  if (args.serviceAreaId && args.serviceAreaId !== 'all') {
+    return query.eq('service_area_id', args.serviceAreaId);
+  }
+  if (args.regionId && args.regionId !== 'all') {
+    const { data: areas } = await supabase
+      .from('service_areas')
+      .select('id')
+      .eq('region_id', args.regionId);
+    const areaIds = (areas ?? []).map((row) => row.id as string).filter(Boolean);
+    if (areaIds.length > 0) {
+      return query.or(`region_id.eq.${args.regionId},service_area_id.in.(${areaIds.join(',')})`);
+    }
+    return query.eq('region_id', args.regionId);
+  }
+  return query;
+}
+
 export async function fetchTripHistoryRows(args: {
   start: Date;
   end: Date;
@@ -82,11 +103,7 @@ export async function fetchTripHistoryRows(args: {
       .order('completed_at', { ascending: false })
       .limit(2000);
 
-    if (args.serviceAreaId && args.serviceAreaId !== 'all') {
-      query = query.eq('service_area_id', args.serviceAreaId);
-    } else if (args.regionId && args.regionId !== 'all') {
-      query = query.eq('region_id', args.regionId);
-    }
+    query = await applyTripHistoryLocationFilter(query, args);
 
     const { data, error } = await query;
     if (!error) {

@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom';
 import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/hooks/useAuth';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -217,6 +218,7 @@ interface CompletedTrip {
 
 export default function TripHistory() {
   usePageLoadTelemetry('TripHistory');
+  const { session, isAuthReady } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const openRecoverPanel = searchParams.get('recover') === '1';
   
@@ -290,7 +292,8 @@ export default function TripHistory() {
 
   // React Query for trip data
   const { data: trips = [], isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['trip-history', dateFilter, selectedRegionId, selectedServiceAreaId, corporateFilter],
+    queryKey: ['trip-history', dateFilter, selectedRegionId, selectedServiceAreaId, corporateFilter, session?.access_token],
+    enabled: isAuthReady && Boolean(session?.access_token),
     queryFn: async () => {
       const { start, end } = getDateRange();
 
@@ -365,7 +368,12 @@ export default function TripHistory() {
         }
       }
 
-      const captureSsotRows = tripIds.length > 0 ? await fetchTripsCaptureSsot(tripIds) : [];
+      const captureSsotRows = tripIds.length > 0
+        ? await fetchTripsCaptureSsot(tripIds).catch((captureErr) => {
+            console.warn('[TripHistory] Capture SSOT optional fetch failed:', captureErr);
+            return [];
+          })
+        : [];
       const captureByTrip = new Map(captureSsotRows.map((r) => [r.trip_id, r]));
 
       return tripsData.map((trip) => {
@@ -1067,8 +1075,24 @@ export default function TripHistory() {
               <p className="text-muted-foreground">
                 {searchQuery 
                   ? 'Try adjusting your search' 
-                  : 'No trips completed in the selected time period'}
+                  : trips.length > 0
+                    ? 'Trips loaded but hidden by filters — try All Areas / All Regions / Last 90 Days'
+                    : 'No trips completed in the selected time period'}
               </p>
+              {!searchQuery && trips.length === 0 && selectedServiceAreaId !== 'all' ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-4"
+                  onClick={() => {
+                    setSelectedServiceAreaId('all');
+                    setSelectedRegionId('all');
+                    setDateFilter('90days');
+                  }}
+                >
+                  Clear location filters
+                </Button>
+              ) : null}
             </div>
           ) : (
             <Table>
