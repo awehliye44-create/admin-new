@@ -3697,10 +3697,38 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "driver_early_cashouts_ledger_cashout_id_fkey"
+            columns: ["ledger_cashout_id"]
+            isOneToOne: false
+            referencedRelation: "v_finance_era_digital"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_early_cashouts_ledger_cashout_id_fkey"
+            columns: ["ledger_cashout_id"]
+            isOneToOne: false
+            referencedRelation: "v_finance_era_legacy_cash"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "driver_early_cashouts_ledger_fee_id_fkey"
             columns: ["ledger_fee_id"]
             isOneToOne: false
             referencedRelation: "driver_wallet_ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_early_cashouts_ledger_fee_id_fkey"
+            columns: ["ledger_fee_id"]
+            isOneToOne: false
+            referencedRelation: "v_finance_era_digital"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_early_cashouts_ledger_fee_id_fkey"
+            columns: ["ledger_fee_id"]
+            isOneToOne: false
+            referencedRelation: "v_finance_era_legacy_cash"
             referencedColumns: ["id"]
           },
         ]
@@ -3822,6 +3850,20 @@ export type Database = {
             columns: ["ledger_entry_id"]
             isOneToOne: true
             referencedRelation: "driver_wallet_ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_earning_settlement_ledger_entry_id_fkey"
+            columns: ["ledger_entry_id"]
+            isOneToOne: true
+            referencedRelation: "v_finance_era_digital"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_earning_settlement_ledger_entry_id_fkey"
+            columns: ["ledger_entry_id"]
+            isOneToOne: true
+            referencedRelation: "v_finance_era_legacy_cash"
             referencedColumns: ["id"]
           },
           {
@@ -5522,6 +5564,20 @@ export type Database = {
             columns: ["ledger_entry_id"]
             isOneToOne: false
             referencedRelation: "driver_wallet_ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_reconciliation_notes_ledger_entry_id_fkey"
+            columns: ["ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "v_finance_era_digital"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_reconciliation_notes_ledger_entry_id_fkey"
+            columns: ["ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "v_finance_era_legacy_cash"
             referencedColumns: ["id"]
           },
         ]
@@ -8886,6 +8942,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "payout_item_ledger_allocations_ledger_entry_id_fkey"
+            columns: ["ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "v_finance_era_digital"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_item_ledger_allocations_ledger_entry_id_fkey"
+            columns: ["ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "v_finance_era_legacy_cash"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "payout_item_ledger_allocations_payout_item_id_fkey"
             columns: ["payout_item_id"]
             isOneToOne: false
@@ -8897,6 +8967,20 @@ export type Database = {
             columns: ["source_ledger_debit_id"]
             isOneToOne: false
             referencedRelation: "driver_wallet_ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_item_ledger_allocations_source_ledger_debit_id_fkey"
+            columns: ["source_ledger_debit_id"]
+            isOneToOne: false
+            referencedRelation: "v_finance_era_digital"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_item_ledger_allocations_source_ledger_debit_id_fkey"
+            columns: ["source_ledger_debit_id"]
+            isOneToOne: false
+            referencedRelation: "v_finance_era_legacy_cash"
             referencedColumns: ["id"]
           },
         ]
@@ -9104,6 +9188,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "payout_items_ledger_entry_id_fkey"
+            columns: ["ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "v_finance_era_digital"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_items_ledger_entry_id_fkey"
+            columns: ["ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "v_finance_era_legacy_cash"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "payout_items_payment_id_fkey"
             columns: ["payment_id"]
             isOneToOne: false
@@ -9115,6 +9213,20 @@ export type Database = {
             columns: ["return_ledger_entry_id"]
             isOneToOne: false
             referencedRelation: "driver_wallet_ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_items_return_ledger_entry_id_fkey"
+            columns: ["return_ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "v_finance_era_digital"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_items_return_ledger_entry_id_fkey"
+            columns: ["return_ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "v_finance_era_legacy_cash"
             referencedColumns: ["id"]
           },
           {
@@ -14886,6 +14998,173 @@ export type Database = {
         }
         Relationships: []
       }
+      v_finance_era_digital: {
+        Row: {
+          amount_pence: number | null
+          created_at: string | null
+          currency: string | null
+          description: string | null
+          driver_id: string | null
+          id: string | null
+          related_trip_id: string | null
+          service_area_id: string | null
+          stripe_payout_id: string | null
+          stripe_transfer_id: string | null
+          type: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_related_trip_id_fkey"
+            columns: ["related_trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_related_trip_id_fkey"
+            columns: ["related_trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_related_trip_id_fkey"
+            columns: ["related_trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_finance_era_legacy_cash: {
+        Row: {
+          amount_pence: number | null
+          created_at: string | null
+          currency: string | null
+          description: string | null
+          driver_id: string | null
+          id: string | null
+          related_trip_id: string | null
+          service_area_id: string | null
+          stripe_payout_id: string | null
+          stripe_transfer_id: string | null
+          type: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_related_trip_id_fkey"
+            columns: ["related_trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_related_trip_id_fkey"
+            columns: ["related_trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_related_trip_id_fkey"
+            columns: ["related_trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_ledger_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_finance_era_marker: {
+        Row: {
+          era: string | null
+          started_at: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       accept_ride_offer: {
@@ -16339,6 +16618,7 @@ export type Database = {
         Returns: undefined
       }
       ride_offer_retry_unacked_push_deliveries: { Args: never; Returns: number }
+      run_digital_finance_migration: { Args: never; Returns: Json }
       scan_go_vehicle_is_blocked: {
         Args: { p_status: string }
         Returns: boolean
