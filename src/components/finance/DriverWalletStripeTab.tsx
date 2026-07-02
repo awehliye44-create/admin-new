@@ -35,13 +35,6 @@ function isLedgerTransferRow(lr: Record<string, unknown>): boolean {
   return type.includes('transfer') || type === 'stripe_transfer' || type === 'connect_transfer';
 }
 
-function isRecoveryLedgerRow(lr: Record<string, unknown>): boolean {
-  const type = String(lr.type ?? '');
-  const amount = Number(lr.amount_pence ?? 0);
-  return isAdminDebtRecoveryDebit(type, amount)
-    || type.toLowerCase().includes('recovery')
-    || type.toLowerCase().includes('commission_recovered');
-}
 
 function ledgerTripId(lr: Record<string, unknown>): string | null {
   const id = lr.related_trip_id ?? lr.trip_id;
