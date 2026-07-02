@@ -109,7 +109,7 @@ export function DriverWalletSsotPanel({
             <TableBody>
               {rows.length === 0 && !isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                     No drivers with Connect accounts in this region.
                   </TableCell>
                 </TableRow>
