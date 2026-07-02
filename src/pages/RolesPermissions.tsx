@@ -553,7 +553,7 @@ export default function RolesPermissions() {
   // Permission page groups for the matrix
   const PAGE_GROUPS = [
     { label: 'Dashboard', pages: ['dashboard'] },
-    { label: 'Operations', pages: ['fleet-tracking', 'active-trips', 'auto-dispatch', 'scheduled-rides', 'missed-cancelled', 'trip-history', 'manual-trip', 'qr-booking'] },
+    { label: 'Operations', pages: ['fleet-tracking', 'active-trips', 'scheduled-rides', 'missed-cancelled', 'trip-history', 'manual-trip', 'qr-booking'] },
     { label: 'Fleet', pages: ['drivers', 'vehicles', 'vehicle-types', 'documents', 'document-management'] },
     { label: 'Service Areas', pages: ['regions', 'services'] },
     { label: 'Pricing', pages: ['promo-codes', 'custom-zones', 'zone-pricing', 'corporate-fares', 'fare-simulator'] },

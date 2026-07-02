@@ -1,0 +1,1 @@
+ALTER TABLE public.qr_booking_config DROP COLUMN IF EXISTS allow_cash;
