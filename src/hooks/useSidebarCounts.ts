@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
 import { countAdminActiveTrips } from '@/lib/adminActiveTripFilter';
 
@@ -32,6 +33,37 @@ const defaultCounts: SidebarCounts = {
   pendingDrivers: 0,
   pendingVehicleChanges: 0,
 };
+
+/** One realtime channel shared by AdminSidebar + Dashboard QuickActions (same channel name cannot subscribe twice). */
+let sidebarCountsChannel: RealtimeChannel | null = null;
+const sidebarCountsRefetchers = new Set<() => void>();
+
+function refetchAllSidebarCounts() {
+  sidebarCountsRefetchers.forEach((refetch) => refetch());
+}
+
+function registerSidebarCountsRealtime(refetch: () => void): () => void {
+  sidebarCountsRefetchers.add(refetch);
+  if (!sidebarCountsChannel) {
+    sidebarCountsChannel = supabase
+      .channel('sidebar-counts')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, refetchAllSidebarCounts)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rider_feedback' }, refetchAllSidebarCounts)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'documents' }, refetchAllSidebarCounts)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, refetchAllSidebarCounts)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'promo_codes' }, refetchAllSidebarCounts)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'admin_settings' }, refetchAllSidebarCounts)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_change_requests' }, refetchAllSidebarCounts)
+      .subscribe();
+  }
+  return () => {
+    sidebarCountsRefetchers.delete(refetch);
+    if (sidebarCountsRefetchers.size === 0 && sidebarCountsChannel) {
+      supabase.removeChannel(sidebarCountsChannel);
+      sidebarCountsChannel = null;
+    }
+  };
+}
 
 export function useSidebarCounts() {
   const [counts, setCounts] = useState<SidebarCounts>(defaultCounts);
@@ -167,53 +199,8 @@ export function useSidebarCounts() {
     return () => window.removeEventListener('focus', handleFocus);
   }, [fetchCounts]);
 
-  // Realtime subscriptions handle freshness — no polling needed
-
-  // Set up real-time subscriptions for all badge-relevant tables
-  useEffect(() => {
-    const channel = supabase
-      .channel('sidebar-counts')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'trips' },
-        () => fetchCounts(true)
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'rider_feedback' },
-        () => fetchCounts(true)
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'documents' },
-        () => fetchCounts(true)
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'drivers' },
-        () => fetchCounts(true)
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'promo_codes' },
-        () => fetchCounts(true)
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'admin_settings' },
-        () => fetchCounts(true)
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'vehicle_change_requests' },
-        () => fetchCounts(true)
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [fetchCounts]);
+  // Single shared realtime channel — AdminSidebar and Dashboard both use this hook.
+  useEffect(() => registerSidebarCountsRealtime(() => fetchCounts(true)), [fetchCounts]);
 
   return { counts, isLoading, refresh: () => fetchCounts(true) };
 }
