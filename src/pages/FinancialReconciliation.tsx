@@ -39,6 +39,7 @@ import { FinancialReconciliationAlertsTab } from '@/components/finance/Financial
 import { FinancialReconciliationStripeTab } from '@/components/finance/FinancialReconciliationStripeTab';
 import { FinanceRecoveryPanel } from '@/components/payment/FinanceRecoveryPanel';
 import { FinanceRecoveryMismatchSummary } from '@/components/payment/FinanceRecoveryMismatchSummary';
+import { DigitalFinanceEraPanel } from '@/components/finance/DigitalFinanceEraPanel';
 import type { FinanceRecoveryAction } from '@/components/payment/PaymentControlsCard';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Navigate } from 'react-router-dom';
@@ -467,6 +468,8 @@ function FinancialReconciliationPage() {
             </AlertDescription>
           </Alert>
         )}
+
+        <DigitalFinanceEraPanel />
 
         <Tabs value={frTab} onValueChange={(v) => setFrTab(v as FrTab)}>
           <TabsList className="flex flex-wrap h-auto gap-1">
