@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import { useRegions } from '@/hooks/useRegions';
+import { getCurrencySymbol } from '@/lib/regionSettings';
 import {
   calculateMonthlyTripTrends,
   isCountableCorporateFinancialTrip,

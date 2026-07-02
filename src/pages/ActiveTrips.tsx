@@ -59,10 +59,12 @@ import { getTripDisplayId } from '@/lib/tripUtils';
 import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
 import { filterAdminActiveTrips, formatAdminActiveTripTimerLabel } from '@/lib/adminActiveTripFilter';
 import { FinancialReconciliationTripLink } from '@/components/finance/FinancialReconciliationTripLink';
+import { resolvePayableFarePence } from '@/lib/fareDisplaySSOT';
 
 interface Trip {
   id: string;
   trip_code: string;
+  trip_number?: string | null;
   status: string;
   passenger_name: string;
   passenger_phone: string;
@@ -179,7 +181,7 @@ export default function ActiveTrips() {
       if (tripsRes.error) throw tripsRes.error;
       if (driversRes.error) throw driversRes.error;
 
-      setTrips(filterAdminActiveTrips(tripsRes.data || []));
+      setTrips(filterAdminActiveTrips((tripsRes.data || []) as any) as any);
       setAvailableDrivers(driversRes.data || []);
       setLastRefresh(new Date());
     } catch (err) {
