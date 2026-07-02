@@ -8,7 +8,7 @@ import { formatPence } from '@/hooks/useDriverWallet';
 import type { DriverWalletSsotRow } from '@/hooks/useDriverWalletSsot';
 import { useConnectPayoutStatus } from '@/hooks/useConnectPayoutStatus';
 import { ConnectManualPayoutDialog } from '@/components/finance/ConnectManualPayoutDialog';
-import { isAdminDebtRecoveryDebit } from '@/lib/adminFinanceLedgerDisplay';
+
 import { Loader2 } from 'lucide-react';
 
 function formatDate(iso: string | null | undefined): string {
@@ -35,13 +35,6 @@ function isLedgerTransferRow(lr: Record<string, unknown>): boolean {
   return type.includes('transfer') || type === 'stripe_transfer' || type === 'connect_transfer';
 }
 
-function isRecoveryLedgerRow(lr: Record<string, unknown>): boolean {
-  const type = String(lr.type ?? '');
-  const amount = Number(lr.amount_pence ?? 0);
-  return isAdminDebtRecoveryDebit(type, amount)
-    || type.toLowerCase().includes('recovery')
-    || type.toLowerCase().includes('commission_recovered');
-}
 
 function ledgerTripId(lr: Record<string, unknown>): string | null {
   const id = lr.related_trip_id ?? lr.trip_id;
@@ -76,7 +69,7 @@ export function DriverWalletStripeTab({
   const ledgerTransfers = (driver?.transfer_ledger_rows?.length
     ? driver.transfer_ledger_rows
     : (driver?.ledger_rows ?? []).filter((lr) => isLedgerTransferRow(lr as Record<string, unknown>)));
-  const recoveryRows = (driver?.ledger_rows ?? []).filter((lr) => isRecoveryLedgerRow(lr as Record<string, unknown>));
+  
   const bankPayouts = driver?.stripe_connect_payouts ?? [];
   const failedTransfers = payoutItems.filter((pi) => {
     const status = payoutItemStatus(pi as Record<string, unknown>);
@@ -165,7 +158,6 @@ export function DriverWalletStripeTab({
             <DetailRow label="Available balance" value={fmt(driver.stripe_connect_available_pence)} />
             <DetailRow label="Pending balance" value={fmt(driver.stripe_connect_pending_pence)} />
             <DetailRow label="In transit" value={fmt(driver.stripe_in_transit_pence)} />
-            <DetailRow label="Outstanding recovery" value={fmt(driver.recovery_debt_pence)} />
             <DetailRow label="Cash-out limit (SSOT)" value={fmt(driver.cashout_limit_pence)} />
           </CardContent>
         </Card>
@@ -386,41 +378,6 @@ export function DriverWalletStripeTab({
         </Card>
       )}
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Recovery deductions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead>Trip</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {recoveryRows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground py-6">No recovery deductions</TableCell>
-                </TableRow>
-              ) : (
-                recoveryRows.map((lr, idx) => (
-                  <TableRow key={String(lr.id ?? idx)}>
-                    <TableCell className="text-xs">{formatDate(String(lr.created_at ?? ''))}</TableCell>
-                    <TableCell className="text-xs text-destructive">{String(lr.type ?? '—')}</TableCell>
-                    <TableCell className="text-right text-destructive">{fmt(Number(lr.amount_pence ?? 0))}</TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {ledgerTripId(lr as Record<string, unknown>)?.slice(0, 8) ?? '—'}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
 
       <ConnectManualPayoutDialog
         driver={connectAccount}

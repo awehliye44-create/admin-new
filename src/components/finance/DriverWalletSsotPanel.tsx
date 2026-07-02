@@ -101,7 +101,6 @@ export function DriverWalletSsotPanel({
                 <TableHead className="text-right">Wallet Balance</TableHead>
                 <TableHead className="text-right">Finance Cleared</TableHead>
                 <TableHead className="text-right">Stripe Balance</TableHead>
-                <TableHead className="text-right">Outstanding Recovery</TableHead>
                 <TableHead className="text-right">Scheduled Payout</TableHead>
                 <TableHead>Last Payout</TableHead>
                 <TableHead>Reconciliation Status</TableHead>
@@ -110,7 +109,7 @@ export function DriverWalletSsotPanel({
             <TableBody>
               {rows.length === 0 && !isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                     No drivers with Connect accounts in this region.
                   </TableCell>
                 </TableRow>
@@ -135,7 +134,6 @@ export function DriverWalletSsotPanel({
                   <TableCell className="text-right">{fmt(row.wallet_balance_pence)}</TableCell>
                   <TableCell className="text-right">{fmt(row.finance_cleared_amount_pence)}</TableCell>
                   <TableCell className="text-right">{fmt(row.stripe_connect_available_pence)}</TableCell>
-                  <TableCell className="text-right">{fmt(row.recovery_debt_pence)}</TableCell>
                   <TableCell className="text-right">
                     {fmt(row.scheduled_payout_display_pence ?? row.included_in_payout_batch_amount_pence)}
                   </TableCell>
