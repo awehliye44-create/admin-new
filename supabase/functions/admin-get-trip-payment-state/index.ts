@@ -3,12 +3,63 @@ import Stripe from "https://esm.sh/stripe@14.21.0";
 import { z } from "https://esm.sh/zod@3.23.8";
 import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
 import {
+  buildTripFinancialAuditContext,
+  mapTripToFinancialAuditRow,
+  type TripAuditSourceRow,
+} from "../_shared/financeSettlementSummary.ts";
+import {
   formatSettlementWarning,
   getSettlementWarningSeverity,
   isInformationalSettlementWarning,
 } from "../_shared/stripeSettlementWarnings.ts";
 
 const InputSchema = z.object({ trip_id: z.string().uuid() });
+
+const TRIP_AUDIT_SELECT = `
+  id,
+  trip_code,
+  commission_pence,
+  stripe_processing_fee_pence,
+  onecab_net_pence,
+  driver_net_pence,
+  gross_fare_pence,
+  final_fare_pence,
+  commissionable_fare_pence,
+  capture_amount_pence,
+  authorised_amount_pence,
+  outstanding_balance_pence,
+  payment_coverage_status,
+  refund_amount_pence,
+  pickup_waiting_charge_pence,
+  stop_waiting_charge_pence,
+  airport_charge_pence,
+  other_pass_through_charges_pence,
+  tip_pence,
+  tip_amount_pence,
+  payment_method,
+  payment_status,
+  financial_outcome,
+  stripe_payment_intent_id,
+  stripe_charge_id,
+  provider_status,
+  driver_id,
+  passenger_id,
+  passenger_name,
+  stripe_settlement_verified,
+  stripe_settlement_warning,
+  stripe_application_fee_id,
+  stripe_application_fee_amount_pence,
+  stripe_destination_account_id,
+  stripe_transfer_id,
+  stripe_transfer_amount_pence,
+  created_at,
+  refunded_at,
+  driver_tier_commission_percent,
+  commission_pct,
+  completed_at,
+  service_area_id,
+  driver:drivers!trips_driver_id_fkey(first_name, last_name)
+`;
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
@@ -25,19 +76,40 @@ serve(async (req) => {
 
     const { data: trip, error: tripErr } = await gate.supabase
       .from('trips')
-      .select(`
-        id, stripe_payment_intent_id, stripe_charge_id, payment_status, payment_method,
-        gross_fare_pence, capture_amount_pence, authorised_amount_pence, refund_amount_pence,
-        final_fare_pence, commission_pence, driver_net_pence,
-        stripe_processing_fee_pence, onecab_net_pence, stripe_application_fee_id,
-        stripe_application_fee_amount_pence, stripe_destination_account_id, stripe_transfer_id,
-        stripe_transfer_amount_pence, stripe_settlement_verified, stripe_settlement_warning,
-        passenger_id, refund_reason, refunded_at, created_at, completed_at
-      `)
+      .select(TRIP_AUDIT_SELECT)
       .eq('id', trip_id)
       .single();
 
     if (tripErr || !trip) return jsonResponse({ error: 'Trip not found' }, 404);
+
+    const [paymentsRes, payoutItemsRes, ledgerRes] = await Promise.all([
+      gate.supabase
+        .from('payments')
+        .select('trip_id, captured_amount_pence, amount_pence, status, provider_status, stripe_payment_intent_id, provider_available_on')
+        .eq('trip_id', trip_id),
+      gate.supabase
+        .from('payout_items')
+        .select('trip_id, status, driver_amount_pence, amount_pence, batch_id')
+        .eq('trip_id', trip_id),
+      gate.supabase
+        .from('driver_wallet_ledger')
+        .select('related_trip_id, type, amount_pence, stripe_payout_id, stripe_transfer_id')
+        .eq('related_trip_id', trip_id),
+    ]);
+
+    const auditContext = buildTripFinancialAuditContext({
+      payments: paymentsRes.data ?? [],
+      payoutItems: payoutItemsRes.data ?? [],
+      ledgerRows: (ledgerRes.data ?? []).map((row) => ({
+        related_trip_id: row.related_trip_id ?? null,
+        type: row.type,
+        amount_pence: row.amount_pence,
+        stripe_payout_id: row.stripe_payout_id ?? null,
+        stripe_transfer_id: row.stripe_transfer_id ?? null,
+      })),
+    });
+
+    const auditRow = mapTripToFinancialAuditRow(trip as TripAuditSourceRow, auditContext);
 
     let customer_email: string | null = null;
     if (trip.passenger_id) {
@@ -50,8 +122,8 @@ serve(async (req) => {
     }
 
     let authorized_pence = trip.authorised_amount_pence ?? 0;
-    let captured_pence = trip.capture_amount_pence ?? 0;
-    let refunded_pence = trip.refund_amount_pence ?? 0;
+    let captured_pence = auditRow.captured_pence;
+    let refunded_pence = auditRow.refunded_pence;
     let stripe_status: string | null = null;
     let amount_capturable: number | null = null;
     let stripe_currency: string | null = null;
@@ -61,7 +133,7 @@ serve(async (req) => {
     let charge_payment_method: string | null = null;
     let payment_method_brand: string | null = null;
     let last4: string | null = null;
-    let stripe_fee_pence: number = trip.stripe_processing_fee_pence ?? 0;
+    let stripe_fee_pence: number = auditRow.processing_fee_pence;
     let stripe_application_fee_id: string | null = trip.stripe_application_fee_id ?? null;
     let stripe_application_fee_amount_pence: number | null = trip.stripe_application_fee_amount_pence ?? null;
     let stripe_destination_account_id: string | null = trip.stripe_destination_account_id ?? null;
@@ -88,8 +160,8 @@ serve(async (req) => {
         const charge = pi.latest_charge && typeof pi.latest_charge === 'object' ? pi.latest_charge as Stripe.Charge : null;
         if (charge) {
           charge_id = charge.id;
-          captured_pence = charge.amount_captured ?? captured_pence;
-          refunded_pence = charge.amount_refunded ?? refunded_pence;
+          if (charge.amount_captured != null) captured_pence = charge.amount_captured;
+          if (charge.amount_refunded != null) refunded_pence = charge.amount_refunded;
           if (charge.created) captured_at = new Date(charge.created * 1000).toISOString();
           if (!customer_email && charge.billing_details?.email) customer_email = charge.billing_details.email;
           const pmd = charge.payment_method_details;
@@ -113,13 +185,13 @@ serve(async (req) => {
       }
     }
 
-    const final_fare_pence = trip.final_fare_pence ?? trip.gross_fare_pence ?? 0;
+    const final_fare_pence = auditRow.final_fare_pence;
+    const settlement_total_pence = auditRow.settlement_total_pence;
+    const commission_pence = auditRow.onecab_gross_commission_pence;
+    const onecab_net_pence = auditRow.onecab_net_pence;
+    const driver_net_pence = auditRow.driver_net_pence;
     const buffer_pence = Math.max(0, authorized_pence - final_fare_pence);
-    const commission_pence = trip.commission_pence ?? 0;
-    const onecab_net_pence = trip.onecab_net_pence != null
-      ? trip.onecab_net_pence
-      : Math.max(0, commission_pence - stripe_fee_pence);
-    const driver_net_pence = trip.driver_net_pence ?? Math.max(0, final_fare_pence - commission_pence);
+
     if (stripe_application_fee_amount_pence === commission_pence && stripe_application_fee_id && stripe_destination_account_id) {
       stripe_settlement_verified = true;
       stripe_settlement_warning = null;
@@ -132,7 +204,6 @@ serve(async (req) => {
         stripe_settlement_warning = 'STRIPE_SETTLEMENT_NOT_VERIFIED_NO_APPLICATION_FEE_OR_TRANSFER';
       }
     } else if (trip.stripe_settlement_verified && stripe_settlement_verified && isInformationalSettlementWarning(stripe_settlement_warning)) {
-      // Preserve backfilled verified trips with informational settlement notes.
       stripe_settlement_verified = true;
     }
 
@@ -143,6 +214,7 @@ serve(async (req) => {
 
     return jsonResponse({
       trip_id,
+      ssot_source: 'trip_financial_audit',
       payment_intent_id: trip.stripe_payment_intent_id,
       charge_id,
       payment_method: charge_payment_method ?? trip.payment_method,
@@ -158,11 +230,16 @@ serve(async (req) => {
       refundable_pence: Math.max(0, captured_pence - refunded_pence),
       amount_capturable_pence: amount_capturable,
       final_fare_pence,
+      settlement_total_pence,
+      gross_fare_pence: auditRow.gross_fare_pence,
+      discount_pence: auditRow.discount_pence,
       buffer_pence,
       commission_pence,
       stripe_fee_pence,
       onecab_net_pence,
       driver_net_pence,
+      outstanding_pence: auditRow.outstanding_pence,
+      capture_mismatch: auditRow.capture_mismatch,
       stripe_application_fee_id,
       stripe_application_fee_amount_pence,
       stripe_destination_account_id,

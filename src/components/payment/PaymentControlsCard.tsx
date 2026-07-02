@@ -24,9 +24,7 @@ import {
   captureStatusColorClass,
   getCapturedTotalPence,
   getTripCaptureStatus,
-  getTripDriverNetPence,
   getTripSettlementBreakdown,
-  getTripSettlementFarePence,
   getTripTipPence,
   isCardTrip,
   summarizeTripPayments,
@@ -50,11 +48,17 @@ interface PaymentState {
   refundable_pence: number;
   amount_capturable_pence: number | null;
   final_fare_pence: number;
+  settlement_total_pence: number;
+  gross_fare_pence?: number;
+  discount_pence?: number;
   buffer_pence: number;
   commission_pence: number;
   stripe_fee_pence: number;
   onecab_net_pence: number;
-  driver_net_pence: number;
+  driver_net_pence: number | null;
+  outstanding_pence?: number;
+  capture_mismatch?: boolean;
+  ssot_source?: string;
   stripe_application_fee_id: string | null;
   stripe_application_fee_amount_pence: number | null;
   stripe_destination_account_id: string | null;
@@ -302,24 +306,17 @@ export function PaymentControlsCard({
     authorised_amount_pence?: number | null;
     estimated_fare?: number | null;
   }) | undefined;
-  const authorisedPence = Math.max(
-    0,
-    state?.authorized_pence ?? ctx?.authorised_amount_pence ?? 0,
-  );
-  const capturedPence = Math.max(
-    0,
-    state?.captured_pence ?? ctx?.capture_amount_pence ?? getCapturedTotalPence(ctx ?? {}) ?? 0,
-  );
-  const settlementTotalPence = Math.max(
-    0,
-    ctx ? getTripSettlementFarePence(ctx) : (state?.final_fare_pence ?? 0),
-  );
+  const authorisedPence = Math.max(0, state?.authorized_pence ?? ctx?.authorised_amount_pence ?? 0);
+  const capturedPence = Math.max(0, state?.captured_pence ?? ctx?.capture_amount_pence ?? getCapturedTotalPence(ctx ?? {}) ?? 0);
+  const settlementTotalPence = state?.settlement_total_pence ?? state?.final_fare_pence ?? 0;
   const settlementBreakdown = ctx ? getTripSettlementBreakdown(ctx) : null;
-  const driverNetPence = ctx ? getTripDriverNetPence(ctx) : (state?.driver_net_pence ?? null);
+  const driverNetPence = state?.driver_net_pence ?? null;
   const quotedEstimatePence = Math.max(0, Math.round((ctx?.estimated_fare ?? 0) * 100));
-  const extraDuePence = Math.max(0, settlementTotalPence - capturedPence);
+  const extraDuePence = state ? Math.max(0, state.outstanding_pence ?? 0) : 0;
   const releasedBufferPence = Math.max(0, authorisedPence - capturedPence);
-  const paymentFullyPaid = capturedPence >= settlementTotalPence && settlementTotalPence > 0;
+  const paymentFullyPaid = state
+    ? extraDuePence <= 0 && settlementTotalPence > 0
+    : capturedPence >= settlementTotalPence && settlementTotalPence > 0;
   const isLegacyTrip = !!ctx
     && (ctx.final_fare_pence == null || ctx.final_fare_pence === 0)
     && capturedPence > 0;
@@ -620,7 +617,8 @@ export function PaymentControlsCard({
             </div>
 
 
-            {/* Detailed breakdown */}
+            {/* Detailed finance breakdown — Financial Reconciliation (SSOT) only */}
+            {isFinanceVariant ? (
             <div className="rounded-md border bg-muted/30 p-3 text-xs space-y-1.5">
               <div className="flex justify-between"><span className="text-muted-foreground">Final Settlement Total</span><span>{formatPence(settlementTotalPence, currency)}</span></div>
               {settlementBreakdown?.showBreakdown && settlementBreakdown.waitingPence > 0 && (
@@ -657,6 +655,18 @@ export function PaymentControlsCard({
               <div className="flex justify-between"><span className="text-muted-foreground">Captured at</span><span>{fmtTime(state.captured_at)}</span></div>
               {state.refunded_at && <div className="flex justify-between"><span className="text-muted-foreground">Refunded at</span><span>{fmtTime(state.refunded_at)}</span></div>}
             </div>
+            ) : (
+            <div className="rounded-md border bg-muted/30 p-3 text-xs space-y-1.5">
+              <div className="flex justify-between"><span className="text-muted-foreground">Payment status</span><span>{state.stripe_status || state.payment_status || '—'}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Captured</span><span>{formatPence(capturedPence, currency)}</span></div>
+              {captureStatus?.shortLabel && (
+                <div className="flex justify-between"><span className="text-muted-foreground">Capture</span><span>{captureStatus.shortLabel}</span></div>
+              )}
+              <p className="text-[11px] text-muted-foreground pt-1">
+                Commission, driver net, and settlement totals: Financial Reconciliation → Trips only.
+              </p>
+            </div>
+            )}
 
             {/* Actions */}
             {showRecoveryActions && (

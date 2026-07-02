@@ -1,6 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
-import type { FinanceSettlementSummaryResponse } from '@/components/finance/FinanceSettlementOverview';
 import { invokeFinanceReconciliation } from '@/hooks/financeReconciliationApi';
 
 export type OnecabSettlementStatus =
@@ -9,6 +8,66 @@ export type OnecabSettlementStatus =
   | 'available_in_stripe_balance'
   | 'paid_to_onecab_bank'
   | 'reconciled';
+
+/** @deprecated Legacy settlement overview shape — use FinanceReconciliationSummary directly. */
+export interface FinanceSettlementSummaryResponse {
+  currency_code: string;
+  customer_revenue_summary: {
+    total_customer_revenue_pence: number;
+    total_commissionable_revenue_pence: number;
+    trip_count: number;
+  };
+  driver_earnings_summary: {
+    driver_gross_earnings_pence: number;
+    driver_net_earnings_pence: number;
+  };
+  onecab_commission_summary: {
+    onecab_gross_commission_pence: number;
+    stripe_fee_pence: number;
+    onecab_net_pence: number;
+    max_commission_at_15_percent_pence: number;
+    commission_exceeds_cap: boolean;
+    pending_stripe_settlement_pence: number;
+    settlement_status: OnecabSettlementStatus;
+    settlement_status_label: string;
+    driver_payout_liability_pence: number;
+  };
+  stripe_platform_summary: {
+    available_platform_balance_pence: number;
+    pending_platform_balance_pence: number;
+    unallocated_platform_cash_pence: number;
+    error: string | null;
+    note: string;
+  };
+  driver_payout_summary: {
+    wallet_balance_pence: number;
+    available_payout_pence: number;
+    pending_payout_pence: number;
+    paid_out_pence: number;
+    failed_amount_today_pence: number;
+    failure_reasons: Array<{ reason: string; amount_pence: number; count: number }>;
+    safe_payout_amount_pence: number;
+    waiting_for_stripe_funds: boolean;
+  };
+  reconciliation: {
+    stripe_available_balance_pence: number;
+    calculated_onecab_net_pence: number;
+    available_driver_payable_pence: number;
+    pending_transfers_pence: number;
+    unallocated_platform_cash_pence: number;
+    reserves_or_adjustments_pence: number;
+    reconciles: boolean;
+    mismatch_warning: string | null;
+  };
+  insufficient_funds_insight: {
+    reason: string | null;
+    requested_driver_payout_pence: number;
+    stripe_available_balance_at_review_pence: number;
+    calculated_onecab_net_pence: number;
+    diagnoses: string[];
+    why_commission_showed_but_payout_failed: string[];
+  } | null;
+}
 
 export type ReconciliationStatus =
   | 'BALANCED'
@@ -94,7 +153,7 @@ export interface FinanceReconciliationSummary {
   };
   ssot?: {
     version: string;
-    data_source_badge: 'LIVE' | 'SUMMARY' | 'LEDGER' | 'RECONSTRUCTED';
+    data_source_badge: 'LIVE' | 'DEGRADED_SNAPSHOT' | 'UNAVAILABLE';
     customer_revenue_source: string;
   };
   pending_stripe_confirmation?: {
@@ -217,25 +276,45 @@ export interface TripAuditStatusBadge {
   tone: 'green' | 'yellow' | 'blue' | 'orange' | 'gray' | 'red';
 }
 
+export interface PlatformReconciliationKpis {
+  balanced_drivers: number;
+  drivers_with_recovery: number;
+  outstanding_liability_pence: number;
+  outstanding_recovery_pence: number;
+  failed_payouts_pence: number;
+  stripe_only_records: number;
+  ledger_only_records: number;
+  todays_captures_pence: number;
+  todays_card_trips: number;
+  todays_cash_trips: number;
+  driver_count: number;
+}
+
 export interface TripFinancialAuditRow {
   trip_id: string;
   trip_code: string | null;
   date: string | null;
+  driver_id: string | null;
+  customer_name: string | null;
   driver_name: string | null;
   payment_method: string | null;
-  customer_paid_pence: number;
-  settlement_total_pence?: number;
-  captured_pence: number;
-  refunded_pence: number;
-  net_customer_payment_pence: number;
-  outstanding_pence?: number;
+  stripe_payment_intent_id?: string | null;
+  customer_paid_pence: number | null;
+  gross_fare_pence?: number | null;
+  discount_pence?: number | null;
+  final_fare_pence?: number | null;
+  settlement_total_pence?: number | null;
+  captured_pence: number | null;
+  refunded_pence: number | null;
+  net_customer_payment_pence: number | null;
+  outstanding_pence?: number | null;
   capture_mismatch?: boolean;
   driver_net_pence: number | null;
-  debt_recovered_pence?: number;
+  debt_recovered_pence?: number | null;
   available_payout_created_pence?: number | null;
-  onecab_gross_commission_pence: number;
-  processing_fee_pence: number;
-  onecab_net_pence: number;
+  onecab_gross_commission_pence: number | null;
+  processing_fee_pence: number | null;
+  onecab_net_pence: number | null;
   driver_payout: TripAuditStatusBadge;
   onecab_commission: TripAuditStatusBadge;
   provider: TripAuditStatusBadge;
@@ -256,31 +335,68 @@ export interface LegacyManualReviewItem {
   excluded_from_auto_allocation: boolean;
 }
 
+export interface StripePaymentIntentAuditRow {
+  payment_intent_id: string;
+  trip_id: string | null;
+  trip_code: string | null;
+  driver_id: string | null;
+  customer_name: string | null;
+  driver_name: string | null;
+  captured_pence: number;
+  status: string;
+  date: string | null;
+}
+
+export interface DriverStatementPeriodTotal {
+  driver_id: string;
+  gross_earnings_pence: number;
+  commission_pence: number;
+  driver_net_pence: number;
+  completed_trips: number;
+  no_show_trips: number;
+  late_cancel_trips: number;
+  bonuses_pence: number;
+  penalties_pence: number;
+  adjustments_pence: number;
+  cash_collected_pence: number;
+  net_earnings_pence: number;
+  payouts_received_pence: number;
+}
+
 export interface FinanceReconciliationResponse {
   period: { from: string; to: string };
   currency_code: string;
-  finance_reconciliation_summary: FinanceReconciliationSummary;
-  trip_financial_audit: TripFinancialAuditRow[];
+  finance_reconciliation_summary?: FinanceReconciliationSummary;
+  platform_kpis?: PlatformReconciliationKpis | null;
+  trip_financial_audit?: TripFinancialAuditRow[];
+  driver_statement_totals?: DriverStatementPeriodTotal[];
+  stripe_payment_intents?: StripePaymentIntentAuditRow[];
   legacy_manual_review_items?: LegacyManualReviewItem[];
   money_movement?: ConnectMoneyMovementBundle;
   meta: {
-    trip_count: number;
-    audit_row_count: number;
-    stripe_balance_error: string | null;
-    accounting_rules: Record<string, string>;
+    trip_count?: number;
+    audit_row_count?: number;
+    driver_count?: number;
+    stripe_balance_error?: string | null;
+    ssot_version?: string;
+    data_source_badge?: string;
+    accounting_rules?: Record<string, string>;
   };
 }
 
 /** Map SSOT reconciliation payload to legacy settlement overview shape (embedded widgets). */
 export function toSettlementOverviewResponse(data: FinanceReconciliationResponse): FinanceSettlementSummaryResponse {
   const s = data.finance_reconciliation_summary;
+  if (!s) {
+    throw new Error('Finance reconciliation summary unavailable');
+  }
   const check = s.reconciliation_check;
   return {
     currency_code: data.currency_code,
     customer_revenue_summary: {
       total_customer_revenue_pence: s.customer_revenue.total_customer_revenue_pence,
       total_commissionable_revenue_pence: s.customer_revenue.commissionable_revenue_pence,
-      trip_count: data.meta.trip_count,
+      trip_count: data.meta.trip_count ?? 0,
     },
     driver_earnings_summary: {
       driver_gross_earnings_pence: s.driver_money.driver_gross_earnings_pence ?? 0,
@@ -322,8 +438,7 @@ export function toSettlementOverviewResponse(data: FinanceReconciliationResponse
     },
     reconciliation: {
       stripe_available_balance_pence: s.provider_money.provider_available_balance_pence,
-      calculated_onecab_net_pence: s.onecab_money.onecab_card_net_commission_pence
-        ?? Math.max(0, s.onecab_money.onecab_card_commission_pence - s.onecab_money.provider_processing_fee_pence),
+      calculated_onecab_net_pence: s.onecab_money.onecab_card_net_commission_pence,
       available_driver_payable_pence: s.driver_money.driver_payout_liability_pence,
       pending_transfers_pence: s.driver_money.in_flight_cashout_pence,
       unallocated_platform_cash_pence:

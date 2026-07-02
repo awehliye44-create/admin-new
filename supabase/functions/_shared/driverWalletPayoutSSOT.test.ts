@@ -1,5 +1,6 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
+  computeAvailableCashOutPence,
   computeCashoutLimitPence,
   computeDriverWalletPayoutSnapshot,
 } from "./driverWalletPayoutSSOT.ts";
@@ -28,6 +29,27 @@ Deno.test("scheduled payout display only from batch amount not wallet", () => {
   });
   assertEquals(snap.scheduled_payout_display_pence, null);
   assertEquals(snap.current_onecab_wallet_owed_pence, 973);
+});
+
+Deno.test("available cash out ignores wallet balance — Stripe after settlement rules only", () => {
+  assertEquals(
+    computeAvailableCashOutPence({
+      stripe_connect_available_pence: 500,
+      stripe_instant_available_pence: 500,
+      finance_cleared_pence: 400,
+      recovery_debt_pence: 50,
+    }),
+    350,
+  );
+  assertEquals(
+    computeAvailableCashOutPence({
+      stripe_connect_available_pence: 200,
+      stripe_instant_available_pence: 200,
+      finance_cleared_pence: 973,
+      recovery_debt_pence: 0,
+    }),
+    200,
+  );
 });
 
 Deno.test("local_only failed flags mismatch classification", () => {

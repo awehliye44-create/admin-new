@@ -17,6 +17,9 @@ import { Info, Download, Printer, Plus, Trash2, Loader2, TrendingUp, TrendingDow
 import { useToast } from '@/hooks/use-toast';
 import { formatPence } from '@/hooks/useDriverWallet';
 import { useStaffProfile } from '@/hooks/useStaffProfile';
+import { fetchOnecabProfitSsot } from '@/hooks/financeReconciliationApi';
+import { Link } from 'react-router-dom';
+import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 
 type PeriodMode = 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'custom';
 type ExpenseCategory = 'technology' | 'marketing' | 'operations' | 'staff' | 'other';
@@ -46,26 +49,6 @@ interface ExpenseRow {
   expense_date: string;
   notes: string | null;
   created_at: string;
-}
-
-interface TripRow {
-  id: string;
-  completed_at: string | null;
-  payment_method: string | null;
-  status: string | null;
-  currency_code: string | null;
-  gross_fare_pence: number | null;
-  final_fare_pence: number | null;
-  final_customer_fare_pence: number | null;
-  commission_pence: number | null;
-  
-  corporate_account_id: string | null;
-  region_id: string | null;
-  service_area_id: string | null;
-}
-
-function tripCustomerRevenuePence(t: TripRow): number {
-  return t.final_fare_pence ?? t.final_customer_fare_pence ?? 0;
 }
 
 function periodRange(mode: PeriodMode, customFrom?: string, customTo?: string): { start: Date; end: Date } {
@@ -126,26 +109,26 @@ export default function OnecabRevenueProfitReport() {
     return serviceAreas.filter((s) => s.region_id === regionId);
   }, [serviceAreas, regionId]);
 
-  // Trips for revenue
-  const tripsQuery = useQuery({
-    queryKey: ['orp-trips', range.start.toISOString(), range.end.toISOString(), regionId, serviceAreaId],
-    queryFn: async () => {
-      let q = supabase
-        .from('trips')
-        .select('id,completed_at,payment_method,status,currency_code,gross_fare_pence,final_fare_pence,final_customer_fare_pence,commission_pence,corporate_account_id,region_id,service_area_id')
-        .eq('status', 'completed')
-        .gte('completed_at', range.start.toISOString())
-        .lte('completed_at', range.end.toISOString())
-        .limit(10000);
-      if (regionId !== '__all__') q = q.eq('region_id', regionId);
-      if (serviceAreaId !== '__all__') q = q.eq('service_area_id', serviceAreaId);
-      const { data, error } = await q;
-      if (error) throw error;
-      return (data ?? []) as TripRow[];
-    },
+  const financeFilter = useMemo((): ServiceAreaFinanceSelection | undefined => {
+    if (regionId !== '__all__') {
+      return {
+        regionId,
+        serviceAreaId: serviceAreaId !== '__all__' ? serviceAreaId : null,
+        currencyCode: null,
+      };
+    }
+    if (serviceAreaId !== '__all__') {
+      return { regionId: null, serviceAreaId, currencyCode: null };
+    }
+    return undefined;
+  }, [regionId, serviceAreaId]);
+
+  const profitSsotQuery = useQuery({
+    queryKey: ['orp-profit-ssot', range.start.toISOString(), range.end.toISOString(), regionId, serviceAreaId],
+    queryFn: () => fetchOnecabProfitSsot(range.start, range.end, financeFilter),
   });
 
-  // Expenses for the period
+  // Expense line items for management UI (totals for profit use backend profit_ssot)
   const expensesQuery = useQuery({
     queryKey: ['orp-expenses', range.start.toISOString(), range.end.toISOString(), regionId],
     queryFn: async () => {
@@ -164,27 +147,21 @@ export default function OnecabRevenueProfitReport() {
   });
 
   const revenue = useMemo(() => {
-    const trips = tripsQuery.data ?? [];
-    let totalBooking = 0, commission = 0, corporate = 0, cashCommission = 0, stripeFees = 0;
-    for (const t of trips) {
-      const g = tripCustomerRevenuePence(t);
-      totalBooking += g;
-      commission += t.commission_pence ?? 0;
-      const pm = String(t.payment_method ?? '').toUpperCase();
-      if (t.corporate_account_id) corporate += g;
-      if (pm === 'CASH') cashCommission += t.commission_pence ?? 0;
-    }
-    const currency = trips.find((t) => t.currency_code)?.currency_code ?? 'GBP';
+    const currency = (regionId !== '__all__'
+      ? regions.find((r) => r.id === regionId)?.currency_code
+      : null) ?? 'GBP';
+    const profitSsot = profitSsotQuery.data;
+    const netRevenue = profitSsot?.platform_net_revenue_pence ?? null;
     return {
-      totalBooking,
-      commission,
-      corporate,
-      cashCommission,
-      stripeFees,
-      netRevenue: commission - stripeFees,
+      totalBooking: null as number | null,
+      commission: null as number | null,
+      cashCommission: null as number | null,
+      stripeFees: null as number | null,
+      netRevenue,
       currency,
+      ssotUnavailable: profitSsotQuery.isError || (profitSsotQuery.isSuccess && netRevenue == null),
     };
-  }, [tripsQuery.data]);
+  }, [profitSsotQuery.data, profitSsotQuery.isError, profitSsotQuery.isSuccess, regionId, regions]);
 
   // Persisted manual Corporation Tax rate (percentage)
   const taxRateQuery = useQuery({
@@ -235,7 +212,10 @@ export default function OnecabRevenueProfitReport() {
   }, [expensesQuery.data]);
 
   const profit = useMemo(() => {
-    const profitBeforeTax = revenue.netRevenue - expenseTotals.total;
+    const profitBeforeTax = profitSsotQuery.data?.profit_before_tax_pence;
+    if (profitBeforeTax == null || profitSsotQuery.isError) {
+      return null;
+    }
     const rate = Math.max(0, Math.min(100, corpTaxPct)) / 100;
     const corpTax = Math.max(0, Math.round(profitBeforeTax * rate));
     return {
@@ -244,7 +224,9 @@ export default function OnecabRevenueProfitReport() {
       profitAfterTax: profitBeforeTax - corpTax,
       retainedEarnings: profitBeforeTax - corpTax,
     };
-  }, [revenue, expenseTotals, corpTaxPct]);
+  }, [profitSsotQuery.data, profitSsotQuery.isError, corpTaxPct]);
+
+  const fmtRev = (p: number | null) => (p == null ? '—' : formatPence(p, revenue.currency));
 
   // Expense dialog state
   const [openDialog, setOpenDialog] = useState(false);
@@ -303,13 +285,8 @@ export default function OnecabRevenueProfitReport() {
       ['Period', periodLabel],
       ['Region', regionId === '__all__' ? 'All Regions' : (regions.find(r => r.id === regionId)?.name ?? '')],
       [],
-      ['Revenue', 'Amount'],
-      ['Total Booking Value', (revenue.totalBooking / 100).toFixed(2)],
-      ['ONECAB Commission Revenue', (revenue.commission / 100).toFixed(2)],
-      ['Corporate Revenue', (revenue.corporate / 100).toFixed(2)],
-      ['Cash Commission Revenue', (revenue.cashCommission / 100).toFixed(2)],
-      ['Stripe Fees', (revenue.stripeFees / 100).toFixed(2)],
-      ['Net Revenue', (revenue.netRevenue / 100).toFixed(2)],
+      ['Revenue (see Financial Reconciliation → Overview)', ''],
+      ['Platform net revenue used for profit (SSOT)', revenue.netRevenue != null ? (revenue.netRevenue / 100).toFixed(2) : ''],
       [],
       ['Expenses by Category', 'Amount'],
       ['Technology', (expenseTotals.byCat.technology / 100).toFixed(2)],
@@ -320,10 +297,10 @@ export default function OnecabRevenueProfitReport() {
       ['Total Expenses', (expenseTotals.total / 100).toFixed(2)],
       [],
       ['Profit', 'Amount'],
-      ['Profit Before Tax', (profit.profitBeforeTax / 100).toFixed(2)],
+      ['Profit Before Tax', profit ? (profit.profitBeforeTax / 100).toFixed(2) : ''],
       [`Corporation Tax Rate (%)`, String(corpTaxPct)],
-      [`Estimated Corporation Tax (${corpTaxPct}%)`, (profit.corpTax / 100).toFixed(2)],
-      ['Profit After Tax', (profit.profitAfterTax / 100).toFixed(2)],
+      [`Estimated Corporation Tax (${corpTaxPct}%)`, profit ? (profit.corpTax / 100).toFixed(2) : ''],
+      ['Profit After Tax', profit ? (profit.profitAfterTax / 100).toFixed(2) : ''],
       ['Currency', c],
       [],
       ['Expense Detail'],
@@ -427,24 +404,37 @@ export default function OnecabRevenueProfitReport() {
           </CardContent>
         </Card>
 
-        {(tripsQuery.isFetching || expensesQuery.isFetching) && (
+        {(profitSsotQuery.isFetching || expensesQuery.isFetching) && (
           <div className="flex items-center gap-2 text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading…
           </div>
         )}
 
-        {/* Revenue Cards */}
-        <div>
-          <h2 className="text-lg font-semibold mb-3">Revenue</h2>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <Stat icon={<Receipt />} label="Total Booking Value" value={formatPence(revenue.totalBooking, revenue.currency)} />
-            <Stat icon={<TrendingUp />} label="ONECAB Commission" value={formatPence(revenue.commission, revenue.currency)} />
-            <Stat label="Corporate Revenue" value={formatPence(revenue.corporate, revenue.currency)} />
-            <Stat label="Cash Commission" value={formatPence(revenue.cashCommission, revenue.currency)} />
-            <Stat label="Stripe Fees" value={formatPence(revenue.stripeFees, revenue.currency)} negative />
-            <Stat label="Net Revenue" value={formatPence(revenue.netRevenue, revenue.currency)} highlight />
-          </div>
-        </div>
+        {revenue.ssotUnavailable && (
+          <Alert variant="destructive">
+            <AlertTitle>Financial Reconciliation SSOT unavailable</AlertTitle>
+            <AlertDescription>
+              Revenue figures require the live admin-finance-reconciliation backend.{' '}
+              <Link to="/financial-reconciliation" className="underline">Open Financial Reconciliation</Link>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Platform revenue — view in Financial Reconciliation only */}
+        <Card className="border-primary/30 bg-primary/5">
+          <CardHeader>
+            <CardTitle>Platform Revenue (SSOT)</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Booking value, ONECAB commission, Stripe fees, and net platform revenue are displayed only in
+              Financial Reconciliation → Overview. Profit below uses SSOT net revenue when available.
+            </p>
+            <Button asChild variant="outline" size="sm">
+              <Link to="/financial-reconciliation?tab=overview">Open Financial Reconciliation → Overview</Link>
+            </Button>
+          </CardContent>
+        </Card>
 
         {/* Expense Management */}
         <Card>
@@ -580,13 +570,20 @@ export default function OnecabRevenueProfitReport() {
         </Card>
 
         {/* Profit & Tax */}
+        {!profit ? (
+          <Alert>
+            <AlertTitle>Profit unavailable</AlertTitle>
+            <AlertDescription>
+              Platform net revenue from Financial Reconciliation SSOT is required to calculate profit.
+              <Link to="/financial-reconciliation?tab=overview" className="underline ml-1">Open Financial Reconciliation → Overview</Link>
+            </AlertDescription>
+          </Alert>
+        ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card>
             <CardHeader><CardTitle>Profit Calculation</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <Line label="ONECAB Commission Revenue" value={formatPence(revenue.commission, revenue.currency)} />
-              <Line label="+ Corporate Revenue" value={formatPence(revenue.corporate, revenue.currency)} muted />
-              <Line label="− Stripe Fees" value={formatPence(revenue.stripeFees, revenue.currency)} />
+              <Line label="Platform net revenue (SSOT)" value={fmtRev(revenue.netRevenue)} />
               <Line label="− Technology Costs" value={formatPence(expenseTotals.byCat.technology, revenue.currency)} />
               <Line label="− Marketing Costs" value={formatPence(expenseTotals.byCat.marketing, revenue.currency)} />
               <Line label="− Operating Costs" value={formatPence(expenseTotals.byCat.operations, revenue.currency)} />
@@ -653,6 +650,7 @@ export default function OnecabRevenueProfitReport() {
             </CardContent>
           </Card>
         </div>
+        )}
       </div>
     </AdminLayout>
   );

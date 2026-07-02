@@ -22,6 +22,8 @@ type FinanceRecoveryPanelProps = {
   variant?: PaymentControlsVariant;
   initialAction?: FinanceRecoveryAction | null;
   onInitialActionConsumed?: () => void;
+  /** When true (FR degraded mode), recovery / adjustment actions are disabled. */
+  readOnly?: boolean;
 };
 
 export function financeReconciliationTripUrl(tripId: string, tripCode?: string | null): string {
@@ -41,8 +43,21 @@ export function FinanceRecoveryPanel({
   variant = 'finance',
   initialAction = null,
   onInitialActionConsumed,
+  readOnly = false,
 }: FinanceRecoveryPanelProps) {
   const isSummary = variant === 'summary';
+
+  if (readOnly) {
+    return (
+      <Alert variant="destructive">
+        <AlertTitle>Recovery actions disabled</AlertTitle>
+        <AlertDescription>
+          Financial Reconciliation SSOT is unavailable. Capture, refund, and adjustment actions are disabled while
+          displaying a read-only cached snapshot.
+        </AlertDescription>
+      </Alert>
+    );
+  }
 
   return (
     <div className="space-y-3">

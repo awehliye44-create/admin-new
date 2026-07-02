@@ -55,12 +55,14 @@ export { ROLE_LABELS, ROLE_PREFIXES };
 
 /** Route/sidebar slugs that differ from role_page_permissions slugs */
 const ROUTE_PERMISSION_ALIASES: Record<string, string[]> = {
-  payments: ['payments', 'admin-payments'],
+  payments: ['payments', 'financial-reconciliation'],
   'payment-providers': ['payment-providers', 'integrations'],
   'financial-reconciliation': [
     'financial-reconciliation',
     'drivers-and-payouts',
     'admin-settlements',
+    'payments',
+    'payout-batches',
     'admin-payments',
   ],
   'annual-taxi-report': [

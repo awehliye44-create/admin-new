@@ -10,15 +10,11 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import { useRegions } from '@/hooks/useRegions';
-import { getCurrencySymbol, formatCurrency } from '@/lib/regionSettings';
 import {
-  calculateMonthlySettlementTrends,
-  enrichCorporateReportTrip,
+  calculateMonthlyTripTrends,
   isCountableCorporateFinancialTrip,
-  sumCustomerPaidPence,
-  type EnrichedCorporateReportTrip,
+  type CorporateReportTripRow,
 } from '@/lib/corporateReportFinance';
-import { sumPaymentCapturedPenceForTrip } from '@/lib/serviceAreaTripFinance';
 import { 
   BarChart3, 
   Download, 
@@ -31,8 +27,10 @@ import {
   Clock,
   MapPin,
   Building2,
-  Globe
+  Globe,
+  Calculator,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart as RechartsLineChart, Line, PieChart as RechartsPieChart, Pie, Cell } from 'recharts';
 
 const COLORS = ['hsl(var(--primary))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))'];
@@ -54,7 +52,6 @@ export default function CorporateReports() {
   }, [regionFilter, regions]);
 
   const currencyCode = selectedRegion?.currency_code || '';
-  const currencySymbol = currencyCode ? getCurrencySymbol(currencyCode) : '';
 
   // Fetch service areas based on region filter
   const { data: serviceAreas = [] } = useQuery({
@@ -112,17 +109,14 @@ export default function CorporateReports() {
     return { start: startDate.toISOString(), end: now.toISOString() };
   }, [dateRange]);
 
-  // Fetch corporate trip data — enrich with settlement SSOT (payments + ledger)
-  const { data: tripData = [], isLoading } = useQuery<EnrichedCorporateReportTrip[]>({
+  // Fetch corporate trip data — operational counts only (finance in FR → Trips)
+  const { data: tripData = [], isLoading } = useQuery<CorporateReportTripRow[]>({
     queryKey: ['corporate-trip-reports', dateRange, regionFilter, serviceAreaFilter, selectedAccount],
     queryFn: async () => {
       let query = supabase
         .from('trips')
         .select(`
-          id, gross_fare_pence, final_fare_pence, capture_amount_pence, driver_net_pence,
-          payment_method, payment_status, commission_pence, created_at, completed_at, status,
-          financial_outcome, service_area_id, corporate_account_id,
-          waiting_charge_pence, total_waiting_charge_pence, fare_breakdown,
+          id, created_at, status, financial_outcome, service_area_id, corporate_account_id,
           corporate_account:corporate_accounts!trips_corporate_account_id_fkey(id, company_name)
         `)
         .not('corporate_account_id', 'is', null)
@@ -138,71 +132,11 @@ export default function CorporateReports() {
       
       const { data: trips, error } = await query;
       if (error) throw error;
-
-      const tripRows = trips || [];
-      const tripIds = tripRows.map((trip) => trip.id);
-      const paymentsByTripId = new Map<string, number>();
-      const ledgerNetByTripId = new Map<string, number>();
-
-      if (tripIds.length > 0) {
-        const [paymentsRes, ledgerRes] = await Promise.all([
-          supabase
-            .from('payments')
-            .select('trip_id, captured_amount_pence, amount_pence, status')
-            .in('trip_id', tripIds),
-          supabase
-            .from('driver_wallet_ledger')
-            .select('related_trip_id, amount_pence')
-            .in('related_trip_id', tripIds)
-            .eq('type', 'TRIP_EARNING_NET'),
-        ]);
-
-        if (paymentsRes.error) throw paymentsRes.error;
-        if (ledgerRes.error) throw ledgerRes.error;
-
-        const paymentsGrouped = new Map<string, Array<{
-          captured_amount_pence: number | null;
-          amount_pence: number | null;
-          status: string | null;
-        }>>();
-
-        for (const payment of paymentsRes.data ?? []) {
-          if (!payment.trip_id) continue;
-          const list = paymentsGrouped.get(payment.trip_id) ?? [];
-          list.push(payment);
-          paymentsGrouped.set(payment.trip_id, list);
-        }
-
-        for (const [tripId, paymentRows] of paymentsGrouped) {
-          const captured = sumPaymentCapturedPenceForTrip(paymentRows);
-          if (captured > 0) paymentsByTripId.set(tripId, captured);
-        }
-
-        for (const entry of ledgerRes.data ?? []) {
-          if (!entry.related_trip_id) continue;
-          ledgerNetByTripId.set(entry.related_trip_id, entry.amount_pence);
-        }
-      }
-
-      return tripRows.map((trip) =>
-        enrichCorporateReportTrip(trip, paymentsByTripId, ledgerNetByTripId),
-      );
+      return trips ?? [];
     },
   });
 
-  // Helper: convert pence to major currency unit
-  const penceToCurrency = (pence: number) => pence / 100;
-
-  // Format amount with resolved currency
-  const fmtAmount = (pence: number) => {
-    if (!currencyCode) {
-      // Mixed currencies — show raw value
-      return `${penceToCurrency(pence).toFixed(2)}`;
-    }
-    return formatCurrency(penceToCurrency(pence), currencyCode);
-  };
-
-  const calculateTripDistribution = (trips: EnrichedCorporateReportTrip[]) => {
+  const calculateTripDistribution = (trips: CorporateReportTripRow[]) => {
     if (!trips.length) return [];
     const distribution: Record<string, number> = {};
     
@@ -222,7 +156,7 @@ export default function CorporateReports() {
       }));
   };
 
-  const calculateUsageByTime = (trips: EnrichedCorporateReportTrip[]) => {
+  const calculateUsageByTime = (trips: CorporateReportTripRow[]) => {
     const hourData: Record<number, number> = {};
     trips.forEach(trip => {
       const hour = new Date(trip.created_at).getHours();
@@ -237,17 +171,11 @@ export default function CorporateReports() {
   };
 
   const financialTrips = tripData.filter(isCountableCorporateFinancialTrip);
-  const totalRevenuePence = sumCustomerPaidPence(financialTrips);
-  const totalCommissionPence = financialTrips.reduce((sum, trip) => sum + (trip.commission_pence || 0), 0);
   const totalTrips = tripData.length;
-  const avgTripCostPence = financialTrips.length > 0 ? totalRevenuePence / financialTrips.length : 0;
-  const activeAccounts = accounts.filter((a: any) => a.status === 'active').length;
-  const monthlyTrends = calculateMonthlySettlementTrends(financialTrips);
+  const activeAccounts = accounts.filter((a: { status?: string }) => a.status === 'active').length;
+  const monthlyTrends = calculateMonthlyTripTrends(financialTrips);
   const tripDistribution = calculateTripDistribution(tripData);
   const usageByTime = calculateUsageByTime(tripData);
-
-  // Currency label for mixed-mode
-  const currencyLabel = currencyCode ? `(${currencyCode})` : '(select region)';
 
   const handleExportReport = (reportType: string) => {
     toast.success(`${reportType} report exported successfully`);
@@ -374,32 +302,26 @@ export default function CorporateReports() {
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Settlement Revenue {currencyLabel}</CardTitle>
-              <BarChart3 className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Financial Trips</CardTitle>
+              <Car className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{fmtAmount(totalRevenuePence)}</div>
-              <p className="text-xs text-muted-foreground">Customer paid — financially countable trips</p>
+              <div className="text-2xl font-bold">{financialTrips.length.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground">Countable corporate trips in period</p>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="border-primary/30 bg-primary/5">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Commission {currencyLabel}</CardTitle>
-              <BarChart3 className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Settlement &amp; Commission (SSOT)</CardTitle>
+              <Calculator className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{fmtAmount(totalCommissionPence)}</div>
-              <p className="text-xs text-muted-foreground">Platform earnings</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Avg Customer Paid</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{fmtAmount(Math.round(avgTripCostPence))}</div>
-              <p className="text-xs text-muted-foreground">Per financial trip</p>
+              <p className="text-sm text-muted-foreground">
+                Customer paid, commission, and driver settlement per trip are in Financial Reconciliation → Trips only.
+              </p>
+              <Button asChild variant="outline" size="sm" className="mt-3">
+                <Link to="/financial-reconciliation?tab=trips">Open FR → Trips</Link>
+              </Button>
             </CardContent>
           </Card>
         </div>
@@ -429,8 +351,8 @@ export default function CorporateReports() {
               {/* Monthly Revenue Chart */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Monthly Settlement Revenue {currencyLabel}</CardTitle>
-                  <CardDescription>Customer paid trend over the past months</CardDescription>
+                  <CardTitle>Monthly Corporate Trip Volume</CardTitle>
+                  <CardDescription>Trip count trend — fare/settlement values in Financial Reconciliation → Trips</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="h-[300px]">
@@ -439,15 +361,15 @@ export default function CorporateReports() {
                         <BarChart data={monthlyTrends}>
                           <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                           <XAxis dataKey="month" className="text-xs" />
-                          <YAxis className="text-xs" />
-                          <Tooltip 
-                            formatter={(value: number) => [`${currencySymbol}${value.toLocaleString()}`, 'Settlement Revenue']}
-                            contentStyle={{ 
-                              backgroundColor: 'hsl(var(--background))', 
-                              border: '1px solid hsl(var(--border))' 
+                          <YAxis className="text-xs" allowDecimals={false} />
+                          <Tooltip
+                            formatter={(value: number) => [value, 'Trips']}
+                            contentStyle={{
+                              backgroundColor: 'hsl(var(--background))',
+                              border: '1px solid hsl(var(--border))',
                             }}
                           />
-                          <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="trips" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     ) : (
@@ -513,8 +435,8 @@ export default function CorporateReports() {
           <TabsContent value="trends" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Trip & Settlement Revenue Trends {currencyLabel}</CardTitle>
-                <CardDescription>Monthly comparison of trips and customer paid settlement</CardDescription>
+                <CardTitle>Monthly trip volume</CardTitle>
+                <CardDescription>Corporate trip counts by month — settlement values in Financial Reconciliation → Trips</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="h-[400px]">
@@ -523,33 +445,20 @@ export default function CorporateReports() {
                       <RechartsLineChart data={monthlyTrends}>
                         <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                         <XAxis dataKey="month" className="text-xs" />
-                        <YAxis yAxisId="left" className="text-xs" />
-                        <YAxis yAxisId="right" orientation="right" className="text-xs" />
-                        <Tooltip 
-                          formatter={(value: number, name: string) => [
-                            name === 'Settlement Revenue' ? `${currencySymbol}${value.toLocaleString()}` : value,
-                            name,
-                          ]}
-                          contentStyle={{ 
-                            backgroundColor: 'hsl(var(--background))', 
-                            border: '1px solid hsl(var(--border))' 
+                        <YAxis className="text-xs" />
+                        <Tooltip
+                          formatter={(value: number) => [value, 'Trips']}
+                          contentStyle={{
+                            backgroundColor: 'hsl(var(--background))',
+                            border: '1px solid hsl(var(--border))',
                           }}
                         />
-                        <Line 
-                          yAxisId="left" 
-                          type="monotone" 
-                          dataKey="trips" 
-                          stroke="hsl(var(--primary))" 
+                        <Line
+                          type="monotone"
+                          dataKey="trips"
+                          stroke="hsl(var(--primary))"
                           strokeWidth={2}
                           name="Trips"
-                        />
-                        <Line 
-                          yAxisId="right" 
-                          type="monotone" 
-                          dataKey="revenue" 
-                          stroke="hsl(var(--chart-2))" 
-                          strokeWidth={2}
-                          name="Settlement Revenue"
                         />
                       </RechartsLineChart>
                     </ResponsiveContainer>
@@ -567,7 +476,7 @@ export default function CorporateReports() {
             <Card>
               <CardHeader>
                 <CardTitle>Corporate Account Performance</CardTitle>
-                <CardDescription>Trip volume and settlement revenue by account for selected period {currencyLabel}</CardDescription>
+                <CardDescription>Trip volume by account — settlement in Financial Reconciliation → Trips</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                 <Table>
@@ -576,28 +485,20 @@ export default function CorporateReports() {
                       <TableHead>Company</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Trips</TableHead>
-                      <TableHead className="text-right">Settlement Revenue</TableHead>
-                      <TableHead className="text-right">Commission</TableHead>
-                      <TableHead className="text-right">Avg Customer Paid</TableHead>
+                      <TableHead>Financial Reconciliation</TableHead>
                       <TableHead className="text-right">Discount</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {accounts.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                           No corporate accounts found
                         </TableCell>
                       </TableRow>
                     ) : (
                       accounts.map((account: any) => {
                         const accountTrips = financialTrips.filter((trip) => trip.corporate_account_id === account.id);
-                        const accountRevenuePence = sumCustomerPaidPence(accountTrips);
-                        const accountCommissionPence = accountTrips.reduce((sum, trip) =>
-                          sum + (trip.commission_pence || 0), 0);
-                        const avgCustomerPaidPence = accountTrips.length > 0
-                          ? accountRevenuePence / accountTrips.length
-                          : 0;
                         
                         return (
                           <TableRow key={account.id}>
@@ -608,13 +509,11 @@ export default function CorporateReports() {
                               </Badge>
                             </TableCell>
                             <TableCell className="text-right font-medium">{accountTrips.length}</TableCell>
-                            <TableCell className="text-right font-medium text-green-600">
-                              {fmtAmount(accountRevenuePence)}
+                            <TableCell>
+                              <Button asChild variant="link" size="sm" className="h-auto p-0 text-xs">
+                                <Link to="/financial-reconciliation?tab=trips">FR → Trips</Link>
+                              </Button>
                             </TableCell>
-                            <TableCell className="text-right">
-                              {fmtAmount(accountCommissionPence)}
-                            </TableCell>
-                            <TableCell className="text-right">{fmtAmount(Math.round(avgCustomerPaidPence))}</TableCell>
                             <TableCell className="text-right">{account.discount_percentage || 0}%</TableCell>
                           </TableRow>
                         );

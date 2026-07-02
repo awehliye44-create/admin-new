@@ -19,6 +19,9 @@ import {
   NO_MATCH_TRIP_ID,
   tripCodeOrFilter,
 } from "../_shared/tripAdminSearch.ts";
+import { getLondonDayBounds } from "../_shared/financeLondonDay.ts";
+import { fetchRegionPlatformKpis } from "../_shared/platformReconciliationKpis.ts";
+import { buildDriverStatementPeriodTotals } from "../_shared/driverStatementPeriodTotals.ts";
 
 const TRIP_AUDIT_SELECT = `
         id,
@@ -42,11 +45,13 @@ const TRIP_AUDIT_SELECT = `
         tip_amount_pence,
         payment_method,
         payment_status,
+        status,
         financial_outcome,
         stripe_payment_intent_id,
         stripe_charge_id,
         provider_status,
         driver_id,
+        passenger_name,
         stripe_settlement_verified,
         stripe_settlement_warning,
         refunded_at,
@@ -56,6 +61,55 @@ const TRIP_AUDIT_SELECT = `
         service_area_id,
         driver:drivers!trips_driver_id_fkey(first_name, last_name)
       `;
+
+function buildStripePaymentIntentAuditRows(
+  tripRows: TripAuditSourceRow[],
+  paymentRows: Array<{
+    captured_amount_pence: number | null;
+    status: string | null;
+    trip_id: string | null;
+    provider_status: string | null;
+    stripe_payment_intent_id: string | null;
+  }>,
+) {
+  const tripById = new Map(tripRows.map((t) => [t.id, t]));
+  const seen = new Set<string>();
+  const rows: Array<{
+    payment_intent_id: string;
+    trip_id: string | null;
+    trip_code: string | null;
+    driver_id: string | null;
+    customer_name: string | null;
+    driver_name: string | null;
+    captured_pence: number;
+    status: string;
+    date: string | null;
+  }> = [];
+
+  for (const payment of paymentRows) {
+    const pi = payment.stripe_payment_intent_id?.trim();
+    if (!pi || seen.has(pi)) continue;
+    seen.add(pi);
+    const trip = payment.trip_id ? tripById.get(payment.trip_id) ?? null : null;
+    const driverName = trip?.driver
+      ? [trip.driver.first_name, trip.driver.last_name].filter(Boolean).join(" ").trim() || null
+      : null;
+    rows.push({
+      payment_intent_id: pi,
+      trip_id: payment.trip_id,
+      trip_code: trip?.trip_code ?? null,
+      driver_id: trip?.driver_id ?? null,
+      customer_name: trip?.passenger_name?.trim() || null,
+      driver_name: driverName,
+      captured_pence: Math.max(0, Number(payment.captured_amount_pence ?? 0)),
+      status: payment.provider_status ?? payment.status ?? "unknown",
+      date: trip?.completed_at ?? null,
+    });
+  }
+
+  rows.sort((a, b) => String(b.date ?? "").localeCompare(String(a.date ?? "")));
+  return rows;
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -155,13 +209,19 @@ async function fetchLedgerRowsForPeriod(
   periodFrom: string,
   periodTo: string,
   driverIds: string[],
+  currencyCode?: string | null,
 ): Promise<Array<{ type: string; amount_pence: number; driver_id: string; related_trip_id: string | null }>> {
-  const base = () =>
-    supabase
+  const base = () => {
+    let q = supabase
       .from("driver_wallet_ledger")
       .select("type, amount_pence, driver_id, related_trip_id")
       .gte("created_at", periodFrom)
       .lte("created_at", periodTo);
+    if (currencyCode) {
+      q = q.eq("currency", currencyCode.toUpperCase());
+    }
+    return q;
+  };
 
   if (driverIds.length === 0) {
     return [];
@@ -266,7 +326,15 @@ serve(async (req) => {
     const summaryOnly =
       url.searchParams.get("summary_only") === "1"
       || url.searchParams.get("summary_only") === "true";
-    const auditLimit = summaryOnly
+    const statementTotalsOnly = url.searchParams.get("statement_totals") === "1";
+    const profitSsotOnly = url.searchParams.get("profit_ssot") === "1";
+    const statementDriverIds = (url.searchParams.get("driver_ids") || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const auditLimit = statementTotalsOnly
+      ? Math.min(Number(url.searchParams.get("audit_limit") || 10000), 10000)
+      : profitSsotOnly || summaryOnly
       ? Math.min(Number(url.searchParams.get("audit_limit") || 500), 2000)
       : Math.min(Number(url.searchParams.get("audit_limit") || 100), 500);
 
@@ -331,7 +399,13 @@ serve(async (req) => {
       legacyManualReviewItems,
     ] = await Promise.all([
       tripQuery,
-      fetchLedgerRowsForPeriod(supabase, periodFrom, periodTo, driverIds),
+      fetchLedgerRowsForPeriod(
+        supabase,
+        periodFrom,
+        periodTo,
+        statementTotalsOnly && statementDriverIds.length > 0 ? statementDriverIds : driverIds,
+        statementTotalsOnly ? currency.toUpperCase() : null,
+      ),
       supabase.from("payout_items").select("amount_pence").in("status", ["pending", "processing"]),
       supabase
         .from("driver_early_cashouts")
@@ -600,11 +674,125 @@ serve(async (req) => {
         .map((row) => safeMapTripAuditRow(row, auditContext))
         .filter((row): row is NonNullable<typeof row> => row !== null);
 
+    if (statementTotalsOnly) {
+      const driverIdSet = statementDriverIds.length > 0 ? new Set(statementDriverIds) : undefined;
+      const driver_statement_totals = buildDriverStatementPeriodTotals(
+        trip_financial_audit,
+        ledgerRows,
+        driverIdSet,
+      );
+      return new Response(JSON.stringify({
+        period: { from: periodFrom, to: periodTo },
+        currency_code: currency.toUpperCase(),
+        driver_statement_totals,
+        meta: {
+          audit_row_count: trip_financial_audit.length,
+          driver_count: driver_statement_totals.length,
+          ssot_version: SSOT_VERSION,
+          data_source_badge: "LIVE",
+        },
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const stripe_payment_intents = buildStripePaymentIntentAuditRows(tripRows, paymentRows);
+
+    let platform_kpis = null;
+    if (!summaryOnly && !driverId) {
+      const { start: londonStart, end: londonEnd } = getLondonDayBounds();
+      let todayTripQuery = supabase
+        .from("trips")
+        .select("id, completed_at, payment_method")
+        .gte("completed_at", londonStart.toISOString())
+        .lte("completed_at", londonEnd.toISOString())
+        .not("completed_at", "is", null)
+        .or(`financial_outcome.in.(${COUNTABLE_FINANCIAL_OUTCOMES.join(",")}),status.in.(completed,no_show)`);
+
+      if (serviceAreaId) todayTripQuery = todayTripQuery.eq("service_area_id", serviceAreaId);
+      else if (resolvedRegionId) {
+        const { data: areas } = await supabase.from("service_areas").select("id").eq("region_id", resolvedRegionId);
+        const ids = (areas || []).map((a) => a.id);
+        if (ids.length > 0) todayTripQuery = todayTripQuery.in("service_area_id", ids);
+      }
+
+      const { data: todayTrips, error: todayTripsErr } = await todayTripQuery;
+      if (todayTripsErr) throw todayTripsErr;
+      const todayTripIds = (todayTrips ?? []).map((t) => t.id as string);
+      let todayPayments: Array<{ trip_id: string | null; captured_amount_pence: number | null; status: string | null }> = [];
+      if (todayTripIds.length > 0) {
+        const { data: payData } = await supabase
+          .from("payments")
+          .select("trip_id, captured_amount_pence, status")
+          .in("trip_id", todayTripIds);
+        todayPayments = payData ?? [];
+      }
+      const capturedByTrip = new Map<string, number>();
+      for (const p of todayPayments) {
+        if (!p.trip_id) continue;
+        const cap = Math.max(0, Number(p.captured_amount_pence ?? 0));
+        capturedByTrip.set(p.trip_id, (capturedByTrip.get(p.trip_id) ?? 0) + cap);
+      }
+
+      const todayAuditRows = (todayTrips ?? []).map((t) => ({
+        date: t.completed_at as string | null,
+        payment_method: t.payment_method as string | null,
+        captured_pence: capturedByTrip.get(t.id as string) ?? 0,
+      }));
+
+      const stripeClient = stripeSecretKey
+        ? new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" })
+        : null;
+      platform_kpis = await fetchRegionPlatformKpis(supabase, {
+        regionId: resolvedRegionId,
+        stripe: stripeClient,
+        todayAuditRows,
+      });
+    }
+
+    if (profitSsotOnly) {
+      const net = finance_reconciliation_summary.onecab_money.onecab_net_commission_pence;
+      const fromDate = periodFrom.slice(0, 10);
+      const toDate = periodTo.slice(0, 10);
+      let expQuery = supabase
+        .from("onecab_expenses")
+        .select("amount_pence")
+        .gte("expense_date", fromDate)
+        .lte("expense_date", toDate);
+      if (resolvedRegionId) {
+        expQuery = expQuery.eq("region_id", resolvedRegionId);
+      }
+      const { data: expenseRows, error: expErr } = await expQuery;
+      if (expErr) throw expErr;
+      const expenses_pence = (expenseRows ?? []).reduce(
+        (s, row) => s + Number(row.amount_pence ?? 0),
+        0,
+      );
+      const profit_before_tax_pence = net == null ? null : net - expenses_pence;
+      return new Response(JSON.stringify({
+        period: { from: periodFrom, to: periodTo },
+        currency_code: currency.toUpperCase(),
+        profit_ssot: {
+          platform_net_revenue_pence: net,
+          expenses_pence,
+          profit_before_tax_pence,
+        },
+        meta: {
+          ssot_version: SSOT_VERSION,
+          data_source_badge: "LIVE",
+        },
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     return new Response(JSON.stringify({
       period: { from: periodFrom, to: periodTo },
       currency_code: currency.toUpperCase(),
       finance_reconciliation_summary,
+      platform_kpis,
       trip_financial_audit,
+      stripe_payment_intents,
       legacy_manual_review_items: legacyManualReviewItems,
       money_movement: moneyMovement,
       meta: {

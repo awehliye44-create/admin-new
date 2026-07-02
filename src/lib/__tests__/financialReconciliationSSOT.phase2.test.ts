@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { FinanceSSOT } from '@/hooks/useFinancialReconciliationSSOT';
 import type { FinanceReconciliationSummary } from '@/hooks/useFinanceReconciliation';
+import { applyDegradedReconciliationSummary } from '@/lib/financialReconciliationDegraded';
+import { safeReconciliationStatus } from '@/lib/financialReconciliationGuards';
 
-function summaryFallbackShape(walletBalancePence: number): FinanceReconciliationSummary {
+function summaryShape(walletBalancePence: number): FinanceReconciliationSummary {
   return {
     customer_revenue: {
       card_customer_revenue_pence: 0,
@@ -81,18 +83,25 @@ function summaryFallbackShape(walletBalancePence: number): FinanceReconciliation
     },
     ssot: {
       version: 'financial_reconciliation_ssot_v1',
-      data_source_badge: 'SUMMARY',
-      customer_revenue_source: 'driver_financial_summary',
+      data_source_badge: 'LIVE',
+      customer_revenue_source: 'admin_finance_reconciliation',
     },
   };
 }
 
-describe('Phase 2 — admin FR SSOT fallbacks never derive payout from wallet', () => {
+describe('Financial Reconciliation SSOT — degraded snapshot', () => {
   it('wallet £9.73 liability does not expose £9.73 available payout', () => {
-    const summary = summaryFallbackShape(973);
+    const summary = summaryShape(973);
     expect(FinanceSSOT.driverRemainingLiability(summary)).toBe(973);
     expect(FinanceSSOT.driverAvailableNow(summary)).toBe(0);
     expect(FinanceSSOT.driverPendingPayout(summary)).toBe(0);
     expect(FinanceSSOT.driverPaidOut(summary)).toBe(0);
+  });
+
+  it('never marks BALANCED while displaying degraded snapshot', () => {
+    const degraded = applyDegradedReconciliationSummary(summaryShape(100));
+    expect(degraded.reconciliation_check.balanced).toBe(false);
+    expect(safeReconciliationStatus(degraded)).toBe('DEGRADED_SNAPSHOT');
+    expect(degraded.ssot.data_source_badge).toBe('DEGRADED_SNAPSHOT');
   });
 });

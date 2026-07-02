@@ -186,6 +186,40 @@ export async function retryMondayPayoutItem(row: MondayPayoutDiagnosticsRow): Pr
   }
 }
 
+/** Retry from driver-wallet payout_items when full diagnostics row is unavailable. */
+export async function retryPayoutItemFromRecord(args: {
+  payoutItemId: string;
+  status: string;
+  stripeTransferId?: string | null;
+  stripePayoutId?: string | null;
+}): Promise<void> {
+  const pseudoRow = {
+    payout_item_id: args.payoutItemId,
+    payout_status: args.status,
+    provider_reference: args.stripeTransferId || args.stripePayoutId || null,
+    retry_blocked_reason: null,
+  } as MondayPayoutDiagnosticsRow;
+
+  if (!canRetryMondayPayoutItem(pseudoRow)) {
+    throw new Error('This payout cannot be retried');
+  }
+  await retryMondayPayoutItem(pseudoRow);
+}
+
+export function canRetryPayoutItemRecord(args: {
+  status: string;
+  stripeTransferId?: string | null;
+  stripePayoutId?: string | null;
+  retryBlockedReason?: string | null;
+}): boolean {
+  return canRetryMondayPayoutItem({
+    payout_item_id: '',
+    payout_status: args.status,
+    provider_reference: args.stripeTransferId || args.stripePayoutId || null,
+    retry_blocked_reason: args.retryBlockedReason ?? null,
+  } as MondayPayoutDiagnosticsRow);
+}
+
 export function canRetryMondayPayoutItem(row: MondayPayoutDiagnosticsRow): boolean {
   if (row.retry_blocked_reason) return false;
   if (row.payout_status === "ledger_sync_failed") return true;

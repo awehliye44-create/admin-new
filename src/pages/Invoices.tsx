@@ -17,8 +17,10 @@ import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import {
   FileText, Send, Eye, RefreshCw, Search, Filter, Download,
-  CheckCircle, Clock, Mail, XCircle, Plus, Globe, MapPin
+  CheckCircle, Clock, Mail, XCircle, Plus, Globe, MapPin, Calculator,
 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { FinanceSsotOperationalNotice } from "@/components/finance/FinanceSSOTBadge";
 
 const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   draft: { label: "Pending", variant: "secondary" },
@@ -298,6 +300,7 @@ export default function Invoices() {
 
   return (
     <div className="space-y-6">
+      <FinanceSsotOperationalNotice />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Invoices</h1>
@@ -647,6 +650,20 @@ export default function Invoices() {
                 </div>
 
                 <Separator />
+
+                <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm text-muted-foreground space-y-2">
+                  <p className="flex items-center gap-2 font-medium text-foreground">
+                    <Calculator className="h-4 w-4" />
+                    Trip-level commission &amp; settlement (SSOT)
+                  </p>
+                  <p>
+                    Line items below are period statement totals from Financial Reconciliation audit data.
+                    Per-trip gross fare, commission, and driver net:{' '}
+                    <Link to="/financial-reconciliation?tab=trips" className="underline">Financial Reconciliation → Trips</Link>
+                    {' · '}
+                    <Link to={`/driver-wallet-ledger?driverId=${previewInvoice.driver_id ?? ''}`} className="underline">Driver Wallet Ledger</Link>
+                  </p>
+                </div>
 
                 <Table>
                   <TableHeader>

@@ -1,380 +1,154 @@
-/**
- * Financial Reconciliation SSOT — single hook for all admin finance reads.
- *
- * Priority 1: Financial Reconciliation Live (LIVE badge)
- * Priority 2: Driver Financial Summary (SUMMARY badge)
- * Priority 3: Driver Wallet Ledger aggregates (LEDGER badge)
- */
-
-import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
-import { buildFinanceReconciliationPath } from '@/hooks/financeReconciliationApi';
+import { useEffect, useMemo } from 'react';
 import {
   useFinanceReconciliation,
   type FinanceReconciliationResponse,
   type FinanceReconciliationSummary,
 } from '@/hooks/useFinanceReconciliation';
+import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
+import { applyDegradedReconciliationSummary } from '@/lib/financialReconciliationDegraded';
+import {
+  loadFinanceReconciliationSnapshot,
+  saveFinanceReconciliationSnapshot,
+  snapshotScopeKey,
+} from '@/lib/financialReconciliationSnapshot';
 
-export { buildFinanceReconciliationPath };
-
-export type FinanceDataSourceBadge = 'LIVE' | 'SUMMARY' | 'LEDGER' | 'RECONSTRUCTED';
+export type FinanceSsotStatus = 'LIVE' | 'DEGRADED_SNAPSHOT' | 'UNAVAILABLE';
+export type FinanceDataSourceBadge = FinanceSsotStatus;
 
 export type FinancialReconciliationSSOTResult = {
   summary: FinanceReconciliationSummary | null;
-  badge: FinanceDataSourceBadge;
-  currencyCode: string;
-  period: { from: string; to: string };
   response: FinanceReconciliationResponse | null;
+  status: FinanceSsotStatus;
+  badge: FinanceSsotStatus;
   isLive: boolean;
+  readOnly: boolean;
+  snapshotSavedAt: string | null;
   isLoading: boolean;
   isFetching: boolean;
   error: Error | null;
   refetch: () => void;
+  currencyCode: string;
 };
 
-/** Fallback: aggregate driver_financial_summary when live reconciliation unavailable. */
-async function fetchSummaryFallback(
-  filter?: ServiceAreaFinanceSelection,
-): Promise<FinanceReconciliationSummary | null> {
-  const { data, error } = await supabase.rpc('admin_driver_financial_summaries', {
-    p_region_id: filter?.regionId ?? null,
-    p_driver_id: null,
-  });
-
-  if (error || !data?.length) return null;
-
-  const walletBalance = data.reduce((s, d) => s + Number(d.wallet_balance || 0), 0);
-  const paidOut = data.reduce((s, d) => s + Number(d.total_payouts_sent || 0), 0);
-  const reserved = data.reduce((s, d) => s + Number(d.reserved_cashout_pence || 0), 0);
-  const commission = data.reduce((s, d) => s + Number(d.company_commission_total || 0), 0);
-
-  return {
-    customer_revenue: {
-      card_customer_revenue_pence: 0,
-      cash_collected_by_driver_pence: 0,
-      refunded_amount_pence: 0,
-      net_card_revenue_pence: 0,
-      total_customer_revenue_pence: 0,
-      net_customer_revenue_pence: 0,
-      commissionable_revenue_pence: 0,
-    },
-    driver_money: {
-      card_driver_payable_pence: 0,
-      cash_driver_already_received_pence: 0,
-      driver_wallet_balance_pence: walletBalance,
-      /** SSOT: never max(wallet) — use per-driver reconciliation for eligible payout. */
-      driver_available_payout_pence: 0,
-      driver_pending_payout_pence: 0,
-      driver_paid_out_pence: paidOut,
-      driver_payout_liability_pence: walletBalance,
-      onecab_cash_commission_owed_pence: 0,
-      in_flight_cashout_pence: reserved,
-    },
-    onecab_money: {
-      onecab_card_commission_pence: commission,
-      onecab_cash_commission_receivable_pence: 0,
-      onecab_gross_commission_pence: commission,
-      provider_processing_fee_pence: 0,
-      onecab_card_net_commission_pence: commission,
-      total_commission_earned_pence: commission,
-      net_platform_revenue_pence: commission,
-      onecab_net_commission_pence: commission,
-      onecab_bank_payout_pence: 0,
-      onecab_commission_status: 'calculated_only',
-      onecab_commission_status_label: 'Summary fallback — run Financial Reconciliation for live values',
-    },
-    provider_money: {
-      provider_name: 'Stripe',
-      provider_available_balance_pence: 0,
-      provider_pending_balance_pence: 0,
-      provider_health_status: 'unknown',
-      last_webhook_received_at: null,
-    },
-    reconciliation_check: emptySplitReconciliationCheck(paidOut, walletBalance, commission),
-    ssot: {
-      version: 'financial_reconciliation_ssot_v1',
-      data_source_badge: 'SUMMARY',
-      customer_revenue_source: 'driver_financial_summary',
-    },
-  };
-}
-
-const PAYOUT_DEBIT_LEDGER_TYPES = ['PAYOUT', 'WEEKLY_PAYOUT', 'EARLY_CASHOUT', 'MANUAL_PAYOUT'] as const;
-
-function emptySplitReconciliationCheck(
-  paidOut: number,
-  liability: number,
-  commission: number,
-): FinanceReconciliationSummary['reconciliation_check'] {
-  const balanced = { expected_sum_pence: 0, variance_pence: 0, delta_pence: 0, balanced: true, status: 'BALANCED' as const };
-  return {
-    card_reconciliation: { ...balanced, card_customer_revenue_pence: 0, card_driver_payable_pence: 0, onecab_card_commission_pence: 0 },
-    cash_reconciliation: { ...balanced, cash_collected_by_driver_pence: 0, cash_driver_already_received_pence: 0, onecab_cash_commission_receivable_pence: 0 },
-    net_customer_revenue_pence: 0,
-    driver_paid_out_pence: paidOut,
-    driver_remaining_liability_pence: liability,
-    driver_net_earnings_pence: 0,
-    onecab_gross_commission_pence: commission,
-    onecab_net_commission_pence: commission,
-    provider_processing_fee_pence: 0,
-    adjustments_pence: 0,
-    expected_sum_pence: 0,
-    variance_pence: 0,
-    delta_pence: 0,
-    balanced: true,
-    status: 'BALANCED',
-  };
-}
-
-/** Fallback: aggregate driver_wallet_ledger when live reconciliation and summary view unavailable. */
-async function fetchLedgerFallback(
-  filter?: ServiceAreaFinanceSelection,
-): Promise<FinanceReconciliationSummary | null> {
-  let driverQuery = supabase.from('drivers').select('id');
-  if (filter?.regionId) driverQuery = driverQuery.eq('region_id', filter.regionId);
-
-  const { data: drivers, error: driversError } = await driverQuery;
-  if (driversError || !drivers?.length) return null;
-
-  const driverIds = drivers.map((d) => d.id);
-
-  const [ledgerResult, walletsResult] = await Promise.all([
-    supabase
-      .from('driver_wallet_ledger')
-      .select('type, amount_pence')
-      .in('driver_id', driverIds),
-    supabase
-      .from('driver_wallets')
-      .select('available_pence')
-      .in('driver_id', driverIds),
-  ]);
-
-  if (ledgerResult.error || walletsResult.error) return null;
-
-  const paidOut = Math.abs(
-    (ledgerResult.data || [])
-      .filter(
-        (r) =>
-          PAYOUT_DEBIT_LEDGER_TYPES.includes(r.type as (typeof PAYOUT_DEBIT_LEDGER_TYPES)[number])
-          && Number(r.amount_pence) < 0,
-      )
-      .reduce((s, r) => s + Number(r.amount_pence || 0), 0),
-  );
-  const walletBalance = (walletsResult.data || []).reduce(
-    (s, w) => s + Number(w.available_pence || 0),
-    0,
-  );
-
-  return {
-    customer_revenue: {
-      card_customer_revenue_pence: 0,
-      cash_collected_by_driver_pence: 0,
-      refunded_amount_pence: 0,
-      net_card_revenue_pence: 0,
-      total_customer_revenue_pence: 0,
-      net_customer_revenue_pence: 0,
-      commissionable_revenue_pence: 0,
-    },
-    driver_money: {
-      card_driver_payable_pence: 0,
-      cash_driver_already_received_pence: 0,
-      driver_wallet_balance_pence: walletBalance,
-      driver_available_payout_pence: 0,
-      driver_pending_payout_pence: 0,
-      driver_paid_out_pence: paidOut,
-      driver_payout_liability_pence: walletBalance,
-      onecab_cash_commission_owed_pence: 0,
-      in_flight_cashout_pence: 0,
-    },
-    onecab_money: {
-      onecab_card_commission_pence: 0,
-      onecab_cash_commission_receivable_pence: 0,
-      onecab_gross_commission_pence: 0,
-      provider_processing_fee_pence: 0,
-      onecab_card_net_commission_pence: 0,
-      total_commission_earned_pence: 0,
-      net_platform_revenue_pence: 0,
-      onecab_net_commission_pence: 0,
-      onecab_bank_payout_pence: 0,
-      onecab_commission_status: 'calculated_only',
-      onecab_commission_status_label: 'Ledger fallback — commission requires Financial Reconciliation',
-    },
-    provider_money: {
-      provider_name: 'Stripe',
-      provider_available_balance_pence: 0,
-      provider_pending_balance_pence: 0,
-      provider_health_status: 'unknown',
-      last_webhook_received_at: null,
-    },
-    reconciliation_check: emptySplitReconciliationCheck(paidOut, walletBalance, 0),
-    ssot: {
-      version: 'financial_reconciliation_ssot_v1',
-      data_source_badge: 'LEDGER',
-      customer_revenue_source: 'driver_wallet_ledger',
-    },
-  };
-}
-
-export function useFinancialReconciliationSSOT(args?: {
-  filter?: ServiceAreaFinanceSelection;
+export type UseFinancialReconciliationSSOTArgs = {
+  filter: ServiceAreaFinanceSelection;
   from?: string;
   to?: string;
-  enabled?: boolean;
   tripSearch?: string;
   tripSearchType?: 'code' | 'id';
-}): FinancialReconciliationSSOTResult {
-  const { filter, from, to, enabled = true, tripSearch, tripSearchType } = args ?? {};
+};
 
-  const live = useFinanceReconciliation({ filter, from, to, enabled, tripSearch, tripSearchType });
+function nullableNum(v: unknown): number | null {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
-  const liveUnavailable = !live.isLoading && !live.data?.finance_reconciliation_summary;
+function pickSummary(response: FinanceReconciliationResponse | null | undefined): FinanceReconciliationSummary | null {
+  return response?.finance_reconciliation_summary ?? null;
+}
 
-  const summaryFallback = useQuery({
-    queryKey: ['finance-reconciliation-ssot-fallback', filter?.regionId, filter?.serviceAreaId],
-    queryFn: () => fetchSummaryFallback(filter),
-    enabled: enabled && liveUnavailable,
-    staleTime: 60_000,
+export function useFinancialReconciliationSSOT({
+  filter,
+  from,
+  to,
+  tripSearch,
+  tripSearchType,
+}: UseFinancialReconciliationSSOTArgs): FinancialReconciliationSSOTResult {
+  const scopeKey = snapshotScopeKey(filter.regionId, filter.serviceAreaId);
+
+  const live = useFinanceReconciliation({
+    filter,
+    from,
+    to,
+    tripSearch,
+    tripSearchType,
+    enabled: true,
   });
 
-  const ledgerFallback = useQuery({
-    queryKey: ['finance-reconciliation-ssot-ledger', filter?.regionId, filter?.serviceAreaId],
-    queryFn: () => fetchLedgerFallback(filter),
-    enabled: enabled && liveUnavailable && !summaryFallback.isLoading && !summaryFallback.data,
-    staleTime: 60_000,
-  });
+  const liveSummary = pickSummary(live.data);
+  const liveOk = !!liveSummary && !live.error;
 
-  const result = useMemo((): Omit<FinancialReconciliationSSOTResult, 'isLoading' | 'isFetching' | 'error' | 'refetch'> => {
-    if (live.data?.finance_reconciliation_summary) {
-      const badge = live.data.finance_reconciliation_summary.ssot?.data_source_badge ?? 'LIVE';
-      return {
-        summary: live.data.finance_reconciliation_summary,
-        badge: badge as FinanceDataSourceBadge,
-        currencyCode: live.data.currency_code,
-        period: live.data.period,
-        response: live.data,
-        isLive: badge === 'LIVE',
-      };
+  useEffect(() => {
+    if (liveOk && live.data) {
+      saveFinanceReconciliationSnapshot(live.data, scopeKey);
     }
+  }, [liveOk, live.data, scopeKey]);
 
-    if (summaryFallback.data) {
-      return {
-        summary: summaryFallback.data,
-        badge: 'SUMMARY',
-        currencyCode: 'GBP',
-        period: { from: from ?? '', to: to ?? '' },
-        response: null,
-        isLive: false,
-      };
-    }
+  const snapshot = useMemo(() => {
+    if (liveOk) return null;
+    return loadFinanceReconciliationSnapshot();
+  }, [liveOk, live.dataUpdatedAt, live.errorUpdatedAt]);
 
-    if (ledgerFallback.data) {
-      return {
-        summary: ledgerFallback.data,
-        badge: 'LEDGER',
-        currencyCode: 'GBP',
-        period: { from: from ?? '', to: to ?? '' },
-        response: null,
-        isLive: false,
-      };
-    }
+  const status: FinanceSsotStatus = liveOk
+    ? 'LIVE'
+    : snapshot
+      ? 'DEGRADED_SNAPSHOT'
+      : 'UNAVAILABLE';
 
-    return {
-      summary: null,
-      badge: 'RECONSTRUCTED' as FinanceDataSourceBadge,
-      currencyCode: 'GBP',
-      period: { from: from ?? '', to: to ?? '' },
-      response: null,
-      isLive: false,
-    };
-  }, [live.data, summaryFallback.data, ledgerFallback.data, from, to]);
+  const response =
+    status === 'LIVE'
+      ? live.data ?? null
+      : status === 'DEGRADED_SNAPSHOT'
+        ? snapshot!.response
+        : null;
 
-  const isLoading =
-    live.isLoading
-    || (liveUnavailable && summaryFallback.isLoading)
-    || (liveUnavailable && !summaryFallback.data && ledgerFallback.isLoading);
+  const rawSummary = pickSummary(response);
+  const summary =
+    rawSummary && status === 'DEGRADED_SNAPSHOT'
+      ? applyDegradedReconciliationSummary(rawSummary)
+      : rawSummary;
 
-  const resolvedSummary =
-    live.data?.finance_reconciliation_summary
-    ?? summaryFallback.data
-    ?? ledgerFallback.data
-    ?? null;
+  const isLoading = live.isLoading && status === 'UNAVAILABLE';
+  const error =
+    status === 'UNAVAILABLE'
+      ? live.error instanceof Error
+        ? live.error
+        : live.error
+          ? new Error(String(live.error))
+          : new Error('Financial Reconciliation SSOT unavailable and no cached snapshot exists.')
+      : null;
 
   return {
-    ...result,
-    summary: resolvedSummary ?? result.summary,
+    summary,
+    response,
+    status,
+    badge: status,
+    isLive: status === 'LIVE',
+    readOnly: status !== 'LIVE',
+    snapshotSavedAt: status === 'DEGRADED_SNAPSHOT' ? snapshot!.savedAt : null,
     isLoading,
     isFetching: live.isFetching,
-    error:
-      !resolvedSummary && !isLoading
-        ? ((live.error as Error)
-          ?? (summaryFallback.error as Error)
-          ?? (ledgerFallback.error as Error)
-          ?? null)
-        : null,
-    refetch: () => {
-      live.refetch();
-      summaryFallback.refetch();
-      ledgerFallback.refetch();
-    },
+    error,
+    refetch: () => void live.refetch(),
+    currencyCode: filter.currencyCode || response?.currency_code || 'GBP',
   };
 }
 
-/** Read-only accessors — pages must use these, never compute locally. */
+/** Shared accessors for summary blocks (used by overview + alerts). */
 export const FinanceSSOT = {
-  cardCustomerRevenue: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.customer_revenue?.card_customer_revenue_pence ?? 0,
-  cashCollectedByDriver: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.customer_revenue?.cash_collected_by_driver_pence ?? 0,
-  totalCustomerRevenue: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.customer_revenue?.total_customer_revenue_pence ?? 0,
-  refundedAmount: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.customer_revenue?.refunded_amount_pence ?? 0,
-  netCardRevenue: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.customer_revenue?.net_card_revenue_pence ?? 0,
-  netCustomerRevenue: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.customer_revenue?.net_card_revenue_pence ?? 0,
-  cardDriverPayable: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.driver_money?.card_driver_payable_pence ?? 0,
-  cashDriverAlreadyReceived: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.driver_money?.cash_driver_already_received_pence ?? 0,
-  driverGrossEarnings: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.driver_money?.driver_gross_earnings_pence ?? 0,
-  driverNetEarnings: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.driver_money?.driver_net_earnings_pence ?? s?.driver_money?.card_driver_payable_pence ?? 0,
-  onecabCardCommission: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.onecab_money?.onecab_card_commission_pence ?? 0,
-  onecabCashCommissionReceivable: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.onecab_money?.onecab_cash_commission_receivable_pence ?? 0,
-  onecabGrossCommission: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.onecab_money?.onecab_gross_commission_pence ?? 0,
-  onecabCardNetCommission: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.onecab_money?.onecab_card_net_commission_pence
-    ?? Math.max(0, (s?.onecab_money?.onecab_card_commission_pence ?? 0) - (s?.onecab_money?.provider_processing_fee_pence ?? 0)),
-  totalCommissionEarned: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.onecab_money?.total_commission_earned_pence
-    ?? ((s?.onecab_money?.onecab_card_commission_pence ?? 0) + (s?.onecab_money?.onecab_cash_commission_receivable_pence ?? 0)),
-  providerProcessingFee: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.onecab_money?.provider_processing_fee_pence ?? 0,
-  netPlatformRevenue: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.onecab_money?.net_platform_revenue_pence ?? s?.onecab_money?.onecab_net_commission_pence ?? 0,
-  onecabNetCommission: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.onecab_money?.net_platform_revenue_pence ?? s?.onecab_money?.onecab_net_commission_pence ?? 0,
-  driverPaidOut: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.driver_money?.driver_paid_out_pence ?? 0,
-  driverRemainingLiability: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.driver_money?.driver_payout_liability_pence ?? 0,
-  driverAvailableNow: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.driver_money?.driver_available_payout_pence ?? 0,
-  driverPendingPayout: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.driver_money?.driver_pending_payout_pence ?? 0,
-  providerAvailableBalance: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.provider_money?.provider_available_balance_pence ?? 0,
-  providerPendingBalance: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.provider_money?.provider_pending_balance_pence ?? 0,
-  reconciliationStatus: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.reconciliation_check?.status ?? 'BALANCED',
-  reconciliationVariance: (s: FinanceReconciliationSummary | null | undefined) =>
-    s?.reconciliation_check?.variance_pence ?? s?.reconciliation_check?.delta_pence ?? 0,
+  customerRevenue: (s: FinanceReconciliationSummary) => s.customer_revenue,
+  driverMoney: (s: FinanceReconciliationSummary) => s.driver_money,
+  onecabMoney: (s: FinanceReconciliationSummary) => s.onecab_money,
+  providerMoney: (s: FinanceReconciliationSummary) => s.provider_money,
+  reconciliationCheck: (s: FinanceReconciliationSummary) => s.reconciliation_check,
+  netCustomerRevenue: (s: FinanceReconciliationSummary) =>
+    nullableNum(s.customer_revenue?.net_customer_revenue_pence),
+  driverWalletBalance: (s: FinanceReconciliationSummary) =>
+    nullableNum(s.driver_money?.driver_wallet_balance_pence),
+  driverAvailableNow: (s: FinanceReconciliationSummary) =>
+    nullableNum(s.driver_money?.driver_available_payout_pence),
+  driverPendingPayout: (s: FinanceReconciliationSummary) =>
+    nullableNum(s.driver_money?.driver_pending_payout_pence),
+  driverPaidOut: (s: FinanceReconciliationSummary) => nullableNum(s.driver_money?.driver_paid_out_pence),
+  driverRemainingLiability: (s: FinanceReconciliationSummary) =>
+    nullableNum(s.reconciliation_check?.driver_remaining_liability_pence),
+  onecabGrossCommission: (s: FinanceReconciliationSummary) =>
+    nullableNum(s.onecab_money?.onecab_gross_commission_pence),
+  onecabNetCommission: (s: FinanceReconciliationSummary) =>
+    nullableNum(s.onecab_money?.onecab_net_commission_pence),
+  providerAvailable: (s: FinanceReconciliationSummary) =>
+    nullableNum(s.provider_money?.provider_available_balance_pence),
+  providerPending: (s: FinanceReconciliationSummary) =>
+    nullableNum(s.provider_money?.provider_pending_balance_pence),
 };

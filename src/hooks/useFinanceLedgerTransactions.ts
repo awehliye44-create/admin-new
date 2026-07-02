@@ -197,6 +197,7 @@ function regionMatches(regionId: string | null | undefined, rowRegionId: string 
 async function fetchLedgerRows(args: {
   filter: AdminFinanceLedgerFilter;
   regionId?: string | null;
+  driverId?: string | null;
   limit: number;
   from?: string;
   to?: string;
@@ -207,6 +208,7 @@ async function fetchLedgerRows(args: {
     .order('created_at', { ascending: false })
     .limit(args.limit);
 
+  if (args.driverId) query = query.eq('driver_id', args.driverId);
   if (args.from) query = query.gte('created_at', args.from);
   if (args.to) query = query.lte('created_at', args.to);
 
@@ -223,7 +225,9 @@ async function fetchLedgerRows(args: {
   } else if (args.filter === 'refunds') {
     query = query.in('type', ['REFUND_DEBIT']);
   } else if (args.filter === 'adjustments') {
-    query = query.in('type', ['ADJUSTMENT', 'MANUAL_ADJUSTMENT', 'CHARGEBACK_DEBIT', 'BONUS', 'LEDGER_REVERSAL']);
+    query = query.in('type', ['ADJUSTMENT', 'MANUAL_ADJUSTMENT', 'CHARGEBACK_DEBIT', 'LEDGER_REVERSAL']);
+  } else if (args.filter === 'bonus') {
+    query = query.in('type', ['BONUS']);
   }
 
   const { data, error } = await query;
@@ -243,6 +247,7 @@ async function fetchLedgerRows(args: {
 export function useFinanceLedgerTransactions(args: {
   filter: AdminFinanceLedgerFilter;
   regionId?: string | null;
+  driverId?: string | null;
   limit?: number;
   from?: string;
   to?: string;
@@ -251,10 +256,10 @@ export function useFinanceLedgerTransactions(args: {
   const ledgerLimit = args.filter === 'all' ? limit : limit;
 
   return useQuery({
-    queryKey: ['finance-ledger-transactions', args.filter, args.regionId, limit, args.from, args.to],
+    queryKey: ['finance-ledger-transactions', args.filter, args.regionId, args.driverId, limit, args.from, args.to],
     queryFn: async (): Promise<FinanceLedgerTransactionRow[]> => {
-      const includePayments = args.filter === 'all' || args.filter === 'customer_payments';
-      const includeDiscounts = args.filter === 'all' || args.filter === 'discounts';
+      const includePayments = !args.driverId && (args.filter === 'all' || args.filter === 'customer_payments');
+      const includeDiscounts = !args.driverId && (args.filter === 'all' || args.filter === 'discounts');
       const includeLedger = args.filter === 'all'
         || (args.filter !== 'customer_payments' && args.filter !== 'discounts');
 
@@ -264,6 +269,7 @@ export function useFinanceLedgerTransactions(args: {
         rows.push(...await fetchLedgerRows({
           filter: args.filter,
           regionId: args.regionId,
+          driverId: args.driverId,
           limit: ledgerLimit,
           from: args.from,
           to: args.to,
@@ -283,6 +289,7 @@ export function useFinanceLedgerTransactions(args: {
           .order('created_at', { ascending: false })
           .limit(includePayments && !includeLedger ? limit : Math.min(limit, 150));
 
+        if (args.driverId) paymentQuery = paymentQuery.eq('driver_id', args.driverId);
         if (args.from) paymentQuery = paymentQuery.gte('created_at', args.from);
         if (args.to) paymentQuery = paymentQuery.lte('created_at', args.to);
 
@@ -308,6 +315,9 @@ export function useFinanceLedgerTransactions(args: {
 
         if (args.regionId) {
           discountQuery = discountQuery.eq('region_id', args.regionId);
+        }
+        if (args.driverId) {
+          discountQuery = discountQuery.eq('driver_id', args.driverId);
         }
         if (args.from) discountQuery = discountQuery.gte('completed_at', args.from);
         if (args.to) discountQuery = discountQuery.lte('completed_at', args.to);

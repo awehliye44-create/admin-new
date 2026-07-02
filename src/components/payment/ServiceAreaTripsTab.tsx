@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,28 +9,23 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/hooks/useAuth';
-import { FinanceRecoveryPanel } from '@/components/payment/FinanceRecoveryPanel';
+import { FinancialReconciliationTripLink } from '@/components/finance/FinancialReconciliationTripLink';
+import { financeReconciliationTripUrl } from '@/components/payment/FinanceRecoveryPanel';
 import { format } from 'date-fns';
 import { getTripDisplayId } from '@/lib/tripUtils';
-import {
-  getServiceAreaTripCustomerPaidPence,
-  getServiceAreaTripDriverNetPence,
-  sumPaymentCapturedPenceForTrip,
-  type ServiceAreaTripFinanceRow,
-} from '@/lib/serviceAreaTripFinance';
-import { Banknote, Undo2, Pencil, ShieldAlert } from 'lucide-react';
+import { Calculator, ShieldAlert } from 'lucide-react';
 
-interface TripRow extends ServiceAreaTripFinanceRow {
+interface TripRow {
   id: string;
   trip_number: string | null;
   trip_code: string | null;
   status: string;
+  payment_status: string | null;
+  payment_method: string | null;
   created_at: string;
-  customerPaidPence: number;
-  driverNetPence: number | null;
 }
 
-export function ServiceAreaTripsTab({ serviceAreaId, currencyCode = 'GBP' }: { serviceAreaId: string; currencyCode?: string }) {
+export function ServiceAreaTripsTab({ serviceAreaId }: { serviceAreaId: string; currencyCode?: string }) {
   const { isAdmin } = useAuth();
   const [openTripId, setOpenTripId] = useState<string | null>(null);
 
@@ -39,84 +35,19 @@ export function ServiceAreaTripsTab({ serviceAreaId, currencyCode = 'GBP' }: { s
     queryFn: async () => {
       const { data: trips, error } = await supabase
         .from('trips')
-        .select(
-          'id, trip_number, trip_code, status, payment_status, payment_method, gross_fare_pence, final_fare_pence, capture_amount_pence, driver_net_pence, created_at',
-        )
+        .select('id, trip_number, trip_code, status, payment_status, payment_method, created_at')
         .eq('service_area_id', serviceAreaId)
         .order('created_at', { ascending: false })
         .limit(100);
       if (error) throw error;
-
-      const tripRows = trips || [];
-      const tripIds = tripRows.map((trip) => trip.id);
-      const paymentsByTripId = new Map<string, number>();
-      const ledgerNetByTripId = new Map<string, number>();
-
-      if (tripIds.length > 0) {
-        const [paymentsRes, ledgerRes] = await Promise.all([
-          supabase
-            .from('payments')
-            .select('trip_id, captured_amount_pence, amount_pence, status')
-            .in('trip_id', tripIds),
-          supabase
-            .from('driver_wallet_ledger')
-            .select('related_trip_id, amount_pence')
-            .in('related_trip_id', tripIds)
-            .eq('type', 'TRIP_EARNING_NET'),
-        ]);
-
-        if (paymentsRes.error) throw paymentsRes.error;
-        if (ledgerRes.error) throw ledgerRes.error;
-
-        const paymentsGrouped = new Map<string, Array<{
-          captured_amount_pence: number | null;
-          amount_pence: number | null;
-          status: string | null;
-        }>>();
-
-        for (const payment of paymentsRes.data ?? []) {
-          if (!payment.trip_id) continue;
-          const list = paymentsGrouped.get(payment.trip_id) ?? [];
-          list.push(payment);
-          paymentsGrouped.set(payment.trip_id, list);
-        }
-
-        for (const [tripId, paymentRows] of paymentsGrouped) {
-          const captured = sumPaymentCapturedPenceForTrip(paymentRows);
-          if (captured > 0) paymentsByTripId.set(tripId, captured);
-        }
-
-        for (const entry of ledgerRes.data ?? []) {
-          if (!entry.related_trip_id) continue;
-          ledgerNetByTripId.set(entry.related_trip_id, entry.amount_pence);
-        }
-      }
-
-      return tripRows.map((trip) => {
-        const financeContext = {
-          paymentCapturedPence: paymentsByTripId.get(trip.id) ?? null,
-          ledgerTripEarningNetPence: ledgerNetByTripId.get(trip.id) ?? null,
-        };
-
-        return {
-          ...trip,
-          customerPaidPence: getServiceAreaTripCustomerPaidPence(trip, financeContext),
-          driverNetPence: getServiceAreaTripDriverNetPence(trip, financeContext),
-        };
-      });
+      return trips ?? [];
     },
   });
 
-  const formatPence = useMemo(() => {
-    return (pence: number) => {
-      const value = pence / 100;
-      try {
-        return new Intl.NumberFormat('en-GB', { style: 'currency', currency: currencyCode }).format(value);
-      } catch {
-        return `${value.toFixed(2)} ${currencyCode}`;
-      }
-    };
-  }, [currencyCode]);
+  const openTrip = useMemo(
+    () => tripsQuery.data?.find((trip) => trip.id === openTripId) ?? null,
+    [openTripId, tripsQuery.data],
+  );
 
   if (!isAdmin) {
     return (
@@ -132,9 +63,9 @@ export function ServiceAreaTripsTab({ serviceAreaId, currencyCode = 'GBP' }: { s
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Recent trips — payment controls</CardTitle>
+        <CardTitle className="text-base">Recent trips — payment status</CardTitle>
         <p className="text-xs text-muted-foreground">
-          Latest 100 trips in this service area. Customer Paid and Driver Net use settlement SSOT (captured / cash collected).
+          Latest 100 trips in this service area. Trip financial values and recovery actions live in Financial Reconciliation → Trips (SSOT).
         </p>
       </CardHeader>
       <CardContent>
@@ -155,8 +86,7 @@ export function ServiceAreaTripsTab({ serviceAreaId, currencyCode = 'GBP' }: { s
                   <TableHead>Date</TableHead>
                   <TableHead>Method</TableHead>
                   <TableHead>Payment</TableHead>
-                  <TableHead className="text-right">Customer Paid</TableHead>
-                  <TableHead className="text-right">Driver Net</TableHead>
+                  <TableHead>Financial Reconciliation</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -166,27 +96,20 @@ export function ServiceAreaTripsTab({ serviceAreaId, currencyCode = 'GBP' }: { s
                     <TableCell className="font-mono text-xs">{getTripDisplayId(t)}</TableCell>
                     <TableCell className="text-xs">{format(new Date(t.created_at), 'dd MMM HH:mm')}</TableCell>
                     <TableCell className="text-xs capitalize">{t.payment_method || '—'}</TableCell>
-                    <TableCell><Badge variant="outline" className="text-xs">{t.payment_status || '—'}</Badge></TableCell>
-                    <TableCell className="text-right text-xs font-medium">{formatPence(t.customerPaidPence)}</TableCell>
-                    <TableCell className="text-right text-xs text-green-600">
-                      {t.driverNetPence == null ? (
-                        <span className="text-muted-foreground">Unknown</span>
-                      ) : (
-                        formatPence(t.driverNetPence)
-                      )}
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs">{t.payment_status || '—'}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <FinancialReconciliationTripLink
+                        tripId={t.id}
+                        tripCode={t.trip_code}
+                        tripNumber={t.trip_number}
+                      />
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => setOpenTripId(t.id)} title="Capture">
-                          <Banknote className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setOpenTripId(t.id)} title="Refund">
-                          <Undo2 className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setOpenTripId(t.id)} title="Edit fare">
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
+                      <Button size="sm" variant="outline" onClick={() => setOpenTripId(t.id)}>
+                        View
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -197,12 +120,48 @@ export function ServiceAreaTripsTab({ serviceAreaId, currencyCode = 'GBP' }: { s
       </CardContent>
 
       <Dialog open={!!openTripId} onOpenChange={(o) => !o && setOpenTripId(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Trip payment controls</DialogTitle>
+            <DialogTitle>Trip payment status</DialogTitle>
           </DialogHeader>
-          {openTripId && (
-            <FinanceRecoveryPanel tripId={openTripId} source="payments" variant="finance" />
+          {openTrip && (
+            <div className="space-y-4 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs text-muted-foreground">Trip</p>
+                  <p className="font-mono font-medium">{getTripDisplayId(openTrip)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Status</p>
+                  <p className="capitalize">{openTrip.status}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Payment method</p>
+                  <p className="capitalize">{openTrip.payment_method || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Payment status</p>
+                  <Badge variant="outline">{openTrip.payment_status || '—'}</Badge>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Fare, commission, capture, and recovery actions are only in Financial Reconciliation → Trips.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <FinancialReconciliationTripLink
+                  tripId={openTrip.id}
+                  tripCode={openTrip.trip_code}
+                  tripNumber={openTrip.trip_number}
+                  variant="button"
+                />
+                <Button asChild size="sm" variant="default">
+                  <Link to={financeReconciliationTripUrl(openTrip.id, openTrip.trip_code ?? openTrip.trip_number)}>
+                    <Calculator className="h-4 w-4 mr-1" />
+                    Open recovery
+                  </Link>
+                </Button>
+              </div>
+            </div>
           )}
         </DialogContent>
       </Dialog>

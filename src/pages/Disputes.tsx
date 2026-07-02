@@ -11,6 +11,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import { NewAdjustmentDialog } from '@/components/adjustments/NewAdjustmentDialog';
 import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
+import { FinanceSsotOperationalNotice } from '@/components/finance/FinanceSSOTBadge';
 import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 import { useServiceAreasMap } from '@/hooks/useServiceAreas';
 import {
@@ -153,6 +154,7 @@ export default function Disputes() {
       description="Manage driver financial adjustments, bonuses and deductions"
     >
       <div className="space-y-6">
+        <FinanceSsotOperationalNotice />
         {/* Service Area Filter */}
         <div className="flex items-center gap-3">
           <ServiceAreaFinanceFilter value={serviceFilter} onChange={setServiceFilter} />

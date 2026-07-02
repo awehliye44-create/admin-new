@@ -93,9 +93,32 @@ export function sumStripePaidOutFromConnectPayouts(
 }
 
 /**
- * Cash-out limit = min(wallet owed, finance cleared, Stripe instant available)
- * minus recovery debt and in-flight holds.
+ * Available Cash Out — Stripe balance after settlement rules only.
+ * Never uses wallet_balance (hard SSOT rule).
  */
+export function computeAvailableCashOutPence(input: {
+  stripe_connect_available_pence: number | null | undefined;
+  stripe_instant_available_pence?: number | null | undefined;
+  finance_cleared_pence: number;
+  recovery_debt_pence: number;
+  in_flight_cashout_pence?: number;
+  payout_blocked?: boolean;
+  instant_enabled?: boolean;
+}): number {
+  if (input.payout_blocked || input.instant_enabled === false) return 0;
+  const financeCleared = Math.max(0, input.finance_cleared_pence);
+  const stripeBase = typeof input.stripe_instant_available_pence === "number"
+    ? Math.max(0, input.stripe_instant_available_pence)
+    : typeof input.stripe_connect_available_pence === "number"
+    ? Math.max(0, input.stripe_connect_available_pence)
+    : 0;
+  const recovery = Math.max(0, input.recovery_debt_pence);
+  const inFlight = Math.max(0, input.in_flight_cashout_pence ?? 0);
+  const raw = Math.min(stripeBase, financeCleared);
+  return Math.max(0, raw - recovery - inFlight);
+}
+
+/** @deprecated Use computeAvailableCashOutPence — wallet must not cap cash-out. */
 export function computeCashoutLimitPence(input: {
   wallet_owed_pence: number;
   finance_cleared_pence: number;
@@ -104,17 +127,17 @@ export function computeCashoutLimitPence(input: {
   in_flight_cashout_pence?: number;
   payout_blocked?: boolean;
   instant_enabled?: boolean;
+  stripe_connect_available_pence?: number | null;
 }): number {
-  if (input.payout_blocked || input.instant_enabled === false) return 0;
-  const walletOwed = Math.max(0, input.wallet_owed_pence);
-  const financeCleared = Math.max(0, input.finance_cleared_pence);
-  const instant = typeof input.stripe_instant_available_pence === "number"
-    ? Math.max(0, input.stripe_instant_available_pence)
-    : 0;
-  const recovery = Math.max(0, input.recovery_debt_pence);
-  const inFlight = Math.max(0, input.in_flight_cashout_pence ?? 0);
-  const raw = Math.min(walletOwed, financeCleared, instant);
-  return Math.max(0, raw - recovery - inFlight);
+  return computeAvailableCashOutPence({
+    stripe_connect_available_pence: input.stripe_connect_available_pence ?? null,
+    stripe_instant_available_pence: input.stripe_instant_available_pence,
+    finance_cleared_pence: input.finance_cleared_pence,
+    recovery_debt_pence: input.recovery_debt_pence,
+    in_flight_cashout_pence: input.in_flight_cashout_pence,
+    payout_blocked: input.payout_blocked,
+    instant_enabled: input.instant_enabled,
+  });
 }
 
 export function computeDriverWalletPayoutSnapshot(
@@ -140,10 +163,10 @@ export function computeDriverWalletPayoutSnapshot(
   const instantEnabled = input.instant_payout_enabled_by_stripe !== false
     && input.early_cashout_enabled_by_service_area !== false;
 
-  const cashoutLimit = computeCashoutLimitPence({
-    wallet_owed_pence: walletOwed,
-    finance_cleared_pence: financeCleared,
+  const cashoutLimit = computeAvailableCashOutPence({
+    stripe_connect_available_pence: stripeAvailable,
     stripe_instant_available_pence: input.stripe_connect_instant_available_pence,
+    finance_cleared_pence: financeCleared,
     recovery_debt_pence: recoveryDebt,
     in_flight_cashout_pence: inFlight,
     payout_blocked: input.payout_blocked,

@@ -439,9 +439,18 @@ export type TripFinancialAuditRow = {
   trip_id: string;
   trip_code: string | null;
   date: string | null;
+  driver_id: string | null;
+  customer_name: string | null;
   driver_name: string | null;
   payment_method: string | null;
+  stripe_payment_intent_id?: string | null;
   customer_paid_pence: number;
+  /** Pre-discount gross fare from trip record (SSOT). */
+  gross_fare_pence: number;
+  /** max(0, gross_fare − final_fare) — backend only. */
+  discount_pence: number;
+  /** Fare after discount, before tip/extras. */
+  final_fare_pence: number;
   /** Settlement total (fare + tip + fees) — same as customer_paid_pence for audit rows. */
   settlement_total_pence: number;
   captured_pence: number;
@@ -467,11 +476,14 @@ export type TripFinancialAuditRow = {
   onecab_commission_status?: string;
   /** @deprecated Use provider.label */
   provider_status?: string;
+  trip_status?: string | null;
+  financial_outcome?: string | null;
 };
 
 export type TripAuditSourceRow = TripFinanceRow & {
   id: string;
   trip_code?: string | null;
+  status?: string | null;
   refund_amount_pence?: number | null;
   outstanding_balance_pence?: number | null;
   payment_coverage_status?: string | null;
@@ -483,6 +495,7 @@ export type TripAuditSourceRow = TripFinanceRow & {
   stripe_charge_id?: string | null;
   provider_status?: string | null;
   driver_id?: string | null;
+  passenger_name?: string | null;
   driver?: { first_name?: string | null; last_name?: string | null } | null;
 };
 
@@ -700,6 +713,9 @@ export function mapTripToFinancialAuditRow(
   const refunded = Math.max(0, row.refund_amount_pence ?? 0);
   const settlementTotal = computeSettlementTotalPence(row);
   const customerPaid = settlementTotal;
+  const grossFarePence = Math.max(0, Number(row.gross_fare_pence ?? row.commissionable_fare_pence ?? 0));
+  const finalFarePence = Math.max(0, Number(row.final_fare_pence ?? 0));
+  const discountPence = Math.max(0, grossFarePence - finalFarePence);
   const driverName = row.driver
     ? [row.driver.first_name, row.driver.last_name].filter(Boolean).join(" ").trim() || null
     : null;
@@ -731,13 +747,25 @@ export function mapTripToFinancialAuditRow(
     debtRecoveredPence: debtRecovered,
   });
 
+  const paymentIntentId =
+    row.stripe_payment_intent_id ??
+    payment?.stripe_payment_intent_id ??
+    tripPayments.find((p) => p.stripe_payment_intent_id)?.stripe_payment_intent_id ??
+    null;
+
   return {
     trip_id: row.id,
     trip_code: row.trip_code ?? null,
     date: row.completed_at ?? null,
+    driver_id: row.driver_id ?? null,
+    customer_name: row.passenger_name?.trim() || null,
     driver_name: driverName,
     payment_method: row.payment_method ?? null,
+    stripe_payment_intent_id: paymentIntentId,
     customer_paid_pence: customerPaid,
+    gross_fare_pence: grossFarePence,
+    discount_pence: discountPence,
+    final_fare_pence: finalFarePence,
     settlement_total_pence: settlementTotal,
     captured_pence: captured,
     refunded_pence: refunded,
@@ -757,6 +785,8 @@ export function mapTripToFinancialAuditRow(
     driver_payout_status: statuses.driver_payout.label,
     onecab_commission_status: statuses.onecab_commission.label,
     provider_status: statuses.provider.label,
+    trip_status: row.status ?? null,
+    financial_outcome: row.financial_outcome ?? null,
   };
 }
 

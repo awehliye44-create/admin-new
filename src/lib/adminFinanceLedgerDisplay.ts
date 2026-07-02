@@ -12,6 +12,7 @@ export type AdminFinanceLedgerFilter =
   | 'payouts'
   | 'refunds'
   | 'adjustments'
+  | 'bonus'
   | 'discounts';
 
 export type AdminFinanceParty = 'customer' | 'driver' | 'ONECAB' | 'Stripe' | 'system';
@@ -25,6 +26,7 @@ export const ADMIN_FINANCE_FILTER_LABELS: Record<AdminFinanceLedgerFilter, strin
   payouts: 'Payouts',
   refunds: 'Refunds',
   adjustments: 'Adjustments',
+  bonus: 'Bonus',
   discounts: 'Discounts',
 };
 
@@ -104,6 +106,9 @@ export function adminFinanceLedgerMatchesFilter(
   }
   if (filter === 'onecab_commission') {
     return (ADMIN_ONECAB_COMMISSION_LEDGER_TYPES as readonly string[]).includes(type);
+  }
+  if (filter === 'bonus') {
+    return type === 'BONUS';
   }
   const meta = adminFinanceLedgerTypeMeta(type);
   return meta.filter === filter;

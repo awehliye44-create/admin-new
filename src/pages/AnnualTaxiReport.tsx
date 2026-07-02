@@ -11,9 +11,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { Link } from 'react-router-dom';
 import { Info, Download, Printer, Mail, FileText, Loader2 } from 'lucide-react';
+import { FinancialReconciliationTripLink } from '@/components/finance/FinancialReconciliationTripLink';
 import { useToast } from '@/hooks/use-toast';
 import { formatPence } from '@/hooks/useDriverWallet';
+import { fetchDriverStatementPeriodTotals } from '@/hooks/financeReconciliationApi';
 import { getTripDisplayId } from '@/lib/tripUtils';
 
 type PeriodMode = 'tax_year' | 'calendar_year' | 'custom';
@@ -48,15 +51,6 @@ interface TripRow {
   region_id: string | null;
 }
 
-interface PayoutItemRow {
-  driver_id: string;
-  amount_pence: number | null;
-  net_driver_payout_pence: number | null;
-  status: string | null;
-  completed_at: string | null;
-  created_at: string | null;
-}
-
 function ukTaxYearRange(startYear: number) {
   return {
     start: `${startYear}-04-06`,
@@ -73,12 +67,6 @@ function driverName(d: DriverRow | undefined): string {
   return [d.first_name, d.last_name].filter(Boolean).join(' ') || d.driver_code || d.id;
 }
 
-function tripCustomerRevenuePence(t: TripRow): number {
-  return t.final_fare_pence ?? t.final_customer_fare_pence ?? 0;
-}
-function tripNet(t: TripRow): number {
-  return t.driver_net_pence ?? t.driver_total_earnings_pence ?? 0;
-}
 function tripTip(t: TripRow): number {
   return t.tip_amount_pence ?? t.tip_pence ?? 0;
 }
@@ -143,20 +131,31 @@ export default function AnnualTaxiReport() {
         .limit(5000);
       if (tripsErr) throw tripsErr;
 
-      const { data: payouts, error: poErr } = await supabase
-        .from('payout_items')
-        .select('driver_id,amount_pence,net_driver_payout_pence,status,completed_at,created_at')
-        .eq('driver_id', generated.driverId)
-        .in('status', ['completed', 'paid', 'success'])
-        .gte('created_at', startIso)
-        .lte('created_at', endIso)
-        .limit(5000);
-      if (poErr) throw poErr;
-
       return {
         trips: (tripsData ?? []) as TripRow[],
-        payouts: (payouts ?? []) as PayoutItemRow[],
       };
+    },
+  });
+
+  const statementTotalsQuery = useQuery({
+    enabled: !!generated,
+    queryKey: ['atr-statement-totals', generated],
+    queryFn: async () => {
+      if (!generated) return null;
+      const { data: driverRow, error: driverErr } = await supabase
+        .from('drivers')
+        .select('region_id')
+        .eq('id', generated.driverId)
+        .maybeSingle();
+      if (driverErr) throw driverErr;
+      if (!driverRow?.region_id) return null;
+      const totals = await fetchDriverStatementPeriodTotals(
+        { regionId: driverRow.region_id, serviceAreaId: null, currencyCode: null },
+        `${generated.from}T00:00:00.000Z`,
+        `${generated.to}T23:59:59.999Z`,
+        [generated.driverId],
+      );
+      return totals[0] ?? null;
     },
   });
 
@@ -164,32 +163,25 @@ export default function AnnualTaxiReport() {
 
   const summary = useMemo(() => {
     const trips = reportQuery.data?.trips ?? [];
-    const payouts = reportQuery.data?.payouts ?? [];
-    let gross = 0, commission = 0, net = 0, tips = 0;
+    let tips = 0;
     let cash = 0, card = 0, corporate = 0;
     for (const t of trips) {
-      gross += tripCustomerRevenuePence(t);
-      commission += t.commission_pence ?? 0;
-      net += tripNet(t);
       tips += tripTip(t);
       const pm = String(t.payment_method ?? '').toUpperCase();
       if (t.corporate_account_id) corporate += 1;
       else if (pm === 'CASH') cash += 1;
       else if (pm === 'CARD' || pm === 'APPLE_PAY' || pm === 'GOOGLE_PAY' || pm === 'WALLET') card += 1;
     }
-    const payoutsTotal = payouts.reduce(
-      (s, p) => s + (p.net_driver_payout_pence ?? p.amount_pence ?? 0),
-      0,
-    );
+    const payoutsTotal = statementTotalsQuery.data?.payouts_received_pence ?? null;
     const currency = trips.find((t) => t.currency_code)?.currency_code ?? 'GBP';
     return {
       totalTrips: trips.length,
-      gross, commission, net, tips,
+      tips,
       cash, card, corporate,
       payoutsTotal,
       currency,
     };
-  }, [reportQuery.data]);
+  }, [reportQuery.data, statementTotalsQuery.data]);
 
   const handleGenerate = () => {
     if (!canGenerate) {
@@ -206,14 +198,12 @@ export default function AnnualTaxiReport() {
 
   const handleCsv = () => {
     if (!reportQuery.data) return;
-    const headers = ['Date', 'Trip ID', 'Payment Type', 'Gross Fare', 'ONECAB Commission', 'Driver Net', 'Status'];
+    const headers = ['Date', 'Trip ID', 'Payment Type', 'Financial Reconciliation', 'Status'];
     const rows = reportQuery.data.trips.map((t) => [
       t.completed_at ? format(new Date(t.completed_at), 'yyyy-MM-dd HH:mm') : '',
       getTripDisplayId(t as any) || t.id,
       t.corporate_account_id ? 'CORPORATE' : (t.payment_method ?? ''),
-      (tripCustomerRevenuePence(t) / 100).toFixed(2),
-      ((t.commission_pence ?? 0) / 100).toFixed(2),
-      (tripNet(t) / 100).toFixed(2),
+      'See Financial Reconciliation → Trips (SSOT)',
       t.status ?? '',
     ]);
     const csv = [headers, ...rows]
@@ -235,10 +225,10 @@ export default function AnnualTaxiReport() {
     const subject = encodeURIComponent(`Annual Taxi Report — ${driverName(driver)} — ${periodLabel}`);
     const body = encodeURIComponent(
       `Annual Taxi Report\n\nDriver: ${driverName(driver)} (${driver.driver_code ?? driver.id})\nPeriod: ${periodLabel}\n\n` +
-      `Total Trips: ${summary.totalTrips}\nGross Fares: ${formatPence(summary.gross, summary.currency)}\n` +
-      `ONECAB Commission: ${formatPence(summary.commission, summary.currency)}\n` +
-      `Driver Net Earnings: ${formatPence(summary.net, summary.currency)}\n` +
-      `Tips: ${formatPence(summary.tips, summary.currency)}\nPayouts Received: ${formatPence(summary.payoutsTotal, summary.currency)}\n\n` +
+      `Total Trips: ${summary.totalTrips}\nCash Trips: ${summary.cash}\nCard Trips: ${summary.card}\nCorporate Trips: ${summary.corporate}\n` +
+      `Tips: ${formatPence(summary.tips, summary.currency)}\nPayouts Received: ${summary.payoutsTotal == null ? '—' : formatPence(summary.payoutsTotal, summary.currency)}\n\n` +
+      `Trip fare, commission, and driver net values: Financial Reconciliation → Trips (SSOT)\n` +
+      `https://adminonecab.net/financial-reconciliation?tab=trips\n\n` +
       `This report is provided for record keeping purposes only. Drivers are self-employed and responsible for their own tax, National Insurance, expenses, and HMRC obligations.`
     );
     window.location.href = `mailto:?subject=${subject}&body=${body}`;
@@ -395,15 +385,19 @@ export default function AnnualTaxiReport() {
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <SummaryStat label="Total Trips" value={String(summary.totalTrips)} />
-                  <SummaryStat label="Gross Fares" value={formatPence(summary.gross, summary.currency)} />
-                  <SummaryStat label="ONECAB Commission" value={formatPence(summary.commission, summary.currency)} />
-                  <SummaryStat label="Driver Net Earnings" value={formatPence(summary.net, summary.currency)} />
                   <SummaryStat label="Cash Trips" value={String(summary.cash)} />
                   <SummaryStat label="Card Trips" value={String(summary.card)} />
                   <SummaryStat label="Corporate Trips" value={String(summary.corporate)} />
                   <SummaryStat label="Tips" value={formatPence(summary.tips, summary.currency)} />
-                  <SummaryStat label="Payouts Received" value={formatPence(summary.payoutsTotal, summary.currency)} />
+                  <SummaryStat label="Payouts Received" value={summary.payoutsTotal == null ? '—' : formatPence(summary.payoutsTotal, summary.currency)} />
                 </div>
+                <p className="text-xs text-muted-foreground mt-4">
+                  Trip fare, commission, and driver net values live in{' '}
+                  <Link to="/financial-reconciliation?tab=trips" className="underline">
+                    Financial Reconciliation → Trips (SSOT)
+                  </Link>
+                  .
+                </p>
               </CardContent>
             </Card>
 
@@ -418,16 +412,14 @@ export default function AnnualTaxiReport() {
                       <TableHead>Date</TableHead>
                       <TableHead>Trip ID</TableHead>
                       <TableHead>Payment Type</TableHead>
-                      <TableHead className="text-right">Gross Fare</TableHead>
-                      <TableHead className="text-right">ONECAB Commission</TableHead>
-                      <TableHead className="text-right">Driver Net</TableHead>
+                      <TableHead>Financial Reconciliation</TableHead>
                       <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {reportQuery.data.trips.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                        <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                           No completed trips in this period.
                         </TableCell>
                       </TableRow>
@@ -439,9 +431,13 @@ export default function AnnualTaxiReport() {
                         </TableCell>
                         <TableCell className="font-mono text-xs">{getTripDisplayId(t as any) || t.id.slice(0, 8)}</TableCell>
                         <TableCell>{t.corporate_account_id ? 'CORPORATE' : (t.payment_method ?? '—')}</TableCell>
-                        <TableCell className="text-right">{formatPence(tripCustomerRevenuePence(t), t.currency_code ?? summary.currency)}</TableCell>
-                        <TableCell className="text-right">{formatPence(t.commission_pence ?? 0, t.currency_code ?? summary.currency)}</TableCell>
-                        <TableCell className="text-right">{formatPence(tripNet(t), t.currency_code ?? summary.currency)}</TableCell>
+                        <TableCell>
+                          <FinancialReconciliationTripLink
+                            tripId={t.id}
+                            tripCode={t.trip_code}
+                            tripNumber={t.trip_number}
+                          />
+                        </TableCell>
                         <TableCell><Badge variant="outline">{t.status ?? '—'}</Badge></TableCell>
                       </TableRow>
                     ))}

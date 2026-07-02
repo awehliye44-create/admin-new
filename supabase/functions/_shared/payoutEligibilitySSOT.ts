@@ -182,6 +182,19 @@ export function sumEligibleEarningPence(earnings: EarningSettlementInput[]): num
   }, 0);
 }
 
+/** Finance Cleared — SUM(cleared settlement batches): settled, payable, not allocated. */
+export function sumClearedSettlementBatchPence(earnings: EarningSettlementInput[]): number {
+  return earnings.reduce((sum, row) => {
+    if (!isEarningPayableForPayout(row)) return sum;
+    if (requiresStripeSettlement(row.payment_method)) {
+      if (row.settlement_status !== "settled") return sum;
+    } else if (row.trip_completed === false || row.payment_captured === false) {
+      return sum;
+    }
+    return sum + remainingPayablePence(row);
+  }, 0);
+}
+
 /**
  * Eligible settled unpaid sum minus in-flight and manual-review holdbacks.
  * Does not apply wallet cap — use for diagnostics only.

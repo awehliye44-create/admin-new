@@ -2,6 +2,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { useContinuousReconciliation } from '@/hooks/useContinuousReconciliation';
 import { AlertTriangle } from 'lucide-react';
+import { DriverWalletLedgerLink } from '@/components/finance/DriverWalletLedgerLink';
 
 export function FinanceReconciliationMismatchBanner({ regionId }: { regionId?: string | null }) {
   const { data } = useContinuousReconciliation(regionId);
@@ -31,13 +32,13 @@ export function FinanceReconciliationMismatchBanner({ regionId }: { regionId?: s
           local payout lacks Stripe evidence, or failed payout stuck processing.
         </p>
         {issueRows.length > 0 ? (
-          <ul className="text-xs list-disc pl-4">
+          <ul className="text-xs list-none pl-0 space-y-1">
             {issueRows.map((r) => (
               <li key={r.driver_id}>
-                {r.driver_code ?? r.driver_id.slice(0, 8)}
-                {' '}
-                —
-                {' '}
+                <DriverWalletLedgerLink driverId={r.driver_id} tab="overview">
+                  {r.driver_code ?? r.driver_id.slice(0, 8)}
+                </DriverWalletLedgerLink>
+                {' — '}
                 {r.classification}
                 {r.reasons[0] ? `: ${r.reasons[0]}` : ''}
               </li>

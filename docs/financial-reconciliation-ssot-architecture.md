@@ -51,25 +51,23 @@ If not equal → `RECONCILIATION_MISMATCH` + variance amount.
 | Admin edge fn | `supabase/functions/admin-finance-reconciliation/index.ts` |
 | Driver edge fn | `drive-hub-buddy/.../finance-reconciliation-driver/index.ts` |
 | Admin hook | `src/hooks/useFinancialReconciliationSSOT.ts` |
-| Badge | `src/components/finance/FinanceSSOTBadge.tsx` |
-| Totals cards | `src/components/finance/FinanceReconciliationTotalsCards.tsx` |
+| Platform KPIs | `platform_kpis` block on `admin-finance-reconciliation` response |
+| Badge | `src/components/finance/FinanceSSOTBadge.tsx` — `LIVE` / `DEGRADED_SNAPSHOT` / `UNAVAILABLE` |
 
-## Pages using SSOT (read-only)
+## Admin finance pages (two SSOT surfaces only)
 
-- Financial Reconciliation (`LIVE`)
-- Dashboard commission widgets (`LIVE` via `useFinanceReconciliationRevenue`)
-- Payments & Transactions (`FinanceReconciliationTotalsCards`)
-- Payout Batches & Audit (`FinanceReconciliationTotalsCards`)
-- Driver app (`finance-reconciliation-driver` — deploy separately)
+- **Driver Wallet Ledger** (`/driver-wallet-ledger`) — per-driver wallet, ledger, payouts, Stripe, history
+- **Financial Reconciliation** (`/financial-reconciliation`) — platform overview, trips, drivers, Stripe, alerts
 
-## Fallback hierarchy
+Legacy routes (`/payments`, `/payout-batches`, `/driver-wallet`, etc.) redirect to the above.
 
-1. **LIVE** — `admin-finance-reconciliation`
-2. **SUMMARY** — `driver_financial_summary` aggregate
-3. **LEDGER** — raw ledger (future)
-4. **RECONSTRUCTED** — historical payout reconstruction (future)
+## Degraded mode (G-07)
 
-Badge shown on all finance surfaces.
+1. **LIVE** — `admin-finance-reconciliation` edge function
+2. **DEGRADED_SNAPSHOT** — last persisted browser snapshot (read-only; actions disabled)
+3. **UNAVAILABLE** — no live data and no snapshot
+
+No SUMMARY / LEDGER / RECONSTRUCTED client fallbacks on Financial Reconciliation.
 
 ## Rules for developers
 

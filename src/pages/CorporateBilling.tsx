@@ -33,13 +33,9 @@ import {
 } from 'lucide-react';
 
 import { getCurrencySymbol } from '@/lib/regionSettings';
-import { enrichCorporateReportTrip } from '@/lib/corporateReportFinance';
-import { sumPaymentCapturedPenceForTrip } from '@/lib/serviceAreaTripFinance';
+import { FinancialReconciliationTripLink } from '@/components/finance/FinancialReconciliationTripLink';
 import {
-  formatDriverNetPence,
-  formatSettlementPence,
   getQuotedContractFareMajor,
-  sumCompletedCustomerPaidPence,
   type CorporateBillingTripRow,
 } from '@/lib/corporateBillingFinance';
 
@@ -141,55 +137,7 @@ export default function CorporateBilling() {
         .order('created_at', { ascending: false })
         .limit(100);
       if (error) throw error;
-
-      const tripRows = trips || [];
-      const tripIds = tripRows.map((trip) => trip.id);
-      const paymentsByTripId = new Map<string, number>();
-      const ledgerNetByTripId = new Map<string, number>();
-
-      if (tripIds.length > 0) {
-        const [paymentsRes, ledgerRes] = await Promise.all([
-          supabase
-            .from('payments')
-            .select('trip_id, captured_amount_pence, amount_pence, status')
-            .in('trip_id', tripIds),
-          supabase
-            .from('driver_wallet_ledger')
-            .select('related_trip_id, amount_pence')
-            .in('related_trip_id', tripIds)
-            .eq('type', 'TRIP_EARNING_NET'),
-        ]);
-
-        if (paymentsRes.error) throw paymentsRes.error;
-        if (ledgerRes.error) throw ledgerRes.error;
-
-        const paymentsGrouped = new Map<string, Array<{
-          captured_amount_pence: number | null;
-          amount_pence: number | null;
-          status: string | null;
-        }>>();
-
-        for (const payment of paymentsRes.data ?? []) {
-          if (!payment.trip_id) continue;
-          const list = paymentsGrouped.get(payment.trip_id) ?? [];
-          list.push(payment);
-          paymentsGrouped.set(payment.trip_id, list);
-        }
-
-        for (const [tripId, paymentRows] of paymentsGrouped) {
-          const captured = sumPaymentCapturedPenceForTrip(paymentRows);
-          if (captured > 0) paymentsByTripId.set(tripId, captured);
-        }
-
-        for (const entry of ledgerRes.data ?? []) {
-          if (!entry.related_trip_id) continue;
-          ledgerNetByTripId.set(entry.related_trip_id, entry.amount_pence);
-        }
-      }
-
-      return tripRows.map((trip) =>
-        enrichCorporateReportTrip(trip, paymentsByTripId, ledgerNetByTripId),
-      ) as CorporateTrip[];
+      return (trips ?? []) as CorporateTrip[];
     },
   });
 
@@ -316,7 +264,6 @@ export default function CorporateBilling() {
   // Trip stats
   const totalCorpTrips = corporateTrips.length;
   const completedCorpTrips = corporateTrips.filter(t => t.status === 'completed').length;
-  const totalCorpRevenue = sumCompletedCustomerPaidPence(corporateTrips) / 100;
 
   // Invoice Stats
   const totalRevenue = invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + i.total_amount, 0);
@@ -378,12 +325,14 @@ export default function CorporateBilling() {
             </Card>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Settlement Revenue</CardTitle>
+                <CardTitle className="text-sm font-medium">Trip finance (SSOT)</CardTitle>
                 <TrendingUp className="h-4 w-4 text-green-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-green-500">{getCurrencySymbol('')}{totalCorpRevenue.toFixed(2)}</div>
-                <p className="text-xs text-muted-foreground">Customer paid — completed corporate trips</p>
+                <Button asChild variant="outline" size="sm">
+                  <a href="/financial-reconciliation?tab=trips">Financial Reconciliation → Trips</a>
+                </Button>
+                <p className="text-xs text-muted-foreground mt-2">Customer paid and driver net live in FR only</p>
               </CardContent>
             </Card>
             <Card>
@@ -610,8 +559,7 @@ export default function CorporateBilling() {
                       <TableHead>Company</TableHead>
                       <TableHead>Pickup</TableHead>
                       <TableHead>Dropoff</TableHead>
-                      <TableHead>Customer Paid</TableHead>
-                      <TableHead>Driver Net</TableHead>
+                      <TableHead>Financial Reconciliation</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Date</TableHead>
                     </TableRow>
@@ -654,20 +602,17 @@ export default function CorporateBilling() {
                               {trip.dropoff_address || '—'}
                             </span>
                           </TableCell>
-                          <TableCell className="font-medium">
-                            {trip.status === 'completed' && trip.customerPaidPence > 0
-                              ? formatSettlementPence(trip.customerPaidPence, currencyFmt)
-                              : '—'}
+                          <TableCell>
+                            <FinancialReconciliationTripLink
+                              tripId={trip.id}
+                              tripCode={trip.trip_code}
+                              tripNumber={trip.trip_number}
+                            />
                             {showQuoted && (
-                              <span className="block text-[10px] text-muted-foreground">
+                              <span className="block text-[10px] text-muted-foreground mt-1">
                                 Quoted / Contract Fare {currencyFmt(quotedFare!)}
                               </span>
                             )}
-                          </TableCell>
-                          <TableCell className="text-green-600">
-                            {trip.status === 'completed'
-                              ? formatDriverNetPence(trip.driverNetPence, currencyFmt)
-                              : '—'}
                           </TableCell>
                           <TableCell>{getTripStatusBadge(trip.status)}</TableCell>
                           <TableCell>

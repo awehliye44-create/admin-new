@@ -17,6 +17,8 @@ import { toast } from "@/hooks/use-toast";
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { Play, Clock, CheckCircle, Send, FileText, AlertTriangle, Loader2, Globe, Settings2 } from "lucide-react";
 import StatementScheduleConfig from "@/components/statements/StatementScheduleConfig";
+import { fetchDriverStatementPeriodTotals } from "@/hooks/financeReconciliationApi";
+import { FinanceSsotOperationalNotice } from "@/components/finance/FinanceSSOTBadge";
 
 const RUN_STATUS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; icon: any }> = {
   draft: { label: "Draft", variant: "secondary", icon: Clock },
@@ -108,6 +110,14 @@ export default function StatementRuns() {
         return { run, count: 0 };
       }
 
+      const statementTotals = await fetchDriverStatementPeriodTotals(
+        { regionId: selectedRegion, serviceAreaId: saId, currencyCode: null },
+        `${periodStart}T00:00:00.000Z`,
+        `${periodEnd}T23:59:59.999Z`,
+        uniqueDriverIds,
+      );
+      const totalsByDriver = new Map(statementTotals.map((t) => [t.driver_id, t]));
+
       const { data: template } = await supabase
         .from("invoice_templates")
         .select("id")
@@ -118,36 +128,23 @@ export default function StatementRuns() {
       let invoiceCount = 0;
 
       for (const driverId of uniqueDriverIds) {
-        // Fetch ledger entries from driver_wallet_ledger (SSOT) filtered by region currency
-        const { data: entries } = await supabase
-          .from("driver_wallet_ledger")
-          .select("type, amount_pence, related_trip_id")
-          .eq("driver_id", driverId)
-          .eq("currency", region.currency_code)
-          .gte("created_at", periodStart)
-          .lte("created_at", periodEnd + "T23:59:59Z");
+        const totals = totalsByDriver.get(driverId);
+        if (!totals) continue;
 
-        let grossEarnings = 0, commission = 0, bonuses = 0, penalties = 0, adjustments = 0, cashCollected = 0;
-        let completedTrips = new Set<string>(), noShowTrips = 0, lateCancelTrips = 0;
+        const grossEarnings = totals.gross_earnings_pence;
+        const commission = totals.commission_pence;
+        const bonuses = totals.bonuses_pence;
+        const penalties = totals.penalties_pence;
+        const adjustments = totals.adjustments_pence;
+        const cashCollected = totals.cash_collected_pence;
+        const completedTrips = totals.completed_trips;
+        const noShowTrips = totals.no_show_trips;
+        const lateCancelTrips = totals.late_cancel_trips;
+        const netEarnings = totals.net_earnings_pence;
 
-        for (const e of entries || []) {
-          const amt = e.amount_pence || 0;
-          switch (e.type) {
-            case "TRIP_EARNING_NET": grossEarnings += amt; if (e.related_trip_id) completedTrips.add(e.related_trip_id); break;
-            case "PLATFORM_COMMISSION": commission += Math.abs(amt); break;
-            case "BONUS": bonuses += amt; break;
-            case "ADJUSTMENT": case "REFUND_DEBIT": adjustments += amt; break;
-            case "CASH_COMMISSION_DEBT": cashCollected += Math.abs(amt); break;
-            case "CASH_TRIP_EARNING": if (e.related_trip_id) completedTrips.add(e.related_trip_id); break;
-            case "TIP_CREDIT": case "DRIVER_TIP_CREDIT": grossEarnings += amt; break;
-          }
+        if (netEarnings === 0 && grossEarnings === 0 && commission === 0 && bonuses === 0 && penalties === 0 && adjustments === 0 && cashCollected === 0) {
+          continue;
         }
-
-        if (grossEarnings === 0 && commission === 0 && bonuses === 0 && penalties === 0 && adjustments === 0 && cashCollected === 0) {
-          continue; // Skip drivers with no meaningful activity
-        }
-
-        const netEarnings = grossEarnings - commission + bonuses - penalties + adjustments - cashCollected;
 
         const { data: invNum } = await supabase.rpc("generate_invoice_number");
         const invoiceNumber = invNum || `INV-${Date.now()}-${invoiceCount}`;
@@ -183,7 +180,7 @@ export default function StatementRuns() {
             adjustments_pence: adjustments,
             cash_collected_pence: cashCollected,
             net_earnings_pence: netEarnings,
-            completed_trips: completedTrips.size,
+            completed_trips: completedTrips,
             no_show_trips: noShowTrips,
             late_cancel_trips: lateCancelTrips,
             status: "draft",
@@ -193,7 +190,7 @@ export default function StatementRuns() {
 
         if (inv) {
           const items: any[] = [
-            { invoice_id: inv.id, item_type: "trip_earnings", description: `Completed trip earnings (${completedTrips.size} trips)`, amount_pence: grossEarnings, sort_order: 1 },
+            { invoice_id: inv.id, item_type: "trip_earnings", description: `Completed trip earnings (${completedTrips} trips)`, amount_pence: grossEarnings, sort_order: 1 },
             { invoice_id: inv.id, item_type: "commission", description: "Platform commission", amount_pence: -commission, sort_order: 2 },
           ];
           if (bonuses > 0) items.push({ invoice_id: inv.id, item_type: "bonus", description: "Bonuses & incentives", amount_pence: bonuses, sort_order: 3 });
@@ -260,6 +257,7 @@ export default function StatementRuns() {
 
   return (
     <div className="space-y-6">
+      <FinanceSsotOperationalNotice />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Statement Runs</h1>

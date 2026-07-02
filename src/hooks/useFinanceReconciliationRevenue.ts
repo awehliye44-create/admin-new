@@ -26,14 +26,14 @@ export interface ServiceAreaRevenueBreakdown {
 }
 
 export interface FinanceReconciliationRevenueResult {
-  todayRevenue: number;
-  weeklyRevenue: number;
-  monthlyRevenue: number;
-  allTimeRevenue: number;
-  customRevenue: number;
+  todayRevenue: number | null;
+  weeklyRevenue: number | null;
+  monthlyRevenue: number | null;
+  allTimeRevenue: number | null;
+  customRevenue: number | null;
   chartData: RevenueDataPoint[];
   serviceAreaBreakdown: ServiceAreaRevenueBreakdown[];
-  dataSourceBadge: 'LIVE' | 'FALLBACK';
+  dataSourceBadge: 'LIVE' | 'UNAVAILABLE';
 }
 
 interface UseFinanceReconciliationRevenueOptions {
@@ -109,14 +109,14 @@ export function useFinanceReconciliationRevenue({
       const epochStart = new Date('2020-01-01');
       const filter = saId ? { serviceAreaId: saId, regionId: null, currencyCode: null } : undefined;
       const empty: FinanceReconciliationRevenueResult = {
-        todayRevenue: 0,
-        weeklyRevenue: 0,
-        monthlyRevenue: 0,
-        allTimeRevenue: 0,
-        customRevenue: 0,
+        todayRevenue: null,
+        weeklyRevenue: null,
+        monthlyRevenue: null,
+        allTimeRevenue: null,
+        customRevenue: null,
         chartData: [],
         serviceAreaBreakdown: [],
-        dataSourceBadge: 'FALLBACK',
+        dataSourceBadge: 'UNAVAILABLE',
       };
 
       try {
@@ -125,17 +125,19 @@ export function useFinanceReconciliationRevenue({
       });
 
       const [todayNet, weeklyNet, monthlyNet, allTimeNet] = await Promise.all([
-        fetchOnecabNetCommissionPence(todayStart, todayEnd, saId),
-        fetchOnecabNetCommissionPence(weekStart, todayEnd, saId),
-        fetchOnecabNetCommissionPence(monthStart, todayEnd, saId),
-        fetchOnecabNetCommissionPence(epochStart, todayEnd, saId),
+        fetchOnecabNetCommissionPence(todayStart, todayEnd, filter),
+        fetchOnecabNetCommissionPence(weekStart, todayEnd, filter),
+        fetchOnecabNetCommissionPence(monthStart, todayEnd, filter),
+        fetchOnecabNetCommissionPence(epochStart, todayEnd, filter),
       ]);
 
-      let customRev = 0;
+      const ssotUnavailable = [todayNet, weeklyNet, monthlyNet, allTimeNet].some((v) => v === null);
+
+      let customRev: number | null = null;
       if (period === 'custom' && customFrom) {
         const cFrom = getLondonDayBounds(customFrom).start;
         const cTo = customTo ? getLondonDayBounds(customTo).end : todayEnd;
-        customRev = await fetchOnecabNetCommissionPence(cFrom, cTo, saId);
+        customRev = await fetchOnecabNetCommissionPence(cFrom, cTo, filter);
       }
 
       const auditRows = chartResponse.trip_financial_audit ?? [];
@@ -144,8 +146,12 @@ export function useFinanceReconciliationRevenue({
       const serviceAreaBreakdown: ServiceAreaRevenueBreakdown[] = [];
       if (!saId) {
         for (const sa of serviceAreas) {
-          const net = await fetchOnecabNetCommissionPence(chartFrom, chartTo, sa.id);
-          if (net > 0) {
+          const net = await fetchOnecabNetCommissionPence(chartFrom, chartTo, {
+            serviceAreaId: sa.id,
+            regionId: null,
+            currencyCode: null,
+          });
+          if (net != null && net > 0) {
             serviceAreaBreakdown.push({
               service_area_id: sa.id,
               name: sa.name,
@@ -165,7 +171,7 @@ export function useFinanceReconciliationRevenue({
         customRevenue: customRev,
         chartData,
         serviceAreaBreakdown,
-        dataSourceBadge: 'LIVE' as const,
+        dataSourceBadge: (ssotUnavailable ? 'UNAVAILABLE' : 'LIVE') as const,
       };
       } catch (error) {
         console.error('[useFinanceReconciliationRevenue]', error);
@@ -179,7 +185,7 @@ export function useFinanceReconciliationRevenue({
 }
 
 /** Dashboard badge when reconciliation revenue API fails */
-export function financeRevenueDataSourceBadge(isError: boolean): 'LIVE' | 'RECONSTRUCTED' {
-  return isError ? 'RECONSTRUCTED' : 'LIVE';
+export function financeRevenueDataSourceBadge(isError: boolean): 'LIVE' | 'UNAVAILABLE' {
+  return isError ? 'UNAVAILABLE' : 'LIVE';
 }
 

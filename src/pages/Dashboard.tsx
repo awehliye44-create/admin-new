@@ -9,13 +9,9 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { supabase } from '@/integrations/supabase/client';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
-import { useFinanceReconciliationRevenue, financeRevenueDataSourceBadge } from '@/hooks/useFinanceReconciliationRevenue';
-import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
-import { formatPence } from '@/hooks/useDriverWallet';
 import { 
   Car, 
   MapPin, 
-  CircleDollarSign,
   RefreshCw,
   Clock,
   ArrowRight,
@@ -31,8 +27,9 @@ import {
   BarChart3,
   MessageSquare,
   Shield,
-  TrendingUp
+  Calculator,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useSidebarCounts } from '@/hooks/useSidebarCounts';
 import { cn } from '@/lib/utils';
 import { useNavigate } from 'react-router-dom';
@@ -137,8 +134,8 @@ function QuickActionsPanel({ navigate }: { navigate: (path: string) => void }) {
       label: 'Finance & Payouts',
       description: counts.pendingDocuments > 0
         ? `${counts.pendingDocuments} driver document${counts.pendingDocuments !== 1 ? 's' : ''} pending review`
-        : 'Payout batches, ledger audit, and Connect balances',
-      path: '/payout-batches',
+        : 'Platform reconciliation, trips, and Stripe health',
+      path: '/financial-reconciliation',
       badge: counts.pendingDocuments,
     },
     {
@@ -290,14 +287,7 @@ export default function Dashboard() {
     return { startDate, endDate, previousStartDate, previousEndDate };
   }, [period, customDateFrom, customDateTo]);
 
-  // ─── ONECAB net commission — Financial Reconciliation SSOT only ───
-  const { data: revenueData, isLoading: revenueLoading, isError: revenueError } = useFinanceReconciliationRevenue({
-    period,
-    serviceAreaId: selectedServiceArea === 'all' ? null : selectedServiceArea,
-    customFrom: customDateFrom,
-    customTo: customDateTo,
-    serviceAreas,
-  });
+  // Platform financial KPIs — Financial Reconciliation → Overview only (no duplicate widgets here).
 
   // ─── MAIN DASHBOARD QUERY — operational stats only (no revenue) ───
   const { data: dashData, isLoading, refetch: fetchStats } = useQuery({
@@ -561,142 +551,21 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Context label */}
-      <div className="mb-4 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-        <span>
-          {selectedServiceArea === 'all'
-            ? 'ONECAB net commission by service area (Financial Reconciliation SSOT)'
-            : `ONECAB net commission for ${selectedArea?.name || 'selected service area'}`}
-        </span>
-        <FinanceSSOTBadge badge={financeRevenueDataSourceBadge(revenueError)} />
-      </div>
-
-      {/* ONECAB net commission — specific service area only (avoids mixed-currency aggregation) */}
-      {selectedServiceArea !== 'all' && (
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Today Net Commission (London)</CardTitle>
-            <CircleDollarSign className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {revenueLoading ? '...' : formatPence(revenueData?.todayRevenue || 0, activeCurrencyCode)}
-            </div>
-            <p className="text-xs text-muted-foreground">ONECAB net · London calendar day</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Weekly Net Commission</CardTitle>
-            <TrendingUp className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {revenueLoading ? '...' : formatPence(revenueData?.weeklyRevenue || 0, activeCurrencyCode)}
-            </div>
-            <p className="text-xs text-muted-foreground">This week (Mon–Sun)</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Monthly Net Commission</CardTitle>
-            <BarChart3 className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {revenueLoading ? '...' : formatPence(revenueData?.monthlyRevenue || 0, activeCurrencyCode)}
-            </div>
-            <p className="text-xs text-muted-foreground">This month to date</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              {period === 'custom' ? 'Custom Range' : 'All-Time Net Commission'}
-            </CardTitle>
-            <CalendarIcon className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {revenueLoading ? '...' : period === 'custom'
-                ? formatPence(revenueData?.customRevenue || 0, activeCurrencyCode)
-                : formatPence(revenueData?.allTimeRevenue || 0, activeCurrencyCode)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {period === 'custom' && customDateFrom
-                ? `${format(customDateFrom, 'MMM d')}${customDateTo ? ` – ${format(customDateTo, 'MMM d')}` : ' – now'}`
-                : 'Total ONECAB net (after Stripe fee)'}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-      )}
-
-      {/* Revenue Over Time Chart — only when a specific service area is selected */}
-      {selectedServiceArea !== 'all' && (revenueData?.chartData?.length || 0) > 0 && (
-        <Card className="mb-6">
-          <CardHeader className="flex flex-row items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-primary" />
-            <CardTitle>ONECAB Net Commission Over Time</CardTitle>
-            <span className="text-xs text-muted-foreground ml-auto flex items-center gap-1">
-              Financial Reconciliation SSOT <FinanceSSOTBadge badge={financeRevenueDataSourceBadge(revenueError)} />
-            </span>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[250px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={revenueData!.chartData.map(d => ({ ...d, revenue: d.revenue / 100 }))}>
-                  <XAxis dataKey="label" axisLine={false} tickLine={false} fontSize={12} />
-                  <YAxis axisLine={false} tickLine={false} fontSize={12} tickFormatter={(v) => `${currencySymbol}${v}`} />
-                  <Tooltip formatter={(value: number) => [`${currencySymbol}${value.toFixed(2)}`, 'Net commission']} />
-                  <Line type="monotone" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ONECAB net commission by service area — Financial Reconciliation SSOT */}
-      {selectedServiceArea === 'all' && (revenueData?.serviceAreaBreakdown?.length || 0) > 0 && (
-        <Card className="mb-6">
-          <CardHeader className="flex flex-row items-center gap-2">
-            <MapPin className="h-5 w-5 text-primary" />
-            <CardTitle>Net Commission by Service Area</CardTitle>
-            <span className="text-xs text-muted-foreground ml-auto flex items-center gap-1">
-              Financial Reconciliation SSOT <FinanceSSOTBadge badge={financeRevenueDataSourceBadge(revenueError)} />
-            </span>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {revenueData!.serviceAreaBreakdown.map((area) => {
-                const maxRevenue = revenueData!.serviceAreaBreakdown[0]?.revenue || 1;
-                const percentage = Math.round((area.revenue / maxRevenue) * 100);
-                return (
-                  <div key={area.service_area_id} className="space-y-1">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium">{area.name}</span>
-                      <span className="font-semibold text-foreground">
-                        {formatPence(area.revenue, area.currency_code)}
-                      </span>
-                    </div>
-                    <div className="h-2 rounded-full bg-muted overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-primary transition-all duration-500"
-                        style={{ width: `${percentage}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <Card className="mb-6 border-primary/30 bg-primary/5">
+        <CardHeader className="flex flex-row items-center gap-2 pb-2">
+          <Calculator className="h-5 w-5 text-primary" />
+          <CardTitle className="text-base">Platform Financial KPIs (SSOT)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground mb-4">
+            ONECAB commission, platform liability, captures, and reconciliation status live exclusively in
+            Financial Reconciliation → Overview. This dashboard shows operational stats only.
+          </p>
+          <Button asChild variant="default" size="sm">
+            <Link to="/financial-reconciliation?tab=overview">Open Financial Reconciliation → Overview</Link>
+          </Button>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-2 mb-6">
 

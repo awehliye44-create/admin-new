@@ -1,25 +1,42 @@
 import { Badge } from '@/components/ui/badge';
 import type { FinanceDataSourceBadge } from '@/hooks/useFinancialReconciliationSSOT';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Info } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 const BADGE_STYLES: Record<FinanceDataSourceBadge, string> = {
-  LIVE: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
-  SUMMARY: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
-  LEDGER: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
-  RECONSTRUCTED: 'bg-slate-500/15 text-slate-300 border-slate-500/30',
+  LIVE: 'bg-emerald-600/15 text-emerald-800 border-emerald-600/30',
+  DEGRADED_SNAPSHOT: 'bg-red-600/15 text-red-800 border-red-600/30',
+  UNAVAILABLE: 'bg-red-600/15 text-red-800 border-red-600/30',
 };
 
-const BADGE_HINTS: Record<FinanceDataSourceBadge, string> = {
-  LIVE: 'Financial Reconciliation Live — official SSOT calculations',
-  SUMMARY: 'Driver Financial Summary fallback',
-  LEDGER: 'ONECAB wallet ledger liability (excludes platform commission & cash trip earning)',
-  RECONSTRUCTED: 'Historical payout reconstruction',
+const BADGE_LABELS: Record<FinanceDataSourceBadge, string> = {
+  LIVE: 'LIVE',
+  DEGRADED_SNAPSHOT: 'DEGRADED_SNAPSHOT',
+  UNAVAILABLE: 'UNAVAILABLE',
 };
 
 export function FinanceSSOTBadge({ badge }: { badge: FinanceDataSourceBadge }) {
-  const safe = badge in BADGE_STYLES ? badge : 'RECONSTRUCTED';
   return (
-    <Badge variant="outline" className={BADGE_STYLES[safe]} title={BADGE_HINTS[safe]}>
-      {safe}
+    <Badge variant="outline" className={BADGE_STYLES[badge] ?? ''}>
+      {BADGE_LABELS[badge] ?? badge}
     </Badge>
+  );
+}
+
+/** Operational finance pages that are not SSOT — point admins to canonical pages. */
+export function FinanceSsotOperationalNotice() {
+  return (
+    <Alert>
+      <Info className="h-4 w-4" />
+      <AlertTitle>Finance SSOT</AlertTitle>
+      <AlertDescription>
+        Driver wallets, trip audit, platform KPIs, and reconciliation alerts live only in{' '}
+        <Link to="/driver-wallet-ledger" className="underline">Driver Wallet Ledger (SSOT)</Link>
+        {' '}and{' '}
+        <Link to="/financial-reconciliation" className="underline">Financial Reconciliation (SSOT)</Link>.
+        This page does not duplicate those calculations.
+      </AlertDescription>
+    </Alert>
   );
 }

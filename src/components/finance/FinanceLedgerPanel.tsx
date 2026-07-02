@@ -8,16 +8,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatPence } from '@/hooks/useDriverWallet';
 import { useFinanceLedgerTransactions } from '@/hooks/useFinanceLedgerTransactions';
+import { isAdminDebtRecoveryDebit } from '@/lib/adminFinanceLedgerDisplay';
 import {
-  ADMIN_FINANCE_FILTER_LABELS,
-  isAdminDebtRecoveryDebit,
-  type AdminFinanceLedgerFilter,
-} from '@/lib/adminFinanceLedgerDisplay';
+  DRIVER_WALLET_LEDGER_FILTER_LABELS,
+  type DriverWalletLedgerFilter,
+} from '@/lib/driverWalletLedgerFilters';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { RefreshCw, Search } from 'lucide-react';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 
-const FILTER_TABS = Object.entries(ADMIN_FINANCE_FILTER_LABELS) as [AdminFinanceLedgerFilter, string][];
+const DRIVER_FILTER_TABS = Object.entries(DRIVER_WALLET_LEDGER_FILTER_LABELS) as [DriverWalletLedgerFilter, string][];
 
 function partyBadgeClass(party: string): string {
   switch (party) {
@@ -38,17 +38,20 @@ export function FinanceLedgerPanel({
   serviceFilter,
   periodFrom,
   periodTo,
+  driverId,
 }: {
   serviceFilter: ServiceAreaFinanceSelection;
   periodFrom?: string;
   periodTo?: string;
+  driverId: string;
 }) {
-  const [filter, setFilter] = useState<AdminFinanceLedgerFilter>('all');
+  const [filter, setFilter] = useState<DriverWalletLedgerFilter>('driver_earnings');
   const [search, setSearch] = useState('');
 
   const { data: rows = [], isLoading, refetch, isFetching } = useFinanceLedgerTransactions({
     filter,
     regionId: serviceFilter.regionId,
+    driverId,
     limit: 300,
     from: periodFrom,
     to: periodTo,
@@ -61,7 +64,6 @@ export function FinanceLedgerPanel({
       const tripRef = row.trip_code ?? row.trip_id ?? '';
       return (
         row.type_label.toLowerCase().includes(q)
-        || row.driver_name?.toLowerCase().includes(q)
         || row.customer_name?.toLowerCase().includes(q)
         || tripRef.toLowerCase().includes(q)
         || row.type.toLowerCase().includes(q)
@@ -77,7 +79,7 @@ export function FinanceLedgerPanel({
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             className="pl-9"
-            placeholder="Search trip, driver, type, details…"
+            placeholder="Search trip, type, details…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -88,9 +90,9 @@ export function FinanceLedgerPanel({
         </Button>
       </div>
 
-      <Tabs value={filter} onValueChange={(v) => setFilter(v as AdminFinanceLedgerFilter)}>
+      <Tabs value={filter} onValueChange={(v) => setFilter(v as DriverWalletLedgerFilter)}>
         <TabsList className="flex flex-wrap h-auto gap-1">
-          {FILTER_TABS.map(([key, label]) => (
+          {DRIVER_FILTER_TABS.map(([key, label]) => (
             <TabsTrigger key={key} value={key} className="text-xs">
               {label}
             </TabsTrigger>
@@ -101,7 +103,7 @@ export function FinanceLedgerPanel({
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">
-            {ADMIN_FINANCE_FILTER_LABELS[filter]}
+            {DRIVER_WALLET_LEDGER_FILTER_LABELS[filter] ?? filter}
             {' '}
             <span className="text-muted-foreground font-normal">({filteredRows.length} rows)</span>
           </CardTitle>
@@ -123,7 +125,6 @@ export function FinanceLedgerPanel({
                     <TableHead>Date/time</TableHead>
                     <TableHead>Trip</TableHead>
                     <TableHead>Party</TableHead>
-                    <TableHead>Driver</TableHead>
                     <TableHead>Customer</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>Direction</TableHead>
@@ -138,7 +139,7 @@ export function FinanceLedgerPanel({
                 <TableBody>
                   {filteredRows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={13} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={12} className="text-center text-muted-foreground py-8">
                         No ledger rows found for this filter.
                       </TableCell>
                     </TableRow>
@@ -160,7 +161,6 @@ export function FinanceLedgerPanel({
                               {row.party}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-xs">{row.driver_name ?? '—'}</TableCell>
                           <TableCell className="text-xs">{row.customer_name ?? '—'}</TableCell>
                           <TableCell className="text-xs">
                             <span className={isRecoveryDebit ? 'text-red-400 font-medium' : undefined}>

@@ -10,7 +10,7 @@ import {
   sumStripePaidOutFromConnectPayouts,
   type DriverWalletPayoutSnapshot,
 } from "./driverWalletPayoutSSOT.ts";
-import { sumEligibleEarningPence, type EarningSettlementInput } from "./payoutEligibilitySSOT.ts";
+import { sumClearedSettlementBatchPence, type EarningSettlementInput } from "./payoutEligibilitySSOT.ts";
 import { readConnectPayoutSnapshot, listInFlightConnectPayouts } from "./connectPayoutLockdown.ts";
 
 const TERMINAL_FAILED = new Set(["failed", "ledger_sync_failed", "failed_duplicate"]);
@@ -28,6 +28,7 @@ export type DriverWalletPayoutDetail = DriverWalletPayoutSnapshot & {
   stripe_connect_payouts: Array<Record<string, unknown>>;
   settlements: Array<Record<string, unknown>>;
   ledger_rows: Array<Record<string, unknown>>;
+  transfer_ledger_rows: Array<Record<string, unknown>>;
   last_synced_at: string | null;
 };
 
@@ -51,6 +52,7 @@ export async function fetchDriverWalletPayoutSnapshot(
   const [
     fullLedgerRes,
     recentLedgerRes,
+    transferLedgerRes,
     settlementsRes,
     payoutItemsRes,
     stripePayoutsRes,
@@ -58,10 +60,15 @@ export async function fetchDriverWalletPayoutSnapshot(
   ] = await Promise.all([
     supabase.from("driver_wallet_ledger").select("type, amount_pence, stripe_payout_id")
       .eq("driver_id", args.driverId),
-    supabase.from("driver_wallet_ledger").select("id, type, amount_pence, trip_id, stripe_payout_id, balance_transaction_id, created_at")
+    supabase.from("driver_wallet_ledger").select("id, type, amount_pence, related_trip_id, stripe_payout_id, stripe_transfer_id, created_at")
       .eq("driver_id", args.driverId)
       .order("created_at", { ascending: false })
-      .limit(50),
+      .limit(100),
+    supabase.from("driver_wallet_ledger").select("id, type, amount_pence, related_trip_id, stripe_payout_id, stripe_transfer_id, created_at")
+      .eq("driver_id", args.driverId)
+      .not("stripe_transfer_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(100),
     supabase.from("driver_earning_settlement")
       .select("id, trip_id, settlement_status, settlement_lifecycle_status, allocated_to_payout, allocated_amount_pence, paid_in_payout_item_id, paid_in_batch_id, driver_wallet_ledger!inner(amount_pence)")
       .eq("driver_id", args.driverId),
@@ -83,6 +90,7 @@ export async function fetchDriverWalletPayoutSnapshot(
 
   const ledger = fullLedgerRes.data ?? [];
   const recentLedger = recentLedgerRes.data ?? [];
+  const transferLedger = transferLedgerRes.data ?? [];
   const walletBalance = computeLedgerWalletBalancePence(ledger);
   const recoveryDebt = computeCashCommissionOutstanding(ledger);
 
@@ -103,7 +111,7 @@ export async function fetchDriverWalletPayoutSnapshot(
       payment_method: "card",
     };
   });
-  const financeCleared = sumEligibleEarningPence(earningInputs);
+  const financeCleared = sumClearedSettlementBatchPence(earningInputs);
 
   const payoutItems = payoutItemsRes.data ?? [];
   const includedBatch = sumIncludedInPayoutBatchPence(payoutItems);
@@ -233,6 +241,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     stripe_connect_payouts: stripePayouts,
     settlements,
     ledger_rows: recentLedger,
+    transfer_ledger_rows: transferLedger,
     last_synced_at: syncedAt,
   };
 }

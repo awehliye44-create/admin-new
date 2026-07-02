@@ -29,6 +29,7 @@ export type DriverWalletSsotRow = {
   stripe_connect_payouts?: Array<Record<string, unknown>>;
   settlements?: Array<Record<string, unknown>>;
   ledger_rows?: Array<Record<string, unknown>>;
+  transfer_ledger_rows?: Array<Record<string, unknown>>;
 };
 
 export type DriverWalletSsotListResult = {
@@ -69,6 +70,42 @@ export function useDriverWalletSsot(args?: {
         offset: Number(data.offset ?? offset),
       };
     },
+    staleTime: 60_000,
+  });
+}
+
+async function fetchAllDriverWalletSsotPages(regionId: string | null): Promise<DriverWalletSsotRow[]> {
+  const pageSize = 50;
+  let offset = 0;
+  let total = Infinity;
+  const all: DriverWalletSsotRow[] = [];
+
+  while (offset < total) {
+    const { data, error } = await supabase.functions.invoke('admin-driver-wallet-ssot', {
+      body: {
+        ...(regionId ? { region_id: regionId } : {}),
+        limit: pageSize,
+        offset,
+      },
+    });
+    if (error) throw error;
+    if (!data?.success) throw new Error(data?.error ?? 'SSOT fetch failed');
+
+    const drivers = (data.drivers ?? []) as DriverWalletSsotRow[];
+    total = Number(data.total ?? drivers.length);
+    all.push(...drivers);
+    offset += pageSize;
+    if (drivers.length === 0) break;
+  }
+
+  return all;
+}
+
+/** Paginates through all driver-wallet SSOT rows for platform KPI aggregation. */
+export function useDriverWalletSsotAll(regionId?: string | null) {
+  return useQuery({
+    queryKey: ['driver-wallet-ssot-all', regionId ?? 'all'],
+    queryFn: () => fetchAllDriverWalletSsotPages(regionId ?? null),
     staleTime: 60_000,
   });
 }

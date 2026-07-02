@@ -58,6 +58,7 @@ import { getCurrencySymbol, getDistanceUnitShort, convertDistance } from '@/lib/
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
 import { filterAdminActiveTrips, formatAdminActiveTripTimerLabel } from '@/lib/adminActiveTripFilter';
+import { FinancialReconciliationTripLink } from '@/components/finance/FinancialReconciliationTripLink';
 
 interface Trip {
   id: string;
@@ -69,6 +70,12 @@ interface Trip {
   dropoff_address: string;
   estimated_fare: number;
   fare: number;
+  final_fare_pence?: number | null;
+  gross_fare_pence?: number | null;
+  offer_discount_pence?: number | null;
+  estimated_total_pence?: number | null;
+  capture_amount_pence?: number | null;
+  fare_snapshot_json?: Record<string, unknown> | null;
   currency_code: string;
   created_at: string;
   searching_expires_at: string | null;
@@ -266,7 +273,7 @@ export default function ActiveTrips() {
   const handleForceEnd = async () => {
     if (!selectedTrip) return;
 
-    const fareAmount = parseFloat(forceEndFare) || selectedTrip.estimated_fare || 0;
+    const fareAmount = parseFloat(forceEndFare) || resolvePayableFarePence(selectedTrip) / 100 || 0;
 
     setIsSaving(true);
     try {
@@ -309,7 +316,7 @@ export default function ActiveTrips() {
 
   const openForceEndDialog = (trip: Trip) => {
     setSelectedTrip(trip);
-    setForceEndFare(trip.estimated_fare?.toString() || '');
+    setForceEndFare((resolvePayableFarePence(trip) / 100).toString() || '');
     setIsForceEndOpen(true);
   };
 
@@ -527,7 +534,7 @@ export default function ActiveTrips() {
                       <TableCell>
                         <span className="font-medium">
                           {getCurrencySymbol(resolveTripCurrency(trip))}
-                          {(trip.fare || trip.estimated_fare || 0).toFixed(2)}
+                          {(resolvePayableFarePence(trip) / 100).toFixed(2)}
                         </span>
                       </TableCell>
                       <TableCell className="text-right">
@@ -705,8 +712,8 @@ export default function ActiveTrips() {
                 onChange={(e) => setForceEndFare(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                Estimated fare: {getCurrencySymbol(resolveTripCurrency(selectedTrip!))}
-                {selectedTrip?.estimated_fare?.toFixed(2) || '0.00'}
+                Payable fare: {getCurrencySymbol(resolveTripCurrency(selectedTrip!))}
+                {(resolvePayableFarePence(selectedTrip!) / 100).toFixed(2)}
               </p>
             </div>
           </div>
@@ -795,20 +802,21 @@ export default function ActiveTrips() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
-                <div className="p-3 bg-muted/50 rounded-lg text-center">
-                  <p className="text-xs text-muted-foreground">Est. Fare</p>
-                  <p className="font-medium">
-                    {getCurrencySymbol(resolveTripCurrency(selectedTrip))}
-                    {selectedTrip.estimated_fare?.toFixed(2) || '0.00'}
-                  </p>
-                </div>
-                <div className="p-3 bg-muted/50 rounded-lg text-center">
-                  <p className="text-xs text-muted-foreground">Final Fare</p>
-                  <p className="font-medium">
-                    {getCurrencySymbol(resolveTripCurrency(selectedTrip))}
-                    {selectedTrip.fare?.toFixed(2) || '—'}
-                  </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-3 bg-muted/50 rounded-lg text-center col-span-2">
+                  <p className="text-xs text-muted-foreground mb-2">Trip settlement &amp; fare (SSOT)</p>
+                  {['completed', 'no_show'].includes(selectedTrip.status ?? '') ? (
+                    <FinancialReconciliationTripLink
+                      tripId={selectedTrip.id}
+                      tripCode={selectedTrip.trip_code}
+                      tripNumber={selectedTrip.trip_number}
+                      variant="button"
+                    />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Live fare estimate only — final financial values appear in Financial Reconciliation → Trips after completion.
+                    </p>
+                  )}
                 </div>
                 <div className="p-3 bg-muted/50 rounded-lg text-center">
                   <p className="text-xs text-muted-foreground">Created</p>

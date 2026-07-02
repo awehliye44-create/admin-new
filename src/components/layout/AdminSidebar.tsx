@@ -326,20 +326,14 @@ export function AdminSidebar() {
             <P pageSlug="categories" to="/categories" icon={<Grid3X3 className="h-4 w-4" />} label="Support Categories" active={currentPath === '/categories'} collapsed={isCollapsed} />
           </Section>
 
-          {/* FINANCE & PAYOUTS */}
-          <Section label="Finance & Payouts" slugs={['payments','payout-batches','driver-wallet-ledger','disputes','invoices','invoice-templates','statement-runs']}>
-            <P pageSlug="payments" to="/payments" icon={<CreditCard className="h-4 w-4" />} label="Payments & Transactions" active={currentPath === '/payments'} collapsed={isCollapsed} />
-            <P pageSlug="payout-batches" to="/payout-batches" icon={<History className="h-4 w-4" />} label="Payouts & Ledger Audit" active={currentPath === '/payout-batches'} collapsed={isCollapsed} />
+          {/* PAYMENTS & TRANSACTIONS (SSOT) */}
+          <Section label="Payments & Transactions" slugs={['driver-wallet-ledger','financial-reconciliation']}>
             <P pageSlug="driver-wallet-ledger" to="/driver-wallet-ledger" icon={<Wallet className="h-4 w-4" />} label="Driver Wallet Ledger (SSOT)" active={currentPath === '/driver-wallet-ledger'} collapsed={isCollapsed} />
-            <P pageSlug="disputes" to="/disputes" icon={<Scale className="h-4 w-4" />} label="Disputes & Adjustments" active={currentPath === '/disputes'} collapsed={isCollapsed} />
-            <P pageSlug="invoices" to="/invoices" icon={<FileText className="h-4 w-4" />} label="Invoices" active={currentPath === '/invoices'} collapsed={isCollapsed} />
-            <P pageSlug="invoice-templates" to="/invoice-templates" icon={<FileEdit className="h-4 w-4" />} label="Invoice Templates" active={currentPath === '/invoice-templates'} collapsed={isCollapsed} />
-            <P pageSlug="statement-runs" to="/statement-runs" icon={<BarChart3 className="h-4 w-4" />} label="Statement Runs" active={currentPath === '/statement-runs'} collapsed={isCollapsed} />
+            <P pageSlug="financial-reconciliation" to="/financial-reconciliation" icon={<Calculator className="h-4 w-4" />} label="Financial Reconciliation (SSOT)" active={currentPath === '/financial-reconciliation'} collapsed={isCollapsed} />
           </Section>
 
           {/* REPORTS */}
-          <Section label="Reports" slugs={['financial-reconciliation','annual-taxi-report','onecab-revenue-profit']}>
-            <P pageSlug="financial-reconciliation" to="/financial-reconciliation" icon={<Calculator className="h-4 w-4" />} label="Financial Reconciliation (SSOT)" active={currentPath === '/financial-reconciliation'} collapsed={isCollapsed} />
+          <Section label="Reports" slugs={['annual-taxi-report','onecab-revenue-profit']}>
             <P pageSlug="annual-taxi-report" to="/annual-taxi-report" icon={<FileText className="h-4 w-4" />} label="Annual Taxi Report" active={currentPath === '/annual-taxi-report'} collapsed={isCollapsed} />
             <P pageSlug="onecab-revenue-profit" to="/onecab-revenue-profit" icon={<BarChart3 className="h-4 w-4" />} label="ONECAB Revenue & Profit" active={currentPath === '/onecab-revenue-profit'} collapsed={isCollapsed} />
           </Section>

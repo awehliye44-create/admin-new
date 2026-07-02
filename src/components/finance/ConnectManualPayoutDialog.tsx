@@ -95,14 +95,12 @@ export function ConnectManualPayoutDialog({
         <div className="space-y-3 text-sm">
           <Row label="Driver" value={`${driver.driver_name} (${driver.driver_code ?? driver.driver_id.slice(0, 8)})`} />
           <Row label="Connect Available" value={formatPence(driver.connect_available_pence, ccy)} />
-          <Row label="ONECAB Wallet Balance" value={formatPence(driver.wallet_balance_pence, ccy)} />
           <Row label="ONECAB Available Now" value={formatPence(driver.onecab_available_now_pence, ccy)} highlight />
           <Row label="Max allowed payout" value={formatPence(maxPence, ccy)} highlight />
 
           <Alert>
             <AlertDescription>
-              Payout = min(wallet, available now, connect available). Standard driver-app withdrawal
-              still uses finance SSOT only.
+              Payout = min(available now, connect available). Per-driver wallet balance lives on Driver Wallet Ledger → Overview.
             </AlertDescription>
           </Alert>
 

@@ -16,6 +16,7 @@ import {
   retryBlockedTooltip,
   type MondayPayoutDiagnosticsRow,
 } from "@/hooks/useMondayPayoutDiagnostics";
+import { DriverWalletLedgerLink } from "@/components/finance/DriverWalletLedgerLink";
 import { format, isValid, parseISO } from "date-fns";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 
@@ -50,12 +51,112 @@ function statusBadge(row: MondayPayoutDiagnosticsRow) {
   return <Badge variant="secondary">{formatPayoutDisplayStatus(row.payout_status)}</Badge>;
 }
 
+function PlatformReconciliationQueueTable({
+  rows,
+  onRetry,
+  retryingId,
+}: {
+  rows: MondayPayoutDiagnosticsRow[];
+  onRetry?: (row: MondayPayoutDiagnosticsRow) => void;
+  retryingId?: string | null;
+}) {
+  return (
+    <div className="rounded-md border overflow-x-auto">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Driver</TableHead>
+            <TableHead>Activity</TableHead>
+            <TableHead>Payout status</TableHead>
+            <TableHead>Reconciliation</TableHead>
+            <TableHead>Failure</TableHead>
+            {onRetry ? <TableHead /> : null}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow
+              key={row.payout_item_id}
+              className={
+                row.settlement_status === "PARTIAL_SETTLEMENT"
+                  ? "bg-amber-500/5"
+                  : row.payout_status === "failed"
+                  ? "bg-destructive/5"
+                  : undefined
+              }
+            >
+              <TableCell className="whitespace-nowrap">
+                <DriverWalletLedgerLink driverId={row.driver_id} tab="payouts">
+                  {row.driver_name ?? row.driver_id.slice(0, 8)}
+                </DriverWalletLedgerLink>
+                <div className="mt-1">
+                  <DriverWalletLedgerLink
+                    driverId={row.driver_id}
+                    className="text-xs text-muted-foreground hover:underline"
+                  />
+                </div>
+              </TableCell>
+              <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
+                {formatActivityAt(
+                  row.completed_at ?? row.failed_at ?? row.created_at,
+                  "d MMM yyyy HH:mm",
+                )}
+              </TableCell>
+              <TableCell>{statusBadge(row)}</TableCell>
+              <TableCell>
+                {row.reconciliation_status === "RECONCILIATION_MISMATCH" ? (
+                  <Badge variant="destructive" className="gap-1">
+                    <AlertTriangle className="h-3 w-3" />
+                    MISMATCH
+                  </Badge>
+                ) : row.settlement_status === "PARTIAL_SETTLEMENT" ? (
+                  <span className="text-xs text-amber-700" title={PARTIAL_SETTLEMENT_MESSAGE}>
+                    Partial
+                  </span>
+                ) : (
+                  <Badge variant="outline">Balanced</Badge>
+                )}
+              </TableCell>
+              <TableCell className="text-xs max-w-[220px]">
+                {row.failure_code && (
+                  <div className="font-mono text-destructive">{row.failure_code}</div>
+                )}
+                {row.failure_reason ?? "—"}
+              </TableCell>
+              {onRetry ? (
+                <TableCell>
+                  {canRetryMondayPayoutItem(row) ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={retryingId === row.payout_item_id}
+                      onClick={() => onRetry(row)}
+                    >
+                      <RefreshCw className={`h-3 w-3 mr-1 ${retryingId === row.payout_item_id ? "animate-spin" : ""}`} />
+                      Retry
+                    </Button>
+                  ) : retryBlockedTooltip(row) ? (
+                    <span className="text-xs text-destructive max-w-[140px] inline-block">
+                      {retryBlockedTooltip(row)}
+                    </span>
+                  ) : null}
+                </TableCell>
+              ) : null}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
 export function MondayPayoutDiagnosticsTable({
   rows,
   currencyCode,
   onRetry,
   retryingId,
   compact = false,
+  platformMode = false,
   emptyMessage = "No Monday payout records for this period.",
 }: {
   rows: MondayPayoutDiagnosticsRow[];
@@ -63,11 +164,22 @@ export function MondayPayoutDiagnosticsTable({
   onRetry?: (row: MondayPayoutDiagnosticsRow) => void;
   retryingId?: string | null;
   compact?: boolean;
+  platformMode?: boolean;
   emptyMessage?: string;
 }) {
   if (rows.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-6 text-center">{emptyMessage}</p>
+    );
+  }
+
+  if (platformMode) {
+    return (
+      <PlatformReconciliationQueueTable
+        rows={rows}
+        onRetry={onRetry}
+        retryingId={retryingId}
+      />
     );
   }
 
@@ -77,7 +189,6 @@ export function MondayPayoutDiagnosticsTable({
         <TableHeader>
           <TableRow>
             <TableHead>Driver</TableHead>
-            {!compact && <TableHead>Wallet</TableHead>}
             {!compact && <TableHead>Paid / activity</TableHead>}
             {!compact && <TableHead>Gross payable</TableHead>}
             <TableHead>Cash commission recovered</TableHead>
@@ -108,28 +219,10 @@ export function MondayPayoutDiagnosticsTable({
               }
             >
               <TableCell className="font-medium whitespace-nowrap">
-                {row.driver_name ?? row.driver_id.slice(0, 8)}
+                <DriverWalletLedgerLink driverId={row.driver_id} tab="payouts">
+                  {row.driver_name ?? row.driver_id.slice(0, 8)}
+                </DriverWalletLedgerLink>
               </TableCell>
-              {!compact && (
-                <TableCell className="text-xs">
-                  {row.driver_wallet_balance_pence != null ? (
-                    <span
-                      className={
-                        row.driver_wallet_balance_pence < 0
-                          ? "text-destructive font-semibold"
-                          : "text-foreground"
-                      }
-                    >
-                      {formatPence(row.driver_wallet_balance_pence, currencyCode)}
-                      {row.driver_debt_pence != null && row.driver_debt_pence > 0 && (
-                        <span className="block text-destructive">In debt</span>
-                      )}
-                    </span>
-                  ) : (
-                    "—"
-                  )}
-                </TableCell>
-              )}
               {!compact && (
                 <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
                   {formatActivityAt(
@@ -149,12 +242,9 @@ export function MondayPayoutDiagnosticsTable({
               <TableCell className="text-xs max-w-[180px]">
                 <div>{row.payout_evidence_label ?? "—"}</div>
                 {row.payout_evidence_type === "local_only" && (
-                  <div className="text-muted-foreground mt-1">
-                    Wallet owed:{" "}
-                    {row.driver_wallet_balance_pence != null
-                      ? formatPence(row.driver_wallet_balance_pence, currencyCode)
-                      : "—"}
-                  </div>
+                  <DriverWalletLedgerLink driverId={row.driver_id} tab="overview" className="text-xs underline mt-1">
+                    Wallet (SSOT)
+                  </DriverWalletLedgerLink>
                 )}
               </TableCell>
               <TableCell>

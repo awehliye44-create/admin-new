@@ -719,24 +719,25 @@ export default function AutoDispatchRules() {
               </div>
             </div>
 
-            {/* Completed Trip Summary preview */}
+            {/* Completed Trip Summary preview — illustrative UI only; live values from SSOT at trip completion */}
             <div className="space-y-3">
-              <Label className="text-sm font-semibold">Completed Trip Summary — Driver App Preview</Label>
+              <Label className="text-sm font-semibold">Completed Trip Summary — Driver App Preview (mock)</Label>
+              <p className="text-xs text-muted-foreground">
+                Commission and net earnings are calculated by the SSOT backend at trip completion — not shown here.
+                Admin truth: Financial Reconciliation → Trips.
+              </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="rounded-lg border bg-muted/30 p-4 space-y-1 text-sm">
-                  <p className="font-semibold mb-2">Cash Trip</p>
+                  <p className="font-semibold mb-2">Cash Trip (mock layout)</p>
                   <div className="flex justify-between"><span className="text-muted-foreground">Payment Method</span><span>Cash</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Fare Collected</span><span>£70.00</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">ONECAB Commission</span><span>£10.50</span></div>
-                  <div className="flex justify-between font-semibold pt-1 border-t mt-1"><span>Your Net Earnings</span><span>£59.50</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Fare collected</span><span>At trip completion</span></div>
+                  <div className="flex justify-between font-semibold pt-1 border-t mt-1"><span>Driver earnings</span><span>See SSOT</span></div>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-4 space-y-1 text-sm">
-                  <p className="font-semibold mb-2">Digital Trip</p>
+                  <p className="font-semibold mb-2">Digital Trip (mock layout)</p>
                   <div className="flex justify-between"><span className="text-muted-foreground">Payment Method</span><span>Card</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Customer Paid</span><span>Digitally</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">ONECAB Commission</span><span>£10.50</span></div>
-                  <div className="flex justify-between font-semibold pt-1 border-t mt-1"><span>Your Net Earnings</span><span>£59.50</span></div>
-                  <p className="text-xs text-muted-foreground pt-1">Paid to wallet / payout</p>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Settlement</span><span>Stripe SSOT pipeline</span></div>
+                  <div className="flex justify-between font-semibold pt-1 border-t mt-1"><span>Driver earnings</span><span>See SSOT</span></div>
                 </div>
               </div>
             </div>

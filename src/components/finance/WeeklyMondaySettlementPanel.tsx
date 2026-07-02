@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { supabase } from '@/integrations/supabase/client';
 import { formatPence } from '@/hooks/useDriverWallet';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
+import { DriverWalletLedgerLink } from '@/components/finance/DriverWalletLedgerLink';
 import { toast } from 'sonner';
 
 type SettlementDriverResult = {
@@ -39,9 +40,11 @@ type SettlementResponse = {
 export function WeeklyMondaySettlementPanel({
   filter,
   currencyCode,
+  readOnly = false,
 }: {
   filter: ServiceAreaFinanceSelection;
   currencyCode: string;
+  readOnly?: boolean;
 }) {
   const [lastResult, setLastResult] = useState<SettlementResponse | null>(null);
 
@@ -89,7 +92,7 @@ export function WeeklyMondaySettlementPanel({
           <Button
             variant="outline"
             size="sm"
-            disabled={runSettlement.isPending}
+            disabled={readOnly || runSettlement.isPending}
             onClick={() => runSettlement.mutate(true)}
           >
             {runSettlement.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4 mr-1" />}
@@ -97,7 +100,7 @@ export function WeeklyMondaySettlementPanel({
           </Button>
           <Button
             size="sm"
-            disabled={runSettlement.isPending}
+            disabled={readOnly || runSettlement.isPending}
             onClick={() => runSettlement.mutate(false)}
           >
             Create Weekly Batch
@@ -131,12 +134,17 @@ export function WeeklyMondaySettlementPanel({
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Ready amount</TableHead>
                 <TableHead>Blocks / Warnings</TableHead>
+                <TableHead />
               </TableRow>
             </TableHeader>
             <TableBody>
               {results.map((row) => (
                 <TableRow key={row.driver_id}>
-                  <TableCell className="font-mono text-xs">{row.driver_id.slice(0, 8)}…</TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    <DriverWalletLedgerLink driverId={row.driver_id} tab="payouts">
+                      {row.driver_name ?? `${row.driver_id.slice(0, 8)}…`}
+                    </DriverWalletLedgerLink>
+                  </TableCell>
                   <TableCell>
                     <Badge variant={row.status === 'READY' ? 'default' : row.status === 'BLOCKED' ? 'destructive' : 'secondary'}>
                       {row.status}
@@ -155,6 +163,9 @@ export function WeeklyMondaySettlementPanel({
                       </p>
                     ))}
                     {row.failure_reason && <p className="text-muted-foreground">{row.failure_reason}</p>}
+                  </TableCell>
+                  <TableCell>
+                    <DriverWalletLedgerLink driverId={row.driver_id} tab="payouts" className="text-xs" />
                   </TableCell>
                 </TableRow>
               ))}

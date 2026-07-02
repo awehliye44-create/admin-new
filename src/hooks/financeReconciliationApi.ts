@@ -1,5 +1,9 @@
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
-import type { FinanceReconciliationResponse } from '@/hooks/useFinanceReconciliation';
+import type {
+  DriverStatementPeriodTotal,
+  FinanceReconciliationResponse,
+} from '@/hooks/useFinanceReconciliation';
+import { supabase } from '@/integrations/supabase/client';
 import { fetchEdgeFunctionGet } from '@/lib/fetchEdgeFunctionGet';
 
 /** Build query params for admin-finance-reconciliation (Financial Reconciliation SSOT). */
@@ -43,20 +47,73 @@ export async function invokeFinanceReconciliation(
   );
 }
 
-/** Read ONECAB net commission for a period — never compute locally. */
+/** Read ONECAB net commission for a period — never compute locally. Returns null when SSOT field missing. */
 export async function fetchOnecabNetCommissionPence(
   from: Date,
   to: Date,
-  serviceAreaId: string | null,
-): Promise<number> {
-  try {
-    const filter = serviceAreaId ? { serviceAreaId, regionId: null, currencyCode: null } : undefined;
-    const data = await invokeFinanceReconciliation(filter, from.toISOString(), to.toISOString(), {
-      summary_only: '1',
-    });
-    return data.finance_reconciliation_summary?.onecab_money?.onecab_net_commission_pence ?? 0;
-  } catch (error) {
-    console.warn('[fetchOnecabNetCommissionPence]', error);
-    return 0;
-  }
+  filter?: ServiceAreaFinanceSelection,
+): Promise<number | null> {
+  const data = await invokeFinanceReconciliation(filter, from.toISOString(), to.toISOString(), {
+    summary_only: '1',
+  });
+  const net = data.finance_reconciliation_summary?.onecab_money?.onecab_net_commission_pence;
+  return net == null ? null : net;
+}
+
+/** Per-driver statement totals for a period — SSOT backend aggregation only. */
+export async function fetchDriverStatementPeriodTotals(
+  filter: ServiceAreaFinanceSelection,
+  from: string,
+  to: string,
+  driverIds: string[],
+): Promise<DriverStatementPeriodTotal[]> {
+  if (driverIds.length === 0) return [];
+  const data = await invokeFinanceReconciliation(filter, from, to, {
+    statement_totals: '1',
+    driver_ids: driverIds.join(','),
+    audit_limit: '10000',
+  });
+  return data.driver_statement_totals ?? [];
+}
+
+export type TripCaptureSsotRow = {
+  trip_id: string;
+  settlement_total_pence: number;
+  capture_mismatch: boolean;
+  captured_pence: number;
+  ledger_trip_earning_net_pence: number | null;
+};
+
+/** Batch trip capture/settlement fields — SSOT via admin-get-trips-capture-ssot. */
+export async function fetchTripsCaptureSsot(tripIds: string[]): Promise<TripCaptureSsotRow[]> {
+  if (tripIds.length === 0) return [];
+  const { data, error } = await supabase.functions.invoke('admin-get-trips-capture-ssot', {
+    body: { trip_ids: tripIds },
+  });
+  if (error) throw error;
+  if (!data?.success) throw new Error(data?.error ?? 'Capture SSOT fetch failed');
+  return (data.trips ?? []) as TripCaptureSsotRow[];
+}
+
+export type OnecabProfitSsot = {
+  platform_net_revenue_pence: number | null;
+  expenses_pence: number;
+  profit_before_tax_pence: number | null;
+};
+
+/** Platform profit before tax — backend SSOT (net revenue − expenses). */
+export async function fetchOnecabProfitSsot(
+  from: Date,
+  to: Date,
+  filter?: ServiceAreaFinanceSelection,
+): Promise<OnecabProfitSsot> {
+  const data = await invokeFinanceReconciliation(filter, from.toISOString(), to.toISOString(), {
+    profit_ssot: '1',
+    summary_only: '1',
+  }) as FinanceReconciliationResponse & { profit_ssot?: OnecabProfitSsot };
+  return data.profit_ssot ?? {
+    platform_net_revenue_pence: null,
+    expenses_pence: 0,
+    profit_before_tax_pence: null,
+  };
 }

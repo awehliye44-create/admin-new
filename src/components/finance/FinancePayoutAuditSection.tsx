@@ -1,15 +1,12 @@
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertTriangle } from 'lucide-react';
-import { formatPence } from '@/hooks/useDriverWallet';
 import {
   MondayPayoutTodayCards,
   PartialSettlementAlert,
 } from '@/components/finance/MondayPayoutTodayCards';
 import { MondayPayoutDiagnosticsTable } from '@/components/finance/MondayPayoutDiagnosticsTable';
-import { StripeConnectPayoutHistoryTable } from '@/components/finance/StripeConnectPayoutHistoryTable';
 import type { MondayPayoutDiagnosticsRow } from '@/hooks/useMondayPayoutDiagnostics';
 import type { MondayPayoutQuery } from '@/lib/financePageSSOT';
 import {
@@ -26,6 +23,7 @@ export function FinancePayoutAuditSection({
   showFailedSection = true,
   compact,
   periodLabel,
+  platformMode = false,
 }: {
   mondayPayouts: MondayPayoutQuery & {
     isError?: boolean;
@@ -39,6 +37,8 @@ export function FinancePayoutAuditSection({
   showFailedSection?: boolean;
   compact?: boolean;
   periodLabel?: string;
+  /** Platform reconciliation queue — links drivers to wallet ledger, no per-driver bank payout history. */
+  platformMode?: boolean;
 }) {
   const data = mondayPayouts.data;
 
@@ -92,9 +92,9 @@ export function FinancePayoutAuditSection({
       {showFailedSection && (data?.failed_payouts?.length ?? 0) > 0 && (
         <Card className="border-destructive/40">
           <CardHeader>
-            <CardTitle className="text-base text-destructive">Failed Payouts — must not be hidden</CardTitle>
+            <CardTitle className="text-base text-destructive">Failed payouts — reconciliation queue</CardTitle>
             <p className="text-sm text-muted-foreground">
-              Local failed items without Stripe transfer/payout are not bank-paid. Wallet owed is separate from payout attempt.
+              Platform retry only. Per-driver payout amounts and wallet detail are on Driver Wallet Ledger.
             </p>
           </CardHeader>
           <CardContent>
@@ -103,6 +103,7 @@ export function FinancePayoutAuditSection({
               currencyCode={currencyCode}
               onRetry={onRetry}
               retryingId={retryingId}
+              platformMode={platformMode}
             />
           </CardContent>
         </Card>
@@ -110,30 +111,11 @@ export function FinancePayoutAuditSection({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Stripe Connect bank payouts (physical)</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Historical payouts from each driver&apos;s Express account — includes last Monday bank sweeps.
-            Synced from Stripe on load; not ONECAB local payout items.
-            {typeof data?.platform_available_pence === 'number' && (
-              <>
-                {' '}
-                Platform available: {formatPence(data.platform_available_pence, currencyCode)}
-              </>
-            )}
-          </p>
-        </CardHeader>
-        <CardContent>
-          <StripeConnectPayoutHistoryTable
-            rows={data?.stripe_connect_payouts ?? []}
-            currencyCode={currencyCode}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <CardTitle className="text-base">{PAYOUT_AUDIT_TABLE_TITLE}</CardTitle>
-          <p className="text-sm text-muted-foreground">{PAYOUT_AUDIT_TABLE_DESCRIPTION}</p>
+          <p className="text-sm text-muted-foreground">
+            {PAYOUT_AUDIT_TABLE_DESCRIPTION}
+            {platformMode ? ' Open Driver Wallet Ledger for per-driver Stripe and bank payout detail.' : ''}
+          </p>
         </CardHeader>
         <CardContent>
           <MondayPayoutDiagnosticsTable
@@ -142,6 +124,7 @@ export function FinancePayoutAuditSection({
             onRetry={onRetry}
             retryingId={retryingId}
             compact={compact}
+            platformMode={platformMode}
             emptyMessage={PAYOUT_AUDIT_EMPTY_MESSAGE}
           />
         </CardContent>

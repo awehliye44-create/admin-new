@@ -43,25 +43,20 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
 import { getCurrencySymbol, formatDistance as formatDistanceUtil, getDistanceUnitShort } from '@/lib/regionSettings';
-import { FinanceRecoveryPanel } from '@/components/payment/FinanceRecoveryPanel';
 import { TripInvoiceCard, TripInvoiceStatusBadge } from '@/components/trips/TripInvoiceCard';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import {
   captureStatusColorClass,
-  getCapturedTotalPence,
   getTripCaptureStatus,
-  getTripDriverNetPence,
-  getTripSettlementBreakdown,
-  getTripSettlementFarePence,
-  getTripTipPence,
   isCardTrip,
   summarizeTripPayments,
 } from '@/lib/tripCaptureStatus';
-import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
+import { FinancialReconciliationTripLink } from '@/components/finance/FinancialReconciliationTripLink';
 import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { mapboxgl } from '@/lib/mapbox';
 import { createMapboxMap } from '@/lib/mapboxMap';
 import { fetchTripHistoryRows } from '@/lib/tripHistoryQuery';
+import { fetchTripsCaptureSsot } from '@/hooks/financeReconciliationApi';
 
 function getTripMapCenter(trip: CompletedTrip): [number, number] {
   const lng = trip.pickup_longitude ?? trip.dropoff_longitude ?? -0.7594;
@@ -192,8 +187,6 @@ interface CompletedTrip {
   // Joined from payments table — settlement source of truth
   payment_captured_pence?: number | null;
   payment_authorized_pence?: number | null;
-  payment_commission_pence?: number | null;
-  payment_commission_pct?: number | null;
   payment_tip_pence?: number | null;
   payment_count?: number;
   has_shortfall_payment_intent?: boolean;
@@ -322,8 +315,6 @@ export default function TripHistory() {
       let paymentsMap: Record<string, {
         captured: number;
         authorized: number | null;
-        commission: number | null;
-        commission_pct: number | null;
         tip: number | null;
         count: number;
         hasShortfallPi: boolean;
@@ -333,7 +324,7 @@ export default function TripHistory() {
       if (tripIds.length > 0) {
         const { data: paymentsData } = await supabase
           .from('payments')
-          .select('trip_id, amount_pence, captured_amount_pence, commission_amount_pence, commission_pct, status, fee_type, updated_at, metadata')
+          .select('trip_id, amount_pence, captured_amount_pence, status, fee_type, updated_at, metadata')
           .in('trip_id', tripIds)
           .order('updated_at', { ascending: false });
         if (paymentsData) {
@@ -345,8 +336,6 @@ export default function TripHistory() {
               paymentsMap[p.trip_id] = {
                 captured: rowCaptured,
                 authorized: p.amount_pence ?? null,
-                commission: p.commission_amount_pence ?? null,
-                commission_pct: p.commission_pct ?? null,
                 tip: summary.tipFromMeta,
                 count: 1,
                 hasShortfallPi: summary.hasShortfallPaymentIntent,
@@ -367,52 +356,24 @@ export default function TripHistory() {
         }
       }
 
-      let financeMap: Record<string, number> = {};
-      let ledgerNetMap: Record<string, number> = {};
-      if (tripIds.length > 0) {
-        const [{ data: financeData }, { data: ledgerData }] = await Promise.all([
-          supabase
-            .from('trip_finance')
-            .select('trip_id, final_trip_total_pence')
-            .in('trip_id', tripIds),
-          supabase
-            .from('driver_wallet_ledger')
-            .select('related_trip_id, amount_pence')
-            .in('related_trip_id', tripIds)
-            .eq('type', 'TRIP_EARNING_NET'),
-        ]);
-        if (financeData) {
-          for (const row of financeData as { trip_id: string; final_trip_total_pence: number }[]) {
-            if (row.final_trip_total_pence > 0) {
-              financeMap[row.trip_id] = row.final_trip_total_pence;
-            }
-          }
-        }
-        if (ledgerData) {
-          for (const row of ledgerData as { related_trip_id: string | null; amount_pence: number }[]) {
-            if (row.related_trip_id && row.amount_pence >= 0) {
-              ledgerNetMap[row.related_trip_id] = row.amount_pence;
-            }
-          }
-        }
-      }
+      const captureSsotRows = tripIds.length > 0 ? await fetchTripsCaptureSsot(tripIds) : [];
+      const captureByTrip = new Map(captureSsotRows.map((r) => [r.trip_id, r]));
 
       return tripsData.map((trip) => {
         const pay = paymentsMap[trip.id];
+        const capture = captureByTrip.get(trip.id);
         return {
           ...trip,
           trip_stops: stopsMap[trip.id] || [],
           payment_captured_pence: pay && pay.captured > 0 ? pay.captured : null,
           payment_authorized_pence: pay?.authorized ?? null,
-          payment_commission_pence: pay?.commission ?? null,
-          payment_commission_pct: pay?.commission_pct ?? null,
           payment_tip_pence: pay?.tip ?? null,
           payment_count: pay?.count ?? 0,
           has_shortfall_payment_intent: pay?.hasShortfallPi ?? false,
           payment_lifecycle_fees_pence: pay?.lifecycleFees ?? 0,
           payment_metadata_lifecycle_fees_pence: pay?.metadataLifecycleFees ?? 0,
-          settlement_total_pence: financeMap[trip.id] ?? null,
-          ledger_trip_earning_net_pence: ledgerNetMap[trip.id] ?? null,
+          settlement_total_pence: capture?.settlement_total_pence ?? null,
+          ledger_trip_earning_net_pence: capture?.ledger_trip_earning_net_pence ?? null,
           invoice_no: (trip.invoice_no as string | null | undefined) ?? null,
           invoice_pdf_url: (trip.invoice_pdf_url as string | null | undefined) ?? null,
           invoice_generated_at: (trip.invoice_generated_at as string | null | undefined) ?? null,
@@ -850,33 +811,6 @@ export default function TripHistory() {
     return Array.from(map.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   }, [trips]);
 
-  // Settlement fare (customer paid) — SSOT via getTripSettlementFarePence
-  const getTripFarePounds = (trip: CompletedTrip): number => getTripSettlementFarePence(trip) / 100;
-
-  const getEffectiveCommissionPence = (trip: CompletedTrip): number | null => {
-    if (trip.payment_commission_pence != null) return trip.payment_commission_pence;
-    return trip.commission_pence ?? null;
-  };
-
-  const getEffectiveDriverNetPence = (trip: CompletedTrip): number | null => getTripDriverNetPence(trip);
-
-  const getEffectiveTipPence = (trip: CompletedTrip): number => {
-    const tip = getTripTipPence(trip);
-    if (tip <= 0) return 0;
-    if (isCardTrip(trip)) {
-      const captured = getCapturedTotalPence(trip);
-      const settlement = getTripSettlementFarePence(trip);
-      if (captured != null && captured > 0 && settlement >= captured) return 0;
-    }
-    return tip;
-  };
-
-  // Customer total for revenue stat — same settlement fare as list row
-  const getTripCustomerTotalPence = (trip: CompletedTrip): number => getTripSettlementFarePence(trip);
-
-  // Stats based on filtered trips
-  const totalRevenue = filteredTrips.reduce((sum, t) => sum + getTripSettlementFarePence(t) / 100, 0);
-  const avgFare = filteredTrips.length > 0 ? totalRevenue / filteredTrips.length : 0;
   const multiStopTrips = filteredTrips.filter(t => isMultiStopTrip(t)).length;
 
 
@@ -906,21 +840,16 @@ export default function TripHistory() {
         </Card>
         <Card className="border-green-500/30 bg-green-500/5">
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm text-muted-foreground">Total Revenue</p>
-                {isMixedCurrency ? (
-                  <CurrencyGroupedStats
-                    items={filteredTrips.map(t => ({ currency_code: resolveTripCurrency(t) || '???', amount: getTripCustomerTotalPence(t) }))}
-                    className="text-lg font-bold text-green-600"
-                  />
-                ) : (
-                  <p className="text-2xl font-bold text-green-600">
-                    {statsSymbol}{totalRevenue.toFixed(2)}
-                  </p>
-                )}
+                <p className="text-sm text-muted-foreground">Trip finance (SSOT)</p>
+                <p className="text-sm font-medium mt-1">
+                  Fare, commission, and settlement values live in Financial Reconciliation → Trips.
+                </p>
               </div>
-              <DollarSign className="h-8 w-8 text-green-500" />
+              <Button asChild variant="outline" size="sm">
+                <a href="/financial-reconciliation?tab=trips">Open FR → Trips</a>
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -928,8 +857,8 @@ export default function TripHistory() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Average Fare</p>
-                <p className="text-2xl font-bold">{statsSymbol}{avgFare.toFixed(2)}</p>
+                <p className="text-sm text-muted-foreground">Card trips</p>
+                <p className="text-2xl font-bold">{filteredTrips.filter((t) => (t.payment_method ?? '').toLowerCase() !== 'cash').length}</p>
               </div>
               <Route className="h-8 w-8 text-muted-foreground opacity-80" />
             </div>
@@ -1079,7 +1008,7 @@ export default function TripHistory() {
                   <TableHead>Driver</TableHead>
                   <TableHead>Stops</TableHead>
                   <TableHead>Distance</TableHead>
-                  <TableHead>Customer Paid</TableHead>
+                  <TableHead>Financial Reconciliation</TableHead>
                   <TableHead>Payment</TableHead>
                   <TableHead>Invoice</TableHead>
                   <TableHead>Completed</TableHead>
@@ -1166,20 +1095,11 @@ export default function TripHistory() {
                       {formatTripDistance(getTripDistance(trip), trip)}
                     </TableCell>
                      <TableCell>
-                      <div className="font-medium text-green-600">
-                        {getCurrencySymbol(resolveTripCurrency(trip))}
-                        {getTripFarePounds(trip).toFixed(2)}
-                      </div>
-                      {getTripDriverNetPence(trip) != null && (
-                        <div className="text-[10px] text-muted-foreground mt-0.5">
-                          Net: {getCurrencySymbol(resolveTripCurrency(trip))}{((getTripDriverNetPence(trip) || 0) / 100).toFixed(2)}
-                        </div>
-                      )}
-                      {getEffectiveTipPence(trip) > 0 && (
-                        <div className="text-[10px] text-emerald-600 mt-0.5">
-                          Tip: {getCurrencySymbol(resolveTripCurrency(trip))}{(getEffectiveTipPence(trip) / 100).toFixed(2)}
-                        </div>
-                      )}
+                      <FinancialReconciliationTripLink
+                        tripId={trip.id}
+                        tripCode={trip.trip_code}
+                        tripNumber={trip.trip_number}
+                      />
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-0.5">
@@ -1541,12 +1461,10 @@ export default function TripHistory() {
                     </div>
                   </div>
 
-                  {/* Card capture confirmation — fare + tip vs sum of payment intents */}
+                  {/* Card capture status — amounts in Financial Reconciliation → Trips only */}
                   {(() => {
                     const captureStatus = getTripCaptureStatus(selectedTrip);
                     if (!isCardTrip(selectedTrip)) return null;
-                    const cs = getCurrencySymbol(resolveTripCurrency(selectedTrip));
-                    const fmtP = (p: number) => `${cs}${(p / 100).toFixed(2)}`;
                     const isOk = captureStatus.kind === 'captured' || captureStatus.kind === 'captured_split';
                     const isMismatch = captureStatus.kind === 'capture_mismatch';
                     if (!isOk && !isMismatch) return null;
@@ -1561,253 +1479,61 @@ export default function TripHistory() {
                       >
                         {isMismatch ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
                         <AlertTitle>{captureStatus.label}</AlertTitle>
-                        <AlertDescription className="text-xs space-y-1 mt-1">
-                          <div>Settlement total (fare + tip + fees): <span className="font-medium">{fmtP(captureStatus.expectedTotalPence ?? 0)}</span></div>
-                          <div>Captured (Stripe{captureStatus.paymentCount > 1 ? `, ${captureStatus.paymentCount} PIs` : ''}): <span className="font-medium">{fmtP(captureStatus.capturedTotalPence ?? 0)}</span></div>
-                          {isMismatch && captureStatus.diffPence != null && (
-                            <div>Difference: <span className="font-medium">{captureStatus.diffPence > 0 ? '+' : ''}{fmtP(captureStatus.diffPence)}</span></div>
-                          )}
-                          {isMismatch && (
-                            <div className="pt-1 text-amber-800 dark:text-amber-200">
-                              Stripe captured less than the settlement total. Compare payments rows against final_fare_pence (includes waiting) plus tip and any lifecycle fees.
-                            </div>
-                          )}
-                          {isOk && captureStatus.kind === 'captured_split' && (
-                            <div className="pt-1 text-green-800 dark:text-green-200">
-                              Split capture: primary PI plus a shortfall PI (auth cap) were charged separately; combined total matches settlement fare + tip.
-                            </div>
-                          )}
-                          {isOk && captureStatus.tooltip && (
-                            <div className="pt-1 text-green-800 dark:text-green-200">{captureStatus.tooltip}</div>
-                          )}
+                        <AlertDescription className="text-xs space-y-2 mt-1">
+                          <p>
+                            {isMismatch
+                              ? 'Capture mismatch detected. Settlement and captured amounts are in Financial Reconciliation → Trips.'
+                              : (captureStatus.tooltip ?? captureStatus.shortLabel)}
+                          </p>
+                          <FinancialReconciliationTripLink
+                            tripId={selectedTrip.id}
+                            tripCode={selectedTrip.trip_code}
+                            tripNumber={selectedTrip.trip_number}
+                            variant="button"
+                          />
                         </AlertDescription>
                       </Alert>
                     );
                   })()}
 
-                  {/* Fare Breakdown */}
+                  {/* Trip finance — Financial Reconciliation SSOT only */}
                   <div className="space-y-2">
                     <h4 className="text-sm font-semibold flex items-center gap-2">
                       <DollarSign className="h-4 w-4" />
-                      Fare Breakdown
+                      Trip Finance (SSOT)
                     </h4>
-                    {(() => {
-                      const cs = getCurrencySymbol(resolveTripCurrency(selectedTrip));
-                      const fmt = (pence: number) => `${cs}${(pence / 100).toFixed(2)}`;
-                      const settlement = getTripSettlementBreakdown(selectedTrip);
-                      const fb = selectedTrip.fare_breakdown as Record<string, number> | null;
-                      const distanceCharge = fb?.distance_charge_pence ?? null;
-                      const timeCharge = fb?.time_charge_pence ?? null;
-                      const bookingFee = fb?.booking_fee_pence ?? null;
-
-                      return (
-                        <div className="bg-muted/50 rounded-lg p-4 space-y-2">
-                          {settlement.baseFarePence > 0 && (
-                            <div className="flex justify-between text-sm">
-                              <span className="text-muted-foreground">Base Fare</span>
-                              <span>{fmt(settlement.baseFarePence)}</span>
-                            </div>
-                          )}
-                          {distanceCharge != null && distanceCharge > 0 && (
-                            <div className="flex justify-between text-sm">
-                              <span className="text-muted-foreground">Distance Charge</span>
-                              <span>{fmt(distanceCharge)}</span>
-                            </div>
-                          )}
-                          {timeCharge != null && timeCharge > 0 && (
-                            <div className="flex justify-between text-sm">
-                              <span className="text-muted-foreground">Time Charge</span>
-                              <span>{fmt(timeCharge)}</span>
-                            </div>
-                          )}
-                          {bookingFee != null && bookingFee > 0 && (
-                            <div className="flex justify-between text-sm">
-                              <span className="text-muted-foreground">Booking Fee</span>
-                              <span>{fmt(bookingFee)}</span>
-                            </div>
-                          )}
-
-                          {/* Waiting Charge — show when it contributed to settlement */}
-                          {settlement.waitingPence > 0 && (
-                            <div className="flex justify-between text-sm">
-                              <span className="text-muted-foreground">
-                                Waiting Time
-                                {selectedTrip.waiting_minutes != null && selectedTrip.waiting_minutes > 0 && (
-                                  <span className="text-xs ml-1">({Math.round(selectedTrip.waiting_minutes)} min)</span>
-                                )}
-                              </span>
-                              <span className="text-amber-600">{fmt(settlement.waitingPence)}</span>
-                            </div>
-                          )}
-                          {settlement.extrasPence > 0 && (
-                            <div className="flex justify-between text-sm">
-                              <span className="text-muted-foreground">Extras / Adjustments</span>
-                              <span>{fmt(settlement.extrasPence)}</span>
-                            </div>
-                          )}
-                          {settlement.tipPence > 0 && (
-                            <div className="flex justify-between text-sm">
-                              <span className="text-muted-foreground">Tips</span>
-                              <span className="text-emerald-600">{fmt(settlement.tipPence)}</span>
-                            </div>
-                          )}
-
-                          <Separator />
-
-                          {(() => {
-                            const isCard = isCardTrip(selectedTrip);
-                            const captured = getCapturedTotalPence(selectedTrip);
-                            const authorized = selectedTrip.payment_authorized_pence;
-                            const useSettlement = isCard && captured != null && captured > 0;
-                            const settlementFare = getTripSettlementFarePence(selectedTrip);
-                            const grossDiffers = useSettlement && selectedTrip.gross_fare_pence != null && selectedTrip.gross_fare_pence !== settlementFare;
-                            const effectiveCommission = getEffectiveCommissionPence(selectedTrip);
-                            const effectiveDriverNet = getTripDriverNetPence(selectedTrip);
-                            const releasedBuffer = useSettlement && authorized != null ? Math.max(0, authorized - (captured as number)) : null;
-                            const pctLabel = (selectedTrip as any).commission_pct
-                              ?? (selectedTrip.fare_breakdown as any)?.commission_pct
-                              ?? selectedTrip.payment_commission_pct;
-                            return (
-                              <>
-                                {/* Show fare engine estimate separately when it differs from settlement truth */}
-                                {grossDiffers && (
-                                  <div className="flex justify-between text-sm">
-                                    <span className="text-muted-foreground">Fare engine estimate</span>
-                                    <span className="line-through text-muted-foreground">{fmt(selectedTrip.gross_fare_pence!)}</span>
-                                  </div>
-                                )}
-                                {useSettlement ? (
-                                  <div className="flex justify-between text-sm">
-                                    <span className="text-muted-foreground">Customer Paid (Stripe Captured)</span>
-                                    <span className="font-medium">{fmt(settlementFare)}</span>
-                                  </div>
-                                ) : (
-                                  selectedTrip.gross_fare_pence != null && (
-                                    <div className="flex justify-between text-sm">
-                                      <span className="text-muted-foreground">Gross Fare</span>
-                                      <span>{fmt(selectedTrip.gross_fare_pence)}</span>
-                                    </div>
-                                  )
-                                )}
-                                {releasedBuffer != null && releasedBuffer > 0 && (
-                                  <div className="flex justify-between text-xs text-muted-foreground">
-                                    <span>Released buffer ({fmt(authorized!)} authorised − {fmt(captured as number)} captured)</span>
-                                    <span>{fmt(releasedBuffer)}</span>
-                                  </div>
-                                )}
-                                {effectiveCommission != null && (
-                                  <div className="flex justify-between text-sm">
-                                    <span className="text-muted-foreground">
-                                      ONECAB Commission
-                                      {pctLabel != null && (
-                                        <span className="text-xs ml-1">({pctLabel}%)</span>
-                                      )}
-                                    </span>
-                                    <span className="text-orange-600">-{fmt(effectiveCommission)}</span>
-                                  </div>
-                                )}
-                                {effectiveDriverNet != null && (
-                                  <div className="flex justify-between text-sm">
-                                    <span className="text-muted-foreground">Driver Net</span>
-                                    <span>{fmt(effectiveDriverNet)}</span>
-                                  </div>
-                                )}
-                                {(() => {
-                                  const tipPence = getEffectiveTipPence(selectedTrip);
-                                  if (tipPence <= 0) return null;
-                                  return (
-                                    <div className="flex justify-between text-sm">
-                                      <span className="text-muted-foreground">Driver Tip</span>
-                                      <span className="text-emerald-600">{fmt(tipPence)}</span>
-                                    </div>
-                                  );
-                                })()}
-                              </>
-                            );
-                          })()}
-
-                          {/* ONECAB net-after-Stripe — fields read from DB, never recomputed */}
-                          {selectedTrip.commission_pence != null && (
-                            <>
-                              <Separator />
-                              <div className="flex justify-between text-sm">
-                                <span className="text-muted-foreground">Gross commission</span>
-                                <span>{fmt(selectedTrip.commission_pence)}</span>
-                              </div>
-                              <div className="flex justify-between text-sm">
-                                <span className="text-muted-foreground">Stripe Fee</span>
-                                <span className="text-orange-600">
-                                  {selectedTrip.stripe_processing_fee_pence && selectedTrip.stripe_processing_fee_pence > 0
-                                    ? `−${fmt(selectedTrip.stripe_processing_fee_pence)}`
-                                    : '—'}
-                                </span>
-                              </div>
-                              <Separator />
-                              <div className="flex justify-between text-sm font-medium">
-                                <span>ONECAB net</span>
-                                <span className="text-blue-600">
-                                  {fmt(
-                                    selectedTrip.onecab_net_pence != null
-                                      ? selectedTrip.onecab_net_pence
-                                      : selectedTrip.commission_pence
-                                  )}
-                                </span>
-                              </div>
-                            </>
-                          )}
-                          <div className="flex justify-between text-sm">
-                            <span className="text-muted-foreground">Capture Status</span>
-                            <Badge
-                              variant="outline"
-                              className={`text-xs ${
-                                (() => {
-                                  const k = getTripCaptureStatus(selectedTrip).kind;
-                                  if (k === 'captured' || k === 'captured_split' || k === 'cash_collected') {
-                                    return 'bg-green-500/10 text-green-700 border-green-500/30';
-                                  }
-                                  if (k === 'capture_mismatch' || k === 'pending_capture') {
-                                    return 'bg-amber-500/10 text-amber-700 border-amber-500/30';
-                                  }
-                                  return '';
-                                })()
-                              }`}
-                            >
-                              {getTripCaptureStatus(selectedTrip).shortLabel}
-                            </Badge>
-                          </div>
-                          <Separator />
-                          <div className="flex justify-between text-sm">
-                            <span className="text-muted-foreground">Estimated Distance</span>
-                            <span>{formatDialogDistance(selectedTrip.estimated_distance_km)}</span>
-                          </div>
-                          {tripStops.length >= 2 && calculateRouteDistance(tripStops) > 0 && (
-                            <div className="flex justify-between text-sm">
-                              <span className="text-muted-foreground">Actual Distance</span>
-                              <span className="font-medium text-primary">
-                                {formatDialogDistance(calculateRouteDistance(tripStops))}
-                              </span>
-                            </div>
-                          )}
-                          <div className="flex justify-between text-sm">
-                            <span className="text-muted-foreground">Duration</span>
-                            <span>{formatDuration(selectedTrip.estimated_duration_minutes)}</span>
-                          </div>
-                          {selectedTrip.surge_multiplier && selectedTrip.surge_multiplier > 1 && (
-                            <div className="flex justify-between text-sm">
-                              <span className="text-muted-foreground">Surge Multiplier</span>
-                              <span className="text-orange-600">{selectedTrip.surge_multiplier}x</span>
-                            </div>
-                          )}
-                          <Separator />
-                          <div className="flex justify-between font-semibold">
-                            <span>Final Settlement Total</span>
-                            <span className="text-green-600">
-                              {fmt(getTripSettlementFarePence(selectedTrip))}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })()}
+                    <div className="rounded-md border p-4 space-y-3">
+                      <p className="text-sm text-muted-foreground">
+                        Gross fare, discount, commission, driver net, and settlement are in Financial Reconciliation → Trips only.
+                      </p>
+                      <FinancialReconciliationTripLink
+                        tripId={selectedTrip.id}
+                        tripCode={selectedTrip.trip_code}
+                        tripNumber={selectedTrip.trip_number}
+                        variant="button"
+                      />
+                      <Separator />
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Capture Status</span>
+                        <Badge
+                          variant="outline"
+                          className={`text-xs ${
+                            (() => {
+                              const k = getTripCaptureStatus(selectedTrip).kind;
+                              if (k === 'captured' || k === 'captured_split' || k === 'cash_collected') {
+                                return 'bg-green-500/10 text-green-700 border-green-500/30';
+                              }
+                              if (k === 'capture_mismatch' || k === 'pending_capture') {
+                                return 'bg-amber-500/10 text-amber-700 border-amber-500/30';
+                              }
+                              return '';
+                            })()
+                          }`}
+                        >
+                          {getTripCaptureStatus(selectedTrip).shortLabel}
+                        </Badge>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Timestamps */}
@@ -1888,14 +1614,6 @@ export default function TripHistory() {
                 />
               )}
 
-              {selectedTrip.id && (
-                <FinanceRecoveryPanel
-                  tripId={selectedTrip.id}
-                  tripCode={selectedTrip.trip_code ?? selectedTrip.trip_number ?? undefined}
-                  source="trip-history"
-                  variant="summary"
-                />
-              )}
             </div>
           )}
         </DialogContent>
