@@ -59,7 +59,7 @@ export default function QrBookingControl() {
         pickup_lat: String(c.pickup_lat || ''),
         pickup_lng: String(c.pickup_lng || ''),
         status: c.status,
-        allow_cash: c.allow_cash,
+        
         allow_card: c.allow_card,
         allow_apple_pay: c.allow_apple_pay,
         allow_google_pay: c.allow_google_pay,
@@ -98,7 +98,6 @@ export default function QrBookingControl() {
       pickup_lat: config.pickup_lat,
       pickup_lng: config.pickup_lng,
       status: config.status,
-      allow_cash: config.allow_cash,
       allow_card: config.allow_card,
       allow_apple_pay: config.allow_apple_pay,
       allow_google_pay: config.allow_google_pay,
@@ -110,7 +109,6 @@ export default function QrBookingControl() {
       pickup_lat: parseFloat(form.pickup_lat),
       pickup_lng: parseFloat(form.pickup_lng),
       status: form.status,
-      allow_cash: form.allow_cash,
       allow_card: form.allow_card,
       allow_apple_pay: form.allow_apple_pay,
       allow_google_pay: form.allow_google_pay,
@@ -271,12 +269,7 @@ export default function QrBookingControl() {
             <div className="space-y-3">
               <Label className="text-base">Allowed Payment Methods</Label>
               <div className="space-y-2">
-                <div className="flex items-center justify-between rounded-lg border p-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">Cash</span>
-                  </div>
-                  <Switch checked={form.allow_cash} onCheckedChange={v => setForm(p => ({ ...p, allow_cash: v }))} />
-                </div>
+
                 <div className="flex items-center justify-between rounded-lg border p-3">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium">Card</span>
