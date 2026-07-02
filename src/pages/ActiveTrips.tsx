@@ -181,7 +181,7 @@ export default function ActiveTrips() {
       if (tripsRes.error) throw tripsRes.error;
       if (driversRes.error) throw driversRes.error;
 
-      setTrips(filterAdminActiveTrips((tripsRes.data || []) as any) as any);
+      setTrips(filterAdminActiveTrips((tripsRes.data ?? []).filter(Boolean) as Trip[]) as Trip[]);
       setAvailableDrivers(driversRes.data || []);
       setLastRefresh(new Date());
     } catch (err) {
@@ -331,7 +331,8 @@ export default function ActiveTrips() {
   const resolveTripCurrency = (trip: Trip | null | undefined): string =>
     trip?.currency_code || trip?.service_area?.region?.currency_code || '';
 
-  const filteredTrips = trips.filter(trip => {
+  const filteredTrips = trips.filter((trip): trip is Trip => {
+    if (!trip) return false;
     const matchesSearch = 
       getTripDisplayId(trip).toLowerCase().includes(searchQuery.toLowerCase()) ||
       trip.trip_code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -704,7 +705,7 @@ export default function ActiveTrips() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="fare">Final Fare ({getCurrencySymbol(resolveTripCurrency(selectedTrip!))})</Label>
+              <Label htmlFor="fare">Final Fare ({getCurrencySymbol(resolveTripCurrency(selectedTrip))})</Label>
               <Input
                 id="fare"
                 type="number"
@@ -713,10 +714,12 @@ export default function ActiveTrips() {
                 value={forceEndFare}
                 onChange={(e) => setForceEndFare(e.target.value)}
               />
-              <p className="text-xs text-muted-foreground">
-                Payable fare: {getCurrencySymbol(resolveTripCurrency(selectedTrip!))}
-                {(resolvePayableFarePence(selectedTrip!) / 100).toFixed(2)}
-              </p>
+              {selectedTrip ? (
+                <p className="text-xs text-muted-foreground">
+                  Payable fare: {getCurrencySymbol(resolveTripCurrency(selectedTrip))}
+                  {(resolvePayableFarePence(selectedTrip) / 100).toFixed(2)}
+                </p>
+              ) : null}
             </div>
           </div>
 

@@ -43,7 +43,8 @@ const nonNeg = (value: unknown): number => {
   return Math.round(n);
 };
 
-export function resolveDiscountPenceFromTrip(trip: FareDisplayTripRow): number {
+export function resolveDiscountPenceFromTrip(trip: FareDisplayTripRow | null | undefined): number {
+  if (!trip) return 0;
   const explicit = nonNeg(trip.discount_pence);
   if (explicit > 0) return explicit;
   const source = trip.discount_source;
@@ -69,7 +70,18 @@ export function resolveOriginalFarePence(trip: FareDisplayTripRow): number | nul
   return null;
 }
 
-export function resolveTripDisplayFare(trip: FareDisplayTripRow): ResolvedTripDisplayFare {
+const EMPTY_RESOLVED_FARE: ResolvedTripDisplayFare = {
+  payable_pence: 0,
+  payable_major: 0,
+  original_pence: null,
+  original_major: null,
+  discount_pence: 0,
+  commission_base_pence: 0,
+  source: 'none',
+};
+
+export function resolveTripDisplayFare(trip: FareDisplayTripRow | null | undefined): ResolvedTripDisplayFare {
+  if (!trip) return EMPTY_RESOLVED_FARE;
   const discount = resolveDiscountPenceFromTrip(trip);
   const original = resolveOriginalFarePence(trip);
   const snap = trip.fare_snapshot_json;
@@ -133,11 +145,11 @@ export function resolveTripDisplayFare(trip: FareDisplayTripRow): ResolvedTripDi
   };
 }
 
-export function resolvePayableFarePence(trip: FareDisplayTripRow): number {
+export function resolvePayableFarePence(trip: FareDisplayTripRow | null | undefined): number {
   return resolveTripDisplayFare(trip).payable_pence;
 }
 
-export function fareDisplaySSOT(trip: FareDisplayTripRow) {
+export function fareDisplaySSOT(trip: FareDisplayTripRow | null | undefined) {
   const resolved = resolveTripDisplayFare(trip);
   return {
     payable_fare_pence: resolved.payable_pence,
