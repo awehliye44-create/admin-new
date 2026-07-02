@@ -180,7 +180,7 @@ export default function CorporateAccounts() {
       monthly_budget: account.monthly_budget || 0,
       region_id: account.region_id || '',
       service_area_id: account.service_area_id || '',
-      payment_cash_enabled: account.payment_cash_enabled ?? false,
+      
       payment_card_enabled: account.payment_card_enabled ?? true,
       payment_apple_pay_enabled: account.payment_apple_pay_enabled ?? true,
       payment_google_pay_enabled: account.payment_google_pay_enabled ?? true,
