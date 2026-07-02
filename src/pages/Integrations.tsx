@@ -178,30 +178,51 @@ export default function Integrations() {
     return key;
   };
 
-  const handleCreateIntegration = () => {
+  const maskPreview = (v: string) => (v.length <= 8 ? "••••••••" : `${v.slice(0, 4)}••••${v.slice(-4)}`);
+
+  const handleCreateIntegration = async () => {
     if (!integrationForm.name || !integrationForm.provider) {
       toast({ title: "Name and provider are required", variant: "destructive" });
       return;
     }
 
+    const integrationId = editingIntegration?.id || crypto.randomUUID();
+    const rawSecrets: Record<string, string> = {};
+    if (integrationForm.api_key && !integrationForm.api_key.includes("••••")) rawSecrets.api_key = integrationForm.api_key;
+    if (integrationForm.api_secret && !integrationForm.api_secret.includes("••••")) rawSecrets.api_secret = integrationForm.api_secret;
+
+    // Persist raw secrets to the service-role vault via edge function; never store plaintext in admin_settings.
+    if (Object.keys(rawSecrets).length) {
+      const { error: vaultErr } = await supabase.functions.invoke('admin-integration-secrets', {
+        body: { namespace: 'integration', owner_id: integrationId, secrets: rawSecrets },
+      });
+      if (vaultErr) {
+        toast({ title: "Failed to store secrets securely", description: vaultErr.message, variant: "destructive" });
+        return;
+      }
+    }
+
+    const existingApiKeyPreview = editingIntegration?.api_key ?? null;
+    const existingApiSecretPreview = editingIntegration?.api_secret ?? null;
+
     const newIntegration: Integration = {
-      id: crypto.randomUUID(),
+      id: integrationId,
       name: integrationForm.name,
       provider: integrationForm.provider,
       type: integrationForm.type,
       status: integrationForm.status,
-      api_key: integrationForm.api_key || null,
-      api_secret: integrationForm.api_secret || null,
+      api_key: rawSecrets.api_key ? maskPreview(rawSecrets.api_key) : existingApiKeyPreview,
+      api_secret: rawSecrets.api_secret ? maskPreview(rawSecrets.api_secret) : existingApiSecretPreview,
       webhook_url: integrationForm.webhook_url || null,
       config: integrationForm.config,
       last_sync: null,
       error_message: null,
-      created_at: new Date().toISOString(),
+      created_at: editingIntegration?.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
 
     const updatedIntegrations = editingIntegration
-      ? integrations.map(i => i.id === editingIntegration.id ? { ...newIntegration, id: editingIntegration.id } : i)
+      ? integrations.map(i => i.id === editingIntegration.id ? newIntegration : i)
       : [...integrations, newIntegration];
 
     saveIntegrationsMutation.mutate(updatedIntegrations);
@@ -209,7 +230,11 @@ export default function Integrations() {
     resetIntegrationForm();
   };
 
-  const handleDeleteIntegration = (id: string) => {
+  const handleDeleteIntegration = async (id: string) => {
+    // Purge secrets from vault too.
+    await supabase.functions.invoke('admin-integration-secrets', {
+      body: { namespace: 'integration', owner_id: id, action: 'delete_owner' },
+    });
     const updatedIntegrations = integrations.filter(i => i.id !== id);
     saveIntegrationsMutation.mutate(updatedIntegrations);
     toast({ title: "Integration deleted" });
@@ -294,8 +319,10 @@ export default function Integrations() {
       name: integration.name,
       provider: integration.provider,
       type: integration.type,
-      api_key: integration.api_key || "",
-      api_secret: integration.api_secret || "",
+      // Secrets are stored in the service-role vault, never returned to the client.
+      // Leave the fields blank so admins must re-enter to change them.
+      api_key: "",
+      api_secret: "",
       webhook_url: integration.webhook_url || "",
       config: integration.config,
       status: integration.status === 'error' ? 'inactive' : integration.status,

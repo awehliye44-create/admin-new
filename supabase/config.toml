@@ -181,3 +181,7 @@ verify_jwt = false
 
 [functions.admin-continuous-reconciliation]
 verify_jwt = false
+
+[functions.admin-integration-secrets]
+verify_jwt = false
+

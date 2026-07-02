@@ -188,7 +188,9 @@ export default function Webhooks() {
     return secret;
   };
 
-  const handleCreateWebhook = () => {
+  const maskPreview = (v: string) => (v.length <= 8 ? "••••••••" : `${v.slice(0, 4)}••••${v.slice(-4)}`);
+
+  const handleCreateWebhook = async () => {
     if (!formData.name || !formData.url) {
       toast({ title: "Name and URL are required", variant: "destructive" });
       return;
@@ -199,12 +201,29 @@ export default function Webhooks() {
       return;
     }
 
+    const webhookId = editingWebhook?.id || crypto.randomUUID();
+    const rawSecret = formData.secret && !formData.secret.includes("••••")
+      ? formData.secret
+      : (editingWebhook ? "" : generateSecret());
+
+    if (rawSecret) {
+      const { error: vaultErr } = await supabase.functions.invoke('admin-integration-secrets', {
+        body: { namespace: 'webhook', owner_id: webhookId, secrets: { webhook_secret: rawSecret } },
+      });
+      if (vaultErr) {
+        toast({ title: "Failed to store secret securely", description: vaultErr.message, variant: "destructive" });
+        return;
+      }
+    }
+
+    const secretPreview = rawSecret ? maskPreview(rawSecret) : (editingWebhook?.secret ?? "");
+
     const newWebhook: WebhookEndpoint = {
-      id: editingWebhook?.id || crypto.randomUUID(),
+      id: webhookId,
       name: formData.name,
       url: formData.url,
       events: formData.events,
-      secret: formData.secret || generateSecret(),
+      secret: secretPreview,
       is_active: formData.is_active,
       retry_policy: formData.retry_policy,
       headers: formData.headers,
@@ -221,7 +240,10 @@ export default function Webhooks() {
     resetForm();
   };
 
-  const handleDeleteWebhook = (id: string) => {
+  const handleDeleteWebhook = async (id: string) => {
+    await supabase.functions.invoke('admin-integration-secrets', {
+      body: { namespace: 'webhook', owner_id: id, action: 'delete_owner' },
+    });
     const updatedWebhooks = webhooks.filter(w => w.id !== id);
     saveWebhooksMutation.mutate(updatedWebhooks);
     toast({ title: "Webhook deleted" });
@@ -317,7 +339,7 @@ export default function Webhooks() {
       name: webhook.name,
       url: webhook.url,
       events: webhook.events,
-      secret: webhook.secret,
+      secret: "",
       is_active: webhook.is_active,
       retry_policy: webhook.retry_policy,
       headers: webhook.headers,
