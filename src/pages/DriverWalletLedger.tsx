@@ -83,6 +83,11 @@ export default function DriverWalletLedger() {
               value={driverId}
               onChange={(id) => setDriver(id)}
               regionId={serviceFilter.regionId}
+              serviceAreaId={serviceFilter.serviceAreaId}
+              fallbackLabel={
+                driver?.driver_name
+                  ?? (driver?.driver_code ? driver.driver_code : null)
+              }
             />
           </div>
         </div>
@@ -98,6 +103,7 @@ export default function DriverWalletLedger() {
           <TabsContent value="overview" className="mt-4">
             <DriverWalletOverviewCards
               driver={driver}
+              driverId={driverId}
               currencyCode={currencyCode}
               regionId={serviceFilter.regionId}
               isLoading={isLoading && !!driverId}

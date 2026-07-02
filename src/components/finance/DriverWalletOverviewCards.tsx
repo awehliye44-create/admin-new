@@ -54,11 +54,13 @@ export function DriverWalletOverviewCards({
   currencyCode = 'GBP',
   regionId = null,
   isLoading,
+  driverId = null,
 }: {
   driver: DriverWalletSsotRow | null | undefined;
   currencyCode?: string;
   regionId?: string | null;
   isLoading?: boolean;
+  driverId?: string | null;
 }) {
   const { data: connectStatus } = useConnectPayoutStatus(regionId);
   const connectAccount = connectStatus?.connect_accounts.find(
@@ -74,11 +76,20 @@ export function DriverWalletOverviewCards({
     );
   }
 
-  if (!driver) {
+  if (!driver && !driverId) {
     return (
       <p className="text-sm text-muted-foreground py-8">
-        Select a driver to view their Stripe payout position.
+        Select a driver above to view their Stripe payout position.
       </p>
+    );
+  }
+
+  if (!driver) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading driver Stripe payout position…
+      </div>
     );
   }
 
