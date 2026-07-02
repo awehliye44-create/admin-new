@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
       },
       qrUrl: data.qr_url,
       paymentMethods: {
-        cash: data.allow_cash,
+        
         card: data.allow_card,
         applePay: data.allow_apple_pay,
         googlePay: data.allow_google_pay,
