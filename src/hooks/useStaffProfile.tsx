@@ -81,6 +81,13 @@ const ROUTE_PERMISSION_ALIASES: Record<string, string[]> = {
     'admin-settlements',
     'finance-ledger-transactions',
   ],
+  'driver-wallet-ledger': [
+    'driver-wallet-ledger',
+    'finance-ledger-transactions',
+    'payout-batches',
+    'drivers-and-payouts',
+    'admin-settlements',
+  ],
 };
 
 export function StaffProfileProvider({ children }: { children: ReactNode }) {

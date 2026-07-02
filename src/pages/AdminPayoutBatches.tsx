@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Navigate } from 'react-router-dom';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { FinanceSSOT, useFinancialReconciliationSSOT } from '@/hooks/useFinancialReconciliationSSOT';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,10 +19,9 @@ import { getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 import { format } from 'date-fns';
 import { 
   RefreshCw, CheckCircle2, Clock, XCircle, Eye, Calendar,
-  DollarSign, Wallet, AlertTriangle, BookOpen, Landmark
+  DollarSign, Wallet, AlertTriangle, Landmark
 } from 'lucide-react';
 import { FinancePayoutAuditSection } from '@/components/finance/FinancePayoutAuditSection';
-import { FinanceLedgerPanel } from '@/components/finance/FinanceLedgerPanel';
 import { ConnectBalancePanel } from '@/components/finance/ConnectBalancePanel';
 import { formatPayoutDisplayStatus } from '@/lib/payoutStatusLabels';
 import { retryMondayPayoutItem, canRetryMondayPayoutItem, useMondayPayoutDiagnostics } from '@/hooks/useMondayPayoutDiagnostics';
@@ -308,9 +307,12 @@ async function fetchEarlyCashoutsDirect(): Promise<EarlyCashoutRow[]> {
 
 export default function AdminPayoutBatches() {
   const [searchParams, setSearchParams] = useSearchParams();
+  if (searchParams.get('tab') === 'ledger') {
+    return <Navigate to="/driver-wallet-ledger" replace />;
+  }
   const activeTab = (() => {
     const tab = searchParams.get('tab');
-    if (tab === 'early-cashouts' || tab === 'ledger' || tab === 'connect-balance') return tab;
+    if (tab === 'early-cashouts' || tab === 'connect-balance') return tab;
     return 'batches';
   })();
 
@@ -608,10 +610,6 @@ export default function AdminPayoutBatches() {
           <TabsList className="flex flex-wrap h-auto gap-1">
             <TabsTrigger value="batches">Payout Batches</TabsTrigger>
             <TabsTrigger value="early-cashouts">Early Cashouts</TabsTrigger>
-            <TabsTrigger value="ledger">
-              <BookOpen className="h-4 w-4 mr-1.5" />
-              Driver Wallet Ledger
-            </TabsTrigger>
             <TabsTrigger value="connect-balance">
               <Landmark className="h-4 w-4 mr-1.5" />
               Stripe Connect Balance
@@ -864,27 +862,6 @@ export default function AdminPayoutBatches() {
             )}
           </CardContent>
         </Card>
-          </TabsContent>
-
-          <TabsContent value="ledger" className="space-y-6 mt-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Driver Wallet Ledger (ONECAB liability)</CardTitle>
-                <p className="text-sm text-muted-foreground">
-                  Current ONECAB liability only — trip earnings, cash commission recovery, debt recovery,
-                  adjustments, and payout debits. Not Stripe Connect cash or lifetime earnings.
-                  {' '}
-                  <span className="font-medium">{periodBounds.label}</span>
-                </p>
-              </CardHeader>
-              <CardContent>
-                <FinanceLedgerPanel
-                  serviceFilter={serviceFilter}
-                  periodFrom={periodBounds.from}
-                  periodTo={periodBounds.to}
-                />
-              </CardContent>
-            </Card>
           </TabsContent>
 
           <TabsContent value="connect-balance" className="space-y-6 mt-4">

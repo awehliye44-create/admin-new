@@ -52,6 +52,7 @@ import AdminPayments from "./pages/AdminPayments";
 import FinancialReconciliation from "./pages/FinancialReconciliation";
 import LegacyDriversPayoutsRedirect from "./pages/LegacyDriversPayoutsRedirect";
 import AdminPayoutBatches from "./pages/AdminPayoutBatches";
+import DriverWalletLedger from "./pages/DriverWalletLedger";
 import AnnualTaxiReport from "./pages/AnnualTaxiReport";
 import OnecabRevenueProfitReport from "./pages/OnecabRevenueProfitReport";
 import Disputes from "./pages/Disputes";
@@ -174,7 +175,8 @@ const App = () => (
               <Route path="drivers-and-payouts" element={<LegacyDriversPayoutsRedirect />} />
               <Route path="driver-wallet" element={<Navigate to="/payout-batches?tab=connect-balance" replace />} />
               <Route path="admin-settlements" element={<Navigate to="/payout-batches" replace />} />
-              <Route path="finance-ledger-transactions" element={<Navigate to="/payout-batches?tab=ledger" replace />} />
+              <Route path="finance-ledger-transactions" element={<Navigate to="/driver-wallet-ledger" replace />} />
+              <Route path="driver-wallet-ledger" element={<DriverWalletLedger />} />
               <Route path="payout-batches" element={<AdminPayoutBatches />} />
               <Route path="connect-payout-lockdown" element={<Navigate to="/payout-batches?tab=connect-balance" replace />} />
               <Route path="disputes" element={<Disputes />} />

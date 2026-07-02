@@ -5,7 +5,7 @@ export default function LegacyDriversPayoutsRedirect() {
   const [searchParams] = useSearchParams();
   const tab = searchParams.get('tab');
   if (tab === 'ledger') {
-    return <Navigate to="/payout-batches?tab=ledger" replace />;
+    return <Navigate to="/driver-wallet-ledger" replace />;
   }
   return <Navigate to="/payout-batches" replace />;
 }
