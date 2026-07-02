@@ -339,7 +339,7 @@ export default function Webhooks() {
       name: webhook.name,
       url: webhook.url,
       events: webhook.events,
-      secret: webhook.secret,
+      secret: "",
       is_active: webhook.is_active,
       retry_policy: webhook.retry_policy,
       headers: webhook.headers,
