@@ -240,7 +240,6 @@ export default function ManualTrip() {
 
         if (data) {
           setPaymentConfig({
-            cash_enabled: data.cash_enabled,
             card_enabled: data.card_enabled,
             wallet_enabled: data.wallet_enabled,
             apple_pay_enabled: data.apple_pay_enabled,
@@ -250,15 +249,12 @@ export default function ManualTrip() {
           // Reset payment method if current selection is not available
           const methodKey = `${paymentMethod}_enabled` as keyof typeof data;
           if (!data[methodKey]) {
-            // Find first enabled method
-            if (data.cash_enabled) setPaymentMethod('cash');
-            else if (data.card_enabled) setPaymentMethod('card');
+            if (data.card_enabled) setPaymentMethod('card');
             else if (data.wallet_enabled) setPaymentMethod('wallet');
           }
         } else {
           // Default config if none exists
           setPaymentConfig({
-            cash_enabled: true,
             card_enabled: true,
             wallet_enabled: false,
             apple_pay_enabled: false,
