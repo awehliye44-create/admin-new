@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
-export type PaymentMethodType = 'cash' | 'card' | 'wallet' | 'apple_pay' | 'google_pay';
+export type PaymentMethodType = 'card' | 'wallet' | 'apple_pay' | 'google_pay';
 
 export interface PaymentMethod {
   id: PaymentMethodType;
@@ -12,7 +12,6 @@ export interface PaymentMethod {
 
 export interface ServiceAreaPaymentConfig {
   service_area_id: string;
-  cash_enabled: boolean;
   card_enabled: boolean;
   wallet_enabled: boolean;
   apple_pay_enabled: boolean;
@@ -20,7 +19,6 @@ export interface ServiceAreaPaymentConfig {
 }
 
 export const ALL_PAYMENT_METHODS: PaymentMethod[] = [
-  { id: 'cash', name: 'Cash', icon: 'banknote', platform: 'all' },
   { id: 'card', name: 'Card', icon: 'credit-card', platform: 'all' },
   { id: 'wallet', name: 'Wallet', icon: 'wallet', platform: 'all' },
   { id: 'apple_pay', name: 'Apple Pay', icon: 'apple', platform: 'ios' },
@@ -28,7 +26,6 @@ export const ALL_PAYMENT_METHODS: PaymentMethod[] = [
 ];
 
 const DEFAULT_CONFIG: Omit<ServiceAreaPaymentConfig, 'service_area_id'> = {
-  cash_enabled: true,
   card_enabled: true,
   wallet_enabled: false,
   apple_pay_enabled: false,
@@ -61,7 +58,7 @@ export function useServiceAreaPaymentMethods(serviceAreaId?: string) {
         }
 
         if (data) {
-          setPaymentConfig(data as ServiceAreaPaymentConfig);
+          setPaymentConfig(data as unknown as ServiceAreaPaymentConfig);
         } else {
           setPaymentConfig({
             service_area_id: serviceAreaId,
@@ -90,28 +87,25 @@ export function useServiceAreaPaymentMethods(serviceAreaId?: string) {
     setIsSaving(true);
 
     try {
-      // Update payment methods
       const { error } = await supabase
         .from('service_area_payment_methods')
         .upsert({
           service_area_id: serviceAreaId,
-          cash_enabled: updatedConfig.cash_enabled,
           card_enabled: updatedConfig.card_enabled,
           wallet_enabled: updatedConfig.wallet_enabled,
           apple_pay_enabled: updatedConfig.apple_pay_enabled,
           google_pay_enabled: updatedConfig.google_pay_enabled,
-        }, {
+        } as any, {
           onConflict: 'service_area_id',
         });
 
       if (error) throw error;
 
-      // Also update service_area.updated_at to trigger real-time sync for customer apps
       await supabase
         .from('service_areas')
-        .update({ updated_at: new Date().toISOString() })
+        .update({ updated_at: new Date().toISOString() } as any)
         .eq('id', serviceAreaId);
-        
+
     } catch (err) {
       console.error('Error updating service area payment method:', err);
       setPaymentConfig(paymentConfig);
