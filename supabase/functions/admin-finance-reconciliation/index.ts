@@ -771,11 +771,19 @@ serve(async (req) => {
       const stripeClient = stripeSecretKey
         ? new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" })
         : null;
-      platform_kpis = await fetchRegionPlatformKpis(supabase, {
-        regionId: resolvedRegionId,
-        stripe: stripeClient,
-        todayAuditRows,
-      });
+      const kpisResult = await withTimeout(
+        "platform_kpis",
+        STRIPE_SECTION_TIMEOUT_MS,
+        fetchRegionPlatformKpis(supabase, {
+          regionId: resolvedRegionId,
+          stripe: stripeClient,
+          todayAuditRows,
+        }),
+      );
+      platform_kpis =
+        kpisResult && typeof kpisResult === "object" && "__timeout" in kpisResult
+          ? null
+          : kpisResult;
     }
 
     if (profitSsotOnly) {
