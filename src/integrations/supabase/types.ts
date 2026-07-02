@@ -3722,6 +3722,7 @@ export type Database = {
           paid_in_payout_item_id: string | null
           payment_id: string | null
           settled_at: string | null
+          settlement_lifecycle_status: string
           settlement_status: string
           stripe_available_on: string | null
           stripe_balance_tx_id: string | null
@@ -3746,6 +3747,7 @@ export type Database = {
           paid_in_payout_item_id?: string | null
           payment_id?: string | null
           settled_at?: string | null
+          settlement_lifecycle_status?: string
           settlement_status?: string
           stripe_available_on?: string | null
           stripe_balance_tx_id?: string | null
@@ -3770,6 +3772,7 @@ export type Database = {
           paid_in_payout_item_id?: string | null
           payment_id?: string | null
           settled_at?: string | null
+          settlement_lifecycle_status?: string
           settlement_status?: string
           stripe_available_on?: string | null
           stripe_balance_tx_id?: string | null
@@ -12085,6 +12088,7 @@ export type Database = {
           commission_pct: number | null
           commission_pence: number | null
           commissionable_fare_pence: number | null
+          commitment_time: string | null
           completed_at: string | null
           confirm_deadline_at: string | null
           confirmed_driver_id: string | null
@@ -12102,6 +12106,7 @@ export type Database = {
           current_stop_index: number | null
           customer_modification_charge_pence: number | null
           debt_recovery_pence: number | null
+          deferred_payment_method_id: string | null
           delivery_metadata: Json | null
           delivery_type: string | null
           destination_change_adjustment_pence: number | null
@@ -12137,6 +12142,7 @@ export type Database = {
           estimated_duration_minutes: number | null
           estimated_fare: number | null
           estimated_total_pence: number | null
+          eta_risk_alert_sent_at: string | null
           excluded_driver_ids: string[] | null
           extras_pence: number | null
           fare: number | null
@@ -12170,6 +12176,8 @@ export type Database = {
           is_scheduled: boolean | null
           job_type: string | null
           last_broadcast_at: string | null
+          last_eta_calculated_at: string | null
+          last_eta_minutes: number | null
           late_cancel_fee_pence: number | null
           locked_base_fare_pence: number | null
           locked_driver_id: string | null
@@ -12181,13 +12189,17 @@ export type Database = {
           modified_dropoff_address: string | null
           modified_dropoff_latitude: number | null
           modified_dropoff_longitude: number | null
+          moving_away_alert_sent_at: string | null
           negotiation_allowed: boolean
           negotiation_disabled: boolean
           negotiation_locked_until: string | null
           negotiation_owner_driver_id: string | null
           negotiation_status: string | null
+          no_driver_admin_alert_sent_at: string | null
+          no_driver_customer_alert_sent_at: string | null
           no_show_by: string | null
           no_show_charge_pence: number | null
+          not_moving_alert_sent_at: string | null
           offer_currency: string | null
           offer_discount_pence: number
           offer_snapshot: Json | null
@@ -12205,10 +12217,13 @@ export type Database = {
           payment_coverage_status:
             | Database["public"]["Enums"]["payment_coverage_status"]
             | null
+          payment_deferred: boolean
           payment_intent_id: string | null
           payment_intent_version: number | null
           payment_method: string | null
           payment_provider: string | null
+          payment_reauth_at: string | null
+          payment_reauth_status: string | null
           payment_state: Database["public"]["Enums"]["trip_payment_state"]
           payment_status: string | null
           payment_type: string | null
@@ -12247,7 +12262,9 @@ export type Database = {
           scheduled_accepted_at: string | null
           scheduled_at: string | null
           scheduled_broadcast_at: string | null
+          scheduled_committed_at: string | null
           scheduled_convert_at: string | null
+          scheduled_driver_risk: boolean
           scheduled_status: string | null
           searching_expires_at: string | null
           sequence_no: number | null
@@ -12255,6 +12272,7 @@ export type Database = {
           service_area_id: string | null
           settlement_formula_version: string | null
           special_instructions: string | null
+          stack_position: number | null
           stacked_trip_id: string | null
           started_at: string | null
           status: string | null
@@ -12339,6 +12357,7 @@ export type Database = {
           commission_pct?: number | null
           commission_pence?: number | null
           commissionable_fare_pence?: number | null
+          commitment_time?: string | null
           completed_at?: string | null
           confirm_deadline_at?: string | null
           confirmed_driver_id?: string | null
@@ -12356,6 +12375,7 @@ export type Database = {
           current_stop_index?: number | null
           customer_modification_charge_pence?: number | null
           debt_recovery_pence?: number | null
+          deferred_payment_method_id?: string | null
           delivery_metadata?: Json | null
           delivery_type?: string | null
           destination_change_adjustment_pence?: number | null
@@ -12391,6 +12411,7 @@ export type Database = {
           estimated_duration_minutes?: number | null
           estimated_fare?: number | null
           estimated_total_pence?: number | null
+          eta_risk_alert_sent_at?: string | null
           excluded_driver_ids?: string[] | null
           extras_pence?: number | null
           fare?: number | null
@@ -12424,6 +12445,8 @@ export type Database = {
           is_scheduled?: boolean | null
           job_type?: string | null
           last_broadcast_at?: string | null
+          last_eta_calculated_at?: string | null
+          last_eta_minutes?: number | null
           late_cancel_fee_pence?: number | null
           locked_base_fare_pence?: number | null
           locked_driver_id?: string | null
@@ -12435,13 +12458,17 @@ export type Database = {
           modified_dropoff_address?: string | null
           modified_dropoff_latitude?: number | null
           modified_dropoff_longitude?: number | null
+          moving_away_alert_sent_at?: string | null
           negotiation_allowed?: boolean
           negotiation_disabled?: boolean
           negotiation_locked_until?: string | null
           negotiation_owner_driver_id?: string | null
           negotiation_status?: string | null
+          no_driver_admin_alert_sent_at?: string | null
+          no_driver_customer_alert_sent_at?: string | null
           no_show_by?: string | null
           no_show_charge_pence?: number | null
+          not_moving_alert_sent_at?: string | null
           offer_currency?: string | null
           offer_discount_pence?: number
           offer_snapshot?: Json | null
@@ -12459,10 +12486,13 @@ export type Database = {
           payment_coverage_status?:
             | Database["public"]["Enums"]["payment_coverage_status"]
             | null
+          payment_deferred?: boolean
           payment_intent_id?: string | null
           payment_intent_version?: number | null
           payment_method?: string | null
           payment_provider?: string | null
+          payment_reauth_at?: string | null
+          payment_reauth_status?: string | null
           payment_state?: Database["public"]["Enums"]["trip_payment_state"]
           payment_status?: string | null
           payment_type?: string | null
@@ -12501,7 +12531,9 @@ export type Database = {
           scheduled_accepted_at?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
+          scheduled_committed_at?: string | null
           scheduled_convert_at?: string | null
+          scheduled_driver_risk?: boolean
           scheduled_status?: string | null
           searching_expires_at?: string | null
           sequence_no?: number | null
@@ -12509,6 +12541,7 @@ export type Database = {
           service_area_id?: string | null
           settlement_formula_version?: string | null
           special_instructions?: string | null
+          stack_position?: number | null
           stacked_trip_id?: string | null
           started_at?: string | null
           status?: string | null
@@ -12593,6 +12626,7 @@ export type Database = {
           commission_pct?: number | null
           commission_pence?: number | null
           commissionable_fare_pence?: number | null
+          commitment_time?: string | null
           completed_at?: string | null
           confirm_deadline_at?: string | null
           confirmed_driver_id?: string | null
@@ -12610,6 +12644,7 @@ export type Database = {
           current_stop_index?: number | null
           customer_modification_charge_pence?: number | null
           debt_recovery_pence?: number | null
+          deferred_payment_method_id?: string | null
           delivery_metadata?: Json | null
           delivery_type?: string | null
           destination_change_adjustment_pence?: number | null
@@ -12645,6 +12680,7 @@ export type Database = {
           estimated_duration_minutes?: number | null
           estimated_fare?: number | null
           estimated_total_pence?: number | null
+          eta_risk_alert_sent_at?: string | null
           excluded_driver_ids?: string[] | null
           extras_pence?: number | null
           fare?: number | null
@@ -12678,6 +12714,8 @@ export type Database = {
           is_scheduled?: boolean | null
           job_type?: string | null
           last_broadcast_at?: string | null
+          last_eta_calculated_at?: string | null
+          last_eta_minutes?: number | null
           late_cancel_fee_pence?: number | null
           locked_base_fare_pence?: number | null
           locked_driver_id?: string | null
@@ -12689,13 +12727,17 @@ export type Database = {
           modified_dropoff_address?: string | null
           modified_dropoff_latitude?: number | null
           modified_dropoff_longitude?: number | null
+          moving_away_alert_sent_at?: string | null
           negotiation_allowed?: boolean
           negotiation_disabled?: boolean
           negotiation_locked_until?: string | null
           negotiation_owner_driver_id?: string | null
           negotiation_status?: string | null
+          no_driver_admin_alert_sent_at?: string | null
+          no_driver_customer_alert_sent_at?: string | null
           no_show_by?: string | null
           no_show_charge_pence?: number | null
+          not_moving_alert_sent_at?: string | null
           offer_currency?: string | null
           offer_discount_pence?: number
           offer_snapshot?: Json | null
@@ -12713,10 +12755,13 @@ export type Database = {
           payment_coverage_status?:
             | Database["public"]["Enums"]["payment_coverage_status"]
             | null
+          payment_deferred?: boolean
           payment_intent_id?: string | null
           payment_intent_version?: number | null
           payment_method?: string | null
           payment_provider?: string | null
+          payment_reauth_at?: string | null
+          payment_reauth_status?: string | null
           payment_state?: Database["public"]["Enums"]["trip_payment_state"]
           payment_status?: string | null
           payment_type?: string | null
@@ -12755,7 +12800,9 @@ export type Database = {
           scheduled_accepted_at?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
+          scheduled_committed_at?: string | null
           scheduled_convert_at?: string | null
+          scheduled_driver_risk?: boolean
           scheduled_status?: string | null
           searching_expires_at?: string | null
           sequence_no?: number | null
@@ -12763,6 +12810,7 @@ export type Database = {
           service_area_id?: string | null
           settlement_formula_version?: string | null
           special_instructions?: string | null
+          stack_position?: number | null
           stacked_trip_id?: string | null
           started_at?: string | null
           status?: string | null
@@ -14598,6 +14646,14 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
       }
+      accept_stacked_ride: {
+        Args: {
+          p_current_trip_id: string
+          p_driver_id: string
+          p_offer_id: string
+        }
+        Returns: Json
+      }
       ack_offer_delivery: {
         Args: { p_method: string; p_offer_id: string }
         Returns: Json
@@ -14911,6 +14967,15 @@ export type Database = {
         Args: { _user_id: string }
         Returns: undefined
       }
+      complete_trip_and_promote_next: {
+        Args: {
+          p_completed_at?: string
+          p_driver_id: string
+          p_final_fare_pence: number
+          p_trip_id: string
+        }
+        Returns: Json
+      }
       compute_dispatch_score:
         | {
             Args: {
@@ -14963,6 +15028,10 @@ export type Database = {
       current_customer_id: { Args: never; Returns: string }
       current_driver_id: { Args: never; Returns: string }
       current_driver_profile_id: { Args: never; Returns: string }
+      customer_counter_ride_offer: {
+        Args: { p_offer_id: string; p_selected_fare_pence: number }
+        Returns: Json
+      }
       decline_ride_offer:
         | { Args: { p_driver_id: string; p_offer_id: string }; Returns: Json }
         | {
