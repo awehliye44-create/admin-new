@@ -11065,6 +11065,105 @@ export type Database = {
           },
         ]
       }
+      stripe_connect_payouts: {
+        Row: {
+          amount_pence: number
+          arrival_date: string | null
+          balance_transaction_id: string | null
+          bank_last4: string | null
+          connected_account_id: string
+          created_at: string
+          currency: string
+          driver_id: string | null
+          failure_code: string | null
+          failure_message: string | null
+          id: string
+          initiated_at: string | null
+          last_synced_at: string
+          payout_id: string
+          payout_method: string | null
+          statement_descriptor: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          amount_pence: number
+          arrival_date?: string | null
+          balance_transaction_id?: string | null
+          bank_last4?: string | null
+          connected_account_id: string
+          created_at?: string
+          currency?: string
+          driver_id?: string | null
+          failure_code?: string | null
+          failure_message?: string | null
+          id?: string
+          initiated_at?: string | null
+          last_synced_at?: string
+          payout_id: string
+          payout_method?: string | null
+          statement_descriptor?: string | null
+          status: string
+          updated_at?: string
+        }
+        Update: {
+          amount_pence?: number
+          arrival_date?: string | null
+          balance_transaction_id?: string | null
+          bank_last4?: string | null
+          connected_account_id?: string
+          created_at?: string
+          currency?: string
+          driver_id?: string | null
+          failure_code?: string | null
+          failure_message?: string | null
+          id?: string
+          initiated_at?: string | null
+          last_synced_at?: string
+          payout_id?: string
+          payout_method?: string | null
+          statement_descriptor?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stripe_connect_payouts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stripe_connect_payouts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "stripe_connect_payouts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "stripe_connect_payouts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "stripe_connect_payouts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       support_conversations: {
         Row: {
           assigned_admin_id: string | null
