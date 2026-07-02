@@ -131,6 +131,24 @@ function endOfTodayUtc(): string {
 
 const MAX_LEDGER_DRIVER_IN = 150;
 
+// Hard cap on any single Stripe-heavy sub-call so the whole edge function
+// stays under the 150s idle-timeout limit even on large Connect accounts.
+const STRIPE_SECTION_TIMEOUT_MS = 25_000;
+
+async function withTimeout<T>(
+  label: string,
+  ms: number,
+  promise: Promise<T>,
+): Promise<T | { __timeout: true; label: string }> {
+  return await Promise.race<T | { __timeout: true; label: string }>([
+    promise,
+    new Promise((resolve) =>
+      setTimeout(() => resolve({ __timeout: true, label }), ms)
+    ),
+  ]);
+}
+
+
 async function fetchLegacyManualReviewItems(
   supabase: ReturnType<typeof createClient>,
 ): Promise<Array<{
@@ -513,15 +531,25 @@ serve(async (req) => {
         stripePendingPence = pend?.amount ?? 0;
 
         if (!summaryOnly) {
-          moneyMovement = await fetchConnectMoneyMovementBundle({
-            supabase,
-            stripe,
-            currency,
-            regionId: resolvedRegionId,
-            serviceAreaId: serviceAreaId ?? null,
-            periodFrom,
-            periodTo,
-          });
+          const mm = await withTimeout(
+            "connect_money_movement",
+            STRIPE_SECTION_TIMEOUT_MS,
+            fetchConnectMoneyMovementBundle({
+              supabase,
+              stripe,
+              currency,
+              regionId: resolvedRegionId,
+              serviceAreaId: serviceAreaId ?? null,
+              periodFrom,
+              periodTo,
+            }),
+          );
+          if (mm && typeof mm === "object" && "__timeout" in mm) {
+            stripeBalanceError = "connect_money_movement_timeout";
+            moneyMovement = undefined;
+          } else {
+            moneyMovement = mm;
+          }
         }
       } catch (e) {
         stripeBalanceError = (e as Error).message;
@@ -743,11 +771,19 @@ serve(async (req) => {
       const stripeClient = stripeSecretKey
         ? new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" })
         : null;
-      platform_kpis = await fetchRegionPlatformKpis(supabase, {
-        regionId: resolvedRegionId,
-        stripe: stripeClient,
-        todayAuditRows,
-      });
+      const kpisResult = await withTimeout(
+        "platform_kpis",
+        STRIPE_SECTION_TIMEOUT_MS,
+        fetchRegionPlatformKpis(supabase, {
+          regionId: resolvedRegionId,
+          stripe: stripeClient,
+          todayAuditRows,
+        }),
+      );
+      platform_kpis =
+        kpisResult && typeof kpisResult === "object" && "__timeout" in kpisResult
+          ? null
+          : kpisResult;
     }
 
     if (profitSsotOnly) {
