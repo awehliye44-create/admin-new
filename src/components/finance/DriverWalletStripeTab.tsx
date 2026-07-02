@@ -165,7 +165,6 @@ export function DriverWalletStripeTab({
             <DetailRow label="Available balance" value={fmt(driver.stripe_connect_available_pence)} />
             <DetailRow label="Pending balance" value={fmt(driver.stripe_connect_pending_pence)} />
             <DetailRow label="In transit" value={fmt(driver.stripe_in_transit_pence)} />
-            <DetailRow label="Outstanding recovery" value={fmt(driver.recovery_debt_pence)} />
             <DetailRow label="Cash-out limit (SSOT)" value={fmt(driver.cashout_limit_pence)} />
           </CardContent>
         </Card>
