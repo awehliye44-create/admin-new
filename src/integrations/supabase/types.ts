@@ -5960,6 +5960,42 @@ export type Database = {
           },
         ]
       }
+      integration_secret_vault: {
+        Row: {
+          created_at: string
+          id: string
+          masked_preview: string
+          namespace: string
+          owner_id: string
+          secret_name: string
+          secret_value: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          masked_preview: string
+          namespace: string
+          owner_id: string
+          secret_name: string
+          secret_value: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          masked_preview?: string
+          namespace?: string
+          owner_id?: string
+          secret_name?: string
+          secret_value?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       invoice_delivery_logs: {
         Row: {
           delivery_status: string
