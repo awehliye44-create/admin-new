@@ -41,7 +41,7 @@ interface AuditEntry {
 export default function QrBookingControl() {
   const { user } = useAuth();
   const [config, setConfig] = useState<QrConfig | null>(null);
-  const [form, setForm] = useState({ pickup_name: '', pickup_address: '', pickup_lat: '', pickup_lng: '', status: 'disabled', allow_cash: true, allow_card: true, allow_apple_pay: true, allow_google_pay: true });
+  const [form, setForm] = useState({ pickup_name: '', pickup_address: '', pickup_lat: '', pickup_lng: '', status: 'disabled', allow_card: true, allow_apple_pay: true, allow_google_pay: true });
   const [saving, setSaving] = useState(false);
   const [statusSaving, setStatusSaving] = useState(false);
   const [copied, setCopied] = useState(false);
