@@ -84,6 +84,7 @@ export default function DriverWalletLedger() {
               onChange={(id) => setDriver(id)}
               regionId={serviceFilter.regionId}
               serviceAreaId={serviceFilter.serviceAreaId}
+              stripeConnectOnly
               fallbackLabel={
                 driver?.driver_name
                   ?? (driver?.driver_code ? driver.driver_code : null)
