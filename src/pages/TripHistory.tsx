@@ -52,6 +52,7 @@ import {
   summarizeTripPayments,
 } from '@/lib/tripCaptureStatus';
 import { FinancialReconciliationTripLink } from '@/components/finance/FinancialReconciliationTripLink';
+import { FinanceRecoveryPanel } from '@/components/payment/FinanceRecoveryPanel';
 import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { mapboxgl } from '@/lib/mapbox';
 import { createMapboxMap } from '@/lib/mapboxMap';
@@ -1469,7 +1470,8 @@ export default function TripHistory() {
                     const isMismatch = captureStatus.kind === 'capture_mismatch';
                     if (!isOk && !isMismatch) return null;
                     return (
-                      <Alert
+                      <>
+                        <Alert
                         variant={isMismatch ? 'destructive' : 'default'}
                         className={
                           isMismatch
@@ -1493,6 +1495,15 @@ export default function TripHistory() {
                           />
                         </AlertDescription>
                       </Alert>
+                      {isMismatch && (
+                        <FinanceRecoveryPanel
+                          tripId={selectedTrip.id}
+                          tripCode={selectedTrip.trip_code}
+                          source="trip-history"
+                          variant="summary"
+                        />
+                      )}
+                    </>
                     );
                   })()}
 
