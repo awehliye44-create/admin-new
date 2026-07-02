@@ -247,7 +247,7 @@ export function FinancialReconciliationStripeTab({
                   <TableHead>Charge ID</TableHead>
                   <TableHead>Driver</TableHead>
                   <TableHead>Trip</TableHead>
-                  <TableHead className="text-right">Commission</TableHead>
+                  <TableHead className="text-right">Stripe application fee</TableHead>
                   <TableHead>Created</TableHead>
                 </TableRow>
               </TableHeader>

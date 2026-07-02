@@ -3,7 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { FinanceLedgerPanel } from '@/components/finance/FinanceLedgerPanel';
 import { DriverWalletOverviewCards } from '@/components/finance/DriverWalletOverviewCards';
-import { DriverWalletAccountingTab } from '@/components/finance/DriverWalletAccountingTab';
+import { DriverWalletPayoutsTab } from '@/components/finance/DriverWalletPayoutsTab';
+import { DriverWalletStripeTab } from '@/components/finance/DriverWalletStripeTab';
 import { DriverSelector } from '@/components/finance/DriverSelector';
 import {
   DEFAULT_SERVICE_AREA_SELECTION,
@@ -20,7 +21,7 @@ import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
 import { useDriverWalletSsotDetail } from '@/hooks/useDriverWalletSsot';
 import { parseDriverWalletLedgerTab, type DriverWalletLedgerTab } from '@/lib/driverWalletLedgerRoutes';
 
-/** Single-driver Stripe payout truth + internal accounting audit. */
+/** Single-driver Stripe Connect truth — reads Stripe only; trip money lives on Trip History. */
 export default function DriverWalletLedger() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(
@@ -69,7 +70,7 @@ export default function DriverWalletLedger() {
   return (
     <AdminLayout
       title="Driver Wallet Ledger (SSOT)"
-      description="Stripe Connect payout truth on Overview — internal ledger and audit history on Accounting and Ledger tabs."
+      description="Stripe Connect payout truth — Overview, Payouts, and Stripe tabs read Connect only. Trip earnings are on Trip History."
     >
       <div className="space-y-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -89,7 +90,8 @@ export default function DriverWalletLedger() {
         <Tabs value={tab} onValueChange={(v) => setTab(v as DriverWalletLedgerTab)}>
           <TabsList className="flex flex-wrap h-auto gap-1">
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="accounting">Accounting</TabsTrigger>
+            <TabsTrigger value="payouts">Payouts</TabsTrigger>
+            <TabsTrigger value="stripe">Stripe</TabsTrigger>
             <TabsTrigger value="ledger">Ledger</TabsTrigger>
           </TabsList>
 
@@ -102,8 +104,16 @@ export default function DriverWalletLedger() {
             />
           </TabsContent>
 
-          <TabsContent value="accounting" className="mt-4">
-            <DriverWalletAccountingTab
+          <TabsContent value="payouts" className="mt-4">
+            <DriverWalletPayoutsTab
+              driver={driver}
+              currencyCode={currencyCode}
+              isLoading={loadingDetail}
+            />
+          </TabsContent>
+
+          <TabsContent value="stripe" className="mt-4">
+            <DriverWalletStripeTab
               driver={driver}
               currencyCode={currencyCode}
               regionId={serviceFilter.regionId}

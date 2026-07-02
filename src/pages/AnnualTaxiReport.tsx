@@ -228,7 +228,7 @@ export default function AnnualTaxiReport() {
       `Total Trips: ${summary.totalTrips}\nCash Trips: ${summary.cash}\nCard Trips: ${summary.card}\nCorporate Trips: ${summary.corporate}\n` +
       `Tips: ${formatPence(summary.tips, summary.currency)}\nPayouts Received: ${summary.payoutsTotal == null ? '—' : formatPence(summary.payoutsTotal, summary.currency)}\n\n` +
       `Trip fare, commission, and driver net values: Financial Reconciliation → Trips (SSOT)\n` +
-      `https://adminonecab.net/financial-reconciliation?tab=trips\n\n` +
+      `https://adminonecab.net/trip-history\n\n` +
       `This report is provided for record keeping purposes only. Drivers are self-employed and responsible for their own tax, National Insurance, expenses, and HMRC obligations.`
     );
     window.location.href = `mailto:?subject=${subject}&body=${body}`;
@@ -244,7 +244,7 @@ export default function AnnualTaxiReport() {
           <Info className="h-4 w-4" />
           <AlertTitle>Reporting only</AlertTitle>
           <AlertDescription>
-            Financial Reconciliation remains the Single Source of Truth for wallet balances, withdrawals, settlements
+            Financial Reconciliation audits Stripe integrity. Trip settlement values are on Trip History only.
             and Stripe reconciliation. This page never calculates or modifies financial values.
           </AlertDescription>
         </Alert>
@@ -393,7 +393,7 @@ export default function AnnualTaxiReport() {
                 </div>
                 <p className="text-xs text-muted-foreground mt-4">
                   Trip fare, commission, and driver net values live in{' '}
-                  <Link to="/financial-reconciliation?tab=trips" className="underline">
+                  <Link to="/trip-history" className="underline">
                     Financial Reconciliation → Trips (SSOT)
                   </Link>
                   .

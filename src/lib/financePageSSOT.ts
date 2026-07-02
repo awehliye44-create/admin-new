@@ -16,7 +16,7 @@ export const PAYOUT_AUDIT_EMPTY_MESSAGE =
   'No payout records yet. Failed payouts always appear here once recorded.';
 
 export const FINANCE_SSOT_FOOTNOTE =
-  'Financial Reconciliation is the accounting source of truth. Payout totals reflect driver Connect transfers, not ONECAB corporate bank receipts.';
+  'Trip Settlement (Trip History) calculates trip money. Financial Reconciliation audits Stripe integrity only.';
 
 export type MondayPayoutQuery = Pick<
   UseQueryResult<MondayPayoutDiagnosticsResponse>,

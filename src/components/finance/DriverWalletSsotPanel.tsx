@@ -82,7 +82,7 @@ export function DriverWalletSsotPanel({
         <div>
           <CardTitle className="text-base">Drivers</CardTitle>
           <p className="text-sm text-muted-foreground mt-1">
-            Digital payout positions from Stripe Connect — ledger balance is on Driver Wallet Ledger only.
+            Digital payout positions from Stripe Connect — per-driver detail on Driver Wallet Ledger.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>

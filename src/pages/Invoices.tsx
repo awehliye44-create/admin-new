@@ -659,7 +659,7 @@ export default function Invoices() {
                   <p>
                     Line items below are period statement totals from Financial Reconciliation audit data.
                     Per-trip gross fare, commission, and driver net:{' '}
-                    <Link to="/financial-reconciliation?tab=trips" className="underline">Financial Reconciliation → Trips</Link>
+                    <Link to="/trip-history" className="underline">Trip History (Trip Settlement SSOT)</Link>
                     {' · '}
                     <Link to={`/driver-wallet-ledger?driverId=${previewInvoice.driver_id ?? ''}`} className="underline">Driver Wallet Ledger</Link>
                   </p>

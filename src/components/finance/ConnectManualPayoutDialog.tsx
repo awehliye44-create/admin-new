@@ -100,7 +100,7 @@ export function ConnectManualPayoutDialog({
 
           <Alert>
             <AlertDescription>
-              Payout = min(available now, connect available). Per-driver wallet balance lives on Driver Wallet Ledger → Overview.
+              Payout = min(available now, Connect available). Driver Stripe positions live on Driver Wallet Ledger → Overview.
             </AlertDescription>
           </Alert>
 

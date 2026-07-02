@@ -1,4 +1,5 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useEffect, useRef } from 'react';
 import { useServiceAreas, type ServiceArea } from '@/hooks/useServiceAreas';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { MapPin } from 'lucide-react';
@@ -20,6 +21,17 @@ interface ServiceAreaFinanceFilterProps {
 
 export function ServiceAreaFinanceFilter({ value, onChange, className }: ServiceAreaFinanceFilterProps) {
   const { data: serviceAreas = [], isLoading } = useServiceAreas({ activeOnly: true });
+  const didAutoSelectRef = useRef(false);
+
+  // Scope FR SSOT to a region by default — unscoped loads are slow and can fail on large fleets.
+  useEffect(() => {
+    if (didAutoSelectRef.current || isLoading || value.regionId || value.serviceAreaId) return;
+    const first = serviceAreas[0];
+    if (!first) return;
+    didAutoSelectRef.current = true;
+    const cc = first.region?.currency_code || first.currency_code || null;
+    onChange({ serviceAreaId: first.id, regionId: first.region_id, currencyCode: cc });
+  }, [isLoading, onChange, serviceAreas, value.regionId, value.serviceAreaId]);
 
   const handleChange = (val: string) => {
     if (val === '__all__') {

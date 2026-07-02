@@ -850,7 +850,7 @@ export default function TripHistory() {
                 </p>
               </div>
               <Button asChild variant="outline" size="sm">
-                <a href="/financial-reconciliation?tab=trips">Open FR → Trips</a>
+                <a href="/trip-history">Trip History (Trip Settlement SSOT)</a>
               </Button>
             </div>
           </CardContent>

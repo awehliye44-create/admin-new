@@ -34,6 +34,15 @@ export function driverStripeAvailablePence(
   return Math.max(0, driver.stripe_connect_available_pence);
 }
 
+/** Stripe balance.pending — not driver-facing spendable money. */
+export function driverStripePendingPence(
+  driver: DriverWalletSsotRow | null | undefined,
+): number | null {
+  if (!driver?.connected_account_id) return null;
+  if (typeof driver.stripe_connect_pending_pence !== 'number') return null;
+  return Math.max(0, driver.stripe_connect_pending_pence);
+}
+
 /** Next weekly transfer display — Stripe available only (no ledger/batch fallback). */
 export function driverNextWeeklyTransferPence(
   driver: DriverWalletSsotRow | null | undefined,

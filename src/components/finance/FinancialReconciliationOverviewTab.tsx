@@ -30,47 +30,61 @@ export function FinancialReconciliationOverviewTab({
   currencyCode: string;
   readOnly?: boolean;
 }) {
-  const fmt = (p: number) => formatPence(p, currencyCode);
+  const fmt = (p: number | null | undefined) => formatPence(Number(p ?? 0), currencyCode);
   const kpisUnavailable = platformKpis == null;
+  const provider = ssot.summary?.provider_money;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <FinanceSSOTBadge badge={ssot.badge} />
         <span className="text-xs text-muted-foreground">
-          {kpisUnavailable
-            ? 'Platform KPIs — unavailable (admin-finance-reconciliation SSOT)'
-            : `Platform KPIs — admin-finance-reconciliation SSOT (${platformKpis.driver_count} drivers)`}
+          Stripe integrity audit — verifies platform and Connect match ledger sync. Trip money is on Trip History.
         </span>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard
+          label="Platform Stripe Available"
+          value={provider?.provider_available_balance_pence != null ? fmt(provider.provider_available_balance_pence) : '—'}
+        />
+        <KpiCard
+          label="Platform Stripe Pending"
+          value={provider?.provider_pending_balance_pence != null ? fmt(provider.provider_pending_balance_pence) : '—'}
+        />
+        <KpiCard
+          label="Provider Health"
+          value={provider?.provider_health_status ?? '—'}
+        />
+        <KpiCard label="Reconciliation" value={ssot.summary?.reconciliation_check?.status ?? '—'} />
       </div>
 
       {kpisUnavailable ? (
         <Alert variant="destructive">
-          <AlertTitle>Platform KPIs unavailable</AlertTitle>
+          <AlertTitle>Sync KPIs unavailable</AlertTitle>
           <AlertDescription className="space-y-2">
-            <p>Live platform KPIs could not be loaded from the SSOT backend. No zero-fallback values are shown.</p>
+            <p>Driver sync KPIs could not be loaded. Select a service area and refresh.</p>
             <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
               Refresh
             </Button>
           </AlertDescription>
         </Alert>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <KpiCard label="Balanced Drivers" value={platformKpis.balanced_drivers} />
-          <KpiCard label="Outstanding Liability" value={fmt(platformKpis.outstanding_liability_pence)} />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <KpiCard label="Balanced Drivers" value={platformKpis.balanced_drivers ?? 0} />
           <KpiCard label="Failed Payouts" value={fmt(platformKpis.failed_payouts_pence)} />
-          <KpiCard label="Stripe-only" value={platformKpis.stripe_only_records} />
-          <KpiCard label="Ledger-only" value={platformKpis.ledger_only_records} />
-          <KpiCard label="Today's Captures" value={fmt(platformKpis.todays_captures_pence)} />
-          <KpiCard label="Today's Card Trips" value={platformKpis.todays_card_trips} />
+          <KpiCard label="Stripe-only Records" value={platformKpis.stripe_only_records ?? 0} />
+          <KpiCard label="Ledger-only Records" value={platformKpis.ledger_only_records ?? 0} />
         </div>
       )}
 
       <p className="text-xs text-muted-foreground">
-        Canonical platform financial KPIs — not duplicated on Dashboard or other admin pages.{' '}
-        <Link to="/financial-reconciliation?tab=trips" className="underline">Trips</Link>
+        Trip earnings and settlement calculations:{' '}
+        <Link to="/trip-history" className="underline">Trip History (Trip Settlement SSOT)</Link>
         {' · '}
         <Link to="/financial-reconciliation?tab=drivers" className="underline">Drivers</Link>
+        {' · '}
+        <Link to="/financial-reconciliation?tab=stripe" className="underline">Stripe</Link>
       </p>
     </div>
   );

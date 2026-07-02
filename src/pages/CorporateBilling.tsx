@@ -330,7 +330,7 @@ export default function CorporateBilling() {
               </CardHeader>
               <CardContent>
                 <Button asChild variant="outline" size="sm">
-                  <a href="/financial-reconciliation?tab=trips">Financial Reconciliation → Trips</a>
+                  <a href="/trip-history">Trip History (Trip Settlement SSOT)</a>
                 </Button>
                 <p className="text-xs text-muted-foreground mt-2">Customer paid and driver net live in FR only</p>
               </CardContent>

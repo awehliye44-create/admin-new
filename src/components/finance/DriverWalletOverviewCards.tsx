@@ -7,6 +7,7 @@ import {
   driverLastStripePayout,
   driverNextWeeklyTransferPence,
   driverStripeAvailablePence,
+  driverStripePendingPence,
   resolveStripeAccountStatus,
 } from '@/lib/driverWalletStripeDisplay';
 import { useConnectPayoutStatus } from '@/hooks/useConnectPayoutStatus';
@@ -82,6 +83,7 @@ export function DriverWalletOverviewCards({
   }
 
   const stripeAvailable = driverStripeAvailablePence(driver);
+  const stripePending = driverStripePendingPence(driver);
   const nextTransfer = driverNextWeeklyTransferPence(driver);
   const lastPayout = driverLastStripePayout(driver);
   const accountStatus = resolveStripeAccountStatus({
@@ -99,8 +101,8 @@ export function DriverWalletOverviewCards({
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Driver money is Stripe Connect <span className="font-medium text-foreground">balance.available</span> only.
-        Internal ledger totals are on the Accounting tab.
+        Stripe Connect only — reads <span className="font-medium text-foreground">balance.available</span> and payout
+        history. Trip earnings are calculated on Trip History (Trip Settlement SSOT).
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <OverviewCard
@@ -114,6 +116,18 @@ export function DriverWalletOverviewCards({
               : stripeAvailable == null
                 ? 'Unavailable'
                 : fmt(stripeAvailable)}
+          </p>
+        </OverviewCard>
+
+        <OverviewCard
+          title="Pending in Stripe"
+          description="Funds not yet available for payout (Stripe balance.pending)."
+          badge="Pending"
+        >
+          <p className="text-2xl font-semibold">
+            {!driver.connected_account_id || stripePending == null
+              ? '—'
+              : fmt(stripePending)}
           </p>
         </OverviewCard>
 

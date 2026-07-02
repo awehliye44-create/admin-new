@@ -318,10 +318,10 @@ export default function CorporateReports() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                Customer paid, commission, and driver settlement per trip are in Financial Reconciliation → Trips only.
+                Customer paid, commission, and driver settlement per trip are on Trip History (Trip Settlement SSOT) only.
               </p>
               <Button asChild variant="outline" size="sm" className="mt-3">
-                <Link to="/financial-reconciliation?tab=trips">Open FR → Trips</Link>
+                <Link to="/trip-history">Trip History (Settlement SSOT)</Link>
               </Button>
             </CardContent>
           </Card>
@@ -353,7 +353,7 @@ export default function CorporateReports() {
               <Card>
                 <CardHeader>
                   <CardTitle>Monthly Corporate Trip Volume</CardTitle>
-                  <CardDescription>Trip count trend — fare/settlement values in Financial Reconciliation → Trips</CardDescription>
+                  <CardDescription>Trip count trend — fare/settlement values on Trip History</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="h-[300px]">
@@ -437,7 +437,7 @@ export default function CorporateReports() {
             <Card>
               <CardHeader>
                 <CardTitle>Monthly trip volume</CardTitle>
-                <CardDescription>Corporate trip counts by month — settlement values in Financial Reconciliation → Trips</CardDescription>
+                <CardDescription>Corporate trip counts by month — settlement values on Trip History</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="h-[400px]">
@@ -477,7 +477,7 @@ export default function CorporateReports() {
             <Card>
               <CardHeader>
                 <CardTitle>Corporate Account Performance</CardTitle>
-                <CardDescription>Trip volume by account — settlement in Financial Reconciliation → Trips</CardDescription>
+                <CardDescription>Trip volume by account — settlement on Trip History</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                 <Table>
@@ -486,7 +486,7 @@ export default function CorporateReports() {
                       <TableHead>Company</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Trips</TableHead>
-                      <TableHead>Financial Reconciliation</TableHead>
+                      <TableHead>Trip settlement</TableHead>
                       <TableHead className="text-right">Discount</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -512,7 +512,7 @@ export default function CorporateReports() {
                             <TableCell className="text-right font-medium">{accountTrips.length}</TableCell>
                             <TableCell>
                               <Button asChild variant="link" size="sm" className="h-auto p-0 text-xs">
-                                <Link to="/financial-reconciliation?tab=trips">FR → Trips</Link>
+                                <Link to="/trip-history">Trip History</Link>
                               </Button>
                             </TableCell>
                             <TableCell className="text-right">{account.discount_percentage || 0}%</TableCell>

@@ -516,6 +516,8 @@ serve(async (req) => {
     const inFlightCashout = pendingCashout + reservedCashout;
     const pendingTransfers = pendingPayout + inFlightCashout;
 
+    const scopeHeavyStripe = Boolean(resolvedRegionId || serviceAreaId);
+
     let stripeAvailablePence = 0;
     let stripePendingPence = 0;
     let stripeBalanceError: string | null = null;
@@ -530,7 +532,7 @@ serve(async (req) => {
         stripeAvailablePence = avail?.amount ?? 0;
         stripePendingPence = pend?.amount ?? 0;
 
-        if (!summaryOnly) {
+        if (!summaryOnly && scopeHeavyStripe) {
           const mm = await withTimeout(
             "connect_money_movement",
             STRIPE_SECTION_TIMEOUT_MS,
@@ -727,7 +729,7 @@ serve(async (req) => {
     const stripe_payment_intents = buildStripePaymentIntentAuditRows(tripRows, paymentRows);
 
     let platform_kpis = null;
-    if (!summaryOnly && !driverId) {
+    if (!summaryOnly && !driverId && scopeHeavyStripe) {
       const { start: londonStart, end: londonEnd } = getLondonDayBounds();
       let todayTripQuery = supabase
         .from("trips")

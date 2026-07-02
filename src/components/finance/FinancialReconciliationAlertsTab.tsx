@@ -37,7 +37,7 @@ export function FinancialReconciliationAlertsTab({
     alertItems.push({
       id: 'settlement-mismatch',
       label: 'Settlement mismatch',
-      detail: 'Card or cash ledger reconciliation failed — see variance on Overview.',
+      detail: 'Platform ledger reconciliation failed — see variance on Overview.',
       severity: 'destructive',
     });
   }

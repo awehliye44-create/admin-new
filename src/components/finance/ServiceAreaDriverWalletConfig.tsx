@@ -39,7 +39,7 @@ export function ServiceAreaDriverWalletConfig({
               </Label>
               <p className="text-xs text-muted-foreground max-w-xl">
                 Controls whether drivers in this service area can use Instant Cash Out.
-                Weekly payouts and wallet balance are not affected.
+                Weekly payouts are not affected.
               </p>
             </div>
           </div>
