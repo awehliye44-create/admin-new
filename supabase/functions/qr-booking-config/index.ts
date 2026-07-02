@@ -17,7 +17,7 @@ Deno.serve(async (req) => {
 
     const { data, error } = await supabase
       .from('qr_booking_config')
-      .select('pickup_name, pickup_address, pickup_lat, pickup_lng, status, qr_url, allow_cash, allow_card, allow_apple_pay, allow_google_pay')
+      .select('pickup_name, pickup_address, pickup_lat, pickup_lng, status, qr_url, allow_card, allow_apple_pay, allow_google_pay')
       .limit(1)
       .single();
 
