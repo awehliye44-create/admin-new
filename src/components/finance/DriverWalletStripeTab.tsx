@@ -69,7 +69,7 @@ export function DriverWalletStripeTab({
   const ledgerTransfers = (driver?.transfer_ledger_rows?.length
     ? driver.transfer_ledger_rows
     : (driver?.ledger_rows ?? []).filter((lr) => isLedgerTransferRow(lr as Record<string, unknown>)));
-  const recoveryRows = (driver?.ledger_rows ?? []).filter((lr) => isRecoveryLedgerRow(lr as Record<string, unknown>));
+  
   const bankPayouts = driver?.stripe_connect_payouts ?? [];
   const failedTransfers = payoutItems.filter((pi) => {
     const status = payoutItemStatus(pi as Record<string, unknown>);
