@@ -1,115 +1,160 @@
-# Finance Accounting Separation — ONECAB Commission vs Stripe Platform Balance
+# Digital Finance Migration — Operational Reset
 
-## Problem
-The admin panel (and downstream driver app surfaces) currently conflates **Stripe platform balance / unallocated cash** with **ONECAB commission earned**. This produces wrong totals on:
-- Admin Payments / Payout Batches / Driver Settlements / Disputes & Adjustments
-- Driver Wallet & Ledger
-- Driver app lifetime / today / wallet / pending / available
-- Customer-side fare summaries that read from the same hooks
+One-time controlled reset moving ONECAB to a 100% digital payment model. Historical audit data preserved; operational balances zeroed via ledger entries (not silent updates); legacy cash workflow retired for new trips.
 
-Root cause: several admin views derive ONECAB commission as `stripe_available_balance − driver_payable` instead of summing `driver_wallet_ledger.PLATFORM_COMMISSION` (the locked SOT per `mem://finance/unified-financial-source-of-truth`).
+Nothing runs until you approve.
 
-## Strict definitions (the only formulas that may be used)
+---
 
-| Metric | Formula | Source |
-|---|---|---|
-| Total customer revenue | `Σ payments.captured_amount_pence` (status = captured/succeeded) | `payments` |
-| ONECAB gross commission | `Σ driver_wallet_ledger.amount_pence WHERE type='PLATFORM_COMMISSION'` | ledger SOT |
-| Stripe processing fees | `Σ trips.stripe_processing_fee_pence` | trips |
-| ONECAB net commission | gross commission − Stripe fees | derived |
-| Driver net earnings | `Σ ledger(NET_FARE + TIP + AIRPORT + PASS_THROUGH)` | ledger SOT |
-| Stripe platform balance | live `balances.available + balances.pending` from Stripe API | edge fn |
-| Driver payout liability | `Σ driver_wallets.balance_pence` (positive only) | wallets |
-| Driver available payout | `Σ driver_financial_summary.net_available_for_payout` | view |
-| Driver pending payout | captured driver earnings not yet Stripe-available | derived |
+## 1. Scope
 
-Commission is **never** calculated as `stripe_balance − driver_payable`.
+**Zeroed (operational state):**
+- `driver_wallets.balance_pence` → 0
+- Outstanding recovery debt (derived from `driver_wallet_ledger` DEBT entries) → offset to 0
+- Scheduled weekly payout amounts (pending `payout_items`) → voided
+- Available cash-out (`driver_earning_settlement.eligible_for_payout` unallocated rows) → marked migrated
+- Open `payout_batches` in `pending`/`queued` state → archived
+- Orphaned `payout_items` (no `stripe_transfer_id`) → voided
 
-## Backend changes
+**Preserved (audit — untouched):**
+- `trips`, `payments`, `trip_finance`
+- All `driver_wallet_ledger` historical rows (kept, not deleted)
+- `driver_earning_settlement` rows already `paid` / with `stripe_transfer_id`
+- `stripe_connect_payouts`, `driver_early_cashouts` completed rows
+- `driver_statements`, `statement_runs`
 
-### 1. New edge function `admin-finance-summary`
-Returns one canonical object per region (or All Services grouped by currency):
-```ts
-{
-  currency_code,
-  totals: {
-    customer_revenue_pence,       // payments.captured_amount_pence
-    onecab_gross_commission_pence,// ledger PLATFORM_COMMISSION
-    stripe_fees_pence,            // trips.stripe_processing_fee_pence
-    onecab_net_commission_pence,  // derived
-    driver_net_earnings_pence,    // ledger NET_FARE+TIP+AIRPORT+PASS_THROUGH
-    driver_payout_liability_pence,// Σ driver_wallets.balance > 0
-    driver_available_payout_pence,// Σ net_available_for_payout
-    driver_pending_payout_pence,
-  },
-  stripe_platform_balance: { available_pence, pending_pence, source: 'stripe_api'|'unavailable' },
-  commission_status: 'stripe_confirmed'|'stripe_paid_out'|'calculated_pending'|'legacy_fallback',
-  validation_warnings: string[]   // e.g. "Commission exceeds tier cap"
-}
+---
+
+## 2. Tables & Functions Affected
+
+| Table | Action |
+|---|---|
+| `driver_wallet_ledger` | INSERT one `MIGRATION_RESET` row per driver (offsets current balance to 0). No UPDATE/DELETE. |
+| `driver_wallets` | Cache row recomputed to 0 by existing aggregate trigger after ledger insert. |
+| `payout_items` | UPDATE status → `voided_migration` where status IN (`pending`,`queued`,`authorized`) AND `stripe_transfer_id IS NULL`. |
+| `payout_batches` | UPDATE status → `archived_migration` where status IN (`pending`,`queued`,`processing`) AND no successful children. |
+| `payout_authorization` | UPDATE status → `cancelled_migration` where pending. |
+| `driver_earning_settlement` | UPDATE `settlement_lifecycle_status` → `migrated_legacy` where unallocated & unpaid. |
+| `driver_early_cashouts` | UPDATE status → `cancelled_migration` where status IN (`pending`,`processing`). |
+| `admin_settings` | INSERT `finance_era = 'digital'`, `finance_era_started_at = now()`. |
+
+**New:**
+- Migration ledger type: `MIGRATION_RESET` (enum/text value in `driver_wallet_ledger.entry_type`).
+- View `v_finance_era_legacy_cash` (read-only, filters ledger rows where `created_at < finance_era_started_at`).
+- View `v_finance_era_digital` (from `finance_era_started_at` onward).
+
+**Removed (permanent cleanup per user policy):**
+- Cash-workflow debt-recovery paths in `record-financial-outcome` and `tripSettlement.ts` — the `DEBT_RECOVERY` branch is deleted, not gated. Card-only settlement remains.
+- Legacy cash commission accrual code paths.
+
+---
+
+## 3. Edge Function / Script
+
+Single admin-only edge function: `admin-digital-finance-migration`
+- Requires `super_admin` role (JWT verified via `requireAdmin()`).
+- Idempotent: guarded by `admin_settings.finance_era = 'digital'` — refuses to run twice.
+- Wraps everything in a single transaction via `rpc('run_digital_finance_migration')`.
+- Emits one audit row per driver in `admin_payment_audit`.
+
+Frontend: `/finance-reconciliation` gets an **Era selector** (Legacy Cash / Digital) and a one-time "Run Digital Finance Migration" button (super_admin only, disabled once era = digital).
+
+---
+
+## 4. SQL (representative — full version generated at execution time)
+
+```sql
+-- 1. Mark era
+INSERT INTO admin_settings(key, value)
+VALUES ('finance_era','digital'), ('finance_era_started_at', now()::text)
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+
+-- 2. Per-driver zeroing ledger entry
+INSERT INTO driver_wallet_ledger
+  (driver_id, entry_type, amount_pence, currency, description, metadata, created_at)
+SELECT
+  dw.driver_id,
+  'MIGRATION_RESET',
+  -dw.balance_pence,           -- offsets current balance exactly to 0
+  dw.currency,
+  'Digital Finance Migration – Operational reset for transition to 100% digital payments.',
+  jsonb_build_object('prior_balance_pence', dw.balance_pence),
+  now()
+FROM driver_wallets dw
+WHERE dw.balance_pence <> 0;
+
+-- 3. Void orphaned payout items
+UPDATE payout_items
+SET status='voided_migration', updated_at=now()
+WHERE status IN ('pending','queued','authorized')
+  AND stripe_transfer_id IS NULL;
+
+-- 4. Archive open batches
+UPDATE payout_batches
+SET status='archived_migration', updated_at=now()
+WHERE status IN ('pending','queued','processing')
+  AND NOT EXISTS (
+    SELECT 1 FROM payout_items pi
+    WHERE pi.batch_id = payout_batches.id AND pi.stripe_transfer_id IS NOT NULL
+  );
+
+-- 5. Cancel pending authorizations and early-cashouts
+UPDATE payout_authorization SET status='cancelled_migration', updated_at=now()
+WHERE status IN ('pending','authorized');
+
+UPDATE driver_early_cashouts SET status='cancelled_migration', updated_at=now()
+WHERE status IN ('pending','processing');
+
+-- 6. Mark unallocated settlements as migrated
+UPDATE driver_earning_settlement
+SET settlement_lifecycle_status='migrated_legacy', updated_at=now()
+WHERE allocated_to_payout = false
+  AND settlement_status <> 'paid';
 ```
-Implementation reuses `_shared/commission.ts` for the tier-cap validation and the existing Stripe client for balance + payouts.
 
-### 2. Validation rule (server-side, inside the function)
+---
+
+## 5. Expected Impact
+
+For **every driver**, after run:
+- `wallet_balance` = £0.00
+- `recovery_debt` = £0.00
+- `scheduled_weekly_transfer` = £0.00
+- `available_cashout` = £0.00
+- Stripe Connect balances **unchanged** (Stripe is external SSOT).
+- Historical `driver_wallet_ledger` fully queryable; new "Legacy Cash Era" tab surfaces them.
+
+New trips settle card-only: `Driver Net = Fare − Commission`; transfer = `MAX(0, Driver Net)`; no debt recovery path exists.
+
+---
+
+## 6. Rollback Plan
+
+Because the migration only INSERTs one ledger row per driver and flips statuses to explicit `*_migration` values (never deletes), rollback is deterministic:
+
+```sql
+-- undo era flag
+DELETE FROM admin_settings WHERE key IN ('finance_era','finance_era_started_at');
+-- delete migration ledger entries (aggregate trigger restores wallet balances)
+DELETE FROM driver_wallet_ledger WHERE entry_type='MIGRATION_RESET' AND created_at >= :era_started_at;
+-- restore statuses
+UPDATE payout_items SET status='pending' WHERE status='voided_migration' AND updated_at >= :era_started_at;
+UPDATE payout_batches SET status='pending' WHERE status='archived_migration' AND updated_at >= :era_started_at;
+UPDATE payout_authorization SET status='pending' WHERE status='cancelled_migration' AND updated_at >= :era_started_at;
+UPDATE driver_early_cashouts SET status='pending' WHERE status='cancelled_migration' AND updated_at >= :era_started_at;
+UPDATE driver_earning_settlement SET settlement_lifecycle_status=NULL WHERE settlement_lifecycle_status='migrated_legacy' AND updated_at >= :era_started_at;
 ```
-if onecab_gross_commission > commissionable_revenue × max_driver_tier_pct
-  → push warning "Commission exceeds allowed tier cap — calculation mismatch."
-```
 
-### 3. Commission status resolution
-- If `processed_stripe_events` has a recent `balance.available` event covering the period → `stripe_confirmed`
-- If a Stripe payout to the ONECAB platform bank exists → `stripe_paid_out`
-- Else if ledger has `PLATFORM_COMMISSION` rows → `calculated_pending`
-- Else → `legacy_fallback`
+A pre-flight snapshot (`pg_dump` of the affected tables filtered to the touched rows) is written to `/mnt/documents/digital-migration-snapshot-<timestamp>.sql` before the run for a hard restore option.
 
-No migrations required — all numbers come from existing tables (`driver_wallet_ledger`, `payments`, `trips`, `driver_wallets`, `driver_financial_summary`).
+---
 
-## Frontend changes
+## 7. Execution Sequence (after your approval)
 
-### `src/hooks/useAdminFinanceSummary.ts` (new)
-Wrap the edge function with React Query (5-min stale, per centralized caching memory).
+1. Migration: add `MIGRATION_RESET` ledger type, `finance_era` keys, `*_migration` status values, era views.
+2. Deploy `admin-digital-finance-migration` edge function.
+3. Delete legacy cash / debt-recovery code paths from settlement + record-financial-outcome (per cleanup policy).
+4. Add Era selector + one-time run button on Financial Reconciliation.
+5. You click **Run** in the admin UI when ready.
 
-### `src/components/finance/FinanceTotalsCards.tsx` (new, reusable)
-Renders the 9 required cards in order:
-1. Total customer revenue
-2. ONECAB gross commission
-3. Stripe processing fees
-4. ONECAB net after Stripe fees
-5. Stripe platform balance — **labelled "Platform balance — not commission"**, distinct slate styling, info tooltip
-6. Driver payout liability
-7. Driver available payout
-8. Driver pending payout
-9. ONECAB commission payout status (badge: confirmed / paid / calculated / legacy + fallback chip when not Stripe-confirmed)
-
-Mixed-currency safe via existing `CurrencyGroupedStats`.
-
-### Pages updated to consume the new hook (remove any local commission math)
-- `src/pages/AdminPayments.tsx`
-- `src/pages/AdminPayoutBatches.tsx`
-- `src/pages/AdminDriverSettlements.tsx`
-- `src/pages/DriverWallet.tsx` (admin view — show Gross fares / Card credits / Driver net / Cash debt / Wallet balance / Pending / Available / Paid out / In-flight cashout)
-- `src/pages/Disputes.tsx` summary header
-
-### Driver app surfaces (driver-app project, mirrored via existing `driver-wallet-summary` edge fn)
-- Confirm the function returns `lifetime_earnings`, `today_earnings`, `wallet_balance`, `pending_payout`, `available_payout`, `cash_debt_pence` — already implemented per memory; only add a guard so it **never** falls back to `stripe_available_balance` if the ledger query fails (throw structured `error_code: WALLET_LEDGER_UNAVAILABLE` instead, per the No-Silent-Failures policy).
-
-### Tests
-- Extend `src/test/tripAccounting.test.ts` with a regression case asserting `commission ≠ stripe_balance − driver_payable`.
-- New `src/test/financeSummary.test.ts` covering the 4 commission_status branches and the tier-cap warning.
-
-## Out of scope (kept untouched)
-- Existing `record-financial-outcome`, commission writes, ledger schema — these are correct; only the **reporting layer** is being fixed.
-- Customer fare engine.
-
-## Risks / fallbacks
-- If Stripe API is unreachable: `stripe_platform_balance.source = 'unavailable'`, card shows "—" with a warning chip; commission status falls back to `calculated_pending` so admins still see a number.
-- All historical trips with missing `commission_pence` get a fallback chip on the row and use `commissionable_fare × tier_pct` per `_shared/commission.ts`.
-
-## Deliverables
-1. `supabase/functions/admin-finance-summary/index.ts`
-2. `src/hooks/useAdminFinanceSummary.ts`
-3. `src/components/finance/FinanceTotalsCards.tsx`
-4. Edits to the 5 admin pages above
-5. Driver-wallet-summary guard tweak
-6. 2 test files
-
-Estimated diff: ~900 lines across ~10 files, no DB migration.
+Awaiting approval to proceed.
