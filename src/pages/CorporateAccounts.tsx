@@ -65,7 +65,7 @@ export default function CorporateAccounts() {
     monthly_budget: 1000,
     region_id: '',
     service_area_id: '',
-    payment_cash_enabled: false,
+    
     payment_card_enabled: true,
     payment_apple_pay_enabled: true,
     payment_google_pay_enabled: true,
