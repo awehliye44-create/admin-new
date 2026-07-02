@@ -20,9 +20,16 @@ function statusChipVariant(label: string | null | undefined): 'default' | 'secon
   return 'secondary';
 }
 
-function isConnectReconciliationIssue(status: string): boolean {
-  const s = status.toLowerCase();
+function isConnectReconciliationIssue(status: string | null | undefined): boolean {
+  const s = String(status ?? '').toLowerCase();
+  if (!s) return false;
   return s !== 'matched' && s !== 'healthy';
+}
+
+function isTransferMismatch(m: { kind?: string | null; message?: string | null }): boolean {
+  const kind = String(m.kind ?? '').toLowerCase();
+  const message = String(m.message ?? '').toLowerCase();
+  return kind.includes('transfer') || message.includes('transfer');
 }
 
 export function FinancialReconciliationStripeTab({
@@ -51,16 +58,14 @@ export function FinancialReconciliationStripeTab({
   const ccy = currencyCode.toLowerCase();
   const mm = summary?.money_movement;
   const provider = summary?.provider_money;
-  const fmt = (p: number) => formatPence(p, ccy);
+  const fmt = (p: number | null | undefined) => formatPence(Number(p ?? 0), ccy);
   const fmtNullable = (p: number | null | undefined) => (p == null ? '—' : fmt(p));
 
   const charges = mm?.collected_fees ?? [];
   const transfers = mm?.transfers ?? [];
   const connectAccounts = mm?.connect_accounts ?? [];
   const payouts = mm?.payouts ?? [];
-  const transferFailures = (mm?.mismatches ?? []).filter(
-    (m) => m.kind.toLowerCase().includes('transfer') || m.message.toLowerCase().includes('transfer'),
-  );
+  const transferFailures = (mm?.mismatches ?? []).filter(isTransferMismatch);
 
   const connectReconciliationQueue = useMemo(
     () => connectAccounts.filter((a) => isConnectReconciliationIssue(a.reconciliation_status) || a.duplicate_connect_account),
@@ -364,13 +369,15 @@ export function FinancialReconciliationStripeTab({
               </TableHeader>
               <TableBody>
                 {connectAccountsAll.map((a) => (
-                  <TableRow key={a.connected_account_id}>
+                  <TableRow key={a.connected_account_id ?? a.driver_id}>
                     <TableCell>
                       <DriverWalletLedgerLink driverId={a.driver_id} tab="stripe">
-                        {a.driver_name}
+                        {a.driver_name ?? '—'}
                       </DriverWalletLedgerLink>
                     </TableCell>
-                    <TableCell className="font-mono text-xs">{a.connected_account_id.slice(0, 14)}…</TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {a.connected_account_id ? `${a.connected_account_id.slice(0, 14)}…` : '—'}
+                    </TableCell>
                     <TableCell>
                       <Badge variant={statusChipVariant(a.reconciliation_status)}>{a.reconciliation_status}</Badge>
                       {a.duplicate_connect_account ? (

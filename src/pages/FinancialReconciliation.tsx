@@ -107,6 +107,14 @@ function FinancialReconciliationPage() {
   const ccy = ssot.currencyCode || filter.currencyCode || 'GBP';
   const backendAudit = backendAuditData?.finance_backend_audit_v1;
 
+  /** money_movement may live on response root or inside summary — merge for Stripe tab. */
+  const stripeSummary = useMemo(() => {
+    if (!summary) return null;
+    const movement = summary.money_movement ?? data?.money_movement;
+    if (movement === summary.money_movement) return summary;
+    return { ...summary, money_movement: movement };
+  }, [summary, data?.money_movement]);
+
   const reconciliationChip = useMemo(() => {
     if (!summary) return null;
     const reconciliationStatus = safeReconciliationStatus(summary);
@@ -249,31 +257,37 @@ function FinancialReconciliationPage() {
           </TabsContent>
 
           <TabsContent value="drivers" className="mt-4">
-            <DriverWalletSsotPanel regionId={filter.regionId} currencyCode={ccy} />
+            {frTab === 'drivers' && (
+              <DriverWalletSsotPanel regionId={filter.regionId} currencyCode={ccy} />
+            )}
           </TabsContent>
 
           <TabsContent value="stripe" className="mt-4">
-            <FinancialReconciliationStripeTab
-              summary={ssot.summary}
-              currencyCode={ccy}
-              serviceFilter={filter}
-              periodFrom={from || undefined}
-              periodTo={to || undefined}
-              periodLabel={from && to ? `${from} → ${to}` : undefined}
-              paymentIntents={data?.stripe_payment_intents ?? []}
-              stripeBalanceError={data?.meta?.stripe_balance_error ?? null}
-              readOnly={readOnly}
-            />
+            {frTab === 'stripe' && (
+              <FinancialReconciliationStripeTab
+                summary={stripeSummary}
+                currencyCode={ccy}
+                serviceFilter={filter}
+                periodFrom={from || undefined}
+                periodTo={to || undefined}
+                periodLabel={from && to ? `${from} → ${to}` : undefined}
+                paymentIntents={data?.stripe_payment_intents ?? []}
+                stripeBalanceError={data?.meta?.stripe_balance_error ?? null}
+                readOnly={readOnly}
+              />
+            )}
           </TabsContent>
 
           <TabsContent value="alerts" className="mt-4">
-            <FinancialReconciliationAlertsTab
-              ssot={ssot}
-              backendAudit={backendAudit}
-              regionId={filter.regionId ?? null}
-              currencyCode={ccy}
-              readOnly={readOnly}
-            />
+            {frTab === 'alerts' && (
+              <FinancialReconciliationAlertsTab
+                ssot={ssot}
+                backendAudit={backendAudit}
+                regionId={filter.regionId ?? null}
+                currencyCode={ccy}
+                readOnly={readOnly}
+              />
+            )}
           </TabsContent>
         </Tabs>
       </div>

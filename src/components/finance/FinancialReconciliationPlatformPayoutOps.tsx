@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { format } from 'date-fns';
+import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -161,7 +161,7 @@ export function FinancialReconciliationPlatformPayoutOps({
                   batches.map((batch) => (
                     <TableRow key={batch.id}>
                       <TableCell className="text-xs whitespace-nowrap">
-                        {format(new Date(batch.runDate), 'dd MMM yyyy')}
+                        {formatFinanceDateSafe(batch.runDate, 'dd MMM yyyy')}
                       </TableCell>
                       <TableCell>{getKindDisplay(batch.kind)}</TableCell>
                       <TableCell>{getStatusBadge(batch.status)}</TableCell>
@@ -204,10 +204,10 @@ export function FinancialReconciliationPlatformPayoutOps({
                 ) : (
                   filteredCashouts.map((c) => (
                     <TableRow key={c.id}>
-                      <TableCell className="text-xs">{format(new Date(c.createdAt), 'dd MMM HH:mm')}</TableCell>
+                      <TableCell className="text-xs">{formatFinanceDateSafe(c.createdAt, 'dd MMM HH:mm')}</TableCell>
                       <TableCell>
                         <DriverWalletLedgerLink driverId={c.driverId} tab="payouts">
-                          {c.driverName ?? c.driverId.slice(0, 8)}
+                          {c.driverName ?? (c.driverId ? c.driverId.slice(0, 8) : '—')}
                         </DriverWalletLedgerLink>
                       </TableCell>
                       <TableCell>{getStatusBadge(c.status)}</TableCell>
