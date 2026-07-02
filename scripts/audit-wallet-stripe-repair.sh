@@ -35,8 +35,42 @@ if [[ "$DRY_RUN" == "true" ]]; then
     echo "ERROR: supabase CLI required for dry-run evidence"
     exit 1
   fi
+  PAYOUT_ID_SQL="${PAYOUT_ID//\'/\'\'}"
   echo "--- Phase 3 evidence (read-only): $PAYOUT_ID ---"
-  supabase db query --linked -v payout_id="$PAYOUT_ID" < "$ROOT/scripts/sql/wallet-stripe-evidence-payout.sql"
+  supabase db query --linked "
+SELECT
+  scp.payout_id,
+  scp.connected_account_id,
+  scp.driver_id,
+  TRIM(CONCAT(d.first_name, ' ', d.last_name)) AS driver_name,
+  scp.amount_pence AS stripe_payout_amount_pence,
+  scp.status AS stripe_payout_status,
+  scp.initiated_at AS stripe_payout_created_at,
+  scp.arrival_date AS stripe_payout_arrival_date,
+  (l.id IS NOT NULL) AS backend_wallet_debit_exists,
+  COALESCE(
+    (SELECT json_agg(pi.id ORDER BY pi.created_at)
+     FROM payout_items pi WHERE pi.stripe_payout_id = scp.payout_id),
+    '[]'::json
+  ) AS payout_item_ids,
+  COALESCE(
+    (SELECT json_agg(des.id ORDER BY des.created_at)
+     FROM driver_earning_settlement des
+     JOIN payout_items pi ON pi.id = des.paid_in_payout_item_id
+     WHERE pi.stripe_payout_id = scp.payout_id),
+    '[]'::json
+  ) AS settlement_ids,
+  COALESCE(
+    (SELECT json_agg(l2.id ORDER BY l2.created_at)
+     FROM driver_wallet_ledger l2 WHERE l2.stripe_payout_id = scp.payout_id),
+    '[]'::json
+  ) AS ledger_row_ids,
+  CASE WHEN scp.status = 'paid' AND l.id IS NULL THEN scp.amount_pence ELSE 0 END AS amount_needing_repair_pence
+FROM stripe_connect_payouts scp
+LEFT JOIN drivers d ON d.id = scp.driver_id
+LEFT JOIN driver_wallet_ledger l ON l.stripe_payout_id = scp.payout_id AND l.driver_id = scp.driver_id
+WHERE scp.payout_id = '$PAYOUT_ID_SQL';
+"
   echo ""
   echo "Dry-run complete — no repair applied."
   exit 0
