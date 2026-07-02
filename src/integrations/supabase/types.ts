@@ -5526,6 +5526,119 @@ export type Database = {
           },
         ]
       }
+      financial_ssot_mismatches: {
+        Row: {
+          actual_pence: number
+          details: Json | null
+          detected_at: string
+          expected_pence: number
+          field_name: string | null
+          id: string
+          resolved_at: string | null
+          stage: string
+          trip_code: string | null
+          trip_id: string
+        }
+        Insert: {
+          actual_pence: number
+          details?: Json | null
+          detected_at?: string
+          expected_pence: number
+          field_name?: string | null
+          id?: string
+          resolved_at?: string | null
+          stage: string
+          trip_code?: string | null
+          trip_id: string
+        }
+        Update: {
+          actual_pence?: number
+          details?: Json | null
+          detected_at?: string
+          expected_pence?: number
+          field_name?: string | null
+          id?: string
+          resolved_at?: string | null
+          stage?: string
+          trip_code?: string | null
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_ssot_mismatches_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_ssot_mismatches_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_ssot_mismatches_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_ssot_repairs: {
+        Row: {
+          after_json: Json
+          before_json: Json
+          id: string
+          repair_type: string
+          repaired_at: string
+          trip_code: string | null
+          trip_id: string
+        }
+        Insert: {
+          after_json: Json
+          before_json: Json
+          id?: string
+          repair_type: string
+          repaired_at?: string
+          trip_code?: string | null
+          trip_id: string
+        }
+        Update: {
+          after_json?: Json
+          before_json?: Json
+          id?: string
+          repair_type?: string
+          repaired_at?: string
+          trip_code?: string | null
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_ssot_repairs_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_ssot_repairs_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_ssot_repairs_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       geofence_events: {
         Row: {
           created_at: string
@@ -12193,6 +12306,7 @@ export type Database = {
           confirmed_driver_id: string | null
           corporate_account_id: string | null
           created_at: string
+          created_pricing_hash: string | null
           currency: string | null
           currency_code: string | null
           current_broadcast_round: number | null
@@ -12342,6 +12456,7 @@ export type Database = {
           preauth_buffer_pence: number
           previous_driver_id: string | null
           pricing_mode: string | null
+          pricing_source: string | null
           pricing_version: string | null
           provider_available_on: string | null
           provider_charge_id: string | null
@@ -12462,6 +12577,7 @@ export type Database = {
           confirmed_driver_id?: string | null
           corporate_account_id?: string | null
           created_at?: string
+          created_pricing_hash?: string | null
           currency?: string | null
           currency_code?: string | null
           current_broadcast_round?: number | null
@@ -12611,6 +12727,7 @@ export type Database = {
           preauth_buffer_pence?: number
           previous_driver_id?: string | null
           pricing_mode?: string | null
+          pricing_source?: string | null
           pricing_version?: string | null
           provider_available_on?: string | null
           provider_charge_id?: string | null
@@ -12731,6 +12848,7 @@ export type Database = {
           confirmed_driver_id?: string | null
           corporate_account_id?: string | null
           created_at?: string
+          created_pricing_hash?: string | null
           currency?: string | null
           currency_code?: string | null
           current_broadcast_round?: number | null
@@ -12880,6 +12998,7 @@ export type Database = {
           preauth_buffer_pence?: number
           previous_driver_id?: string | null
           pricing_mode?: string | null
+          pricing_source?: string | null
           pricing_version?: string | null
           provider_available_on?: string | null
           provider_charge_id?: string | null
@@ -15692,6 +15811,7 @@ export type Database = {
         Args: { p_user_id: string; p_user_type: string }
         Returns: boolean
       }
+      list_driver_trip_history: { Args: { p_limit?: number }; Returns: Json }
       lock_driver_vehicle: { Args: { p_driver_id: string }; Returns: undefined }
       log_audit_event: {
         Args: {
