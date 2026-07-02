@@ -15418,6 +15418,10 @@ export type Database = {
         Returns: string
       }
       capture_expired_tip_windows_sweep: { Args: never; Returns: undefined }
+      capture_expired_tip_windows_sweep_has_work: {
+        Args: never
+        Returns: boolean
+      }
       check_driver_documents_approved: {
         Args: { p_driver_id: string }
         Returns: boolean
@@ -15524,6 +15528,11 @@ export type Database = {
             }
             Returns: number
           }
+      compute_driver_demand_zones_sweep: { Args: never; Returns: undefined }
+      compute_driver_demand_zones_sweep_has_work: {
+        Args: never
+        Returns: boolean
+      }
       compute_preset_offer_fare_pence: {
         Args: {
           p_base_pence: number
@@ -15552,6 +15561,7 @@ export type Database = {
         }
         Returns: string
       }
+      cron_edge_auth_token: { Args: never; Returns: string }
       current_customer_id: { Args: never; Returns: string }
       current_driver_id: { Args: never; Returns: string }
       current_driver_profile_id: { Args: never; Returns: string }
@@ -15731,6 +15741,7 @@ export type Database = {
       expire_due_call_masking_sessions: { Args: never; Returns: undefined }
       expire_negotiation_offer: { Args: { p_offer_id: string }; Returns: Json }
       expire_offers_sweep: { Args: never; Returns: undefined }
+      expire_offers_sweep_has_work: { Args: never; Returns: boolean }
       expire_stale_drivers: {
         Args: { p_ttl_seconds?: number }
         Returns: number
