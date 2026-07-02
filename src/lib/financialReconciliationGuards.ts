@@ -17,7 +17,7 @@ const EMPTY_LEDGER_CHECK = {
 
 export function formatFinanceDateSafe(
   value: string | null | undefined,
-  pattern: string,
+  pattern: string = 'PP p',
   fallback = '—',
 ): string {
   if (!value) return fallback;
