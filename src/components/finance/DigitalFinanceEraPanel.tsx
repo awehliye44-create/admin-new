@@ -56,7 +56,7 @@ export function DigitalFinanceEraPanel() {
       const uid = u.user?.id;
       if (uid) {
         const { data: role } = await supabase
-          .from('user_roles').select('role').eq('user_id', uid).eq('role', 'super_admin').maybeSingle();
+          .from('user_roles').select('role').eq('user_id', uid).eq('role', 'super_admin' as any).maybeSingle();
         setIsSuperAdmin(!!role);
       }
       const eraVal = (eraRes.data as EraRow)?.setting_value;
