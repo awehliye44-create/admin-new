@@ -1,25 +1,16 @@
 /**
- * ONECAB Payout Availability — SINGLE SOURCE OF TRUTH.
+ * ONECAB Payout Availability — guards and ledger balance helpers.
  *
- * Authoritative formulas (do not duplicate elsewhere):
- *
- *   wallet_balance   = sum(driver_wallet_ledger excluding reporting-only types)
- *   available_payout = max(wallet_balance, 0)
- *   driver_debt      = abs(min(wallet_balance, 0))
- *
- * Payout rules enforced here:
- *   1. wallet_balance < 0          → BLOCK all payouts (weekly, instant, admin).
- *   2. requested > available_payout → BLOCK.
- *
- * Every payout path (admin manual, weekly Monday settlement, instant cashout,
- * retries) MUST evaluate `evaluatePayoutGuard(...)` before any provider call
- * or ledger debit. No other "available" formula exists in the codebase.
+ * NON-NEGOTIABLE: available_payout / finance_cleared / scheduled / cash-out
+ * must NOT be derived as max(wallet_balance, 0). Use driverWalletPayoutSSOT
+ * and payoutEligibilitySSOT for payout amounts.
  */
 
 import {
   computeLedgerWalletBalancePence,
   type LedgerRow,
 } from "./onecabFinanceLedger.ts";
+import { computePayoutEligibility } from "./payoutEligibilitySSOT.ts";
 
 export const WALLET_NEGATIVE_BLOCK_CODE = "WALLET_BALANCE_NEGATIVE";
 export const WALLET_NEGATIVE_BLOCK_REASON =
@@ -27,9 +18,12 @@ export const WALLET_NEGATIVE_BLOCK_REASON =
 
 export const PAYOUT_EXCEEDS_AVAILABLE_BLOCK_CODE = "PAYOUT_EXCEEDS_AVAILABLE";
 export const PAYOUT_EXCEEDS_AVAILABLE_BLOCK_REASON =
-  "Requested payout amount exceeds available payout (max wallet_balance, 0).";
+  "Requested payout amount exceeds finance-cleared eligible payout.";
 
-/** Authoritative: available payout = max(walletBalance, 0). The ONLY availability formula. */
+/**
+ * @deprecated Do not use for payout/cashout display. wallet_balance is accounting liability only.
+ * Use finance_cleared_amount_pence / eligible_payout_pence from driverWalletPayoutSSOT.
+ */
 export function availablePayoutPence(walletBalancePence: number): number {
   return Math.max(0, walletBalancePence);
 }
@@ -61,9 +55,19 @@ export type PayoutGuardResult = {
 export function evaluatePayoutGuard(args: {
   walletBalancePence: number;
   requestedPence?: number | null;
+  financeClearedPence?: number | null;
+  stripeSettledUnpaidPence?: number | null;
+  inFlightPayoutPence?: number | null;
+  payoutBlocked?: boolean;
 }): PayoutGuardResult {
   const wb = args.walletBalancePence;
-  const available = availablePayoutPence(wb);
+  const eligibility = computePayoutEligibility({
+    walletUnpaidPence: Math.max(0, wb),
+    stripeSettledUnpaidPence: Math.max(0, args.stripeSettledUnpaidPence ?? args.financeClearedPence ?? 0),
+    payoutBlocked: args.payoutBlocked ?? wb < 0,
+    inFlightPayoutPence: args.inFlightPayoutPence ?? 0,
+  });
+  const available = eligibility.eligible_payout_pence;
   const debt = driverDebtPence(wb);
   const requested = typeof args.requestedPence === "number" ? args.requestedPence : null;
 

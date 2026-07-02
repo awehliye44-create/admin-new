@@ -45,6 +45,7 @@ import {
 } from 'lucide-react';
 import { ConnectBalancePanel } from '@/components/finance/ConnectBalancePanel';
 import { FinanceMoneyMovementTabs } from '@/components/finance/FinanceMoneyMovementTabs';
+import { FinanceReconciliationMismatchBanner } from '@/components/finance/FinanceReconciliationMismatchBanner';
 import { FinanceReconciliationTotalsCards } from '@/components/finance/FinanceReconciliationTotalsCards';
 import { LegacyManualReviewPanel } from '@/components/finance/LegacyManualReviewPanel';
 import { OnecabCommissionVisibility } from '@/components/finance/OnecabCommissionVisibility';
@@ -434,6 +435,7 @@ function FinancialReconciliationPage() {
           </div>
         </div>
 
+        <FinanceReconciliationMismatchBanner regionId={filter.regionId ?? null} />
         <FinanceReconciliationTotalsCards ssot={ssot} />
         <FinanceMoneyMovementTabs summary={ssot.summary} currencyCode={ccy} />
         <LegacyManualReviewPanel

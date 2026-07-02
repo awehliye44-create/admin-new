@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { FinanceLedgerPanel } from '@/components/finance/FinanceLedgerPanel';
+import { DriverWalletSsotPanel } from '@/components/finance/DriverWalletSsotPanel';
 import {
   DEFAULT_SERVICE_AREA_SELECTION,
   ServiceAreaFinanceFilter,
@@ -30,8 +31,8 @@ export default function DriverWalletLedger() {
 
   return (
     <AdminLayout
-      title="Driver Wallet Ledger"
-      description="ONECAB liability only — what we owe drivers from ledger SSOT. Not Stripe Connect cash or lifetime earnings."
+      title="Driver Wallet Ledger (SSOT)"
+      description="ONECAB liability, finance cleared, payout batch, and Stripe — each from its own source. Not interchangeable."
     >
       <div className="space-y-6">
         <Alert>
@@ -42,6 +43,8 @@ export default function DriverWalletLedger() {
             Compare against Stripe Connect on Financial Reconciliation — these are separate buckets.
           </AlertDescription>
         </Alert>
+
+        <DriverWalletSsotPanel />
 
         <div className="flex flex-wrap items-center gap-3">
           <ServiceAreaFinanceFilter value={serviceFilter} onChange={setServiceFilter} />

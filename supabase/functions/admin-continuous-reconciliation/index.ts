@@ -1,0 +1,105 @@
+/**
+ * Continuous reconciliation — compare Stripe objects vs backend records.
+ * Never silently mutates money; writes evidence only unless repair_mode=true.
+ */
+import { createClient } from "npm:@supabase/supabase-js@2";
+import Stripe from "https://esm.sh/stripe@14.21.0";
+import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
+import { syncStripeConnectPayoutsForRegion } from "../_shared/stripeConnectPayoutSync.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+};
+
+type ReconciliationRow = {
+  driver_id: string;
+  driver_code: string | null;
+  classification: "matched" | "pending" | "mismatch" | "failed" | "local_only" | "stripe_only";
+  reasons: string[];
+  wallet_owed_pence: number;
+  stripe_available_pence: number | null;
+  stripe_paid_out_pence: number;
+};
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
+    if (!stripeKey) throw new Error("STRIPE_SECRET_KEY not configured");
+
+    const supabase = createClient(supabaseUrl, serviceKey);
+    const stripe = new Stripe(stripeKey, { apiVersion: "2023-10-16" });
+    const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
+    const regionId = body.region_id as string | undefined;
+
+    if (regionId) {
+      await syncStripeConnectPayoutsForRegion({ supabase, stripe, regionId });
+    }
+
+    let driversQuery = supabase
+      .from("drivers")
+      .select("id, driver_code, region_id")
+      .limit(100);
+    if (regionId) driversQuery = driversQuery.eq("region_id", regionId);
+
+    const { data: drivers } = await driversQuery;
+    const rows: ReconciliationRow[] = [];
+
+    for (const d of drivers ?? []) {
+      const snap = await fetchDriverWalletPayoutSnapshot(supabase, {
+        driverId: d.id,
+        stripe,
+      });
+
+      let classification: ReconciliationRow["classification"] = "matched";
+      if (snap.reconciliation_status === "LOCAL_ONLY") classification = "local_only";
+      else if (snap.reconciliation_status === "STRIPE_ONLY") classification = "stripe_only";
+      else if (snap.reconciliation_status === "MISMATCH" || snap.reconciliation_status === "PROVIDER_NEGATIVE") {
+        classification = "mismatch";
+      } else if (snap.included_in_payout_batch_amount_pence > 0) {
+        classification = "pending";
+      }
+
+      rows.push({
+        driver_id: d.id,
+        driver_code: d.driver_code as string | null,
+        classification,
+        reasons: snap.reconciliation_reasons,
+        wallet_owed_pence: snap.current_onecab_wallet_owed_pence,
+        stripe_available_pence: snap.stripe_connect_available_pence,
+        stripe_paid_out_pence: snap.stripe_paid_out_total_pence,
+      });
+    }
+
+    const summary = {
+      matched: rows.filter((r) => r.classification === "matched").length,
+      pending: rows.filter((r) => r.classification === "pending").length,
+      mismatch: rows.filter((r) => r.classification === "mismatch").length,
+      local_only: rows.filter((r) => r.classification === "local_only").length,
+      stripe_only: rows.filter((r) => r.classification === "stripe_only").length,
+      failed: rows.filter((r) => r.classification === "failed").length,
+    };
+
+    return new Response(JSON.stringify({
+      success: true,
+      ran_at: new Date().toISOString(),
+      summary,
+      rows,
+      repair_mode: body.repair_mode === true,
+    }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    console.error("[admin-continuous-reconciliation]", error);
+    return new Response(JSON.stringify({ error: (error as Error).message }), {
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});

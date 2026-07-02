@@ -23,11 +23,10 @@ import {
   PAYOUT_VERIFICATION_MODE_MESSAGE,
 } from "../_shared/payoutExecutionGate.ts";
 import {
-  assertRetryStripeBalance,
-  PAYOUT_RETRY_INSUFFICIENT_FUNDS_CODE,
-  PAYOUT_RETRY_INSUFFICIENT_FUNDS_MESSAGE,
+  assertPayoutRetryAllowed,
   readPlatformAvailablePence,
 } from "../_shared/payoutRetryGuard.ts";
+import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 
 const corsHeaders = {
@@ -300,19 +299,34 @@ serve(async (req) => {
 
       const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
       const currencyResultRetry = await resolveCurrencyFromDriver(supabase, retryDriverId);
-      const platformAvailable = await readPlatformAvailablePence(
+      const { data: retryDriver } = await supabase
+        .from("drivers")
+        .select("stripe_account_id, payouts_enabled, charges_enabled")
+        .eq("id", retryDriverId)
+        .maybeSingle();
+      const walletSnap = await fetchDriverWalletPayoutSnapshot(supabase, {
+        driverId: retryDriverId,
         stripe,
-        currencyResultRetry.currency_code,
-      );
-      const balanceCheck = assertRetryStripeBalance({
-        requiredAmountPence: retryAmount,
-        platformAvailablePence: platformAvailable,
+        currency: currencyResultRetry.currency_code,
       });
-      if (!balanceCheck.ok) {
+      const retryGuard = await assertPayoutRetryAllowed({
+        stripe,
+        currency: currencyResultRetry.currency_code,
+        requiredAmountPence: retryAmount,
+        payoutItem: existingItem,
+        driver: retryDriver,
+        walletOwedPence: walletSnap.current_onecab_wallet_owed_pence,
+        localOnlyApproved: Boolean(body.approve_local_only_retry ?? confirm_payout),
+      });
+      if (!retryGuard.ok) {
+        const platformAvailable = await readPlatformAvailablePence(
+          stripe,
+          currencyResultRetry.currency_code,
+        );
         return new Response(JSON.stringify({
           success: false,
-          error: balanceCheck.message,
-          error_code: balanceCheck.code,
+          error: retryGuard.message,
+          error_code: retryGuard.code,
           platform_available_pence: platformAvailable,
           required_amount_pence: retryAmount,
         }), {
