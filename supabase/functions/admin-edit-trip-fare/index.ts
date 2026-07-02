@@ -3,7 +3,7 @@ import Stripe from "https://esm.sh/stripe@14.21.0";
 import { z } from "https://esm.sh/zod@3.23.8";
 import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
 import { calculateCommission } from "../_shared/commission.ts";
-import { capturePaymentIntentWithSettlement } from "../_shared/stripeSettlement.ts";
+import { capturePaymentIntentWithSettlement, buildCardCaptureRecoverySettlementArgs, loadDriverOutstandingRecoveryDebtPence, persistedStripeDriverTransferAmountPence } from "../_shared/stripeSettlement.ts";
 import {
   calculateTripSettlement,
   tripSettlementDbColumns,
@@ -117,6 +117,10 @@ serve(async (req) => {
           error: `Cannot edit fare to ${new_total_pence}p (+ ${tipPence}p tip) — only ${authorized}p was authorized. Authorize a new amount first.`,
         }, 400);
       }
+      const outstandingRecoveryDebtPence = await loadDriverOutstandingRecoveryDebtPence(
+        gate.supabase,
+        trip.driver_id,
+      );
       const settlement = await capturePaymentIntentWithSettlement({
         stripe,
         supabase: gate.supabase,
@@ -128,6 +132,13 @@ serve(async (req) => {
         driverPayoutPence: Math.max(0, captureWithTipPence - settlementResult.commission_pence),
         currencyCode: (trip.currency_code ?? trip.currency ?? pi.currency ?? 'gbp').toLowerCase(),
         idempotencyKey: `admin_edit_capture_${trip_id}_${captureWithTipPence}_${Date.now()}`,
+        ...buildCardCaptureRecoverySettlementArgs({
+          driverNetPence: settlementResult.driver_net_pence,
+          outstandingRecoveryDebtPence,
+          airportChargePence: airportPence,
+          otherPassThroughChargesPence: passThroughPence,
+          tipPence,
+        }),
       });
       stripeChargeId = settlement.chargeId;
       resultingCaptured = settlement.capturedAmountPence;
@@ -137,7 +148,8 @@ serve(async (req) => {
         expected_commission_pence: settlementResult.commission_pence,
         destination_account_id: settlement.destinationAccountId,
         transfer_id: settlement.transferId,
-        transfer_amount_pence: settlement.transferAmountPence,
+        transfer_amount_pence: persistedStripeDriverTransferAmountPence(settlement),
+        debt_recovery_pence: settlement.debtRecoveryPence,
         settlement_verified: settlement.settlementVerified,
         settlement_warning: settlement.settlementWarning,
         stripe_fee_pence: settlement.stripeFeePence,

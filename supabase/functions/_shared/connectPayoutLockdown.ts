@@ -1,5 +1,10 @@
 import type Stripe from "https://esm.sh/stripe@14.21.0";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  sumStripeBalanceAvailablePence,
+  sumStripeBalanceInstantAvailablePence,
+  sumStripeBalancePendingPence,
+} from "../../../shared/stripeConnectBalanceSSOT.ts";
 
 export type ConnectPayoutScheduleSnapshot = {
   stripe_account_id: string;
@@ -7,11 +12,13 @@ export type ConnectPayoutScheduleSnapshot = {
   delay_days: number | null;
   automatic_payouts_enabled: boolean;
   payouts_enabled: boolean | null;
-  /** Stripe balance.available — standard payout schedule (display only). */
+  /** Stripe API balance.available — driver "Available in Stripe" + weekly transfer cap SSOT. */
   available_pence: number;
-  /** Stripe balance.instant_available — ONECAB execution cap (Instant Payout only). */
+  /** Stripe API balance.instant_available — instant cash-out cap only (never driver card display). */
   instant_available_pence: number;
+  /** Stripe API balance.pending — admin diagnostic only (not payable yet). */
   pending_pence: number;
+  balance_synced_at: string;
 };
 
 export type InFlightConnectPayout = {
@@ -35,12 +42,9 @@ export async function readConnectPayoutSnapshot(
   const schedule = account.settings?.payouts?.schedule;
   const balance = await stripe.balance.retrieve({ stripeAccount: stripeAccountId });
   const ccy = currency.toLowerCase();
-  const avail = balance.available.find((b) => b.currency === ccy)?.amount ?? 0;
-  const pend = balance.pending.find((b) => b.currency === ccy)?.amount ?? 0;
-  const instantRows = (balance as Stripe.Balance & {
-    instant_available?: Array<{ amount: number; currency: string }>;
-  }).instant_available ?? [];
-  const instantAvail = instantRows.find((b) => b.currency === ccy)?.amount ?? 0;
+  const avail = sumStripeBalanceAvailablePence(balance, ccy);
+  const pend = sumStripeBalancePendingPence(balance, ccy);
+  const instantAvail = sumStripeBalanceInstantAvailablePence(balance, ccy);
   const interval = schedule?.interval ?? null;
 
   return {
@@ -52,6 +56,7 @@ export async function readConnectPayoutSnapshot(
     available_pence: avail,
     instant_available_pence: instantAvail,
     pending_pence: pend,
+    balance_synced_at: new Date().toISOString(),
   };
 }
 

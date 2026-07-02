@@ -12,6 +12,7 @@ import {
 } from "./driverWalletPayoutSSOT.ts";
 import { sumClearedSettlementBatchPence, type EarningSettlementInput } from "./payoutEligibilitySSOT.ts";
 import { readConnectPayoutSnapshot, listInFlightConnectPayouts } from "./connectPayoutLockdown.ts";
+import { buildStripeConnectBalanceDiagnostic } from "../../../shared/stripeConnectBalanceSSOT.ts";
 
 const TERMINAL_FAILED = new Set(["failed", "ledger_sync_failed", "failed_duplicate"]);
 const STUCK_SETTLEMENT = new Set(["PROCESSING", "READY", "PENDING", "AVAILABLE"]);
@@ -128,12 +129,14 @@ export async function fetchDriverWalletPayoutSnapshot(
   let connectPending: number | null = null;
   let connectInstant: number | null = null;
   let connectInTransit: number | null = null;
+  let stripeBalanceSyncedAt: string | null = null;
   if (args.stripe && driver?.stripe_account_id) {
     try {
       const snap = await readConnectPayoutSnapshot(args.stripe, driver.stripe_account_id, currency);
       connectAvailable = snap.available_pence;
       connectPending = snap.pending_pence;
       connectInstant = snap.instant_available_pence;
+      stripeBalanceSyncedAt = snap.balance_synced_at;
       const inFlightPayouts = await listInFlightConnectPayouts(args.stripe, driver.stripe_account_id);
       connectInTransit = inFlightPayouts
         .filter((p) => p.status === "in_transit")
@@ -224,8 +227,20 @@ export async function fetchDriverWalletPayoutSnapshot(
       return bTs - aTs;
     })[0] ?? null;
 
+  const stripeBalanceDiagnostic = buildStripeConnectBalanceDiagnostic({
+    available_pence: connectAvailable,
+    pending_pence: connectPending,
+    instant_available_pence: connectInstant,
+    synced_at: stripeBalanceSyncedAt ?? syncedAt,
+    known: connectAvailable != null,
+  });
+
   return {
     ...snapshot,
+    ...stripeBalanceDiagnostic,
+    stripe_connect_available_pence: connectAvailable,
+    stripe_connect_pending_pence: connectPending,
+    stripe_connect_instant_available_pence: connectInstant,
     driver_id: args.driverId,
     user_id: (driver?.user_id as string) ?? null,
     driver_code: (driver?.driver_code as string) ?? null,

@@ -483,6 +483,7 @@ export function useFinanceReconciliation(args?: {
     enabled,
     staleTime: 30_000,
     refetchInterval: tripSearch ? false : 60_000,
+    refetchIntervalInBackground: false,
     placeholderData: keepPreviousData,
     retry: 1,
     meta: { suppressErrorToast: true },

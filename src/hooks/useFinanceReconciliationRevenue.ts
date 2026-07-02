@@ -180,6 +180,7 @@ export function useFinanceReconciliationRevenue({
     },
     staleTime: 30_000,
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
     meta: { suppressErrorToast: true, londonDay: true },
   });
 }

@@ -9,6 +9,7 @@ import {
   computeLedgerWalletBalancePence,
   type LedgerRow,
 } from "./onecabFinanceLedger.ts";
+import { computeNetPayableAfterRecoveryPence } from "./tripSettlementFinanceSSOT.ts";
 import {
   listInFlightConnectPayouts,
   readConnectPayoutSnapshot,
@@ -420,7 +421,10 @@ export async function fetchConnectMoneyMovementBundle(args: {
       actual_stripe_balance_pence: actualBalance,
       difference_pence: balanceDiff,
       recovery_debt_pence: recoveryDebt,
-      net_payable_after_recovery_pence: Math.max(0, onecabLiabilityPence),
+      net_payable_after_recovery_pence: computeNetPayableAfterRecoveryPence(
+        onecabLiabilityPence,
+        recoveryDebt,
+      ),
       reconciliation_status: acctStatus,
     });
 
@@ -431,8 +435,8 @@ export async function fetchConnectMoneyMovementBundle(args: {
         connected_account_id: acctId,
         recovery_debt_pence: recoveryDebt,
         ledger_types: ["CASH_COMMISSION_DEBT", "DEBT_RECOVERY"],
-        reduces_net_payable: false,
-        note: "Cash commission owed to ONECAB (ledger SSOT). Shown separately — not subtracted from Stripe Connect comparison.",
+        reduces_net_payable: true,
+        note: "Cash commission owed to ONECAB — per-trip card captures reduce Connect transfer before payout via cardCaptureRecoveryTransferSSOT.",
       });
     }
 

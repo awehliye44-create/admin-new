@@ -12,6 +12,10 @@ import {
   getSettlementWarningSeverity,
   isInformationalSettlementWarning,
 } from "../_shared/stripeSettlementWarnings.ts";
+import {
+  buildTripCardRecoveryPaymentState,
+  getTripDebtRecoveredPence,
+} from "../_shared/tripSettlementFinanceSSOT.ts";
 
 const InputSchema = z.object({ trip_id: z.string().uuid() });
 
@@ -52,6 +56,7 @@ const TRIP_AUDIT_SELECT = `
   stripe_destination_account_id,
   stripe_transfer_id,
   stripe_transfer_amount_pence,
+  debt_recovery_pence,
   created_at,
   refunded_at,
   driver_tier_commission_percent,
@@ -138,9 +143,12 @@ serve(async (req) => {
     let stripe_application_fee_amount_pence: number | null = trip.stripe_application_fee_amount_pence ?? null;
     let stripe_destination_account_id: string | null = trip.stripe_destination_account_id ?? null;
     let stripe_transfer_id: string | null = trip.stripe_transfer_id ?? null;
-    let stripe_transfer_amount_pence: number | null = trip.stripe_transfer_amount_pence ?? null;
+    const tripStripeTransferAmountPence: number | null = trip.stripe_transfer_amount_pence ?? null;
+    let stripe_transfer_amount_pence: number | null = tripStripeTransferAmountPence;
     let stripe_settlement_verified: boolean = trip.stripe_settlement_verified ?? false;
     let stripe_settlement_warning: string | null = trip.stripe_settlement_warning ?? null;
+    let captureDebtRecoveryPence: number | null = trip.debt_recovery_pence ?? null;
+    let captureRemainingRecoveryDebtPence: number | null = null;
 
     const stripeKey = Deno.env.get('STRIPE_SECRET_KEY');
     if (stripeKey && trip.stripe_payment_intent_id) {
@@ -156,6 +164,16 @@ serve(async (req) => {
         payment_created = new Date((pi.created || 0) * 1000).toISOString();
         const piDestination = pi.transfer_data?.destination;
         if (piDestination) stripe_destination_account_id = typeof piDestination === 'string' ? piDestination : piDestination.id;
+
+        const piMetadata = pi.metadata ?? {};
+        if (piMetadata.debt_recovery_pence != null) {
+          const parsed = Number(piMetadata.debt_recovery_pence);
+          if (Number.isFinite(parsed)) captureDebtRecoveryPence = Math.max(0, Math.round(parsed));
+        }
+        if (piMetadata.remaining_recovery_debt_pence != null) {
+          const parsed = Number(piMetadata.remaining_recovery_debt_pence);
+          if (Number.isFinite(parsed)) captureRemainingRecoveryDebtPence = Math.max(0, Math.round(parsed));
+        }
 
         const charge = pi.latest_charge && typeof pi.latest_charge === 'object' ? pi.latest_charge as Stripe.Charge : null;
         if (charge) {
@@ -177,7 +195,10 @@ serve(async (req) => {
           const transfer = (charge as unknown as { transfer?: string | { id: string; amount?: number } }).transfer;
           if (transfer) {
             stripe_transfer_id = typeof transfer === 'string' ? transfer : transfer.id;
-            if (typeof transfer === 'object') stripe_transfer_amount_pence = transfer.amount ?? stripe_transfer_amount_pence;
+            // SSOT: never overwrite persisted recovery-adjusted transfer with raw Stripe gross transfer.
+            if (tripStripeTransferAmountPence == null && typeof transfer === 'object') {
+              stripe_transfer_amount_pence = transfer.amount ?? stripe_transfer_amount_pence;
+            }
           }
         }
       } catch (e) {
@@ -190,12 +211,41 @@ serve(async (req) => {
     const commission_pence = auditRow.onecab_gross_commission_pence;
     const onecab_net_pence = auditRow.onecab_net_pence;
     const driver_net_pence = auditRow.driver_net_pence;
+    const ledgerDebtRecoveredPence = getTripDebtRecoveredPence(
+      (ledgerRes.data ?? []).map((row) => ({
+        type: row.type,
+        amount_pence: row.amount_pence,
+      })),
+    );
+    const recoveryPayment = buildTripCardRecoveryPaymentState({
+      driverNetPence: driver_net_pence,
+      tripDebtRecoveryPence: trip.debt_recovery_pence,
+      ledgerDebtRecoveredPence,
+      tripStripeTransferAmountPence: tripStripeTransferAmountPence,
+      captureDebtRecoveryPence: captureDebtRecoveryPence,
+      captureRemainingRecoveryDebtPence: captureRemainingRecoveryDebtPence,
+    });
+    stripe_transfer_amount_pence = recoveryPayment.stripe_transfer_amount_pence;
     const buffer_pence = Math.max(0, authorized_pence - final_fare_pence);
+    const expectedRecoveryAdjustedTransferPence = recoveryPayment.available_payout_created_pence;
 
     if (stripe_application_fee_amount_pence === commission_pence && stripe_application_fee_id && stripe_destination_account_id) {
       stripe_settlement_verified = true;
       stripe_settlement_warning = null;
-    } else if (stripe_transfer_amount_pence === driver_net_pence && stripe_transfer_id && stripe_destination_account_id) {
+    } else if (
+      expectedRecoveryAdjustedTransferPence != null
+      && stripe_transfer_amount_pence === expectedRecoveryAdjustedTransferPence
+      && stripe_transfer_id
+      && stripe_destination_account_id
+    ) {
+      stripe_settlement_verified = true;
+      stripe_settlement_warning = 'SEPARATE_CHARGE_TRANSFER_USED_NO_APPLICATION_FEE_OBJECT';
+    } else if (
+      stripe_transfer_amount_pence === driver_net_pence
+      && stripe_transfer_id
+      && stripe_destination_account_id
+      && recoveryPayment.debt_recovered_pence === 0
+    ) {
       stripe_settlement_verified = true;
       stripe_settlement_warning = 'SEPARATE_CHARGE_TRANSFER_USED_NO_APPLICATION_FEE_OBJECT';
     } else if (stripe_status === 'succeeded' && commission_pence > 0 && !stripe_application_fee_id && !stripe_transfer_id) {
@@ -238,6 +288,10 @@ serve(async (req) => {
       stripe_fee_pence,
       onecab_net_pence,
       driver_net_pence,
+      outstanding_recovery_debt_pence: recoveryPayment.outstanding_recovery_debt_pence,
+      debt_recovered_pence: recoveryPayment.debt_recovered_pence,
+      available_payout_created_pence: recoveryPayment.available_payout_created_pence,
+      remaining_recovery_debt_pence: recoveryPayment.remaining_recovery_debt_pence,
       outstanding_pence: auditRow.outstanding_pence,
       capture_mismatch: auditRow.capture_mismatch,
       stripe_application_fee_id,

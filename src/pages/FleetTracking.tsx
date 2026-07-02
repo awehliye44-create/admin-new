@@ -353,9 +353,12 @@ export default function FleetTracking() {
 
   useEffect(() => {
     fetchData();
-    
-    // Background refresh every 30s (no spinner)
-    const interval = setInterval(() => fetchData(true), 30000);
+
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void fetchData(true);
+    }, 30000);
+
     return () => clearInterval(interval);
   }, [fetchData]);
 

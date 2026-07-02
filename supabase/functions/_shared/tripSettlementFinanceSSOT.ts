@@ -1,6 +1,133 @@
 /**
- * Synced from drive-hub-buddy — run scripts/sync-finance-ssot.ts to refresh.
+ * Settlement finance SSOT — customer paid / cash collected / driver net display.
+ * Driver Net: TRIP_EARNING_NET ledger first, trips.driver_net_pence second — never fare − commission.
  */
+
+import {
+  computeDriverStripeTransferAmountPence,
+  computePerTripDebtRecoveryPence,
+  computeRemainingRecoveryDebtPence,
+} from "../../../shared/cardCaptureRecoveryTransferSSOT.ts";
+
+export type TripCardRecoveryPaymentState = {
+  driver_net_pence: number | null;
+  outstanding_recovery_debt_pence: number | null;
+  debt_recovered_pence: number;
+  stripe_transfer_amount_pence: number | null;
+  available_payout_created_pence: number | null;
+  remaining_recovery_debt_pence: number;
+};
+
+/**
+ * Card capture recovery display SSOT for admin payment state.
+ * Prefers persisted trip / capture metadata; falls back to formula from driver net.
+ */
+export function buildTripCardRecoveryPaymentState(args: {
+  driverNetPence: number | null;
+  tripDebtRecoveryPence?: number | null;
+  ledgerDebtRecoveredPence?: number;
+  tripStripeTransferAmountPence?: number | null;
+  captureDebtRecoveryPence?: number | null;
+  captureRemainingRecoveryDebtPence?: number | null;
+}): TripCardRecoveryPaymentState {
+  const driverNet = args.driverNetPence;
+  const debtRecovered = Math.max(
+    0,
+    Math.round(
+      args.tripDebtRecoveryPence
+      ?? args.captureDebtRecoveryPence
+      ?? args.ledgerDebtRecoveredPence
+      ?? 0,
+    ),
+  );
+
+  if (driverNet == null) {
+    return {
+      driver_net_pence: null,
+      outstanding_recovery_debt_pence: null,
+      debt_recovered_pence: debtRecovered,
+      stripe_transfer_amount_pence: args.tripStripeTransferAmountPence ?? null,
+      available_payout_created_pence: null,
+      remaining_recovery_debt_pence: 0,
+    };
+  }
+
+  const driverNetRounded = Math.max(0, Math.round(driverNet));
+  let outstandingRecovery: number | null = null;
+
+  const captureDebt = args.captureDebtRecoveryPence != null
+    ? Math.max(0, Math.round(args.captureDebtRecoveryPence))
+    : null;
+  const captureRemaining = args.captureRemainingRecoveryDebtPence != null
+    ? Math.max(0, Math.round(args.captureRemainingRecoveryDebtPence))
+    : null;
+
+  if (captureDebt != null && captureRemaining != null) {
+    outstandingRecovery = captureDebt + captureRemaining;
+  } else if (debtRecovered > 0 && debtRecovered < driverNetRounded) {
+    outstandingRecovery = debtRecovered;
+  } else if (args.tripStripeTransferAmountPence != null) {
+    const persistedTransfer = Math.max(0, Math.round(args.tripStripeTransferAmountPence));
+    if (persistedTransfer < driverNetRounded) {
+      outstandingRecovery = driverNetRounded - persistedTransfer;
+    } else if (debtRecovered > 0) {
+      outstandingRecovery = debtRecovered + computeRemainingRecoveryDebtPence({
+        outstandingRecoveryDebtPence: debtRecovered,
+        driverNetPence: driverNetRounded,
+      });
+    }
+  } else if (debtRecovered > 0) {
+    outstandingRecovery = debtRecovered;
+  }
+
+  const computedDebtRecovered = outstandingRecovery != null
+    ? computePerTripDebtRecoveryPence({
+      outstandingRecoveryDebtPence: outstandingRecovery,
+      driverNetPence: driverNetRounded,
+    })
+    : debtRecovered;
+
+  const remainingRecovery = outstandingRecovery != null
+    ? computeRemainingRecoveryDebtPence({
+      outstandingRecoveryDebtPence: outstandingRecovery,
+      driverNetPence: driverNetRounded,
+    })
+    : 0;
+
+  const computedTransfer = outstandingRecovery != null
+    ? computeDriverStripeTransferAmountPence({
+      driverNetPence: driverNetRounded,
+      outstandingRecoveryDebtPence: outstandingRecovery,
+    })
+    : driverNetRounded;
+
+  const stripeTransferAmountPence = args.tripStripeTransferAmountPence != null
+    ? Math.max(0, Math.round(args.tripStripeTransferAmountPence))
+    : computedTransfer;
+
+  const availablePayoutCreatedPence = outstandingRecovery != null
+    ? computeDriverStripeTransferAmountPence({
+      driverNetPence: driverNetRounded,
+      outstandingRecoveryDebtPence: outstandingRecovery,
+    })
+    : stripeTransferAmountPence;
+
+  return {
+    driver_net_pence: driverNetRounded,
+    outstanding_recovery_debt_pence: outstandingRecovery,
+    debt_recovered_pence: computedDebtRecovered,
+    stripe_transfer_amount_pence: stripeTransferAmountPence,
+    available_payout_created_pence: availablePayoutCreatedPence,
+    remaining_recovery_debt_pence: remainingRecovery,
+  };
+}
+
+export function computeNetPayableAfterRecoveryPence(
+  liabilityPence: number,
+  recoveryDebtPence: number,
+): number {
+  return Math.max(0, Math.round(liabilityPence) - Math.round(recoveryDebtPence));
+}
 
 export type TripSettlementFields = {
   payment_method?: string | null;
@@ -135,13 +262,16 @@ export function getTripDebtRecoveredPence(ledger: LedgerEarningFields[] = []): n
   return total;
 }
 
-/** Driver net credited to wallet minus cash-commission debt recovered on capture. */
+/** Stripe Connect net transfer after recovery debt offset on this trip. */
 export function getTripAvailablePayoutCreatedPence(args: {
   driverNetPence: number | null;
   debtRecoveredPence: number;
 }): number | null {
   if (args.driverNetPence == null) return null;
-  return Math.max(0, args.driverNetPence - args.debtRecoveredPence);
+  return computeDriverStripeTransferAmountPence({
+    driverNetPence: args.driverNetPence,
+    outstandingRecoveryDebtPence: args.debtRecoveredPence,
+  });
 }
 
 /** Captured amount for audit — payments.captured_amount_pence primary, trips.capture_amount_pence fallback. */

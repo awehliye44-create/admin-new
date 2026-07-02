@@ -2,11 +2,12 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import { validateTripAccounting } from "../_shared/tripAccounting.ts";
-import { capturePaymentIntentWithSettlement } from "../_shared/stripeSettlement.ts";
+import { capturePaymentIntentWithSettlement, buildCardCaptureRecoverySettlementArgs, loadDriverOutstandingRecoveryDebtPence, persistedStripeDriverTransferAmountPence, tripSettlementColumnsFromResult } from "../_shared/stripeSettlement.ts";
 import { assertServiceRole } from "../_shared/internalAuth.ts";
 import {
   creditCapturedCardTripLedger,
   recordCardCaptureFailure,
+  computeCashCommissionOutstanding,
 } from "../_shared/onecabFinanceLedger.ts";
 
 
@@ -102,14 +103,13 @@ serve(async (req) => {
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // === Calculate wallet debt for debt recovery ===
-    const { data: walletEntries } = await supabase
+    // === Outstanding recovery debt before capture ===
+    const { data: ledgerRows } = await supabase
       .from('driver_wallet_ledger')
-      .select('amount_pence')
-      .eq('driver_id', driver_id)
-      .not('type', 'in', '("PLATFORM_COMMISSION","CASH_TRIP_EARNING")');
-
-    const walletBalanceBefore = walletEntries?.reduce((sum, e) => sum + (e.amount_pence || 0), 0) || 0;
+      .select('type, amount_pence')
+      .eq('driver_id', driver_id);
+    const outstandingRecoveryDebtPence = computeCashCommissionOutstanding(ledgerRows ?? []);
+    const driverNetPence = commissionable_subtotal_pence - platform_commission_pence;
     let debtRecoveryPence = 0;
 
     // === STRIPE: Capture PaymentIntent and enforce real settlement ===
@@ -142,6 +142,11 @@ serve(async (req) => {
           currencyCode: currency_code,
           driverStripeAccountId: driver_stripe_account_id,
           idempotencyKey: `${idempotencyKey}_capture`,
+          ...buildCardCaptureRecoverySettlementArgs({
+            driverNetPence,
+            outstandingRecoveryDebtPence,
+            tipPence: tip_amount_pence,
+          }),
         });
 
         console.log(`[capture] PaymentIntent captured: ${settlement.capturedPaymentIntent.id}, status: ${settlement.capturedPaymentIntent.status}`);
@@ -153,10 +158,11 @@ serve(async (req) => {
         stripeApplicationFeeAmount = settlement.applicationFeeAmountPence;
         stripeDestinationAccountId = settlement.destinationAccountId;
         stripeTransferId = settlement.transferId;
-        stripeTransferAmount = settlement.transferAmountPence;
+        stripeTransferAmount = persistedStripeDriverTransferAmountPence(settlement);
         stripeSettlementVerified = settlement.settlementVerified;
         stripeSettlementWarning = settlement.settlementWarning;
-        console.log(`[capture] Stripe fee: ${stripeFee}p, application_fee_amount=${stripeApplicationFeeAmount ?? 'none'}p, transfer_amount=${stripeTransferAmount ?? 'none'}p`);
+        debtRecoveryPence = settlement.debtRecoveryPence;
+        console.log(`[capture] Stripe fee: ${stripeFee}p, application_fee_amount=${stripeApplicationFeeAmount ?? 'none'}p, transfer_amount=${stripeTransferAmount ?? 'none'}p, debt_recovery=${debtRecoveryPence}p`);
 
         captureSuccess = true;
 
@@ -197,11 +203,12 @@ serve(async (req) => {
     const ledgerResult = await creditCapturedCardTripLedger(supabase, {
       driverId: driver_id,
       tripId: trip_id,
-      driverNetPence: driver_total_earnings_pence - tip_amount_pence,
+      driverNetPence,
       tipPence: tip_amount_pence,
       currency: currency_code,
     });
-    debtRecoveryPence = ledgerResult.recovery_pence;
+    debtRecoveryPence = ledgerResult.recovery_pence || debtRecoveryPence;
+    const finalDriverPayoutPence = Math.max(0, driverNetPence - debtRecoveryPence) + tip_amount_pence;
     console.log(`[capture] Ledger credited via SSOT, debt recovery: ${debtRecoveryPence}p`);
 
     const { error: recalcError } = await supabase.rpc('recalculate_driver_wallet', {
@@ -216,27 +223,25 @@ serve(async (req) => {
       updated_at: new Date().toISOString(),
     }).eq('trip_id', trip_id);
 
-    // === Calculate new wallet balance ===
-    const walletBalanceAfter = walletBalanceBefore + driver_total_earnings_pence - debtRecoveryPence;
-
     // === Update trip with settlement data ===
     await supabase.from('trips').update({
       payment_status: captureSuccess ? 'captured' : 'capture_failed',
       capture_amount_pence: stripeCapturedAmount,
-      stripe_charge_id: stripeChargeId,
       stripe_processing_fee_pence: stripeFee,
       onecab_net_pence: Math.max(0, platform_commission_pence - stripeFee),
-      stripe_application_fee_id: stripeApplicationFeeId,
-      stripe_application_fee_amount_pence: stripeApplicationFeeAmount,
-      stripe_destination_account_id: stripeDestinationAccountId,
-      stripe_transfer_id: stripeTransferId,
-      stripe_transfer_amount_pence: stripeTransferAmount,
-      stripe_settlement_verified: stripeSettlementVerified,
-      stripe_settlement_warning: stripeSettlementWarning,
-      debt_recovery_pence: debtRecoveryPence,
       final_payout_pence: finalDriverPayoutPence,
-      wallet_balance_before: walletBalanceBefore,
-      wallet_balance_after: walletBalanceAfter,
+      ...tripSettlementColumnsFromResult({
+        chargeId: stripeChargeId,
+        applicationFeeId: stripeApplicationFeeId,
+        applicationFeeAmountPence: stripeApplicationFeeAmount,
+        destinationAccountId: stripeDestinationAccountId,
+        transferId: stripeTransferId,
+        transferAmountPence: stripeTransferAmount,
+        effectiveDriverTransferAmountPence: stripeTransferAmount,
+        settlementVerified: stripeSettlementVerified,
+        settlementWarning: stripeSettlementWarning,
+        debtRecoveryPence,
+      }),
       updated_at: new Date().toISOString(),
     }).eq('id', trip_id);
 
@@ -263,8 +268,6 @@ serve(async (req) => {
       stripe_settlement_warning: stripeSettlementWarning,
       debt_recovery_pence: debtRecoveryPence,
       final_driver_payout_pence: finalDriverPayoutPence,
-      wallet_balance_before: walletBalanceBefore,
-      wallet_balance_after: walletBalanceAfter,
       platform_net_revenue: platform_commission_pence - stripeFee,
       payment_status: 'captured',
       currency_code,
