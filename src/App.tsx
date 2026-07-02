@@ -27,7 +27,7 @@ import Regions from "./pages/Regions";
 import Services from "./pages/Services";
 import VehicleTypes from "./pages/VehicleTypes";
 import CustomZones from "./pages/CustomZones";
-
+import AutoDispatchRules from "./pages/AutoDispatchRules";
 import ServiceAreaPricing from "./pages/ServiceAreaPricing";
 import ZonePricing from "./pages/ZonePricing";
 
@@ -112,7 +112,7 @@ const App = () => (
               {/* Operations & Dispatch */}
               <Route path="fleet-tracking" element={<FleetTracking />} />
               <Route path="active-trips" element={<ActiveTrips />} />
-              
+              <Route path="auto-dispatch" element={<AutoDispatchRules />} />
               <Route path="scheduled-rides" element={<ScheduledRides />} />
               <Route path="missed-cancelled" element={<MissedCancelled />} />
               <Route path="trip-history" element={<TripHistory />} />

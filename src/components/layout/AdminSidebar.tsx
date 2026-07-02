@@ -260,10 +260,11 @@ export function AdminSidebar() {
           {/* OPERATIONS & DISPATCH */}
           <Section
             label="Operations & Dispatch"
-            slugs={['fleet-tracking','active-trips','scheduled-rides','missed-cancelled','trip-history','manual-trip','qr-booking','dispatch-metrics','driver-demand-zones']}
+            slugs={['fleet-tracking','active-trips','auto-dispatch','scheduled-rides','missed-cancelled','trip-history','manual-trip','qr-booking','dispatch-metrics','driver-demand-zones']}
           >
             <P pageSlug="fleet-tracking" to="/fleet-tracking" icon={<Send className="h-4 w-4" />} label="Live Fleet Tracking" active={currentPath === '/fleet-tracking'} collapsed={isCollapsed} />
             <P pageSlug="active-trips" to="/active-trips" icon={<Radio className="h-4 w-4" />} label="Active Trips (Real-time)" active={currentPath === '/active-trips'} badge={counts.activeTrips > 0 ? counts.activeTrips : undefined} collapsed={isCollapsed} />
+            <P pageSlug="auto-dispatch" to="/auto-dispatch" icon={<Target className="h-4 w-4" />} label="Auto-Dispatch Rules" active={currentPath === '/auto-dispatch'} collapsed={isCollapsed} />
             <P pageSlug="scheduled-rides" to="/scheduled-rides" icon={<Calendar className="h-4 w-4" />} label="Scheduled Rides" active={currentPath === '/scheduled-rides'} badge={counts.scheduledRides > 0 ? counts.scheduledRides : undefined} collapsed={isCollapsed} />
             <P pageSlug="missed-cancelled" to="/missed-cancelled" icon={<XCircle className="h-4 w-4" />} label="Missed & Canceled" active={currentPath === '/missed-cancelled'} collapsed={isCollapsed} />
             <P pageSlug="trip-history" to="/trip-history" icon={<History className="h-4 w-4" />} label="Trip History" active={currentPath === '/trip-history'} collapsed={isCollapsed} />
