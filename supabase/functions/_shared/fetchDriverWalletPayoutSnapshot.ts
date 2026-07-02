@@ -20,7 +20,10 @@ export type DriverWalletPayoutDetail = DriverWalletPayoutSnapshot & {
   driver_id: string;
   user_id: string | null;
   driver_code: string | null;
+  driver_name: string | null;
   connected_account_id: string | null;
+  last_payout_at: string | null;
+  last_payout_amount_pence: number | null;
   payout_items: Array<Record<string, unknown>>;
   stripe_connect_payouts: Array<Record<string, unknown>>;
   settlements: Array<Record<string, unknown>>;
@@ -41,7 +44,7 @@ export async function fetchDriverWalletPayoutSnapshot(
 
   const { data: driver } = await supabase
     .from("drivers")
-    .select("id, user_id, driver_code, stripe_account_id, payouts_enabled, charges_enabled, region_id")
+    .select("id, user_id, driver_code, first_name, last_name, stripe_account_id, payouts_enabled, charges_enabled, region_id")
     .eq("id", args.driverId)
     .maybeSingle();
 
@@ -198,12 +201,34 @@ export async function fetchDriverWalletPayoutSnapshot(
     provider_platform_available_pence: providerAvailable,
   });
 
+  const driverName = driver
+    ? `${String(driver.first_name ?? "").trim()} ${String(driver.last_name ?? "").trim()}`.trim() || null
+    : null;
+
+  const lastPaidPayout = [...stripePayouts]
+    .filter((row) => {
+      const st = String(row.status ?? "").toLowerCase();
+      return st === "paid" || st === "in_transit" || st === "pending";
+    })
+    .sort((a, b) => {
+      const aTs = new Date(String(a.initiated_at ?? a.arrival_date ?? 0)).getTime();
+      const bTs = new Date(String(b.initiated_at ?? b.arrival_date ?? 0)).getTime();
+      return bTs - aTs;
+    })[0] ?? null;
+
   return {
     ...snapshot,
     driver_id: args.driverId,
     user_id: (driver?.user_id as string) ?? null,
     driver_code: (driver?.driver_code as string) ?? null,
+    driver_name: driverName,
     connected_account_id: (driver?.stripe_account_id as string) ?? null,
+    last_payout_at: lastPaidPayout
+      ? String(lastPaidPayout.initiated_at ?? lastPaidPayout.arrival_date ?? null)
+      : null,
+    last_payout_amount_pence: lastPaidPayout
+      ? Math.max(0, Number(lastPaidPayout.amount_pence ?? 0))
+      : null,
     payout_items: payoutItems,
     stripe_connect_payouts: stripePayouts,
     settlements,

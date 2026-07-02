@@ -11,6 +11,9 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+const DEFAULT_PAGE_SIZE = 25;
+const MAX_PAGE_SIZE = 50;
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -41,6 +44,11 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const driverId = body.driver_id ?? url.searchParams.get("driver_id");
     const regionId = body.region_id ?? url.searchParams.get("region_id");
+    const limit = Math.min(
+      MAX_PAGE_SIZE,
+      Math.max(1, Number(body.limit ?? url.searchParams.get("limit") ?? DEFAULT_PAGE_SIZE)),
+    );
+    const offset = Math.max(0, Number(body.offset ?? url.searchParams.get("offset") ?? 0));
 
     const stripe = stripeKey ? new Stripe(stripeKey, { apiVersion: "2023-10-16" }) : null;
 
@@ -54,11 +62,22 @@ Deno.serve(async (req) => {
       });
     }
 
+    let countQuery = supabase
+      .from("drivers")
+      .select("id", { count: "exact", head: true })
+      .not("stripe_account_id", "is", null);
+
+    if (regionId) countQuery = countQuery.eq("region_id", regionId);
+
+    const { count: totalCount, error: countErr } = await countQuery;
+    if (countErr) throw countErr;
+
     let driversQuery = supabase
       .from("drivers")
       .select("id, driver_code, user_id, stripe_account_id, region_id")
       .not("stripe_account_id", "is", null)
-      .limit(100);
+      .order("driver_code", { ascending: true })
+      .range(offset, offset + limit - 1);
 
     if (regionId) driversQuery = driversQuery.eq("region_id", regionId);
 
@@ -73,7 +92,13 @@ Deno.serve(async (req) => {
       }));
     }
 
-    return new Response(JSON.stringify({ success: true, drivers: rows }), {
+    return new Response(JSON.stringify({
+      success: true,
+      drivers: rows,
+      total: totalCount ?? rows.length,
+      limit,
+      offset,
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {

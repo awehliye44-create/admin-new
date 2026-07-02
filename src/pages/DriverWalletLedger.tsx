@@ -44,10 +44,13 @@ export default function DriverWalletLedger() {
           </AlertDescription>
         </Alert>
 
-        <DriverWalletSsotPanel />
-
         <div className="flex flex-wrap items-center gap-3">
           <ServiceAreaFinanceFilter value={serviceFilter} onChange={setServiceFilter} />
+        </div>
+
+        <DriverWalletSsotPanel regionId={serviceFilter.regionId} />
+
+        <div className="flex flex-wrap items-center gap-3">
           <FinancePeriodFilter
             period={period}
             onPeriodChange={setPeriod}

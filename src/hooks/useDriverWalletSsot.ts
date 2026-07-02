@@ -5,19 +5,25 @@ export type DriverWalletSsotRow = {
   driver_id: string;
   user_id: string | null;
   driver_code: string | null;
+  driver_name: string | null;
   connected_account_id: string | null;
   current_onecab_wallet_owed_pence: number;
   finance_cleared_amount_pence: number;
   included_in_payout_batch_amount_pence: number;
+  scheduled_payout_display_pence: number | null;
   stripe_connect_available_pence: number | null;
   stripe_connect_pending_pence: number | null;
   stripe_in_transit_pence: number | null;
   stripe_paid_out_total_pence: number;
+  local_only_failed_payout_pence: number;
+  failed_payout_stuck_processing_pence: number;
   recovery_debt_pence: number;
   cashout_limit_pence: number;
   reconciliation_status: string;
   reconciliation_reasons: string[];
   wallet_balance_pence: number;
+  last_payout_at: string | null;
+  last_payout_amount_pence: number | null;
   last_synced_at: string | null;
   payout_items?: Array<Record<string, unknown>>;
   stripe_connect_payouts?: Array<Record<string, unknown>>;
@@ -25,16 +31,43 @@ export type DriverWalletSsotRow = {
   ledger_rows?: Array<Record<string, unknown>>;
 };
 
-export function useDriverWalletSsot(regionId?: string | null) {
+export type DriverWalletSsotListResult = {
+  drivers: DriverWalletSsotRow[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+const DEFAULT_PAGE_SIZE = 25;
+
+export function useDriverWalletSsot(args?: {
+  regionId?: string | null;
+  page?: number;
+  pageSize?: number;
+}) {
+  const page = Math.max(1, args?.page ?? 1);
+  const pageSize = args?.pageSize ?? DEFAULT_PAGE_SIZE;
+  const offset = (page - 1) * pageSize;
+  const regionId = args?.regionId ?? null;
+
   return useQuery({
-    queryKey: ['driver-wallet-ssot', regionId ?? 'all'],
-    queryFn: async (): Promise<DriverWalletSsotRow[]> => {
+    queryKey: ['driver-wallet-ssot', regionId ?? 'all', page, pageSize],
+    queryFn: async (): Promise<DriverWalletSsotListResult> => {
       const { data, error } = await supabase.functions.invoke('admin-driver-wallet-ssot', {
-        body: regionId ? { region_id: regionId } : {},
+        body: {
+          ...(regionId ? { region_id: regionId } : {}),
+          limit: pageSize,
+          offset,
+        },
       });
       if (error) throw error;
       if (!data?.success) throw new Error(data?.error ?? 'SSOT fetch failed');
-      return (data.drivers ?? []) as DriverWalletSsotRow[];
+      return {
+        drivers: (data.drivers ?? []) as DriverWalletSsotRow[],
+        total: Number(data.total ?? 0),
+        limit: Number(data.limit ?? pageSize),
+        offset: Number(data.offset ?? offset),
+      };
     },
     staleTime: 60_000,
   });

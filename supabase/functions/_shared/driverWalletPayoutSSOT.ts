@@ -55,6 +55,8 @@ export type DriverWalletPayoutSnapshot = {
   stripe_paid_out_total_pence: number;
   cashout_limit_pence: number;
   scheduled_payout_display_pence: number | null;
+  local_only_failed_payout_pence: number;
+  failed_payout_stuck_processing_pence: number;
   reconciliation_status: ReconciliationStatus;
   reconciliation_reasons: string[];
   wallet_balance_pence: number;
@@ -198,6 +200,8 @@ export function computeDriverWalletPayoutSnapshot(
     stripe_paid_out_total_pence: Math.max(0, Math.round(input.stripe_paid_out_total_pence)),
     cashout_limit_pence: cashoutLimit,
     scheduled_payout_display_pence: scheduledDisplay,
+    local_only_failed_payout_pence: localFailed,
+    failed_payout_stuck_processing_pence: stuckProcessing,
     reconciliation_status: status,
     reconciliation_reasons: reasons,
     wallet_balance_pence: walletSigned,
