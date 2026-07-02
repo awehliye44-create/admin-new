@@ -176,7 +176,7 @@ serve(async (req) => {
         finance.driver_wallet_balance_pence ?? summaryRow?.wallet_balance ?? 0,
       );
       const walletOwed = Math.max(0, walletBalance);
-      const financeCleared = finance.driver_available_now_pence;
+      const financeCleared = finance.finance_cleared_amount_pence ?? finance.driver_available_now_pence;
       const connectStandardAvailable = snapshot.available_pence;
       const connectInstantAvailable = snapshot.instant_available_pence;
       const awaitingSettlement = computeConnectAwaitingSettlementPence(walletOwed, connectStandardAvailable) ?? 0;

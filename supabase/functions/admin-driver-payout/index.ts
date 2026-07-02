@@ -490,20 +490,24 @@ serve(async (req) => {
       });
     }
 
-    const available = ssot.driver_available_now_pence;
+    const available = ssot.eligible_payout_pence ?? ssot.driver_available_now_pence;
     const walletBalance = ssot.driver_wallet_balance_pence;
     const payoutAmount = amount_pence || available;
 
     console.log(
       `[payout] Driver ${driver_id}: wallet_balance=${walletBalance}p, ` +
-      `available_payout=${available}p (max(wallet,0)), debt=${ssot.driver_debt_pence}p, ` +
-      `requested=${payoutAmount}p, currency=${currency_code}`,
+      `eligible_payout=${available}p, finance_cleared=${ssot.finance_cleared_amount_pence}p, ` +
+      `debt=${ssot.driver_debt_pence}p, requested=${payoutAmount}p, currency=${currency_code}`,
     );
 
-    // P1 SSOT guard — wallet<0 blocks; requested>available blocks.
+    // P1 SSOT guard — wallet<0 blocks; requested>eligible blocks.
     const guard = evaluatePayoutGuard({
       walletBalancePence: walletBalance,
       requestedPence: payoutAmount,
+      financeClearedPence: ssot.finance_cleared_amount_pence,
+      stripeSettledUnpaidPence: ssot.provider_available_balance_allocated_to_driver_pence,
+      inFlightPayoutPence: ssot.in_flight_cashout_pence,
+      payoutBlocked: ssot.payout_blocked,
     });
     if (!guard.allowed) {
       const finance = await fetchDriverFinanceSnapshot(supabase, driver_id);

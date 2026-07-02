@@ -368,9 +368,8 @@ export function buildFinanceBackendAuditV1(args: {
     ledgerSplit.card_driver_payable_pence - payoutDebits.total + adjustments,
   );
 
-  // SSOT: aggregate available_payout = Σ max(walletBalance_i, 0).
-  // Equal to driverRemainingLiability (already max(0, …) per driver). No provider cap.
-  const driverAvailableNow = driverRemainingLiability;
+  // Platform audit cannot compute per-driver eligible payout — use per-driver SSOT.
+  const driverAvailableNow = 0;
 
   // Pending settlement is always 0 under the SSOT; kept for response shape.
   const driverPendingSettlement = 0;
@@ -448,13 +447,13 @@ export function buildFinanceBackendAuditV1(args: {
     },
     {
       id: "wallet_not_available_payout",
-      passed: driverAvailableNow === driverRemainingLiability,
-      detail: `SSOT: driver_available_now_pence = Σ max(wallet_balance_i, 0). wallet aggregate=${totalWalletBalance}p informational only.`,
+      passed: driverAvailableNow === 0,
+      detail: `Platform rollup does not expose eligible payout (use per-driver SSOT). Liability aggregate=${driverRemainingLiability}p; wallet aggregate=${totalWalletBalance}p informational.`,
     },
     {
       id: "available_payout_formula",
-      passed: driverAvailableNow === Math.max(0, driverRemainingLiability),
-      detail: "SSOT: driver_available_now = max(wallet_balance, 0). No provider cap, no in-flight cap.",
+      passed: driverAvailableNow === 0,
+      detail: "SSOT: eligible_payout is per-driver via computePayoutEligibility + finance_cleared — not max(wallet).",
     },
   ];
 

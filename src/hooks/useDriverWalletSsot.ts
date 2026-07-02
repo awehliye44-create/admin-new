@@ -22,6 +22,7 @@ export type DriverWalletSsotRow = {
   payout_items?: Array<Record<string, unknown>>;
   stripe_connect_payouts?: Array<Record<string, unknown>>;
   settlements?: Array<Record<string, unknown>>;
+  ledger_rows?: Array<Record<string, unknown>>;
 };
 
 export function useDriverWalletSsot(regionId?: string | null) {

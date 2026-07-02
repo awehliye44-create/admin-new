@@ -11,7 +11,7 @@ import {
   type DriverWalletPayoutSnapshot,
 } from "./driverWalletPayoutSSOT.ts";
 import { sumEligibleEarningPence, type EarningSettlementInput } from "./payoutEligibilitySSOT.ts";
-import { readConnectPayoutSnapshot } from "./connectPayoutLockdown.ts";
+import { readConnectPayoutSnapshot, listInFlightConnectPayouts } from "./connectPayoutLockdown.ts";
 
 const TERMINAL_FAILED = new Set(["failed", "ledger_sync_failed", "failed_duplicate"]);
 const STUCK_SETTLEMENT = new Set(["PROCESSING", "READY", "PENDING", "AVAILABLE"]);
@@ -24,6 +24,7 @@ export type DriverWalletPayoutDetail = DriverWalletPayoutSnapshot & {
   payout_items: Array<Record<string, unknown>>;
   stripe_connect_payouts: Array<Record<string, unknown>>;
   settlements: Array<Record<string, unknown>>;
+  ledger_rows: Array<Record<string, unknown>>;
   last_synced_at: string | null;
 };
 
@@ -40,12 +41,13 @@ export async function fetchDriverWalletPayoutSnapshot(
 
   const { data: driver } = await supabase
     .from("drivers")
-    .select("id, user_id, driver_code, stripe_account_id")
+    .select("id, user_id, driver_code, stripe_account_id, payouts_enabled, charges_enabled, region_id")
     .eq("id", args.driverId)
     .maybeSingle();
 
   const [
-    ledgerRes,
+    fullLedgerRes,
+    recentLedgerRes,
     settlementsRes,
     payoutItemsRes,
     stripePayoutsRes,
@@ -53,6 +55,10 @@ export async function fetchDriverWalletPayoutSnapshot(
   ] = await Promise.all([
     supabase.from("driver_wallet_ledger").select("type, amount_pence, stripe_payout_id")
       .eq("driver_id", args.driverId),
+    supabase.from("driver_wallet_ledger").select("id, type, amount_pence, trip_id, stripe_payout_id, balance_transaction_id, created_at")
+      .eq("driver_id", args.driverId)
+      .order("created_at", { ascending: false })
+      .limit(50),
     supabase.from("driver_earning_settlement")
       .select("id, trip_id, settlement_status, settlement_lifecycle_status, allocated_to_payout, allocated_amount_pence, paid_in_payout_item_id, paid_in_batch_id, driver_wallet_ledger!inner(amount_pence)")
       .eq("driver_id", args.driverId),
@@ -72,7 +78,8 @@ export async function fetchDriverWalletPayoutSnapshot(
       .in("status", ["pending", "processing", "transfer_created"]),
   ]);
 
-  const ledger = ledgerRes.data ?? [];
+  const ledger = fullLedgerRes.data ?? [];
+  const recentLedger = recentLedgerRes.data ?? [];
   const walletBalance = computeLedgerWalletBalancePence(ledger);
   const recoveryDebt = computeCashCommissionOutstanding(ledger);
 
@@ -109,12 +116,17 @@ export async function fetchDriverWalletPayoutSnapshot(
   let connectAvailable: number | null = null;
   let connectPending: number | null = null;
   let connectInstant: number | null = null;
+  let connectInTransit: number | null = null;
   if (args.stripe && driver?.stripe_account_id) {
     try {
       const snap = await readConnectPayoutSnapshot(args.stripe, driver.stripe_account_id, currency);
       connectAvailable = snap.available_pence;
       connectPending = snap.pending_pence;
       connectInstant = snap.instant_available_pence;
+      const inFlightPayouts = await listInFlightConnectPayouts(args.stripe, driver.stripe_account_id);
+      connectInTransit = inFlightPayouts
+        .filter((p) => p.status === "in_transit")
+        .reduce((s, p) => s + Math.max(0, p.amount_pence), 0);
     } catch {
       // Stripe read failed — leave null
     }
@@ -172,10 +184,13 @@ export async function fetchDriverWalletPayoutSnapshot(
     included_in_payout_batch_pence: includedBatch,
     stripe_connect_available_pence: connectAvailable,
     stripe_connect_pending_pence: connectPending,
+    stripe_in_transit_pence: connectInTransit,
     stripe_connect_instant_available_pence: connectInstant,
     stripe_paid_out_total_pence: stripePaidOut,
     recovery_debt_pence: recoveryDebt,
     in_flight_cashout_pence: inFlight,
+    payout_blocked: walletBalance < 0 || driver?.payouts_enabled === false,
+    instant_payout_enabled_by_stripe: driver?.charges_enabled !== false,
     stripe_payout_without_ledger_debit_pence: stripeWithoutLedger,
     ledger_debit_without_stripe_payout_pence: ledgerWithoutStripe,
     local_only_failed_payout_pence: localFailed,
@@ -192,6 +207,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     payout_items: payoutItems,
     stripe_connect_payouts: stripePayouts,
     settlements,
+    ledger_rows: recentLedger,
     last_synced_at: syncedAt,
   };
 }

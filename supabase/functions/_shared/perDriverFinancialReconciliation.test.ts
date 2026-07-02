@@ -37,7 +37,7 @@ Deno.test("single driver receives full provider available balance", () => {
   assertEquals(allocations.solo, 92);
 });
 
-Deno.test("SSOT: available_payout = max(walletBalance, 0) — positive wallet", () => {
+Deno.test("SSOT: eligible_payout capped by provider allocation — not raw wallet", () => {
   const ssot = computePerDriverSSOT({
     driverId: "d1",
     trips: [],
@@ -51,9 +51,10 @@ Deno.test("SSOT: available_payout = max(walletBalance, 0) — positive wallet", 
     providerAllocations: { d1: 100 },
     ledgerSyncMissing: false,
   });
-  // available is independent of provider allocation under the SSOT
   assertEquals(ssot.driver_wallet_balance_pence, 5000);
-  assertEquals(ssot.driver_available_now_pence, 5000);
+  assertEquals(ssot.finance_cleared_amount_pence, 0);
+  assertEquals(ssot.driver_available_now_pence, 100);
+  assertEquals(ssot.eligible_payout_pence, 100);
   assertEquals(ssot.driver_debt_pence, 0);
 });
 

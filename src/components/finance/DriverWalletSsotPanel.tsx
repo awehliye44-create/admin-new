@@ -61,7 +61,8 @@ function SsotDetailDrawer({
               <li>ONECAB wallet owed: {fmt(row.current_onecab_wallet_owed_pence)}</li>
               <li>Finance cleared: {fmt(row.finance_cleared_amount_pence)}</li>
               <li>In payout batch: {fmt(row.included_in_payout_batch_amount_pence)}</li>
-              <li>Stripe available: {row.stripe_connect_available_pence != null ? fmt(row.stripe_connect_available_pence) : '—'}</li>
+              <li>Stripe pending: {row.stripe_connect_pending_pence != null ? fmt(row.stripe_connect_pending_pence) : '—'}</li>
+              <li>Stripe in transit: {row.stripe_in_transit_pence != null ? fmt(row.stripe_in_transit_pence) : '—'}</li>
               <li>Stripe paid out: {fmt(row.stripe_paid_out_total_pence)}</li>
               <li>Recovery debt: {fmt(row.recovery_debt_pence)}</li>
               <li>Cash-out limit: {fmt(row.cashout_limit_pence)}</li>
@@ -75,6 +76,30 @@ function SsotDetailDrawer({
               </ul>
             </div>
           ) : null}
+          <div>
+            <p className="font-medium">Ledger ({row.ledger_rows?.length ?? 0} recent)</p>
+            <ul className="text-xs text-muted-foreground space-y-1 max-h-32 overflow-y-auto">
+              {(row.ledger_rows ?? []).slice(0, 15).map((lr, idx) => (
+                <li key={`${String(lr.id ?? idx)}`} className="border-b pb-1">
+                  {String(lr.type)} · {fmt(Number(lr.amount_pence ?? 0))}
+                  {lr.trip_id ? ` · trip ${String(lr.trip_id).slice(0, 8)}` : ''}
+                  {lr.stripe_payout_id ? ` · po ${String(lr.stripe_payout_id)}` : ''}
+                  {lr.balance_transaction_id ? ` · bt ${String(lr.balance_transaction_id).slice(0, 12)}` : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <p className="font-medium">Settlements ({row.settlements?.length ?? 0})</p>
+            <ul className="text-xs text-muted-foreground space-y-1 max-h-32 overflow-y-auto">
+              {(row.settlements ?? []).slice(0, 15).map((s) => (
+                <li key={String(s.id)} className="border-b pb-1">
+                  {String(s.settlement_status)} · trip {String(s.trip_id ?? '—').slice(0, 8)}
+                  {s.allocated_to_payout ? ' · allocated' : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
           <div>
             <p className="font-medium">Payout items ({row.payout_items?.length ?? 0})</p>
             <ul className="text-xs text-muted-foreground space-y-2 max-h-40 overflow-y-auto">
@@ -140,6 +165,7 @@ export function DriverWalletSsotPanel({ currencyCode = 'GBP' }: { currencyCode?:
                 <TableHead>In batch</TableHead>
                 <TableHead>Stripe avail.</TableHead>
                 <TableHead>Stripe pending</TableHead>
+                <TableHead>Stripe in transit</TableHead>
                 <TableHead>Stripe paid</TableHead>
                 <TableHead>Recovery</TableHead>
                 <TableHead>Cash-out limit</TableHead>
@@ -158,6 +184,7 @@ export function DriverWalletSsotPanel({ currencyCode = 'GBP' }: { currencyCode?:
                   <TableCell>{fmt(row.included_in_payout_batch_amount_pence)}</TableCell>
                   <TableCell>{fmt(row.stripe_connect_available_pence)}</TableCell>
                   <TableCell>{fmt(row.stripe_connect_pending_pence)}</TableCell>
+                  <TableCell>{fmt(row.stripe_in_transit_pence)}</TableCell>
                   <TableCell>{fmt(row.stripe_paid_out_total_pence)}</TableCell>
                   <TableCell>{fmt(row.recovery_debt_pence)}</TableCell>
                   <TableCell>{fmt(row.cashout_limit_pence)}</TableCell>

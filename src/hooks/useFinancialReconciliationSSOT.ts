@@ -46,7 +46,6 @@ async function fetchSummaryFallback(
   if (error || !data?.length) return null;
 
   const walletBalance = data.reduce((s, d) => s + Number(d.wallet_balance || 0), 0);
-  const available = data.reduce((s, d) => s + Number(d.net_available_for_payout || 0), 0);
   const paidOut = data.reduce((s, d) => s + Number(d.total_payouts_sent || 0), 0);
   const reserved = data.reduce((s, d) => s + Number(d.reserved_cashout_pence || 0), 0);
   const commission = data.reduce((s, d) => s + Number(d.company_commission_total || 0), 0);
@@ -65,10 +64,11 @@ async function fetchSummaryFallback(
       card_driver_payable_pence: 0,
       cash_driver_already_received_pence: 0,
       driver_wallet_balance_pence: walletBalance,
-      driver_available_payout_pence: available,
-      driver_pending_payout_pence: Math.max(0, walletBalance - available - paidOut),
+      /** SSOT: never max(wallet) — use per-driver reconciliation for eligible payout. */
+      driver_available_payout_pence: 0,
+      driver_pending_payout_pence: 0,
       driver_paid_out_pence: paidOut,
-      driver_payout_liability_pence: available + reserved,
+      driver_payout_liability_pence: walletBalance,
       onecab_cash_commission_owed_pence: 0,
       in_flight_cashout_pence: reserved,
     },
@@ -92,7 +92,7 @@ async function fetchSummaryFallback(
       provider_health_status: 'unknown',
       last_webhook_received_at: null,
     },
-    reconciliation_check: emptySplitReconciliationCheck(paidOut, available + reserved, commission),
+    reconciliation_check: emptySplitReconciliationCheck(paidOut, walletBalance, commission),
     ssot: {
       version: 'financial_reconciliation_ssot_v1',
       data_source_badge: 'SUMMARY',
@@ -181,10 +181,10 @@ async function fetchLedgerFallback(
       card_driver_payable_pence: 0,
       cash_driver_already_received_pence: 0,
       driver_wallet_balance_pence: walletBalance,
-      driver_available_payout_pence: Math.max(0, walletBalance),
+      driver_available_payout_pence: 0,
       driver_pending_payout_pence: 0,
       driver_paid_out_pence: paidOut,
-      driver_payout_liability_pence: Math.max(0, walletBalance),
+      driver_payout_liability_pence: walletBalance,
       onecab_cash_commission_owed_pence: 0,
       in_flight_cashout_pence: 0,
     },
@@ -208,7 +208,7 @@ async function fetchLedgerFallback(
       provider_health_status: 'unknown',
       last_webhook_received_at: null,
     },
-    reconciliation_check: emptySplitReconciliationCheck(paidOut, Math.max(0, walletBalance), 0),
+    reconciliation_check: emptySplitReconciliationCheck(paidOut, walletBalance, 0),
     ssot: {
       version: 'financial_reconciliation_ssot_v1',
       data_source_badge: 'LEDGER',

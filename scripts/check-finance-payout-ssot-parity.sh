@@ -7,17 +7,28 @@ DRIVER_REPO="${DRIVER_REPO:-$ROOT/../drive-hub-buddy}"
 FILES=(
   "supabase/functions/_shared/payoutAvailability.ts"
   "supabase/functions/_shared/perDriverFinancialReconciliation.ts"
+  "supabase/functions/_shared/settlementFinanceSSOT.ts"
+  "supabase/functions/_shared/payoutEligibilitySSOT.ts"
+  "supabase/functions/_shared/driverWalletPayoutSSOT.ts"
 )
 
 fail=0
 
 per_driver="$ROOT/supabase/functions/_shared/perDriverFinancialReconciliation.ts"
-if ! grep -q 'availablePayoutPence(walletBalance)' "$per_driver"; then
-  echo "FAIL: admin perDriverFinancialReconciliation must use availablePayoutPence(walletBalance)"
+if grep -q 'availablePayoutPence(walletBalance)' "$per_driver"; then
+  echo "FAIL: perDriverFinancialReconciliation must NOT derive payout from availablePayoutPence(walletBalance)"
+  fail=1
+fi
+if ! grep -q 'computePayoutEligibility' "$per_driver"; then
+  echo "FAIL: perDriverFinancialReconciliation must use computePayoutEligibility"
+  fail=1
+fi
+if ! grep -q 'finance_cleared_amount_pence' "$per_driver"; then
+  echo "FAIL: perDriverFinancialReconciliation must expose finance_cleared_amount_pence"
   fail=1
 fi
 if grep -q 'perDriverAvailableNowPence' "$per_driver"; then
-  echo "FAIL: legacy perDriverAvailableNowPence must not appear in admin perDriverFinancialReconciliation"
+  echo "FAIL: legacy perDriverAvailableNowPence must not appear in perDriverFinancialReconciliation"
   fail=1
 fi
 

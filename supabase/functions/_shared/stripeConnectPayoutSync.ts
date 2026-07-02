@@ -30,6 +30,7 @@ function payoutMethodLabel(payout: Stripe.Payout): string {
 
 export async function upsertStripeConnectPayout(args: {
   supabase: SupabaseClient;
+  stripe?: Stripe;
   payout: Stripe.Payout;
   connectedAccountId: string;
   driverId: string | null;
@@ -38,6 +39,24 @@ export async function upsertStripeConnectPayout(args: {
   const balanceTxnId = typeof args.payout.balance_transaction === "string"
     ? args.payout.balance_transaction
     : args.payout.balance_transaction?.id ?? null;
+
+  let bankLast4: string | null = null;
+  const dest = args.payout.destination;
+  if (dest && typeof dest === "object" && "last4" in dest) {
+    bankLast4 = (dest as { last4?: string | null }).last4 ?? null;
+  } else if (typeof dest === "string" && args.stripe) {
+    try {
+      const external = await args.stripe.accounts.retrieveExternalAccount(
+        args.connectedAccountId,
+        dest,
+      );
+      if (external && typeof external === "object" && "last4" in external) {
+        bankLast4 = (external as { last4?: string | null }).last4 ?? null;
+      }
+    } catch {
+      bankLast4 = null;
+    }
+  }
 
   const { error } = await args.supabase.from("stripe_connect_payouts").upsert({
     payout_id: args.payout.id,
@@ -52,9 +71,9 @@ export async function upsertStripeConnectPayout(args: {
     arrival_date: args.payout.arrival_date
       ? new Date(args.payout.arrival_date * 1000).toISOString()
       : null,
-    bank_last4: null,
-    failure_code: null,
-    failure_message: null,
+    bank_last4: bankLast4,
+    failure_code: args.payout.failure_code ?? null,
+    failure_message: args.payout.failure_message ?? null,
     balance_transaction_id: balanceTxnId,
     payout_method: payoutMethodLabel(args.payout),
     statement_descriptor: args.payout.statement_descriptor ?? null,
@@ -87,6 +106,7 @@ export async function syncStripeConnectPayoutsForAccount(args: {
     if (String(payout.currency ?? "").toLowerCase() !== currency) continue;
     await upsertStripeConnectPayout({
       supabase: args.supabase,
+      stripe: args.stripe,
       payout,
       connectedAccountId: args.connectedAccountId,
       driverId: args.driverId,

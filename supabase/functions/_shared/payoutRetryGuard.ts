@@ -93,6 +93,14 @@ export async function assertPayoutRetryAllowed(args: {
     };
   }
 
+  if (args.driver?.charges_enabled === false) {
+    return {
+      ok: false,
+      code: "PAYOUT_RETRY_CHARGES_DISABLED",
+      message: "Cannot retry: Stripe Connect charges_enabled is false for this account.",
+    };
+  }
+
   const st = String(args.payoutItem.status ?? "").toLowerCase();
   if (st === "completed" || args.payoutItem.stripe_payout_id) {
     return { ok: false, code: PAYOUT_RETRY_ALREADY_PAID_CODE, message: PAYOUT_RETRY_ALREADY_PAID_MESSAGE };

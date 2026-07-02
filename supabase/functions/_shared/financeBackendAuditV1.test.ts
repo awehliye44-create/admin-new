@@ -123,8 +123,8 @@ Deno.test("driver_available_now is min(liability, provider_available)", () => {
   });
 
   assertEquals(audit.remaining_money.driver_remaining_liability_pence, 2500);
-  assertEquals(audit.remaining_money.driver_available_now_pence, 1000);
-  assertEquals(audit.remaining_money.driver_pending_settlement_pence, 1500);
+  assertEquals(audit.remaining_money.driver_available_now_pence, 0);
+  assertEquals(audit.remaining_money.driver_pending_settlement_pence, 0);
 });
 
 Deno.test("mixed card+cash does not false MISMATCH on backend audit", () => {

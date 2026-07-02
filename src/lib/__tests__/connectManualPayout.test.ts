@@ -19,10 +19,11 @@ const baseInput = {
 };
 
 describe('connectManualPayout', () => {
-  it('max manual payout is min of wallet, available now, and instant available', () => {
+  it('max manual payout is min of finance-cleared available now and instant available (not wallet)', () => {
     expect(computeMaxManualConnectPayoutPence(baseInput)).toBe(45);
     expect(computeMaxManualConnectPayoutPence({
       ...baseInput,
+      wallet_balance_pence: 50_000,
       driver_available_now_pence: 500,
       connect_instant_available_pence: 300,
     })).toBe(300);

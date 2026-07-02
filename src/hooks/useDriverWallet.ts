@@ -46,7 +46,7 @@ export interface DriverFinancialSummary {
   available_for_payout: number;
   /** Sum of pending/processing early-cashout requested amounts (matches driver-wallet-summary). */
   reserved_cashout_pence: number;
-  /** wallet_balance minus reserved_cashout_pence — payout-ready amount shown in driver app. */
+  /** Ledger liability from driver_financial_summary.wallet_balance — not payout-ready cash. */
   net_available_for_payout: number;
   amount_owed_to_onecab: number;
 }

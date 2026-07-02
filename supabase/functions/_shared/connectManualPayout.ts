@@ -22,8 +22,8 @@ export type ConnectManualPayoutGateInput = {
 export function computeMaxManualConnectPayoutPence(
   input: ConnectManualPayoutGateInput,
 ): number {
+  // Finance-cleared + Stripe instant only — never cap from wallet_balance liability.
   return Math.min(
-    Math.max(0, input.wallet_balance_pence),
     Math.max(0, input.driver_available_now_pence),
     Math.max(0, input.connect_instant_available_pence),
   );

@@ -12,7 +12,6 @@
  */
 
 import { computeLedgerWalletBalancePence } from "./onecabFinanceLedger.ts";
-import { availablePayoutPence } from "./payoutAvailability.ts";
 
 export const SSOT_VERSION = "financial_reconciliation_ssot_v4";
 
@@ -434,7 +433,7 @@ export function perDriverLedgerLiabilityPence(ledger: LedgerSSOTRow[]): number {
 }
 
 // NOTE: legacy `driverAvailableNowPence` and `perDriverAvailableNowPence` have
-// been permanently removed. The single SSOT is `availablePayoutPence(walletBalance)`
+// Legacy wallet→payout derivations removed. Use per-driver SSOT (computePayoutEligibility).
 // in `payoutAvailability.ts` — applied directly in computeSSOTMetrics and
 // computePerDriverSSOT.
 
@@ -809,7 +808,8 @@ export function computeSSOTMetrics(args: {
   const adjustments = sumAdjustmentsPence(args.ledger);
   const walletBalance = computeLedgerWalletBalancePence(args.ledger);
   const remaining = Math.max(0, walletBalance);
-  const availableNow = availablePayoutPence(walletBalance);
+  // Platform rollup cannot compute per-driver eligible payout — use per-driver SSOT.
+  const availableNow = 0;
   const pendingPayout = 0;
 
   const ledgerSplit = computePaymentMethodLedgerMetrics({

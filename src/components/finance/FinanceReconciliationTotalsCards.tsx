@@ -99,13 +99,13 @@ export function FinanceReconciliationTotalsCards({
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Driver Available Now</CardTitle>
+            <CardTitle className="text-sm font-medium">Driver liability (ledger)</CardTitle>
             <Wallet className="h-4 w-4 text-blue-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-500">{fmt(FinanceSSOT.driverAvailableNow(summary), cc)}</div>
+            <div className="text-2xl font-bold text-blue-500">{fmt(FinanceSSOT.driverRemainingLiability(summary), cc)}</div>
             <p className="text-xs text-muted-foreground">
-              Liability {fmt(FinanceSSOT.driverRemainingLiability(summary), cc)} · Paid {fmt(FinanceSSOT.driverPaidOut(summary), cc)}
+              Eligible payout {fmt(FinanceSSOT.driverAvailableNow(summary), cc)} · Paid {fmt(FinanceSSOT.driverPaidOut(summary), cc)}
             </p>
           </CardContent>
         </Card>

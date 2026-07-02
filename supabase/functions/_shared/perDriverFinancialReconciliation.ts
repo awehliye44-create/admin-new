@@ -25,8 +25,14 @@ import {
   type TripSSOTRow,
 } from "./financialReconciliationSSOT.ts";
 import { computeLedgerWalletBalancePence } from "./onecabFinanceLedger.ts";
+import { computePayoutEligibility } from "./payoutEligibilitySSOT.ts";
 import {
-  availablePayoutPence,
+  computeFinanceClearedPenceFromSettlements,
+  computeIncludedInPayoutBatchPence,
+  type SettlementRow,
+} from "./settlementFinanceSSOT.ts";
+import { sumStripePaidOutFromConnectPayouts } from "./driverWalletPayoutSSOT.ts";
+import {
   driverDebtPence,
   WALLET_NEGATIVE_BLOCK_REASON,
 } from "./payoutAvailability.ts";
@@ -44,7 +50,13 @@ export type PerDriverSSOT = {
   provider_pending_balance_pence: number;
   provider_available_balance_allocated_to_driver_pence: number;
   provider_upcoming_payout_pence: number;
-  /** SSOT: max(wallet_balance, 0). */
+  /** Cleared settlements sum — NOT max(wallet_balance, 0). */
+  finance_cleared_amount_pence: number;
+  /** min(wallet, stripe-settled, finance-cleared) − in-flight. */
+  eligible_payout_pence: number;
+  included_in_payout_batch_pence: number;
+  stripe_paid_out_total_pence: number;
+  /** @deprecated Use eligible_payout_pence — kept for API compat. */
   driver_available_now_pence: number;
   /** Always 0 under the SSOT; kept for UI compatibility. */
   driver_pending_payout_pence: number;
@@ -182,22 +194,39 @@ export function computePerDriverSSOT(args: {
   providerAllocations: Record<string, number>;
   ledgerSyncMissing: boolean;
   sourceTier?: FinanceDataSourceBadge;
+  settlements?: SettlementRow[];
+  activePayoutItems?: Array<{ status: string; net_driver_payout_pence?: number | null; amount_pence?: number | null }>;
+  stripeConnectPayouts?: Array<{ amount_pence?: number | null; status?: string | null }>;
 }): PerDriverSSOT {
   const sourceTier = args.sourceTier ?? "LIVE";
   const driverGross = sumDriverGrossEarningsPence(args.trips);
   const driverNet = sumDriverNetEarningsPence(args.trips);
-  const bankPaidOut = sumBankPayoutPaidOutPence(args.ledger);
+  const stripePaidOut = sumStripePaidOutFromConnectPayouts(args.stripeConnectPayouts ?? []);
+  const bankPaidOutLedger = args.ledger
+    .filter((r) => ["PAYOUT", "WEEKLY_PAYOUT", "EARLY_CASHOUT", "MANUAL_PAYOUT"].includes(String(r.type)))
+    .reduce((s, r) => s + Math.abs(r.amount_pence ?? 0), 0);
+  const bankPaidOut = stripePaidOut > 0 ? stripePaidOut : bankPaidOutLedger;
   const completedEarly = sumCompletedEarlyCashoutsPence(args.earlyCashouts);
   const inFlight = sumInFlightCashoutPence(args.earlyCashouts);
   const adjustments = sumAdjustmentsPence(args.ledger);
-  const walletBalance = computeLedgerWalletBalancePence(args.ledger); // signed
-  const remaining = perDriverLedgerLiabilityPence(args.ledger); // == max(walletBalance, 0)
+  const walletBalance = computeLedgerWalletBalancePence(args.ledger);
+  const remaining = perDriverLedgerLiabilityPence(args.ledger);
   const allocated = Math.max(0, args.providerAllocations[args.driverId] ?? 0);
-  // SSOT: available_payout = max(wallet_balance, 0). No provider cap, no in-flight cap.
-  const availableNow = availablePayoutPence(walletBalance);
+  const financeCleared = computeFinanceClearedPenceFromSettlements(args.settlements ?? []);
+  const includedBatch = computeIncludedInPayoutBatchPence(args.activePayoutItems ?? []);
   const driverDebt = driverDebtPence(walletBalance);
-  // Pending is meaningless under the SSOT (wallet is either available or debt).
   const pendingPayout = 0;
+
+  const eligibility = computePayoutEligibility({
+    walletUnpaidPence: remaining,
+    stripeSettledUnpaidPence: allocated,
+    payoutBlocked: walletBalance < 0,
+    inFlightPayoutPence: inFlight,
+  });
+  const eligiblePayout =
+    financeCleared > 0
+      ? Math.min(eligibility.eligible_payout_pence, financeCleared)
+      : eligibility.eligible_payout_pence;
 
   const digitalTrips = filterDigitalTrips(args.trips);
   const digitalNetCustomer = sumDigitalNetCustomerRevenuePence({
@@ -226,7 +255,7 @@ export function computePerDriverSSOT(args: {
     regionId: args.regionId,
     providerAllocatedPence: allocated,
     ledgerSyncMissing: args.ledgerSyncMissing,
-    availableNowPence: availableNow,
+    availableNowPence: eligiblePayout,
     walletBalancePence: walletBalance,
   });
   const payoutBlockedReasons = payoutGate.payout_blocked_reasons;
@@ -244,7 +273,11 @@ export function computePerDriverSSOT(args: {
     provider_pending_balance_pence: args.providerPendingBalancePence,
     provider_available_balance_allocated_to_driver_pence: allocated,
     provider_upcoming_payout_pence: args.providerPendingBalancePence,
-    driver_available_now_pence: availableNow,
+    finance_cleared_amount_pence: financeCleared,
+    eligible_payout_pence: eligiblePayout,
+    included_in_payout_batch_pence: includedBatch,
+    stripe_paid_out_total_pence: stripePaidOut,
+    driver_available_now_pence: eligiblePayout,
     driver_pending_payout_pence: pendingPayout,
     driver_wallet_balance_pence: walletBalance,
     driver_debt_pence: driverDebt,
@@ -317,7 +350,7 @@ export async function fetchPerDriverFinancialReconciliation(
     .select("type, amount_pence, driver_id")
     .in("driver_id", peerDriverIds);
 
-  const [tripsResult, fullLedgerResult, cashoutsResult, payoutItemsResult] = await Promise.all([
+  const [tripsResult, fullLedgerResult, cashoutsResult, payoutItemsResult, settlementsResult, activePayoutResult, stripePayoutsResult] = await Promise.all([
     tripQuery,
     fullLedgerQuery,
     supabase
@@ -329,12 +362,32 @@ export async function fetchPerDriverFinancialReconciliation(
       .select("driver_id, status, ledger_entry_id, stripe_payout_id")
       .in("driver_id", peerDriverIds)
       .in("status", ["completed", "ledger_sync_failed"]),
+    supabase
+      .from("driver_earning_settlement")
+      .select(`
+        id, trip_id, settlement_status, allocated_to_payout, allocated_amount_pence,
+        paid_in_batch_id, paid_in_payout_item_id,
+        driver_wallet_ledger ( amount_pence )
+      `)
+      .eq("driver_id", driverId),
+    supabase
+      .from("payout_items")
+      .select("status, net_driver_payout_pence, amount_pence")
+      .eq("driver_id", driverId)
+      .in("status", ["pending", "processing", "ready", "transfer_created"]),
+    supabase
+      .from("stripe_connect_payouts")
+      .select("amount_pence, status")
+      .eq("driver_id", driverId),
   ]);
 
   if (tripsResult.error) throw tripsResult.error;
   if (fullLedgerResult.error) throw fullLedgerResult.error;
   if (cashoutsResult.error) throw cashoutsResult.error;
   if (payoutItemsResult.error) throw payoutItemsResult.error;
+  if (settlementsResult.error) throw settlementsResult.error;
+  if (activePayoutResult.error) throw activePayoutResult.error;
+  if (stripePayoutsResult.error) throw stripePayoutsResult.error;
 
   const allTrips = (tripsResult.data ?? []) as Array<TripSSOTRow & { driver_id?: string }>;
   const allLedger = (fullLedgerResult.data ?? []) as Array<LedgerSSOTRow & { driver_id?: string }>;
@@ -386,5 +439,8 @@ export async function fetchPerDriverFinancialReconciliation(
     providerAllocations: allocations,
     ledgerSyncMissing,
     sourceTier: args.sourceTier,
+    settlements: (settlementsResult.data ?? []) as SettlementRow[],
+    activePayoutItems: activePayoutResult.data ?? [],
+    stripeConnectPayouts: stripePayoutsResult.data ?? [],
   });
 }

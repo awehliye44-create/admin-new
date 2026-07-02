@@ -175,3 +175,9 @@ verify_jwt = false
 
 [functions.admin-request-extra-payment]
 verify_jwt = false
+
+[functions.admin-driver-wallet-ssot]
+verify_jwt = false
+
+[functions.admin-continuous-reconciliation]
+verify_jwt = false
