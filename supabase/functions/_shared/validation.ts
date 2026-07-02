@@ -124,7 +124,7 @@ export function validateEnum<T extends string>(
 }
 
 // ============= PAYMENT METHOD VALIDATOR =============
-const PAYMENT_METHODS = ['CASH', 'CARD', 'WALLET', 'APPLE_PAY', 'GOOGLE_PAY'] as const;
+const PAYMENT_METHODS = ['CARD', 'WALLET', 'APPLE_PAY', 'GOOGLE_PAY'] as const;
 export type PaymentMethod = typeof PAYMENT_METHODS[number];
 
 export function validatePaymentMethod(value: unknown, fieldName: string = 'payment_method'): ValidationResult<PaymentMethod> {

@@ -65,7 +65,7 @@ export default function CorporateAccounts() {
     monthly_budget: 1000,
     region_id: '',
     service_area_id: '',
-    payment_cash_enabled: false,
+    
     payment_card_enabled: true,
     payment_apple_pay_enabled: true,
     payment_google_pay_enabled: true,
@@ -180,7 +180,7 @@ export default function CorporateAccounts() {
       monthly_budget: account.monthly_budget || 0,
       region_id: account.region_id || '',
       service_area_id: account.service_area_id || '',
-      payment_cash_enabled: account.payment_cash_enabled ?? false,
+      
       payment_card_enabled: account.payment_card_enabled ?? true,
       payment_apple_pay_enabled: account.payment_apple_pay_enabled ?? true,
       payment_google_pay_enabled: account.payment_google_pay_enabled ?? true,
@@ -209,7 +209,6 @@ export default function CorporateAccounts() {
       monthly_budget: formData.monthly_budget,
       region_id: formData.region_id || null,
       service_area_id: formData.service_area_id || null,
-      payment_cash_enabled: formData.payment_cash_enabled,
       payment_card_enabled: formData.payment_card_enabled,
       payment_apple_pay_enabled: formData.payment_apple_pay_enabled,
       payment_google_pay_enabled: formData.payment_google_pay_enabled,
@@ -623,7 +622,7 @@ export default function CorporateAccounts() {
                 <div>
                   <Label className="text-base font-semibold">Allowed Payment Methods</Label>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Corporate bookings must use a method enabled here. Cash and Invoice are OFF by default to prevent ONECAB paying drivers before the corporate customer has paid.
+                    Corporate bookings must use a method enabled here. Invoice is OFF by default to prevent ONECAB paying drivers before the corporate customer has paid.
                   </p>
                 </div>
                 {([
@@ -631,7 +630,6 @@ export default function CorporateAccounts() {
                   { key: 'payment_apple_pay_enabled', label: 'Apple Pay (Stripe)', desc: 'iOS — via Stripe' },
                   { key: 'payment_google_pay_enabled', label: 'Google Pay (Stripe)', desc: 'Android — via Stripe' },
                   { key: 'payment_wallet_enabled', label: 'Corporate Wallet / Prepaid', desc: 'Only effective when prepaid balance > 0' },
-                  { key: 'payment_cash_enabled', label: 'Cash', desc: '⚠ Risk: driver paid before corporate pays ONECAB' },
                   { key: 'payment_invoice_enabled', label: 'Invoice / Monthly billing', desc: '⚠ Risk: driver paid before corporate pays ONECAB' },
                 ] as const).map((m) => (
                   <div key={m.key} className="flex items-start justify-between gap-4 py-1">

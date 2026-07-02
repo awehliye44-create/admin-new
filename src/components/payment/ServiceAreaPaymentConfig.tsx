@@ -89,7 +89,7 @@ export function ServiceAreaPaymentConfig({ serviceAreaId, serviceAreaName }: Ser
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {method.id === 'cash' && 'Accept cash payments'}
+                    
                     {method.id === 'card' && 'Credit/debit cards'}
                     {method.id === 'wallet' && 'Wallet balance'}
                     {method.id === 'apple_pay' && 'Apple Pay (iOS)'}

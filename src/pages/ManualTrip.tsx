@@ -19,7 +19,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { 
   PlusCircle, Loader2, MapPin, User, Phone, Clock, Car,
   DollarSign, FileText, Calendar, CheckCircle2, AlertCircle,
-  CreditCard, Banknote, Wallet, Smartphone, Globe, Navigation, Building2
+  CreditCard, Wallet, Smartphone, Globe, Navigation, Building2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -72,7 +72,6 @@ interface CorporateAccount {
 }
 
 interface ServiceAreaPaymentConfig {
-  cash_enabled: boolean;
   card_enabled: boolean;
   wallet_enabled: boolean;
   apple_pay_enabled: boolean;
@@ -87,7 +86,6 @@ interface PlaceResult {
 }
 
 const PAYMENT_ICONS: Record<string, React.ReactNode> = {
-  cash: <Banknote className="h-4 w-4" />,
   card: <CreditCard className="h-4 w-4" />,
   wallet: <Wallet className="h-4 w-4" />,
   apple_pay: <Smartphone className="h-4 w-4" />,
@@ -135,7 +133,7 @@ export default function ManualTrip() {
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>('card');
   const [jobType, setJobType] = useState('ride');
   const [selectedCorporateAccountId, setSelectedCorporateAccountId] = useState('');
   const [isCorporateTrip, setIsCorporateTrip] = useState(false);
@@ -242,7 +240,6 @@ export default function ManualTrip() {
 
         if (data) {
           setPaymentConfig({
-            cash_enabled: data.cash_enabled,
             card_enabled: data.card_enabled,
             wallet_enabled: data.wallet_enabled,
             apple_pay_enabled: data.apple_pay_enabled,
@@ -252,15 +249,12 @@ export default function ManualTrip() {
           // Reset payment method if current selection is not available
           const methodKey = `${paymentMethod}_enabled` as keyof typeof data;
           if (!data[methodKey]) {
-            // Find first enabled method
-            if (data.cash_enabled) setPaymentMethod('cash');
-            else if (data.card_enabled) setPaymentMethod('card');
+            if (data.card_enabled) setPaymentMethod('card');
             else if (data.wallet_enabled) setPaymentMethod('wallet');
           }
         } else {
           // Default config if none exists
           setPaymentConfig({
-            cash_enabled: true,
             card_enabled: true,
             wallet_enabled: false,
             apple_pay_enabled: false,
@@ -360,7 +354,7 @@ export default function ManualTrip() {
     setIsScheduled(false);
     setScheduledDate('');
     setScheduledTime('');
-    setPaymentMethod('cash');
+    setPaymentMethod('card');
     setJobType('ride');
     setIsCorporateTrip(false);
     setSelectedCorporateAccountId('');
@@ -369,7 +363,7 @@ export default function ManualTrip() {
 
   const getEnabledPaymentMethods = useCallback(() => {
     if (!paymentConfig) {
-      return ALL_PAYMENT_METHODS.filter(m => m.id === 'cash' || m.id === 'card');
+      return ALL_PAYMENT_METHODS.filter(m => m.id === 'card');
     }
     
     return ALL_PAYMENT_METHODS.filter(method => {
