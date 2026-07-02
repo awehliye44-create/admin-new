@@ -15,6 +15,11 @@ export type MondayPayoutSettlementStatus =
   | "FAILED"
   | "PARTIAL_SETTLEMENT";
 
+export type PayoutEvidenceType =
+  | "local_only"
+  | "stripe_transfer"
+  | "stripe_payout";
+
 export type MondayPayoutDiagnosticsRow = {
   payout_item_id: string;
   batch_id: string | null;
@@ -30,6 +35,11 @@ export type MondayPayoutDiagnosticsRow = {
   net_driver_payout_pence: number;
   payout_status: string;
   settlement_status: MondayPayoutSettlementStatus | null;
+  payout_evidence_type: PayoutEvidenceType;
+  payout_evidence_label: string;
+  stripe_transfer_id: string | null;
+  stripe_payout_id: string | null;
+  retry_blocked_reason: string | null;
   driver_paid_out_pence: number;
   failed_payout_amount_pence: number;
   driver_pending_pence: number;
@@ -75,21 +85,59 @@ export function deriveSettlementStatus(args: {
   driverPaidOutPence: number;
   failedPayoutAmountPence: number;
   returnedToWalletPence: number;
+  stripeTransferId?: string | null;
+  stripePayoutId?: string | null;
 }): MondayPayoutSettlementStatus {
   const { payoutStatus, cashCommissionRecoveredPence } = args;
   if (payoutStatus === "completed") return "COMPLETE";
   if (payoutStatus === "FAILED_DUPLICATE") return "FAILED";
+  if (TERMINAL_FAILED_PAYOUT_STATUSES.has(payoutStatus)) {
+    if (
+      cashCommissionRecoveredPence > 0 &&
+      !args.stripeTransferId &&
+      !args.stripePayoutId
+    ) {
+      return "PARTIAL_SETTLEMENT";
+    }
+    return "FAILED";
+  }
   if (payoutStatus === "pending" || payoutStatus === "processing") return "PROCESSING";
   if (
     cashCommissionRecoveredPence > 0 &&
-    (TERMINAL_FAILED_PAYOUT_STATUSES.has(payoutStatus) ||
-      args.failedPayoutAmountPence > 0 ||
-      args.returnedToWalletPence > 0)
+    (args.failedPayoutAmountPence > 0 || args.returnedToWalletPence > 0)
   ) {
     return "PARTIAL_SETTLEMENT";
   }
-  if (TERMINAL_FAILED_PAYOUT_STATUSES.has(payoutStatus)) return "FAILED";
   return "PENDING";
+}
+
+export function classifyPayoutEvidence(args: {
+  stripeTransferId?: string | null;
+  stripePayoutId?: string | null;
+  payoutStatus: string;
+}): { type: PayoutEvidenceType; label: string } {
+  if (args.stripePayoutId) {
+    return {
+      type: "stripe_payout",
+      label: "Stripe payout paid to bank",
+    };
+  }
+  if (args.stripeTransferId) {
+    return {
+      type: "stripe_transfer",
+      label: "Stripe transfer succeeded",
+    };
+  }
+  if (TERMINAL_FAILED_PAYOUT_STATUSES.has(args.payoutStatus)) {
+    return {
+      type: "local_only",
+      label: "Local failed payout item — not Stripe paid",
+    };
+  }
+  return {
+    type: "local_only",
+    label: "Local pending payout item — not Stripe paid",
+  };
 }
 
 /** gross - cash_commission = net */
@@ -134,7 +182,25 @@ export function reconcileMondayPayoutRow(row: {
   driver_pending_pence: number;
   returned_to_wallet_pence: number;
   payout_status: string;
+  payout_evidence_type?: PayoutEvidenceType;
+  stripe_transfer_id?: string | null;
+  stripe_payout_id?: string | null;
 }): { status: "BALANCED" | "RECONCILIATION_MISMATCH"; detail: string | null } {
+  const localOnlyFailed = row.payout_evidence_type === "local_only" &&
+    TERMINAL_FAILED_PAYOUT_STATUSES.has(row.payout_status);
+
+  if (localOnlyFailed) {
+    const failedOk = row.failed_payout_amount_pence >= row.net_driver_payout_pence - 1;
+    const paidOk = row.driver_paid_out_pence === 0;
+    if (failedOk && paidOk) {
+      return { status: "BALANCED", detail: null };
+    }
+    return {
+      status: "RECONCILIATION_MISMATCH",
+      detail: `local failed item: net(${row.net_driver_payout_pence}) failed(${row.failed_payout_amount_pence}) paid(${row.driver_paid_out_pence})`,
+    };
+  }
+
   const grossOk = grossMinusCommissionBalanced(
     row.gross_payable_pence,
     row.cash_commission_recovered_pence,
@@ -171,32 +237,45 @@ export function buildMondayPayoutDiagnosticsRow(args: {
   batchKind: string;
   driverName: string | null;
   driverWalletBalancePence?: number | null;
+  platformAvailablePence?: number | null;
 }): MondayPayoutDiagnosticsRow {
   const item = args.item;
   const payoutStatus = String(item.status ?? "pending");
-  const grossPayable = Number(item.gross_payable_pence ?? 0);
+  const stripeTransferId = (item.stripe_transfer_id as string | null) ?? null;
+  const stripePayoutId = (item.stripe_payout_id as string | null) ?? null;
   const cashCommission = Number(item.cash_commission_recovered_pence ?? 0);
   const netPayout = Number(
     item.net_driver_payout_pence ?? item.amount_pence ?? 0,
   );
+  const grossPayable = Number(item.gross_payable_pence ?? 0) ||
+    (netPayout + cashCommission) ||
+    netPayout;
   const driverPaidOut = payoutStatus === "completed"
     ? Number(item.driver_paid_out_pence ?? netPayout)
     : Number(item.driver_paid_out_pence ?? 0);
+  const failedAmountRaw = Number(item.failed_payout_amount_pence ?? 0);
   const failedAmount = TERMINAL_FAILED_PAYOUT_STATUSES.has(payoutStatus)
-    ? Number(item.failed_payout_amount_pence ?? netPayout)
-    : Number(item.failed_payout_amount_pence ?? 0);
+    ? (failedAmountRaw > 0 ? failedAmountRaw : netPayout)
+    : failedAmountRaw;
   const returned = Number(item.returned_to_wallet_pence ?? 0);
   const driverPending =
     payoutStatus === "pending" || payoutStatus === "processing" ? netPayout : 0;
 
-  const settlementStatus = (item.settlement_status as MondayPayoutSettlementStatus | null) ??
-    deriveSettlementStatus({
-      payoutStatus,
-      cashCommissionRecoveredPence: cashCommission,
-      driverPaidOutPence: driverPaidOut,
-      failedPayoutAmountPence: failedAmount,
-      returnedToWalletPence: returned,
-    });
+  const evidence = classifyPayoutEvidence({
+    stripeTransferId,
+    stripePayoutId,
+    payoutStatus,
+  });
+
+  const settlementStatus = deriveSettlementStatus({
+    payoutStatus,
+    cashCommissionRecoveredPence: cashCommission,
+    driverPaidOutPence: driverPaidOut,
+    failedPayoutAmountPence: failedAmount,
+    returnedToWalletPence: returned,
+    stripeTransferId,
+    stripePayoutId,
+  });
 
   const recon = reconcileMondayPayoutRow({
     gross_payable_pence: grossPayable,
@@ -207,12 +286,15 @@ export function buildMondayPayoutDiagnosticsRow(args: {
     driver_pending_pence: driverPending,
     returned_to_wallet_pence: returned,
     payout_status: payoutStatus,
+    payout_evidence_type: evidence.type,
+    stripe_transfer_id: stripeTransferId,
+    stripe_payout_id: stripePayoutId,
   });
 
   const providerRef =
     (item.provider_reference as string | null) ??
-    (item.stripe_transfer_id as string | null) ??
-    (item.stripe_payout_id as string | null);
+    stripeTransferId ??
+    stripePayoutId;
 
   const walletBalance =
     typeof args.driverWalletBalancePence === "number"
@@ -229,6 +311,17 @@ export function buildMondayPayoutDiagnosticsRow(args: {
     ? `Driver wallet is ${walletBalance}p (debt ${driverDebt}p) — payout should have been blocked.`
     : null;
 
+  let retryBlockedReason: string | null = null;
+  if (
+    TERMINAL_FAILED_PAYOUT_STATUSES.has(payoutStatus) &&
+    !providerRef &&
+    typeof args.platformAvailablePence === "number" &&
+    args.platformAvailablePence < netPayout
+  ) {
+    retryBlockedReason =
+      "Cannot retry: Stripe provider balance is negative / insufficient funds.";
+  }
+
   return {
     payout_item_id: String(item.id),
     batch_id: (item.batch_id as string | null) ?? null,
@@ -242,6 +335,11 @@ export function buildMondayPayoutDiagnosticsRow(args: {
     net_driver_payout_pence: netPayout,
     payout_status: payoutStatus,
     settlement_status: settlementStatus,
+    payout_evidence_type: evidence.type,
+    payout_evidence_label: evidence.label,
+    stripe_transfer_id: stripeTransferId,
+    stripe_payout_id: stripePayoutId,
+    retry_blocked_reason: retryBlockedReason,
     driver_paid_out_pence: driverPaidOut,
     failed_payout_amount_pence: failedAmount,
     driver_pending_pence: driverPending,

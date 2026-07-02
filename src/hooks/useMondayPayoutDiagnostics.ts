@@ -23,6 +23,11 @@ export type MondayPayoutDiagnosticsRow = {
   net_driver_payout_pence: number;
   payout_status: string;
   settlement_status: MondayPayoutSettlementStatus | null;
+  payout_evidence_type?: "local_only" | "stripe_transfer" | "stripe_payout";
+  payout_evidence_label?: string;
+  stripe_transfer_id?: string | null;
+  stripe_payout_id?: string | null;
+  retry_blocked_reason?: string | null;
   driver_paid_out_pence: number;
   failed_payout_amount_pence: number;
   driver_pending_pence: number;
@@ -48,11 +53,33 @@ export type MondayPayoutTodayCards = {
   returned_to_wallet_pence: number;
 };
 
+export type StripeConnectPayoutHistoryRow = {
+  payout_id: string;
+  connected_account_id: string;
+  driver_id: string | null;
+  driver_name: string | null;
+  amount_pence: number;
+  currency: string;
+  status: string;
+  initiated_at: string | null;
+  arrival_date: string | null;
+  bank_last4: string | null;
+  failure_code: string | null;
+  failure_message: string | null;
+  balance_transaction_id: string | null;
+  payout_method: string | null;
+  statement_descriptor: string | null;
+  last_synced_at: string | null;
+};
+
 export type MondayPayoutDiagnosticsResponse = {
   today_cards: MondayPayoutTodayCards;
   /** London period start ISO — scope for summary cards */
   today_period_start?: string;
   period_end?: string | null;
+  platform_available_pence?: number | null;
+  stripe_payout_sync?: { accounts_synced: number; payouts_synced: number } | null;
+  stripe_connect_payouts?: StripeConnectPayoutHistoryRow[];
   payouts: MondayPayoutDiagnosticsRow[];
   failed_payouts: MondayPayoutDiagnosticsRow[];
   partial_settlements: MondayPayoutDiagnosticsRow[];
@@ -122,11 +149,18 @@ export function useMondayPayoutDiagnostics(
 
 /** Retry a failed payout item — ledger sync vs full provider retry (no duplicate batch). */
 export async function retryMondayPayoutItem(row: MondayPayoutDiagnosticsRow): Promise<void> {
+  if (row.retry_blocked_reason) {
+    throw new Error(row.retry_blocked_reason);
+  }
+
   if (row.payout_status === "ledger_sync_failed") {
     const { data, error } = await supabase.functions.invoke("admin-driver-payout", {
       body: { payout_item_id: row.payout_item_id },
     });
-    if (error) throw error;
+    if (error) {
+      const msg = (data as { error?: string } | null)?.error ?? error.message;
+      throw new Error(msg);
+    }
     if (!(data as { success?: boolean })?.success && !(data as { retry?: boolean })?.retry) {
       throw new Error((data as { error?: string })?.error ?? "Ledger sync retry failed");
     }
@@ -143,14 +177,26 @@ export async function retryMondayPayoutItem(row: MondayPayoutDiagnosticsRow): Pr
       confirm_payout: true,
     },
   });
-  if (error) throw error;
+  if (error) {
+    const msg = (data as { error?: string; error_code?: string } | null)?.error ?? error.message;
+    throw new Error(msg);
+  }
   if (!(data as { success?: boolean })?.success) {
     throw new Error((data as { error?: string })?.error ?? "Payout retry failed");
   }
 }
 
 export function canRetryMondayPayoutItem(row: MondayPayoutDiagnosticsRow): boolean {
+  if (row.retry_blocked_reason) return false;
   if (row.payout_status === "ledger_sync_failed") return true;
   if (row.payout_status === "failed" && !row.provider_reference) return true;
   return false;
+}
+
+export function retryBlockedTooltip(row: MondayPayoutDiagnosticsRow): string | null {
+  if (row.retry_blocked_reason) return row.retry_blocked_reason;
+  if (row.payout_status === "failed" && !row.provider_reference) {
+    return null;
+  }
+  return null;
 }

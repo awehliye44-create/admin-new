@@ -22,6 +22,12 @@ import {
   PAYOUT_EXECUTION_DISABLED_MESSAGE,
   PAYOUT_VERIFICATION_MODE_MESSAGE,
 } from "../_shared/payoutExecutionGate.ts";
+import {
+  assertRetryStripeBalance,
+  PAYOUT_RETRY_INSUFFICIENT_FUNDS_CODE,
+  PAYOUT_RETRY_INSUFFICIENT_FUNDS_MESSAGE,
+  readPlatformAvailablePence,
+} from "../_shared/payoutRetryGuard.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 
 const corsHeaders = {
@@ -223,10 +229,11 @@ serve(async (req) => {
     if (retry_payout_item_id) {
       if (!stripeExecutionEnabled) {
         return new Response(JSON.stringify({
+          success: false,
           error: PAYOUT_EXECUTION_DISABLED_MESSAGE,
           error_code: PAYOUT_EXECUTION_DISABLED_CODE,
         }), {
-          status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
       if (!confirm_payout) {
@@ -277,6 +284,39 @@ serve(async (req) => {
           in_flight_payout_item_id: inflight.id,
         }), {
           status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const retryAmount = Number(existingItem.net_driver_payout_pence ?? existingItem.amount_pence);
+      if (!stripeSecretKey) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: "Stripe not configured",
+          error_code: "STRIPE_NOT_CONFIGURED",
+        }), {
+          status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
+      const currencyResultRetry = await resolveCurrencyFromDriver(supabase, retryDriverId);
+      const platformAvailable = await readPlatformAvailablePence(
+        stripe,
+        currencyResultRetry.currency_code,
+      );
+      const balanceCheck = assertRetryStripeBalance({
+        requiredAmountPence: retryAmount,
+        platformAvailablePence: platformAvailable,
+      });
+      if (!balanceCheck.ok) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: balanceCheck.message,
+          error_code: balanceCheck.code,
+          platform_available_pence: platformAvailable,
+          required_amount_pence: retryAmount,
+        }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 

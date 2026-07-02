@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import Stripe from "https://esm.sh/stripe@14.21.0";
 import {
   aggregateMondayPayoutTodayCards,
   buildMondayPayoutDiagnosticsRow,
@@ -8,6 +9,10 @@ import {
   londonTodayStartIso,
   type MondayPayoutDiagnosticsRow,
 } from "../_shared/mondayPayoutDiagnostics.ts";
+import {
+  syncStripeConnectPayoutsForRegion,
+} from "../_shared/stripeConnectPayoutSync.ts";
+import { readPlatformAvailablePence } from "../_shared/payoutRetryGuard.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -86,6 +91,41 @@ serve(async (req) => {
     const todayStart = londonTodayStartIso();
     const resolvedFrom = periodFrom ?? (todayOnly ? todayStart : null);
     const resolvedTo = periodTo ?? null;
+
+    const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
+    let platformAvailablePence: number | null = null;
+    let stripePayoutSync: { accounts_synced: number; payouts_synced: number } | null = null;
+
+    if (stripeSecretKey) {
+      const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
+      platformAvailablePence = await readPlatformAvailablePence(stripe, "gbp");
+      try {
+        stripePayoutSync = await syncStripeConnectPayoutsForRegion({
+          supabase,
+          stripe,
+          regionId,
+          currency: "gbp",
+        });
+      } catch (syncErr) {
+        console.warn("[admin-monday-payout-diagnostics] stripe payout sync:", syncErr);
+      }
+    }
+
+    let stripePayoutQuery = supabase
+      .from("stripe_connect_payouts")
+      .select(`
+        payout_id, connected_account_id, driver_id, amount_pence, currency, status,
+        initiated_at, arrival_date, bank_last4, failure_code, failure_message,
+        balance_transaction_id, payout_method, statement_descriptor, last_synced_at,
+        drivers:driver_id (first_name, last_name, region_id)
+      `)
+      .order("initiated_at", { ascending: false })
+      .limit(200);
+
+    if (resolvedFrom) stripePayoutQuery = stripePayoutQuery.gte("initiated_at", resolvedFrom);
+    if (resolvedTo) stripePayoutQuery = stripePayoutQuery.lte("initiated_at", resolvedTo);
+
+    const { data: stripePayoutRows } = await stripePayoutQuery;
 
     let batchQuery = supabase
       .from("payout_batches")
@@ -180,8 +220,43 @@ serve(async (req) => {
         batchKind: batch?.kind ?? "WEEKLY_MONDAY",
         driverName: driverName || null,
         driverWalletBalancePence: walletByDriver.get(String(item.driver_id)) ?? null,
+        platformAvailablePence,
       }));
     }
+
+    const stripeConnectPayouts = (stripePayoutRows ?? [])
+      .filter((row) => {
+        if (!regionId) return true;
+        const driver = row.drivers as { region_id?: string } | null;
+        return driver?.region_id === regionId;
+      })
+      .map((row) => {
+        const driver = row.drivers as {
+          first_name?: string;
+          last_name?: string;
+        } | null;
+        const name = driver
+          ? `${driver.first_name ?? ""} ${driver.last_name ?? ""}`.trim()
+          : null;
+        return {
+          payout_id: String(row.payout_id),
+          connected_account_id: String(row.connected_account_id),
+          driver_id: row.driver_id as string | null,
+          driver_name: name,
+          amount_pence: Number(row.amount_pence ?? 0),
+          currency: String(row.currency ?? "gbp"),
+          status: String(row.status ?? ""),
+          initiated_at: row.initiated_at as string | null,
+          arrival_date: row.arrival_date as string | null,
+          bank_last4: row.bank_last4 as string | null,
+          failure_code: row.failure_code as string | null,
+          failure_message: row.failure_message as string | null,
+          balance_transaction_id: row.balance_transaction_id as string | null,
+          payout_method: row.payout_method as string | null,
+          statement_descriptor: row.statement_descriptor as string | null,
+          last_synced_at: row.last_synced_at as string | null,
+        };
+      });
 
     const failedPayouts = rows.filter((r) =>
       r.payout_status === "failed" || r.payout_status === "ledger_sync_failed"
@@ -200,6 +275,9 @@ serve(async (req) => {
       today_cards: aggregateMondayPayoutTodayCards(periodRows),
       today_period_start: resolvedFrom ?? todayStart,
       period_end: resolvedTo ?? null,
+      platform_available_pence: platformAvailablePence,
+      stripe_payout_sync: stripePayoutSync,
+      stripe_connect_payouts: stripeConnectPayouts,
       payouts: rows,
       failed_payouts: failedPayouts,
       partial_settlements: partialSettlements,

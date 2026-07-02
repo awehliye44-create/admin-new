@@ -70,6 +70,8 @@ export async function recordPayoutFailureAndReturnToWallet(args: {
     driverPaidOutPence: 0,
     failedPayoutAmountPence: args.netDriverPayoutPence,
     returnedToWalletPence: 0,
+    stripeTransferId: args.stripeTransferId,
+    stripePayoutId: args.stripePayoutId,
   });
 
   await args.supabase.from("payout_items").update({

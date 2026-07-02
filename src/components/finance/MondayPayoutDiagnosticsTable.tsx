@@ -13,6 +13,7 @@ import { formatPence } from "@/hooks/useDriverWallet";
 import {
   PARTIAL_SETTLEMENT_MESSAGE,
   canRetryMondayPayoutItem,
+  retryBlockedTooltip,
   type MondayPayoutDiagnosticsRow,
 } from "@/hooks/useMondayPayoutDiagnostics";
 import { format, isValid, parseISO } from "date-fns";
@@ -82,6 +83,7 @@ export function MondayPayoutDiagnosticsTable({
             <TableHead>Cash commission recovered</TableHead>
             <TableHead>Net payout</TableHead>
             <TableHead>Payout status</TableHead>
+            <TableHead>Evidence</TableHead>
             <TableHead>Driver settlement</TableHead>
             {!compact && <TableHead>Driver paid out</TableHead>}
             <TableHead>Failed amount</TableHead>
@@ -144,6 +146,17 @@ export function MondayPayoutDiagnosticsTable({
               </TableCell>
               <TableCell>{formatPence(row.net_driver_payout_pence, currencyCode)}</TableCell>
               <TableCell>{statusBadge(row)}</TableCell>
+              <TableCell className="text-xs max-w-[180px]">
+                <div>{row.payout_evidence_label ?? "—"}</div>
+                {row.payout_evidence_type === "local_only" && (
+                  <div className="text-muted-foreground mt-1">
+                    Wallet owed:{" "}
+                    {row.driver_wallet_balance_pence != null
+                      ? formatPence(row.driver_wallet_balance_pence, currencyCode)
+                      : "—"}
+                  </div>
+                )}
+              </TableCell>
               <TableCell>
                 {row.settlement_status === "PARTIAL_SETTLEMENT" ? (
                   <span className="text-xs text-amber-700" title={PARTIAL_SETTLEMENT_MESSAGE}>
@@ -197,7 +210,7 @@ export function MondayPayoutDiagnosticsTable({
               </TableCell>
               {onRetry && (
                 <TableCell>
-                  {canRetryMondayPayoutItem(row) && (
+                  {canRetryMondayPayoutItem(row) ? (
                     <Button
                       size="sm"
                       variant="outline"
@@ -207,7 +220,11 @@ export function MondayPayoutDiagnosticsTable({
                       <RefreshCw className={`h-3 w-3 mr-1 ${retryingId === row.payout_item_id ? "animate-spin" : ""}`} />
                       Retry
                     </Button>
-                  )}
+                  ) : retryBlockedTooltip(row) ? (
+                    <span className="text-xs text-destructive max-w-[140px] inline-block">
+                      {retryBlockedTooltip(row)}
+                    </span>
+                  ) : null}
                 </TableCell>
               )}
             </TableRow>

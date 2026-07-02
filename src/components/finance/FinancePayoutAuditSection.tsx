@@ -3,11 +3,13 @@ import { Button } from '@/components/ui/button';
 import { RefreshCw } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertTriangle } from 'lucide-react';
+import { formatPence } from '@/hooks/useDriverWallet';
 import {
   MondayPayoutTodayCards,
   PartialSettlementAlert,
 } from '@/components/finance/MondayPayoutTodayCards';
 import { MondayPayoutDiagnosticsTable } from '@/components/finance/MondayPayoutDiagnosticsTable';
+import { StripeConnectPayoutHistoryTable } from '@/components/finance/StripeConnectPayoutHistoryTable';
 import type { MondayPayoutDiagnosticsRow } from '@/hooks/useMondayPayoutDiagnostics';
 import type { MondayPayoutQuery } from '@/lib/financePageSSOT';
 import {
@@ -91,6 +93,9 @@ export function FinancePayoutAuditSection({
         <Card className="border-destructive/40">
           <CardHeader>
             <CardTitle className="text-base text-destructive">Failed Payouts — must not be hidden</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Local failed items without Stripe transfer/payout are not bank-paid. Wallet owed is separate from payout attempt.
+            </p>
           </CardHeader>
           <CardContent>
             <MondayPayoutDiagnosticsTable
@@ -102,6 +107,28 @@ export function FinancePayoutAuditSection({
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Stripe Connect bank payouts (physical)</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Historical payouts from each driver&apos;s Express account — includes last Monday bank sweeps.
+            Synced from Stripe on load; not ONECAB local payout items.
+            {typeof data?.platform_available_pence === 'number' && (
+              <>
+                {' '}
+                Platform available: {formatPence(data.platform_available_pence, currencyCode)}
+              </>
+            )}
+          </p>
+        </CardHeader>
+        <CardContent>
+          <StripeConnectPayoutHistoryTable
+            rows={data?.stripe_connect_payouts ?? []}
+            currencyCode={currencyCode}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

@@ -149,6 +149,58 @@ Deno.test("filterMondayPayoutRowsForLondonToday excludes historical completed pa
   assertEquals(cards.driver_payout_sent_pence, 500);
 });
 
+Deno.test("local failed payout without Stripe evidence is FAILED not PROCESSING", () => {
+  assertEquals(
+    deriveSettlementStatus({
+      payoutStatus: "failed",
+      cashCommissionRecoveredPence: 0,
+      driverPaidOutPence: 0,
+      failedPayoutAmountPence: 973,
+      returnedToWalletPence: 0,
+    }),
+    "FAILED",
+  );
+});
+
+Deno.test("local failed £9.73 reconciles as balanced when not Stripe paid", () => {
+  assertEquals(
+    reconcileMondayPayoutRow({
+      gross_payable_pence: 973,
+      cash_commission_recovered_pence: 0,
+      net_driver_payout_pence: 973,
+      driver_paid_out_pence: 0,
+      failed_payout_amount_pence: 973,
+      driver_pending_pence: 0,
+      returned_to_wallet_pence: 0,
+      payout_status: "failed",
+      payout_evidence_type: "local_only",
+    }).status,
+    "BALANCED",
+  );
+});
+
+Deno.test("buildMondayPayoutDiagnosticsRow labels local failed without Stripe ids", () => {
+  const row = buildMondayPayoutDiagnosticsRow({
+    item: {
+      id: "bee55265",
+      driver_id: "d1",
+      status: "failed",
+      amount_pence: 973,
+      settlement_status: "PROCESSING",
+      failure_reason: "insufficient funds",
+      created_at: "2026-06-27T14:01:03Z",
+    },
+    batchKind: "MANUAL_ADMIN",
+    driverName: "Ahmed",
+    driverWalletBalancePence: 973,
+    platformAvailablePence: 45,
+  });
+  assertEquals(row.settlement_status, "FAILED");
+  assertEquals(row.failed_payout_amount_pence, 973);
+  assertEquals(row.payout_evidence_type, "local_only");
+  assertEquals(row.retry_blocked_reason?.includes("insufficient"), true);
+});
+
 Deno.test("buildMondayPayoutDiagnosticsRow flags debt driver with completed payout", () => {
   const row = buildMondayPayoutDiagnosticsRow({
     item: {
