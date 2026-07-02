@@ -278,15 +278,12 @@ export interface TripAuditStatusBadge {
 
 export interface PlatformReconciliationKpis {
   balanced_drivers: number;
-  drivers_with_recovery: number;
   outstanding_liability_pence: number;
-  outstanding_recovery_pence: number;
   failed_payouts_pence: number;
   stripe_only_records: number;
   ledger_only_records: number;
   todays_captures_pence: number;
   todays_card_trips: number;
-  todays_cash_trips: number;
   driver_count: number;
 }
 
