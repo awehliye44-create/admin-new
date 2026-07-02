@@ -385,41 +385,6 @@ export function DriverWalletStripeTab({
         </Card>
       )}
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Recovery deductions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead>Trip</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {recoveryRows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground py-6">No recovery deductions</TableCell>
-                </TableRow>
-              ) : (
-                recoveryRows.map((lr, idx) => (
-                  <TableRow key={String(lr.id ?? idx)}>
-                    <TableCell className="text-xs">{formatDate(String(lr.created_at ?? ''))}</TableCell>
-                    <TableCell className="text-xs text-destructive">{String(lr.type ?? '—')}</TableCell>
-                    <TableCell className="text-right text-destructive">{fmt(Number(lr.amount_pence ?? 0))}</TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {ledgerTripId(lr as Record<string, unknown>)?.slice(0, 8) ?? '—'}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
 
       <ConnectManualPayoutDialog
         driver={connectAccount}
