@@ -92,9 +92,35 @@ if [[ "$REPAIR" == "true" ]]; then
     echo "ERROR: supabase CLI required for repair"
     exit 1
   fi
+  PAYOUT_ID_SQL="${PAYOUT_ID//\'/\'\'}"
   echo ""
   echo "--- Repair Stripe-only payout: $PAYOUT_ID ---"
-  supabase db query --linked -v payout_id="$PAYOUT_ID" < "$ROOT/scripts/sql/wallet-stripe-repair-stripe-only.sql"
+  supabase db query --linked "
+INSERT INTO driver_wallet_ledger (
+  driver_id,
+  type,
+  amount_pence,
+  stripe_payout_id,
+  description,
+  created_at
+)
+SELECT
+  scp.driver_id,
+  'WEEKLY_PAYOUT',
+  -ABS(scp.amount_pence),
+  scp.payout_id,
+  'Repair: Stripe Connect payout missing ledger debit',
+  COALESCE(scp.initiated_at, NOW())
+FROM stripe_connect_payouts scp
+LEFT JOIN driver_wallet_ledger l
+  ON l.stripe_payout_id = scp.payout_id
+  AND l.driver_id = scp.driver_id
+WHERE scp.status = 'paid'
+  AND scp.payout_id = '$PAYOUT_ID_SQL'
+  AND l.id IS NULL
+  AND scp.driver_id IS NOT NULL
+RETURNING id, driver_id, type, amount_pence, stripe_payout_id;
+"
   echo "Repair SQL applied for payout_id=$PAYOUT_ID"
 fi
 
