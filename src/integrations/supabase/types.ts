@@ -1183,7 +1183,6 @@ export type Database = {
           notes: string | null
           payment_apple_pay_enabled: boolean
           payment_card_enabled: boolean
-          payment_cash_enabled: boolean
           payment_google_pay_enabled: boolean
           payment_invoice_enabled: boolean
           payment_terms: string | null
@@ -1213,7 +1212,6 @@ export type Database = {
           notes?: string | null
           payment_apple_pay_enabled?: boolean
           payment_card_enabled?: boolean
-          payment_cash_enabled?: boolean
           payment_google_pay_enabled?: boolean
           payment_invoice_enabled?: boolean
           payment_terms?: string | null
@@ -1243,7 +1241,6 @@ export type Database = {
           notes?: string | null
           payment_apple_pay_enabled?: boolean
           payment_card_enabled?: boolean
-          payment_cash_enabled?: boolean
           payment_google_pay_enabled?: boolean
           payment_invoice_enabled?: boolean
           payment_terms?: string | null
@@ -10472,7 +10469,6 @@ export type Database = {
         Row: {
           apple_pay_enabled: boolean
           card_enabled: boolean
-          cash_enabled: boolean
           created_at: string
           google_pay_enabled: boolean
           id: string
@@ -10483,7 +10479,6 @@ export type Database = {
         Insert: {
           apple_pay_enabled?: boolean
           card_enabled?: boolean
-          cash_enabled?: boolean
           created_at?: string
           google_pay_enabled?: boolean
           id?: string
@@ -10494,7 +10489,6 @@ export type Database = {
         Update: {
           apple_pay_enabled?: boolean
           card_enabled?: boolean
-          cash_enabled?: boolean
           created_at?: string
           google_pay_enabled?: boolean
           id?: string
