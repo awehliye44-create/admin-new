@@ -1,0 +1,40 @@
+{
+  "allPass": true,
+  "results": [
+    {
+      "id": "1-fr-overview-kpis",
+      "pass": true,
+      "detail": "(2 drivers)"
+    },
+    {
+      "id": "2-fr-trips-columns",
+      "pass": true,
+      "detail": "Trip Customer Driver Payment Method Gross Fare Discount Final Fare Commission Driver Net Captured Settlement Status Mismatch "
+    },
+    {
+      "id": "3-fr-alerts-spec-only",
+      "pass": true,
+      "detail": "No legacy/banner sections"
+    },
+    {
+      "id": "4-annual-taxi-report",
+      "pass": true,
+      "detail": "Date Trip ID Payment Type Financial Reconciliation Status "
+    },
+    {
+      "id": "5-dwl-overview-formulas",
+      "pass": true,
+      "detail": "Formula subtitles visible"
+    },
+    {
+      "id": "6-dwl-payouts-batches",
+      "pass": true,
+      "detail": "Driver Wallet Ledger (SSOT)\n\nSingle-driver financial truth — wallet liability, ledger, payouts, and Stripe Connect.\n\nLIVE\nAll Services\nAhmed Osman (MK0001)\nOverview\nLedger\nPayouts\nStripe\nHistory\nCurre"
+    },
+    {
+      "id": "7-fr-stripe-connect-all",
+      "pass": true,
+      "detail": "25 connect account rows visible"
+    }
+  ]
+}
