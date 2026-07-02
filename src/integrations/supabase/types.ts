@@ -9771,7 +9771,6 @@ export type Database = {
         Row: {
           allow_apple_pay: boolean
           allow_card: boolean
-          allow_cash: boolean
           allow_google_pay: boolean
           created_at: string
           id: string
@@ -9787,7 +9786,6 @@ export type Database = {
         Insert: {
           allow_apple_pay?: boolean
           allow_card?: boolean
-          allow_cash?: boolean
           allow_google_pay?: boolean
           created_at?: string
           id?: string
@@ -9803,7 +9801,6 @@ export type Database = {
         Update: {
           allow_apple_pay?: boolean
           allow_card?: boolean
-          allow_cash?: boolean
           allow_google_pay?: boolean
           created_at?: string
           id?: string
