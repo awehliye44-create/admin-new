@@ -20,7 +20,13 @@ import {
   type DriverWalletSsotRow,
 } from '@/hooks/useDriverWalletSsot';
 
-const PAGE_SIZE = 25;
+const DEFAULT_PAGE_SIZE = 25;
+
+function resolvePageSize(override?: number): number {
+  const envSize = Number(import.meta.env.VITE_SSOT_PAGE_SIZE);
+  if (Number.isFinite(envSize) && envSize > 0) return Math.min(50, envSize);
+  return override ?? DEFAULT_PAGE_SIZE;
+}
 
 function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
   if (status === 'BALANCED') return 'default';
@@ -237,10 +243,13 @@ function SsotDetailDrawer({
 export function DriverWalletSsotPanel({
   currencyCode = 'GBP',
   regionId = null,
+  pageSize: pageSizeProp,
 }: {
   currencyCode?: string;
   regionId?: string | null;
+  pageSize?: number;
 }) {
+  const pageSize = resolvePageSize(pageSizeProp);
   const [page, setPage] = useState(1);
   const [detailDriverId, setDetailDriverId] = useState<string | null>(null);
   const [detailListRow, setDetailListRow] = useState<DriverWalletSsotRow | null>(null);
@@ -252,12 +261,12 @@ export function DriverWalletSsotPanel({
   const { data, isLoading, error, refetch, isFetching } = useDriverWalletSsot({
     regionId,
     page,
-    pageSize: PAGE_SIZE,
+    pageSize,
   });
 
   const rows = data?.drivers ?? [];
   const total = data?.total ?? 0;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   const fmt = (p: number | null | undefined) => (
     p == null ? '—' : formatPence(p, currencyCode)
@@ -358,10 +367,10 @@ export function DriverWalletSsotPanel({
           </Table>
         </div>
 
-        {total > PAGE_SIZE ? (
+        {total > pageSize ? (
           <div className="flex items-center justify-between mt-4 text-sm">
             <p className="text-muted-foreground">
-              Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total} drivers
+              Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total} drivers
             </p>
             <div className="flex items-center gap-2">
               <Button
