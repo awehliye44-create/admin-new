@@ -133,7 +133,7 @@ export default function ManualTrip() {
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>('card');
   const [jobType, setJobType] = useState('ride');
   const [selectedCorporateAccountId, setSelectedCorporateAccountId] = useState('');
   const [isCorporateTrip, setIsCorporateTrip] = useState(false);
