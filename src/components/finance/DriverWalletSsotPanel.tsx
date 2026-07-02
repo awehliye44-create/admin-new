@@ -101,7 +101,6 @@ export function DriverWalletSsotPanel({
                 <TableHead className="text-right">Wallet Balance</TableHead>
                 <TableHead className="text-right">Finance Cleared</TableHead>
                 <TableHead className="text-right">Stripe Balance</TableHead>
-                <TableHead className="text-right">Outstanding Recovery</TableHead>
                 <TableHead className="text-right">Scheduled Payout</TableHead>
                 <TableHead>Last Payout</TableHead>
                 <TableHead>Reconciliation Status</TableHead>
