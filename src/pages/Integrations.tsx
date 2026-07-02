@@ -319,8 +319,10 @@ export default function Integrations() {
       name: integration.name,
       provider: integration.provider,
       type: integration.type,
-      api_key: integration.api_key || "",
-      api_secret: integration.api_secret || "",
+      // Secrets are stored in the service-role vault, never returned to the client.
+      // Leave the fields blank so admins must re-enter to change them.
+      api_key: "",
+      api_secret: "",
       webhook_url: integration.webhook_url || "",
       config: integration.config,
       status: integration.status === 'error' ? 'inactive' : integration.status,
