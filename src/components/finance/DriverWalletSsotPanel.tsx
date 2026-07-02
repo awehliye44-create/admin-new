@@ -134,7 +134,6 @@ export function DriverWalletSsotPanel({
                   <TableCell className="text-right">{fmt(row.wallet_balance_pence)}</TableCell>
                   <TableCell className="text-right">{fmt(row.finance_cleared_amount_pence)}</TableCell>
                   <TableCell className="text-right">{fmt(row.stripe_connect_available_pence)}</TableCell>
-                  <TableCell className="text-right">{fmt(row.recovery_debt_pence)}</TableCell>
                   <TableCell className="text-right">
                     {fmt(row.scheduled_payout_display_pence ?? row.included_in_payout_batch_amount_pence)}
                   </TableCell>
