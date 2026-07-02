@@ -1,33 +1,48 @@
+import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { formatPence } from '@/hooks/useDriverWallet';
 import type { DriverWalletSsotRow } from '@/hooks/useDriverWalletSsot';
+import {
+  driverLastStripePayout,
+  driverNextWeeklyTransferPence,
+  driverStripeAvailablePence,
+  resolveStripeAccountStatus,
+} from '@/lib/driverWalletStripeDisplay';
+import { useConnectPayoutStatus } from '@/hooks/useConnectPayoutStatus';
 import { Loader2 } from 'lucide-react';
 
-function CompactCard({
+function formatDate(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  try {
+    return format(new Date(iso), 'dd MMM yyyy HH:mm');
+  } catch {
+    return iso;
+  }
+}
+
+function OverviewCard({
   title,
-  value,
+  description,
+  children,
   badge,
-  currencyCode,
-  subtitle,
 }: {
   title: string;
-  value: number | null | undefined;
-  badge: string;
-  currencyCode: string;
-  subtitle?: string;
+  description: string;
+  children: React.ReactNode;
+  badge?: string;
 }) {
   return (
     <Card>
       <CardContent className="pt-4 pb-4">
-        <div className="flex items-center justify-between gap-2 mb-2">
-          <p className="text-xs text-muted-foreground">{title}</p>
-          <Badge variant="outline" className="text-[10px]">{badge}</Badge>
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <p className="text-sm font-medium">{title}</p>
+          {badge ? (
+            <Badge variant="outline" className="text-[10px]">{badge}</Badge>
+          ) : null}
         </div>
-        <p className="text-xl font-semibold">
-          {value == null ? '—' : formatPence(value, currencyCode)}
-        </p>
-        {subtitle ? <p className="text-[10px] text-muted-foreground mt-1">{subtitle}</p> : null}
+        <p className="text-xs text-muted-foreground mb-3">{description}</p>
+        {children}
       </CardContent>
     </Card>
   );
@@ -36,17 +51,24 @@ function CompactCard({
 export function DriverWalletOverviewCards({
   driver,
   currencyCode = 'GBP',
+  regionId = null,
   isLoading,
 }: {
   driver: DriverWalletSsotRow | null | undefined;
   currencyCode?: string;
+  regionId?: string | null;
   isLoading?: boolean;
 }) {
+  const { data: connectStatus } = useConnectPayoutStatus(regionId);
+  const connectAccount = connectStatus?.connect_accounts.find(
+    (a) => a.driver_id === driver?.driver_id,
+  ) ?? null;
+
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Loading financial position…
+        Loading Stripe payout position…
       </div>
     );
   }
@@ -54,37 +76,92 @@ export function DriverWalletOverviewCards({
   if (!driver) {
     return (
       <p className="text-sm text-muted-foreground py-8">
-        Select a driver to view their current financial position.
+        Select a driver to view their Stripe payout position.
       </p>
     );
   }
 
+  const stripeAvailable = driverStripeAvailablePence(driver);
+  const nextTransfer = driverNextWeeklyTransferPence(driver);
+  const lastPayout = driverLastStripePayout(driver);
+  const accountStatus = resolveStripeAccountStatus({
+    connectedAccountId: driver.connected_account_id,
+    chargesEnabled: connectAccount?.charges_enabled,
+    payoutsEnabled: connectAccount?.payouts_enabled,
+    detailsSubmitted: connectAccount?.details_submitted,
+    connectAccountStatus: connectAccount?.connect_account_status,
+  });
+
+  const fmt = (p: number | null | undefined) => (
+    p == null ? '—' : formatPence(p, currencyCode)
+  );
+
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <CompactCard
-        title="ONECAB Wallet Balance"
-        value={driver.wallet_balance_pence}
-        badge="Wallet"
-        currencyCode={currencyCode}
-      />
-      <CompactCard
-        title="Finance Cleared"
-        value={driver.finance_cleared_amount_pence}
-        badge="Finance"
-        currencyCode={currencyCode}
-      />
-      <CompactCard
-        title="Scheduled Weekly Payout"
-        value={driver.scheduled_payout_display_pence}
-        badge="Scheduled"
-        currencyCode={currencyCode}
-      />
-      <CompactCard
-        title="Available Cash Out"
-        value={driver.cashout_limit_pence}
-        badge="Cash Out"
-        currencyCode={currencyCode}
-      />
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Driver money is Stripe Connect <span className="font-medium text-foreground">balance.available</span> only.
+        Internal ledger totals are on the Accounting tab.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <OverviewCard
+          title="Available in Stripe"
+          description="Money currently available in the driver's Stripe Connect account (Stripe API balance.available)."
+          badge="Stripe"
+        >
+          <p className="text-2xl font-semibold">
+            {!driver.connected_account_id
+              ? 'Payout account not connected'
+              : stripeAvailable == null
+                ? 'Unavailable'
+                : fmt(stripeAvailable)}
+          </p>
+        </OverviewCard>
+
+        <OverviewCard
+          title="Next Weekly Transfer"
+          description="Expected Stripe automatic payout from Connect available balance."
+          badge="Weekly"
+        >
+          {!driver.connected_account_id || stripeAvailable == null ? (
+            <p className="text-lg font-semibold text-muted-foreground">Not scheduled</p>
+          ) : nextTransfer != null && nextTransfer > 0 ? (
+            <p className="text-2xl font-semibold">{fmt(nextTransfer)}</p>
+          ) : (
+            <p className="text-lg font-semibold text-muted-foreground">Not scheduled</p>
+          )}
+        </OverviewCard>
+
+        <OverviewCard
+          title="Last Stripe Payout"
+          description="Most recent Stripe Connect payout to the driver's bank."
+          badge="Payout"
+        >
+          {lastPayout.at || lastPayout.amountPence != null ? (
+            <div className="space-y-1 text-sm">
+              <p className="text-2xl font-semibold">{fmt(lastPayout.amountPence)}</p>
+              <p className="text-muted-foreground">{formatDate(lastPayout.at)}</p>
+              {lastPayout.payoutId ? (
+                <p className="font-mono text-xs text-muted-foreground truncate">{lastPayout.payoutId}</p>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-lg font-semibold text-muted-foreground">No payouts yet</p>
+          )}
+        </OverviewCard>
+
+        <OverviewCard
+          title="Stripe Account"
+          description="Connect account health for payouts and charges."
+          badge="Account"
+        >
+          <p className="text-2xl font-semibold">{accountStatus}</p>
+          {driver.connected_account_id ? (
+            <p className="font-mono text-xs text-muted-foreground mt-2 truncate">
+              {driver.connected_account_id}
+            </p>
+          ) : null}
+        </OverviewCard>
+      </div>
     </div>
   );
 }

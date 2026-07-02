@@ -3,9 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { FinanceLedgerPanel } from '@/components/finance/FinanceLedgerPanel';
 import { DriverWalletOverviewCards } from '@/components/finance/DriverWalletOverviewCards';
-import { DriverWalletPayoutsTab } from '@/components/finance/DriverWalletPayoutsTab';
-import { DriverWalletStripeTab } from '@/components/finance/DriverWalletStripeTab';
-import { DriverWalletHistoryTab } from '@/components/finance/DriverWalletHistoryTab';
+import { DriverWalletAccountingTab } from '@/components/finance/DriverWalletAccountingTab';
 import { DriverSelector } from '@/components/finance/DriverSelector';
 import {
   DEFAULT_SERVICE_AREA_SELECTION,
@@ -20,16 +18,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
 import { useDriverWalletSsotDetail } from '@/hooks/useDriverWalletSsot';
+import { parseDriverWalletLedgerTab, type DriverWalletLedgerTab } from '@/lib/driverWalletLedgerRoutes';
 
-const TABS = ['overview', 'ledger', 'payouts', 'stripe', 'history'] as const;
-type DriverWalletTab = (typeof TABS)[number];
-
-function parseTab(value: string | null): DriverWalletTab {
-  if (value && (TABS as readonly string[]).includes(value)) return value as DriverWalletTab;
-  return 'overview';
-}
-
-/** Single-driver financial truth — wallet, ledger, payouts, and Stripe Connect. */
+/** Single-driver Stripe payout truth + internal accounting audit. */
 export default function DriverWalletLedger() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(
@@ -40,7 +31,8 @@ export default function DriverWalletLedger() {
   const [customDateTo, setCustomDateTo] = useState<Date | undefined>(undefined);
 
   const driverId = searchParams.get('driverId');
-  const tab = parseTab(searchParams.get('tab'));
+  const rawTab = searchParams.get('tab');
+  const tab = parseDriverWalletLedgerTab(rawTab);
 
   const periodBounds = useMemo(
     () => resolveFinancePeriodBounds(period, customDateFrom, customDateTo),
@@ -50,15 +42,15 @@ export default function DriverWalletLedger() {
   const { data: driver, isLoading, isFetching, refetch } = useDriverWalletSsotDetail(driverId);
 
   useEffect(() => {
-    if (searchParams.get('tab') === 'connect-balance') {
+    const canonical = parseDriverWalletLedgerTab(rawTab);
+    if (rawTab && rawTab !== canonical) {
       const next = new URLSearchParams(searchParams);
-      next.set('tab', 'stripe');
-      next.delete('connect-balance');
+      next.set('tab', canonical);
       setSearchParams(next, { replace: true });
     }
-  }, [searchParams, setSearchParams]);
+  }, [rawTab, searchParams, setSearchParams]);
 
-  const setTab = (nextTab: DriverWalletTab) => {
+  const setTab = (nextTab: DriverWalletLedgerTab) => {
     const next = new URLSearchParams(searchParams);
     next.set('tab', nextTab);
     setSearchParams(next, { replace: true });
@@ -72,18 +64,17 @@ export default function DriverWalletLedger() {
   };
 
   const currencyCode = serviceFilter.currencyCode ?? 'GBP';
+  const loadingDetail = (isLoading || isFetching) && !!driverId;
 
   return (
     <AdminLayout
       title="Driver Wallet Ledger (SSOT)"
-      description="Single-driver financial truth — wallet liability, ledger, payouts, and Stripe Connect."
+      description="Stripe Connect payout truth on Overview — internal ledger and audit history on Accounting and Ledger tabs."
     >
       <div className="space-y-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-2">
-            {driver?.last_synced_at && (
-              <FinanceSSOTBadge badge="LIVE" />
-            )}
+            {driver?.last_synced_at && <FinanceSSOTBadge badge="LIVE" />}
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <ServiceAreaFinanceFilter value={serviceFilter} onChange={setServiceFilter} />
@@ -95,24 +86,36 @@ export default function DriverWalletLedger() {
           </div>
         </div>
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as DriverWalletTab)}>
+        <Tabs value={tab} onValueChange={(v) => setTab(v as DriverWalletLedgerTab)}>
           <TabsList className="flex flex-wrap h-auto gap-1">
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="accounting">Accounting</TabsTrigger>
             <TabsTrigger value="ledger">Ledger</TabsTrigger>
-            <TabsTrigger value="payouts">Payouts</TabsTrigger>
-            <TabsTrigger value="stripe">Stripe</TabsTrigger>
-            <TabsTrigger value="history">History</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="mt-4">
             <DriverWalletOverviewCards
               driver={driver}
               currencyCode={currencyCode}
+              regionId={serviceFilter.regionId}
               isLoading={isLoading && !!driverId}
             />
           </TabsContent>
 
+          <TabsContent value="accounting" className="mt-4">
+            <DriverWalletAccountingTab
+              driver={driver}
+              currencyCode={currencyCode}
+              regionId={serviceFilter.regionId}
+              isLoading={loadingDetail}
+            />
+          </TabsContent>
+
           <TabsContent value="ledger" className="mt-4 space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Audit log only — trip settlements, Stripe transfers/payouts, adjustments, refunds, and admin corrections.
+              Not used for driver-facing balances.
+            </p>
             <FinancePeriodFilter
               period={period}
               onPeriodChange={setPeriod}
@@ -131,31 +134,6 @@ export default function DriverWalletLedger() {
             ) : (
               <p className="text-sm text-muted-foreground py-8">Select a driver to view ledger entries.</p>
             )}
-          </TabsContent>
-
-          <TabsContent value="payouts" className="mt-4">
-            <DriverWalletPayoutsTab
-              driver={driver}
-              currencyCode={currencyCode}
-              isLoading={(isLoading || isFetching) && !!driverId}
-            />
-          </TabsContent>
-
-          <TabsContent value="stripe" className="mt-4">
-            <DriverWalletStripeTab
-              driver={driver}
-              currencyCode={currencyCode}
-              regionId={serviceFilter.regionId}
-              isLoading={(isLoading || isFetching) && !!driverId}
-            />
-          </TabsContent>
-
-          <TabsContent value="history" className="mt-4">
-            <DriverWalletHistoryTab
-              driver={driver}
-              currencyCode={currencyCode}
-              isLoading={(isLoading || isFetching) && !!driverId}
-            />
           </TabsContent>
         </Tabs>
 

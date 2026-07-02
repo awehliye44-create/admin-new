@@ -14,6 +14,7 @@ import {
   type DriverWalletLedgerFilter,
 } from '@/lib/driverWalletLedgerFilters';
 import { getTripDisplayId } from '@/lib/tripUtils';
+import { ledgerAuditTypeLabel } from '@/lib/driverWalletLedgerRoutes';
 import { RefreshCw, Search } from 'lucide-react';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 
@@ -108,7 +109,7 @@ export function FinanceLedgerPanel({
             <span className="text-muted-foreground font-normal">({filteredRows.length} rows)</span>
           </CardTitle>
           <p className="text-xs text-muted-foreground mt-1">
-            Every ledger movement including commission debits, debt recovery debits, ONECAB commission, and payouts.
+            Audit log — trip settlements, Stripe transfers/payouts, adjustments, refunds, and admin corrections.
           </p>
         </CardHeader>
         <CardContent className="p-0">
@@ -164,7 +165,7 @@ export function FinanceLedgerPanel({
                           <TableCell className="text-xs">{row.customer_name ?? '—'}</TableCell>
                           <TableCell className="text-xs">
                             <span className={isRecoveryDebit ? 'text-red-400 font-medium' : undefined}>
-                              {row.type_label}
+                              {ledgerAuditTypeLabel(row.type ?? row.type_label)}
                             </span>
                           </TableCell>
                           <TableCell className="text-xs capitalize">{row.direction}</TableCell>
