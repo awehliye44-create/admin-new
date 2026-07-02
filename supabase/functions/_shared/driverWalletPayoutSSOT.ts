@@ -206,12 +206,6 @@ export function computeDriverWalletPayoutSnapshot(
     status = "MISMATCH";
     reasons.push(`Failed payout £${(stuckProcessing / 100).toFixed(2)} stuck in processing/ready`);
   }
-  if (stripeAvailable != null && walletOwed > stripeAvailable + 50 && includedBatch === 0) {
-    reasons.push(
-      `ONECAB owes £${(walletOwed / 100).toFixed(2)} but Connect available is £${(stripeAvailable / 100).toFixed(2)}`,
-    );
-    if (status === "BALANCED") status = "MISMATCH";
-  }
 
   return {
     current_onecab_wallet_owed_pence: walletOwed,

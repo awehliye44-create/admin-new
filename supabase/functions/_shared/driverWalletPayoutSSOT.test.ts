@@ -65,3 +65,17 @@ Deno.test("local_only failed flags mismatch classification", () => {
   });
   assertEquals(snap.reconciliation_status, "LOCAL_ONLY");
 });
+
+Deno.test("ledger wallet higher than Stripe available is not a mismatch", () => {
+  const snap = computeDriverWalletPayoutSnapshot({
+    wallet_balance_pence: 9_730,
+    finance_cleared_pence: 9_730,
+    included_in_payout_batch_pence: 0,
+    stripe_connect_available_pence: 408,
+    stripe_connect_pending_pence: 0,
+    stripe_paid_out_total_pence: 0,
+    recovery_debt_pence: 0,
+  });
+  assertEquals(snap.reconciliation_status, "BALANCED");
+  assertEquals(snap.reconciliation_reasons.length, 0);
+});

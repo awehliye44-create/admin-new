@@ -82,7 +82,7 @@ export function DriverWalletSsotPanel({
         <div>
           <CardTitle className="text-base">Drivers</CardTitle>
           <p className="text-sm text-muted-foreground mt-1">
-            Platform-wide driver financial positions — open Driver Wallet Ledger for per-driver detail.
+            Digital payout positions from Stripe Connect — ledger balance is on Driver Wallet Ledger only.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
@@ -98,18 +98,17 @@ export function DriverWalletSsotPanel({
             <TableHeader>
               <TableRow>
                 <TableHead>Driver</TableHead>
-                <TableHead className="text-right">Wallet Balance</TableHead>
-                <TableHead className="text-right">Finance Cleared</TableHead>
-                <TableHead className="text-right">Stripe Balance</TableHead>
+                <TableHead className="text-right">Available in Stripe</TableHead>
                 <TableHead className="text-right">Scheduled Payout</TableHead>
-                <TableHead>Last Payout</TableHead>
+                <TableHead>Last Stripe Payout</TableHead>
                 <TableHead>Reconciliation Status</TableHead>
+                <TableHead className="text-right">Open Ledger</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.length === 0 && !isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                     No drivers with Connect accounts in this region.
                   </TableCell>
                 </TableRow>
@@ -117,22 +116,11 @@ export function DriverWalletSsotPanel({
               {rows.map((row) => (
                 <TableRow key={row.driver_id}>
                   <TableCell>
-                    <Link
-                      to={driverWalletLedgerUrl(row.driver_id, 'overview')}
-                      className="font-medium hover:underline"
-                    >
-                      {driverLabel(row)}
-                    </Link>
+                    <div className="font-medium">{driverLabel(row)}</div>
                     <div className="text-xs text-muted-foreground">
                       {row.driver_code ?? row.driver_id.slice(0, 8)}
-                      {' · '}
-                      <Link to={driverWalletLedgerUrl(row.driver_id, 'overview')} className="underline">
-                        Open ledger
-                      </Link>
                     </div>
                   </TableCell>
-                  <TableCell className="text-right">{fmt(row.wallet_balance_pence)}</TableCell>
-                  <TableCell className="text-right">{fmt(row.finance_cleared_amount_pence)}</TableCell>
                   <TableCell className="text-right">{fmt(row.stripe_connect_available_pence)}</TableCell>
                   <TableCell className="text-right">
                     {fmt(row.scheduled_payout_display_pence ?? row.included_in_payout_batch_amount_pence)}
@@ -146,9 +134,24 @@ export function DriverWalletSsotPanel({
                     ) : '—'}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={statusVariant(row.reconciliation_status)}>
+                    <Badge
+                      variant={statusVariant(row.reconciliation_status)}
+                      title={row.reconciliation_reasons?.length ? row.reconciliation_reasons.join(' · ') : undefined}
+                    >
                       {row.reconciliation_status}
                     </Badge>
+                    {row.reconciliation_reasons?.length ? (
+                      <p className="text-xs text-muted-foreground mt-1 max-w-[220px]">
+                        {row.reconciliation_reasons[0]}
+                      </p>
+                    ) : null}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button variant="outline" size="sm" asChild>
+                      <Link to={driverWalletLedgerUrl(row.driver_id, 'overview')}>
+                        Open ledger
+                      </Link>
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
