@@ -8,6 +8,11 @@ export function isAdminStripePayoutExecutionEnabled(): boolean {
   return Deno.env.get("ADMIN_PAYOUT_STRIPE_EXECUTION_ENABLED") === "true";
 }
 
+/** Alias used by payoutRetryGuard. */
+export function stripeExecutionEnabled(): boolean {
+  return isAdminStripePayoutExecutionEnabled();
+}
+
 /** Read-only simulation — no batches, items, ledger debits, or Stripe mutations. */
 export function isPayoutVerificationMode(body: Record<string, unknown>): boolean {
   return body.dry_run === true || body.verification_mode === true;

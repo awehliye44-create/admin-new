@@ -45,6 +45,11 @@ export async function fetchEdgeFunctionGet<T>(
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw new Error(`${functionName} timed out after ${Math.round(timeoutMs / 1000)}s`);
     }
+    if (err instanceof TypeError && /load failed|failed to fetch|networkerror/i.test(String(err.message))) {
+      throw new Error(
+        `${functionName} unreachable — check network or Supabase edge function health (${new URL(supabaseUrl).host}).`,
+      );
+    }
     throw err;
   } finally {
     window.clearTimeout(timer);
