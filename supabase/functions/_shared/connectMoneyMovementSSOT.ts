@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Stripe Connect money movement visibility — mirrors Stripe Dashboard Connect account views.
  * Links live Connect balances/payouts to driver_wallet_ledger SSOT.

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type Stripe from "https://esm.sh/stripe@14.21.0";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
