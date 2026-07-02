@@ -65,7 +65,7 @@ export function GuestTelemetryProvider() {
   // This hook needs useLocation() from react-router
   // Wrap in a try since guest web may use different routing
   try {
-    const { useLocation } = require('react-router-dom');
+    const { useLocation } = (globalThis as any).require?.('react-router-dom') ?? {};
     const location = useLocation();
     useRouteChangeTracker(guestTelemetry, location.pathname);
     useFlushOnHide(guestTelemetry);

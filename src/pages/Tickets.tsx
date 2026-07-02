@@ -178,7 +178,7 @@ export default function Tickets() {
     mutationFn: async ({ id, updates }: { id: string; updates: Record<string, any> }) => {
       const { error } = await supabase
         .from('support_conversations')
-        .update(updates)
+        .update(updates as any)
         .eq('id', id);
       if (error) throw error;
     },

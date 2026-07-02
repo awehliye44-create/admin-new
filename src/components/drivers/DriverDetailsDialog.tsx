@@ -315,7 +315,7 @@ export function DriverDetailsDialog({
       };
       const { error } = await supabase
         .from('drivers')
-        .update(updateData)
+        .update(updateData as any)
         .eq('id', driver.id);
       if (error) throw error;
       toast.success('Commission settings saved');

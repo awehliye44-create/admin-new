@@ -399,7 +399,7 @@ export default function CorporateReports() {
                             outerRadius={100}
                             fill="hsl(var(--primary))"
                             dataKey="value"
-                            label={({ category, value }) => `${category}: ${value}%`}
+                            label={(props: any) => `${props.category}: ${props.value}%`}
                           >
                             {tripDistribution.map((_, index) => (
                               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />

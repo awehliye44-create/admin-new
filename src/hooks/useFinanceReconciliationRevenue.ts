@@ -171,7 +171,7 @@ export function useFinanceReconciliationRevenue({
         customRevenue: customRev,
         chartData,
         serviceAreaBreakdown,
-        dataSourceBadge: (ssotUnavailable ? 'UNAVAILABLE' : 'LIVE') as const,
+        dataSourceBadge: (ssotUnavailable ? 'UNAVAILABLE' : 'LIVE') as 'UNAVAILABLE' | 'LIVE',
       };
       } catch (error) {
         console.error('[useFinanceReconciliationRevenue]', error);

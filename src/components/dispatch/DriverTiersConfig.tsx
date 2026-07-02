@@ -104,7 +104,7 @@ export function DriverTiersConfig() {
 
       const { error } = await supabase
         .from('driver_categories')
-        .update(updateData)
+        .update(updateData as any)
         .eq('id', selectedTier.id);
 
       if (error) throw error;

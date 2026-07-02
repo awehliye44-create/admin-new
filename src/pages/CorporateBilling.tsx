@@ -205,7 +205,7 @@ export default function CorporateBilling() {
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<Invoice> }) => {
       const { error } = await supabase
         .from('corporate_invoices')
-        .update(updates)
+        .update(updates as any)
         .eq('id', id);
       
       if (error) throw error;

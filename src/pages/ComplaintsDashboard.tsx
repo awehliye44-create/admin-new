@@ -151,7 +151,7 @@ export default function ComplaintsDashboard() {
     mutationFn: async ({ id, updates }: { id: string; updates: Record<string, any> }) => {
       const { error } = await supabase
         .from('complaints')
-        .update(updates)
+        .update(updates as any)
         .eq('id', id);
       if (error) throw error;
     },

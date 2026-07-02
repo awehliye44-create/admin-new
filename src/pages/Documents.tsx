@@ -151,7 +151,7 @@ export default function Documents() {
 
       const { error } = await supabase
         .from('documents')
-        .update(updatePayload)
+        .update(updatePayload as any)
         .eq('id', selectedDocument.id);
 
       if (error) throw error;

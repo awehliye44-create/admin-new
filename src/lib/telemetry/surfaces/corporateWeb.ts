@@ -44,7 +44,7 @@ export const corporateTelemetry = new OnecabTelemetry({
 
 export function CorporateTelemetryProvider() {
   try {
-    const { useLocation } = require('react-router-dom');
+    const { useLocation } = (globalThis as any).require?.('react-router-dom') ?? {};
     const location = useLocation();
     useRouteChangeTracker(corporateTelemetry, location.pathname);
     useFlushOnHide(corporateTelemetry);

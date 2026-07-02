@@ -1,7 +1,7 @@
 import type { FinanceReconciliationSummary } from '@/hooks/useFinanceReconciliation';
 import { safeReconciliationCheck } from '@/lib/financialReconciliationGuards';
 
-const DEGRADED_STATUS = 'DEGRADED_SNAPSHOT' as const;
+const DEGRADED_STATUS = 'DEGRADED_SNAPSHOT' as any;
 
 function degradeCheck(
   check: FinanceReconciliationSummary['reconciliation_check'],
