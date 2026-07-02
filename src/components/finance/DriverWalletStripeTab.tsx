@@ -8,7 +8,7 @@ import { formatPence } from '@/hooks/useDriverWallet';
 import type { DriverWalletSsotRow } from '@/hooks/useDriverWalletSsot';
 import { useConnectPayoutStatus } from '@/hooks/useConnectPayoutStatus';
 import { ConnectManualPayoutDialog } from '@/components/finance/ConnectManualPayoutDialog';
-import { isAdminDebtRecoveryDebit } from '@/lib/adminFinanceLedgerDisplay';
+
 import { Loader2 } from 'lucide-react';
 
 function formatDate(iso: string | null | undefined): string {
