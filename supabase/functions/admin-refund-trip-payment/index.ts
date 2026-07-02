@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import { z } from "https://esm.sh/zod@3.23.8";
 import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
+import { applyStripeRefundToOnecab } from "../_shared/applyStripeRefund.ts";
 
 const InputSchema = z.object({
   trip_id: z.string().uuid(),
@@ -60,18 +61,15 @@ serve(async (req) => {
       { idempotencyKey: `admin_refund_${trip_id}_${refundAmount}_${Date.now()}` },
     );
 
-    const newRefunded = alreadyRefunded + refundAmount;
-
-    await gate.supabase
-      .from('trips')
-      .update({
-        payment_status: newRefunded >= captured ? 'refunded' : 'partially_refunded',
-        refund_amount_pence: newRefunded,
-        refund_reason: reason,
-        refunded_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', trip_id);
+    const applyResult = await applyStripeRefundToOnecab(gate.supabase, {
+      tripId: trip_id,
+      amountRefundedPence: alreadyRefunded + refundAmount,
+      stripeRefundId: refund.id,
+      stripeChargeId: charge.id,
+      stripePaymentIntentId: trip.stripe_payment_intent_id,
+      source: "admin_refund",
+      refundReason: reason,
+    });
 
     await gate.supabase.from('admin_payment_audit').insert({
       trip_id,
@@ -79,7 +77,7 @@ serve(async (req) => {
       action: 'refund',
       reason,
       amount_pence_before: alreadyRefunded,
-      amount_pence_after: newRefunded,
+      amount_pence_after: alreadyRefunded + refundAmount,
       delta_pence: refundAmount,
       stripe_payment_intent_id: trip.stripe_payment_intent_id,
       stripe_refund_id: refund.id,
@@ -91,7 +89,11 @@ serve(async (req) => {
       stripe_refund_id: refund.id,
       stripe_payment_intent_id: trip.stripe_payment_intent_id,
       refunded_pence: refundAmount,
-      total_refunded_pence: newRefunded,
+      total_refunded_pence: alreadyRefunded + refundAmount,
+      payment_status: applyResult.payment_status,
+      refund_status: applyResult.refund_status,
+      net_paid_pence: applyResult.net_paid_pence,
+      driver_reversal_pence: applyResult.driver_reversal_pence,
       message: `Refunded ${(refundAmount / 100).toFixed(2)} successfully`,
     });
   } catch (e) {

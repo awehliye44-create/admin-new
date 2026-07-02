@@ -20,6 +20,7 @@ const TRIP_HISTORY_SELECT_BASE = `
   final_customer_fare_pence, capture_amount_pence,
   stripe_processing_fee_pence, onecab_net_pence,
   payment_status, payment_method, currency_code, estimated_distance_km, estimated_duration_minutes,
+  refund_amount_pence, refunded_at,
   total_stops, created_at, started_at, completed_at, surge_multiplier, driver_id,
   driver_location_lat, driver_location_lng, stripe_payment_intent_id, stacked_trip_id,
   corporate_account_id, region_id, service_area_id,

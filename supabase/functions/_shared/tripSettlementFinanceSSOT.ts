@@ -165,6 +165,8 @@ export function completedTripPaymentStatusLabel(trip: {
   payment_status?: string | null;
 }): string | null {
   const status = String(trip.payment_status ?? "").trim().toLowerCase();
+  if (status === "refunded") return "Refunded";
+  if (status === "partially_refunded") return "Partially refunded";
   if (isCashTrip(trip) && CASH_COLLECTED_STATUSES.has(status)) {
     return "Cash Collected";
   }

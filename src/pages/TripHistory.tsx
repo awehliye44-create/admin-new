@@ -57,6 +57,8 @@ import {
 } from '@/lib/tripCaptureStatus';
 import { FinancialReconciliationTripLink } from '@/components/finance/FinancialReconciliationTripLink';
 import { FinanceRecoveryPanel } from '@/components/payment/FinanceRecoveryPanel';
+import { SyncStripeRefundButton } from '@/components/payment/SyncStripeRefundButton';
+import { getTripRefundDisplay } from '@/lib/tripRefundDisplay';
 import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { mapboxgl } from '@/lib/mapbox';
 import { createMapboxMap } from '@/lib/mapboxMap';
@@ -1166,7 +1168,7 @@ export default function TripHistory() {
                       {formatTripDistance(getTripDistance(trip), trip)}
                     </TableCell>
                      <TableCell>
-                      <div className="font-medium text-green-600">
+                      <div className="font-medium text-green-600 flex flex-col gap-0.5">
                         {getTripCustomerPaidPence(trip) > 0 ? (
                           <>
                             {getCurrencySymbol(resolveTripCurrency(trip))}
@@ -1175,6 +1177,21 @@ export default function TripHistory() {
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
+                        {(() => {
+                          const refund = getTripRefundDisplay(trip);
+                          if (!refund.showRefundBreakdown) return null;
+                          const sym = getCurrencySymbol(resolveTripCurrency(trip));
+                          return (
+                            <>
+                              <span className="text-[10px] text-red-600 font-normal">
+                                Ref {sym}{(refund.refundPence / 100).toFixed(2)}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground font-normal">
+                                Net {sym}{(refund.netPaidPence / 100).toFixed(2)}
+                              </span>
+                            </>
+                          );
+                        })()}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -1334,6 +1351,39 @@ export default function TripHistory() {
                             : '—'}
                         </p>
                       </div>
+                      {(() => {
+                        const refund = getTripRefundDisplay(selectedTrip);
+                        if (!refund.showRefundBreakdown) return null;
+                        const sym = getCurrencySymbol(resolveTripCurrency(selectedTrip));
+                        return (
+                          <>
+                            <div>
+                              <Label className="text-xs text-muted-foreground">Refunded</Label>
+                              <p className="font-medium text-red-600">
+                                {sym}{(refund.refundPence / 100).toFixed(2)}
+                              </p>
+                            </div>
+                            <div>
+                              <Label className="text-xs text-muted-foreground">Net Paid</Label>
+                              <p className="font-medium">
+                                {sym}{(refund.netPaidPence / 100).toFixed(2)}
+                              </p>
+                            </div>
+                            <div>
+                              <Label className="text-xs text-muted-foreground">Payment Status</Label>
+                              <Badge variant="outline" className="text-xs bg-red-500/10 text-red-700 border-red-500/30">
+                                {refund.paymentStatusLabel}
+                              </Badge>
+                            </div>
+                            {selectedTrip.refunded_at && (
+                              <div className="col-span-2">
+                                <Label className="text-xs text-muted-foreground">Refunded At</Label>
+                                <p className="text-sm">{format(new Date(String(selectedTrip.refunded_at)), 'MMM d, yyyy HH:mm')}</p>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                       <div className="col-span-2">
                         <Label className="text-xs text-muted-foreground">Invoice</Label>
                         <div className="mt-0.5">
@@ -1640,6 +1690,13 @@ export default function TripHistory() {
                         tripNumber={selectedTrip.trip_number}
                         variant="button"
                       />
+                      {isCardTrip(selectedTrip) && selectedTrip.stripe_payment_intent_id && (
+                        <SyncStripeRefundButton
+                          tripId={selectedTrip.id}
+                          tripCode={selectedTrip.trip_code}
+                          onSynced={fetchData}
+                        />
+                      )}
                       <Separator />
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Capture Status</span>
