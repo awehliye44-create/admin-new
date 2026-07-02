@@ -72,7 +72,6 @@ interface CorporateAccount {
 }
 
 interface ServiceAreaPaymentConfig {
-  cash_enabled: boolean;
   card_enabled: boolean;
   wallet_enabled: boolean;
   apple_pay_enabled: boolean;
@@ -87,7 +86,6 @@ interface PlaceResult {
 }
 
 const PAYMENT_ICONS: Record<string, React.ReactNode> = {
-  cash: <Banknote className="h-4 w-4" />,
   card: <CreditCard className="h-4 w-4" />,
   wallet: <Wallet className="h-4 w-4" />,
   apple_pay: <Smartphone className="h-4 w-4" />,
