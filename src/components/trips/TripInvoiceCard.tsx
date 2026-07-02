@@ -8,14 +8,23 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { FileText, Download, Mail, RefreshCw, Loader2, ExternalLink } from 'lucide-react';
+import { FileText, Download, Mail, RefreshCw, Loader2, ExternalLink, Share2 } from 'lucide-react';
 import { format } from 'date-fns';
+import {
+  type InvoiceAction,
+  type InvoiceActionResult,
+  invokeInvoiceAction,
+  openInvoiceUrl,
+  resolveInvoicePdfUrl,
+  shareTripInvoicePdf,
+} from '@/lib/tripInvoiceActions';
+import { getTripDisplayId } from '@/lib/tripUtils';
 
 export interface TripInvoiceFields {
   id: string;
   trip_code: string | null;
+  trip_number?: string | null;
   payment_method: string | null;
   invoice_no: string | null;
   invoice_pdf_url: string | null;
@@ -27,29 +36,6 @@ export interface TripInvoiceFields {
   invoice_pdf_error: string | null;
   invoice_total_paid_pence: number | null;
   invoice_regenerated_at: string | null;
-}
-
-type InvoiceAction = 'download' | 'view' | 'resend_email' | 'regenerate';
-
-interface InvoiceActionResult {
-  success?: boolean;
-  ok?: boolean;
-  error?: string;
-  message?: string;
-  pdfUrl?: string;
-  pdf_url?: string;
-  htmlUrl?: string;
-  html_url?: string;
-  invoiceNo?: string;
-  invoice_no?: string;
-  invoice_pdf_url?: string;
-  invoiceGeneratedAt?: string;
-  invoice_generated_at?: string;
-  invoiceEmailStatus?: string;
-  invoice_email_status?: string;
-  invoiceEmailSentAt?: string;
-  invoice_email_sent_at?: string;
-  stage?: string;
 }
 
 function hasSuccessfulInvoicePdf(trip: TripInvoiceFields): boolean {
@@ -89,32 +75,6 @@ function formatTotalPaid(pence: number | null | undefined): string {
 
 const INVOICE_ACTION_FAILED = 'Invoice action failed. Please try again or check invoice settings.';
 
-async function invokeInvoiceAction(tripId: string, action: InvoiceAction): Promise<InvoiceActionResult> {
-  const { data, error } = await supabase.functions.invoke('trip-invoice-process', {
-    body: { bookingId: tripId, trip_id: tripId, action },
-  });
-
-  if (error) {
-    const ctx = (error as { context?: Response })?.context;
-    if (ctx) {
-      try {
-        const payload = await ctx.json();
-        if (payload?.error) throw new Error(payload.error);
-      } catch {
-        // ignore parse errors
-      }
-    }
-    throw new Error(error.message || INVOICE_ACTION_FAILED);
-  }
-
-  const result = (data ?? {}) as InvoiceActionResult;
-  if (result.success === false || (result.ok === false && result.error)) {
-    throw new Error(result.error || INVOICE_ACTION_FAILED);
-  }
-
-  return result;
-}
-
 interface TripInvoiceCardProps {
   trip: TripInvoiceFields;
   onUpdated?: () => void;
@@ -124,6 +84,7 @@ interface TripInvoiceCardProps {
 export function TripInvoiceCard({ trip, onUpdated, compact = false }: TripInvoiceCardProps) {
   const [loading, setLoading] = useState<string | null>(null);
   const status = getInvoiceStatusLabel(trip);
+  const tripLabel = getTripDisplayId(trip);
 
   const runAction = async (key: string, action: InvoiceAction, onSuccess?: (result: InvoiceActionResult) => void) => {
     setLoading(key);
@@ -148,11 +109,6 @@ export function TripInvoiceCard({ trip, onUpdated, compact = false }: TripInvoic
     }
   };
 
-  const openUrl = (url?: string | null) => {
-    if (!url) throw new Error(INVOICE_ACTION_FAILED);
-    window.open(url, '_blank', 'noopener,noreferrer');
-  };
-
   if (compact) {
     return (
       <Badge variant={status.variant} className="text-[10px]">
@@ -171,6 +127,10 @@ export function TripInvoiceCard({ trip, onUpdated, compact = false }: TripInvoic
         <Badge variant={status.variant}>{status.label}</Badge>
       </div>
 
+      <p className="text-xs text-muted-foreground">
+        Finance details (commission, driver net, Stripe fees) are available in Financial Reconciliation.
+      </p>
+
       <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
         <div>
           <Label className="text-xs text-muted-foreground">Invoice No</Label>
@@ -185,7 +145,7 @@ export function TripInvoiceCard({ trip, onUpdated, compact = false }: TripInvoic
           <p>{formatPaymentMethod(trip.payment_method)}</p>
         </div>
         <div>
-          <Label className="text-xs text-muted-foreground">Final Settlement Total</Label>
+          <Label className="text-xs text-muted-foreground">Invoice Total (snapshot)</Label>
           <p className="font-medium">{formatTotalPaid(trip.invoice_total_paid_pence)}</p>
         </div>
         <div>
@@ -226,7 +186,11 @@ export function TripInvoiceCard({ trip, onUpdated, compact = false }: TripInvoic
         <Button
           size="sm"
           variant="outline"
-          onClick={() => runAction('download', 'download', (r) => openUrl(r.pdfUrl ?? r.pdf_url ?? r.invoice_pdf_url ?? trip.invoice_pdf_url))}
+          onClick={() =>
+            runAction('download', 'download', (r) =>
+              openInvoiceUrl(resolveInvoicePdfUrl(r, trip.invoice_pdf_url)),
+            )
+          }
           disabled={!!loading}
         >
           {loading === 'download' ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Download className="h-4 w-4 mr-1" />}
@@ -235,11 +199,31 @@ export function TripInvoiceCard({ trip, onUpdated, compact = false }: TripInvoic
         <Button
           size="sm"
           variant="outline"
-          onClick={() => runAction('view', 'view', (r) => openUrl(r.pdfUrl ?? r.pdf_url ?? trip.invoice_pdf_url))}
+          onClick={() =>
+            runAction('view', 'view', (r) => openInvoiceUrl(resolveInvoicePdfUrl(r, trip.invoice_pdf_url)))
+          }
           disabled={!!loading}
         >
           {loading === 'view' ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ExternalLink className="h-4 w-4 mr-1" />}
           View Invoice
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!!loading}
+          onClick={() => {
+            setLoading('share');
+            shareTripInvoicePdf(trip.id, tripLabel, trip.invoice_pdf_url)
+              .then(() => onUpdated?.())
+              .catch((err) => {
+                const message = err instanceof Error ? err.message : INVOICE_ACTION_FAILED;
+                toast.error(`Share failed: ${message}`);
+              })
+              .finally(() => setLoading(null));
+          }}
+        >
+          {loading === 'share' ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Share2 className="h-4 w-4 mr-1" />}
+          Share PDF
         </Button>
         <Button size="sm" variant="outline" onClick={() => runAction('resend', 'resend_email')} disabled={!!loading}>
           {loading === 'resend' ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Mail className="h-4 w-4 mr-1" />}

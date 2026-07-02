@@ -3,6 +3,9 @@ import { Calculator } from 'lucide-react';
 import { PaymentControlsCard, type PaymentControlsVariant, type FinanceRecoveryAction } from '@/components/payment/PaymentControlsCard';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { financeReconciliationTripUrl } from '@/lib/financialReconciliationRoutes';
+
+export { financeReconciliationTripUrl } from '@/lib/financialReconciliationRoutes';
 
 export type FinanceRecoverySource =
   | 'financial-reconciliation'
@@ -25,13 +28,6 @@ type FinanceRecoveryPanelProps = {
   /** When true (FR degraded mode), recovery / adjustment actions are disabled. */
   readOnly?: boolean;
 };
-
-export function financeReconciliationTripUrl(tripId: string, tripCode?: string | null): string {
-  const q = tripCode?.trim()
-    ? `trip=${encodeURIComponent(tripCode.trim())}&recover=1`
-    : `tripId=${encodeURIComponent(tripId)}&recover=1`;
-  return `/financial-reconciliation?${q}`;
-}
 
 /**
  * Financial recovery SSOT shell — all capture / recapture / waive actions route through PaymentControlsCard.

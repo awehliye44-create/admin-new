@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
 import { useQuery } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
@@ -35,7 +36,7 @@ import { useRegions } from '@/hooks/useRegions';
 import { useServiceAreas as useSharedServiceAreas } from '@/hooks/useServiceAreas';
 import { 
   History, Loader2, Search, RefreshCw, MapPin, Phone,
-  Eye, CheckCircle, Route, DollarSign,
+  CheckCircle, Route, DollarSign, Clock,
   Navigation, User, Car, Globe, Settings2, AlertTriangle, Briefcase
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -45,7 +46,9 @@ import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
 import { getCurrencySymbol, formatDistance as formatDistanceUtil, getDistanceUnitShort } from '@/lib/regionSettings';
 import { TripInvoiceCard, TripInvoiceStatusBadge } from '@/components/trips/TripInvoiceCard';
+import { TripHistoryRowActions } from '@/components/trips/TripHistoryRowActions';
 import { getTripDisplayId } from '@/lib/tripUtils';
+import { resolveTripDisplayFare } from '@/lib/fareDisplaySSOT';
 import {
   captureStatusColorClass,
   getTripCaptureStatus,
@@ -212,6 +215,8 @@ interface CompletedTrip {
 
 export default function TripHistory() {
   usePageLoadTelemetry('TripHistory');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const openRecoverPanel = searchParams.get('recover') === '1';
   
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('7days');
@@ -471,6 +476,39 @@ export default function TripHistory() {
     }
   };
 
+  // Deep-link: /trip-history?trip=CODE or ?tripId=uuid (&recover=1 opens finance recovery)
+  useEffect(() => {
+    if (isLoading || trips.length === 0) return;
+    const tripCode = searchParams.get('trip');
+    const tripId = searchParams.get('tripId');
+    if (!tripCode && !tripId) return;
+
+    const match = trips.find((t) => {
+      if (tripId && t.id === tripId) return true;
+      if (tripCode) {
+        const code = tripCode.trim().toLowerCase();
+        return (
+          t.trip_code?.toLowerCase() === code
+          || t.trip_number?.toLowerCase() === code
+          || getTripDisplayId(t).toLowerCase() === code
+        );
+      }
+      return false;
+    });
+    if (!match || (selectedTrip?.id === match.id && isViewOpen)) return;
+
+    void (async () => {
+      await handleViewTrip(match);
+      const next = new URLSearchParams(searchParams);
+      next.delete('trip');
+      next.delete('tripId');
+      if (next.toString() !== searchParams.toString()) {
+        setSearchParams(next, { replace: true });
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deep-link once when trips load
+  }, [isLoading, trips, searchParams]);
+
   const drawTripRouteOnMap = useCallback((map: mapboxgl.Map) => {
     const trip = selectedTripRef.current;
     const stops = tripStopsRef.current;
@@ -650,6 +688,32 @@ export default function TripHistory() {
     return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
   };
 
+  const getTripDurationMinutes = (trip: CompletedTrip): number | null => {
+    if (trip.estimated_duration_minutes != null && trip.estimated_duration_minutes > 0) {
+      return trip.estimated_duration_minutes;
+    }
+    if (trip.started_at && trip.completed_at) {
+      const mins = Math.round(
+        (new Date(trip.completed_at).getTime() - new Date(trip.started_at).getTime()) / 60000,
+      );
+      return mins > 0 ? mins : null;
+    }
+    return null;
+  };
+
+  const getTripCustomerPaidPence = (trip: CompletedTrip): number =>
+    resolveTripDisplayFare(trip).payable_pence;
+
+  const getTripCustomerPaidPounds = (trip: CompletedTrip): number =>
+    getTripCustomerPaidPence(trip) / 100;
+
+  const getTripStatusLabel = (trip: CompletedTrip): string => {
+    if (trip.status === 'no_show') return 'No Show';
+    if (trip.status === 'cancelled') return 'Cancelled';
+    if (trip.financial_outcome === 'LATE_PASSENGER_CANCELLATION') return 'Late cancellation';
+    return 'Completed';
+  };
+
   /**
    * Resolve currency for a specific trip.
    * Priority: service_area → region (single source of truth), then trip snapshot, then active region filter.
@@ -815,6 +879,11 @@ export default function TripHistory() {
 
   const multiStopTrips = filteredTrips.filter(t => isMultiStopTrip(t)).length;
 
+  const totalCustomerPaid = filteredTrips.reduce(
+    (sum, t) => sum + getTripCustomerPaidPence(t) / 100,
+    0,
+  );
+  const avgCustomerPaid = filteredTrips.length > 0 ? totalCustomerPaid / filteredTrips.length : 0;
 
   // Resolve a single currency across all filtered trips for the stats widgets
   const statsCurrencyItems = filteredTrips.map(t => ({ currency_code: resolveTripCurrency(t) || '???' }));
@@ -842,16 +911,14 @@ export default function TripHistory() {
         </Card>
         <Card className="border-green-500/30 bg-green-500/5">
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Trip finance (SSOT)</p>
-                <p className="text-sm font-medium mt-1">
-                  Fare, commission, and settlement values live in Financial Reconciliation → Trips.
+                <p className="text-sm text-muted-foreground">Total Revenue</p>
+                <p className="text-2xl font-bold text-green-600">
+                  {isMixedCurrency ? 'Mixed currencies' : `${statsSymbol}${totalCustomerPaid.toFixed(2)}`}
                 </p>
               </div>
-              <Button asChild variant="outline" size="sm">
-                <a href="/trip-history">Trip History (Trip Settlement SSOT)</a>
-              </Button>
+              <DollarSign className="h-8 w-8 text-green-500 opacity-80" />
             </div>
           </CardContent>
         </Card>
@@ -859,8 +926,10 @@ export default function TripHistory() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Card trips</p>
-                <p className="text-2xl font-bold">{filteredTrips.filter((t) => (t.payment_method ?? '').toLowerCase() !== 'cash').length}</p>
+                <p className="text-sm text-muted-foreground">Average Fare</p>
+                <p className="text-2xl font-bold">
+                  {isMixedCurrency ? '—' : `${statsSymbol}${avgCustomerPaid.toFixed(2)}`}
+                </p>
               </div>
               <Route className="h-8 w-8 text-muted-foreground opacity-80" />
             </div>
@@ -887,7 +956,7 @@ export default function TripHistory() {
               Completed Trips
             </CardTitle>
             <CardDescription className="flex items-center gap-2 flex-wrap">
-              Finished rides (completed / no-show) by completion date — commission &amp; Stripe fee are in trip details
+              Finished rides (completed / no-show) by completion date — customer fare from backend SSOT; commission &amp; Stripe fees in Financial Reconciliation
               {activeRegion && (
                 <Badge variant="outline" className="ml-2 text-xs">
                   {activeRegion.name} • {getActiveCurrencySymbol()} • {getActiveDistanceUnit()}
@@ -1010,7 +1079,7 @@ export default function TripHistory() {
                   <TableHead>Driver</TableHead>
                   <TableHead>Stops</TableHead>
                   <TableHead>Distance</TableHead>
-                  <TableHead>Financial Reconciliation</TableHead>
+                  <TableHead>Customer Paid</TableHead>
                   <TableHead>Payment</TableHead>
                   <TableHead>Invoice</TableHead>
                   <TableHead>Completed</TableHead>
@@ -1097,11 +1166,16 @@ export default function TripHistory() {
                       {formatTripDistance(getTripDistance(trip), trip)}
                     </TableCell>
                      <TableCell>
-                      <FinancialReconciliationTripLink
-                        tripId={trip.id}
-                        tripCode={trip.trip_code}
-                        tripNumber={trip.trip_number}
-                      />
+                      <div className="font-medium text-green-600">
+                        {getTripCustomerPaidPence(trip) > 0 ? (
+                          <>
+                            {getCurrencySymbol(resolveTripCurrency(trip))}
+                            {getTripCustomerPaidPounds(trip).toFixed(2)}
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-0.5">
@@ -1142,13 +1216,11 @@ export default function TripHistory() {
                         : 'N/A'}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => handleViewTrip(trip)}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
+                      <TripHistoryRowActions
+                        trip={trip}
+                        onView={() => handleViewTrip(trip)}
+                        onInvoiceUpdated={fetchData}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -1176,10 +1248,12 @@ export default function TripHistory() {
                 <Badge variant="outline" className={
                   selectedTrip.status === 'no_show'
                     ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                    : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                    : selectedTrip.status === 'cancelled'
+                      ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                      : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
                 }>
                   <CheckCircle className="h-3 w-3 mr-1" />
-                  {selectedTrip.status === 'no_show' ? 'No Show' : 'Completed'}
+                  {getTripStatusLabel(selectedTrip)}
                 </Badge>
                 {/* Pricing Mode Badge */}
                 {selectedTrip.pricing_mode && (
@@ -1230,6 +1304,45 @@ export default function TripHistory() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Left Column - Details */}
                 <div className="space-y-5">
+                  {/* Trip summary */}
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-semibold flex items-center gap-2">
+                      <Route className="h-4 w-4" />
+                      Trip Summary
+                    </h4>
+                    <div className="bg-muted/50 rounded-lg p-3 grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Distance</Label>
+                        <p className="font-medium">{formatTripDistance(getTripDistance(selectedTrip), selectedTrip)}</p>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Duration</Label>
+                        <p className="font-medium flex items-center gap-1">
+                          <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                          {formatDuration(getTripDurationMinutes(selectedTrip))}
+                        </p>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Payment</Label>
+                        <p className="font-medium capitalize">{selectedTrip.payment_method || '—'}</p>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Customer Paid</Label>
+                        <p className="font-medium text-green-600">
+                          {getTripCustomerPaidPence(selectedTrip) > 0
+                            ? `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${getTripCustomerPaidPounds(selectedTrip).toFixed(2)}`
+                            : '—'}
+                        </p>
+                      </div>
+                      <div className="col-span-2">
+                        <Label className="text-xs text-muted-foreground">Invoice</Label>
+                        <div className="mt-0.5">
+                          <TripInvoiceStatusBadge trip={selectedTrip} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Passenger Info */}
                   <div className="space-y-2">
                     <h4 className="text-sm font-semibold flex items-center gap-2">
@@ -1485,7 +1598,7 @@ export default function TripHistory() {
                         <AlertDescription className="text-xs space-y-2 mt-1">
                           <p>
                             {isMismatch
-                              ? 'Capture mismatch detected. Settlement and captured amounts are in Financial Reconciliation → Trips.'
+                              ? 'Capture mismatch detected. Use Trip Settlement tools below or Financial Reconciliation for platform audit.'
                               : (captureStatus.tooltip ?? captureStatus.shortLabel)}
                           </p>
                           <FinancialReconciliationTripLink
@@ -1496,27 +1609,30 @@ export default function TripHistory() {
                           />
                         </AlertDescription>
                       </Alert>
-                      {isMismatch && (
-                        <FinanceRecoveryPanel
-                          tripId={selectedTrip.id}
-                          tripCode={selectedTrip.trip_code}
-                          source="trip-history"
-                          variant="summary"
-                        />
-                      )}
                     </>
                     );
                   })()}
 
-                  {/* Trip finance — Financial Reconciliation SSOT only */}
+                  {(openRecoverPanel
+                    || (isCardTrip(selectedTrip)
+                      && getTripCaptureStatus(selectedTrip).kind === 'capture_mismatch')) && (
+                    <FinanceRecoveryPanel
+                      tripId={selectedTrip.id}
+                      tripCode={selectedTrip.trip_code}
+                      source="trip-history"
+                      variant={openRecoverPanel ? 'finance' : 'summary'}
+                    />
+                  )}
+
+                  {/* Advanced finance — Financial Reconciliation audit only */}
                   <div className="space-y-2">
                     <h4 className="text-sm font-semibold flex items-center gap-2">
                       <DollarSign className="h-4 w-4" />
-                      Trip Finance (SSOT)
+                      Finance (audit)
                     </h4>
                     <div className="rounded-md border p-4 space-y-3">
                       <p className="text-sm text-muted-foreground">
-                        Gross fare, discount, commission, driver net, and settlement are in Financial Reconciliation → Trips only.
+                        Commission, driver net, settlement totals, and Stripe fees are audited in Financial Reconciliation only — not calculated on this page.
                       </p>
                       <FinancialReconciliationTripLink
                         tripId={selectedTrip.id}
