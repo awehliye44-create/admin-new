@@ -209,7 +209,6 @@ export default function CorporateAccounts() {
       monthly_budget: formData.monthly_budget,
       region_id: formData.region_id || null,
       service_area_id: formData.service_area_id || null,
-      payment_cash_enabled: formData.payment_cash_enabled,
       payment_card_enabled: formData.payment_card_enabled,
       payment_apple_pay_enabled: formData.payment_apple_pay_enabled,
       payment_google_pay_enabled: formData.payment_google_pay_enabled,
