@@ -19,7 +19,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { 
   PlusCircle, Loader2, MapPin, User, Phone, Clock, Car,
   DollarSign, FileText, Calendar, CheckCircle2, AlertCircle,
-  CreditCard, Banknote, Wallet, Smartphone, Globe, Navigation, Building2
+  CreditCard, Wallet, Smartphone, Globe, Navigation, Building2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
