@@ -1620,7 +1620,7 @@ export default function TripHistory() {
                       tripId={selectedTrip.id}
                       tripCode={selectedTrip.trip_code}
                       source="trip-history"
-                      variant={openRecoverPanel ? 'finance' : 'summary'}
+                      variant="summary"
                     />
                   )}
 
