@@ -131,6 +131,24 @@ function endOfTodayUtc(): string {
 
 const MAX_LEDGER_DRIVER_IN = 150;
 
+// Hard cap on any single Stripe-heavy sub-call so the whole edge function
+// stays under the 150s idle-timeout limit even on large Connect accounts.
+const STRIPE_SECTION_TIMEOUT_MS = 25_000;
+
+async function withTimeout<T>(
+  label: string,
+  ms: number,
+  promise: Promise<T>,
+): Promise<T | { __timeout: true; label: string }> {
+  return await Promise.race<T | { __timeout: true; label: string }>([
+    promise,
+    new Promise((resolve) =>
+      setTimeout(() => resolve({ __timeout: true, label }), ms)
+    ),
+  ]);
+}
+
+
 async function fetchLegacyManualReviewItems(
   supabase: ReturnType<typeof createClient>,
 ): Promise<Array<{
