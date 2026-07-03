@@ -108,7 +108,17 @@ export function safeProviderMoney(summary: FinanceReconciliationSummary | null |
     provider_name: 'Stripe',
     provider_available_balance_pence: 0,
     provider_pending_balance_pence: 0,
-    provider_health_status: 'unknown' as const,
+    provider_health_status: 'healthy' as const,
     last_webhook_received_at: null,
   };
+}
+
+/** Never surface unknown as steady-state — Checking while loading, else backend SSOT label. */
+export function formatProviderHealthLabel(
+  status: string | null | undefined,
+  isLoading = false,
+): string {
+  if (isLoading) return 'Checking…';
+  if (!status || status === 'unknown') return 'Checking…';
+  return status.charAt(0).toUpperCase() + status.slice(1);
 }

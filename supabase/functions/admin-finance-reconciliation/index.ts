@@ -184,30 +184,47 @@ async function fetchLegacyManualReviewItems(
 async function fetchWebhookHealth(
   supabase: ReturnType<typeof createClient>,
 ): Promise<{ lastWebhookAt: string | null; failedWebhookCount: number }> {
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   try {
-    const [webhookResult, failedWebhooksResult] = await Promise.all([
+    const [lastResult, failedWebhooksResult] = await Promise.all([
       supabase
-        .from("webhook_events")
-        .select("created_at, status")
-        .order("created_at", { ascending: false })
+        .from("processed_stripe_events")
+        .select("processed_at")
+        .order("processed_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
       supabase
-        .from("webhook_events")
+        .from("processed_stripe_events")
         .select("id", { count: "exact", head: true })
-        .eq("status", "failed")
-        .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()),
+        .in("status", ["failed_retry", "failed_non_retry"])
+        .gte("processed_at", since24h),
     ]);
-    if (webhookResult.error || failedWebhooksResult.error) {
+    if (lastResult.error || failedWebhooksResult.error) {
       return { lastWebhookAt: null, failedWebhookCount: 0 };
     }
     return {
-      lastWebhookAt: webhookResult.data?.created_at ?? null,
+      lastWebhookAt: lastResult.data?.processed_at ?? null,
       failedWebhookCount: failedWebhooksResult.count ?? 0,
     };
   } catch {
     return { lastWebhookAt: null, failedWebhookCount: 0 };
   }
+}
+
+function computeProviderHealthStatus(args: {
+  stripeBalanceError: string | null;
+  stripeSecretConfigured: boolean;
+  connectBundleExpected: boolean;
+  connectBundleLoaded: boolean;
+  failedWebhookCount: number;
+}): "healthy" | "degraded" | "failing" {
+  if (!args.stripeSecretConfigured) return "failing";
+  if (args.stripeBalanceError) {
+    return args.stripeBalanceError === "connect_money_movement_timeout" ? "degraded" : "failing";
+  }
+  if (args.failedWebhookCount > 0) return "degraded";
+  if (args.connectBundleExpected && !args.connectBundleLoaded) return "degraded";
+  return "healthy";
 }
 
 function safeMapTripAuditRow(
@@ -587,14 +604,13 @@ serve(async (req) => {
     }
 
     const { failedWebhookCount, lastWebhookAt } = webhookHealth;
-    let providerHealth: "healthy" | "degraded" | "failing" | "unknown" = "unknown";
-    if (stripeBalanceError) {
-      providerHealth = "failing";
-    } else if (failedWebhookCount > 0) {
-      providerHealth = "degraded";
-    } else if (lastWebhookAt) {
-      providerHealth = "healthy";
-    }
+    const providerHealth = computeProviderHealthStatus({
+      stripeBalanceError,
+      stripeSecretConfigured: Boolean(stripeSecretKey),
+      connectBundleExpected: scopeHeavyStripe && !summaryOnly,
+      connectBundleLoaded: moneyMovement != null,
+      failedWebhookCount,
+    });
 
     const ssotMetrics = computeSSOTMetrics({
       payments: paymentRows,

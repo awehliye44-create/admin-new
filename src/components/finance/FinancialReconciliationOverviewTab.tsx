@@ -7,6 +7,7 @@ import { FinancialReconciliationRefreshBar } from '@/components/finance/Financia
 import type { FinancialReconciliationSSOTResult } from '@/hooks/useFinancialReconciliationSSOT';
 import type { PlatformReconciliationKpis } from '@/hooks/useFinanceReconciliation';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
+import { formatProviderHealthLabel } from '@/lib/financialReconciliationGuards';
 
 function KpiCard({ label, value, subtitle }: { label: string; value: string | number; subtitle?: string }) {
   return (
@@ -68,7 +69,7 @@ export function FinancialReconciliationOverviewTab({
         />
         <KpiCard
           label="Provider Health"
-          value={provider?.provider_health_status ?? '—'}
+          value={formatProviderHealthLabel(provider?.provider_health_status, isRefreshing)}
         />
         <KpiCard label="Reconciliation" value={ssot.summary?.reconciliation_check?.status ?? '—'} />
       </div>

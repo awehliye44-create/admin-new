@@ -11,7 +11,7 @@ import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAr
 import { FinancialReconciliationPlatformPayoutOps } from '@/components/finance/FinancialReconciliationPlatformPayoutOps';
 import { DriverWalletLedgerLink } from '@/components/finance/DriverWalletLedgerLink';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
-import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
+import { formatFinanceDateSafe, formatProviderHealthLabel } from '@/lib/financialReconciliationGuards';
 import { Button } from '@/components/ui/button';
 import { FinancialReconciliationRefreshBar } from '@/components/finance/FinancialReconciliationRefreshBar';
 import type { FinanceDataSourceBadge } from '@/hooks/useFinancialReconciliationSSOT';
@@ -230,8 +230,8 @@ export function FinancialReconciliationStripeTab({
           <CardContent className="flex flex-wrap gap-4">
             <div>
               <p className="text-xs text-muted-foreground">Status</p>
-              <Badge variant={statusChipVariant(provider?.provider_health_status)} className="mt-1 capitalize">
-                {provider?.provider_health_status ?? 'unknown'}
+              <Badge variant={statusChipVariant(provider?.provider_health_status)} className="mt-1">
+                {formatProviderHealthLabel(provider?.provider_health_status, isRefreshingStripe)}
               </Badge>
             </div>
             <div>
