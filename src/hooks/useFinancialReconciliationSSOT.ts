@@ -41,6 +41,8 @@ export type UseFinancialReconciliationSSOTArgs = {
   to?: string;
   tripSearch?: string;
   tripSearchType?: 'code' | 'id';
+  /** Wait until region/service scope is resolved before hitting admin-finance-reconciliation. */
+  enabled?: boolean;
 };
 
 function nullableNum(v: unknown): number | null {
@@ -86,6 +88,7 @@ export function useFinancialReconciliationSSOT({
   to,
   tripSearch,
   tripSearchType,
+  enabled = true,
 }: UseFinancialReconciliationSSOTArgs): FinancialReconciliationSSOTResult {
   const queryClient = useQueryClient();
   const scopeKey = snapshotScopeKey(filter.regionId, filter.serviceAreaId);
@@ -104,7 +107,7 @@ export function useFinancialReconciliationSSOT({
     to,
     tripSearch,
     tripSearchType,
-    enabled: true,
+    enabled,
   });
 
   const liveSummary = pickSummary(live.data);
@@ -166,7 +169,7 @@ export function useFinancialReconciliationSSOT({
       ? applyDegradedReconciliationSummary(rawSummary)
       : rawSummary;
 
-  const isLoading = live.isLoading && status === 'UNAVAILABLE';
+  const isLoading = (!enabled || live.isLoading) && status === 'UNAVAILABLE';
   const error =
     status === 'UNAVAILABLE'
       ? live.error instanceof Error
@@ -197,7 +200,7 @@ export function useFinancialReconciliationSSOT({
     error,
     refetch,
     refetchFresh,
-    currencyCode: filter.currencyCode || response?.currency_code || 'GBP',
+    currencyCode: response?.currency_code || filter.currencyCode || '',
   };
 }
 

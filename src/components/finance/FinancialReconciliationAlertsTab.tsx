@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { formatPence } from '@/hooks/useDriverWallet';
+import type { FinanceMoneyFormat } from '@/hooks/useFinanceReconciliationMoney';
 import type { FinancialReconciliationSSOTResult } from '@/hooks/useFinancialReconciliationSSOT';
 import type { FinanceBackendAuditV1 } from '@/hooks/useFinanceBackendAudit';
 import { AlertTriangle } from 'lucide-react';
@@ -11,16 +11,16 @@ import { classifyFinanceMismatch } from '@/lib/financeAlertClassification';
 export function FinancialReconciliationAlertsTab({
   ssot,
   backendAudit,
-  currencyCode,
+  money,
   readOnly: _readOnly = false,
 }: {
   ssot: FinancialReconciliationSSOTResult;
   backendAudit?: FinanceBackendAuditV1 | null;
   regionId?: string | null;
-  currencyCode: string;
+  money: FinanceMoneyFormat;
   readOnly?: boolean;
 }) {
-  const fmt = (p: number) => formatPence(p, currencyCode);
+  const fmt = (p: number) => money.fmt(p) ?? '—';
   const summary = ssot.summary;
   const check = summary ? safeReconciliationCheck(summary) : null;
   const mm = summary?.money_movement;

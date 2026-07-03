@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '@/components/layout/AdminLayout';
-import { ServiceAreaFinanceFilter, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
+import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
+import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,7 +17,7 @@ import { FinancialReconciliationOverviewTab } from '@/components/finance/Financi
 import { FinancialReconciliationAlertsTab } from '@/components/finance/FinancialReconciliationAlertsTab';
 import { FinancialReconciliationStripeTab } from '@/components/finance/FinancialReconciliationStripeTab';
 import { FinancialReconciliationTripsTab } from '@/components/finance/FinancialReconciliationTripsTab';
-import { DigitalFinanceEraPanel } from '@/components/finance/DigitalFinanceEraPanel';
+import { useFinanceReconciliationMoney } from '@/hooks/useFinanceReconciliationMoney';
 import { AlertTriangle, RefreshCw, ShieldCheck } from 'lucide-react';
 
 const FR_TABS = ['overview', 'drivers', 'trips', 'stripe', 'alerts'] as const;
@@ -72,20 +73,34 @@ class FinancialReconciliationErrorBoundary extends React.Component<
 function FinancialReconciliationPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const frTab = parseFrTab(searchParams.get('tab'));
-  const [filter, setFilter] = useState<ServiceAreaFinanceSelection>({
-    serviceAreaId: null,
-    regionId: null,
-    currencyCode: null,
-  });
+  const [filter, setFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
+  const [financeScopeReady, setFinanceScopeReady] = useState(false);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [recoverTripId, setRecoverTripId] = useState<string | null>(null);
   const [recoverTripCode, setRecoverTripCode] = useState<string | null>(null);
 
+  const { data: serviceAreas = [], isLoading: serviceAreasLoading } = useServiceAreas({ activeOnly: true });
+
+  useEffect(() => {
+    if (financeScopeReady || serviceAreasLoading) return;
+    if (filter.regionId || filter.serviceAreaId) {
+      setFinanceScopeReady(true);
+      return;
+    }
+    const first = serviceAreas[0];
+    if (first) {
+      const cc = first.region?.currency_code || first.currency_code || null;
+      setFilter({ serviceAreaId: first.id, regionId: first.region_id, currencyCode: cc });
+    }
+    setFinanceScopeReady(true);
+  }, [financeScopeReady, filter.regionId, filter.serviceAreaId, serviceAreas, serviceAreasLoading]);
+
   const ssot = useFinancialReconciliationSSOT({
     filter,
     from: from || undefined,
     to: to || undefined,
+    enabled: financeScopeReady,
   });
   const { isLoading, error, refetchFresh, isFetching, readOnly, status: ssotStatus, snapshotSavedAt, lastSyncedAt, badge: ssotBadge } = ssot;
   const data = ssot.response;
@@ -96,10 +111,12 @@ function FinancialReconciliationPage() {
     filter,
     from: from || undefined,
     to: to || undefined,
+    enabled: financeScopeReady,
   });
 
   const summary = ssot.summary;
-  const ccy = ssot.currencyCode || filter.currencyCode || 'GBP';
+  const money = useFinanceReconciliationMoney(data, filter.currencyCode);
+  const ccy = money.currencyCode ?? filter.currencyCode ?? '';
   const backendAudit = backendAuditData?.finance_backend_audit_v1;
 
   useEffect(() => {
@@ -164,10 +181,12 @@ function FinancialReconciliationPage() {
     setSearchParams(next, { replace: true });
   };
 
-  if (isLoading && !summary) {
+  if (!financeScopeReady || (isLoading && !summary)) {
     return (
       <AdminLayout title="Financial Reconciliation">
-        <div className="py-12 text-center text-muted-foreground">Loading finance reconciliation…</div>
+        <div className="py-12 text-center text-muted-foreground">
+          {!financeScopeReady ? 'Preparing finance scope…' : 'Loading finance reconciliation…'}
+        </div>
       </AdminLayout>
     );
   }
@@ -182,9 +201,16 @@ function FinancialReconciliationPage() {
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Financial Reconciliation unavailable</AlertTitle>
-            <AlertDescription>
-              {(error as Error | null)?.message ??
-                'Live SSOT failed and no cached snapshot exists. Refresh after connectivity is restored.'}
+            <AlertDescription className="space-y-2">
+              <p>
+                {(error as Error | null)?.message ??
+                  'Live SSOT failed and no cached snapshot exists. Refresh after connectivity is restored.'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Source: <code className="text-xs">admin-finance-reconciliation</code>
+                {filter.regionId ? ` (region ${filter.regionId.slice(0, 8)}…)` : filter.serviceAreaId ? ' (service area)' : ' (all services)'}
+                . Sign in as admin if you see 401/403.
+              </p>
             </AlertDescription>
           </Alert>
           <Button variant="outline" size="sm" onClick={() => void refetchFresh()} disabled={isFetching}>
@@ -234,7 +260,7 @@ function FinancialReconciliationPage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <ServiceAreaFinanceFilter value={filter} onChange={setFilter} />
+            <ServiceAreaFinanceFilter value={filter} onChange={setFilter} autoSelectFirstArea={false} />
             <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-[150px]" />
             <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-[150px]" />
             <Button variant="outline" size="sm" onClick={() => void refetchFresh()} disabled={isFetching}>
@@ -256,6 +282,17 @@ function FinancialReconciliationPage() {
           </Alert>
         )}
 
+        {money.isMixedCurrency && (
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Mixed currencies</AlertTitle>
+            <AlertDescription>
+              All Services spans multiple operational currencies. Totals are not summed into one symbol —
+              see grouped amounts per currency on Overview.
+            </AlertDescription>
+          </Alert>
+        )}
+
         <DigitalFinanceEraPanel />
 
         <Tabs value={frTab} onValueChange={(v) => setFrTab(v as FrTab)}>
@@ -271,7 +308,9 @@ function FinancialReconciliationPage() {
             <FinancialReconciliationOverviewTab
               ssot={ssot}
               platformKpis={data?.platform_kpis}
-              currencyCode={ccy}
+              money={money}
+              currencyGroups={data?.currency_groups}
+              serviceAreaGateways={data?.service_area_payment_gateways}
               readOnly={readOnly}
               onRefresh={() => void refetchFresh()}
               isRefreshing={isFetching}
@@ -280,7 +319,7 @@ function FinancialReconciliationPage() {
 
           <TabsContent value="drivers" className="mt-4">
             {frTab === 'drivers' && (
-              <DriverWalletSsotPanel regionId={filter.regionId} currencyCode={ccy} />
+              <DriverWalletSsotPanel regionId={filter.regionId} currencyCode={ccy || undefined} />
             )}
           </TabsContent>
 
@@ -288,7 +327,7 @@ function FinancialReconciliationPage() {
             {frTab === 'trips' && (
               <FinancialReconciliationTripsTab
                 rows={tripAuditRows}
-                currencyCode={ccy}
+                money={money}
                 readOnly={readOnly}
                 ssotBadge={ssotBadge}
                 lastSyncedAt={lastSyncedAt}
@@ -305,7 +344,7 @@ function FinancialReconciliationPage() {
             {frTab === 'stripe' && (
               <FinancialReconciliationStripeTab
                 summary={stripeSummary}
-                currencyCode={ccy}
+                money={money}
                 serviceFilter={filter}
                 periodFrom={from || undefined}
                 periodTo={to || undefined}
@@ -329,8 +368,8 @@ function FinancialReconciliationPage() {
               <FinancialReconciliationAlertsTab
                 ssot={ssot}
                 backendAudit={backendAudit}
+                money={money}
                 regionId={filter.regionId ?? null}
-                currencyCode={ccy}
                 readOnly={readOnly}
               />
             )}

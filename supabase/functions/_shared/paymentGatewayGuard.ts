@@ -1,8 +1,14 @@
 /**
- * Read-only payment gateway guard — mirrored from onecab-comfy-ride.
+ * Read-only payment gateway guard — no Stripe API calls.
+ * Service Area is SSOT for customer + driver gateways (no global fallback).
  */
 
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import {
+  gatewayStatusToPaymentGatewayPayload,
+  resolveProviderGatewayStatus,
+  type GatewayStatusSnapshot,
+} from "./paymentGatewayStatus.ts";
 
 export const PAYMENT_GATEWAY_NOT_CONFIGURED = "PAYMENT_GATEWAY_NOT_CONFIGURED";
 
@@ -32,15 +38,14 @@ export type GatewayNotConfiguredResult = {
 
 export type GatewayCheckResult = GatewayConfiguredResult | GatewayNotConfiguredResult;
 
-type ProviderRow = {
-  provider: string;
-  display_name: string;
-  environment: string;
-  status: string;
-  is_enabled: boolean;
-  supports_customer_payments: boolean;
-  supports_driver_payouts: boolean;
-};
+export type { GatewayStatusSnapshot, PaymentGatewayStatusCode } from "./paymentGatewayStatus.ts";
+export {
+  gatewayStatusBadge,
+  gatewayStatusToPaymentGatewayPayload,
+  resolveProviderGatewayStatus,
+  resolveServiceAreaGatewayStatuses,
+  resolveAllServiceAreaGatewayStatuses,
+} from "./paymentGatewayStatus.ts";
 
 export async function loadServiceAreaGateways(
   supabase: SupabaseClient,
@@ -59,39 +64,6 @@ export async function loadServiceAreaGateways(
     customer_payment_gateway: (data.customer_payment_gateway as string | null) ?? null,
     driver_payout_gateway: (data.driver_payout_gateway as string | null) ?? null,
   };
-}
-
-async function loadProviderConfig(
-  supabase: SupabaseClient,
-  provider: string,
-): Promise<ProviderRow | null> {
-  const { data } = await supabase
-    .from("payment_provider_configs")
-    .select(
-      "provider, display_name, environment, status, is_enabled, supports_customer_payments, supports_driver_payouts",
-    )
-    .eq("provider", provider)
-    .maybeSingle();
-
-  return data as ProviderRow | null;
-}
-
-async function isProviderOperational(
-  supabase: SupabaseClient,
-  provider: string,
-  environment: string,
-): Promise<boolean> {
-  const { data } = await supabase
-    .from("payment_provider_secret_metadata")
-    .select("is_configured")
-    .eq("provider", provider)
-    .eq("environment", environment)
-    .eq("secret_name", "secret_key")
-    .maybeSingle();
-
-  if (data?.is_configured === true) return true;
-  if (provider === "stripe" && Deno.env.get("STRIPE_SECRET_KEY")) return true;
-  return false;
 }
 
 export async function checkServiceAreaGateway(
@@ -114,74 +86,27 @@ export async function checkServiceAreaGateway(
     ? gateways.customer_payment_gateway
     : gateways.driver_payout_gateway;
 
-  if (!providerId) {
+  const status = await resolveProviderGatewayStatus(supabase, providerId, role);
+  if (!status.ready_for_production) {
     return {
       ok: false,
       code: PAYMENT_GATEWAY_NOT_CONFIGURED,
       role,
-      provider: null,
-      reason: role === "customer"
-        ? "Customer payment gateway not selected for this service area"
-        : "Driver payout gateway not selected for this service area",
-    };
-  }
-
-  const config = await loadProviderConfig(supabase, providerId);
-  if (!config) {
-    return {
-      ok: false,
-      code: PAYMENT_GATEWAY_NOT_CONFIGURED,
-      role,
-      provider: providerId,
-      reason: "Payment provider is not registered",
-    };
-  }
-
-  const supportsRole = role === "customer"
-    ? config.supports_customer_payments
-    : config.supports_driver_payouts;
-
-  if (!supportsRole) {
-    return {
-      ok: false,
-      code: PAYMENT_GATEWAY_NOT_CONFIGURED,
-      role,
-      provider: providerId,
-      reason: `Provider ${config.display_name} does not support ${role} payments`,
-    };
-  }
-
-  if (!config.is_enabled || config.status === "not_configured" || config.status === "error") {
-    return {
-      ok: false,
-      code: PAYMENT_GATEWAY_NOT_CONFIGURED,
-      role,
-      provider: providerId,
-      reason: `Provider ${config.display_name} is not enabled or connected`,
-    };
-  }
-
-  const environment = (config.environment === "test" ? "test" : "live") as "test" | "live";
-  const operational = await isProviderOperational(supabase, providerId, environment);
-  if (!operational) {
-    return {
-      ok: false,
-      code: PAYMENT_GATEWAY_NOT_CONFIGURED,
-      role,
-      provider: providerId,
-      reason: `Provider ${config.display_name} secrets are not configured`,
+      provider: status.provider,
+      reason: status.message ?? status.configuration_error ?? "Payment gateway not configured",
     };
   }
 
   return {
     ok: true,
-    provider: providerId,
-    environment,
-    display_name: config.display_name,
+    provider: status.provider!,
+    environment: status.environment ?? "live",
+    display_name: status.display_name ?? status.provider!,
     role,
   };
 }
 
+/** Customer booking edges: only Stripe execution is live today. */
 export function assertGatewayExecutable(check: GatewayCheckResult): GatewayCheckResult {
   if (!check.ok) return check;
   if (check.provider !== "stripe") {
@@ -194,6 +119,43 @@ export function assertGatewayExecutable(check: GatewayCheckResult): GatewayCheck
     };
   }
   return check;
+}
+
+/** Stripe Connect edges: only when service area driver payout gateway is Stripe. */
+export function assertStripeDriverPayoutGateway(check: GatewayCheckResult): GatewayCheckResult {
+  if (!check.ok) return check;
+  if (check.provider !== "stripe") {
+    return {
+      ok: false,
+      code: PAYMENT_GATEWAY_NOT_CONFIGURED,
+      role: check.role,
+      provider: check.provider,
+      reason: "Stripe Connect is not the payout gateway for this service area",
+    };
+  }
+  return check;
+}
+
+/** Non-Stripe destination edges: block Stripe service areas. */
+export function assertNonStripeDriverPayoutGateway(check: GatewayCheckResult): GatewayCheckResult {
+  if (!check.ok) return check;
+  if (check.provider === "stripe") {
+    return {
+      ok: false,
+      code: PAYMENT_GATEWAY_NOT_CONFIGURED,
+      role: check.role,
+      provider: check.provider,
+      reason: "Use Manage Stripe Account for Stripe Connect payouts",
+    };
+  }
+  return check;
+}
+
+export function buildDriverPayoutGatewayPayload(
+  status: GatewayStatusSnapshot,
+  fallbackProvider: string | null,
+): Record<string, unknown> {
+  return gatewayStatusToPaymentGatewayPayload(status, fallbackProvider);
 }
 
 export function gatewayNotConfiguredResponse(

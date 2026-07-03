@@ -361,12 +361,52 @@ serve(async (req) => {
 
     const { data: driver, error: driverError } = await supabase
       .from('drivers')
-      .select('id, first_name, last_name, stripe_account_id, payouts_enabled, onboarding_complete, charges_enabled')
+      .select('id, first_name, last_name, service_area_id, stripe_account_id, payouts_enabled, onboarding_complete, charges_enabled')
       .eq('id', driver_id).single();
 
     if (driverError || !driver) {
       return new Response(JSON.stringify({ error: 'Driver not found' }), {
         status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    let driverPayoutGateway = 'stripe';
+    if (driver.service_area_id) {
+      const { data: serviceAreaRow } = await supabase
+        .from('service_areas')
+        .select('driver_payout_gateway')
+        .eq('id', driver.service_area_id)
+        .maybeSingle();
+      driverPayoutGateway = (serviceAreaRow?.driver_payout_gateway as string | null) ?? 'stripe';
+    }
+
+    if (driverPayoutGateway !== 'stripe') {
+      const { data: activeDestination } = await supabase
+        .from('driver_payout_destinations')
+        .select('id, destination_label, destination_last4')
+        .eq('driver_id', driver_id)
+        .eq('provider', driverPayoutGateway)
+        .eq('is_active', true)
+        .is('archived_at', null)
+        .maybeSingle();
+
+      if (!activeDestination?.id) {
+        return manualPayoutBlockedResponse({
+          error: 'Payout destination is not configured. Please add a payout destination to receive weekly payouts.',
+          error_code: 'PAYOUT_DESTINATION_NOT_CONFIGURED',
+          status: 400,
+          ssot: { driver_payout_gateway: driverPayoutGateway },
+        });
+      }
+
+      return manualPayoutBlockedResponse({
+        error: `${driverPayoutGateway} payout execution is not yet enabled (PROVIDER_NOT_IMPLEMENTED).`,
+        error_code: 'PROVIDER_NOT_IMPLEMENTED',
+        status: 400,
+        ssot: {
+          driver_payout_gateway: driverPayoutGateway,
+          masked_destination: activeDestination.destination_label,
+        },
       });
     }
 

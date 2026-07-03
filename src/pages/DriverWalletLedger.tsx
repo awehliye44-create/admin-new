@@ -20,6 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
 import { useDriverWalletSsotDetail } from '@/hooks/useDriverWalletSsot';
 import { parseDriverWalletLedgerTab, type DriverWalletLedgerTab } from '@/lib/driverWalletLedgerRoutes';
+import { ServiceAreaGatewayStatusFetcher } from '@/components/finance/ServiceAreaGatewayStatusFetcher';
 
 /** Single-driver Stripe Connect truth — reads Stripe only; trip money lives on Trip History. */
 export default function DriverWalletLedger() {
@@ -92,6 +93,8 @@ export default function DriverWalletLedger() {
             />
           </div>
         </div>
+
+        <ServiceAreaGatewayStatusFetcher serviceAreaId={serviceFilter.serviceAreaId} />
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as DriverWalletLedgerTab)}>
           <TabsList className="flex flex-wrap h-auto gap-1">

@@ -2,8 +2,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Banknote, CreditCard, Wallet, Apple, Smartphone } from 'lucide-react';
-import { useServiceAreaPaymentMethods, PaymentMethodType } from '@/hooks/useServiceAreaPaymentMethods';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Loader2, CreditCard, Wallet, Apple, Smartphone, Info } from 'lucide-react';
+import { useServiceAreaPaymentMethods, type StripeDigitalPaymentMethodType } from '@/hooks/useServiceAreaPaymentMethods';
+import { isStripePreauthProvider, isMobileWalletCollectProvider } from '@/lib/customerPaymentWorkflow';
 import { toast } from 'sonner';
 
 interface ServiceAreaPaymentConfigProps {
@@ -12,7 +14,6 @@ interface ServiceAreaPaymentConfigProps {
 }
 
 const PAYMENT_METHOD_ICONS: Record<string, React.ReactNode> = {
-  banknote: <Banknote className="h-5 w-5" />,
   'credit-card': <CreditCard className="h-5 w-5" />,
   wallet: <Wallet className="h-5 w-5" />,
   apple: <Apple className="h-5 w-5" />,
@@ -26,9 +27,16 @@ const PLATFORM_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 export function ServiceAreaPaymentConfig({ serviceAreaId, serviceAreaName }: ServiceAreaPaymentConfigProps) {
-  const { paymentConfig, isLoading, isSaving, updatePaymentMethod, allPaymentMethods } = useServiceAreaPaymentMethods(serviceAreaId);
+  const {
+    paymentConfig,
+    customerPaymentGateway,
+    isLoading,
+    isSaving,
+    updatePaymentMethod,
+    stripeDigitalMethods,
+  } = useServiceAreaPaymentMethods(serviceAreaId);
 
-  const handleToggle = async (method: PaymentMethodType, enabled: boolean) => {
+  const handleToggle = async (method: StripeDigitalPaymentMethodType, enabled: boolean) => {
     try {
       await updatePaymentMethod(method, enabled);
       toast.success(`${enabled ? 'Enabled' : 'Disabled'} ${method.replace('_', ' ')}`);
@@ -51,22 +59,70 @@ export function ServiceAreaPaymentConfig({ serviceAreaId, serviceAreaName }: Ser
     return null;
   }
 
+  if (isMobileWalletCollectProvider(customerPaymentGateway)) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Smartphone className="h-5 w-5 text-primary" />
+            Card / wallet preauth methods
+          </CardTitle>
+          <CardDescription>
+            This service area uses a mobile-wallet collect gateway ({customerPaymentGateway}).
+            Card, Apple Pay, and Google Pay are not offered — configure mobile wallet methods below.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              ONECAB is fully digital. Cash is not enabled. Stripe card preauth toggles do not apply
+              to this gateway.
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!isStripePreauthProvider(customerPaymentGateway)) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CreditCard className="h-5 w-5 text-primary" />
+            Digital payment methods
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Alert variant="destructive">
+            <AlertDescription>
+              Select a customer payment gateway above before enabling digital payment methods.
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <CreditCard className="h-5 w-5 text-primary" />
-          Payment Methods
+          Stripe digital payment methods
         </CardTitle>
         <CardDescription>
-          Configure which payment methods are available for customers in {serviceAreaName || 'this service area'}.
-          <span className="block mt-1 text-xs text-primary font-medium">
-            ✓ Service Area is the single source of truth for payment configuration.
-          </span>
+          Methods available for customers in {serviceAreaName || 'this service area'} when the gateway
+          is Stripe (card pre-authorisation workflow). Cash is disabled — ONECAB is fully digital.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {allPaymentMethods.map((method) => {
+        <div className="flex items-center gap-2 mb-2">
+          <Badge variant="outline">Gateway: Stripe</Badge>
+          <Badge variant="secondary">No cash</Badge>
+        </div>
+        {stripeDigitalMethods.map((method) => {
           const isEnabled = paymentConfig[`${method.id}_enabled` as keyof typeof paymentConfig] as boolean;
           const platformInfo = PLATFORM_LABELS[method.platform];
 
@@ -89,11 +145,10 @@ export function ServiceAreaPaymentConfig({ serviceAreaId, serviceAreaName }: Ser
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    
-                    {method.id === 'card' && 'Credit/debit cards'}
-                    {method.id === 'wallet' && 'Wallet balance'}
-                    {method.id === 'apple_pay' && 'Apple Pay (iOS)'}
-                    {method.id === 'google_pay' && 'Google Pay (Android)'}
+                    {method.id === 'card' && 'Credit/debit cards (preauth → capture)'}
+                    {method.id === 'wallet' && 'ONECAB in-app wallet balance'}
+                    {method.id === 'apple_pay' && 'Apple Pay (iOS native)'}
+                    {method.id === 'google_pay' && 'Google Pay (Android native)'}
                   </p>
                 </div>
               </div>

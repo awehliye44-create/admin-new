@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createPlaceholderAdapter } from "./placeholderAdapter.ts";
 import { createStripeAdapter } from "./stripeAdapter.ts";
+import { getProviderSecrets } from "./secretManager.ts";
 import type { PaymentProviderAdapter, PaymentProviderId, ProviderEnvironment } from "./types.ts";
 
 export * from "./types.ts";
@@ -15,7 +16,9 @@ export function getPaymentProviderAdapter(
     case "stripe":
       return createStripeAdapter(supabase, environment);
     default:
-      return createPlaceholderAdapter(provider);
+      return createPlaceholderAdapter(provider, () =>
+        getProviderSecrets(supabase, provider, environment)
+      );
   }
 }
 

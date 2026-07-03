@@ -21,6 +21,7 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { formatMoneyMinor } from '@/lib/formatMoneyMinor';
 import { FinanceRecoveryMismatchSummary } from '@/components/payment/FinanceRecoveryMismatchSummary';
 import {
   captureStatusColorClass,
@@ -102,13 +103,9 @@ interface AuditEntry {
   metadata: Record<string, unknown> | null;
 }
 
-const formatPence = (pence: number, currency = 'GBP') => {
-  const code = currency || 'GBP';
-  try {
-    return new Intl.NumberFormat('en-GB', { style: 'currency', currency: code }).format((pence || 0) / 100);
-  } catch {
-    return `${(pence / 100).toFixed(2)} ${code}`;
-  }
+const formatPence = (pence: number, currency?: string | null) => {
+  if (!currency) return '—';
+  return formatMoneyMinor(pence, currency);
 };
 
 const fmtTime = (iso: string | null) => (iso ? format(new Date(iso), 'dd MMM yyyy HH:mm') : '—');
@@ -305,7 +302,7 @@ export function PaymentControlsCard({
   const state = stateQuery.data;
   const captureContext = captureContextQuery.data;
   const captureStatus = captureContext ? getTripCaptureStatus(captureContext) : null;
-  const currency = state?.stripe_currency || 'GBP';
+  const currency = state?.stripe_currency ?? '';
   const isUncaptured = state?.actions_allowed?.can_capture ?? state?.stripe_status === 'requires_capture';
   const isCancelled = state?.stripe_status === 'canceled';
   const hasCharge = !!state && (state.actions_allowed?.can_refund || state.actions_allowed?.can_partial_refund || state.captured_pence > 0);

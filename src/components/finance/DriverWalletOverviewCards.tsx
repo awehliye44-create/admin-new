@@ -51,7 +51,7 @@ function OverviewCard({
 
 export function DriverWalletOverviewCards({
   driver,
-  currencyCode = 'GBP',
+  currencyCode,
   regionId = null,
   isLoading,
   driverId = null,

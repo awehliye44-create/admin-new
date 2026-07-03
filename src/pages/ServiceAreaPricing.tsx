@@ -32,6 +32,7 @@ import {
 import { toast } from 'sonner';
 import { ServiceAreaPaymentConfig } from '@/components/payment/ServiceAreaPaymentConfig';
 import { ServiceAreaPaymentGatewayConfig } from '@/components/payment/ServiceAreaPaymentGatewayConfig';
+import { ServiceAreaMobileWalletMethodsConfig } from '@/components/payment/ServiceAreaMobileWalletMethodsConfig';
 import { ServiceAreaDriverWalletConfig } from '@/components/finance/ServiceAreaDriverWalletConfig';
 import { PreauthBufferConfig } from '@/components/payment/PreauthBufferConfig';
 import { getCurrencySymbol } from '@/lib/regionSettings';
@@ -91,6 +92,7 @@ export default function ServiceAreaPricing() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [customerPaymentGateway, setCustomerPaymentGateway] = useState<string | null>(null);
 
   const selectedServiceArea = serviceAreas.find(sa => sa.id === selectedServiceAreaId);
   // Region is the SINGLE SOURCE OF TRUTH for currency — never read from service_area
@@ -477,12 +479,20 @@ export default function ServiceAreaPricing() {
             <ServiceAreaPaymentGatewayConfig
               serviceAreaId={selectedServiceAreaId}
               serviceAreaName={selectedServiceArea?.name}
+              onCustomerGatewayChange={setCustomerPaymentGateway}
             />
           )}
           {selectedServiceAreaId && (
-            <ServiceAreaPaymentConfig 
-              serviceAreaId={selectedServiceAreaId} 
+            <ServiceAreaPaymentConfig
+              serviceAreaId={selectedServiceAreaId}
               serviceAreaName={selectedServiceArea?.name}
+            />
+          )}
+          {selectedServiceAreaId && (
+            <ServiceAreaMobileWalletMethodsConfig
+              serviceAreaId={selectedServiceAreaId}
+              serviceAreaName={selectedServiceArea?.name}
+              customerPaymentGateway={customerPaymentGateway}
             />
           )}
           {selectedServiceAreaId && regionCurrency && (

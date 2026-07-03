@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { formatPence } from '@/hooks/useDriverWallet';
+import { formatMoneyMinor } from '@/lib/formatMoneyMinor';
 import { FinancePayoutAuditSection } from '@/components/finance/FinancePayoutAuditSection';
 import { WeeklyMondaySettlementPanel } from '@/components/finance/WeeklyMondaySettlementPanel';
 import { DriverWalletLedgerLink } from '@/components/finance/DriverWalletLedgerLink';
@@ -166,7 +166,7 @@ export function FinancialReconciliationPlatformPayoutOps({
                       <TableCell>{getKindDisplay(batch.kind)}</TableCell>
                       <TableCell>{getStatusBadge(batch.status)}</TableCell>
                       <TableCell className="text-right">
-                        {batch.totalAmount != null ? formatPence(batch.totalAmount, currencyCode) : '—'}
+                        {batch.totalAmount != null ? formatMoneyMinor(batch.totalAmount, currencyCode) : '—'}
                       </TableCell>
                       <TableCell className="text-right">{batch.totalDrivers ?? '—'}</TableCell>
                       <TableCell className="text-right">{batch.failedPayouts ?? 0}</TableCell>

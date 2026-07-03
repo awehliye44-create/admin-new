@@ -478,6 +478,7 @@ export type TripFinancialAuditRow = {
   provider_status?: string;
   trip_status?: string | null;
   financial_outcome?: string | null;
+  currency_code?: string | null;
 };
 
 export type TripAuditSourceRow = TripFinanceRow & {
@@ -496,6 +497,7 @@ export type TripAuditSourceRow = TripFinanceRow & {
   provider_status?: string | null;
   driver_id?: string | null;
   passenger_name?: string | null;
+  service_area_id?: string | null;
   driver?: { first_name?: string | null; last_name?: string | null } | null;
 };
 
@@ -504,6 +506,8 @@ export type TripFinancialAuditContext = {
   paymentsByTripId: Map<string, TripAuditPaymentRecord[]>;
   payoutsByTripId: Map<string, TripAuditPayoutRecord[]>;
   ledgerByTripId: Map<string, TripAuditLedgerRecord[]>;
+  currencyCodeByServiceAreaId?: Map<string, string>;
+  defaultCurrencyCode?: string | null;
 };
 
 export function sumRefundedAmountPence(rows: Array<{ refund_amount_pence?: number | null }>): number {
@@ -787,6 +791,9 @@ export function mapTripToFinancialAuditRow(
     provider_status: statuses.provider.label,
     trip_status: row.status ?? null,
     financial_outcome: row.financial_outcome ?? null,
+    currency_code: row.service_area_id && context.currencyCodeByServiceAreaId
+      ? (context.currencyCodeByServiceAreaId.get(row.service_area_id) ?? context.defaultCurrencyCode ?? null)
+      : (context.defaultCurrencyCode ?? null),
   };
 }
 
@@ -814,6 +821,8 @@ export function buildTripFinancialAuditContext(args: {
     stripe_payout_id?: string | null;
     stripe_transfer_id?: string | null;
   }>;
+  currencyCodeByServiceAreaId?: Map<string, string>;
+  defaultCurrencyCode?: string | null;
 }): TripFinancialAuditContext {
   const paymentByTripId = new Map<string, TripAuditPaymentRecord>();
   const paymentsByTripId = new Map<string, TripAuditPaymentRecord[]>();
@@ -865,7 +874,14 @@ export function buildTripFinancialAuditContext(args: {
     ledgerByTripId.set(entry.related_trip_id, list);
   }
 
-  return { paymentByTripId, paymentsByTripId, payoutsByTripId, ledgerByTripId };
+  return {
+    paymentByTripId,
+    paymentsByTripId,
+    payoutsByTripId,
+    ledgerByTripId,
+    currencyCodeByServiceAreaId: args.currencyCodeByServiceAreaId,
+    defaultCurrencyCode: args.defaultCurrencyCode ?? null,
+  };
 }
 
 export function sumCommissionableFromTrips(rows: TripAuditSourceRow[]): number {

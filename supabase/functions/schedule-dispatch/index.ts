@@ -30,9 +30,6 @@ serve(async (req) => {
   const gate = assertServiceRole(req);
   if (gate) return gate;
 
-
-  }
-
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, supabaseServiceKey);

@@ -2,12 +2,17 @@ import { Link } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { formatPence } from '@/hooks/useDriverWallet';
+import { formatMoneyMinor } from '@/lib/formatMoneyMinor';
 import { FinancialReconciliationRefreshBar } from '@/components/finance/FinancialReconciliationRefreshBar';
 import type { FinancialReconciliationSSOTResult } from '@/hooks/useFinancialReconciliationSSOT';
 import type { PlatformReconciliationKpis } from '@/hooks/useFinanceReconciliation';
+import type { FinanceMoneyFormat } from '@/hooks/useFinanceReconciliationMoney';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
 import { formatProviderHealthLabel } from '@/lib/financialReconciliationGuards';
+import {
+  ServiceAreaGatewayStatusPanel,
+  type ServiceAreaGatewayStatusRow,
+} from '@/components/finance/ServiceAreaGatewayStatusPanel';
 
 function KpiCard({ label, value, subtitle }: { label: string; value: string | number; subtitle?: string }) {
   return (
@@ -24,19 +29,32 @@ function KpiCard({ label, value, subtitle }: { label: string; value: string | nu
 export function FinancialReconciliationOverviewTab({
   ssot,
   platformKpis,
-  currencyCode,
+  money,
+  currencyGroups,
+  serviceAreaGateways,
   readOnly = false,
   onRefresh,
   isRefreshing = false,
 }: {
   ssot: FinancialReconciliationSSOTResult;
   platformKpis?: PlatformReconciliationKpis | null;
-  currencyCode: string;
+  money: FinanceMoneyFormat;
+  currencyGroups?: Array<{
+    currency_code: string;
+    currency_symbol: string;
+    currency_minor_unit: number;
+    customer_revenue_pence: number;
+    driver_net_pence: number;
+    commission_pence: number;
+    trip_count: number;
+  }>;
+  serviceAreaGateways?: ServiceAreaGatewayStatusRow[];
   readOnly?: boolean;
   onRefresh?: () => void;
   isRefreshing?: boolean;
 }) {
-  const fmt = (p: number | null | undefined) => formatPence(Number(p ?? 0), currencyCode);
+  const fmt = money.fmt;
+  const platformFmt = money.fmtPlatformStripe;
   const kpisUnavailable = platformKpis == null;
   const provider = ssot.summary?.provider_money;
 
@@ -60,12 +78,12 @@ export function FinancialReconciliationOverviewTab({
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
-          label="Platform Stripe Available"
-          value={provider?.provider_available_balance_pence != null ? fmt(provider.provider_available_balance_pence) : '—'}
+          label={`Platform Stripe Available${money.currencyCode ? ` (${money.currencyCode})` : ''}`}
+          value={provider?.provider_available_balance_pence != null ? platformFmt(provider.provider_available_balance_pence) : '—'}
         />
         <KpiCard
-          label="Platform Stripe Pending"
-          value={provider?.provider_pending_balance_pence != null ? fmt(provider.provider_pending_balance_pence) : '—'}
+          label={`Platform Stripe Pending${money.currencyCode ? ` (${money.currencyCode})` : ''}`}
+          value={provider?.provider_pending_balance_pence != null ? platformFmt(provider.provider_pending_balance_pence) : '—'}
         />
         <KpiCard
           label="Provider Health"
@@ -73,6 +91,28 @@ export function FinancialReconciliationOverviewTab({
         />
         <KpiCard label="Reconciliation" value={ssot.summary?.reconciliation_check?.status ?? '—'} />
       </div>
+
+      {money.isMixedCurrency && currencyGroups && currencyGroups.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Totals by currency</p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {currencyGroups.map((group) => (
+              <Card key={group.currency_code}>
+                <CardContent className="pt-4 pb-4 space-y-1">
+                  <p className="text-xs text-muted-foreground">{group.currency_code} · {group.trip_count} trips</p>
+                  <p className="text-sm">Revenue: {formatMoneyMinor(group.customer_revenue_pence, group.currency_code, 'en-GB', group.currency_minor_unit)}</p>
+                  <p className="text-sm">Driver net: {formatMoneyMinor(group.driver_net_pence, group.currency_code, 'en-GB', group.currency_minor_unit)}</p>
+                  <p className="text-sm">Commission: {formatMoneyMinor(group.commission_pence, group.currency_code, 'en-GB', group.currency_minor_unit)}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {serviceAreaGateways && serviceAreaGateways.length > 0 ? (
+        <ServiceAreaGatewayStatusPanel rows={serviceAreaGateways} />
+      ) : null}
 
       {kpisUnavailable ? (
         <Alert variant="destructive">

@@ -34,6 +34,8 @@ import {
   type ProviderEnvironment,
   usePaymentProviders,
 } from "@/hooks/usePaymentProviders";
+import { PROVIDER_SECRET_FIELD_LABELS, PROVIDER_SECRET_FIELDS } from "@/lib/paymentProviderConfig";
+import { PROVIDER_NOT_IMPLEMENTED_CODE } from "@/lib/customerPaymentWorkflow";
 
 const PROVIDER_ICONS: Record<PaymentProviderId, string> = {
   stripe: "💳",
@@ -52,7 +54,15 @@ const PROVIDER_ICONS: Record<PaymentProviderId, string> = {
   dpo_pay: "🌍",
 };
 
-function statusBadge(status: PaymentProviderCard["status"]) {
+function statusBadge(provider: PaymentProviderCard) {
+  if (provider.credentials_ready && provider.booking_adapter_status === "not_implemented") {
+    return (
+      <Badge variant="outline" className="gap-1 border-amber-500/40 text-amber-800 dark:text-amber-200">
+        <CheckCircle className="h-3 w-3" />
+        Credentials ready
+      </Badge>
+    );
+  }
   const map = {
     not_configured: { label: "Not configured", variant: "secondary" as const, icon: XCircle },
     connected: { label: "Connected", variant: "outline" as const, icon: CheckCircle },
@@ -60,7 +70,7 @@ function statusBadge(status: PaymentProviderCard["status"]) {
     live: { label: "Live", variant: "default" as const, icon: CheckCircle },
     test: { label: "Test", variant: "outline" as const, icon: TestTube2 },
   };
-  const cfg = map[status] ?? map.not_configured;
+  const cfg = map[provider.status] ?? map.not_configured;
   const Icon = cfg.icon;
   return (
     <Badge variant={cfg.variant} className="gap-1">
@@ -68,6 +78,27 @@ function statusBadge(status: PaymentProviderCard["status"]) {
       {cfg.label}
     </Badge>
   );
+}
+
+function bookingAdapterBadge(status: PaymentProviderCard["booking_adapter_status"]) {
+  if (status === "live") {
+    return <Badge className="bg-green-500/10 text-green-700 border-green-500/30">Booking adapter live</Badge>;
+  }
+  if (status === "not_implemented") {
+    return (
+      <Badge variant="secondary" className="font-mono text-xs">
+        {PROVIDER_NOT_IMPLEMENTED_CODE}
+      </Badge>
+    );
+  }
+  return <Badge variant="secondary">Adapter not configured</Badge>;
+}
+
+function webhookSecretBadge(status: "added" | "missing" | undefined) {
+  if (status === "added") {
+    return <Badge variant="outline">Stored</Badge>;
+  }
+  return <Badge variant="secondary">Missing</Badge>;
 }
 
 function webhookBadge(status: PaymentProviderCard["webhook_status"]) {
@@ -95,20 +126,19 @@ function SecretsDialog({
   onSave: (secrets: Record<string, string>) => void;
   isSaving: boolean;
 }) {
-  const [publishableKey, setPublishableKey] = useState("");
-  const [secretKey, setSecretKey] = useState("");
-  const [webhookSecret, setWebhookSecret] = useState("");
+  const [values, setValues] = useState<Record<string, string>>({});
+
+  const fields = PROVIDER_SECRET_FIELDS[provider.provider];
+  const labels = PROVIDER_SECRET_FIELD_LABELS[provider.provider];
 
   const handleSave = () => {
-    onSave({
-      publishable_key: publishableKey,
-      secret_key: secretKey,
-      webhook_secret: webhookSecret,
-    });
-    setPublishableKey("");
-    setSecretKey("");
-    setWebhookSecret("");
+    onSave(values);
+    setValues({});
     onOpenChange(false);
+  };
+
+  const setField = (name: string, value: string) => {
+    setValues((prev) => ({ ...prev, [name]: value }));
   };
 
   return (
@@ -122,35 +152,25 @@ function SecretsDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <div className="space-y-2">
-            <Label>Publishable key ({mode})</Label>
-            <Input
-              placeholder={provider.secrets.publishable_key ?? "pk_live_..."}
-              value={publishableKey}
-              onChange={(e) => setPublishableKey(e.target.value)}
-              autoComplete="off"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Secret key ({mode})</Label>
-            <Input
-              type="password"
-              placeholder={provider.secrets.secret_key ?? "sk_live_..."}
-              value={secretKey}
-              onChange={(e) => setSecretKey(e.target.value)}
-              autoComplete="new-password"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Webhook secret ({mode})</Label>
-            <Input
-              type="password"
-              placeholder={provider.secrets.webhook_secret ?? "whsec_..."}
-              value={webhookSecret}
-              onChange={(e) => setWebhookSecret(e.target.value)}
-              autoComplete="new-password"
-            />
-          </div>
+          {fields.map((fieldName) => {
+            const label = labels[fieldName] ?? fieldName;
+            const isSecret = fieldName === "secret_key" || fieldName === "webhook_secret";
+            const masked = provider.secrets[fieldName as keyof typeof provider.secrets];
+            return (
+              <div key={fieldName} className="space-y-2">
+                <Label>
+                  {label} ({mode})
+                </Label>
+                <Input
+                  type={isSecret ? "password" : "text"}
+                  placeholder={masked ?? `${label}…`}
+                  value={values[fieldName] ?? ""}
+                  onChange={(e) => setField(fieldName, e.target.value)}
+                  autoComplete={isSecret ? "new-password" : "off"}
+                />
+              </div>
+            );
+          })}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -195,7 +215,8 @@ function ProviderCard({
             </div>
           </div>
           <div className="flex flex-col items-end gap-2">
-            {statusBadge(provider.status)}
+            {statusBadge(provider)}
+            {bookingAdapterBadge(provider.booking_adapter_status)}
             <Badge variant="outline">{provider.mode === "live" ? "Live" : "Test"} mode</Badge>
           </div>
         </div>
@@ -218,8 +239,10 @@ function ProviderCard({
             <span>{provider.api_key_status === "added" ? "Added" : "Missing"}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Webhook</span>
-            {webhookBadge(provider.webhook_status)}
+            <span className="text-muted-foreground">
+              {isStripe ? "Webhook health" : "Webhook secret"}
+            </span>
+            {isStripe ? webhookBadge(provider.webhook_status) : webhookSecretBadge(provider.webhook_secret_status)}
           </div>
           {provider.last_webhook_received && (
             <div className="flex justify-between md:col-span-2">
@@ -424,8 +447,10 @@ export function PaymentProvidersSection() {
             Payment Providers
           </h2>
           <p className="text-sm text-muted-foreground">
-            Manage payment provider credentials, webhook health, and the active primary provider.
-            Active provider: <strong>{activeProvider.replace(/_/g, " ")}</strong>
+            Store provider credentials and webhook secrets now. Adding keys does not make a provider live —
+            only Stripe has a live booking adapter today. Other providers return{" "}
+            <code className="text-xs">{PROVIDER_NOT_IMPLEMENTED_CODE}</code> until adapter, webhook
+            processing, sandbox testing, and production approval are complete.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()}>
@@ -433,6 +458,21 @@ export function PaymentProvidersSection() {
           Refresh
         </Button>
       </div>
+
+      <Alert>
+        <Shield className="h-4 w-4" />
+        <AlertTitle>Configuration readiness phase</AlertTitle>
+        <AlertDescription>
+          Use this page to prepare API keys, secrets, and test/live mode before vendors deliver
+          credentials. Milton Keynes remains Stripe (customer) and Stripe Connect (driver) — unchanged.
+          Service area gateway and mobile wallet allowlists are configured under each Service Area →
+          Offers & Payment.
+        </AlertDescription>
+      </Alert>
+
+      <p className="text-sm text-muted-foreground">
+        Active primary provider: <strong>{activeProvider.replace(/_/g, " ")}</strong>
+      </p>
 
       {globalWarnings.some((w) => w.includes("webhook failing")) && (
         <Alert variant="destructive">

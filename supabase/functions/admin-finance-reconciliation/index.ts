@@ -22,6 +22,11 @@ import {
 import { getLondonDayBounds } from "../_shared/financeLondonDay.ts";
 import { fetchRegionPlatformKpis } from "../_shared/platformReconciliationKpis.ts";
 import { buildDriverStatementPeriodTotals } from "../_shared/driverStatementPeriodTotals.ts";
+import {
+  buildCurrencyGroupsFromTrips,
+  resolveFinanceCurrencyScope,
+} from "../_shared/financeCurrencySSOT.ts";
+import { resolveAllServiceAreaGatewayStatuses } from "../_shared/paymentGatewayStatus.ts";
 
 const TRIP_AUDIT_SELECT = `
         id,
@@ -225,6 +230,40 @@ function computeProviderHealthStatus(args: {
   if (args.failedWebhookCount > 0) return "degraded";
   if (args.connectBundleExpected && !args.connectBundleLoaded) return "degraded";
   return "healthy";
+}
+
+async function buildServiceAreaCurrencyMap(
+  supabase: ReturnType<typeof createClient>,
+  tripRows: TripAuditSourceRow[],
+): Promise<Map<string, string>> {
+  const serviceAreaIds = [...new Set(
+    tripRows.map((t) => t.service_area_id).filter((id): id is string => Boolean(id)),
+  )];
+  if (serviceAreaIds.length === 0) return new Map();
+
+  const { data: serviceAreas } = await supabase
+    .from("service_areas")
+    .select("id, region_id")
+    .in("id", serviceAreaIds);
+  const regionIds = [...new Set(
+    (serviceAreas ?? []).map((sa) => sa.region_id).filter((id): id is string => Boolean(id)),
+  )];
+  if (regionIds.length === 0) return new Map();
+
+  const { data: regions } = await supabase
+    .from("regions")
+    .select("id, currency_code")
+    .in("id", regionIds);
+  const regionCurrency = new Map(
+    (regions ?? []).map((r) => [r.id, String(r.currency_code).toUpperCase()]),
+  );
+
+  return new Map(
+    (serviceAreas ?? []).map((sa) => [
+      sa.id,
+      regionCurrency.get(sa.region_id) ?? "GBP",
+    ]),
+  );
 }
 
 function safeMapTripAuditRow(
@@ -516,10 +555,13 @@ serve(async (req) => {
       paymentRows = paymentsRes.data || [];
     }
 
+    const currencyCodeByServiceAreaId = await buildServiceAreaCurrencyMap(supabase, tripRows);
     const auditContext = buildTripFinancialAuditContext({
       payments: paymentRows,
       payoutItems: auditPayoutItems,
       ledgerRows: auditLedgerRows,
+      currencyCodeByServiceAreaId,
+      defaultCurrencyCode: currency.toUpperCase(),
     });
 
     const walletBalance = financialRows.reduce((s, d) => s + Number(d.wallet_balance || 0), 0);
@@ -643,6 +685,49 @@ serve(async (req) => {
       moneyMovement,
     });
 
+    const regionIdsFromDrivers = financialRows
+      .map((d) => String(d.region_id ?? ""))
+      .filter(Boolean);
+    const { meta: currencyMeta, currencyGroups: baseCurrencyGroups } = await resolveFinanceCurrencyScope(
+      supabase,
+      {
+        resolvedRegionId: resolvedRegionId ?? null,
+        serviceAreaId: serviceAreaId ?? null,
+        regionIdsFromDrivers,
+      },
+    );
+
+    let currency_groups = baseCurrencyGroups;
+    if (currencyMeta.is_mixed_currency_scope && tripRows.length > 0) {
+      const serviceAreaIds = [...new Set(
+        tripRows.map((t) => t.service_area_id).filter((id): id is string => Boolean(id)),
+      )];
+      if (serviceAreaIds.length > 0) {
+        const { data: serviceAreas } = await supabase
+          .from("service_areas")
+          .select("id, region_id")
+          .in("id", serviceAreaIds);
+        const regionIds = [...new Set(
+          (serviceAreas ?? []).map((sa) => sa.region_id).filter((id): id is string => Boolean(id)),
+        )];
+        const { data: regions } = regionIds.length > 0
+          ? await supabase.from("regions").select("id, currency_code").in("id", regionIds)
+          : { data: [] as Array<{ id: string; currency_code: string }> };
+        const regionToCurrency = new Map(
+          (regions ?? []).map((r) => [r.id, String(r.currency_code).toUpperCase()]),
+        );
+        const saToCurrency = new Map(
+          (serviceAreas ?? []).map((sa) => [
+            sa.id,
+            regionToCurrency.get(sa.region_id) ?? "GBP",
+          ]),
+        );
+        currency_groups = buildCurrencyGroupsFromTrips(tripRows, saToCurrency);
+      }
+    }
+
+    currency = currencyMeta.currency_code.toLowerCase();
+
     const trip_financial_audit = summaryOnly
       ? []
       : search?.trim()
@@ -710,6 +795,8 @@ serve(async (req) => {
             stripe_payout_id: row.stripe_payout_id ?? null,
             stripe_transfer_id: row.stripe_transfer_id ?? null,
           })),
+          currencyCodeByServiceAreaId,
+          defaultCurrencyCode: currency.toUpperCase(),
         });
 
         return auditSourceRows
@@ -840,15 +927,27 @@ serve(async (req) => {
       });
     }
 
+    const service_area_payment_gateways = await resolveAllServiceAreaGatewayStatuses(supabase, {
+      regionId: resolvedRegionId ?? null,
+      serviceAreaId: serviceAreaId ?? null,
+    });
+
     return new Response(JSON.stringify({
       period: { from: periodFrom, to: periodTo },
-      currency_code: currency.toUpperCase(),
+      currency_code: currencyMeta.currency_code,
+      currency_symbol: currencyMeta.currency_symbol,
+      currency_minor_unit: currencyMeta.currency_minor_unit,
+      region_id: currencyMeta.region_id,
+      service_area_id: currencyMeta.service_area_id,
+      is_mixed_currency_scope: currencyMeta.is_mixed_currency_scope,
+      currency_groups: currency_groups ?? undefined,
       finance_reconciliation_summary,
       platform_kpis,
       trip_financial_audit,
       stripe_payment_intents,
       legacy_manual_review_items: legacyManualReviewItems,
       money_movement: moneyMovement,
+      service_area_payment_gateways,
       meta: {
         trip_count: finance.tripCount,
         audit_row_count: trip_financial_audit.length,

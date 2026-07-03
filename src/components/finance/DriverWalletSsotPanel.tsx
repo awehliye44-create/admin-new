@@ -9,7 +9,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { formatPence } from '@/hooks/useDriverWallet';
+import { formatMoneyMinor } from '@/lib/formatMoneyMinor';
 import {
   useDriverWalletSsot,
   type DriverWalletSsotRow,
@@ -45,7 +45,7 @@ function driverLabel(row: Pick<DriverWalletSsotRow, 'driver_code' | 'driver_name
 }
 
 export function DriverWalletSsotPanel({
-  currencyCode = 'GBP',
+  currencyCode,
   regionId = null,
   pageSize: pageSizeProp,
 }: {
@@ -72,9 +72,11 @@ export function DriverWalletSsotPanel({
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  const fmt = (p: number | null | undefined) => (
-    p == null ? '—' : formatPence(p, currencyCode)
-  );
+  const fmt = (p: number | null | undefined) => {
+    if (p == null) return '—';
+    if (!currencyCode) return '—';
+    return formatMoneyMinor(p, currencyCode);
+  };
 
   return (
     <Card>

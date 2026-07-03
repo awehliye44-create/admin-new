@@ -70,11 +70,11 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
   LKR: 'Rs',
   NPR: '₨',
   TWD: 'NT$',
-  GHS: '₵',
+  GHS: 'GH₵',
   TZS: 'TSh',
   UGX: 'USh',
   ETB: 'Br',
-  JOD: 'د.ا',
+  SOS: 'S',
 };
 
 /**

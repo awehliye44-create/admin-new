@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getDaysUntilExpiryLondon } from '@/lib/documentExpiryLondon';
 import { isDocumentExpired, isDocumentExpiringSoon } from '@/lib/driverDocumentCompliance';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { DriverPayoutPanel } from "@/components/drivers/DriverPayoutPanel";
 import { Badge } from '@/components/ui/badge';
 import { useDriverProfilePhoto } from '@/hooks/useDriverFileUrl';
 import { Button } from '@/components/ui/button';
@@ -729,67 +729,41 @@ export function DriverDetailsDialog({
                   </div>
                 </div>
 
-                {/* Stripe Connect Status */}
-                <div className="p-4 border rounded-lg space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <CreditCard className="h-5 w-5 text-muted-foreground" />
-                      <h4 className="text-sm font-medium">Stripe Connect</h4>
-                    </div>
-                    {driver.stripe_account_id ? (
-                      <Badge className={
-                        driver.onboarding_complete
-                          ? 'bg-green-500/10 text-green-600 border-green-500/30'
-                          : 'bg-yellow-500/10 text-yellow-600 border-yellow-500/30'
-                      }>
-                        {driver.onboarding_complete ? 'Connected' : 'Incomplete'}
-                      </Badge>
+                <DriverPayoutPanel
+                  driverId={driver.id}
+                  regionId={driver.region_id}
+                  stripeAccountId={driver.stripe_account_id}
+                  payoutsEnabled={driver.payouts_enabled}
+                  onboardingComplete={driver.onboarding_complete}
+                  chargesEnabled={driver.charges_enabled}
+                />
+
+                {(!driver.onboarding_complete || !driver.stripe_account_id) && (
+                  <div className="p-4 border rounded-lg space-y-3">
+                    <p className="text-sm text-muted-foreground">
+                      Stripe Connect onboarding (Stripe payout service areas only).
+                    </p>
+                    {isDriverStripeOnboardingComplete(driver) ? (
+                      <p className="text-sm text-muted-foreground">
+                        Payout account is fully set up. No onboarding link is needed.
+                      </p>
                     ) : (
-                      <Badge className="bg-red-500/10 text-red-600 border-red-500/30">
-                        Not Connected
-                      </Badge>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={sendOnboardingLink}
+                        disabled={isSendingOnboardLink}
+                      >
+                        {isSendingOnboardLink ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Send className="mr-2 h-4 w-4" />
+                        )}
+                        {driver.stripe_account_id ? 'Resend Onboarding Link' : 'Send Onboarding Link'}
+                      </Button>
                     )}
                   </div>
-
-                  {driver.stripe_account_id ? (
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div className="p-2 bg-muted/50 rounded">
-                        <p className="text-xs text-muted-foreground">Account ID</p>
-                        <p className="font-mono text-xs">{driver.stripe_account_id}</p>
-                      </div>
-                      <div className="p-2 bg-muted/50 rounded">
-                        <p className="text-xs text-muted-foreground">Payouts</p>
-                        <p className={driver.payouts_enabled ? 'text-green-600' : 'text-red-600'}>
-                          {driver.payouts_enabled ? 'Enabled' : 'Disabled'}
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      Driver has not connected their Stripe account yet. Send an onboarding link to get started.
-                    </p>
-                  )}
-
-                  {isDriverStripeOnboardingComplete(driver) ? (
-                    <p className="text-sm text-muted-foreground">
-                      Payout account is fully set up. No onboarding link is needed.
-                    </p>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={sendOnboardingLink}
-                      disabled={isSendingOnboardLink}
-                    >
-                      {isSendingOnboardLink ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Send className="mr-2 h-4 w-4" />
-                      )}
-                      {driver.stripe_account_id ? 'Resend Onboarding Link' : 'Send Onboarding Link'}
-                    </Button>
-                  )}
-                </div>
+                )}
 
                 <div className="flex gap-2 pt-4 border-t flex-wrap">
                   <Button 

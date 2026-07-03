@@ -4,6 +4,7 @@ import {
   type ProviderEnvironment,
   type ProviderSecrets,
   PROVIDER_ENV_SECRET_MAP,
+  PROVIDER_SECRET_FIELDS,
 } from "./types.ts";
 
 export function maskSecretValue(value: string): string {
@@ -21,7 +22,7 @@ export async function getProviderSecrets(
   environment: ProviderEnvironment,
 ): Promise<ProviderSecrets> {
   const envMap = PROVIDER_ENV_SECRET_MAP[provider];
-  const names = Object.keys(envMap) as (keyof ProviderSecrets)[];
+  const names = PROVIDER_SECRET_FIELDS[provider];
   const result: ProviderSecrets = {};
 
   const { data: vaultRows } = await supabase
@@ -41,8 +42,15 @@ export async function getProviderSecrets(
       continue;
     }
     const envVar = envMap[name];
+    if (!envVar) continue;
     const envValue = Deno.env.get(envVar);
     if (envValue) result[name] = envValue;
+  }
+
+  // WaafiPay: legacy vault stored merchant id under publishable_key
+  if (provider === "waafi_pay" && !result.merchant_id) {
+    const legacy = vaultByName.get("publishable_key");
+    if (legacy) result.merchant_id = legacy;
   }
 
   return result;

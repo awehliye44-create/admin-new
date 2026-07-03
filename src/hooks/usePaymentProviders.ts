@@ -30,6 +30,7 @@ export interface ProviderSecretsMasked {
   publishable_key: string | null;
   secret_key: string | null;
   webhook_secret: string | null;
+  merchant_id?: string | null;
 }
 
 export interface WebhookEventRow {
@@ -54,6 +55,8 @@ export interface WebhookHealth {
   monitored_events: string[];
 }
 
+export type BookingAdapterStatus = "live" | "not_implemented" | "not_configured";
+
 export interface PaymentProviderCard {
   provider: PaymentProviderId;
   display_name: string;
@@ -63,6 +66,10 @@ export interface PaymentProviderCard {
   is_primary: boolean;
   api_key_status: "added" | "missing";
   webhook_status: "healthy" | "failing" | "not_configured";
+  webhook_secret_status?: "added" | "missing";
+  credentials_ready?: boolean;
+  booking_adapter_live?: boolean;
+  booking_adapter_status?: BookingAdapterStatus;
   last_webhook_received: string | null;
   last_successful_event: { event_type: string; at: string } | null;
   last_failed_event: { event_type: string; at: string; error?: string | null } | null;
@@ -83,15 +90,22 @@ export interface PaymentProvidersResponse {
   global_warnings: string[];
 }
 
-async function invokePaymentProviders(
+export async function invokePaymentProviders(
   method: "GET" | "PATCH" | "POST",
-  options?: { action?: string; body?: Record<string, unknown> },
+  options?: {
+    action?: string;
+    body?: Record<string, unknown>;
+    service_area_id?: string;
+  },
 ) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error("Not authenticated");
 
-  const params = options?.action ? `?action=${options.action}` : "";
-  const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-payment-providers${params}`;
+  const params = new URLSearchParams();
+  if (options?.action) params.set("action", options.action);
+  if (options?.service_area_id) params.set("service_area_id", options.service_area_id);
+  const query = params.toString() ? `?${params.toString()}` : "";
+  const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-payment-providers${query}`;
 
   const res = await fetch(url, {
     method,

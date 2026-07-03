@@ -74,7 +74,7 @@ function groupByBatch(items: Array<Record<string, unknown>>): BatchGroup[] {
 
 export function DriverWalletPayoutsTab({
   driver,
-  currencyCode = 'GBP',
+  currencyCode,
   isLoading,
 }: {
   driver: DriverWalletSsotRow | null | undefined;

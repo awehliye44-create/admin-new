@@ -17,21 +17,29 @@ interface ServiceAreaFinanceFilterProps {
   value: ServiceAreaFinanceSelection;
   onChange: (selection: ServiceAreaFinanceSelection) => void;
   className?: string;
+  /** When false, parent must set initial scope before finance SSOT queries run. */
+  autoSelectFirstArea?: boolean;
 }
 
-export function ServiceAreaFinanceFilter({ value, onChange, className }: ServiceAreaFinanceFilterProps) {
+export function ServiceAreaFinanceFilter({
+  value,
+  onChange,
+  className,
+  autoSelectFirstArea = true,
+}: ServiceAreaFinanceFilterProps) {
   const { data: serviceAreas = [], isLoading } = useServiceAreas({ activeOnly: true });
   const didAutoSelectRef = useRef(false);
 
   // Scope FR SSOT to a region by default — unscoped loads are slow and can fail on large fleets.
   useEffect(() => {
+    if (!autoSelectFirstArea) return;
     if (didAutoSelectRef.current || isLoading || value.regionId || value.serviceAreaId) return;
     const first = serviceAreas[0];
     if (!first) return;
     didAutoSelectRef.current = true;
     const cc = first.region?.currency_code || first.currency_code || null;
     onChange({ serviceAreaId: first.id, regionId: first.region_id, currencyCode: cc });
-  }, [isLoading, onChange, serviceAreas, value.regionId, value.serviceAreaId]);
+  }, [autoSelectFirstArea, isLoading, onChange, serviceAreas, value.regionId, value.serviceAreaId]);
 
   const handleChange = (val: string) => {
     if (val === '__all__') {

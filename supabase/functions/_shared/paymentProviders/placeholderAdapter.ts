@@ -1,10 +1,13 @@
-import type { PaymentProviderAdapter, PaymentProviderId } from "./types.ts";
+import type { PaymentProviderAdapter, PaymentProviderId, ProviderSecrets } from "./types.ts";
 
 function notImplemented(provider: string, method: string): never {
   throw new Error(`${provider} adapter: ${method} is not implemented yet`);
 }
 
-export function createPlaceholderAdapter(provider: PaymentProviderId): PaymentProviderAdapter {
+export function createPlaceholderAdapter(
+  provider: PaymentProviderId,
+  getSecrets?: () => Promise<ProviderSecrets>,
+): PaymentProviderAdapter {
   const label = provider.replace(/_/g, " ");
   return {
     provider,
@@ -17,9 +20,17 @@ export function createPlaceholderAdapter(provider: PaymentProviderId): PaymentPr
     getBalance: () => Promise.reject(notImplemented(label, "getBalance")),
     verifyWebhook: () => Promise.reject(notImplemented(label, "verifyWebhook")),
     handleWebhookEvent: () => Promise.reject(notImplemented(label, "handleWebhookEvent")),
-    testConnection: async () => ({
-      ok: false,
-      message: `${label} integration is not configured yet. Add API keys when ready.`,
-    }),
+    testConnection: async () => {
+      const secrets = getSecrets ? await getSecrets() : {};
+      const hasCredentials = Boolean(secrets.secret_key?.trim());
+      return {
+        ok: hasCredentials,
+        message: hasCredentials
+          ? `${label} credentials stored. Booking adapter PROVIDER_NOT_IMPLEMENTED — not live until adapter, webhook processing, sandbox test, and production approval.`
+          : `Add API keys to prepare ${label} for future use.`,
+        credentials_ready: hasCredentials,
+        booking_adapter_live: false,
+      };
+    },
   };
 }

@@ -69,7 +69,7 @@ function buildTimeline(driver: DriverWalletSsotRow): TimelineEvent[] {
 
 export function DriverWalletHistoryTab({
   driver,
-  currencyCode = 'GBP',
+  currencyCode,
   isLoading,
 }: {
   driver: DriverWalletSsotRow | null | undefined;

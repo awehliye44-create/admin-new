@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { invokeFinanceReconciliation } from '@/hooks/financeReconciliationApi';
 
@@ -194,6 +194,7 @@ export interface ConnectMoneyMovementBundle {
     recovery_debt_pence: number;
     net_payable_after_recovery_pence: number;
     reconciliation_status: MoneyMovementReconciliationStatus;
+    currency_code?: string;
   }>;
   payouts: Array<{
     connected_account_id: string;
@@ -315,6 +316,7 @@ export interface TripFinancialAuditRow {
   driver_payout: TripAuditStatusBadge;
   onecab_commission: TripAuditStatusBadge;
   provider: TripAuditStatusBadge;
+  currency_code?: string | null;
   /** @deprecated Use driver_payout.label */
   driver_payout_status?: string;
   /** @deprecated Use onecab_commission.label */
@@ -363,6 +365,20 @@ export interface DriverStatementPeriodTotal {
 export interface FinanceReconciliationResponse {
   period: { from: string; to: string };
   currency_code: string;
+  currency_symbol?: string;
+  currency_minor_unit?: number;
+  region_id?: string | null;
+  service_area_id?: string | null;
+  is_mixed_currency_scope?: boolean;
+  currency_groups?: Array<{
+    currency_code: string;
+    currency_symbol: string;
+    currency_minor_unit: number;
+    customer_revenue_pence: number;
+    driver_net_pence: number;
+    commission_pence: number;
+    trip_count: number;
+  }>;
   finance_reconciliation_summary?: FinanceReconciliationSummary;
   platform_kpis?: PlatformReconciliationKpis | null;
   trip_financial_audit?: TripFinancialAuditRow[];
@@ -370,6 +386,40 @@ export interface FinanceReconciliationResponse {
   stripe_payment_intents?: StripePaymentIntentAuditRow[];
   legacy_manual_review_items?: LegacyManualReviewItem[];
   money_movement?: ConnectMoneyMovementBundle;
+  service_area_payment_gateways?: Array<{
+    service_area_id: string;
+    service_area_name: string | null;
+    region_name: string | null;
+    currency_code: string | null;
+    customer: {
+      status: string;
+      badge_label: string;
+      badge_emoji: string;
+      display_name: string | null;
+      provider: string | null;
+      configuration_error: string | null;
+      health?: {
+        last_webhook_at?: string | null;
+        last_connection_test_at?: string | null;
+        webhook_healthy?: boolean | null;
+      };
+    };
+    driver: {
+      status: string;
+      badge_label: string;
+      badge_emoji: string;
+      display_name: string | null;
+      provider: string | null;
+      configuration_error: string | null;
+      health?: {
+        last_webhook_at?: string | null;
+        last_connection_test_at?: string | null;
+        webhook_healthy?: boolean | null;
+      };
+    };
+    last_successful_payment_at: string | null;
+    last_successful_payout_at: string | null;
+  }>;
   meta: {
     trip_count?: number;
     audit_row_count?: number;
@@ -484,7 +534,6 @@ export function useFinanceReconciliation(args?: {
       if (typeof document !== 'undefined' && document.hidden) return false;
       return 60_000;
     },
-    placeholderData: keepPreviousData,
     retry: 1,
     meta: { suppressErrorToast: true },
   });

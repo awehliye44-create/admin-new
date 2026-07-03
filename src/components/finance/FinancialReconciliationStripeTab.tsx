@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { formatPence } from '@/hooks/useDriverWallet';
+import type { FinanceMoneyFormat } from '@/hooks/useFinanceReconciliationMoney';
 import type { FinanceReconciliationSummary } from '@/hooks/useFinanceReconciliation';
 import type { StripePaymentIntentAuditRow, TripFinancialAuditRow } from '@/hooks/useFinanceReconciliation';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
@@ -37,7 +37,7 @@ function isTransferMismatch(m: { kind?: string | null; message?: string | null }
 
 export function FinancialReconciliationStripeTab({
   summary,
-  currencyCode,
+  money,
   serviceFilter,
   periodFrom,
   periodTo,
@@ -54,7 +54,7 @@ export function FinancialReconciliationStripeTab({
   isRefreshingStripe = false,
 }: {
   summary: FinanceReconciliationSummary | null | undefined;
-  currencyCode: string;
+  money: FinanceMoneyFormat;
   serviceFilter: ServiceAreaFinanceSelection;
   periodFrom?: string;
   periodTo?: string;
@@ -70,11 +70,14 @@ export function FinancialReconciliationStripeTab({
   onRefreshStripe?: () => void;
   isRefreshingStripe?: boolean;
 }) {
-  const ccy = currencyCode.toLowerCase();
+  const fmt = money.fmt;
+  const platformFmt = money.fmtPlatformStripe;
+  const scopeCurrency = money.currencyCode ?? '';
   const mm = summary?.money_movement;
   const provider = summary?.provider_money;
-  const fmt = (p: number | null | undefined) => formatPence(Number(p ?? 0), ccy);
   const fmtNullable = (p: number | null | undefined) => (p == null ? '—' : fmt(p));
+  const connectFmt = (p: number | null | undefined, currencyCode?: string | null) =>
+    fmt(p ?? 0, currencyCode ?? scopeCurrency);
 
   const charges = mm?.collected_fees ?? [];
   const transfers = mm?.transfers ?? [];
@@ -199,7 +202,7 @@ export function FinancialReconciliationStripeTab({
 
       <FinancialReconciliationPlatformPayoutOps
         serviceFilter={serviceFilter}
-        currencyCode={ccy}
+        currencyCode={scopeCurrency}
         periodFrom={periodFrom}
         periodTo={periodTo}
         periodLabel={periodLabel}
@@ -209,16 +212,18 @@ export function FinancialReconciliationStripeTab({
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Platform Stripe balance</CardTitle>
+            <CardTitle className="text-base">
+              Platform Stripe balance{scopeCurrency ? ` (${scopeCurrency})` : ''}
+            </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-4">
             <div>
               <p className="text-xs text-muted-foreground">Available</p>
-              <p className="text-sm font-medium mt-1">{fmt(provider?.provider_available_balance_pence ?? 0)}</p>
+              <p className="text-sm font-medium mt-1">{platformFmt(provider?.provider_available_balance_pence ?? 0)}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Pending</p>
-              <p className="text-sm font-medium mt-1">{fmt(provider?.provider_pending_balance_pence ?? 0)}</p>
+              <p className="text-sm font-medium mt-1">{platformFmt(provider?.provider_pending_balance_pence ?? 0)}</p>
             </div>
           </CardContent>
         </Card>
@@ -478,13 +483,13 @@ export function FinancialReconciliationStripeTab({
                     <TableCell className="font-mono text-xs">
                       {a.connected_account_id ? `${a.connected_account_id.slice(0, 14)}…` : '—'}
                     </TableCell>
-                    <TableCell className="text-right">{fmt(available)}</TableCell>
-                    <TableCell className="text-right">{fmt(pending)}</TableCell>
-                    <TableCell className="text-right">{fmt(inTransit)}</TableCell>
-                    <TableCell className="text-right font-medium">{fmt(total)}</TableCell>
+                    <TableCell className="text-right">{connectFmt(available, a.currency_code)}</TableCell>
+                    <TableCell className="text-right">{connectFmt(pending, a.currency_code)}</TableCell>
+                    <TableCell className="text-right">{connectFmt(inTransit, a.currency_code)}</TableCell>
+                    <TableCell className="text-right font-medium">{connectFmt(total, a.currency_code)}</TableCell>
                     <TableCell className="text-xs">
                       {lastPayout
-                        ? `${fmt(lastPayout.amount_pence)} · ${formatFinanceDateSafe(lastPayout.initiated_at, 'dd MMM HH:mm')}`
+                        ? `${connectFmt(lastPayout.amount_pence, a.currency_code)} · ${formatFinanceDateSafe(lastPayout.initiated_at, 'dd MMM HH:mm')}`
                         : '—'}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">

@@ -7,22 +7,19 @@ import {
   maskSecretValue,
   secretStatus,
   STRIPE_MONITORED_EVENTS,
+  SUPPORTED_PAYMENT_PROVIDER_IDS,
+  PROVIDER_SECRET_FIELDS,
   type PaymentProviderId,
   type ProviderEnvironment,
   type ProviderSecrets,
 } from "../_shared/paymentProviders/index.ts";
+import { isCustomerBookingAdapterLive } from "../_shared/customerPaymentWorkflow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
-
-const SECRET_NAMES: (keyof ProviderSecrets)[] = [
-  "publishable_key",
-  "secret_key",
-  "webhook_secret",
-];
 
 async function requireAdmin(req: Request, supabase: ReturnType<typeof createClient>) {
   const authHeader = req.headers.get("Authorization");
@@ -137,6 +134,8 @@ async function buildProviderCard(
   const secrets = await getProviderSecrets(supabase, provider, environment);
   const statuses = secretStatus(secrets);
   const modeMismatch = detectModeMismatch(environment, secrets.secret_key);
+  const adapterLive = isCustomerBookingAdapterLive(provider);
+  const credentialsReady = Boolean(secrets.secret_key);
 
   const { data: metadataRows } = await supabase
     .from("payment_provider_secret_metadata")
@@ -145,7 +144,8 @@ async function buildProviderCard(
     .eq("environment", environment);
 
   const masks: Record<string, string | null> = {};
-  for (const name of SECRET_NAMES) {
+  const fieldNames = PROVIDER_SECRET_FIELDS[provider];
+  for (const name of fieldNames) {
     const meta = metadataRows?.find((m) => m.secret_name === name);
     if (meta?.masked_value) {
       masks[name] = meta.masked_value;
@@ -157,13 +157,15 @@ async function buildProviderCard(
   }
 
   let derivedStatus = config.status as string;
-  if (!secrets.secret_key) {
+  if (!credentialsReady) {
     derivedStatus = "not_configured";
-  } else if (config.last_connection_test_status === "error") {
+  } else if (config.last_connection_test_status === "error" && provider === "stripe") {
     derivedStatus = "error";
-  } else if (secrets.secret_key.includes("_test_")) {
+  } else if (!adapterLive) {
+    derivedStatus = "connected";
+  } else if (secrets.secret_key?.includes("_test_")) {
     derivedStatus = "test";
-  } else if (secrets.secret_key.includes("_live_")) {
+  } else if (secrets.secret_key?.includes("_live_")) {
     derivedStatus = "live";
   } else if (derivedStatus === "not_configured") {
     derivedStatus = "connected";
@@ -194,8 +196,6 @@ async function buildProviderCard(
     if (googlePayEnabled === null) {
       googlePayEnabled = (payMethods ?? []).some((m) => m.google_pay_enabled);
     }
-  } else if (statuses.webhook === "added") {
-    webhookStatus = "healthy";
   }
 
   const warnings: string[] = [];
@@ -205,9 +205,24 @@ async function buildProviderCard(
       "Payment provider webhook failing — finance and payout statuses may be delayed.",
     );
   }
-  if (statuses.api_key === "missing" || statuses.webhook === "missing") {
-    warnings.push("Provider not ready — missing API keys or webhook secret.");
+  if (!adapterLive && credentialsReady) {
+    warnings.push(
+      "Credentials stored. Booking adapter PROVIDER_NOT_IMPLEMENTED — provider is not live for customer bookings until adapter, webhook processing, sandbox test, and production approval.",
+    );
   }
+  if (!credentialsReady) {
+    warnings.push("Add API keys when vendor credentials are available.");
+  } else if (adapterLive && statuses.webhook === "missing" && provider === "stripe") {
+    warnings.push("Stripe customer payments require a webhook secret.");
+  } else if (!adapterLive && statuses.webhook === "missing") {
+    warnings.push("Webhook secret not stored yet (optional until webhook processor is built).");
+  }
+
+  const bookingAdapterStatus: "live" | "not_implemented" | "not_configured" = !credentialsReady
+    ? "not_configured"
+    : adapterLive
+    ? "live"
+    : "not_implemented";
 
   return {
     provider,
@@ -218,6 +233,10 @@ async function buildProviderCard(
     is_primary: config.is_primary,
     api_key_status: statuses.api_key,
     webhook_status: webhookStatus,
+    webhook_secret_status: statuses.webhook,
+    credentials_ready: credentialsReady,
+    booking_adapter_live: adapterLive,
+    booking_adapter_status: bookingAdapterStatus,
     last_webhook_received: webhookHealth?.last_received_at ?? null,
     last_successful_event: webhookHealth?.last_successful_event ?? null,
     last_failed_event: webhookHealth?.last_failed_event ?? null,
@@ -226,9 +245,10 @@ async function buildProviderCard(
     google_pay_enabled: googlePayEnabled,
     webhook_endpoint_url: config.webhook_endpoint_url ?? null,
     secrets: {
-      publishable_key: masks.publishable_key,
-      secret_key: masks.secret_key,
-      webhook_secret: masks.webhook_secret,
+      publishable_key: masks.publishable_key ?? null,
+      secret_key: masks.secret_key ?? null,
+      webhook_secret: masks.webhook_secret ?? null,
+      merchant_id: masks.merchant_id ?? null,
     },
     secret_metadata: metadataRows ?? [],
     webhook_health: webhookHealth,
@@ -259,6 +279,25 @@ serve(async (req) => {
     const url = new URL(req.url);
     const action = url.searchParams.get("action");
 
+    if (req.method === "GET" && action === "service-area-gateways") {
+      const serviceAreaId = url.searchParams.get("service_area_id");
+      if (!serviceAreaId) {
+        return new Response(JSON.stringify({ error: "service_area_id is required" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { resolveServiceAreaGatewayStatuses } = await import(
+        "../_shared/paymentGatewayStatus.ts"
+      );
+      const statuses = await resolveServiceAreaGatewayStatuses(supabase, serviceAreaId);
+
+      return new Response(JSON.stringify({ success: true, ...statuses }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (req.method === "GET") {
       const { data: configs, error } = await supabase
         .from("payment_provider_configs")
@@ -268,7 +307,9 @@ serve(async (req) => {
       if (error) throw error;
 
       const providers = await Promise.all(
-        (configs ?? []).map((c) => buildProviderCard(supabase, c)),
+        (configs ?? [])
+          .filter((c) => SUPPORTED_PAYMENT_PROVIDER_IDS.includes(c.provider as PaymentProviderId))
+          .map((c) => buildProviderCard(supabase, c)),
       );
 
       const active = providers.find((p) => p.is_primary && p.is_enabled) ?? providers.find((p) => p.provider === "stripe");
@@ -291,15 +332,24 @@ serve(async (req) => {
       const adapter = getPaymentProviderAdapter(supabase, provider, environment);
       const result = await adapter.testConnection();
 
+      const adapterLive = isCustomerBookingAdapterLive(provider);
+      const nextStatus = !result.ok
+        ? "error"
+        : !adapterLive
+        ? "connected"
+        : result.mode === "test"
+        ? "test"
+        : result.mode === "live"
+        ? "live"
+        : "connected";
+
       await supabase
         .from("payment_provider_configs")
         .update({
           last_connection_test_at: new Date().toISOString(),
           last_connection_test_status: result.ok ? "ok" : "error",
           last_error_message: result.ok ? null : result.message,
-          status: result.ok
-            ? (result.mode === "test" ? "test" : result.mode === "live" ? "live" : "connected")
-            : "error",
+          status: nextStatus,
         })
         .eq("provider", provider);
 
@@ -316,7 +366,7 @@ serve(async (req) => {
 
       const { upsertProviderSecret } = await import("../_shared/paymentProviders/secretManager.ts");
 
-      for (const name of SECRET_NAMES) {
+      for (const name of PROVIDER_SECRET_FIELDS[provider]) {
         const value = secrets[name];
         if (value && value.trim()) {
           await upsertProviderSecret(supabase, {

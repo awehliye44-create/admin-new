@@ -70,6 +70,7 @@ export type StripeConnectAccountSummaryRow = {
   recovery_debt_pence: number;
   net_payable_after_recovery_pence: number;
   reconciliation_status: MoneyMovementReconciliationStatus;
+  currency_code: string;
 };
 
 export type ConnectTransferRow = {
@@ -331,6 +332,16 @@ export async function fetchConnectMoneyMovementBundle(args: {
   const driverList = drivers ?? [];
   const driverIds = driverList.map((d) => d.id);
 
+  const regionIds = [...new Set(
+    driverList.map((d) => d.region_id).filter((id): id is string => Boolean(id)),
+  )];
+  const { data: driverRegions } = regionIds.length > 0
+    ? await args.supabase.from("regions").select("id, currency_code").in("id", regionIds)
+    : { data: [] as Array<{ id: string; currency_code: string }> };
+  const regionCurrencyById = new Map(
+    (driverRegions ?? []).map((r) => [r.id, String(r.currency_code).toUpperCase()]),
+  );
+
   const { duplicateByDriverId, duplicateGroupKeyByDriverId, groups } =
     detectDuplicateConnectAccountGroups(driverList);
 
@@ -405,6 +416,10 @@ export async function fetchConnectMoneyMovementBundle(args: {
     const acctStatus: MoneyMovementReconciliationStatus =
       Math.abs(balanceDiff) <= 100 ? "matched" : "mismatch";
 
+    const driverCurrency = driver.region_id
+      ? (regionCurrencyById.get(driver.region_id) ?? currency.toUpperCase())
+      : currency.toUpperCase();
+
     connect_accounts.push({
       connected_account_id: acctId,
       driver_id: driver.id,
@@ -423,6 +438,7 @@ export async function fetchConnectMoneyMovementBundle(args: {
       recovery_debt_pence: recoveryDebt,
       net_payable_after_recovery_pence: Math.max(0, onecabLiabilityPence),
       reconciliation_status: acctStatus,
+      currency_code: driverCurrency,
     });
 
     if (recoveryDebt > 0) {

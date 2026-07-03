@@ -16,7 +16,7 @@ import { TripFinanceNoteDialog } from '@/components/payment/TripFinanceNoteDialo
 import { SyncTripPaymentFromStripeButton } from '@/components/payment/SyncTripPaymentFromStripeButton';
 import { DriverWalletLedgerLink } from '@/components/finance/DriverWalletLedgerLink';
 import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
-import { formatPence } from '@/hooks/useDriverWallet';
+import type { FinanceMoneyFormat } from '@/hooks/useFinanceReconciliationMoney';
 import { useFinanceActionPermission } from '@/hooks/useFinanceActionPermission';
 import type { TripFinancialAuditRow } from '@/hooks/useFinanceReconciliation';
 import type { FinanceDataSourceBadge } from '@/hooks/useFinancialReconciliationSSOT';
@@ -55,7 +55,7 @@ type DrawerAction = 'capture' | 'refund' | 'extra_payment' | null;
 
 type FinancialReconciliationTripsTabProps = {
   rows: TripFinancialAuditRow[];
-  currencyCode: string;
+  money: FinanceMoneyFormat;
   readOnly?: boolean;
   ssotBadge?: FinanceDataSourceBadge;
   lastSyncedAt?: string | null;
@@ -68,7 +68,7 @@ type FinancialReconciliationTripsTabProps = {
 
 export function FinancialReconciliationTripsTab({
   rows,
-  currencyCode,
+  money,
   readOnly = false,
   ssotBadge = 'LIVE',
   lastSyncedAt = null,
@@ -86,8 +86,7 @@ export function FinancialReconciliationTripsTab({
 
   const actionsDisabled = readOnly || ssotBadge !== 'LIVE' || !canUseFinanceActions;
 
-  const ccy = currencyCode.toLowerCase();
-  const fmt = (p: number | null | undefined) => (p == null ? '—' : formatPence(p, ccy));
+  const fmt = money.fmt;
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -175,6 +174,7 @@ export function FinancialReconciliationTripsTab({
               <TableHead>Customer</TableHead>
               <TableHead>Driver</TableHead>
               <TableHead>Payment</TableHead>
+              <TableHead>Currency</TableHead>
               <TableHead>Stripe status</TableHead>
               <TableHead className="text-right">Captured</TableHead>
               <TableHead className="text-right">Refunded</TableHead>
@@ -204,14 +204,15 @@ export function FinancialReconciliationTripsTab({
                       {row.payment_method ?? '—'}
                     </Badge>
                   </TableCell>
+                  <TableCell className="text-xs font-mono">{row.currency_code ?? '—'}</TableCell>
                   <TableCell>
                     <Badge variant="outline" className="text-[10px]">
                       {providerStatusLabel(row)}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-right text-xs">{fmt(row.captured_pence)}</TableCell>
-                  <TableCell className="text-right text-xs">{fmt(row.refunded_pence)}</TableCell>
-                  <TableCell className="text-right text-xs">{fmt(row.driver_net_pence)}</TableCell>
+                  <TableCell className="text-right text-xs">{fmt(row.captured_pence, row.currency_code)}</TableCell>
+                  <TableCell className="text-right text-xs">{fmt(row.refunded_pence, row.currency_code)}</TableCell>
+                  <TableCell className="text-right text-xs">{fmt(row.driver_net_pence, row.currency_code)}</TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
                       <Button
@@ -287,10 +288,10 @@ export function FinancialReconciliationTripsTab({
               <div className="grid grid-cols-2 gap-2 text-xs rounded-md border p-3 bg-muted/20">
                 <div><span className="text-muted-foreground">Customer:</span> {drawerTrip.customer_name ?? '—'}</div>
                 <div><span className="text-muted-foreground">Driver:</span> {drawerTrip.driver_name ?? '—'}</div>
-                <div><span className="text-muted-foreground">Captured:</span> {fmt(drawerTrip.captured_pence)}</div>
-                <div><span className="text-muted-foreground">Refunded:</span> {fmt(drawerTrip.refunded_pence)}</div>
-                <div><span className="text-muted-foreground">Driver net:</span> {fmt(drawerTrip.driver_net_pence)}</div>
-                <div><span className="text-muted-foreground">Commission:</span> {fmt(drawerTrip.onecab_gross_commission_pence)}</div>
+                <div><span className="text-muted-foreground">Captured:</span> {fmt(drawerTrip.captured_pence, drawerTrip.currency_code)}</div>
+                <div><span className="text-muted-foreground">Refunded:</span> {fmt(drawerTrip.refunded_pence, drawerTrip.currency_code)}</div>
+                <div><span className="text-muted-foreground">Driver net:</span> {fmt(drawerTrip.driver_net_pence, drawerTrip.currency_code)}</div>
+                <div><span className="text-muted-foreground">Commission:</span> {fmt(drawerTrip.onecab_gross_commission_pence, drawerTrip.currency_code)}</div>
                 <div><span className="text-muted-foreground">Payout:</span> {drawerTrip.driver_payout?.label ?? '—'}</div>
                 <div><span className="text-muted-foreground">Provider:</span> {drawerTrip.provider?.label ?? '—'}</div>
               </div>

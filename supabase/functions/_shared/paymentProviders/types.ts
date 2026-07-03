@@ -29,6 +29,7 @@ export interface ProviderSecrets {
   publishable_key?: string;
   secret_key?: string;
   webhook_secret?: string;
+  merchant_id?: string;
 }
 
 export interface PaymentIntentResult {
@@ -54,6 +55,8 @@ export interface ConnectionTestResult {
   message: string;
   mode?: ProviderEnvironment;
   warnings?: string[];
+  credentials_ready?: boolean;
+  booking_adapter_live?: boolean;
 }
 
 export interface PaymentProviderAdapter {
@@ -97,7 +100,7 @@ export const STRIPE_MONITORED_EVENTS = [
 
 export const PROVIDER_ENV_SECRET_MAP: Record<
   PaymentProviderId,
-  Record<keyof ProviderSecrets, string>
+  Partial<Record<keyof ProviderSecrets, string>>
 > = {
   stripe: {
     publishable_key: "STRIPE_PUBLISHABLE_KEY",
@@ -128,9 +131,10 @@ export const PROVIDER_ENV_SECRET_MAP: Record<
     publishable_key: "SIFALO_PAY_PUBLISHABLE_KEY",
     secret_key: "SIFALO_PAY_SECRET_KEY",
     webhook_secret: "SIFALO_PAY_WEBHOOK_SECRET",
+    merchant_id: "SIFALO_PAY_MERCHANT_ID",
   },
   waafi_pay: {
-    publishable_key: "WAAFI_PAY_MERCHANT_ID",
+    merchant_id: "WAAFI_PAY_MERCHANT_ID",
     secret_key: "WAAFI_PAY_API_KEY",
     webhook_secret: "WAAFI_PAY_WEBHOOK_SECRET",
   },
@@ -138,11 +142,13 @@ export const PROVIDER_ENV_SECRET_MAP: Record<
     publishable_key: "SAHAL_PAY_PUBLISHABLE_KEY",
     secret_key: "SAHAL_PAY_SECRET_KEY",
     webhook_secret: "SAHAL_PAY_WEBHOOK_SECRET",
+    merchant_id: "SAHAL_PAY_MERCHANT_ID",
   },
   intasend: {
     publishable_key: "INTASEND_PUBLISHABLE_KEY",
     secret_key: "INTASEND_SECRET_KEY",
     webhook_secret: "INTASEND_WEBHOOK_SECRET",
+    merchant_id: "INTASEND_MERCHANT_ID",
   },
   paystack: {
     publishable_key: "PAYSTACK_PUBLIC_KEY",
@@ -168,5 +174,117 @@ export const PROVIDER_ENV_SECRET_MAP: Record<
     publishable_key: "DPO_PAY_COMPANY_TOKEN",
     secret_key: "DPO_PAY_SERVICE_TYPE",
     webhook_secret: "DPO_PAY_WEBHOOK_SECRET",
+    merchant_id: "DPO_PAY_MERCHANT_ID",
+  },
+};
+
+/** Fields shown in admin secrets dialog per provider. */
+export const PROVIDER_SECRET_FIELDS: Record<PaymentProviderId, (keyof ProviderSecrets)[]> = {
+  stripe: ["publishable_key", "secret_key", "webhook_secret"],
+  checkout_com: ["publishable_key", "secret_key", "webhook_secret"],
+  adyen: ["publishable_key", "secret_key", "webhook_secret"],
+  worldpay: ["publishable_key", "secret_key", "webhook_secret"],
+  braintree: ["publishable_key", "secret_key", "webhook_secret"],
+  sifalo_pay: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
+  waafi_pay: ["merchant_id", "secret_key", "webhook_secret"],
+  sahal_pay: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
+  intasend: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
+  paystack: ["publishable_key", "secret_key", "webhook_secret"],
+  flutterwave: ["publishable_key", "secret_key", "webhook_secret"],
+  pesapal: ["publishable_key", "secret_key", "webhook_secret"],
+  hubtel: ["publishable_key", "secret_key", "webhook_secret"],
+  dpo_pay: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
+};
+
+/** P0 supported providers — Integrations → Payment Providers UI. */
+export const SUPPORTED_PAYMENT_PROVIDER_IDS: PaymentProviderId[] = [
+  "stripe",
+  "sifalo_pay",
+  "waafi_pay",
+  "sahal_pay",
+  "intasend",
+  "paystack",
+  "flutterwave",
+  "pesapal",
+  "hubtel",
+  "dpo_pay",
+];
+
+export type ProviderSecretFieldLabels = Partial<Record<keyof ProviderSecrets, string>>;
+
+export const PROVIDER_SECRET_FIELD_LABELS: Record<PaymentProviderId, ProviderSecretFieldLabels> = {
+  stripe: {
+    publishable_key: "Publishable key",
+    secret_key: "Secret key",
+    webhook_secret: "Webhook secret",
+  },
+  checkout_com: {
+    publishable_key: "Public key",
+    secret_key: "Secret key",
+    webhook_secret: "Webhook secret",
+  },
+  adyen: {
+    publishable_key: "Client key",
+    secret_key: "API key",
+    webhook_secret: "Webhook HMAC key",
+  },
+  worldpay: {
+    publishable_key: "Merchant ID",
+    secret_key: "API key",
+    webhook_secret: "Webhook secret",
+  },
+  braintree: {
+    publishable_key: "Public key",
+    secret_key: "Private key",
+    webhook_secret: "Webhook secret",
+  },
+  sifalo_pay: {
+    publishable_key: "Publishable key",
+    secret_key: "Secret key",
+    webhook_secret: "Webhook secret",
+    merchant_id: "Merchant ID",
+  },
+  waafi_pay: {
+    merchant_id: "Merchant ID",
+    secret_key: "API key",
+    webhook_secret: "Webhook secret",
+  },
+  sahal_pay: {
+    publishable_key: "Publishable key",
+    secret_key: "Secret key",
+    webhook_secret: "Webhook secret",
+    merchant_id: "Merchant ID",
+  },
+  intasend: {
+    publishable_key: "Publishable key",
+    secret_key: "Secret key",
+    webhook_secret: "Webhook secret",
+    merchant_id: "Merchant ID",
+  },
+  paystack: {
+    publishable_key: "Public key",
+    secret_key: "Secret key",
+    webhook_secret: "Webhook secret",
+  },
+  flutterwave: {
+    publishable_key: "Public key",
+    secret_key: "Secret key",
+    webhook_secret: "Webhook secret",
+  },
+  pesapal: {
+    publishable_key: "Consumer key",
+    secret_key: "Consumer secret",
+    webhook_secret: "IPN secret",
+  },
+  hubtel: {
+    publishable_key: "Client ID",
+    secret_key: "Client secret",
+    webhook_secret: "Webhook secret",
+  },
+  dpo_pay: {
+    publishable_key: "Company token",
+    secret_key: "Service type",
+    webhook_secret: "Webhook secret",
+    merchant_id: "Merchant ID",
   },
 };

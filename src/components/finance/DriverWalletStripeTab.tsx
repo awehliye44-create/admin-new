@@ -47,7 +47,7 @@ function payoutItemStatus(pi: Record<string, unknown>): string {
 
 export function DriverWalletStripeTab({
   driver,
-  currencyCode = 'GBP',
+  currencyCode,
   regionId = null,
   isLoading,
 }: {

@@ -1,5 +1,4 @@
-import { getCurrencySymbol } from '@/lib/regionSettings';
-import { formatPence } from '@/hooks/useDriverWallet';
+import { formatMoneyMinor, getCurrencyMinorUnit } from '@/lib/formatMoneyMinor';
 
 interface CurrencyTotal {
   currencyCode: string;
@@ -33,7 +32,7 @@ export function CurrencyGroupedStats({ items, label, className }: CurrencyGroupe
   // Single currency — show simple value
   if (entries.length === 1) {
     const [cc, total] = entries[0];
-    return <span className={className}>{formatPence(total, cc)}</span>;
+    return <span className={className}>{formatMoneyMinor(total, cc, 'en-GB', getCurrencyMinorUnit(cc))}</span>;
   }
 
   // Multiple currencies — show each on its own line
@@ -43,7 +42,7 @@ export function CurrencyGroupedStats({ items, label, className }: CurrencyGroupe
       {entries.map(([cc, total]) => (
         <div key={cc} className="flex items-center gap-1">
           <span className="text-xs font-medium text-muted-foreground">{cc}</span>
-          <span>{formatPence(total, cc)}</span>
+          <span>{formatMoneyMinor(total, cc, 'en-GB', getCurrencyMinorUnit(cc))}</span>
         </div>
       ))}
     </div>
