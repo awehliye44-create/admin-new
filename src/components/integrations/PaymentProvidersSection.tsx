@@ -41,6 +41,15 @@ const PROVIDER_ICONS: Record<PaymentProviderId, string> = {
   adyen: "🏦",
   worldpay: "🌐",
   braintree: "💰",
+  sifalo_pay: "🇸🇴",
+  waafi_pay: "📱",
+  sahal_pay: "🕌",
+  intasend: "🇰🇪",
+  paystack: "🇳🇬",
+  flutterwave: "🦋",
+  pesapal: "🇰🇪",
+  hubtel: "🇬🇭",
+  dpo_pay: "🌍",
 };
 
 function statusBadge(status: PaymentProviderCard["status"]) {

@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ServiceAreaPaymentConfig } from '@/components/payment/ServiceAreaPaymentConfig';
+import { ServiceAreaPaymentGatewayConfig } from '@/components/payment/ServiceAreaPaymentGatewayConfig';
 import { ServiceAreaDriverWalletConfig } from '@/components/finance/ServiceAreaDriverWalletConfig';
 import { PreauthBufferConfig } from '@/components/payment/PreauthBufferConfig';
 import { getCurrencySymbol } from '@/lib/regionSettings';
@@ -470,6 +471,12 @@ export default function ServiceAreaPricing() {
               onChange={updateEarlyCashoutEnabled}
               serviceAreaName={selectedServiceArea?.name}
               disabled={isSaving}
+            />
+          )}
+          {selectedServiceAreaId && (
+            <ServiceAreaPaymentGatewayConfig
+              serviceAreaId={selectedServiceAreaId}
+              serviceAreaName={selectedServiceArea?.name}
             />
           )}
           {selectedServiceAreaId && (

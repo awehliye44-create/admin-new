@@ -6,7 +6,16 @@ export type PaymentProviderId =
   | "checkout_com"
   | "adyen"
   | "worldpay"
-  | "braintree";
+  | "braintree"
+  | "sifalo_pay"
+  | "waafi_pay"
+  | "sahal_pay"
+  | "intasend"
+  | "paystack"
+  | "flutterwave"
+  | "pesapal"
+  | "hubtel"
+  | "dpo_pay";
 
 export type ProviderEnvironment = "test" | "live";
 

@@ -3,7 +3,16 @@ export type PaymentProviderId =
   | "checkout_com"
   | "adyen"
   | "worldpay"
-  | "braintree";
+  | "braintree"
+  | "sifalo_pay"
+  | "waafi_pay"
+  | "sahal_pay"
+  | "intasend"
+  | "paystack"
+  | "flutterwave"
+  | "pesapal"
+  | "hubtel"
+  | "dpo_pay";
 
 export type ProviderEnvironment = "test" | "live";
 
@@ -114,5 +123,50 @@ export const PROVIDER_ENV_SECRET_MAP: Record<
     publishable_key: "BRAINTREE_PUBLIC_KEY",
     secret_key: "BRAINTREE_PRIVATE_KEY",
     webhook_secret: "BRAINTREE_WEBHOOK_SECRET",
+  },
+  sifalo_pay: {
+    publishable_key: "SIFALO_PAY_PUBLISHABLE_KEY",
+    secret_key: "SIFALO_PAY_SECRET_KEY",
+    webhook_secret: "SIFALO_PAY_WEBHOOK_SECRET",
+  },
+  waafi_pay: {
+    publishable_key: "WAAFI_PAY_MERCHANT_ID",
+    secret_key: "WAAFI_PAY_API_KEY",
+    webhook_secret: "WAAFI_PAY_WEBHOOK_SECRET",
+  },
+  sahal_pay: {
+    publishable_key: "SAHAL_PAY_PUBLISHABLE_KEY",
+    secret_key: "SAHAL_PAY_SECRET_KEY",
+    webhook_secret: "SAHAL_PAY_WEBHOOK_SECRET",
+  },
+  intasend: {
+    publishable_key: "INTASEND_PUBLISHABLE_KEY",
+    secret_key: "INTASEND_SECRET_KEY",
+    webhook_secret: "INTASEND_WEBHOOK_SECRET",
+  },
+  paystack: {
+    publishable_key: "PAYSTACK_PUBLIC_KEY",
+    secret_key: "PAYSTACK_SECRET_KEY",
+    webhook_secret: "PAYSTACK_WEBHOOK_SECRET",
+  },
+  flutterwave: {
+    publishable_key: "FLUTTERWAVE_PUBLIC_KEY",
+    secret_key: "FLUTTERWAVE_SECRET_KEY",
+    webhook_secret: "FLUTTERWAVE_WEBHOOK_SECRET",
+  },
+  pesapal: {
+    publishable_key: "PESAPAL_CONSUMER_KEY",
+    secret_key: "PESAPAL_CONSUMER_SECRET",
+    webhook_secret: "PESAPAL_IPN_SECRET",
+  },
+  hubtel: {
+    publishable_key: "HUBTEL_CLIENT_ID",
+    secret_key: "HUBTEL_CLIENT_SECRET",
+    webhook_secret: "HUBTEL_WEBHOOK_SECRET",
+  },
+  dpo_pay: {
+    publishable_key: "DPO_PAY_COMPANY_TOKEN",
+    secret_key: "DPO_PAY_SERVICE_TYPE",
+    webhook_secret: "DPO_PAY_WEBHOOK_SECRET",
   },
 };
