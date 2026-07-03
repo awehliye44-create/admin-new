@@ -7,12 +7,14 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   gatewayStatusToPaymentGatewayPayload,
   resolveProviderGatewayStatus,
+  type GatewayRole,
   type GatewayStatusSnapshot,
 } from "./paymentGatewayStatus.ts";
 
 export const PAYMENT_GATEWAY_NOT_CONFIGURED = "PAYMENT_GATEWAY_NOT_CONFIGURED";
+export const PROVIDER_NOT_IMPLEMENTED = "PROVIDER_NOT_IMPLEMENTED";
 
-export type GatewayRole = "customer" | "driver";
+export type { GatewayRole };
 
 export type ServiceAreaGatewayResolution = {
   service_area_id: string;
@@ -30,7 +32,7 @@ export type GatewayConfiguredResult = {
 
 export type GatewayNotConfiguredResult = {
   ok: false;
-  code: typeof PAYMENT_GATEWAY_NOT_CONFIGURED;
+  code: typeof PAYMENT_GATEWAY_NOT_CONFIGURED | typeof PROVIDER_NOT_IMPLEMENTED;
   role: GatewayRole;
   provider: string | null;
   reason: string;

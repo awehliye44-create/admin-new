@@ -4,8 +4,16 @@
  */
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
-import { isCustomerBookingAdapterLive } from "./customerPaymentWorkflow.ts";
-import type { GatewayRole } from "./paymentGatewayGuard.ts";
+
+/** Defined here to avoid circular imports with paymentGatewayGuard / customerPaymentWorkflow. */
+export type GatewayRole = "customer" | "driver";
+
+/** Live adapters only — credentials alone do not make a provider production-ready. */
+const LIVE_PAYMENT_ADAPTERS = new Set<string>(["stripe"]);
+
+function isLivePaymentAdapter(provider: string | null | undefined): boolean {
+  return Boolean(provider && LIVE_PAYMENT_ADAPTERS.has(provider));
+}
 
 export type PaymentGatewayStatusCode =
   | "CONNECTED"
@@ -218,7 +226,7 @@ function buildSnapshot(
     configured: args.apiKeysConfigured,
     ready_for_production:
       args.status === "CONNECTED" &&
-      Boolean(providerId && isCustomerBookingAdapterLive(providerId)),
+      Boolean(providerId && isLivePaymentAdapter(providerId)),
     message: args.message,
     configuration_error: args.configurationError,
     health: {
@@ -317,7 +325,7 @@ export async function resolveProviderGatewayStatus(
     });
   }
 
-  if (!isCustomerBookingAdapterLive(providerId)) {
+  if (!isLivePaymentAdapter(providerId)) {
     const webhookStored = await hasWebhookSecretConfigured(supabase, providerId, environment);
     return buildSnapshot(role, providerId, config, {
       apiKeysConfigured: true,
