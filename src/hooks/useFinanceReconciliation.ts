@@ -479,7 +479,11 @@ export function useFinanceReconciliation(args?: {
     queryFn: () => invokeFinanceReconciliation(filter, from, to, searchExtra),
     enabled,
     staleTime: 30_000,
-    refetchInterval: tripSearch ? false : 60_000,
+    refetchInterval: () => {
+      if (tripSearch) return false;
+      if (typeof document !== 'undefined' && document.hidden) return false;
+      return 60_000;
+    },
     placeholderData: keepPreviousData,
     retry: 1,
     meta: { suppressErrorToast: true },

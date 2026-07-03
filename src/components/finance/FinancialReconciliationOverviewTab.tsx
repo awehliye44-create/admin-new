@@ -3,6 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { formatPence } from '@/hooks/useDriverWallet';
+import { FinancialReconciliationRefreshBar } from '@/components/finance/FinancialReconciliationRefreshBar';
 import type { FinancialReconciliationSSOTResult } from '@/hooks/useFinancialReconciliationSSOT';
 import type { PlatformReconciliationKpis } from '@/hooks/useFinanceReconciliation';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
@@ -23,12 +24,16 @@ export function FinancialReconciliationOverviewTab({
   ssot,
   platformKpis,
   currencyCode,
-  readOnly: _readOnly = false,
+  readOnly = false,
+  onRefresh,
+  isRefreshing = false,
 }: {
   ssot: FinancialReconciliationSSOTResult;
   platformKpis?: PlatformReconciliationKpis | null;
   currencyCode: string;
   readOnly?: boolean;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 }) {
   const fmt = (p: number | null | undefined) => formatPence(Number(p ?? 0), currencyCode);
   const kpisUnavailable = platformKpis == null;
@@ -36,6 +41,15 @@ export function FinancialReconciliationOverviewTab({
 
   return (
     <div className="space-y-4">
+      <FinancialReconciliationRefreshBar
+        badge={isRefreshing ? 'REFRESHING' : ssot.badge}
+        lastSyncedAt={ssot.lastSyncedAt}
+        isRefreshing={isRefreshing}
+        readOnly={readOnly}
+        onRefresh={onRefresh}
+        label="Platform reconciliation overview"
+      />
+
       <div className="flex items-center gap-2">
         <FinanceSSOTBadge badge={ssot.badge} />
         <span className="text-xs text-muted-foreground">

@@ -28,14 +28,25 @@ export function saveFinanceReconciliationSnapshot(
   }
 }
 
-export function loadFinanceReconciliationSnapshot(): PersistedFinanceReconciliationSnapshot | null {
+export function loadFinanceReconciliationSnapshot(
+  scopeKey?: string | null,
+): PersistedFinanceReconciliationSnapshot | null {
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PersistedFinanceReconciliationSnapshot;
     if (!parsed?.response?.finance_reconciliation_summary) return null;
+    if (scopeKey != null && parsed.scopeKey !== scopeKey) return null;
     return parsed;
   } catch {
     return null;
+  }
+}
+
+export function clearFinanceReconciliationSnapshot(): void {
+  try {
+    sessionStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Ignore private mode / quota errors.
   }
 }

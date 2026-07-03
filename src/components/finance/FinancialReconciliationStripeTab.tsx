@@ -10,8 +10,11 @@ import type { StripePaymentIntentAuditRow, TripFinancialAuditRow } from '@/hooks
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { FinancialReconciliationPlatformPayoutOps } from '@/components/finance/FinancialReconciliationPlatformPayoutOps';
 import { DriverWalletLedgerLink } from '@/components/finance/DriverWalletLedgerLink';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
-import { AlertTriangle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { FinancialReconciliationRefreshBar } from '@/components/finance/FinancialReconciliationRefreshBar';
+import type { FinanceDataSourceBadge } from '@/hooks/useFinancialReconciliationSSOT';
 
 function statusChipVariant(label: string | null | undefined): 'default' | 'secondary' | 'destructive' | 'outline' {
   const l = String(label ?? '').toLowerCase();
@@ -42,7 +45,13 @@ export function FinancialReconciliationStripeTab({
   auditRows = [],
   paymentIntents = [],
   stripeBalanceError = null,
+  ssotStatus = 'LIVE',
+  ssotBadge,
+  lastSyncedAt = null,
+  snapshotSavedAt = null,
   readOnly = false,
+  onRefreshStripe,
+  isRefreshingStripe = false,
 }: {
   summary: FinanceReconciliationSummary | null | undefined;
   currencyCode: string;
@@ -53,7 +62,13 @@ export function FinancialReconciliationStripeTab({
   auditRows?: TripFinancialAuditRow[];
   paymentIntents?: StripePaymentIntentAuditRow[];
   stripeBalanceError?: string | null;
+  ssotStatus?: FinanceDataSourceBadge;
+  ssotBadge?: FinanceDataSourceBadge;
+  lastSyncedAt?: string | null;
+  snapshotSavedAt?: string | null;
   readOnly?: boolean;
+  onRefreshStripe?: () => void;
+  isRefreshingStripe?: boolean;
 }) {
   const ccy = currencyCode.toLowerCase();
   const mm = summary?.money_movement;
@@ -72,6 +87,11 @@ export function FinancialReconciliationStripeTab({
     [connectAccounts],
   );
   const connectAccountsAll = connectAccounts;
+  const moneyMovementTimedOut = stripeBalanceError === 'connect_money_movement_timeout';
+  const displayBadge = ssotBadge ?? ssotStatus;
+  const snapshotSavedLabel = snapshotSavedAt
+    ? formatFinanceDateSafe(snapshotSavedAt, 'dd MMM yyyy HH:mm')
+    : null;
 
   const platformPayoutStats = useMemo(() => {
     const byStatus = new Map<string, number>();
@@ -113,8 +133,70 @@ export function FinancialReconciliationStripeTab({
       }));
   }, [paymentIntents, auditRows]);
 
+  const lastPayoutByDriver = useMemo(() => {
+    const map = new Map<string, { amount_pence: number; initiated_at: string | null; status: string }>();
+    for (const p of payouts) {
+      const existing = map.get(p.driver_id);
+      const initiated = p.payout_initiated_at ?? '';
+      if (!existing || initiated > (existing.initiated_at ?? '')) {
+        map.set(p.driver_id, {
+          amount_pence: p.payout_amount_pence,
+          initiated_at: p.payout_initiated_at,
+          status: p.payout_status,
+        });
+      }
+    }
+    return map;
+  }, [payouts]);
+
   return (
     <div className="space-y-4">
+      <FinancialReconciliationRefreshBar
+        badge={isRefreshingStripe ? 'REFRESHING' : displayBadge}
+        lastSyncedAt={lastSyncedAt ?? mm?.last_synced_at ?? null}
+        isRefreshing={isRefreshingStripe}
+        readOnly={readOnly}
+        onRefresh={onRefreshStripe}
+        label="Stripe Connect balances and money movement"
+      />
+
+      {ssotStatus === 'DEGRADED_SNAPSHOT' && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Stripe balances may be stale</AlertTitle>
+          <AlertDescription>
+            {snapshotSavedLabel
+              ? `Showing cached snapshot from ${snapshotSavedLabel}. Refresh when live SSOT is available.`
+              : 'Showing cached snapshot. Refresh when live SSOT is available.'}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {moneyMovementTimedOut && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Connect money movement timed out</AlertTitle>
+          <AlertDescription>
+            Stripe Connect account balances could not be loaded within 25 seconds. Connect Accounts and
+            payout rows below may be incomplete — click Refresh to retry.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {onRefreshStripe && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRefreshStripe}
+            disabled={readOnly || isRefreshingStripe}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshingStripe ? 'animate-spin' : ''}`} />
+            Refresh Stripe now
+          </Button>
+        )}
+      </div>
+
       <FinancialReconciliationPlatformPayoutOps
         serviceFilter={serviceFilter}
         currencyCode={ccy}
@@ -353,7 +435,15 @@ export function FinancialReconciliationStripeTab({
         </TabsContent>
 
         <TabsContent value="connect" className="mt-4">
-          {connectAccountsAll.length === 0 ? (
+          {moneyMovementTimedOut && connectAccountsAll.length === 0 ? (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Connect Accounts unavailable</AlertTitle>
+              <AlertDescription>
+                Live Stripe Connect balance sync timed out. Use Refresh to load per-account balances.
+              </AlertDescription>
+            </Alert>
+          ) : connectAccountsAll.length === 0 ? (
             <p className="text-sm text-muted-foreground py-6 text-center">No Connect accounts in this scope.</p>
           ) : (
             <Table>
@@ -361,14 +451,24 @@ export function FinancialReconciliationStripeTab({
                 <TableRow>
                   <TableHead>Driver</TableHead>
                   <TableHead>Connect account</TableHead>
-                  <TableHead>Reconciliation</TableHead>
-                  <TableHead className="text-right">Stripe balance</TableHead>
-                  <TableHead className="text-right">Variance</TableHead>
+                  <TableHead className="text-right">Stripe available</TableHead>
+                  <TableHead className="text-right">Stripe pending</TableHead>
+                  <TableHead className="text-right">In transit</TableHead>
+                  <TableHead className="text-right">Stripe total</TableHead>
+                  <TableHead>Last payout</TableHead>
+                  <TableHead>Last synced</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {connectAccountsAll.map((a) => (
+                {connectAccountsAll.map((a) => {
+                  const available = a.stripe_live_balance_pence ?? 0;
+                  const pending = a.future_payout_pence ?? 0;
+                  const inTransit = a.in_transit_to_bank_pence ?? 0;
+                  const total = available + pending;
+                  const lastPayout = lastPayoutByDriver.get(a.driver_id);
+                  return (
                   <TableRow key={a.connected_account_id ?? a.driver_id}>
                     <TableCell>
                       <DriverWalletLedgerLink driverId={a.driver_id} tab="stripe">
@@ -378,21 +478,32 @@ export function FinancialReconciliationStripeTab({
                     <TableCell className="font-mono text-xs">
                       {a.connected_account_id ? `${a.connected_account_id.slice(0, 14)}…` : '—'}
                     </TableCell>
+                    <TableCell className="text-right">{fmt(available)}</TableCell>
+                    <TableCell className="text-right">{fmt(pending)}</TableCell>
+                    <TableCell className="text-right">{fmt(inTransit)}</TableCell>
+                    <TableCell className="text-right font-medium">{fmt(total)}</TableCell>
+                    <TableCell className="text-xs">
+                      {lastPayout
+                        ? `${fmt(lastPayout.amount_pence)} · ${formatFinanceDateSafe(lastPayout.initiated_at, 'dd MMM HH:mm')}`
+                        : '—'}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {a.last_synced_at
+                        ? formatFinanceDateSafe(a.last_synced_at, 'dd MMM yyyy HH:mm')
+                        : '—'}
+                    </TableCell>
                     <TableCell>
                       <Badge variant={statusChipVariant(a.reconciliation_status)}>{a.reconciliation_status}</Badge>
                       {a.duplicate_connect_account ? (
                         <Badge variant="destructive" className="ml-1">Duplicate</Badge>
                       ) : null}
                     </TableCell>
-                    <TableCell className="text-right">{fmt(a.stripe_live_balance_pence)}</TableCell>
-                    <TableCell className="text-right">
-                      {a.difference_pence !== 0 ? fmt(a.difference_pence) : '—'}
-                    </TableCell>
                     <TableCell>
                       <DriverWalletLedgerLink driverId={a.driver_id} tab="stripe" className="text-xs" />
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}

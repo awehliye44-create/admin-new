@@ -1,18 +1,21 @@
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   useFinanceReconciliation,
   type FinanceReconciliationResponse,
   type FinanceReconciliationSummary,
 } from '@/hooks/useFinanceReconciliation';
+import { invokeFinanceReconciliation } from '@/hooks/financeReconciliationApi';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { applyDegradedReconciliationSummary } from '@/lib/financialReconciliationDegraded';
 import {
+  clearFinanceReconciliationSnapshot,
   loadFinanceReconciliationSnapshot,
   saveFinanceReconciliationSnapshot,
   snapshotScopeKey,
 } from '@/lib/financialReconciliationSnapshot';
 
-export type FinanceSsotStatus = 'LIVE' | 'DEGRADED_SNAPSHOT' | 'UNAVAILABLE';
+export type FinanceSsotStatus = 'LIVE' | 'REFRESHING' | 'DEGRADED_SNAPSHOT' | 'UNAVAILABLE';
 export type FinanceDataSourceBadge = FinanceSsotStatus;
 
 export type FinancialReconciliationSSOTResult = {
@@ -23,10 +26,12 @@ export type FinancialReconciliationSSOTResult = {
   isLive: boolean;
   readOnly: boolean;
   snapshotSavedAt: string | null;
+  lastSyncedAt: string | null;
   isLoading: boolean;
   isFetching: boolean;
   error: Error | null;
-  refetch: () => void;
+  refetch: () => Promise<unknown>;
+  refetchFresh: () => Promise<unknown>;
   currencyCode: string;
 };
 
@@ -48,6 +53,33 @@ function pickSummary(response: FinanceReconciliationResponse | null | undefined)
   return response?.finance_reconciliation_summary ?? null;
 }
 
+function financeReconciliationQueryKey(args: {
+  filter: ServiceAreaFinanceSelection;
+  from?: string;
+  to?: string;
+  tripSearch?: string;
+  tripSearchType?: 'code' | 'id';
+}) {
+  return [
+    'finance-reconciliation-summary',
+    args.filter?.regionId,
+    args.filter?.serviceAreaId,
+    args.from,
+    args.to,
+    args.tripSearch,
+    args.tripSearchType,
+  ] as const;
+}
+
+function pickLastSyncedAt(response: FinanceReconciliationResponse | null | undefined): string | null {
+  if (!response) return null;
+  return (
+    response.money_movement?.last_synced_at
+    ?? response.finance_reconciliation_summary?.money_movement?.last_synced_at
+    ?? null
+  );
+}
+
 export function useFinancialReconciliationSSOT({
   filter,
   from,
@@ -55,7 +87,16 @@ export function useFinancialReconciliationSSOT({
   tripSearch,
   tripSearchType,
 }: UseFinancialReconciliationSSOTArgs): FinancialReconciliationSSOTResult {
+  const queryClient = useQueryClient();
   const scopeKey = snapshotScopeKey(filter.regionId, filter.serviceAreaId);
+  const queryKey = financeReconciliationQueryKey({ filter, from, to, tripSearch, tripSearchType });
+
+  const searchExtra = tripSearch
+    ? {
+        search: tripSearch,
+        ...(tripSearchType === 'id' ? { search_type: 'id' } : {}),
+      }
+    : undefined;
 
   const live = useFinanceReconciliation({
     filter,
@@ -77,8 +118,34 @@ export function useFinancialReconciliationSSOT({
 
   const snapshot = useMemo(() => {
     if (liveOk) return null;
-    return loadFinanceReconciliationSnapshot();
-  }, [liveOk, live.dataUpdatedAt, live.errorUpdatedAt]);
+    return loadFinanceReconciliationSnapshot(scopeKey);
+  }, [liveOk, live.dataUpdatedAt, live.errorUpdatedAt, scopeKey]);
+
+  const refetchFresh = useCallback(async () => {
+    clearFinanceReconciliationSnapshot();
+    await queryClient.invalidateQueries({ queryKey });
+    return queryClient.fetchQuery({
+      queryKey,
+      queryFn: () =>
+        invokeFinanceReconciliation(filter, from, to, {
+          ...searchExtra,
+          _fresh: String(Date.now()),
+        }),
+      staleTime: 0,
+    });
+  }, [queryClient, queryKey, filter, from, to, searchExtra]);
+
+  const refetch = useCallback(async () => refetchFresh(), [refetchFresh]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      void queryClient.invalidateQueries({ queryKey });
+      void live.refetch();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [queryClient, queryKey, live.refetch]);
 
   const status: FinanceSsotStatus = liveOk
     ? 'LIVE'
@@ -109,18 +176,27 @@ export function useFinancialReconciliationSSOT({
           : new Error('Financial Reconciliation SSOT unavailable and no cached snapshot exists.')
       : null;
 
+  const lastSyncedAt = pickLastSyncedAt(response);
+
+  const displayStatus: FinanceSsotStatus =
+    live.isFetching && status === 'LIVE'
+      ? 'REFRESHING'
+      : status;
+
   return {
     summary,
     response,
     status,
-    badge: status,
+    badge: displayStatus,
     isLive: status === 'LIVE',
     readOnly: status !== 'LIVE',
     snapshotSavedAt: status === 'DEGRADED_SNAPSHOT' ? snapshot!.savedAt : null,
+    lastSyncedAt,
     isLoading,
     isFetching: live.isFetching,
     error,
-    refetch: () => void live.refetch(),
+    refetch,
+    refetchFresh,
     currencyCode: filter.currencyCode || response?.currency_code || 'GBP',
   };
 }

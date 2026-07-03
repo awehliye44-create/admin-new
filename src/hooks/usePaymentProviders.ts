@@ -106,6 +106,7 @@ export function usePaymentProviders() {
     queryKey: ["payment-providers"],
     queryFn: () => invokePaymentProviders("GET") as Promise<PaymentProvidersResponse>,
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 
   const updateProvider = useMutation({

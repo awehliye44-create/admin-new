@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Calculator } from 'lucide-react';
-import { PaymentControlsCard, type PaymentControlsVariant, type FinanceRecoveryAction } from '@/components/payment/PaymentControlsCard';
+import { PaymentControlsCard, type PaymentControlsVariant, type FinanceRecoveryAction, type InitialPaymentAction } from '@/components/payment/PaymentControlsCard';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { financeReconciliationTripUrl } from '@/lib/financialReconciliationRoutes';
@@ -24,7 +24,9 @@ type FinanceRecoveryPanelProps = {
   source: FinanceRecoverySource;
   variant?: PaymentControlsVariant;
   initialAction?: FinanceRecoveryAction | null;
+  initialPaymentAction?: InitialPaymentAction | null;
   onInitialActionConsumed?: () => void;
+  onActionComplete?: () => void;
   /** When true (FR degraded mode), recovery / adjustment actions are disabled. */
   readOnly?: boolean;
 };
@@ -38,7 +40,9 @@ export function FinanceRecoveryPanel({
   source,
   variant = 'finance',
   initialAction = null,
+  initialPaymentAction = null,
   onInitialActionConsumed,
+  onActionComplete,
   readOnly = false,
 }: FinanceRecoveryPanelProps) {
   const isSummary = variant === 'summary';
@@ -84,7 +88,9 @@ export function FinanceRecoveryPanel({
         tripId={tripId}
         variant={variant}
         initialAction={initialAction}
+        initialPaymentAction={initialPaymentAction}
         onInitialActionConsumed={onInitialActionConsumed}
+        onActionComplete={onActionComplete}
       />
     </div>
   );
