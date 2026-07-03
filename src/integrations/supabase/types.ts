@@ -8526,10 +8526,14 @@ export type Database = {
           provider_status: string | null
           provider_transfer_id: string | null
           provider_webhook_event_id: string | null
+          refund_status: string | null
+          refunded_amount_pence: number
+          refunded_at: string | null
           status: string
           stripe_application_fee_amount: number | null
           stripe_fee_pence: number | null
           stripe_payment_intent_id: string
+          stripe_refund_id: string | null
           trip_id: string
           updated_at: string
         }
@@ -8559,10 +8563,14 @@ export type Database = {
           provider_status?: string | null
           provider_transfer_id?: string | null
           provider_webhook_event_id?: string | null
+          refund_status?: string | null
+          refunded_amount_pence?: number
+          refunded_at?: string | null
           status?: string
           stripe_application_fee_amount?: number | null
           stripe_fee_pence?: number | null
           stripe_payment_intent_id: string
+          stripe_refund_id?: string | null
           trip_id: string
           updated_at?: string
         }
@@ -8592,10 +8600,14 @@ export type Database = {
           provider_status?: string | null
           provider_transfer_id?: string | null
           provider_webhook_event_id?: string | null
+          refund_status?: string | null
+          refunded_amount_pence?: number
+          refunded_at?: string | null
           status?: string
           stripe_application_fee_amount?: number | null
           stripe_fee_pence?: number | null
           stripe_payment_intent_id?: string
+          stripe_refund_id?: string | null
           trip_id?: string
           updated_at?: string
         }
@@ -11803,6 +11815,7 @@ export type Database = {
           base_fare_pence: number
           cash_commission_ledger_id: string | null
           commission_rate_pct: number
+          commission_reversal_pence: number
           commissionable_subtotal_pence: number
           created_at: string
           currency_code: string
@@ -11811,15 +11824,19 @@ export type Database = {
           driver_id: string
           driver_net_before_tip_pence: number
           driver_total_earnings_pence: number
+          driver_wallet_reversal_pence: number
           extras_charge_pence: number
           final_driver_payout_pence: number | null
           final_trip_total_pence: number
           financial_status: string
           id: string
           is_financially_countable: boolean
+          net_card_revenue_after_refund_pence: number | null
           payment_method: string
           pickup_waiting_charge_pence: number
           platform_commission_pence: number
+          refund_amount_pence: number
+          refund_status: string | null
           revenue_type: string
           service_area_id: string | null
           settled_at: string | null
@@ -11840,6 +11857,7 @@ export type Database = {
           base_fare_pence?: number
           cash_commission_ledger_id?: string | null
           commission_rate_pct?: number
+          commission_reversal_pence?: number
           commissionable_subtotal_pence?: number
           created_at?: string
           currency_code?: string
@@ -11848,15 +11866,19 @@ export type Database = {
           driver_id: string
           driver_net_before_tip_pence?: number
           driver_total_earnings_pence?: number
+          driver_wallet_reversal_pence?: number
           extras_charge_pence?: number
           final_driver_payout_pence?: number | null
           final_trip_total_pence?: number
           financial_status?: string
           id?: string
           is_financially_countable?: boolean
+          net_card_revenue_after_refund_pence?: number | null
           payment_method?: string
           pickup_waiting_charge_pence?: number
           platform_commission_pence?: number
+          refund_amount_pence?: number
+          refund_status?: string | null
           revenue_type?: string
           service_area_id?: string | null
           settled_at?: string | null
@@ -11877,6 +11899,7 @@ export type Database = {
           base_fare_pence?: number
           cash_commission_ledger_id?: string | null
           commission_rate_pct?: number
+          commission_reversal_pence?: number
           commissionable_subtotal_pence?: number
           created_at?: string
           currency_code?: string
@@ -11885,15 +11908,19 @@ export type Database = {
           driver_id?: string
           driver_net_before_tip_pence?: number
           driver_total_earnings_pence?: number
+          driver_wallet_reversal_pence?: number
           extras_charge_pence?: number
           final_driver_payout_pence?: number | null
           final_trip_total_pence?: number
           financial_status?: string
           id?: string
           is_financially_countable?: boolean
+          net_card_revenue_after_refund_pence?: number | null
           payment_method?: string
           pickup_waiting_charge_pence?: number
           platform_commission_pence?: number
+          refund_amount_pence?: number
+          refund_status?: string | null
           revenue_type?: string
           service_area_id?: string | null
           settled_at?: string | null
