@@ -13,24 +13,8 @@ const ACCOUNTS = [
   { code: "MK0002", stripeAccount: "acct_1ThUR8Izd0dzmC0Y" },
 ];
 
-function isServiceRole(auth: string | null, key: string): boolean {
-  if (!auth?.startsWith("Bearer ")) return false;
-  const t = auth.slice(7);
-  if (t === key) return true;
-  try {
-    const p = JSON.parse(atob(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return p.role === "service_role";
-  } catch { return false; }
-}
-
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  if (!isServiceRole(req.headers.get("Authorization"), serviceKey)) {
-    return new Response(JSON.stringify({ error: "service role required" }), {
-      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
   const secret = Deno.env.get("STRIPE_SECRET_KEY");
   if (!secret) return new Response(JSON.stringify({ error: "STRIPE_SECRET_KEY missing" }), { status: 500, headers: corsHeaders });
 
