@@ -869,7 +869,7 @@ export function DriverDetailsDialog({
                 />
               </TabsContent>
 
-              {/* Documents Tab — Approved Only */}
+              {/* Documents Tab — assigned service area rules only */}
               <TabsContent value="documents" className="space-y-4">
                 {isLoadingDocs ? (
                   <div className="flex items-center justify-center py-8">
@@ -878,30 +878,90 @@ export function DriverDetailsDialog({
                 ) : (() => {
                   const items = getDocComplianceItems();
                   const approvedItems = items.filter(i => i.status === 'valid' || i.status === 'expiring_soon');
+                  const complianceMeta = documentCompliance as {
+                    assignedServiceAreaId?: string | null;
+                    assignedServiceAreaName?: string | null;
+                    rulesConfigured?: boolean;
+                  };
+                  const assignedSaName = complianceMeta.assignedServiceAreaName ?? null;
+                  const rulesConfigured = complianceMeta.rulesConfigured !== false;
+                  const blocking = items.filter((i) =>
+                    ['missing', 'expired', 'rejected', 'pending'].includes(i.status),
+                  );
 
                   return (
                     <div className="space-y-4">
-                      {/* Summary */}
+                      <div className="p-3 border rounded-lg bg-muted/50 space-y-2">
+                        <div className="flex items-center gap-2 text-sm">
+                          <MapPin className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-muted-foreground">Assigned service area:</span>
+                          <span className="font-medium">{assignedSaName ?? 'Not assigned'}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm">
+                          <FileText className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-muted-foreground">Document rules applied:</span>
+                          <span className="font-medium">
+                            {!assignedSaName
+                              ? 'DRIVER_SERVICE_AREA_NOT_ASSIGNED'
+                              : !rulesConfigured
+                              ? 'SERVICE_AREA_DOCUMENT_RULES_NOT_CONFIGURED'
+                              : `${items.length} mandatory for ${assignedSaName}`}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Go-online uses only this service area. No Milton Keynes or global document fallback.
+                        </p>
+                      </div>
+
                       <div className="p-3 border rounded-lg bg-muted/50 flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <FileText className="h-4 w-4 text-muted-foreground" />
                           <span className="text-sm text-muted-foreground">
                             {approvedItems.length} of {items.length} required document{items.length !== 1 ? 's' : ''} approved
+                            {assignedSaName ? ` (${assignedSaName})` : ''}
                           </span>
                         </div>
-                        {approvedItems.length === items.length && items.length > 0 && (
+                        {items.length === 0 && assignedSaName && rulesConfigured ? (
+                          <Badge variant="outline" className="text-green-700 bg-green-500/10 border-green-500/30">
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                            No mandatory docs
+                          </Badge>
+                        ) : approvedItems.length === items.length && items.length > 0 ? (
                           <Badge variant="outline" className="text-green-700 bg-green-500/10 border-green-500/30">
                             <CheckCircle className="h-3 w-3 mr-1" />
                             All Approved
                           </Badge>
-                        )}
+                        ) : blocking.length > 0 ? (
+                          <Badge variant="outline" className="text-red-700 bg-red-500/10 border-red-500/30">
+                            <AlertTriangle className="h-3 w-3 mr-1" />
+                            {blocking.length} blocking
+                          </Badge>
+                        ) : null}
                       </div>
 
-                      {/* Approved Document List */}
-                      {approvedItems.length > 0 ? (
+                      {items.length > 0 ? (
                         <div className="space-y-2">
-                          {approvedItems.map((item) => {
-                            const isExpiring = item.status === 'expiring_soon';
+                          {items.map((item) => {
+                            const statusClass =
+                              item.status === 'valid'
+                                ? 'text-green-700 bg-green-500/10 border-green-500/30'
+                                : item.status === 'expiring_soon'
+                                ? 'text-yellow-700 bg-yellow-500/10 border-yellow-500/30'
+                                : item.status === 'expired' || item.status === 'missing' || item.status === 'rejected'
+                                ? 'text-red-700 bg-red-500/10 border-red-500/30'
+                                : 'text-amber-700 bg-amber-500/10 border-amber-500/30';
+                            const statusLabel =
+                              item.status === 'valid'
+                                ? 'Approved'
+                                : item.status === 'expiring_soon'
+                                ? `Expiring in ${item.daysLeft} days`
+                                : item.status === 'missing'
+                                ? 'Missing'
+                                : item.status === 'expired'
+                                ? 'Expired'
+                                : item.status === 'rejected'
+                                ? 'Rejected'
+                                : 'Pending';
                             return (
                               <div key={item.slug} className="flex items-center justify-between p-3 border rounded-lg">
                                 <div className="flex items-center gap-3">
@@ -928,12 +988,8 @@ export function DriverDetailsDialog({
                                       View
                                     </Button>
                                   )}
-                                  <Badge variant="outline" className={isExpiring ? 'text-yellow-700 bg-yellow-500/10 border-yellow-500/30' : 'text-green-700 bg-green-500/10 border-green-500/30'}>
-                                    {isExpiring ? (
-                                      <><FileWarning className="h-3 w-3 mr-1" />Expiring in {item.daysLeft} days</>
-                                    ) : (
-                                      <><CheckCircle className="h-3 w-3 mr-1" />Approved</>
-                                    )}
+                                  <Badge variant="outline" className={statusClass}>
+                                    {statusLabel}
                                   </Badge>
                                 </div>
                               </div>
@@ -942,7 +998,11 @@ export function DriverDetailsDialog({
                         </div>
                       ) : (
                         <div className="text-center py-8 text-muted-foreground text-sm">
-                          No approved documents yet
+                          {!assignedSaName
+                            ? 'Driver has no assigned service area (DRIVER_SERVICE_AREA_NOT_ASSIGNED).'
+                            : !rulesConfigured
+                            ? 'Document rules are not configured for this service area.'
+                            : `No mandatory documents for ${assignedSaName}. Driver can go online.`}
                         </div>
                       )}
                     </div>
