@@ -427,11 +427,25 @@ export async function resolveProviderGatewayStatus(
   });
 }
 
+function resolveAreaPaymentProvider(area: {
+  payment_provider?: string | null;
+  customer_payment_gateway?: string | null;
+  driver_payout_gateway?: string | null;
+}): string | null {
+  return (
+    (area.payment_provider as string | null) ??
+    (area.customer_payment_gateway as string | null) ??
+    (area.driver_payout_gateway as string | null) ??
+    null
+  );
+}
+
 export async function resolveServiceAreaGatewayStatuses(
   supabase: SupabaseClient,
   serviceAreaId: string,
 ): Promise<{
   service_area_id: string;
+  payment_provider: string | null;
   customer: GatewayStatusSnapshot;
   driver: GatewayStatusSnapshot;
   currency_code: string | null;
@@ -440,7 +454,7 @@ export async function resolveServiceAreaGatewayStatuses(
   const { data: area } = await supabase
     .from("service_areas")
     .select(
-      "id, customer_payment_gateway, driver_payout_gateway, regions!inner(name, currency_code)",
+      "id, payment_provider, customer_payment_gateway, driver_payout_gateway, regions!inner(name, currency_code)",
     )
     .eq("id", serviceAreaId)
     .maybeSingle();
@@ -450,6 +464,7 @@ export async function resolveServiceAreaGatewayStatuses(
     const missingDriver = await resolveProviderGatewayStatus(supabase, null, "driver");
     return {
       service_area_id: serviceAreaId,
+      payment_provider: null,
       customer: missingCustomer,
       driver: missingDriver,
       currency_code: null,
@@ -458,13 +473,16 @@ export async function resolveServiceAreaGatewayStatuses(
   }
 
   const region = area.regions as { name?: string; currency_code?: string } | null;
+  const provider = resolveAreaPaymentProvider(area);
+  // Same provider for collection and payout.
   const [customer, driver] = await Promise.all([
-    resolveProviderGatewayStatus(supabase, area.customer_payment_gateway as string | null, "customer"),
-    resolveProviderGatewayStatus(supabase, area.driver_payout_gateway as string | null, "driver"),
+    resolveProviderGatewayStatus(supabase, provider, "customer"),
+    resolveProviderGatewayStatus(supabase, provider, "driver"),
   ]);
 
   return {
     service_area_id: area.id as string,
+    payment_provider: provider,
     customer,
     driver,
     currency_code: region?.currency_code ?? null,
@@ -477,6 +495,9 @@ export type ServiceAreaGatewayFinanceRow = {
   service_area_name: string | null;
   region_name: string | null;
   currency_code: string | null;
+  payment_provider: string | null;
+  payment_gateway: GatewayStatusSnapshot;
+  payout_gateway: GatewayStatusSnapshot;
   customer: GatewayStatusSnapshot;
   driver: GatewayStatusSnapshot;
   last_successful_payment_at: string | null;
@@ -533,7 +554,7 @@ export async function resolveAllServiceAreaGatewayStatuses(
   let query = supabase
     .from("service_areas")
     .select(
-      "id, name, customer_payment_gateway, driver_payout_gateway, regions!inner(name, currency_code)",
+      "id, name, payment_provider, customer_payment_gateway, driver_payout_gateway, regions!inner(name, currency_code)",
     )
     .eq("is_active", true)
     .order("name");
@@ -552,17 +573,10 @@ export async function resolveAllServiceAreaGatewayStatuses(
     areas.map(async (area) => {
       const region = area.regions as { name?: string; currency_code?: string } | null;
       const serviceAreaId = area.id as string;
+      const provider = resolveAreaPaymentProvider(area);
       const [customer, driver, lastPayment, lastPayout] = await Promise.all([
-        resolveProviderGatewayStatus(
-          supabase,
-          area.customer_payment_gateway as string | null,
-          "customer",
-        ),
-        resolveProviderGatewayStatus(
-          supabase,
-          area.driver_payout_gateway as string | null,
-          "driver",
-        ),
+        resolveProviderGatewayStatus(supabase, provider, "customer"),
+        resolveProviderGatewayStatus(supabase, provider, "driver"),
         loadLastSuccessfulPaymentAt(supabase, serviceAreaId),
         loadLastSuccessfulPayoutAt(supabase, serviceAreaId),
       ]);
@@ -572,6 +586,9 @@ export async function resolveAllServiceAreaGatewayStatuses(
         service_area_name: (area.name as string | null) ?? null,
         region_name: region?.name ?? null,
         currency_code: region?.currency_code ?? null,
+        payment_provider: provider,
+        payment_gateway: customer,
+        payout_gateway: driver,
         customer,
         driver,
         last_successful_payment_at: lastPayment,

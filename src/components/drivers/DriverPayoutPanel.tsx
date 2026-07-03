@@ -39,7 +39,7 @@ export function DriverPayoutPanel({
         resolvedServiceAreaId
           ? supabase
             .from("service_areas")
-            .select("name, driver_payout_gateway")
+            .select("name, payment_provider, driver_payout_gateway, customer_payment_gateway")
             .eq("id", resolvedServiceAreaId)
             .maybeSingle()
           : Promise.resolve({ data: null }),
@@ -79,7 +79,17 @@ export function DriverPayoutPanel({
     enabled: Boolean(driverId),
   });
 
-  const payoutGateway = data?.serviceArea?.driver_payout_gateway ?? "stripe";
+  const serviceArea = data?.serviceArea as {
+    name?: string | null;
+    payment_provider?: string | null;
+    driver_payout_gateway?: string | null;
+    customer_payment_gateway?: string | null;
+  } | null | undefined;
+  const payoutGateway =
+    serviceArea?.payment_provider ??
+    serviceArea?.driver_payout_gateway ??
+    serviceArea?.customer_payment_gateway ??
+    "stripe";
   const usesStripe = payoutGateway === "stripe";
   const region = data?.region;
   const destination = data?.destination;

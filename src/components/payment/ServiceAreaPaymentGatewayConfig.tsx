@@ -68,6 +68,19 @@ interface ServiceAreaPaymentGatewayConfigProps {
 
 const UNSET_VALUE = '__unset__';
 
+const SUPPORTED_PROVIDERS = new Set([
+  'stripe',
+  'sifalo_pay',
+  'waafi_pay',
+  'sahal_pay',
+  'intasend',
+  'paystack',
+  'flutterwave',
+  'pesapal',
+  'hubtel',
+  'dpo_pay',
+]);
+
 function statusBadgeClass(status: GatewayStatusCode): string {
   switch (status) {
     case 'CONNECTED':
@@ -92,6 +105,12 @@ function GatewayStatusBadge({ snapshot }: { snapshot: GatewayStatusSnapshot | nu
   );
 }
 
+function payoutLabel(provider: string | null, displayName: string): string {
+  if (!provider) return 'Not selected';
+  if (provider === 'stripe') return 'Stripe Connect';
+  return displayName;
+}
+
 export function ServiceAreaPaymentGatewayConfig({
   serviceAreaId,
   serviceAreaName,
@@ -100,8 +119,7 @@ export function ServiceAreaPaymentGatewayConfig({
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [providers, setProviders] = useState<ProviderOption[]>([]);
-  const [customerGateway, setCustomerGateway] = useState<string | null>(null);
-  const [driverGateway, setDriverGateway] = useState<string | null>(null);
+  const [paymentProvider, setPaymentProvider] = useState<string | null>(null);
   const [customerStatus, setCustomerStatus] = useState<GatewayStatusSnapshot | null>(null);
   const [driverStatus, setDriverStatus] = useState<GatewayStatusSnapshot | null>(null);
 
@@ -117,7 +135,7 @@ export function ServiceAreaPaymentGatewayConfig({
           .order('display_name'),
         supabase
           .from('service_areas')
-          .select('customer_payment_gateway, driver_payout_gateway')
+          .select('payment_provider, customer_payment_gateway, driver_payout_gateway')
           .eq('id', serviceAreaId)
           .maybeSingle(),
         invokePaymentProviders('GET', {
@@ -125,6 +143,7 @@ export function ServiceAreaPaymentGatewayConfig({
           service_area_id: serviceAreaId,
         }) as Promise<{
           success?: boolean;
+          payment_provider?: string | null;
           customer?: GatewayStatusSnapshot;
           driver?: GatewayStatusSnapshot;
         }>,
@@ -133,14 +152,26 @@ export function ServiceAreaPaymentGatewayConfig({
       if (providersRes.error) throw providersRes.error;
       if (areaRes.error) throw areaRes.error;
 
+      const area = areaRes.data as {
+        payment_provider?: string | null;
+        customer_payment_gateway?: string | null;
+        driver_payout_gateway?: string | null;
+      } | null;
+
+      const provider =
+        area?.payment_provider ??
+        area?.customer_payment_gateway ??
+        area?.driver_payout_gateway ??
+        statusRes.payment_provider ??
+        null;
+
       setProviders((providersRes.data ?? []) as ProviderOption[]);
-      setCustomerGateway(areaRes.data?.customer_payment_gateway ?? null);
-      onCustomerGatewayChange?.(areaRes.data?.customer_payment_gateway ?? null);
-      setDriverGateway(areaRes.data?.driver_payout_gateway ?? null);
+      setPaymentProvider(provider);
+      onCustomerGatewayChange?.(provider);
       setCustomerStatus(statusRes.customer ?? null);
       setDriverStatus(statusRes.driver ?? null);
     } catch {
-      toast.error('Failed to load payment gateway configuration');
+      toast.error('Failed to load payment provider configuration');
     } finally {
       setIsLoading(false);
     }
@@ -150,45 +181,38 @@ export function ServiceAreaPaymentGatewayConfig({
     void load();
   }, [load]);
 
-  const customerOptions = providers.filter((p) => p.supports_customer_payments);
-  const driverOptions = providers.filter((p) => p.supports_driver_payouts);
+  const providerOptions = providers.filter((p) => SUPPORTED_PROVIDERS.has(p.provider));
 
-  const saveGateway = async (
-    field: 'customer_payment_gateway' | 'driver_payout_gateway',
-    value: string | null,
-  ) => {
+  const savePaymentProvider = async (value: string | null) => {
     setIsSaving(true);
     try {
+      // Trigger keeps payment_provider / customer / driver mirrors identical.
       const { error } = await supabase
         .from('service_areas')
-        .update({ [field]: value })
+        .update({
+          payment_provider: value,
+          customer_payment_gateway: value,
+          driver_payout_gateway: value,
+        } as Record<string, string | null>)
         .eq('id', serviceAreaId);
 
       if (error) throw error;
 
-      if (field === 'customer_payment_gateway') {
-        setCustomerGateway(value);
-      } else {
-        setDriverGateway(value);
-      }
-      toast.success('Payment gateway updated');
+      setPaymentProvider(value);
+      onCustomerGatewayChange?.(value);
+      toast.success('Service area payment provider updated');
       await load();
     } catch {
-      toast.error('Failed to save payment gateway');
+      toast.error('Failed to save payment provider');
       await load();
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleCustomerChange = (value: string) => {
+  const handleProviderChange = (value: string) => {
     const next = value === UNSET_VALUE ? null : value;
-    void saveGateway('customer_payment_gateway', next);
-  };
-
-  const handleDriverChange = (value: string) => {
-    const next = value === UNSET_VALUE ? null : value;
-    void saveGateway('driver_payout_gateway', next);
+    void savePaymentProvider(next);
   };
 
   const providerLabel = (id: string | null) =>
@@ -204,7 +228,7 @@ export function ServiceAreaPaymentGatewayConfig({
     );
   }
 
-  const gatewayIncomplete = !customerGateway || !driverGateway;
+  const providerIncomplete = !paymentProvider;
   const hasConfigErrors = Boolean(
     customerStatus?.configuration_error || driverStatus?.configuration_error,
   );
@@ -217,35 +241,37 @@ export function ServiceAreaPaymentGatewayConfig({
     : 'not_configured';
 
   const customerAdapterNotLive =
-    Boolean(customerGateway)
+    Boolean(paymentProvider)
     && customerStatus?.ready_for_production === true
-    && !isCustomerBookingAdapterLive(customerGateway);
+    && !isCustomerBookingAdapterLive(paymentProvider);
 
-  const bookingWorkflowLabel = isStripePreauthProvider(customerGateway)
+  const bookingWorkflowLabel = isStripePreauthProvider(paymentProvider)
     ? 'Stripe preauth (card / Apple Pay / Google Pay)'
-    : isMobileWalletCollectProvider(customerGateway)
+    : isMobileWalletCollectProvider(paymentProvider)
       ? 'Mobile wallet collect (pay before dispatch)'
       : 'Not configured';
+
+  const displayName = providerLabel(paymentProvider);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <ArrowRightLeft className="h-5 w-5 text-primary" />
-          Payment Gateways
+          Service Area Payment Provider
         </CardTitle>
         <CardDescription>
-          Each service area must explicitly choose a customer payment gateway and a driver payout gateway.
-          Operational status comes from the backend — API keys, webhooks, health, and connection tests.
+          One provider controls both customer payment collection and driver payout for this service area.
+          No separate payout provider selection.
           {serviceAreaName ? ` (${serviceAreaName})` : ''}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {gatewayIncomplete && (
+        {providerIncomplete && (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
-              Both customer and driver gateways are required before digital payments can run in this area.
+              A payment provider is required before digital payments can run in this area.
             </AlertDescription>
           </Alert>
         )}
@@ -255,11 +281,8 @@ export function ServiceAreaPaymentGatewayConfig({
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
               {customerStatus?.configuration_error
-                ? `Customer: ${customerStatus.configuration_error}. `
-                : ''}
-              {driverStatus?.configuration_error
-                ? `Driver: ${driverStatus.configuration_error}.`
-                : ''}
+                ?? driverStatus?.configuration_error
+                ?? 'Provider configuration incomplete.'}
             </AlertDescription>
           </Alert>
         )}
@@ -271,15 +294,69 @@ export function ServiceAreaPaymentGatewayConfig({
               <strong>PROVIDER_NOT_IMPLEMENTED — </strong>
               {providerNotImplementedMessage(
                 customerStatus?.display_name ?? null,
-                customerGateway!,
+                paymentProvider!,
               )}
               {' '}
               Customer apps will block booking until the live adapter is deployed. Do not enable
-              this gateway for production until contracts, sandbox keys, webhooks, and settlement
+              this provider for production until contracts, sandbox keys, webhooks, and settlement
               are confirmed.
             </AlertDescription>
           </Alert>
         )}
+
+        <div className="space-y-2 p-3 border rounded-lg">
+          <div className="flex items-center justify-between gap-2">
+            <Label className="flex items-center gap-2 font-medium">
+              <CreditCard className="h-4 w-4" />
+              Service Area Payment Provider
+            </Label>
+            <GatewayStatusBadge snapshot={customerStatus} />
+          </div>
+          <Select
+            value={paymentProvider ?? UNSET_VALUE}
+            onValueChange={handleProviderChange}
+            disabled={isSaving}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select provider" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={UNSET_VALUE} disabled>
+                — Select provider —
+              </SelectItem>
+              {providerOptions.map((p) => (
+                <SelectItem key={p.provider} value={p.provider}>
+                  {p.display_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Selected: {displayName}
+          </p>
+          {customerStatus?.message ? (
+            <p className="text-xs text-muted-foreground">{customerStatus.message}</p>
+          ) : null}
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-1 p-3 border rounded-lg bg-muted/30">
+            <p className="text-xs text-muted-foreground">Customer collection</p>
+            <p className="text-sm font-medium">{displayName}</p>
+            <div className="pt-1">
+              <GatewayStatusBadge snapshot={customerStatus} />
+            </div>
+          </div>
+          <div className="space-y-1 p-3 border rounded-lg bg-muted/30">
+            <p className="text-xs text-muted-foreground">Driver payout</p>
+            <p className="text-sm font-medium">
+              {payoutLabel(paymentProvider, displayName)}
+            </p>
+            <div className="pt-1">
+              <GatewayStatusBadge snapshot={driverStatus} />
+            </div>
+          </div>
+        </div>
 
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-muted-foreground">Booking workflow:</span>
@@ -293,78 +370,6 @@ export function ServiceAreaPaymentGatewayConfig({
           {customerAdapterStatus === 'not_configured' && (
             <Badge variant="secondary">Not ready</Badge>
           )}
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2 p-3 border rounded-lg">
-            <div className="flex items-center justify-between gap-2">
-              <Label className="flex items-center gap-2 font-medium">
-                <CreditCard className="h-4 w-4" />
-                Customer payment gateway
-              </Label>
-              <GatewayStatusBadge snapshot={customerStatus} />
-            </div>
-            <Select
-              value={customerGateway ?? UNSET_VALUE}
-              onValueChange={handleCustomerChange}
-              disabled={isSaving}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select provider" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={UNSET_VALUE} disabled>
-                  — Select provider —
-                </SelectItem>
-                {customerOptions.map((p) => (
-                  <SelectItem key={p.provider} value={p.provider}>
-                    {p.display_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Selected: {providerLabel(customerGateway)}
-            </p>
-            {customerStatus?.message ? (
-              <p className="text-xs text-muted-foreground">{customerStatus.message}</p>
-            ) : null}
-          </div>
-
-          <div className="space-y-2 p-3 border rounded-lg">
-            <div className="flex items-center justify-between gap-2">
-              <Label className="flex items-center gap-2 font-medium">
-                <ArrowRightLeft className="h-4 w-4" />
-                Driver payout gateway
-              </Label>
-              <GatewayStatusBadge snapshot={driverStatus} />
-            </div>
-            <Select
-              value={driverGateway ?? UNSET_VALUE}
-              onValueChange={handleDriverChange}
-              disabled={isSaving}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select provider" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={UNSET_VALUE} disabled>
-                  — Select provider —
-                </SelectItem>
-                {driverOptions.map((p) => (
-                  <SelectItem key={p.provider} value={p.provider}>
-                    {p.display_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Selected: {providerLabel(driverGateway)}
-            </p>
-            {driverStatus?.message ? (
-              <p className="text-xs text-muted-foreground">{driverStatus.message}</p>
-            ) : null}
-          </div>
         </div>
 
         <p className="text-xs text-muted-foreground">

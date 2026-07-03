@@ -65,7 +65,7 @@ export function useServiceAreaPaymentMethods(serviceAreaId?: string) {
             .maybeSingle(),
           supabase
             .from('service_areas')
-            .select('customer_payment_gateway')
+            .select('payment_provider, customer_payment_gateway, driver_payout_gateway')
             .eq('id', serviceAreaId)
             .maybeSingle(),
         ]);
@@ -75,7 +75,17 @@ export function useServiceAreaPaymentMethods(serviceAreaId?: string) {
         }
         if (areaRes.error) throw areaRes.error;
 
-        setCustomerPaymentGateway(areaRes.data?.customer_payment_gateway ?? null);
+        const area = areaRes.data as {
+          payment_provider?: string | null;
+          customer_payment_gateway?: string | null;
+          driver_payout_gateway?: string | null;
+        } | null;
+        setCustomerPaymentGateway(
+          area?.payment_provider ??
+            area?.customer_payment_gateway ??
+            area?.driver_payout_gateway ??
+            null,
+        );
 
         if (methodsRes.data) {
           setPaymentConfig(methodsRes.data as unknown as ServiceAreaPaymentConfig);

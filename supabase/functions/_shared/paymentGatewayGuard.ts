@@ -18,7 +18,11 @@ export type { GatewayRole };
 
 export type ServiceAreaGatewayResolution = {
   service_area_id: string;
+  /** Single provider for collection + payout. */
+  payment_provider: string | null;
+  /** Mirror of payment_provider (compat). */
   customer_payment_gateway: string | null;
+  /** Mirror of payment_provider (compat). */
   driver_payout_gateway: string | null;
 };
 
@@ -49,22 +53,40 @@ export {
   resolveAllServiceAreaGatewayStatuses,
 } from "./paymentGatewayStatus.ts";
 
+/** Resolve the single service-area payment provider (collection + payout). */
+export function resolveServiceAreaPaymentProvider(row: {
+  payment_provider?: string | null;
+  customer_payment_gateway?: string | null;
+  driver_payout_gateway?: string | null;
+} | null | undefined): string | null {
+  if (!row) return null;
+  return (
+    (row.payment_provider as string | null) ??
+    (row.customer_payment_gateway as string | null) ??
+    (row.driver_payout_gateway as string | null) ??
+    null
+  );
+}
+
 export async function loadServiceAreaGateways(
   supabase: SupabaseClient,
   serviceAreaId: string,
 ): Promise<ServiceAreaGatewayResolution | null> {
   const { data, error } = await supabase
     .from("service_areas")
-    .select("id, customer_payment_gateway, driver_payout_gateway")
+    .select("id, payment_provider, customer_payment_gateway, driver_payout_gateway")
     .eq("id", serviceAreaId)
     .maybeSingle();
 
   if (error || !data) return null;
 
+  const provider = resolveServiceAreaPaymentProvider(data);
+
   return {
     service_area_id: data.id as string,
-    customer_payment_gateway: (data.customer_payment_gateway as string | null) ?? null,
-    driver_payout_gateway: (data.driver_payout_gateway as string | null) ?? null,
+    payment_provider: provider,
+    customer_payment_gateway: provider,
+    driver_payout_gateway: provider,
   };
 }
 
@@ -84,9 +106,8 @@ export async function checkServiceAreaGateway(
     };
   }
 
-  const providerId = role === "customer"
-    ? gateways.customer_payment_gateway
-    : gateways.driver_payout_gateway;
+  // Single provider for both customer collection and driver payout.
+  const providerId = gateways.payment_provider;
 
   const status = await resolveProviderGatewayStatus(supabase, providerId, role);
   if (!status.ready_for_production) {

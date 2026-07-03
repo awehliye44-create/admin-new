@@ -17,6 +17,9 @@ export type ServiceAreaGatewayStatusRow = {
   service_area_name: string | null;
   region_name: string | null;
   currency_code: string | null;
+  payment_provider?: string | null;
+  payment_gateway?: ServiceAreaGatewayStatusRow['customer'];
+  payout_gateway?: ServiceAreaGatewayStatusRow['customer'];
   customer: {
     status: string;
     badge_label: string;
@@ -81,8 +84,8 @@ function GatewayBadge({ snapshot }: { snapshot: ServiceAreaGatewayStatusRow['cus
 
 export function ServiceAreaGatewayStatusPanel({
   rows,
-  title = 'Payment gateways by service area',
-  description = 'Operational status from backend SSOT — never inferred from dropdown selection.',
+  title = 'Payment provider by service area',
+  description = 'One provider per service area for both customer collection and driver payout.',
 }: {
   rows: ServiceAreaGatewayStatusRow[];
   title?: string;
@@ -138,19 +141,33 @@ export function ServiceAreaGatewayStatusPanel({
                 <TableRow>
                   <TableHead>Service area</TableHead>
                   <TableHead>Currency</TableHead>
-                  <TableHead>Customer gateway</TableHead>
-                  <TableHead>Conn. status</TableHead>
-                  <TableHead>Booking adapter</TableHead>
-                  <TableHead>Driver payout</TableHead>
+                  <TableHead>Payment provider</TableHead>
+                  <TableHead>Collection</TableHead>
+                  <TableHead>Payout</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Booking adapter</TableHead>
                   <TableHead>Last payment</TableHead>
                   <TableHead>Last payout</TableHead>
                   <TableHead>Last webhook</TableHead>
-                  <TableHead>Last conn. test</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((row) => (
+                {rows.map((row) => {
+                  const provider =
+                    row.payment_provider ??
+                    row.customer.provider ??
+                    row.driver.provider ??
+                    null;
+                  const displayName =
+                    row.customer.display_name ??
+                    row.driver.display_name ??
+                    provider ??
+                    '—';
+                  const payoutName =
+                    provider === 'stripe'
+                      ? 'Stripe Connect'
+                      : (row.driver.display_name ?? displayName);
+                  return (
                   <TableRow key={row.service_area_id}>
                     <TableCell className="font-medium">
                       {row.service_area_name ?? row.service_area_id.slice(0, 8)}
@@ -159,9 +176,9 @@ export function ServiceAreaGatewayStatusPanel({
                       ) : null}
                     </TableCell>
                     <TableCell>{row.currency_code ?? '—'}</TableCell>
-                    <TableCell>
-                      {row.customer.display_name ?? row.customer.provider ?? '—'}
-                    </TableCell>
+                    <TableCell className="font-medium">{displayName}</TableCell>
+                    <TableCell className="text-sm">{displayName}</TableCell>
+                    <TableCell className="text-sm">{payoutName}</TableCell>
                     <TableCell>
                       <GatewayBadge snapshot={row.customer} />
                       {row.customer.configuration_error ? (
@@ -195,17 +212,6 @@ export function ServiceAreaGatewayStatusPanel({
                         return <Badge variant="secondary">Not ready</Badge>;
                       })()}
                     </TableCell>
-                    <TableCell>
-                      {row.driver.display_name ?? row.driver.provider ?? '—'}
-                    </TableCell>
-                    <TableCell>
-                      <GatewayBadge snapshot={row.driver} />
-                      {row.driver.configuration_error ? (
-                        <span className="block text-xs text-destructive mt-1">
-                          {row.driver.configuration_error}
-                        </span>
-                      ) : null}
-                    </TableCell>
                     <TableCell className="text-xs whitespace-nowrap">
                       {formatTs(row.last_successful_payment_at)}
                     </TableCell>
@@ -215,11 +221,9 @@ export function ServiceAreaGatewayStatusPanel({
                     <TableCell className="text-xs whitespace-nowrap">
                       {formatTs(row.customer.health?.last_webhook_at)}
                     </TableCell>
-                    <TableCell className="text-xs whitespace-nowrap">
-                      {formatTs(row.customer.health?.last_connection_test_at)}
-                    </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </div>

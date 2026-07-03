@@ -374,10 +374,14 @@ serve(async (req) => {
     if (driver.service_area_id) {
       const { data: serviceAreaRow } = await supabase
         .from('service_areas')
-        .select('driver_payout_gateway')
+        .select('payment_provider, driver_payout_gateway, customer_payment_gateway')
         .eq('id', driver.service_area_id)
         .maybeSingle();
-      driverPayoutGateway = (serviceAreaRow?.driver_payout_gateway as string | null) ?? 'stripe';
+      driverPayoutGateway =
+        (serviceAreaRow?.payment_provider as string | null) ??
+        (serviceAreaRow?.driver_payout_gateway as string | null) ??
+        (serviceAreaRow?.customer_payment_gateway as string | null) ??
+        'stripe';
     }
 
     if (driverPayoutGateway !== 'stripe') {
