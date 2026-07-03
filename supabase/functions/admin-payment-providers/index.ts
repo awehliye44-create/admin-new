@@ -85,10 +85,24 @@ async function buildStripeWebhookHealth(supabase: ReturnType<typeof createClient
   const lastReceived = recentResult.data?.[0]?.processed_at ?? null;
   const failureCount = failedResult.count ?? 0;
   const successCount = successResult.count ?? 0;
+  const lastSuccessAt = lastSuccessResult.data?.processed_at ?? null;
+  const lastFailedAt = lastFailedResult.data?.processed_at ?? null;
 
+  // Healthy when recent successes exist and the latest outcome is not a failure.
+  // Historical failures in the 24h window must not alarm while delivery is working.
   let status: "healthy" | "failing" | "not_configured" = "not_configured";
   if (lastReceived) {
-    status = failureCount > 0 && successCount === 0 ? "failing" : failureCount > 0 ? "failing" : "healthy";
+    const lastFailureIsLatest = Boolean(
+      lastFailedAt &&
+        (!lastSuccessAt || new Date(lastFailedAt).getTime() > new Date(lastSuccessAt).getTime()),
+    );
+    if (successCount === 0 && failureCount > 0) {
+      status = "failing";
+    } else if (lastFailureIsLatest) {
+      status = "failing";
+    } else {
+      status = "healthy";
+    }
   }
 
   return {

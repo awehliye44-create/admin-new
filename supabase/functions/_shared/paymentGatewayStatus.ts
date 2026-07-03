@@ -155,37 +155,61 @@ async function loadStripeWebhookHealth(
 }> {
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-  const [recentResult, successResult, failedResult] = await Promise.all([
-    supabase
-      .from("processed_stripe_events")
-      .select("processed_at")
-      .in("event_type", STRIPE_MONITORED_EVENTS)
-      .order("processed_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from("processed_stripe_events")
-      .select("id", { count: "exact", head: true })
-      .in("event_type", STRIPE_MONITORED_EVENTS)
-      .eq("status", "processed")
-      .gte("processed_at", since24h),
-    supabase
-      .from("processed_stripe_events")
-      .select("id", { count: "exact", head: true })
-      .in("event_type", STRIPE_MONITORED_EVENTS)
-      .in("status", ["failed_retry", "failed_non_retry"])
-      .gte("processed_at", since24h),
-  ]);
+  const [recentResult, successResult, failedResult, lastSuccessResult, lastFailedResult] =
+    await Promise.all([
+      supabase
+        .from("processed_stripe_events")
+        .select("processed_at")
+        .in("event_type", STRIPE_MONITORED_EVENTS)
+        .order("processed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("processed_stripe_events")
+        .select("id", { count: "exact", head: true })
+        .in("event_type", STRIPE_MONITORED_EVENTS)
+        .eq("status", "processed")
+        .gte("processed_at", since24h),
+      supabase
+        .from("processed_stripe_events")
+        .select("id", { count: "exact", head: true })
+        .in("event_type", STRIPE_MONITORED_EVENTS)
+        .in("status", ["failed_retry", "failed_non_retry"])
+        .gte("processed_at", since24h),
+      supabase
+        .from("processed_stripe_events")
+        .select("processed_at")
+        .in("event_type", STRIPE_MONITORED_EVENTS)
+        .eq("status", "processed")
+        .order("processed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("processed_stripe_events")
+        .select("processed_at")
+        .in("event_type", STRIPE_MONITORED_EVENTS)
+        .in("status", ["failed_retry", "failed_non_retry"])
+        .order("processed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
 
   const lastWebhookAt = (recentResult.data?.processed_at as string | null) ?? null;
   const successCount = successResult.count ?? 0;
   const failureCount = failedResult.count ?? 0;
+  const lastSuccessAt = (lastSuccessResult.data?.processed_at as string | null) ?? null;
+  const lastFailedAt = (lastFailedResult.data?.processed_at as string | null) ?? null;
 
   if (!lastWebhookAt) {
     return { healthy: null, last_webhook_at: null, failing: false };
   }
 
-  const failing = failureCount > 0 && successCount === 0;
+  const lastFailureIsLatest = Boolean(
+    lastFailedAt &&
+      (!lastSuccessAt || new Date(lastFailedAt).getTime() > new Date(lastSuccessAt).getTime()),
+  );
+  const failing =
+    (failureCount > 0 && successCount === 0) || lastFailureIsLatest;
   const healthy = !failing && (successCount > 0 || failureCount === 0);
   return { healthy, last_webhook_at: lastWebhookAt, failing };
 }
