@@ -17,6 +17,7 @@ import { FinancialReconciliationOverviewTab } from '@/components/finance/Financi
 import { FinancialReconciliationAlertsTab } from '@/components/finance/FinancialReconciliationAlertsTab';
 import { FinancialReconciliationStripeTab } from '@/components/finance/FinancialReconciliationStripeTab';
 import { FinancialReconciliationTripsTab } from '@/components/finance/FinancialReconciliationTripsTab';
+import { DigitalFinanceEraPanel } from '@/components/finance/DigitalFinanceEraPanel';
 import { useFinanceReconciliationMoney } from '@/hooks/useFinanceReconciliationMoney';
 import { AlertTriangle, RefreshCw, ShieldCheck } from 'lucide-react';
 
