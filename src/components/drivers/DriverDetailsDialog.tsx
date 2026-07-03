@@ -201,7 +201,7 @@ export function DriverDetailsDialog({
   }, [open, driver?.id]);
 
   const fetchDocumentComplianceData = async (driverId: string) => {
-    const [typesRes, docsRes, dsaRes] = await Promise.all([
+    const [typesRes, docsRes, driverRes] = await Promise.all([
       supabase
         .from('document_types')
         .select('id, slug, name, has_expiry, is_required')
@@ -212,46 +212,57 @@ export function DriverDetailsDialog({
         .select('id, document_type, document_name, status, expiry_date, file_url')
         .eq('driver_id', driverId),
       supabase
-        .from('driver_service_areas')
-        .select('service_area_id')
-        .eq('driver_id', driverId),
+        .from('drivers')
+        .select('service_area_id, service_areas(name)')
+        .eq('id', driverId)
+        .maybeSingle(),
     ]);
 
     const allTypes = (typesRes.data || []) as { id: string; slug: string; name: string; has_expiry: boolean; is_required: boolean }[];
-    const serviceAreaIds = (dsaRes.data || []).map((d: any) => d.service_area_id);
+    const assignedServiceAreaId = (driverRes.data?.service_area_id as string | null) ?? null;
+    const joinedSa = driverRes.data?.service_areas as { name?: string } | { name?: string }[] | null | undefined;
+    const assignedServiceAreaName = Array.isArray(joinedSa)
+      ? joinedSa[0]?.name ?? null
+      : joinedSa?.name ?? null;
 
-    let saRules: { doc_type_id: string; mandatory: boolean; is_active: boolean }[] = [];
-    if (serviceAreaIds.length > 0) {
+    let saRules: {
+      doc_type_id: string;
+      mandatory: boolean;
+      is_active: boolean;
+      expiry_required: boolean;
+      display_in_driver_app: boolean;
+    }[] = [];
+
+    if (assignedServiceAreaId) {
       const { data: rulesData } = await supabase
         .from('service_area_document_rules')
-        .select('doc_type_id, mandatory, is_active')
-        .in('service_area_id', serviceAreaIds);
+        .select('doc_type_id, mandatory, is_active, expiry_required, display_in_driver_app')
+        .eq('service_area_id', assignedServiceAreaId);
       saRules = (rulesData || []) as any;
     }
 
-    const saRuleMap: Record<string, { mandatory: boolean; is_active: boolean }> = {};
-    for (const rule of saRules) {
-      const existing = saRuleMap[rule.doc_type_id];
-      if (!existing) {
-        saRuleMap[rule.doc_type_id] = { mandatory: rule.mandatory, is_active: rule.is_active };
-      } else {
-        if (rule.mandatory && rule.is_active) {
-          saRuleMap[rule.doc_type_id] = { mandatory: true, is_active: true };
+    // Assigned SA only — no global is_required fallback, no multi-SA union.
+    const requiredTypes = allTypes
+      .map((dt) => {
+        const saRule = saRules.find((r) => r.doc_type_id === dt.id);
+        if (!saRule) return null;
+        if (!saRule.is_active || !saRule.mandatory || saRule.display_in_driver_app === false) {
+          return null;
         }
-      }
-    }
-
-    const hasSaRules = saRules.length > 0;
-    const requiredTypes = allTypes.filter((dt) => {
-      const saRule = saRuleMap[dt.id];
-      if (saRule) return saRule.is_active && saRule.mandatory;
-      if (hasSaRules) return false;
-      return dt.is_required;
-    });
+        return {
+          slug: dt.slug,
+          name: dt.name,
+          has_expiry: saRule.expiry_required !== false,
+        };
+      })
+      .filter(Boolean) as { slug: string; name: string; has_expiry: boolean }[];
 
     return {
-      requiredTypes: requiredTypes.map(dt => ({ slug: dt.slug, name: dt.name, has_expiry: dt.has_expiry })),
+      requiredTypes,
       driverDocs: (docsRes.data || []) as { id: string; document_type: string; document_name: string; status: string; expiry_date: string | null; file_url: string | null }[],
+      assignedServiceAreaId,
+      assignedServiceAreaName,
+      rulesConfigured: Boolean(assignedServiceAreaId) && saRules.length > 0,
     };
   };
 
