@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { ServiceAreaFinanceFilter, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
@@ -9,20 +9,20 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useFinancialReconciliationSSOT } from '@/hooks/useFinancialReconciliationSSOT';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
 import { useFinanceBackendAudit } from '@/hooks/useFinanceBackendAudit';
-import { safeReconciliationStatus } from '@/lib/financialReconciliationGuards';
+import { safeReconciliationStatus, formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DriverWalletSsotPanel } from '@/components/finance/DriverWalletSsotPanel';
 import { FinancialReconciliationOverviewTab } from '@/components/finance/FinancialReconciliationOverviewTab';
 import { FinancialReconciliationAlertsTab } from '@/components/finance/FinancialReconciliationAlertsTab';
 import { FinancialReconciliationStripeTab } from '@/components/finance/FinancialReconciliationStripeTab';
+import { FinancialReconciliationTripsTab } from '@/components/finance/FinancialReconciliationTripsTab';
 import { DigitalFinanceEraPanel } from '@/components/finance/DigitalFinanceEraPanel';
 import { AlertTriangle, RefreshCw, ShieldCheck } from 'lucide-react';
 
-const FR_TABS = ['overview', 'drivers', 'stripe', 'alerts'] as const;
+const FR_TABS = ['overview', 'drivers', 'trips', 'stripe', 'alerts'] as const;
 type FrTab = (typeof FR_TABS)[number];
 
 function parseFrTab(value: string | null): FrTab {
-  if (value === 'trips') return 'overview';
   if (value && (FR_TABS as readonly string[]).includes(value)) return value as FrTab;
   return 'overview';
 }
@@ -79,20 +79,15 @@ function FinancialReconciliationPage() {
   });
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-
-  useEffect(() => {
-    if (searchParams.get('tab') !== 'trips') return;
-    const next = new URLSearchParams(searchParams);
-    next.delete('tab');
-    setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams]);
+  const [recoverTripId, setRecoverTripId] = useState<string | null>(null);
+  const [recoverTripCode, setRecoverTripCode] = useState<string | null>(null);
 
   const ssot = useFinancialReconciliationSSOT({
     filter,
     from: from || undefined,
     to: to || undefined,
   });
-  const { isLoading, error, refetch, isFetching, readOnly, status: ssotStatus, snapshotSavedAt } = ssot;
+  const { isLoading, error, refetchFresh, isFetching, readOnly, status: ssotStatus, snapshotSavedAt, lastSyncedAt, badge: ssotBadge } = ssot;
   const data = ssot.response;
 
   const {
@@ -107,6 +102,31 @@ function FinancialReconciliationPage() {
   const ccy = ssot.currencyCode || filter.currencyCode || 'GBP';
   const backendAudit = backendAuditData?.finance_backend_audit_v1;
 
+  useEffect(() => {
+    if (searchParams.get('recover') === '1') {
+      const tripCode = searchParams.get('trip');
+      const tripId = searchParams.get('tripId');
+      setRecoverTripId(tripId);
+      setRecoverTripCode(tripCode);
+      const next = new URLSearchParams(searchParams);
+      next.set('tab', 'trips');
+      next.delete('recover');
+      setSearchParams(next, { replace: true });
+      return;
+    }
+    const tripCode = searchParams.get('trip');
+    const tripId = searchParams.get('tripId');
+    if (tripCode || tripId) {
+      setRecoverTripId(tripId);
+      setRecoverTripCode(tripCode);
+    }
+  }, [searchParams, setSearchParams]);
+
+  const clearRecoverTrip = useCallback(() => {
+    setRecoverTripId(null);
+    setRecoverTripCode(null);
+  }, []);
+
   /** money_movement may live on response root or inside summary — merge for Stripe tab. */
   const stripeSummary = useMemo(() => {
     if (!summary) return null;
@@ -114,6 +134,8 @@ function FinancialReconciliationPage() {
     if (movement === summary.money_movement) return summary;
     return { ...summary, money_movement: movement };
   }, [summary, data?.money_movement]);
+
+  const tripAuditRows = data?.trip_financial_audit ?? [];
 
   const reconciliationChip = useMemo(() => {
     if (!summary) return null;
@@ -128,21 +150,13 @@ function FinancialReconciliationPage() {
     return reconciliationStatus;
   }, [summary, ssot.readOnly]);
 
-  const ssotBadge = ssot.badge;
-
   if (searchParams.get('tab') === 'connect-balance') {
     return <Navigate to="/driver-wallet-ledger?tab=stripe" replace />;
   }
 
-  if (searchParams.get('recover') === '1') {
-    const tripHistoryParams = new URLSearchParams();
-    const tripCode = searchParams.get('trip');
-    const tripId = searchParams.get('tripId');
-    if (tripCode) tripHistoryParams.set('trip', tripCode);
-    if (tripId) tripHistoryParams.set('tripId', tripId);
-    tripHistoryParams.set('recover', '1');
-    return <Navigate to={`/trip-history?${tripHistoryParams.toString()}`} replace />;
-  }
+  const lastSyncedLabel = lastSyncedAt
+    ? formatFinanceDateSafe(lastSyncedAt, 'dd MMM yyyy HH:mm:ss')
+    : null;
 
   const setFrTab = (tab: FrTab) => {
     const next = new URLSearchParams(searchParams);
@@ -173,7 +187,7 @@ function FinancialReconciliationPage() {
                 'Live SSOT failed and no cached snapshot exists. Refresh after connectivity is restored.'}
             </AlertDescription>
           </Alert>
-          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+          <Button variant="outline" size="sm" onClick={() => void refetchFresh()} disabled={isFetching}>
             <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
             Retry
           </Button>
@@ -212,13 +226,18 @@ function FinancialReconciliationPage() {
                   {reconciliationChip}
                 </Badge>
               )}
+              {lastSyncedLabel && (ssotStatus === 'LIVE' || ssotBadge === 'REFRESHING') && (
+                <Badge variant="outline" className="text-xs font-normal">
+                  Last synced {lastSyncedLabel}
+                </Badge>
+              )}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <ServiceAreaFinanceFilter value={filter} onChange={setFilter} />
             <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-[150px]" />
             <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-[150px]" />
-            <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+            <Button variant="outline" size="sm" onClick={() => void refetchFresh()} disabled={isFetching}>
               <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
@@ -243,6 +262,7 @@ function FinancialReconciliationPage() {
           <TabsList className="flex flex-wrap h-auto gap-1">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="drivers">Drivers</TabsTrigger>
+            <TabsTrigger value="trips">Trips ({tripAuditRows.length})</TabsTrigger>
             <TabsTrigger value="stripe">Stripe</TabsTrigger>
             <TabsTrigger value="alerts">Alerts</TabsTrigger>
           </TabsList>
@@ -253,12 +273,31 @@ function FinancialReconciliationPage() {
               platformKpis={data?.platform_kpis}
               currencyCode={ccy}
               readOnly={readOnly}
+              onRefresh={() => void refetchFresh()}
+              isRefreshing={isFetching}
             />
           </TabsContent>
 
           <TabsContent value="drivers" className="mt-4">
             {frTab === 'drivers' && (
               <DriverWalletSsotPanel regionId={filter.regionId} currencyCode={ccy} />
+            )}
+          </TabsContent>
+
+          <TabsContent value="trips" className="mt-4">
+            {frTab === 'trips' && (
+              <FinancialReconciliationTripsTab
+                rows={tripAuditRows}
+                currencyCode={ccy}
+                readOnly={readOnly}
+                ssotBadge={ssotBadge}
+                lastSyncedAt={lastSyncedAt}
+                isRefreshing={isFetching}
+                onRefresh={() => void refetchFresh()}
+                initialTripId={recoverTripId}
+                initialTripCode={recoverTripCode}
+                onInitialTripConsumed={clearRecoverTrip}
+              />
             )}
           </TabsContent>
 
@@ -271,9 +310,16 @@ function FinancialReconciliationPage() {
                 periodFrom={from || undefined}
                 periodTo={to || undefined}
                 periodLabel={from && to ? `${from} → ${to}` : undefined}
+                auditRows={tripAuditRows}
                 paymentIntents={data?.stripe_payment_intents ?? []}
                 stripeBalanceError={data?.meta?.stripe_balance_error ?? null}
+                ssotStatus={ssotStatus}
+                ssotBadge={ssotBadge}
+                lastSyncedAt={lastSyncedAt}
+                snapshotSavedAt={snapshotSavedAt}
                 readOnly={readOnly}
+                onRefreshStripe={() => void refetchFresh()}
+                isRefreshingStripe={isFetching}
               />
             )}
           </TabsContent>

@@ -10,11 +10,10 @@ export function tripSettlementRecoverUrl(tripId: string, tripCode?: string | nul
 }
 
 /**
- * Legacy FR → Trips deep links redirect to trip-history recover via FinancialReconciliation page.
- * Use for capture recovery / settlement actions.
+ * Deep-link to Financial Reconciliation → Trips tab with payment action drawer.
  */
 export function financeReconciliationTripUrl(tripId: string, tripCode?: string | null): string {
-  const params = new URLSearchParams({ recover: '1' });
+  const params = new URLSearchParams({ tab: 'trips', recover: '1' });
   if (tripCode?.trim()) {
     params.set('trip', tripCode.trim());
   } else {
@@ -25,12 +24,12 @@ export function financeReconciliationTripUrl(tripId: string, tripCode?: string |
 
 /** Read-only platform finance audit — per-trip commission / Stripe fees live here, not Trip History. */
 export function financialReconciliationTripsTabUrl(tripId: string, tripCode?: string | null): string {
-  const params = new URLSearchParams();
+  const params = new URLSearchParams({ tab: 'trips' });
   if (tripCode?.trim()) {
     params.set('trip', tripCode.trim());
   } else {
     params.set('tripId', tripId);
   }
   const qs = params.toString();
-  return qs ? `/financial-reconciliation?${qs}` : '/financial-reconciliation';
+  return `/financial-reconciliation?${qs}`;
 }

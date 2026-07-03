@@ -6,12 +6,14 @@ import { Link } from 'react-router-dom';
 
 const BADGE_STYLES: Record<FinanceDataSourceBadge, string> = {
   LIVE: 'bg-emerald-600/15 text-emerald-800 border-emerald-600/30',
+  REFRESHING: 'bg-blue-600/15 text-blue-800 border-blue-600/30',
   DEGRADED_SNAPSHOT: 'bg-red-600/15 text-red-800 border-red-600/30',
   UNAVAILABLE: 'bg-red-600/15 text-red-800 border-red-600/30',
 };
 
 const BADGE_LABELS: Record<FinanceDataSourceBadge, string> = {
   LIVE: 'LIVE',
+  REFRESHING: 'REFRESHING',
   DEGRADED_SNAPSHOT: 'DEGRADED_SNAPSHOT',
   UNAVAILABLE: 'UNAVAILABLE',
 };

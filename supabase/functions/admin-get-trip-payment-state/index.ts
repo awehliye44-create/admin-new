@@ -212,8 +212,46 @@ serve(async (req) => {
       stripe_settlement_warning,
     );
 
+    const paymentMethod = String(charge_payment_method ?? trip.payment_method ?? '').toLowerCase();
+    const isDigital = paymentMethod !== '' && paymentMethod !== 'cash';
+    const financialOutcome = String(trip.financial_outcome ?? '').toLowerCase();
+    const tripCancelled =
+      financialOutcome.includes('cancel')
+      || String(trip.payment_status ?? '').toLowerCase().includes('cancel');
+    const refundableAmount = Math.max(0, captured_pence - refunded_pence);
+    const refundStatus: 'none' | 'partial' | 'full' =
+      captured_pence > 0 && refunded_pence >= captured_pence
+        ? 'full'
+        : refunded_pence > 0
+          ? 'partial'
+          : 'none';
+
+    const can_capture =
+      isDigital
+      && !!trip.stripe_payment_intent_id
+      && stripe_status === 'requires_capture'
+      && (amount_capturable ?? 0) > 0
+      && !tripCancelled
+      && refundStatus !== 'full';
+
+    const can_refund =
+      isDigital
+      && captured_pence > 0
+      && refundableAmount > 0
+      && refundStatus !== 'full'
+      && !tripCancelled;
+
+    const actions_allowed = {
+      can_capture,
+      can_refund,
+      can_partial_refund: can_refund && refundableAmount > 0,
+      can_sync_stripe: isDigital && !!trip.stripe_payment_intent_id,
+      can_add_note: true,
+    };
+
     return jsonResponse({
       trip_id,
+      trip_code: trip.trip_code ?? null,
       ssot_source: 'trip_financial_audit',
       payment_intent_id: trip.stripe_payment_intent_id,
       charge_id,
@@ -223,12 +261,18 @@ serve(async (req) => {
       payment_status: trip.payment_status,
       stripe_status,
       stripe_currency,
+      amount_authorized_pence: authorized_pence,
       authorized_pence,
-      captured_pence,
-      refunded_pence,
-      net_captured_pence: Math.max(0, captured_pence - refunded_pence),
-      refundable_pence: Math.max(0, captured_pence - refunded_pence),
       amount_capturable_pence: amount_capturable,
+      amount_captured_pence: captured_pence,
+      captured_pence,
+      refunded_amount_pence: refunded_pence,
+      refunded_pence,
+      refundable_amount_pence: refundableAmount,
+      refundable_pence: refundableAmount,
+      refund_status: refundStatus,
+      net_captured_pence: Math.max(0, captured_pence - refunded_pence),
+      final_customer_fare_pence: final_fare_pence,
       final_fare_pence,
       settlement_total_pence,
       gross_fare_pence: auditRow.gross_fare_pence,
@@ -238,8 +282,13 @@ serve(async (req) => {
       stripe_fee_pence,
       onecab_net_pence,
       driver_net_pence,
+      recovery_debt_pence: auditRow.debt_recovered_pence,
+      debt_recovered_pence: auditRow.debt_recovered_pence,
+      stripe_transfer_amount_pence: stripe_transfer_amount_pence,
+      available_payout_created_pence: auditRow.available_payout_created_pence,
       outstanding_pence: auditRow.outstanding_pence,
       capture_mismatch: auditRow.capture_mismatch,
+      actions_allowed,
       stripe_application_fee_id,
       stripe_application_fee_amount_pence,
       stripe_destination_account_id,

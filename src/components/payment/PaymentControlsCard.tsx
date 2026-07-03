@@ -15,6 +15,8 @@ import {
   ChevronDown, RefreshCw, Banknote, Undo2, Pencil, ShieldCheck, AlertTriangle, XCircle, ArrowDownToLine,
   PlusCircle, MinusCircle, FileEdit,
 } from 'lucide-react';
+import { SyncTripPaymentFromStripeButton } from '@/components/payment/SyncTripPaymentFromStripeButton';
+import { useFinanceActionPermission } from '@/hooks/useFinanceActionPermission';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { useEffect } from 'react';
@@ -72,11 +74,23 @@ interface PaymentState {
   payment_created_at: string | null;
   captured_at: string | null;
   refunded_at: string | null;
+  trip_code?: string | null;
+  recovery_debt_pence?: number;
+  debt_recovered_pence?: number;
+  available_payout_created_pence?: number | null;
+  refund_status?: 'none' | 'partial' | 'full';
+  actions_allowed?: {
+    can_capture: boolean;
+    can_refund: boolean;
+    can_partial_refund: boolean;
+    can_sync_stripe: boolean;
+    can_add_note: boolean;
+  };
 }
 
 interface AuditEntry {
   id: string;
-  action: 'capture' | 'refund' | 'edit_fare' | 'cancel' | 'extra_payment';
+  action: 'capture' | 'refund' | 'edit_fare' | 'cancel' | 'extra_payment' | 'finance_note' | 'sync_stripe';
   reason: string;
   amount_pence_before: number | null;
   amount_pence_after: number | null;
@@ -153,19 +167,25 @@ function settlementWarningLabel(
 export type PaymentControlsVariant = 'finance' | 'summary';
 
 export type FinanceRecoveryAction = 'extra_payment' | 'waive' | 'internal_adjustment';
+export type InitialPaymentAction = 'capture' | 'refund' | 'partial_refund';
 
 export function PaymentControlsCard({
   tripId,
   variant = 'finance',
   initialAction = null,
+  initialPaymentAction = null,
   onInitialActionConsumed,
+  onActionComplete,
 }: {
   tripId: string;
   variant?: PaymentControlsVariant;
   initialAction?: FinanceRecoveryAction | null;
+  initialPaymentAction?: InitialPaymentAction | null;
   onInitialActionConsumed?: () => void;
+  onActionComplete?: () => void;
 }) {
   const { isAdmin } = useAuth();
+  const { canUseFinanceActions } = useFinanceActionPermission();
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<Mode | null>(null);
   const [amountInput, setAmountInput] = useState<string>('');
@@ -272,6 +292,7 @@ export function PaymentControlsCard({
       setReason('');
       setAmountInput('');
       refresh();
+      onActionComplete?.();
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -279,16 +300,19 @@ export function PaymentControlsCard({
   const isFinanceVariant = variant === 'finance';
   const showRecoveryActions = isFinanceVariant;
 
-  if (!isAdmin) return null;
+  if (!isAdmin || !canUseFinanceActions) return null;
 
   const state = stateQuery.data;
   const captureContext = captureContextQuery.data;
   const captureStatus = captureContext ? getTripCaptureStatus(captureContext) : null;
   const currency = state?.stripe_currency || 'GBP';
-  const isUncaptured = state?.stripe_status === 'requires_capture';
+  const isUncaptured = state?.actions_allowed?.can_capture ?? state?.stripe_status === 'requires_capture';
   const isCancelled = state?.stripe_status === 'canceled';
-  const hasCharge = !!state && state.captured_pence > 0;
-  const refundable = state ? Math.max(0, state.captured_pence - state.refunded_pence) : 0;
+  const hasCharge = !!state && (state.actions_allowed?.can_refund || state.actions_allowed?.can_partial_refund || state.captured_pence > 0);
+  const refundable = state ? Math.max(0, state.refundable_pence ?? state.captured_pence - state.refunded_pence) : 0;
+  const canRefund = state?.actions_allowed?.can_refund ?? (hasCharge && refundable > 0);
+  const canPartialRefund = state?.actions_allowed?.can_partial_refund ?? canRefund;
+  const canSyncStripe = state?.actions_allowed?.can_sync_stripe ?? !!state?.payment_intent_id;
   const isFullyRefunded = state ? state.captured_pence > 0 && refundable === 0 : false;
   const settlementWarning = state
     ? settlementWarningSeverity(
@@ -367,6 +391,14 @@ export function PaymentControlsCard({
     else if (initialAction === 'internal_adjustment') openInternalAdjustment();
     onInitialActionConsumed?.();
   }, [initialAction, state, stateQuery.isLoading]);
+
+  useEffect(() => {
+    if (!initialPaymentAction || !state || stateQuery.isLoading) return;
+    if (initialPaymentAction === 'capture' && isUncaptured) openMode('capture');
+    else if (initialPaymentAction === 'refund' && canRefund) openMode('refund');
+    else if (initialPaymentAction === 'partial_refund' && canPartialRefund) openMode('partial_refund');
+    onInitialActionConsumed?.();
+  }, [initialPaymentAction, state, stateQuery.isLoading]);
 
   const submit = () => {
     if (reason.trim().length < 5) {
@@ -626,6 +658,12 @@ export function PaymentControlsCard({
               )}
               <div className="flex justify-between"><span className="text-muted-foreground">Buffer (auth − settlement)</span><span>{formatPence(state.buffer_pence, currency)}</span></div>
               <Separator className="my-1" />
+              {state.debt_recovered_pence != null && state.debt_recovered_pence > 0 && (
+                <div className="flex justify-between"><span className="text-muted-foreground">Recovery deduction</span><span>{formatPence(state.debt_recovered_pence, currency)}</span></div>
+              )}
+              {state.available_payout_created_pence != null && (
+                <div className="flex justify-between"><span className="text-muted-foreground">Available payout created</span><span>{formatPence(state.available_payout_created_pence, currency)}</span></div>
+              )}
               <div className="flex justify-between"><span className="text-muted-foreground">Gross commission</span><span>{formatPence(state.commission_pence, currency)}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Stripe fee</span><span className="text-orange-600">{state.stripe_fee_pence > 0 ? `−${formatPence(state.stripe_fee_pence, currency)}` : '—'}</span></div>
               <div className="flex justify-between font-medium"><span>ONECAB net</span><span className="text-blue-600">{formatPence(state.onecab_net_pence, currency)}</span></div>
@@ -673,7 +711,7 @@ export function PaymentControlsCard({
             <div className="flex flex-wrap gap-2">
               {isUncaptured && (
                 <Button size="sm" onClick={() => openMode('capture')} disabled={actionMutation.isPending}>
-                  <Banknote className="h-4 w-4 mr-1" /> Capture
+                  <Banknote className="h-4 w-4 mr-1" /> Capture Payment
                 </Button>
               )}
               {isUncaptured && (
@@ -681,15 +719,20 @@ export function PaymentControlsCard({
                   <XCircle className="h-4 w-4 mr-1" /> Cancel / Release Hold
                 </Button>
               )}
-              {hasCharge && refundable > 0 && (
+              {canRefund && refundable > 0 && (
                 <>
                   <Button size="sm" variant="outline" onClick={() => openMode('refund')} disabled={actionMutation.isPending}>
-                    <Undo2 className="h-4 w-4 mr-1" /> Full Refund
+                    <Undo2 className="h-4 w-4 mr-1" /> Refund
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => openMode('partial_refund')} disabled={actionMutation.isPending}>
-                    <ArrowDownToLine className="h-4 w-4 mr-1" /> Partial Refund
-                  </Button>
+                  {canPartialRefund && (
+                    <Button size="sm" variant="outline" onClick={() => openMode('partial_refund')} disabled={actionMutation.isPending}>
+                      <ArrowDownToLine className="h-4 w-4 mr-1" /> Partial Refund
+                    </Button>
+                  )}
                 </>
+              )}
+              {canSyncStripe && (
+                <SyncTripPaymentFromStripeButton tripId={tripId} onSynced={() => { refresh(); onActionComplete?.(); }} />
               )}
               {(isUncaptured || hasCharge) && !blockEditFareForOutstanding && (
                 <Button size="sm" variant="outline" onClick={() => openMode('edit')} disabled={actionMutation.isPending}>
