@@ -81,8 +81,8 @@ interface DispatchSettings {
   lockedDriverResponseMinutes: number;
   scheduledUrgentCardLabel: string;
   enableScheduledToUrgentConversion: boolean;
-  // Driver Fare Display (what drivers see in the offer card)
-  driverFareDisplay: 'net_earnings' | 'gross_fare' | 'smart_display' | 'full_breakdown';
+
+
 
   // System Settings (operational flags, not dispatch execution)
   enableLogging: boolean;
@@ -134,7 +134,7 @@ const defaultSettings: DispatchSettings = {
   simulateMode: false,
   blockMultipleActiveRides: false,
   cancelProtection: false,
-  driverFareDisplay: 'smart_display',
+
 };
 
 // DB stores all distances in METERS. UI keeps km-named state for display conversion.
@@ -181,7 +181,6 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   simulateMode: (data.simulate_mode as boolean) ?? defaultSettings.simulateMode,
   blockMultipleActiveRides: (data.block_multiple_active_rides as boolean) ?? defaultSettings.blockMultipleActiveRides,
   cancelProtection: (data.cancel_protection as boolean) ?? defaultSettings.cancelProtection,
-  driverFareDisplay: ((data.driver_fare_display as DispatchSettings['driverFareDisplay']) ?? defaultSettings.driverFareDisplay),
 });
 
 const mapSettingsToDb = (settings: DispatchSettings) => ({
@@ -229,7 +228,6 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
   simulate_mode: settings.simulateMode,
   block_multiple_active_rides: settings.blockMultipleActiveRides,
   cancel_protection: settings.cancelProtection,
-  driver_fare_display: settings.driverFareDisplay,
 });
 
 export default function AutoDispatchRules() {
@@ -611,141 +609,36 @@ export default function AutoDispatchRules() {
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Mode selector — card grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {([
-                {
-                  value: 'net_earnings' as const,
-                  title: 'Net Earnings Only',
-                  desc: 'Driver only sees what they keep after commission.',
-                  recommended: false,
-                },
-                {
-                  value: 'gross_fare' as const,
-                  title: 'Gross Fare Only',
-                  desc: 'Driver sees the total fare the customer is charged.',
-                  recommended: false,
-                },
-                {
-                  value: 'smart_display' as const,
-                  title: 'Smart Display',
-                  desc: 'Cash: show gross + you keep. Digital: show net earnings.',
-                  recommended: true,
-                },
-              ]).map((opt) => {
-                const active = settings.driverFareDisplay === opt.value;
-                return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => updateSetting('driverFareDisplay', opt.value)}
-                    disabled={isLoading}
-                    className={`text-left rounded-lg border-2 p-4 transition ${
-                      active
-                        ? 'border-primary bg-primary/5 ring-2 ring-primary/30'
-                        : 'border-border hover:border-primary/40'
-                    } ${isLoading ? 'opacity-60 cursor-not-allowed' : ''}`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="font-semibold">{opt.title}</p>
-                      <div className="flex items-center gap-2">
-                        {opt.recommended && (
-                          <Badge className="bg-primary text-primary-foreground">Recommended</Badge>
-                        )}
-                        {active && <CheckCircle2 className="h-4 w-4 text-primary" />}
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground">{opt.desc}</p>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Live preview — Ride Offer Card */}
+            {/* Ride Offer Card — Driver App Preview (Net Earnings Only) */}
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <Label className="text-sm font-semibold">Ride Offer Card — Driver App Preview</Label>
-                <Badge variant="outline" className="text-xs">Live</Badge>
+                <Badge variant="outline" className="text-xs">Net Earnings Only</Badge>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Cash trip preview */}
-                <div className="rounded-lg border bg-card p-4 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Badge variant="secondary" className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">CASH</Badge>
-                    <span className="text-xs text-muted-foreground">4.2 km · 12 min</span>
-                  </div>
-                  {settings.driverFareDisplay === 'net_earnings' && (
-                    <p className="text-2xl font-bold">You earn £59.50</p>
-                  )}
-                  {settings.driverFareDisplay === 'gross_fare' && (
-                    <p className="text-2xl font-bold">Fare £70.00</p>
-                  )}
-                  {settings.driverFareDisplay === 'smart_display' && (
-                    <>
-                      <p className="text-2xl font-bold">Fare £70.00</p>
-                      <p className="text-sm text-muted-foreground">You keep £59.50</p>
-                    </>
-                  )}
-                  {settings.driverFareDisplay === 'full_breakdown' && (
-                    <>
-                      <p className="text-2xl font-bold">Fare £70.00</p>
-                      <p className="text-xs text-muted-foreground">Commission £10.50 · You keep £59.50</p>
-                    </>
-                  )}
+              <div className="rounded-lg border bg-card p-4 space-y-2 max-w-md">
+                <div className="flex items-center justify-between">
+                  <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">CARD</Badge>
+                  <span className="text-xs text-muted-foreground">4.2 km · 12 min</span>
                 </div>
-
-                {/* Digital trip preview */}
-                <div className="rounded-lg border bg-card p-4 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">CARD</Badge>
-                    <span className="text-xs text-muted-foreground">4.2 km · 12 min</span>
-                  </div>
-                  {settings.driverFareDisplay === 'net_earnings' && (
-                    <p className="text-2xl font-bold">You earn £59.50</p>
-                  )}
-                  {settings.driverFareDisplay === 'gross_fare' && (
-                    <p className="text-2xl font-bold">Fare £70.00</p>
-                  )}
-                  {settings.driverFareDisplay === 'smart_display' && (
-                    <p className="text-2xl font-bold">You earn £59.50</p>
-                  )}
-                  {settings.driverFareDisplay === 'full_breakdown' && (
-                    <>
-                      <p className="text-2xl font-bold">You earn £59.50</p>
-                      <p className="text-xs text-muted-foreground">Fare £70.00 · Commission £10.50</p>
-                    </>
-                  )}
-                </div>
+                <p className="text-2xl font-bold">You earn £59.50</p>
               </div>
             </div>
 
-            {/* Completed Trip Summary preview — illustrative UI only; live values from SSOT at trip completion */}
+            {/* Completed Trip Summary preview — digital only */}
             <div className="space-y-3">
-              <Label className="text-sm font-semibold">Completed Trip Summary — Driver App Preview (mock)</Label>
-              <p className="text-xs text-muted-foreground">
-                Commission and net earnings are calculated by the SSOT backend at trip completion — not shown here.
-                Admin truth: Financial Reconciliation → Trips.
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="rounded-lg border bg-muted/30 p-4 space-y-1 text-sm">
-                  <p className="font-semibold mb-2">Cash Trip (mock layout)</p>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Payment Method</span><span>Cash</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Fare collected</span><span>At trip completion</span></div>
-                  <div className="flex justify-between font-semibold pt-1 border-t mt-1"><span>Driver earnings</span><span>See SSOT</span></div>
-                </div>
-                <div className="rounded-lg border bg-muted/30 p-4 space-y-1 text-sm">
-                  <p className="font-semibold mb-2">Digital Trip (mock layout)</p>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Payment Method</span><span>Card</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Settlement</span><span>Stripe SSOT pipeline</span></div>
-                  <div className="flex justify-between font-semibold pt-1 border-t mt-1"><span>Driver earnings</span><span>See SSOT</span></div>
-                </div>
+              <Label className="text-sm font-semibold">Completed Trip Summary — Driver App Preview</Label>
+              <div className="rounded-lg border bg-muted/30 p-4 space-y-1 text-sm max-w-md">
+                <p className="font-semibold mb-2">Digital Trip</p>
+                <div className="flex justify-between"><span className="text-muted-foreground">Payment Method</span><span>Card</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Settlement</span><span>Stripe SSOT Pipeline</span></div>
+                <div className="flex justify-between font-semibold pt-1 border-t mt-1"><span>Driver Earnings</span><span>Calculated by Financial SSOT</span></div>
               </div>
             </div>
 
             <div className="flex items-start gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
               <Info className="h-4 w-4 text-blue-600 mt-0.5" />
               <div className="text-sm text-blue-700 dark:text-blue-400">
-                Applies to instant bookings, scheduled rides, and scan & go offers. Smart Display is recommended for mixed cash/digital fleets.
+                Applies to all trips. ONECAB operates using a digital payment model. Driver earnings displayed throughout the platform are calculated by the backend Financial SSOT after commission and any applicable adjustments.
               </div>
             </div>
           </CardContent>
