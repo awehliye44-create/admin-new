@@ -363,8 +363,7 @@ export function AdminSidebar() {
           {/* SETTINGS */}
           <Section label="Settings" slugs={['general-settings','integrations','payment-providers','webhooks','roles','user-directory','notifications','alert-sounds']}>
             <P pageSlug="general-settings" to="/general-settings" icon={<Palette className="h-4 w-4" />} label="General & Branding" active={currentPath === '/general-settings'} collapsed={isCollapsed} />
-            <P pageSlug="integrations" to="/integrations" icon={<Plug className="h-4 w-4" />} label="Integrations & API" active={currentPath === '/integrations'} collapsed={isCollapsed} />
-            <P pageSlug="payment-providers" to="/payment-providers" icon={<CreditCard className="h-4 w-4" />} label="Payment Providers" active={currentPath === '/payment-providers'} collapsed={isCollapsed} />
+            <P pageSlug="payment-providers" to="/payment-providers" icon={<CreditCard className="h-4 w-4" />} label="Payment Providers" active={currentPath === '/payment-providers' || currentPath === '/integrations'} collapsed={isCollapsed} />
             <P pageSlug="webhooks" to="/webhooks" icon={<Webhook className="h-4 w-4" />} label="Webhooks" active={currentPath === '/webhooks'} collapsed={isCollapsed} />
             <P pageSlug="roles" to="/roles" icon={<Shield className="h-4 w-4" />} label="Roles & Permissions" active={currentPath === '/roles'} collapsed={isCollapsed} />
             <P pageSlug="user-directory" to="/user-directory" icon={<Contact className="h-4 w-4" />} label="User Directory" active={currentPath === '/user-directory'} collapsed={isCollapsed} />

@@ -3,7 +3,6 @@ import { format } from "date-fns";
 import {
   AlertTriangle,
   CheckCircle,
-  CreditCard,
   Loader2,
   RefreshCw,
   Shield,
@@ -420,43 +419,21 @@ function ProviderCard({
   );
 }
 
-export function PaymentProvidersSection() {
-  const { toast } = useToast();
-  const { data, isLoading, refetch, updateProvider, saveSecrets, testConnection } = usePaymentProviders();
-  const [secretsProvider, setSecretsProvider] = useState<PaymentProviderCard | null>(null);
-  const [testingProvider, setTestingProvider] = useState<PaymentProviderId | null>(null);
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  const providers = data?.providers ?? [];
-  const globalWarnings = data?.global_warnings ?? [];
-  const activeProvider = data?.active_provider ?? "stripe";
-
+export function PaymentProvidersConfigurationReadiness({
+  globalWarnings,
+  activeProvider,
+}: {
+  globalWarnings: string[];
+  activeProvider: string;
+}) {
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h2 className="text-xl font-semibold flex items-center gap-2">
-            <CreditCard className="h-5 w-5" />
-            Payment Providers
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            Store provider credentials and webhook secrets now. Adding keys does not make a provider live —
-            only Stripe has a live booking adapter today. Other providers return{" "}
-            <code className="text-xs">{PROVIDER_NOT_IMPLEMENTED_CODE}</code> until adapter, webhook
-            processing, sandbox testing, and production approval are complete.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh
-        </Button>
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-semibold">Configuration Readiness</h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          Prepare provider credentials before go-live. Service area gateway assignment is under each
+          Service Area → Offers &amp; Payment.
+        </p>
       </div>
 
       <Alert>
@@ -483,6 +460,43 @@ export function PaymentProvidersSection() {
           </AlertDescription>
         </Alert>
       )}
+    </div>
+  );
+}
+
+export function PaymentProvidersCardsGrid() {
+  const { toast } = useToast();
+  const { data, isLoading, refetch, updateProvider, saveSecrets, testConnection } = usePaymentProviders();
+  const [secretsProvider, setSecretsProvider] = useState<PaymentProviderCard | null>(null);
+  const [testingProvider, setTestingProvider] = useState<PaymentProviderId | null>(null);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  const providers = data?.providers ?? [];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">Payment Providers</h2>
+          <p className="text-sm text-muted-foreground">
+            Store provider credentials and webhook secrets now. Adding keys does not make a provider live —
+            only Stripe has a live booking adapter today. Other providers return{" "}
+            <code className="text-xs">{PROVIDER_NOT_IMPLEMENTED_CODE}</code> until adapter, webhook
+            processing, sandbox testing, and production approval are complete.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => refetch()}>
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Refresh
+        </Button>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         {providers.map((provider) => (
@@ -561,6 +575,32 @@ export function PaymentProvidersSection() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** @deprecated Use PaymentProvidersConfigurationReadiness + PaymentProvidersCardsGrid on the SSOT page. */
+export function PaymentProvidersSection() {
+  const { data, isLoading } = usePaymentProviders();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  const globalWarnings = data?.global_warnings ?? [];
+  const activeProvider = data?.active_provider ?? "stripe";
+
+  return (
+    <div className="space-y-6">
+      <PaymentProvidersConfigurationReadiness
+        globalWarnings={globalWarnings}
+        activeProvider={activeProvider}
+      />
+      <PaymentProvidersCardsGrid />
     </div>
   );
 }

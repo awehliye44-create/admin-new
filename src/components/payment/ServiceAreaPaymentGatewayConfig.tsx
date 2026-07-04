@@ -373,7 +373,7 @@ export function ServiceAreaPaymentGatewayConfig({
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Configure provider API keys under Integrations → Payment Providers. Status reflects live
+          Configure provider API keys under Settings → Payment Providers. Status reflects live
           backend checks — never the dropdown selection alone.
         </p>
       </CardContent>
