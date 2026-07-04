@@ -81,8 +81,8 @@ interface DispatchSettings {
   lockedDriverResponseMinutes: number;
   scheduledUrgentCardLabel: string;
   enableScheduledToUrgentConversion: boolean;
-  // Driver Fare Display (what drivers see in the offer card)
-  driverFareDisplay: 'net_earnings' | 'gross_fare' | 'smart_display' | 'full_breakdown';
+
+
 
   // System Settings (operational flags, not dispatch execution)
   enableLogging: boolean;
@@ -134,7 +134,7 @@ const defaultSettings: DispatchSettings = {
   simulateMode: false,
   blockMultipleActiveRides: false,
   cancelProtection: false,
-  driverFareDisplay: 'smart_display',
+
 };
 
 // DB stores all distances in METERS. UI keeps km-named state for display conversion.
@@ -181,7 +181,6 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   simulateMode: (data.simulate_mode as boolean) ?? defaultSettings.simulateMode,
   blockMultipleActiveRides: (data.block_multiple_active_rides as boolean) ?? defaultSettings.blockMultipleActiveRides,
   cancelProtection: (data.cancel_protection as boolean) ?? defaultSettings.cancelProtection,
-  driverFareDisplay: ((data.driver_fare_display as DispatchSettings['driverFareDisplay']) ?? defaultSettings.driverFareDisplay),
 });
 
 const mapSettingsToDb = (settings: DispatchSettings) => ({
@@ -229,7 +228,6 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
   simulate_mode: settings.simulateMode,
   block_multiple_active_rides: settings.blockMultipleActiveRides,
   cancel_protection: settings.cancelProtection,
-  driver_fare_display: settings.driverFareDisplay,
 });
 
 export default function AutoDispatchRules() {
