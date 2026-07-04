@@ -6,7 +6,7 @@
  * commission percentages are resolved and applied. DO NOT bypass it.
  * 
  * Rules enforced:
- * 1. Commission always comes from driver_categories table (never hardcoded)
+ * 1. Commission % comes from service_area_driver_tiers per service area (never global driver_categories)
  * 2. Bronze tier is the fallback default for unassigned drivers
  * 3. Formula: commission_pence = round(gross_fare_pence * pct / 100)
  * 4. driver_net_pence = gross_fare_pence - commission_pence

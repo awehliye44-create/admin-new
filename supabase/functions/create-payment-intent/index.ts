@@ -192,7 +192,7 @@ serve(async (req) => {
         .single();
 
       driverStripeAccountId = driver?.stripe_account_id || null;
-      const result = await calculateCommission(supabase, trip.driver_id, payable_pence);
+      const result = await calculateCommission(supabase, trip.driver_id, payable_pence, trip.service_area_id);
       commissionPercentage = result.commission_pct;
       applicationFeeAmount = result.commission_pence;
     }

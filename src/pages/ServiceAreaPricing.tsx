@@ -5,8 +5,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 
 import {
   Select,
@@ -28,6 +26,7 @@ import {
   Globe,
   Calculator,
   Gift,
+  Crown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ServiceAreaPaymentConfig } from '@/components/payment/ServiceAreaPaymentConfig';
@@ -40,6 +39,7 @@ import { PresetOffersConfig } from '@/components/pricing/PresetOffersConfig';
 import { FareEngineConfig } from '@/components/pricing/FareEngineConfig';
 import { ServiceAreaTripsTab } from '@/components/payment/ServiceAreaTripsTab';
 import { VehicleTypePricingRow } from '@/components/pricing/VehicleTypePricingRow';
+import { ServiceAreaDriverTiersConfig } from '@/components/pricing/ServiceAreaDriverTiersConfig';
 
 interface VehicleType {
   id: string;
@@ -62,8 +62,6 @@ interface ServiceArea {
   region_id: string;
   is_active: boolean;
   tips_enabled: boolean;
-  per_booking_fee_enabled: boolean;
-  per_booking_fee_pence: number;
   early_cashout_enabled: boolean;
   region?: { 
     name: string;
@@ -115,7 +113,7 @@ export default function ServiceAreaPricing() {
       const [areasRes, vtRes] = await Promise.all([
         supabase
           .from('service_areas')
-          .select('id, name, region_id, is_active, tips_enabled, per_booking_fee_enabled, per_booking_fee_pence, early_cashout_enabled, region:regions(name, currency_code, distance_unit)')
+          .select('id, name, region_id, is_active, tips_enabled, early_cashout_enabled, region:regions(name, currency_code, distance_unit)')
           .order('name'),
         supabase
           .from('vehicle_types')
@@ -176,15 +174,6 @@ export default function ServiceAreaPricing() {
   // Per-vehicle toggle + pricing is owned by <VehicleTypePricingRow />.
 
 
-  const updatePerBookingFee = (field: 'per_booking_fee_enabled' | 'per_booking_fee_pence', value: boolean | number) => {
-    setServiceAreas(prev => prev.map(sa => 
-      sa.id === selectedServiceAreaId 
-        ? { ...sa, [field]: value }
-        : sa
-    ));
-    setHasChanges(true);
-  };
-
   const updateTipsEnabled = (enabled: boolean) => {
     setServiceAreas(prev => prev.map(sa =>
       sa.id === selectedServiceAreaId
@@ -213,8 +202,6 @@ export default function ServiceAreaPricing() {
         await supabase
           .from('service_areas')
           .update({
-            per_booking_fee_enabled: selectedServiceArea.per_booking_fee_enabled,
-            per_booking_fee_pence: selectedServiceArea.per_booking_fee_pence,
             tips_enabled: selectedServiceArea.tips_enabled,
             early_cashout_enabled: selectedServiceArea.early_cashout_enabled ?? false,
           })
@@ -313,9 +300,9 @@ export default function ServiceAreaPricing() {
               <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0">{assignedCount}</Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="fees" className="flex items-center gap-2">
-            <Banknote className="h-4 w-4" />
-            Booking Fees
+          <TabsTrigger value="driver-tiers" className="flex items-center gap-2">
+            <Crown className="h-4 w-4" />
+            Driver Tiers
           </TabsTrigger>
           <TabsTrigger value="offers" className="flex items-center gap-2">
             <Banknote className="h-4 w-4" />
@@ -393,48 +380,14 @@ export default function ServiceAreaPricing() {
           </Card>
         </TabsContent>
 
-        {/* Booking Fees Tab */}
-        <TabsContent value="fees" className="space-y-6">
-          {/* Per Booking Fee */}
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
-                    <Banknote className="h-5 w-5 text-primary" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold">Per Booking Fee</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Apply a fixed fee to each booking in this service area
-                    </p>
-                  </div>
-                </div>
-                <Switch
-                  checked={selectedServiceArea?.per_booking_fee_enabled ?? false}
-                  onCheckedChange={(checked) => updatePerBookingFee('per_booking_fee_enabled', checked)}
-                />
-              </div>
-              
-              {selectedServiceArea?.per_booking_fee_enabled && (
-                <div className="mt-4 pt-4 border-t">
-                  <div className="max-w-xs space-y-2">
-                    <Label>Fee Amount ({getCurrencySymbol(regionCurrency)})</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={(selectedServiceArea?.per_booking_fee_pence ?? 0) / 100}
-                      onChange={e => updatePerBookingFee('per_booking_fee_pence', Math.round((parseFloat(e.target.value) || 0) * 100))}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      This fee is added to every trip in this service area
-                    </p>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+        {/* Driver Tiers Tab */}
+        <TabsContent value="driver-tiers" className="space-y-6">
+          {selectedServiceAreaId && (
+            <ServiceAreaDriverTiersConfig
+              serviceAreaId={selectedServiceAreaId}
+              serviceAreaName={selectedServiceArea?.name}
+            />
+          )}
         </TabsContent>
 
         {/* Offers & Payment Tab */}

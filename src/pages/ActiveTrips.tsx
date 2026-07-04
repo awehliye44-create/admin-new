@@ -60,6 +60,7 @@ import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
 import { filterAdminActiveTrips, formatAdminActiveTripTimerLabel } from '@/lib/adminActiveTripFilter';
 import { FinancialReconciliationTripLink } from '@/components/finance/FinancialReconciliationTripLink';
 import { resolvePayableFarePence } from '@/lib/fareDisplaySSOT';
+import { computeLiveTripFarePreview } from '@/lib/liveTripFareSSOT';
 
 interface Trip {
   id: string;
@@ -73,6 +74,36 @@ interface Trip {
   estimated_fare: number;
   fare: number;
   final_fare_pence?: number | null;
+  final_customer_fare_pence?: number | null;
+  locked_base_fare_pence?: number | null;
+  pickup_waiting_charge_pence?: number | null;
+  stop_waiting_charge_pence?: number | null;
+  stop_charge_total_pence?: number | null;
+  customer_modification_charge_pence?: number | null;
+  modification_delta_pence?: number | null;
+  modification_status?: string | null;
+  modified_dropoff_address?: string | null;
+  trip_stops?: Array<{
+    id: string;
+    stop_index: number;
+    type: string;
+    address: string;
+    status: string | null;
+  }>;
+  open_modification?: {
+    id: string;
+    status: string;
+    payment_status: string | null;
+    navigation_impacted: boolean | null;
+    requires_approval: boolean | null;
+    fare_delta_pence: number | null;
+  } | null;
+  route_cache_version?: string | null;
+  current_customer_total_pence?: number | null;
+  snapshot_mismatch?: string | null;
+  driver_tier_commission_percent?: number | null;
+  commission_pct?: number | null;
+  commission_pence?: number | null;
   gross_fare_pence?: number | null;
   offer_discount_pence?: number | null;
   estimated_total_pence?: number | null;
@@ -138,6 +169,13 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }>
   cancelled: { label: 'Cancelled', color: 'bg-red-100 text-red-700 border-red-200', icon: XCircle },
 };
 
+/** Live active-trip fare — includes waiting / mod charges (not settlement). */
+function resolveActiveTripLiveFarePence(trip: Trip): number {
+  const live = computeLiveTripFarePreview(trip);
+  if (live.current_customer_total_pence > 0) return live.current_customer_total_pence;
+  return resolvePayableFarePence(trip);
+}
+
 export default function ActiveTrips() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [availableDrivers, setAvailableDrivers] = useState<Driver[]>([]);
@@ -181,7 +219,131 @@ export default function ActiveTrips() {
       if (tripsRes.error) throw tripsRes.error;
       if (driversRes.error) throw driversRes.error;
 
-      setTrips(filterAdminActiveTrips((tripsRes.data ?? []).filter(Boolean) as Trip[]) as Trip[]);
+      const baseTrips = filterAdminActiveTrips(
+        (tripsRes.data ?? []).filter(Boolean) as Trip[],
+      ) as Trip[];
+      const tripIds = baseTrips.map((t) => t.id);
+
+      let stopsByTrip = new Map<string, Trip["trip_stops"]>();
+      let openModByTrip = new Map<string, Trip["open_modification"]>();
+      let routeVersionByTrip = new Map<string, string | null>();
+
+      if (tripIds.length > 0) {
+        const [stopsRes, modRes, routeRes] = await Promise.all([
+          supabase
+            .from("trip_stops")
+            .select("id, trip_id, stop_index, type, address, status")
+            .in("trip_id", tripIds)
+            .order("stop_index", { ascending: true }),
+          supabase
+            .from("trip_change_requests")
+            .select(
+              "id, trip_id, status, payment_status, navigation_impacted, requires_approval, fare_delta_pence",
+            )
+            .in("trip_id", tripIds)
+            .in("status", [
+              "payment_required",
+              "payment_pending",
+              "pending_driver_approval",
+            ])
+            .order("created_at", { ascending: false }),
+          supabase
+            .from("trip_route_cache")
+            .select("trip_id, updated_at, cached_at")
+            .in("trip_id", tripIds)
+            .eq("leg", "full"),
+        ]);
+
+        for (const row of stopsRes.data ?? []) {
+          const list = stopsByTrip.get(row.trip_id) ?? [];
+          list.push({
+            id: row.id,
+            stop_index: row.stop_index,
+            type: row.type,
+            address: row.address,
+            status: row.status,
+          });
+          stopsByTrip.set(row.trip_id, list);
+        }
+        for (const row of modRes.data ?? []) {
+          if (!openModByTrip.has(row.trip_id)) {
+            openModByTrip.set(row.trip_id, {
+              id: row.id,
+              status: row.status,
+              payment_status: row.payment_status,
+              navigation_impacted: row.navigation_impacted,
+              requires_approval: row.requires_approval,
+              fare_delta_pence: row.fare_delta_pence,
+            });
+          }
+        }
+        for (const row of routeRes.data ?? []) {
+          routeVersionByTrip.set(
+            row.trip_id,
+            row.updated_at ?? row.cached_at ?? null,
+          );
+        }
+      }
+
+      const enriched = baseTrips.map((trip) => {
+        const live = computeLiveTripFarePreview({
+          final_customer_fare_pence: trip.final_customer_fare_pence ?? null,
+          final_fare_pence: trip.final_fare_pence ?? null,
+          locked_base_fare_pence: trip.locked_base_fare_pence ?? null,
+          pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence ?? null,
+          stop_waiting_charge_pence: trip.stop_waiting_charge_pence ?? null,
+          stop_charge_total_pence: trip.stop_charge_total_pence ?? null,
+          customer_modification_charge_pence:
+            trip.customer_modification_charge_pence ?? null,
+          modification_delta_pence: trip.modification_delta_pence ?? null,
+          driver_tier_commission_percent:
+            trip.driver_tier_commission_percent ?? null,
+          commission_pct: trip.commission_pct ?? null,
+          commission_pence: trip.commission_pence ?? null,
+          gross_fare_pence: trip.gross_fare_pence ?? null,
+        });
+        const stops = stopsByTrip.get(trip.id) ?? [];
+        const dropoffStop = stops.find((s) => s.type === "dropoff");
+        const displayDropoff =
+          trip.modified_dropoff_address ?? trip.dropoff_address;
+        let snapshotMismatch: string | null = null;
+        if (
+          dropoffStop?.address
+          && displayDropoff
+          && dropoffStop.address.trim() !== displayDropoff.trim()
+        ) {
+          snapshotMismatch = "Dropoff address differs between trip row and trip_stops";
+        }
+        const payable = resolvePayableFarePence({
+          final_customer_fare_pence: trip.final_customer_fare_pence,
+          final_fare_pence: trip.final_fare_pence,
+          estimated_total_pence: trip.estimated_total_pence,
+          gross_fare_pence: trip.gross_fare_pence,
+          fare: trip.fare,
+          estimated_fare: trip.estimated_fare,
+        });
+        if (
+          live.current_customer_total_pence > 0
+          && payable > 0
+          && Math.abs(live.current_customer_total_pence - payable) > 1
+        ) {
+          snapshotMismatch = snapshotMismatch
+            ? `${snapshotMismatch}; fare fields disagree`
+            : "Fare fields disagree (live total vs payable)";
+        }
+
+        return {
+          ...trip,
+          dropoff_address: displayDropoff,
+          trip_stops: stops,
+          open_modification: openModByTrip.get(trip.id) ?? null,
+          route_cache_version: routeVersionByTrip.get(trip.id) ?? null,
+          current_customer_total_pence: live.current_customer_total_pence,
+          snapshot_mismatch: snapshotMismatch,
+        };
+      });
+
+      setTrips(enriched);
       setAvailableDrivers(driversRes.data || []);
       setLastRefresh(new Date());
     } catch (err) {
@@ -205,6 +367,20 @@ export default function ActiveTrips() {
           fetchData(true); // background refresh, no spinner
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'trip_stops' },
+        () => {
+          fetchData(true);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'trip_change_requests' },
+        () => {
+          fetchData(true);
+        }
+      )
       .subscribe();
     
     return () => {
@@ -220,15 +396,17 @@ export default function ActiveTrips() {
 
     setIsSaving(true);
     try {
-      const { error } = await supabase
-        .from('trips')
-        .update({ 
+      const { data, error } = await supabase.functions.invoke('admin-trip-action', {
+        body: {
+          action: 'reassign',
+          trip_id: selectedTrip.id,
           driver_id: selectedDriverId,
-          status: 'accepted',
-        })
-        .eq('id', selectedTrip.id);
-
+        },
+      });
       if (error) throw error;
+      if (data?.success !== true) {
+        throw new Error(data?.error || 'Failed to reassign trip');
+      }
 
       toast.success('Trip reassigned successfully');
       setIsReassignOpen(false);
@@ -248,15 +426,54 @@ export default function ActiveTrips() {
 
     setIsSaving(true);
     try {
+      const tripId = selectedTrip.id;
+      const reason = cancelReason || 'cancelled_by_admin';
       const { data: cancelResult, error } = await supabase.rpc('apply_terminal_trip_cancellation', {
-        p_trip_id: selectedTrip.id,
+        p_trip_id: tripId,
         p_cancelled_by: 'admin',
-        p_reason: cancelReason || null,
+        p_reason: reason,
       });
 
       if (error) throw error;
       if (cancelResult && typeof cancelResult === 'object' && (cancelResult as { success?: boolean }).success === false) {
         throw new Error((cancelResult as { error?: string }).error || 'Failed to cancel trip');
+      }
+
+      // P0 (MK-260704-001): force customer + driver trip_updated so both apps leave
+      // active UI immediately — postgres_changes alone can lag or miss on home screen.
+      const terminalPayload = {
+        id: tripId,
+        status: 'cancelled',
+        dispatch_status: 'cancelled',
+        cancelled_by: 'admin',
+        cancel_reason: reason,
+        cancelled_at: new Date().toISOString(),
+        driver_id: null,
+        confirmed_driver_id: null,
+        updated_at: new Date().toISOString(),
+      };
+      for (const channelName of [`trip:${tripId}`, `trip_broadcast_${tripId}`]) {
+        const channel = supabase.channel(channelName);
+        try {
+          await new Promise<void>((resolve) => {
+            const timeout = window.setTimeout(() => resolve(), 1500);
+            channel.subscribe((status) => {
+              if (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                window.clearTimeout(timeout);
+                resolve();
+              }
+            });
+          });
+          await channel.send({
+            type: 'broadcast',
+            event: 'trip_updated',
+            payload: terminalPayload,
+          });
+        } catch (broadcastErr) {
+          console.warn('Admin cancel trip_updated broadcast failed', channelName, broadcastErr);
+        } finally {
+          void supabase.removeChannel(channel);
+        }
       }
 
       toast.success('Trip cancelled successfully');
@@ -275,21 +492,22 @@ export default function ActiveTrips() {
   const handleForceEnd = async () => {
     if (!selectedTrip) return;
 
-    const fareAmount = parseFloat(forceEndFare) || resolvePayableFarePence(selectedTrip) / 100 || 0;
+    const fareAmount = parseFloat(forceEndFare) || resolveActiveTripLiveFarePence(selectedTrip) / 100 || 0;
 
     setIsSaving(true);
     try {
-      const { error } = await supabase
-        .from('trips')
-        .update({ 
-          status: 'completed',
+      const { data, error } = await supabase.functions.invoke('admin-trip-action', {
+        body: {
+          action: 'force_complete',
+          trip_id: selectedTrip.id,
           fare: fareAmount,
-          completed_at: new Date().toISOString(),
-          special_instructions: `Force ended by admin. Final fare: ${fareAmount}`,
-        })
-        .eq('id', selectedTrip.id);
-
+          reason: `Force ended by admin. Final fare: ${fareAmount}`,
+        },
+      });
       if (error) throw error;
+      if (data?.success !== true) {
+        throw new Error(data?.error || 'Failed to force end trip');
+      }
 
       toast.success('Trip force ended successfully');
       setIsForceEndOpen(false);
@@ -318,7 +536,7 @@ export default function ActiveTrips() {
 
   const openForceEndDialog = (trip: Trip) => {
     setSelectedTrip(trip);
-    setForceEndFare((resolvePayableFarePence(trip) / 100).toString() || '');
+    setForceEndFare((resolveActiveTripLiveFarePence(trip) / 100).toString() || '');
     setIsForceEndOpen(true);
   };
 
@@ -537,7 +755,7 @@ export default function ActiveTrips() {
                       <TableCell>
                         <span className="font-medium">
                           {getCurrencySymbol(resolveTripCurrency(trip))}
-                          {(resolvePayableFarePence(trip) / 100).toFixed(2)}
+                          {(resolveActiveTripLiveFarePence(trip) / 100).toFixed(2)}
                         </span>
                       </TableCell>
                       <TableCell className="text-right">
@@ -716,8 +934,8 @@ export default function ActiveTrips() {
               />
               {selectedTrip ? (
                 <p className="text-xs text-muted-foreground">
-                  Payable fare: {getCurrencySymbol(resolveTripCurrency(selectedTrip))}
-                  {(resolvePayableFarePence(selectedTrip) / 100).toFixed(2)}
+                  Live fare: {getCurrencySymbol(resolveTripCurrency(selectedTrip))}
+                  {(resolveActiveTripLiveFarePence(selectedTrip) / 100).toFixed(2)}
                 </p>
               ) : null}
             </div>
@@ -795,6 +1013,22 @@ export default function ActiveTrips() {
                     <p className="text-sm">{selectedTrip.pickup_address}</p>
                   </div>
                 </div>
+                {(selectedTrip.trip_stops ?? [])
+                  .filter((s) => s.type === "stop")
+                  .map((stop) => (
+                    <div
+                      key={stop.id}
+                      className="flex items-start gap-2 p-3 bg-blue-50 rounded-lg border border-blue-100"
+                    >
+                      <MapPin className="h-4 w-4 text-blue-600 mt-0.5" />
+                      <div>
+                        <p className="text-xs text-blue-600 font-medium">
+                          Stop {stop.stop_index} · {stop.status ?? "pending"}
+                        </p>
+                        <p className="text-sm">{stop.address}</p>
+                      </div>
+                    </div>
+                  ))}
                 <div className="flex justify-center">
                   <ArrowRight className="h-4 w-4 text-muted-foreground" />
                 </div>
@@ -802,8 +1036,70 @@ export default function ActiveTrips() {
                   <MapPin className="h-4 w-4 text-red-600 mt-0.5" />
                   <div>
                     <p className="text-xs text-red-600 font-medium">Dropoff</p>
-                    <p className="text-sm">{selectedTrip.dropoff_address}</p>
+                    <p className="text-sm">
+                      {selectedTrip.modified_dropoff_address
+                        ?? selectedTrip.dropoff_address}
+                    </p>
                   </div>
+                </div>
+              </div>
+
+              {selectedTrip.snapshot_mismatch && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                  Snapshot mismatch: {selectedTrip.snapshot_mismatch}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-muted/50 rounded-lg">
+                  <p className="text-xs text-muted-foreground">Customer total</p>
+                  <p className="font-medium text-sm">
+                    {selectedTrip.current_customer_total_pence != null
+                      ? `£${(selectedTrip.current_customer_total_pence / 100).toFixed(2)}`
+                      : "—"}
+                  </p>
+                </div>
+                <div className="p-3 bg-muted/50 rounded-lg">
+                  <p className="text-xs text-muted-foreground">Fare delta</p>
+                  <p className="font-medium text-sm">
+                    {selectedTrip.open_modification?.fare_delta_pence != null
+                      ? `£${(selectedTrip.open_modification.fare_delta_pence / 100).toFixed(2)}`
+                      : selectedTrip.modification_delta_pence != null
+                        ? `£${(selectedTrip.modification_delta_pence / 100).toFixed(2)}`
+                        : "—"}
+                  </p>
+                </div>
+                <div className="p-3 bg-muted/50 rounded-lg">
+                  <p className="text-xs text-muted-foreground">Open mod status</p>
+                  <p className="font-medium text-sm">
+                    {selectedTrip.open_modification?.status
+                      ?? selectedTrip.modification_status
+                      ?? "none"}
+                  </p>
+                </div>
+                <div className="p-3 bg-muted/50 rounded-lg">
+                  <p className="text-xs text-muted-foreground">Payment confirm</p>
+                  <p className="font-medium text-sm">
+                    {selectedTrip.open_modification?.payment_status ?? "n/a"}
+                  </p>
+                </div>
+                <div className="p-3 bg-muted/50 rounded-lg">
+                  <p className="text-xs text-muted-foreground">Driver approval</p>
+                  <p className="font-medium text-sm">
+                    {selectedTrip.open_modification
+                      ? selectedTrip.open_modification.status === "pending_driver_approval"
+                        ? "pending"
+                        : selectedTrip.open_modification.navigation_impacted
+                          ? "required"
+                          : "not_required"
+                      : "n/a"}
+                  </p>
+                </div>
+                <div className="p-3 bg-muted/50 rounded-lg">
+                  <p className="text-xs text-muted-foreground">Route cache</p>
+                  <p className="font-medium text-xs break-all">
+                    {selectedTrip.route_cache_version ?? "—"}
+                  </p>
                 </div>
               </div>
 

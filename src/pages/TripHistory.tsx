@@ -711,8 +711,34 @@ export default function TripHistory() {
     return null;
   };
 
+  /** Expected customer payable (not Stripe captured). */
+  const getTripCustomerPayablePence = (trip: CompletedTrip): number => {
+    const finalCustomer = trip.final_customer_fare_pence ?? 0;
+    const waiting =
+      trip.total_waiting_charge_pence
+      ?? trip.waiting_charge_pence
+      ?? trip.pickup_waiting_charge_pence
+      ?? 0;
+    if (finalCustomer > 0) return finalCustomer + Math.max(0, waiting);
+    return resolveTripDisplayFare(trip).payable_pence;
+  };
+
+  /** Stripe actual captured amount only. */
+  const getTripStripeCapturedPence = (trip: CompletedTrip): number => {
+    if (trip.payment_captured_pence != null && trip.payment_captured_pence > 0) {
+      return trip.payment_captured_pence;
+    }
+    if (trip.capture_amount_pence != null && trip.capture_amount_pence > 0) {
+      return trip.capture_amount_pence;
+    }
+    return 0;
+  };
+
+  /** @deprecated label — use payable vs captured explicitly */
   const getTripCustomerPaidPence = (trip: CompletedTrip): number =>
-    resolveTripDisplayFare(trip).payable_pence;
+    getTripStripeCapturedPence(trip) > 0
+      ? getTripStripeCapturedPence(trip)
+      : getTripCustomerPayablePence(trip);
 
   const getTripCustomerPaidPounds = (trip: CompletedTrip): number =>
     getTripCustomerPaidPence(trip) / 100;
@@ -1105,7 +1131,7 @@ export default function TripHistory() {
                   <TableHead>Driver</TableHead>
                   <TableHead>Stops</TableHead>
                   <TableHead>Distance</TableHead>
-                  <TableHead>Customer Paid</TableHead>
+                  <TableHead>Payable / Captured</TableHead>
                   <TableHead>Payment</TableHead>
                   <TableHead>Invoice</TableHead>
                   <TableHead>Completed</TableHead>
@@ -1192,15 +1218,31 @@ export default function TripHistory() {
                       {formatTripDistance(getTripDistance(trip), trip)}
                     </TableCell>
                      <TableCell>
-                      <div className="font-medium text-green-600 flex flex-col gap-0.5">
-                        {getTripCustomerPaidPence(trip) > 0 ? (
-                          <>
-                            {getCurrencySymbol(resolveTripCurrency(trip))}
-                            {getTripCustomerPaidPounds(trip).toFixed(2)}
-                          </>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
+                      <div className="font-medium flex flex-col gap-0.5">
+                        {(() => {
+                          const sym = getCurrencySymbol(resolveTripCurrency(trip));
+                          const payable = getTripCustomerPayablePence(trip);
+                          const captured = getTripStripeCapturedPence(trip);
+                          const shortfall = Math.max(0, payable - captured);
+                          if (payable <= 0 && captured <= 0) {
+                            return <span className="text-muted-foreground">—</span>;
+                          }
+                          return (
+                            <>
+                              <span className="text-muted-foreground text-xs font-normal">
+                                Payable {sym}{(payable / 100).toFixed(2)}
+                              </span>
+                              <span className="text-green-600">
+                                Captured {sym}{(captured / 100).toFixed(2)}
+                              </span>
+                              {shortfall > 0 && (
+                                <span className="text-[10px] text-amber-600 font-normal">
+                                  Shortfall {sym}{(shortfall / 100).toFixed(2)}
+                                </span>
+                              )}
+                            </>
+                          );
+                        })()}
                         {(() => {
                           const refund = getTripRefundDisplay(trip);
                           if (!refund.showRefundBreakdown) return null;
@@ -1368,13 +1410,29 @@ export default function TripHistory() {
                         <p className="font-medium capitalize">{selectedTrip.payment_method || '—'}</p>
                       </div>
                       <div>
-                        <Label className="text-xs text-muted-foreground">Customer Paid</Label>
-                        <p className="font-medium text-green-600">
-                          {getTripCustomerPaidPence(selectedTrip) > 0
-                            ? `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${getTripCustomerPaidPounds(selectedTrip).toFixed(2)}`
+                        <Label className="text-xs text-muted-foreground">Customer payable</Label>
+                        <p className="font-medium">
+                          {getTripCustomerPayablePence(selectedTrip) > 0
+                            ? `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${(getTripCustomerPayablePence(selectedTrip) / 100).toFixed(2)}`
                             : '—'}
                         </p>
                       </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Stripe captured</Label>
+                        <p className="font-medium text-green-600">
+                          {getTripStripeCapturedPence(selectedTrip) > 0
+                            ? `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${(getTripStripeCapturedPence(selectedTrip) / 100).toFixed(2)}`
+                            : '—'}
+                        </p>
+                      </div>
+                      {getTripCustomerPayablePence(selectedTrip) > getTripStripeCapturedPence(selectedTrip) && (
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Outstanding shortfall</Label>
+                          <p className="font-medium text-amber-600">
+                            {`${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${((getTripCustomerPayablePence(selectedTrip) - getTripStripeCapturedPence(selectedTrip)) / 100).toFixed(2)}`}
+                          </p>
+                        </div>
+                      )}
                       {(() => {
                         const refund = getTripRefundDisplay(selectedTrip);
                         if (!refund.showRefundBreakdown) return null;

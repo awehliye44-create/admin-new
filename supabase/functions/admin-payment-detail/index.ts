@@ -220,7 +220,7 @@ serve(async (req) => {
     // Get commission rate from driver's tier (Bronze default if unassigned)
     let commissionPercent = 0;
     if (trip.drivers?.id) {
-      commissionPercent = await getDriverCommissionPct(supabase, trip.drivers.id);
+      commissionPercent = await getDriverCommissionPct(supabase, trip.drivers.id, trip.service_area_id);
     }
 
     // Get related ledger entries from driver_wallet_ledger

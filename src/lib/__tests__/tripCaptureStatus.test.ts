@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getExpectedCustomerTotalPence,
+  getOutstandingShortfallPence,
   getTripCaptureStatus,
   getTripDriverNetPence,
   getTripSettlementBreakdown,
@@ -251,6 +252,29 @@ describe('tripCaptureStatus — Trip History finance SSOT', () => {
     expect(breakdown.totalSettlementPence).toBe(512);
     expect(breakdown.waitingPence).toBe(32);
     expect(breakdown.showBreakdown).toBe(true);
+  });
+
+  it('MK-260704-002: payable vs Stripe captured — no mod double-count, shortfall 965', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      final_customer_fare_pence: 1742,
+      // Bad historical double-count (mod added twice)
+      final_fare_pence: 3007,
+      customer_modification_charge_pence: 1241,
+      pickup_waiting_charge_pence: 24,
+      total_waiting_charge_pence: 24,
+      // Stripe actual
+      payment_captured_pence: 801,
+      capture_amount_pence: 801,
+      payment_count: 1,
+      driver_net_pence: 681,
+    } as TripCaptureFields;
+    expect(getExpectedCustomerTotalPence(trip)).toBe(1766);
+    expect(getTripSettlementFarePence(trip)).toBe(801);
+    expect(getOutstandingShortfallPence(trip)).toBe(965);
+    expect(getTripCaptureStatus(trip).kind).toBe('capture_mismatch');
+    expect(getTripDriverNetPence(trip)).toBe(681);
   });
 
   it('MK-260615-006 prod snapshot: £5.12 customer paid, £4.35 driver net', () => {

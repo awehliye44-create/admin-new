@@ -81,11 +81,12 @@ serve(async (req) => {
     const airportPence = trip.airport_charge_pence ?? 0;
     const passThroughPence = trip.other_pass_through_charges_pence ?? 0;
 
-    const { commission_pct } = await calculateCommission(gate.supabase, trip.driver_id, new_total_pence, {
-      airport_charge_pence: airportPence,
-      other_pass_through_charges_pence: passThroughPence,
-      tips_pence: tipPence,
-    });
+    const { commission_pct } = await calculateCommission(
+      gate.supabase,
+      trip.driver_id,
+      new_total_pence,
+      trip.service_area_id,
+    );
 
     let settlementResult = calculateTripSettlement({
       final_fare_pence: new_total_pence,

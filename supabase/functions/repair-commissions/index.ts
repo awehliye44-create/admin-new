@@ -131,22 +131,19 @@ serve(async (req) => {
       if (missingOutcome) issues.push('missing financial_outcome');
 
       // === Check commission ===
-      if (!commissionCache[dId]) {
+      const commissionCacheKey = `${dId}:${trip.service_area_id ?? 'unknown'}`;
+      if (!commissionCache[commissionCacheKey]) {
         try {
-          const result = await calculateCommission(supabase, dId, 10000);
-          commissionCache[dId] = { commission_pct: result.commission_pct };
+          const result = await calculateCommission(supabase, dId, 10000, trip.service_area_id);
+          commissionCache[commissionCacheKey] = { commission_pct: result.commission_pct };
         } catch {
-          console.warn(`[repair-commissions] Could not get commission for driver ${dId}, skipping`);
+          console.warn(`[repair-commissions] Could not get commission for driver ${dId} SA ${trip.service_area_id}, skipping`);
           continue;
         }
       }
 
-      const correctPct = commissionCache[dId].commission_pct;
-      const recomputed = await calculateCommission(supabase, dId, finalFare, {
-        airport_charge_pence: airportPence,
-        other_pass_through_charges_pence: passThroughPence,
-        tips_pence: tipPence,
-      });
+      const correctPct = commissionCache[commissionCacheKey].commission_pct;
+      const recomputed = await calculateCommission(supabase, dId, finalFare, trip.service_area_id);
       const correctCommission = recomputed.commission_pence;
       const correctNet = recomputed.driver_net_pence;
       const oldCommission = trip.commission_pence || 0;

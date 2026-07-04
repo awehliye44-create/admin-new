@@ -27,10 +27,15 @@ export type ServiceAreaGatewayStatusRow = {
     display_name: string | null;
     provider: string | null;
     configuration_error: string | null;
+    ready_for_production?: boolean;
+    booking_payment_health?: "healthy" | "degraded" | "down" | null;
+    provider_health?: "healthy" | "degraded" | "down" | null;
     health?: {
       last_webhook_at?: string | null;
       last_connection_test_at?: string | null;
       webhook_healthy?: boolean | null;
+      webhook_processing_health?: string | null;
+      last_webhook_error?: string | null;
     };
   };
   driver: {
@@ -189,8 +194,12 @@ export function ServiceAreaGatewayStatusPanel({
                     </TableCell>
                     <TableCell>
                       {(() => {
+                        // Booking adapter readiness uses payment API health, not webhook warnings.
                         const ready =
-                          row.customer.status === 'CONNECTED'
+                          row.customer.ready_for_production === true
+                          || row.customer.booking_payment_health === 'healthy'
+                          || row.customer.booking_payment_health === 'degraded'
+                          || row.customer.status === 'CONNECTED'
                           || row.customer.status === 'TEST_MODE';
                         const adapter = resolveProviderBookingAdapterStatus(
                           row.customer.provider,

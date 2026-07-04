@@ -26,7 +26,6 @@ import {
   Loader2,
   CheckCircle2
 } from 'lucide-react';
-import { DriverTiersConfig } from '@/components/dispatch/DriverTiersConfig';
 import { StackedRidesHelpPanel } from '@/components/dispatch/StackedRidesHelpPanel';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
@@ -582,7 +581,7 @@ export default function AutoDispatchRules() {
                 <code className="text-xs block mt-1">
                   score = category_priority + (waiting_min × waiting_bonus) + fairness_boost − (distance_{unitShort} × distance_penalty)
                 </code>
-                <p className="mt-1">Category priority values are configured in the Driver Tiers section below.</p>
+                <p className="mt-1">Category priority values are configured per service area under Services → Pricing &amp; Fares → Driver Tiers.</p>
                 <p className="mt-2 font-medium text-foreground">Dispatch Execution Flow:</p>
                 <ol className="list-decimal list-inside mt-1 space-y-1">
                   <li>Filter all eligible drivers within search radius</li>
@@ -644,9 +643,6 @@ export default function AutoDispatchRules() {
           </CardContent>
         </Card>
 
-
-        {/* Driver Tiers Configuration — single source of truth */}
-        <DriverTiersConfig />
 
         {/* Stacked Rides Configuration */}
         <Card>

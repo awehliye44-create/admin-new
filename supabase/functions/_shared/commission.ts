@@ -1,107 +1,95 @@
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 /**
- * ╔══════════════════════════════════════════════════════════════════╗
- * ║  LOCKED MODULE — Commission Calculation                        ║
- * ║                                                                ║
- * ║  This is the SINGLE source of truth for commission logic.      ║
- * ║  Protected by: src/test/commission.test.ts (12 tests)          ║
- * ║                                                                ║
- * ║  Rules:                                                        ║
- * ║  1. Commission % comes ONLY from driver_categories table       ║
- * ║  2. Bronze tier is the fallback for unassigned drivers          ║
- * ║  3. Formula: round(gross * pct / 100)                          ║
- * ║  4. commission + driver_net = gross (conservation law)          ║
- * ║  5. driver_wallet_ledger is the financial source of truth      ║
- * ║     (NOT the trips table or the deprecated driver_ledger)      ║
- * ║                                                                ║
- * ║  DO NOT hardcode rates. DO NOT bypass this module.             ║
- * ╚══════════════════════════════════════════════════════════════════╝
- *
- * Get the commission percentage for a driver.
- *
- * 1. If the driver has a category_id → use that category's commission_pct.
- * 2. If category_id is NULL → fall back to the Bronze tier commission.
- *
- * Commission always comes from the driver_categories table — never hardcoded.
+ * Commission resolution — service_area_driver_tiers is SSOT for tier % per service area.
+ * driver_categories remains the driver's tier identity (Bronze → Diamond).
  */
+
+async function resolveTierName(
+  supabase: SupabaseClient,
+  driverId: string,
+): Promise<string> {
+  const { data: driver } = await supabase
+    .from("drivers")
+    .select("category_id, driver_categories(name)")
+    .eq("id", driverId)
+    .single();
+
+  const category = driver?.driver_categories as { name?: string } | null;
+  return category?.name ?? "Bronze";
+}
+
+async function loadServiceAreaTierCommission(
+  supabase: SupabaseClient,
+  serviceAreaId: string,
+  tierName: string,
+): Promise<number | null> {
+  const { data: saTier } = await supabase
+    .from("service_area_driver_tiers")
+    .select("commission_percent")
+    .eq("service_area_id", serviceAreaId)
+    .ilike("tier_name", tierName)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (saTier?.commission_percent != null) {
+    return Number(saTier.commission_percent);
+  }
+
+  const { data: bronze } = await supabase
+    .from("service_area_driver_tiers")
+    .select("commission_percent")
+    .eq("service_area_id", serviceAreaId)
+    .ilike("tier_name", "bronze")
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (bronze?.commission_percent != null) {
+    console.warn(
+      `[commission] Tier "${tierName}" not configured for service area ${serviceAreaId}; using Bronze fallback`,
+    );
+    return Number(bronze.commission_percent);
+  }
+
+  return null;
+}
+
 export async function getDriverCommissionPct(
   supabase: SupabaseClient,
   driverId: string,
+  serviceAreaId: string | null | undefined,
 ): Promise<number> {
-  // 1. Check driver's assigned category
-  const { data: driver } = await supabase
-    .from('drivers')
-    .select('category_id')
-    .eq('id', driverId)
-    .single();
-
-  if (driver?.category_id) {
-    const { data: category } = await supabase
-      .from('driver_categories')
-      .select('commission_pct')
-      .eq('id', driver.category_id)
-      .single();
-
-    if (category?.commission_pct != null) {
-      return category.commission_pct;
-    }
+  if (!serviceAreaId) {
+    throw new Error(
+      `service_area_id required for tier commission resolution (driver ${driverId})`,
+    );
   }
 
-  // 2. Fallback: use Bronze tier commission (lowest priority tier)
-  const { data: bronze } = await supabase
-    .from('driver_categories')
-    .select('commission_pct')
-    .ilike('name', 'bronze')
-    .limit(1)
-    .maybeSingle();
+  const tierName = await resolveTierName(supabase, driverId);
+  const commissionPct = await loadServiceAreaTierCommission(supabase, serviceAreaId, tierName);
 
-  if (bronze?.commission_pct != null) {
-    return bronze.commission_pct;
+  if (commissionPct == null) {
+    throw new Error(
+      `No tier commission configured for service area ${serviceAreaId}. Configure service_area_driver_tiers.`,
+    );
   }
 
-  // 3. Ultimate fallback: use the tier with the highest priority number (lowest rank)
-  const { data: lowestTier } = await supabase
-    .from('driver_categories')
-    .select('commission_pct')
-    .order('category_priority', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (lowestTier?.commission_pct != null) {
-    return lowestTier.commission_pct;
-  }
-
-  // Should never reach here if driver_categories table has data
-  throw new Error('No driver categories found in database — cannot determine commission rate');
+  return commissionPct;
 }
 
-/**
- * Commission calculation result.
- */
 export interface CommissionResult {
   commission_pct: number;
   commission_pence: number;
   driver_net_pence: number;
 }
 
-/**
- * Calculate commission from a gross fare using the driver's tier rate.
- *
- * Formula:
- *   commission_pence = round(gross_fare_pence * commission_pct / 100)
- *   driver_net_pence = gross_fare_pence - commission_pence
- *
- * @param supabase  Supabase client (service role)
- * @param driverId  Driver UUID
- * @param grossFarePence  The commissionable gross fare in pence (tip excluded)
- */
 export async function calculateCommission(
   supabase: SupabaseClient,
   driverId: string,
   grossFarePence: number,
+  serviceAreaId: string | null | undefined,
 ): Promise<CommissionResult> {
-  const commission_pct = await getDriverCommissionPct(supabase, driverId);
+  const commission_pct = await getDriverCommissionPct(supabase, driverId, serviceAreaId);
   const commission_pence = Math.round(grossFarePence * commission_pct / 100);
   const driver_net_pence = grossFarePence - commission_pence;
 

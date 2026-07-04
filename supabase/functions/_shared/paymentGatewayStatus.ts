@@ -22,6 +22,10 @@ export type PaymentGatewayStatusCode =
   | "CONNECTION_FAILED"
   | "TEST_MODE";
 
+/** Booking must use booking_payment_health, not generic provider_health. */
+export type BookingPaymentHealth = "healthy" | "degraded" | "down";
+export type ProviderHealthTier = "healthy" | "degraded" | "down";
+
 export type GatewayStatusSnapshot = {
   status: PaymentGatewayStatusCode;
   badge_label: string;
@@ -31,19 +35,31 @@ export type GatewayStatusSnapshot = {
   role: GatewayRole;
   environment: "test" | "live" | null;
   configured: boolean;
+  /** True when card booking may proceed (API keys + live adapter; webhook warnings do not block). */
   ready_for_production: boolean;
   message: string | null;
   configuration_error: string | null;
+  /** Admin-facing overall provider health (may be degraded while booking still allowed). */
+  provider_health: ProviderHealthTier;
+  /** Customer booking gate — only "down" blocks bookings. */
+  booking_payment_health: BookingPaymentHealth;
   health: {
     api_keys_configured: boolean;
     webhook_configured: boolean | null;
     webhook_healthy: boolean | null;
+    /** Stripe secret key present and connection test not in error. */
+    stripe_api_health: BookingPaymentHealth | null;
+    /** Whether webhooks are being delivered/received recently. */
+    webhook_delivery_health: BookingPaymentHealth | null;
+    /** Handler/processing outcome (internal errors ≠ Stripe outage). */
+    webhook_processing_health: BookingPaymentHealth | null;
     enabled: boolean;
     supports_role: boolean;
     last_connection_test_at: string | null;
     last_connection_test_status: string | null;
     last_error_message: string | null;
     last_webhook_at: string | null;
+    last_webhook_error: string | null;
   };
 };
 
@@ -146,12 +162,44 @@ async function hasWebhookSecretConfigured(
   return false;
 }
 
+/** Internal handler bugs (schema, missing columns) are not Stripe outages. */
+export function isInternalWebhookProcessingError(message: string | null | undefined): boolean {
+  if (!message) return false;
+  const m = message.toLowerCase();
+  return (
+    m.includes("does not exist")
+    || m.includes("fare_pence")
+    || m.includes("column")
+    || m.includes("trip lookup failed")
+    || m.includes("schema cache")
+    || m.includes("pgrst")
+    || m.includes("undefined column")
+  );
+}
+
+/** Webhook delivery/processing warnings must not be treated as Stripe API outage. */
+export function isNonCriticalWebhookHealthMessage(message: string | null | undefined): boolean {
+  if (!message) return false;
+  const m = message.toLowerCase();
+  return (
+    m.includes("webhook health")
+    || m.includes("webhook failing")
+    || m.includes("webhook processing")
+    || m.includes("webhook secret")
+    || isInternalWebhookProcessingError(message)
+  );
+}
+
 async function loadStripeWebhookHealth(
   supabase: SupabaseClient,
 ): Promise<{
   healthy: boolean | null;
   last_webhook_at: string | null;
   failing: boolean;
+  internal_processing_error: boolean;
+  last_error: string | null;
+  delivery_health: BookingPaymentHealth | null;
+  processing_health: BookingPaymentHealth | null;
 }> {
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
@@ -186,7 +234,7 @@ async function loadStripeWebhookHealth(
         .maybeSingle(),
       supabase
         .from("processed_stripe_events")
-        .select("processed_at")
+        .select("processed_at, error")
         .in("event_type", STRIPE_MONITORED_EVENTS)
         .in("status", ["failed_retry", "failed_non_retry"])
         .order("processed_at", { ascending: false })
@@ -199,9 +247,19 @@ async function loadStripeWebhookHealth(
   const failureCount = failedResult.count ?? 0;
   const lastSuccessAt = (lastSuccessResult.data?.processed_at as string | null) ?? null;
   const lastFailedAt = (lastFailedResult.data?.processed_at as string | null) ?? null;
+  const lastError = (lastFailedResult.data?.error as string | null) ?? null;
+  const internalProcessingError = isInternalWebhookProcessingError(lastError);
 
   if (!lastWebhookAt) {
-    return { healthy: null, last_webhook_at: null, failing: false };
+    return {
+      healthy: null,
+      last_webhook_at: null,
+      failing: false,
+      internal_processing_error: false,
+      last_error: null,
+      delivery_health: null,
+      processing_health: null,
+    };
   }
 
   const lastFailureIsLatest = Boolean(
@@ -211,7 +269,22 @@ async function loadStripeWebhookHealth(
   const failing =
     (failureCount > 0 && successCount === 0) || lastFailureIsLatest;
   const healthy = !failing && (successCount > 0 || failureCount === 0);
-  return { healthy, last_webhook_at: lastWebhookAt, failing };
+
+  // Delivery: we received events recently (success or fail). Processing: handler outcome.
+  const deliveryHealth: BookingPaymentHealth = lastWebhookAt ? "healthy" : "degraded";
+  const processingHealth: BookingPaymentHealth = failing
+    ? (internalProcessingError ? "degraded" : "degraded")
+    : "healthy";
+
+  return {
+    healthy,
+    last_webhook_at: lastWebhookAt,
+    failing,
+    internal_processing_error: internalProcessingError,
+    last_error: lastError,
+    delivery_health: deliveryHealth,
+    processing_health: processingHealth,
+  };
 }
 
 function secretLooksTestMode(secretKeyPresent: boolean, provider: string): boolean {
@@ -229,6 +302,12 @@ function buildSnapshot(
     webhookConfigured: boolean | null;
     webhookHealthy: boolean | null;
     lastWebhookAt: string | null;
+    lastWebhookError?: string | null;
+    stripeApiHealth?: BookingPaymentHealth | null;
+    webhookDeliveryHealth?: BookingPaymentHealth | null;
+    webhookProcessingHealth?: BookingPaymentHealth | null;
+    bookingPaymentHealth?: BookingPaymentHealth;
+    providerHealth?: ProviderHealthTier;
     status: PaymentGatewayStatusCode;
     message: string;
     configurationError: string | null;
@@ -239,6 +318,17 @@ function buildSnapshot(
     ? ((config.environment === "test" ? "test" : "live") as "test" | "live")
     : null;
 
+  const bookingPaymentHealth: BookingPaymentHealth = args.bookingPaymentHealth
+    ?? (args.status === "CONNECTED" || args.status === "TEST_MODE"
+      ? "healthy"
+      : "down");
+  const providerHealth: ProviderHealthTier = args.providerHealth
+    ?? (bookingPaymentHealth === "down"
+      ? "down"
+      : args.webhookHealthy === false
+        ? "degraded"
+        : "healthy");
+
   return {
     status: args.status,
     badge_label: badge.label,
@@ -248,21 +338,28 @@ function buildSnapshot(
     role,
     environment,
     configured: args.apiKeysConfigured,
+    // Booking depends on payment API readiness, not webhook processing warnings.
     ready_for_production:
-      args.status === "CONNECTED" &&
+      bookingPaymentHealth !== "down" &&
       Boolean(providerId && isLivePaymentAdapter(providerId)),
     message: args.message,
     configuration_error: args.configurationError,
+    provider_health: providerHealth,
+    booking_payment_health: bookingPaymentHealth,
     health: {
       api_keys_configured: args.apiKeysConfigured,
       webhook_configured: args.webhookConfigured,
       webhook_healthy: args.webhookHealthy,
+      stripe_api_health: args.stripeApiHealth ?? null,
+      webhook_delivery_health: args.webhookDeliveryHealth ?? null,
+      webhook_processing_health: args.webhookProcessingHealth ?? null,
       enabled: config?.is_enabled === true,
       supports_role: config ? supportsRole(config, role) : false,
       last_connection_test_at: config?.last_connection_test_at ?? null,
       last_connection_test_status: config?.last_connection_test_status ?? null,
       last_error_message: config?.last_error_message ?? null,
       last_webhook_at: args.lastWebhookAt,
+      last_webhook_error: args.lastWebhookError ?? null,
     },
   };
 }
@@ -329,12 +426,20 @@ export async function resolveProviderGatewayStatus(
   let webhookConfigured: boolean | null = null;
   let webhookHealthy: boolean | null = null;
   let lastWebhookAt: string | null = null;
+  let lastWebhookError: string | null = null;
+  let webhookDeliveryHealth: BookingPaymentHealth | null = null;
+  let webhookProcessingHealth: BookingPaymentHealth | null = null;
+  let webhookInternalError = false;
 
   if (providerId === "stripe") {
     webhookConfigured = await hasWebhookSecretConfigured(supabase, providerId, environment);
     const webhookHealth = await loadStripeWebhookHealth(supabase);
     lastWebhookAt = webhookHealth.last_webhook_at;
     webhookHealthy = webhookHealth.healthy;
+    lastWebhookError = webhookHealth.last_error;
+    webhookDeliveryHealth = webhookHealth.delivery_health;
+    webhookProcessingHealth = webhookHealth.processing_health;
+    webhookInternalError = webhookHealth.internal_processing_error;
   }
 
   if (!apiKeysConfigured) {
@@ -343,6 +448,12 @@ export async function resolveProviderGatewayStatus(
       webhookConfigured,
       webhookHealthy,
       lastWebhookAt,
+      lastWebhookError,
+      stripeApiHealth: "down",
+      webhookDeliveryHealth,
+      webhookProcessingHealth,
+      bookingPaymentHealth: "down",
+      providerHealth: "down",
       status: "NOT_CONFIGURED",
       message: `Provider ${config.display_name} API keys are not configured`,
       configurationError: "Missing API secret key",
@@ -356,6 +467,9 @@ export async function resolveProviderGatewayStatus(
       webhookConfigured: webhookStored,
       webhookHealthy: null,
       lastWebhookAt: null,
+      stripeApiHealth: "healthy",
+      bookingPaymentHealth: "down",
+      providerHealth: "down",
       status: "TEST_MODE",
       message:
         `${config.display_name} credentials stored. Live booking adapter not implemented (PROVIDER_NOT_IMPLEMENTED).`,
@@ -369,36 +483,55 @@ export async function resolveProviderGatewayStatus(
       webhookConfigured: false,
       webhookHealthy,
       lastWebhookAt,
-      status: "NOT_CONFIGURED",
-      message: `Provider ${config.display_name} webhook secret is not configured`,
-      configurationError: "Missing webhook secret",
+      lastWebhookError,
+      stripeApiHealth: "healthy",
+      webhookDeliveryHealth,
+      webhookProcessingHealth,
+      // Missing webhook secret is a config issue for settlement, but PaymentIntent
+      // create still works — treat as degraded booking (allow) with admin warning.
+      bookingPaymentHealth: "degraded",
+      providerHealth: "degraded",
+      status: "CONNECTED",
+      message: `Provider ${config.display_name} is live; webhook secret is not configured (admin warning)`,
+      configurationError: "Webhook secret missing",
     });
   }
 
-  if (config.last_connection_test_status === "error" || config.status === "error") {
+  // Real Stripe API / connection failure — block bookings.
+  // Do NOT treat stale webhook-health messages stored on connection_test as API down.
+  const connectionTestError = config.last_connection_test_status === "error"
+    || config.status === "error";
+  const connectionErrorMessage = config.last_error_message
+    ?? `Provider ${config.display_name} connection test failed`;
+  if (
+    connectionTestError
+    && !isNonCriticalWebhookHealthMessage(connectionErrorMessage)
+    && !isNonCriticalWebhookHealthMessage(lastWebhookError)
+  ) {
     return buildSnapshot(role, providerId, config, {
       apiKeysConfigured: true,
       webhookConfigured,
       webhookHealthy,
       lastWebhookAt,
+      lastWebhookError,
+      stripeApiHealth: "down",
+      webhookDeliveryHealth,
+      webhookProcessingHealth,
+      bookingPaymentHealth: "down",
+      providerHealth: "down",
       status: "CONNECTION_FAILED",
-      message: config.last_error_message
-        ?? `Provider ${config.display_name} connection test failed`,
+      message: connectionErrorMessage,
       configurationError: config.last_error_message ?? "Connection test failed",
     });
   }
 
-  if (providerId === "stripe" && webhookHealthy === false) {
-    return buildSnapshot(role, providerId, config, {
-      apiKeysConfigured: true,
-      webhookConfigured,
-      webhookHealthy: false,
-      lastWebhookAt,
-      status: "CONNECTION_FAILED",
-      message: "Stripe webhook health check is failing",
-      configurationError: "Webhook failing",
-    });
+  // Stale connection_test error that is actually a webhook warning → treat as degraded.
+  if (connectionTestError && isNonCriticalWebhookHealthMessage(connectionErrorMessage)) {
+    webhookHealthy = false;
   }
+
+  const stripeApiHealth: BookingPaymentHealth = "healthy";
+  const webhookWarning = providerId === "stripe" && webhookHealthy === false;
 
   const testMode = environment === "test"
     || secretLooksTestMode(apiKeysConfigured, providerId)
@@ -410,9 +543,46 @@ export async function resolveProviderGatewayStatus(
       webhookConfigured,
       webhookHealthy,
       lastWebhookAt,
+      lastWebhookError,
+      stripeApiHealth,
+      webhookDeliveryHealth,
+      webhookProcessingHealth,
+      bookingPaymentHealth: "healthy",
+      providerHealth: webhookWarning ? "degraded" : "healthy",
       status: "TEST_MODE",
-      message: `${config.display_name} is configured in test mode`,
-      configurationError: null,
+      message: webhookWarning
+        ? `${config.display_name} is in test mode; webhook processing has recent warnings`
+        : `${config.display_name} is configured in test mode`,
+      configurationError: webhookWarning
+        ? (webhookInternalError
+          ? "Webhook processing warning (internal)"
+          : "Webhook processing warning")
+        : null,
+    });
+  }
+
+  // Webhook processing errors (including internal schema bugs) are admin-only
+  // warnings. PaymentIntent create/retrieve still works → do NOT block booking.
+  if (webhookWarning) {
+    const internalNote = webhookInternalError
+      ? "internal webhook processing error"
+      : "webhook processing warning";
+    return buildSnapshot(role, providerId, config, {
+      apiKeysConfigured: true,
+      webhookConfigured,
+      webhookHealthy: false,
+      lastWebhookAt,
+      lastWebhookError,
+      stripeApiHealth,
+      webhookDeliveryHealth,
+      webhookProcessingHealth: webhookProcessingHealth ?? "degraded",
+      bookingPaymentHealth: "healthy",
+      providerHealth: "degraded",
+      status: "CONNECTED",
+      message: `${config.display_name} is connected; ${internalNote} (bookings allowed)`,
+      configurationError: webhookInternalError
+        ? "Webhook processing warning (internal)"
+        : "Webhook processing warning",
     });
   }
 
@@ -421,6 +591,12 @@ export async function resolveProviderGatewayStatus(
     webhookConfigured,
     webhookHealthy,
     lastWebhookAt,
+    lastWebhookError,
+    stripeApiHealth,
+    webhookDeliveryHealth,
+    webhookProcessingHealth,
+    bookingPaymentHealth: "healthy",
+    providerHealth: "healthy",
     status: "CONNECTED",
     message: `${config.display_name} is connected and ready`,
     configurationError: null,
@@ -608,6 +784,10 @@ export function gatewayStatusToPaymentGatewayPayload(
     environment: snapshot.environment,
     configured: snapshot.configured,
     ready_for_production: snapshot.ready_for_production,
+    /** Customer booking gate — only "down" blocks bookings. */
+    booking_payment_health: snapshot.booking_payment_health,
+    /** Admin overall health (may be degraded while booking still allowed). */
+    provider_health: snapshot.provider_health,
     status: snapshot.status,
     badge_label: snapshot.badge_label,
     badge_emoji: snapshot.badge_emoji,

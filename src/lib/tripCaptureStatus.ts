@@ -1,8 +1,8 @@
 /**
  * Card-trip capture confirmation — payments table + trips fields as SSOT.
- * Expected customer total = settlement fare + tip + lifecycle extras; captured = sum of payment intents.
- * Settlement fare uses final_fare_pence (includes waiting/modification pass-through).
- * final_customer_fare_pence is display-only — never used for capture reconciliation.
+ * Expected payable = final_customer_fare_pence + waiting + tip (mod already in final_customer).
+ * Captured = payments.captured_amount_pence / trips.capture_amount_pence (Stripe actual only).
+ * Never label expected payable as "captured".
  */
 
 import {
@@ -174,12 +174,16 @@ export function getTripSettlementBreakdown(trip: TripCaptureFields): TripSettlem
     trip.pickup_waiting_charge_pence ??
     (fb?.waiting_charge_pence ?? 0);
 
+  // Prefer final_customer as ride base when waiting is present so breakdown can show waiting.
   const quotedBase =
     fb?.base_fare_pence ??
     fb?.quoted_fare_pence ??
-    trip.final_fare_pence ??
-    trip.final_customer_fare_pence ??
-    0;
+    (waitingPence > 0 && trip.final_customer_fare_pence != null && trip.final_customer_fare_pence > 0
+      ? trip.final_customer_fare_pence
+      : null)
+    ?? trip.final_fare_pence
+    ?? trip.final_customer_fare_pence
+    ?? 0;
 
   let baseFarePence = quotedBase > 0 ? quotedBase : Math.max(0, totalSettlementPence - waitingPence - tipPence);
   let extrasPence = Math.max(0, totalSettlementPence - baseFarePence - waitingPence - tipPence);
@@ -294,11 +298,49 @@ export function getTripLifecycleExtrasPence(trip: TripCaptureFields): number {
 }
 
 export function getExpectedCustomerTotalPence(trip: TripCaptureFields): number | null {
-  const fare = getReconciliationSettlementFarePence(trip);
   const tip = getTripTipPence(trip);
-  const extras = getTripLifecycleExtrasPence(trip);
-  if (fare <= 0 && tip <= 0 && extras <= 0) return null;
-  return fare + tip + extras;
+  const lifecycleExtras = getTripLifecycleExtrasPence(trip);
+  const waiting = Math.max(
+    0,
+    trip.total_waiting_charge_pence
+      ?? trip.waiting_charge_pence
+      ?? trip.pickup_waiting_charge_pence
+      ?? 0,
+  );
+  const finalCustomer =
+    trip.final_customer_fare_pence != null && trip.final_customer_fare_pence > 0
+      ? trip.final_customer_fare_pence
+      : 0;
+  const finalFare =
+    trip.final_fare_pence != null && trip.final_fare_pence > 0
+      ? trip.final_fare_pence
+      : 0;
+
+  if (finalCustomer > 0) {
+    // final_customer already includes approved mods. Add waiting/tip only.
+    const fromCustomer = finalCustomer + waiting + tip + lifecycleExtras;
+    // final_fare is usable when it is not a mod double-count (MK-260704-002: 3007 = 1742+1241+24).
+    if (finalFare > 0 && finalFare <= fromCustomer + 1) {
+      return finalFare + tip + lifecycleExtras;
+    }
+    if (finalFare > fromCustomer + 50) {
+      return fromCustomer;
+    }
+    return Math.max(fromCustomer, finalFare + tip + lifecycleExtras);
+  }
+
+  if (finalFare > 0) return finalFare + tip + lifecycleExtras;
+  const fare = getReconciliationSettlementFarePence(trip);
+  if (fare <= 0 && tip <= 0 && lifecycleExtras <= 0) return null;
+  return fare + tip + lifecycleExtras;
+}
+
+/** Outstanding shortfall: expected payable − Stripe captured (never negative). */
+export function getOutstandingShortfallPence(trip: TripCaptureFields): number {
+  const expected = getExpectedCustomerTotalPence(trip);
+  const captured = getCapturedTotalPence(trip);
+  if (expected == null || captured == null) return 0;
+  return Math.max(0, expected - captured);
 }
 
 /** Count Stripe payment intents (payments rows + shortfall PI stored in metadata). */

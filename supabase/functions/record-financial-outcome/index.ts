@@ -107,7 +107,12 @@ serve(async (req) => {
     }
 
     // Calculate commission on the fee — tier snapshot is locked on this trip
-    const { commission_pct, commission_pence, driver_net_pence } = await calculateCommission(supabase, driver_id, fee_pence);
+    const { commission_pct, commission_pence, driver_net_pence } = await calculateCommission(
+      supabase,
+      driver_id,
+      fee_pence,
+      trip.service_area_id,
+    );
 
     const revenue_type = outcome === 'NO_SHOW' ? 'no_show_revenue' : 'late_cancellation_revenue';
     const isCash = (payment_method || '').toUpperCase() === 'CASH';
