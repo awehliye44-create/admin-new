@@ -4246,6 +4246,221 @@ export type Database = {
           },
         ]
       }
+      driver_payout_destination_audit: {
+        Row: {
+          action: string
+          changed_by_role: string | null
+          changed_by_user_id: string
+          created_at: string
+          destination_type: string | null
+          device_id: string | null
+          driver_id: string
+          id: string
+          ip_address: string | null
+          metadata: Json | null
+          new_payload: Json | null
+          new_payout_account_id: string | null
+          old_payout_account_id: string | null
+          previous_payload: Json | null
+          provider: string
+        }
+        Insert: {
+          action: string
+          changed_by_role?: string | null
+          changed_by_user_id: string
+          created_at?: string
+          destination_type?: string | null
+          device_id?: string | null
+          driver_id: string
+          id?: string
+          ip_address?: string | null
+          metadata?: Json | null
+          new_payload?: Json | null
+          new_payout_account_id?: string | null
+          old_payout_account_id?: string | null
+          previous_payload?: Json | null
+          provider: string
+        }
+        Update: {
+          action?: string
+          changed_by_role?: string | null
+          changed_by_user_id?: string
+          created_at?: string
+          destination_type?: string | null
+          device_id?: string | null
+          driver_id?: string
+          id?: string
+          ip_address?: string | null
+          metadata?: Json | null
+          new_payload?: Json | null
+          new_payout_account_id?: string | null
+          old_payout_account_id?: string | null
+          previous_payload?: Json | null
+          provider?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_payout_destination_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destination_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destination_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destination_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destination_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destination_audit_new_payout_account_id_fkey"
+            columns: ["new_payout_account_id"]
+            isOneToOne: false
+            referencedRelation: "driver_payout_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destination_audit_new_payout_account_id_fkey"
+            columns: ["new_payout_account_id"]
+            isOneToOne: false
+            referencedRelation: "driver_payout_destinations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destination_audit_old_payout_account_id_fkey"
+            columns: ["old_payout_account_id"]
+            isOneToOne: false
+            referencedRelation: "driver_payout_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destination_audit_old_payout_account_id_fkey"
+            columns: ["old_payout_account_id"]
+            isOneToOne: false
+            referencedRelation: "driver_payout_destinations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      driver_payout_destinations: {
+        Row: {
+          account_holder_name: string | null
+          archived_at: string | null
+          created_at: string
+          currency_code: string | null
+          destination_identifier_encrypted: string | null
+          destination_label: string | null
+          destination_last4: string | null
+          destination_payload: Json
+          destination_type: string
+          driver_id: string
+          id: string
+          is_active: boolean
+          provider: string
+          service_area_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          account_holder_name?: string | null
+          archived_at?: string | null
+          created_at?: string
+          currency_code?: string | null
+          destination_identifier_encrypted?: string | null
+          destination_label?: string | null
+          destination_last4?: string | null
+          destination_payload?: Json
+          destination_type?: string
+          driver_id: string
+          id?: string
+          is_active?: boolean
+          provider: string
+          service_area_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          account_holder_name?: string | null
+          archived_at?: string | null
+          created_at?: string
+          currency_code?: string | null
+          destination_identifier_encrypted?: string | null
+          destination_label?: string | null
+          destination_last4?: string | null
+          destination_payload?: Json
+          destination_type?: string
+          driver_id?: string
+          id?: string
+          is_active?: boolean
+          provider?: string
+          service_area_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_payout_destinations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destinations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destinations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destinations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destinations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destinations_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_presence: {
         Row: {
           accuracy_m: number | null
@@ -8168,6 +8383,63 @@ export type Database = {
           },
         ]
       }
+      orphan_payments: {
+        Row: {
+          amount_pence: number
+          client_action_id: string | null
+          created_at: string
+          currency: string
+          customer_id: string | null
+          failure_reason: string | null
+          id: string
+          metadata: Json
+          payment_status: string | null
+          resolved_at: string | null
+          reversal_status: string
+          service_area_id: string | null
+          stripe_payment_intent_id: string
+          trip_id: string | null
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          amount_pence: number
+          client_action_id?: string | null
+          created_at?: string
+          currency?: string
+          customer_id?: string | null
+          failure_reason?: string | null
+          id?: string
+          metadata?: Json
+          payment_status?: string | null
+          resolved_at?: string | null
+          reversal_status?: string
+          service_area_id?: string | null
+          stripe_payment_intent_id: string
+          trip_id?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          amount_pence?: number
+          client_action_id?: string | null
+          created_at?: string
+          currency?: string
+          customer_id?: string | null
+          failure_reason?: string | null
+          id?: string
+          metadata?: Json
+          payment_status?: string | null
+          resolved_at?: string | null
+          reversal_status?: string
+          service_area_id?: string | null
+          stripe_payment_intent_id?: string
+          trip_id?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       otp_allowed_countries: {
         Row: {
           country_code: string
@@ -8395,6 +8667,8 @@ export type Database = {
           last_error_message: string | null
           provider: string
           status: string
+          supports_customer_payments: boolean
+          supports_driver_payouts: boolean
           updated_at: string
           webhook_endpoint_url: string | null
         }
@@ -8413,6 +8687,8 @@ export type Database = {
           last_error_message?: string | null
           provider: string
           status?: string
+          supports_customer_payments?: boolean
+          supports_driver_payouts?: boolean
           updated_at?: string
           webhook_endpoint_url?: string | null
         }
@@ -8431,6 +8707,8 @@ export type Database = {
           last_error_message?: string | null
           provider?: string
           status?: string
+          supports_customer_payments?: boolean
+          supports_driver_payouts?: boolean
           updated_at?: string
           webhook_endpoint_url?: string | null
         }
@@ -10481,6 +10759,7 @@ export type Database = {
           created_at: string
           google_pay_enabled: boolean
           id: string
+          mobile_wallet_methods: Json | null
           service_area_id: string
           updated_at: string
           wallet_enabled: boolean
@@ -10491,6 +10770,7 @@ export type Database = {
           created_at?: string
           google_pay_enabled?: boolean
           id?: string
+          mobile_wallet_methods?: Json | null
           service_area_id: string
           updated_at?: string
           wallet_enabled?: boolean
@@ -10501,6 +10781,7 @@ export type Database = {
           created_at?: string
           google_pay_enabled?: boolean
           id?: string
+          mobile_wallet_methods?: Json | null
           service_area_id?: string
           updated_at?: string
           wallet_enabled?: boolean
@@ -10781,12 +11062,15 @@ export type Database = {
           country: string | null
           created_at: string
           currency_code: string | null
+          customer_payment_gateway: string | null
           distance_unit: string | null
+          driver_payout_gateway: string | null
           early_cashout_enabled: boolean
           geo_boundary: Json | null
           id: string
           is_active: boolean
           name: string
+          payment_provider: string | null
           per_booking_fee_enabled: boolean
           per_booking_fee_pence: number
           pickup_waiting_charges: Json | null
@@ -10803,12 +11087,15 @@ export type Database = {
           country?: string | null
           created_at?: string
           currency_code?: string | null
+          customer_payment_gateway?: string | null
           distance_unit?: string | null
+          driver_payout_gateway?: string | null
           early_cashout_enabled?: boolean
           geo_boundary?: Json | null
           id?: string
           is_active?: boolean
           name: string
+          payment_provider?: string | null
           per_booking_fee_enabled?: boolean
           per_booking_fee_pence?: number
           pickup_waiting_charges?: Json | null
@@ -10825,12 +11112,15 @@ export type Database = {
           country?: string | null
           created_at?: string
           currency_code?: string | null
+          customer_payment_gateway?: string | null
           distance_unit?: string | null
+          driver_payout_gateway?: string | null
           early_cashout_enabled?: boolean
           geo_boundary?: Json | null
           id?: string
           is_active?: boolean
           name?: string
+          payment_provider?: string | null
           per_booking_fee_enabled?: boolean
           per_booking_fee_pence?: number
           pickup_waiting_charges?: Json | null
@@ -10841,6 +11131,27 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "service_areas_customer_payment_gateway_fkey"
+            columns: ["customer_payment_gateway"]
+            isOneToOne: false
+            referencedRelation: "payment_provider_configs"
+            referencedColumns: ["provider"]
+          },
+          {
+            foreignKeyName: "service_areas_driver_payout_gateway_fkey"
+            columns: ["driver_payout_gateway"]
+            isOneToOne: false
+            referencedRelation: "payment_provider_configs"
+            referencedColumns: ["provider"]
+          },
+          {
+            foreignKeyName: "service_areas_payment_provider_fkey"
+            columns: ["payment_provider"]
+            isOneToOne: false
+            referencedRelation: "payment_provider_configs"
+            referencedColumns: ["provider"]
+          },
           {
             foreignKeyName: "service_areas_region_id_fkey"
             columns: ["region_id"]
@@ -11634,12 +11945,15 @@ export type Database = {
           expires_at: string
           fare_delta_pence: number | null
           id: string
+          navigation_impacted: boolean
           new_distance_meters: number | null
           new_duration_seconds: number | null
           new_fare_pence: number | null
           original_distance_meters: number | null
           original_duration_seconds: number | null
           original_fare_pence: number | null
+          payment_confirmed_at: string | null
+          payment_status: string | null
           rejection_reason: string | null
           requested_by: string
           requester_id: string | null
@@ -11658,12 +11972,15 @@ export type Database = {
           expires_at?: string
           fare_delta_pence?: number | null
           id?: string
+          navigation_impacted?: boolean
           new_distance_meters?: number | null
           new_duration_seconds?: number | null
           new_fare_pence?: number | null
           original_distance_meters?: number | null
           original_duration_seconds?: number | null
           original_fare_pence?: number | null
+          payment_confirmed_at?: string | null
+          payment_status?: string | null
           rejection_reason?: string | null
           requested_by?: string
           requester_id?: string | null
@@ -11682,12 +11999,15 @@ export type Database = {
           expires_at?: string
           fare_delta_pence?: number | null
           id?: string
+          navigation_impacted?: boolean
           new_distance_meters?: number | null
           new_duration_seconds?: number | null
           new_fare_pence?: number | null
           original_distance_meters?: number | null
           original_duration_seconds?: number | null
           original_fare_pence?: number | null
+          payment_confirmed_at?: string | null
+          payment_status?: string | null
           rejection_reason?: string | null
           requested_by?: string
           requester_id?: string | null
@@ -14904,6 +15224,215 @@ export type Database = {
           },
         ]
       }
+      driver_payout_accounts: {
+        Row: {
+          account_holder_name: string | null
+          archived_at: string | null
+          created_at: string | null
+          currency_code: string | null
+          destination_identifier_encrypted: string | null
+          destination_last4: string | null
+          destination_type: string | null
+          driver_id: string | null
+          id: string | null
+          is_active: boolean | null
+          provider_key: string | null
+          service_area_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          account_holder_name?: string | null
+          archived_at?: string | null
+          created_at?: string | null
+          currency_code?: string | null
+          destination_identifier_encrypted?: string | null
+          destination_last4?: string | null
+          destination_type?: string | null
+          driver_id?: string | null
+          id?: string | null
+          is_active?: boolean | null
+          provider_key?: string | null
+          service_area_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          account_holder_name?: string | null
+          archived_at?: string | null
+          created_at?: string | null
+          currency_code?: string | null
+          destination_identifier_encrypted?: string | null
+          destination_last4?: string | null
+          destination_type?: string | null
+          driver_id?: string | null
+          id?: string | null
+          is_active?: boolean | null
+          provider_key?: string | null
+          service_area_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_payout_destinations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destinations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destinations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destinations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destinations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destinations_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      driver_payout_destination_audit_logs: {
+        Row: {
+          action: string | null
+          changed_by: string | null
+          changed_by_role: string | null
+          created_at: string | null
+          destination_type: string | null
+          device_id: string | null
+          driver_id: string | null
+          id: string | null
+          ip_address: string | null
+          metadata: Json | null
+          new_payload: Json | null
+          new_payout_account_id: string | null
+          old_payout_account_id: string | null
+          previous_payload: Json | null
+          provider_key: string | null
+        }
+        Insert: {
+          action?: string | null
+          changed_by?: string | null
+          changed_by_role?: string | null
+          created_at?: string | null
+          destination_type?: string | null
+          device_id?: string | null
+          driver_id?: string | null
+          id?: string | null
+          ip_address?: string | null
+          metadata?: Json | null
+          new_payload?: Json | null
+          new_payout_account_id?: string | null
+          old_payout_account_id?: string | null
+          previous_payload?: Json | null
+          provider_key?: string | null
+        }
+        Update: {
+          action?: string | null
+          changed_by?: string | null
+          changed_by_role?: string | null
+          created_at?: string | null
+          destination_type?: string | null
+          device_id?: string | null
+          driver_id?: string | null
+          id?: string | null
+          ip_address?: string | null
+          metadata?: Json | null
+          new_payload?: Json | null
+          new_payout_account_id?: string | null
+          old_payout_account_id?: string | null
+          previous_payload?: Json | null
+          provider_key?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_payout_destination_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destination_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destination_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destination_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destination_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destination_audit_new_payout_account_id_fkey"
+            columns: ["new_payout_account_id"]
+            isOneToOne: false
+            referencedRelation: "driver_payout_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destination_audit_new_payout_account_id_fkey"
+            columns: ["new_payout_account_id"]
+            isOneToOne: false
+            referencedRelation: "driver_payout_destinations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destination_audit_old_payout_account_id_fkey"
+            columns: ["old_payout_account_id"]
+            isOneToOne: false
+            referencedRelation: "driver_payout_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_destination_audit_old_payout_account_id_fkey"
+            columns: ["old_payout_account_id"]
+            isOneToOne: false
+            referencedRelation: "driver_payout_destinations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       merchants_public: {
         Row: {
           address: string | null
@@ -15354,6 +15883,42 @@ export type Database = {
           to: "user_directory"
           isOneToOne: false
           isSetofReturn: true
+        }
+      }
+      advance_trip_change_after_payment: {
+        Args: { p_request_id: string }
+        Returns: {
+          after_route_snapshot: Json
+          before_route_snapshot: Json
+          change_type: string
+          created_at: string
+          expires_at: string
+          fare_delta_pence: number | null
+          id: string
+          navigation_impacted: boolean
+          new_distance_meters: number | null
+          new_duration_seconds: number | null
+          new_fare_pence: number | null
+          original_distance_meters: number | null
+          original_duration_seconds: number | null
+          original_fare_pence: number | null
+          payment_confirmed_at: string | null
+          payment_status: string | null
+          rejection_reason: string | null
+          requested_by: string
+          requester_id: string | null
+          requires_approval: boolean
+          responded_at: string | null
+          response_by: string | null
+          status: string
+          trip_id: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "trip_change_requests"
+          isOneToOne: true
+          isSetofReturn: false
         }
       }
       apply_approved_trip_change_from_request: {
@@ -15975,6 +16540,10 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      get_driver_document_eligibility: {
+        Args: { p_driver_id: string }
+        Returns: Json
       }
       get_driver_feedback_analytics: {
         Args: { p_driver_id: string }
