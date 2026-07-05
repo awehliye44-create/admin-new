@@ -16,6 +16,10 @@ export type PerDriverFinanceSSOT = {
   provider_pending_balance_pence: number;
   provider_available_balance_allocated_to_driver_pence: number;
   provider_upcoming_payout_pence: number;
+  finance_cleared_amount_pence?: number;
+  eligible_payout_pence?: number;
+  included_in_payout_batch_pence?: number;
+  stripe_paid_out_total_pence?: number;
   driver_available_now_pence: number;
   driver_pending_payout_pence: number;
   driver_wallet_balance_pence: number;
@@ -27,8 +31,11 @@ export type PerDriverFinanceSSOT = {
   payout_blocked: boolean;
   payout_blocked_reasons: string[];
   payout_warning_reasons: string[];
-  reconciliation_scope?: 'digital' | 'split';
+  reconciliation_scope?: 'digital' | 'digital_v3' | 'split';
   reconciliation_variance_pence?: number;
+  digital_net_customer_revenue_pence?: number;
+  digital_onecab_net_commission_pence?: number;
+  digital_provider_processing_fee_pence?: number;
 };
 
 export type PerDriverFinanceSSOTResponse = {

@@ -155,8 +155,8 @@ export function getTripCapturedPenceForAudit(args: {
   return Math.max(0, args.tripCaptureAmountPence ?? 0);
 }
 
-export function customerPaidLabel(trip: { payment_method?: string | null }): "Customer Paid" | "Cash Collected" {
-  return isCashTrip(trip) ? "Cash Collected" : "Customer Paid";
+export function customerPaidLabel(trip: { payment_method?: string | null }): "Customer Paid" | "Historical Legacy Trip" {
+  return isCashTrip(trip) ? "Historical Legacy Trip" : "Customer Paid";
 }
 
 /** Completed-trip payment status badge — not ambiguous "card" alone. */
@@ -165,11 +165,9 @@ export function completedTripPaymentStatusLabel(trip: {
   payment_status?: string | null;
 }): string | null {
   const status = String(trip.payment_status ?? "").trim().toLowerCase();
+  if (isCashTrip(trip)) return "Historical Legacy Trip";
   if (status === "refunded") return "Refunded";
   if (status === "partially_refunded") return "Partially refunded";
-  if (isCashTrip(trip) && CASH_COLLECTED_STATUSES.has(status)) {
-    return "Cash Collected";
-  }
   if (isCardTrip(trip) && CAPTURED_PAYMENT_STATUSES.has(status)) {
     return "Card Captured";
   }

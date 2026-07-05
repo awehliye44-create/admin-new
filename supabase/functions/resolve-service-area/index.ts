@@ -161,7 +161,7 @@ serve(async (req) => {
 
       supabase
         .from('service_area_payment_methods')
-        .select('cash_enabled, card_enabled, wallet_enabled, apple_pay_enabled, google_pay_enabled')
+        .select('card_enabled, wallet_enabled, apple_pay_enabled, google_pay_enabled')
         .eq('service_area_id', primaryServiceArea.id)
         .maybeSingle(),
     ]);
@@ -220,12 +220,12 @@ serve(async (req) => {
     // Build payment methods
     const pm = paymentRes.data;
     const paymentMethods = pm ? {
-      cash: pm.cash_enabled ?? true,
+      cash: false,
       card: pm.card_enabled ?? true,
       wallet: pm.wallet_enabled ?? false,
       applePay: pm.apple_pay_enabled ?? false,
       googlePay: pm.google_pay_enabled ?? false,
-    } : { cash: true, card: true, wallet: false, applePay: false, googlePay: false };
+    } : { cash: false, card: true, wallet: false, applePay: false, googlePay: false };
 
     // Check offer schedule
     const scheduleCheck = checkOfferSchedule(offerConfigRes.data as any, matchingRegion.timezone);

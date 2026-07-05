@@ -79,7 +79,7 @@ Deno.test("computeSSOTMetrics end-to-end", () => {
   assertEquals(m.ledger_split.card_driver_payable_pence, 8500);
 });
 
-Deno.test("cash trip £8.40 splits correctly and does not add to card payable", () => {
+Deno.test("historical legacy cash trips excluded from digital reconciliation", () => {
   const ledger = computePaymentMethodLedgerMetrics({
     trips: [{
       id: "cash1",
@@ -90,14 +90,13 @@ Deno.test("cash trip £8.40 splits correctly and does not add to card payable", 
       gross_fare_pence: 840,
     } as import("./financialReconciliationSSOT.ts").TripSSOTRow],
   });
-  assertEquals(ledger.cash_collected_by_driver_pence, 840);
-  assertEquals(ledger.cash_driver_already_received_pence, 714);
-  assertEquals(ledger.onecab_cash_commission_receivable_pence, 126);
+  assertEquals(ledger.cash_collected_by_driver_pence, 0);
+  assertEquals(ledger.cash_driver_already_received_pence, 0);
+  assertEquals(ledger.onecab_cash_commission_receivable_pence, 0);
   assertEquals(ledger.card_driver_payable_pence, 0);
 
   const check = buildSplitReconciliationCheck({ ledger });
   assertEquals(check.balanced, true);
-  assertEquals(check.cash_reconciliation.balanced, true);
 });
 
 Deno.test("mixed card+cash balances separately — no false mismatch from mixing", () => {

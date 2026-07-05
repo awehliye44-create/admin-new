@@ -89,10 +89,6 @@ export async function aggregateDriverInvoice(
         cardTripEarningsPence += amt;
         if (tripId) completedTripIds.add(tripId);
         break;
-      case "CASH_TRIP_EARNING":
-        cashTripEarningsPence += amt;
-        if (tripId) completedTripIds.add(tripId);
-        break;
       case "TIP_CREDIT":
       case "DRIVER_TIP_CREDIT":
         cardTripEarningsPence += amt;
@@ -107,9 +103,6 @@ export async function aggregateDriverInvoice(
       case "ADJUSTMENT":
       case "REFUND_DEBIT":
         adjustmentsPence += amt;
-        break;
-      case "CASH_COMMISSION_DEBT":
-        cashCollectedOffsetPence += Math.abs(amt);
         break;
       case "PENALTY":
       case "DEDUCTION":
@@ -130,7 +123,7 @@ export async function aggregateDriverInvoice(
 
   const netDriverEarningsPence = cardTripEarningsPence + cashTripEarningsPence
     + airportFeeEarningsPence + extraChargeEarningsPence + bonusesPence + adjustmentsPence
-    - platformCommissionPence - cashCollectedOffsetPence;
+    - platformCommissionPence;
 
   return {
     cardTripEarningsPence,
@@ -171,7 +164,6 @@ export function buildInvoiceItems(
   };
 
   push("trip_earnings", "Completed Card Trip Earnings", agg.cardTrips, agg.cardTripEarningsPence);
-  push("trip_earnings", "Completed Cash Trip Earnings", agg.cashTrips, agg.cashTripEarningsPence);
   push("other", "Airport Fee Earnings", 0, agg.airportFeeEarningsPence);
   push("other", "Extra Charge Earnings", 0, agg.extraChargeEarningsPence);
   if (agg.bonusesPence > 0) push("bonus", "Bonuses", 0, agg.bonusesPence);
@@ -184,17 +176,6 @@ export function buildInvoiceItems(
       quantity: 1,
       unit_price_pence: -agg.platformCommissionPence,
       amount_pence: -agg.platformCommissionPence,
-      sort_order: sort++,
-    });
-  }
-  if (agg.cashCollectedOffsetPence > 0) {
-    items.push({
-      invoice_id: invoiceId,
-      item_type: "cash_collected",
-      description: "Cash Collected (Offset)",
-      quantity: 1,
-      unit_price_pence: -agg.cashCollectedOffsetPence,
-      amount_pence: -agg.cashCollectedOffsetPence,
       sort_order: sort++,
     });
   }

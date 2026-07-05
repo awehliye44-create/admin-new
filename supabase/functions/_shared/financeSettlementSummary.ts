@@ -398,7 +398,7 @@ export type FinanceReconciliationSummary = {
       balanced: boolean;
       status: "BALANCED" | "RECONCILIATION_MISMATCH";
     };
-    cash_reconciliation: {
+    cash_reconciliation?: {
       cash_collected_by_driver_pence: number;
       cash_driver_already_received_pence: number;
       onecab_cash_commission_receivable_pence: number;
@@ -604,7 +604,6 @@ export function buildFinanceReconciliationSummary(args: {
     },
     reconciliation_check: {
       card_reconciliation: splitReconciliation.card_reconciliation,
-      cash_reconciliation: splitReconciliation.cash_reconciliation,
       net_customer_revenue_pence: split.card_customer_revenue_pence,
       driver_paid_out_pence: m.driver_paid_out_pence,
       driver_remaining_liability_pence: m.driver_remaining_liability_pence,
@@ -614,14 +613,8 @@ export function buildFinanceReconciliationSummary(args: {
       provider_processing_fee_pence: m.provider_processing_fee_pence,
       adjustments_pence: m.adjustments_pence,
       expected_sum_pence: splitReconciliation.card_reconciliation.expected_sum_pence,
-      variance_pence: Math.max(
-        Math.abs(splitReconciliation.card_reconciliation.variance_pence),
-        Math.abs(splitReconciliation.cash_reconciliation.variance_pence),
-      ),
-      delta_pence: Math.max(
-        Math.abs(splitReconciliation.card_reconciliation.delta_pence),
-        Math.abs(splitReconciliation.cash_reconciliation.delta_pence),
-      ),
+      variance_pence: Math.abs(splitReconciliation.card_reconciliation.variance_pence),
+      delta_pence: Math.abs(splitReconciliation.card_reconciliation.delta_pence),
       balanced: splitReconciliation.balanced,
       status: splitReconciliation.status,
     },

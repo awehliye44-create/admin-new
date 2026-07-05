@@ -136,13 +136,12 @@ export default function StatementRuns() {
         const bonuses = totals.bonuses_pence;
         const penalties = totals.penalties_pence;
         const adjustments = totals.adjustments_pence;
-        const cashCollected = totals.cash_collected_pence;
         const completedTrips = totals.completed_trips;
         const noShowTrips = totals.no_show_trips;
         const lateCancelTrips = totals.late_cancel_trips;
         const netEarnings = totals.net_earnings_pence;
 
-        if (netEarnings === 0 && grossEarnings === 0 && commission === 0 && bonuses === 0 && penalties === 0 && adjustments === 0 && cashCollected === 0) {
+        if (netEarnings === 0 && grossEarnings === 0 && commission === 0 && bonuses === 0 && penalties === 0 && adjustments === 0) {
           continue;
         }
 
@@ -178,7 +177,7 @@ export default function StatementRuns() {
             bonuses_pence: bonuses,
             penalties_pence: penalties,
             adjustments_pence: adjustments,
-            cash_collected_pence: cashCollected,
+            cash_collected_pence: 0,
             net_earnings_pence: netEarnings,
             completed_trips: completedTrips,
             no_show_trips: noShowTrips,
@@ -196,7 +195,6 @@ export default function StatementRuns() {
           if (bonuses > 0) items.push({ invoice_id: inv.id, item_type: "bonus", description: "Bonuses & incentives", amount_pence: bonuses, sort_order: 3 });
           if (penalties > 0) items.push({ invoice_id: inv.id, item_type: "penalty", description: "Penalties & deductions", amount_pence: -penalties, sort_order: 4 });
           if (adjustments !== 0) items.push({ invoice_id: inv.id, item_type: "adjustment", description: "Manual adjustments", amount_pence: adjustments, sort_order: 5 });
-          if (cashCollected > 0) items.push({ invoice_id: inv.id, item_type: "cash_collected", description: "Cash collected (offset)", amount_pence: -cashCollected, sort_order: 6 });
 
           await supabase.from("invoice_items").insert(items);
           totalAmount += netEarnings;

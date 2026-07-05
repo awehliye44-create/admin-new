@@ -81,7 +81,7 @@ export function ServiceAreaMobileWalletMethodsConfig({
     try {
       const { data: existing } = await supabase
         .from('service_area_payment_methods')
-        .select('wallet_enabled, apple_pay_enabled, google_pay_enabled, cash_enabled')
+        .select('wallet_enabled, apple_pay_enabled, google_pay_enabled')
         .eq('service_area_id', serviceAreaId)
         .maybeSingle();
 
@@ -94,7 +94,6 @@ export function ServiceAreaMobileWalletMethodsConfig({
             wallet_enabled: existing?.wallet_enabled ?? false,
             apple_pay_enabled: existing?.apple_pay_enabled ?? false,
             google_pay_enabled: existing?.google_pay_enabled ?? false,
-            cash_enabled: false,
             mobile_wallet_methods: nextMethods,
           } as Record<string, unknown>,
           { onConflict: 'service_area_id' },

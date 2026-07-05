@@ -97,8 +97,18 @@ serve(async (req) => {
           });
         }
 
+        if ((trip.payment_method ?? '').toLowerCase() === 'cash') {
+          return new Response(JSON.stringify({
+            error: 'Historical legacy cash trip — no operational payment actions.',
+            code: 'CASH_NOT_SUPPORTED',
+          }), {
+            status: 410,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
         // Update payment status to confirmed/paid
-        const newStatus = trip.payment_method === 'cash' ? 'confirmed' : 'captured';
+        const newStatus = 'captured';
         const { error: updateErr } = await supabase
           .from('trips')
           .update({ 
@@ -123,26 +133,15 @@ serve(async (req) => {
             .limit(1);
 
           if (!existingEntry || existingEntry.length === 0) {
-            if (trip.payment_method === 'cash') {
-              await supabase.from('driver_wallet_ledger').insert({
-                driver_id: trip.driver_id,
-                related_trip_id: trip_id,
-                type: 'CASH_COMMISSION_DEBT',
-                amount_pence: -trip.commission_pence,
-                currency: currency_code,
-                description: 'Commission owed from cash trip (admin confirmed)',
-              });
-            } else {
-              const netPence = trip.driver_net_pence || (trip.gross_fare_pence || 0) - trip.commission_pence;
-              await supabase.from('driver_wallet_ledger').insert({
-                driver_id: trip.driver_id,
-                related_trip_id: trip_id,
-                type: 'TRIP_EARNING_NET',
-                amount_pence: netPence,
-                currency: currency_code,
-                description: 'Net earnings from trip (admin confirmed)',
-              });
-            }
+            const netPence = trip.driver_net_pence || (trip.gross_fare_pence || 0) - trip.commission_pence;
+            await supabase.from('driver_wallet_ledger').insert({
+              driver_id: trip.driver_id,
+              related_trip_id: trip_id,
+              type: 'TRIP_EARNING_NET',
+              amount_pence: netPence,
+              currency: currency_code,
+              description: 'Net earnings from trip (admin confirmed)',
+            });
           }
         }
 

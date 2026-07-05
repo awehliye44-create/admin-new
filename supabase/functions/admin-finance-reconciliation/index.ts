@@ -967,8 +967,8 @@ serve(async (req) => {
           stripe_payout_confirmation: "driver bank receipt requires Stripe Connect payout paid + ledger stripe_payout_id",
           card_reconciliation:
             "card_customer_revenue = card_driver_payable + onecab_card_commission",
-          cash_reconciliation:
-            "cash_collected_by_driver = cash_driver_already_received + onecab_cash_commission_receivable",
+          historical_legacy_cash_trips:
+            "excluded from digital finance reconciliation — audit display only",
         },
       },
     }), {

@@ -68,7 +68,6 @@ export type FinanceBackendAuditV1 = {
     reconciliation_status: "BALANCED" | "MISMATCH";
     reconciliation_difference_pence: number;
     card_reconciliation: ReturnType<typeof buildSplitReconciliationCheck>["card_reconciliation"];
-    cash_reconciliation: ReturnType<typeof buildSplitReconciliationCheck>["cash_reconciliation"];
     equation: {
       net_customer_money_in_pence: number;
       driver_paid_out_total_pence: number;
@@ -237,7 +236,7 @@ export function buildTripAuditRows(
       driver_net_pence: driverNet,
       onecab_commission_pence: tripGrossCommissionPence(row),
       provider_fee_pence: tripStripeFeePence(row),
-      payout_status: paidOut > 0 ? "paid_out" : isCashTrip(row) ? "cash_collected" : "unpaid",
+      payout_status: paidOut > 0 ? "paid_out" : isCashTrip(row) ? "historical_legacy" : "unpaid",
       paid_out_amount_pence: paidOut,
       remaining_driver_liability_pence: Math.max(0, cardPayable - paidOut),
     };
@@ -381,10 +380,7 @@ export function buildFinanceBackendAuditV1(args: {
     ledgerSplit.card_driver_payable_pence + ledgerSplit.onecab_card_commission_pence;
   const reconciliationDiff = splitCheck.balanced
     ? 0
-    : Math.max(
-      Math.abs(splitCheck.card_reconciliation.variance_pence),
-      Math.abs(splitCheck.cash_reconciliation.variance_pence),
-    );
+    : Math.abs(splitCheck.card_reconciliation.variance_pence);
   const balanced = splitCheck.balanced;
 
   const ledgerById = new Map(args.ledgerRows.map((r) => [r.id, r]));
@@ -472,10 +468,8 @@ export function buildFinanceBackendAuditV1(args: {
     J_provider_processing_fee_pence: providerFees,
     K_wallet_vs_payout_diagnosis: walletIntegrity[0]?.explanation ??
       (balanced
-        ? `Card and cash ledgers balanced. Card liability ${driverRemainingLiability}p; cash commission owed ${ledgerSplit.onecab_cash_commission_receivable_pence}p.`
-        : !splitCheck.card_reconciliation.balanced
-        ? `Card ledger mismatch ${splitCheck.card_reconciliation.variance_pence}p — do not mix cash into Stripe revenue.`
-        : `Cash ledger mismatch ${splitCheck.cash_reconciliation.variance_pence}p.`)
+        ? `Digital card ledger balanced. Card liability ${driverRemainingLiability}p.`
+        : `Card ledger mismatch ${splitCheck.card_reconciliation.variance_pence}p.`)
         + (totalWalletBalance > 0
           ? ` Wallet aggregate ${totalWalletBalance}p; paid out ${payoutDebits.total}p.`
           : ""),
@@ -517,7 +511,6 @@ export function buildFinanceBackendAuditV1(args: {
       reconciliation_status: balanced ? "BALANCED" : "MISMATCH",
       reconciliation_difference_pence: reconciliationDiff,
       card_reconciliation: splitCheck.card_reconciliation,
-      cash_reconciliation: splitCheck.cash_reconciliation,
       equation: {
         net_customer_money_in_pence: cardLhs,
         driver_paid_out_total_pence: payoutDebits.total,
@@ -543,11 +536,10 @@ export function buildFinanceBackendAuditV1(args: {
           "card_driver_payable - ledger_payout_debits + ledger_adjustments (excludes cash driver_net)",
         driver_available_now:
           "min(driver_remaining_liability, provider_available_balance) — NOT wallet balance",
-        onecab_commission: "card commission − Stripe fees; cash commission is receivable from driver",
+        onecab_commission: "card commission − Stripe fees (digital-only platform)",
         card_reconciliation:
           "card_customer_revenue = card_driver_payable + onecab_card_commission",
-        cash_reconciliation:
-          "cash_collected_by_driver = cash_driver_already_received + onecab_cash_commission_receivable",
+        historical_legacy_cash_trips: "excluded from digital finance reconciliation",
         payout_ledger:
           "completed payout must insert negative driver_wallet_ledger (PAYOUT/WEEKLY_PAYOUT/EARLY_CASHOUT)",
       },

@@ -142,31 +142,8 @@ serve(async (req) => {
 
     // === trip_finance DEPRECATED — all financial data in driver_wallet_ledger ===
 
-    // Handle cash vs card ledger entries — write to driver_wallet_ledger
-    if (isCash) {
-      if (commission_pence > 0) {
-        await supabase
-          .from('driver_wallet_ledger')
-          .insert({
-            driver_id,
-            related_trip_id: trip_id,
-            type: 'CASH_COMMISSION_DEBT',
-            amount_pence: -commission_pence,
-            currency: currency_code,
-            description: `Commission from ${outcome === 'NO_SHOW' ? 'no-show' : 'late cancellation'} fee (cash)`,
-          });
-      }
-
-      // Record CASH_TRIP_EARNING (reporting)
-      await supabase.from('driver_wallet_ledger').insert({
-        driver_id,
-        related_trip_id: trip_id,
-        type: 'CASH_TRIP_EARNING',
-        amount_pence: fee_pence,
-        currency: currency_code,
-        description: `Cash ${outcome === 'NO_SHOW' ? 'no-show' : 'late cancellation'} fee collected`,
-      });
-    } else {
+    // Digital-only ledger — historical legacy cash trips get trip update only.
+    if (!isCash) {
       if (driver_net_pence > 0) {
         await supabase
           .from('driver_wallet_ledger')
@@ -179,19 +156,20 @@ serve(async (req) => {
             description: `Driver earnings from ${outcome === 'NO_SHOW' ? 'no-show' : 'late cancellation'} fee`,
           });
       }
-    }
 
-    // Record PLATFORM_COMMISSION in driver_wallet_ledger
-    if (commission_pence > 0) {
-      await supabase.from('driver_wallet_ledger').insert({
-        driver_id,
-        related_trip_id: trip_id,
-        type: 'PLATFORM_COMMISSION',
-        amount_pence: commission_pence,
-        currency: currency_code,
-        description: `Platform commission from ${outcome === 'NO_SHOW' ? 'no-show' : 'late cancellation'} fee`,
-      });
-      console.log(`[record-financial-outcome] PLATFORM_COMMISSION: +${commission_pence}p`);
+      if (commission_pence > 0) {
+        await supabase.from('driver_wallet_ledger').insert({
+          driver_id,
+          related_trip_id: trip_id,
+          type: 'PLATFORM_COMMISSION',
+          amount_pence: commission_pence,
+          currency: currency_code,
+          description: `Platform commission from ${outcome === 'NO_SHOW' ? 'no-show' : 'late cancellation'} fee`,
+        });
+        console.log(`[record-financial-outcome] PLATFORM_COMMISSION: +${commission_pence}p`);
+      }
+    } else {
+      console.log(`[record-financial-outcome] Historical legacy cash trip ${trip_id} — skipped cash settlement ledger`);
     }
 
     // Clear driver current trip

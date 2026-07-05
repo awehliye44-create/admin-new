@@ -367,7 +367,7 @@ export function deriveTripCaptureStatusLabel(
   input: TripAuditStatusInput,
   captureMismatch: boolean,
 ): string {
-  if (isTripCashPayment(input.trip)) return "Cash collected";
+  if (isTripCashPayment(input.trip)) return "Historical Legacy Trip";
   if (captureMismatch) return "Capture mismatch";
   if (hasRefund(input)) {
     return isFullyRefunded(input) ? "Fully refunded" : "Partially refunded";

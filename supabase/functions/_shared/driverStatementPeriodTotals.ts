@@ -93,7 +93,7 @@ export function buildDriverStatementPeriodTotals(
 
   const ledgerByDriver = new Map<
     string,
-    { bonuses: number; penalties: number; adjustments: number; cash: number; payoutsReceived: number }
+    { bonuses: number; penalties: number; adjustments: number; payoutsReceived: number }
   >();
   for (const entry of ledgerRows) {
     if (driverIdsFilter && !driverIdsFilter.has(entry.driver_id)) continue;
@@ -101,7 +101,6 @@ export function buildDriverStatementPeriodTotals(
       bonuses: 0,
       penalties: 0,
       adjustments: 0,
-      cash: 0,
       payoutsReceived: 0,
     };
     const amt = Number(entry.amount_pence ?? 0);
@@ -112,9 +111,6 @@ export function buildDriverStatementPeriodTotals(
       case "ADJUSTMENT":
       case "REFUND_DEBIT":
         agg.adjustments += amt;
-        break;
-      case "CASH_COMMISSION_DEBT":
-        agg.cash += Math.abs(amt);
         break;
       case "PENALTY":
       case "DEDUCTION":
@@ -144,12 +140,12 @@ export function buildDriverStatementPeriodTotals(
     const bonuses = ledger?.bonuses ?? 0;
     const penalties = ledger?.penalties ?? 0;
     const adjustments = ledger?.adjustments ?? 0;
-    const cashCollected = ledger?.cash ?? 0;
+    const cashCollected = 0;
     const payoutsReceived = ledger?.payoutsReceived ?? 0;
 
     if (
       gross === 0 && commission === 0 && driverNet === 0
-      && bonuses === 0 && penalties === 0 && adjustments === 0 && cashCollected === 0
+      && bonuses === 0 && penalties === 0 && adjustments === 0
       && payoutsReceived === 0
       && (audit?.completed ?? 0) === 0 && (audit?.noShow ?? 0) === 0 && (audit?.lateCancel ?? 0) === 0
     ) {
@@ -168,7 +164,7 @@ export function buildDriverStatementPeriodTotals(
       penalties_pence: penalties,
       adjustments_pence: adjustments,
       cash_collected_pence: cashCollected,
-      net_earnings_pence: driverNet + bonuses - penalties + adjustments - cashCollected,
+      net_earnings_pence: driverNet + bonuses - penalties + adjustments,
       payouts_received_pence: payoutsReceived,
     });
   }

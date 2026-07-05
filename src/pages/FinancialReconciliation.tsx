@@ -329,7 +329,22 @@ function FinancialReconciliationPage() {
 
           <TabsContent value="drivers" className="mt-4">
             {frTab === 'drivers' && (
-              <DriverWalletSsotPanel regionId={filter.regionId} currencyCode={ccy || undefined} />
+              <DriverWalletSsotPanel
+                regionId={filter.regionId}
+                currencyCode={ccy || undefined}
+                filter={filter}
+                pageFrom={from || undefined}
+                pageTo={to || undefined}
+                money={money}
+                readOnly={readOnly}
+                ssotBadge={ssotBadge}
+                lastSyncedAt={lastSyncedAt}
+                serviceAreaName={
+                  serviceAreas.find((sa) => sa.id === filter.serviceAreaId)?.name
+                  ?? serviceAreas.find((sa) => sa.region_id === filter.regionId)?.name
+                  ?? null
+                }
+              />
             )}
           </TabsContent>
 

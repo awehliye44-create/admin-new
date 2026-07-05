@@ -174,7 +174,7 @@ Deno.serve(async (req) => {
               .gte("created_at", periodStart)
               .lte("created_at", periodEnd + "T23:59:59Z");
 
-            let grossEarnings = 0, commission = 0, bonuses = 0, penalties = 0, adjustments = 0, cashCollected = 0;
+            let grossEarnings = 0, commission = 0, bonuses = 0, penalties = 0, adjustments = 0;
             const completedTrips = new Set<string>();
             let noShowTrips = 0, lateCancelTrips = 0;
 
@@ -186,18 +186,17 @@ Deno.serve(async (req) => {
                 case "BONUS": case "INCENTIVE": bonuses += amt; break;
                 case "PENALTY": case "DEDUCTION": penalties += Math.abs(amt); break;
                 case "ADJUSTMENT": case "REFUND_DEBIT": adjustments += amt; break;
-                case "CASH_TRIP_EARNING": case "CASH_COMMISSION_DEBT": cashCollected += Math.abs(amt); break;
                 case "NO_SHOW_EARNING": noShowTrips++; grossEarnings += amt; break;
                 case "LATE_CANCEL_EARNING": lateCancelTrips++; grossEarnings += amt; break;
                 case "TIP_CREDIT": case "DRIVER_TIP_CREDIT": grossEarnings += amt; break;
               }
             }
 
-            if (grossEarnings === 0 && commission === 0 && bonuses === 0 && penalties === 0 && adjustments === 0 && cashCollected === 0) {
+            if (grossEarnings === 0 && commission === 0 && bonuses === 0 && penalties === 0 && adjustments === 0) {
               continue;
             }
 
-            const netEarnings = grossEarnings - commission + bonuses - penalties + adjustments - cashCollected;
+            const netEarnings = grossEarnings - commission + bonuses - penalties + adjustments;
             const { data: invNum } = await supabase.rpc("generate_invoice_number");
             const invoiceNumber = invNum || `INV-${Date.now()}-${runInvoiceCount}`;
 
@@ -241,7 +240,7 @@ Deno.serve(async (req) => {
                 bonuses_pence: bonuses,
                 penalties_pence: penalties,
                 adjustments_pence: adjustments,
-                cash_collected_pence: cashCollected,
+                cash_collected_pence: 0,
                 net_earnings_pence: netEarnings,
                 completed_trips: completedTrips.size,
                 no_show_trips: noShowTrips,
@@ -260,7 +259,6 @@ Deno.serve(async (req) => {
               if (bonuses > 0) items.push({ invoice_id: inv.id, item_type: "bonus", description: "Bonuses & incentives", amount_pence: bonuses, sort_order: 3 });
               if (penalties > 0) items.push({ invoice_id: inv.id, item_type: "penalty", description: "Penalties & deductions", amount_pence: -penalties, sort_order: 4 });
               if (adjustments !== 0) items.push({ invoice_id: inv.id, item_type: "adjustment", description: "Manual adjustments", amount_pence: adjustments, sort_order: 5 });
-              if (cashCollected > 0) items.push({ invoice_id: inv.id, item_type: "cash_collected", description: "Cash collected (offset)", amount_pence: -cashCollected, sort_order: 6 });
 
               await supabase.from("invoice_items").insert(items);
 

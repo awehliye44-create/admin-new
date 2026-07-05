@@ -1262,7 +1262,7 @@ export default function TripHistory() {
                     <TableCell>
                       <div className="flex flex-col gap-0.5">
                         <Badge variant="outline" className="text-[10px] w-fit">
-                          {trip.payment_method === 'cash' ? '💵 Cash' 
+                          {trip.payment_method === 'cash' ? 'Historical Legacy Trip'
                             : trip.payment_method === 'apple_pay' ? '📱 Apple Pay'
                             : trip.payment_method === 'card' ? '💳 Card'
                             : trip.payment_method || 'Unknown'}

@@ -142,12 +142,11 @@ export function partitionTripsForReconciliation(args: {
   const pendingTrips: TripSSOTRow[] = [];
 
   for (const trip of args.trips) {
+    if (isCashTrip(trip)) continue;
     if (isTripPaymentCaptureConfirmed(trip, paymentByTrip)) {
       reconciledTrips.push(trip);
-    } else if (!isCashTrip(trip)) {
-      pendingTrips.push(trip);
     } else {
-      reconciledTrips.push(trip);
+      pendingTrips.push(trip);
     }
   }
 
@@ -650,16 +649,7 @@ export function computePaymentMethodLedgerMetrics(args: {
 
   for (const trip of reconciledTrips) {
     const commission = Math.max(0, trip.commission_pence ?? 0);
-    if (isCashTripPaymentMethod(trip.payment_method)) {
-      const collected = Math.max(
-        0,
-        trip.commissionable_fare_pence ?? trip.final_fare_pence ?? trip.gross_fare_pence ?? 0,
-      );
-      cashCollected += collected;
-      cashDriverReceived += Math.max(0, trip.driver_net_pence ?? Math.max(0, collected - commission));
-      onecabCashCommission += commission;
-      continue;
-    }
+    if (isCashTripPaymentMethod(trip.payment_method)) continue;
 
     const tripId = trip.id ?? "";
     const capturedRaw = tripId && paymentByTrip.has(tripId)
@@ -739,23 +729,10 @@ export function buildSplitReconciliationCheck(args: {
     card_driver_payable_pence: l.card_driver_payable_pence,
     onecab_card_commission_pence: l.onecab_card_commission_pence,
   };
-  const cashBase = buildLedgerSliceCheck({
-    lhs: l.cash_collected_by_driver_pence,
-    rhsComponents: [l.cash_driver_already_received_pence, l.onecab_cash_commission_receivable_pence],
-    tolerancePence: args.tolerancePence,
-  });
-  const cash_reconciliation = {
-    ...cashBase,
-    cash_collected_by_driver_pence: l.cash_collected_by_driver_pence,
-    cash_driver_already_received_pence: l.cash_driver_already_received_pence,
-    onecab_cash_commission_receivable_pence: l.onecab_cash_commission_receivable_pence,
-  };
-  const balanced = card_reconciliation.balanced && cash_reconciliation.balanced;
   return {
     card_reconciliation,
-    cash_reconciliation,
-    balanced,
-    status: balanced ? ("BALANCED" as const) : ("RECONCILIATION_MISMATCH" as const),
+    balanced: card_reconciliation.balanced,
+    status: card_reconciliation.balanced ? ("BALANCED" as const) : ("RECONCILIATION_MISMATCH" as const),
   };
 }
 

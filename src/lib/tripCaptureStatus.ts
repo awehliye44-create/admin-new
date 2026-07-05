@@ -428,8 +428,8 @@ export function getTripCaptureStatus(trip: TripCaptureFields): TripCaptureStatus
     if (paymentStatus === 'collected_cash') {
       return baseStatus(trip, {
         kind: 'cash_collected',
-        label: 'Cash collected',
-        shortLabel: '✓ Cash collected',
+        label: 'Historical Legacy Trip',
+        shortLabel: 'Historical Legacy Trip',
       });
     }
     return baseStatus(trip, {

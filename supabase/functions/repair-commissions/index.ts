@@ -105,6 +105,7 @@ serve(async (req) => {
       const airportPence = trip.airport_charge_pence || 0;
       const passThroughPence = trip.other_pass_through_charges_pence || 0;
       const isCash = (trip.payment_method || '').toUpperCase() === 'CASH';
+      if (isCash) continue; // Historical legacy — digital-only platform; no cash settlement repair
       const issues: string[] = [];
 
       // === Resolve correct currency from Region ===
@@ -163,14 +164,8 @@ serve(async (req) => {
       const walletTypes = new Set((existingWalletEntries || []).map(e => e.type));
       const missingWalletEntries: string[] = [];
 
-      if (isCash) {
-        if (!walletTypes.has('CASH_COMMISSION_DEBT') && correctCommission > 0) missingWalletEntries.push('CASH_COMMISSION_DEBT');
-        if (!walletTypes.has('CASH_TRIP_EARNING')) missingWalletEntries.push('CASH_TRIP_EARNING');
-        if (!walletTypes.has('PLATFORM_COMMISSION') && correctCommission > 0) missingWalletEntries.push('PLATFORM_COMMISSION');
-      } else {
-        if (!walletTypes.has('TRIP_EARNING_NET') && correctNet > 0) missingWalletEntries.push('TRIP_EARNING_NET');
-        if (!walletTypes.has('PLATFORM_COMMISSION') && correctCommission > 0) missingWalletEntries.push('PLATFORM_COMMISSION');
-      }
+      if (!walletTypes.has('TRIP_EARNING_NET') && correctNet > 0) missingWalletEntries.push('TRIP_EARNING_NET');
+      if (!walletTypes.has('PLATFORM_COMMISSION') && correctCommission > 0) missingWalletEntries.push('PLATFORM_COMMISSION');
 
       if (missingWalletEntries.length > 0) issues.push(`missing wallet_ledger: ${missingWalletEntries.join(', ')}`);
 
@@ -219,14 +214,6 @@ serve(async (req) => {
           let desc = '';
 
           switch (missingType) {
-            case 'CASH_COMMISSION_DEBT':
-              amount = -correctCommission;
-              desc = 'Cash trip commission owed to platform (repaired)';
-              break;
-            case 'CASH_TRIP_EARNING':
-              amount = grossFare;
-              desc = 'Cash trip gross fare collected (repaired)';
-              break;
             case 'TRIP_EARNING_NET':
               amount = correctNet;
               desc = 'Trip earnings net (repaired)';

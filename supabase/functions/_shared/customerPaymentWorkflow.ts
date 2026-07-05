@@ -139,7 +139,7 @@ export function buildServiceAreaPaymentMethodFlags(
   const provider = gatewayCheck.ok ? gatewayCheck.provider : null;
   const isStripe = gatewayCheck.ok && isStripePreauthProvider(provider);
   const isMobile = gatewayCheck.ok && isMobileWalletCollectProvider(provider);
-  const cash = Boolean(pm.cash_enabled);
+  const cash = false;
 
   const paymentMethods: PaymentMethodsCamel = {
     cash,

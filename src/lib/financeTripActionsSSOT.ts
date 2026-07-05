@@ -76,7 +76,7 @@ export function derivePaymentActionAvailability(input: TripPaymentActionInput): 
 
   return {
     capture: canCapture ? enabled() : disabled(
-      !digital ? 'Cash trip — no Stripe capture'
+      !digital ? 'Historical legacy trip — no operational finance actions'
         : !hasPi ? 'No PaymentIntent'
           : !isUncaptured ? 'Payment is not awaiting capture'
             : tripCancelled ? 'Trip cancelled'
