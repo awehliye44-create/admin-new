@@ -10,6 +10,10 @@ import type { FinanceMoneyFormat } from '@/hooks/useFinanceReconciliationMoney';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
 import { formatProviderHealthLabel } from '@/lib/financialReconciliationGuards';
 import { PlatformStripePendingExplainer } from '@/components/finance/PlatformStripePendingExplainer';
+import {
+  ServiceAreaGatewayStatusPanel,
+  type ServiceAreaGatewayStatusRow,
+} from '@/components/finance/ServiceAreaGatewayStatusPanel';
 
 function KpiCard({ label, value, subtitle }: { label: string; value: string | number; subtitle?: string }) {
   return (
