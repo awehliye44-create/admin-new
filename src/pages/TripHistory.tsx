@@ -1749,7 +1749,7 @@ export default function TripHistory() {
                       tripId={selectedTrip.id}
                       tripCode={selectedTrip.trip_code}
                       source="trip-history"
-                      variant="finance"
+                      variant="summary"
                     />
                   )}
 
