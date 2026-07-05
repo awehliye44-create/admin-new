@@ -183,8 +183,6 @@ verify_jwt = false
 verify_jwt = false
 
 
-[functions.audit-stripe-balance-source]
-verify_jwt = false
 
 [functions.send-campaign-heads-up]
 verify_jwt = false
