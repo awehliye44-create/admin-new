@@ -21,8 +21,7 @@ import {
   Loader2, 
   Car, 
   Banknote,
-  Users,
-  FileText,
+  Phone,
   Globe,
   Calculator,
   Gift,
@@ -40,6 +39,7 @@ import { FareEngineConfig } from '@/components/pricing/FareEngineConfig';
 import { ServiceAreaTripsTab } from '@/components/payment/ServiceAreaTripsTab';
 import { VehicleTypePricingRow } from '@/components/pricing/VehicleTypePricingRow';
 import { ServiceAreaDriverTiersConfig } from '@/components/pricing/ServiceAreaDriverTiersConfig';
+import { ServiceAreaCommunicationConfig } from '@/components/communication/ServiceAreaCommunicationConfig';
 
 interface VehicleType {
   id: string;
@@ -308,9 +308,9 @@ export default function ServiceAreaPricing() {
             <Banknote className="h-4 w-4" />
             Offers & Payment
           </TabsTrigger>
-          <TabsTrigger value="assignments" className="flex items-center gap-2">
-            <Users className="h-4 w-4" />
-            Assignments
+          <TabsTrigger value="communication" className="flex items-center gap-2">
+            <Phone className="h-4 w-4" />
+            Communication (SSOT)
           </TabsTrigger>
           <TabsTrigger value="trips" className="flex items-center gap-2">
             <Banknote className="h-4 w-4" />
@@ -457,39 +457,14 @@ export default function ServiceAreaPricing() {
           )}
         </TabsContent>
 
-        {/* Assignments Tab */}
-        <TabsContent value="assignments">
-          <Card>
-            <CardContent className="p-6">
-              <h3 className="text-lg font-semibold mb-2">Service Area Assignments</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Assign drivers and document requirements to this service area
-              </p>
-
-              <Tabs defaultValue="drivers">
-                <TabsList>
-                  <TabsTrigger value="drivers" className="flex items-center gap-2">
-                    <Users className="h-4 w-4" />
-                    Drivers
-                  </TabsTrigger>
-                  <TabsTrigger value="documents" className="flex items-center gap-2">
-                    <FileText className="h-4 w-4" />
-                    Document Requirements
-                  </TabsTrigger>
-                </TabsList>
-                <TabsContent value="drivers" className="mt-4">
-                  <p className="text-sm text-muted-foreground">
-                    Driver assignments are managed from the Drivers page. Go to Drivers → Select a driver → Assign Service Areas.
-                  </p>
-                </TabsContent>
-                <TabsContent value="documents" className="mt-4">
-                  <p className="text-sm text-muted-foreground">
-                    Document requirements for this service area coming soon.
-                  </p>
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
+        <TabsContent value="communication">
+          {selectedServiceAreaId && (
+            <ServiceAreaCommunicationConfig
+              serviceAreaId={selectedServiceAreaId}
+              serviceAreaName={selectedServiceArea?.name}
+              currencyCode={regionCurrency}
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="trips">
