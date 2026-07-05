@@ -50,8 +50,9 @@ import {
   Bell, Loader2, Search, RefreshCw, Plus, Trash2, Edit2, 
   CheckCircle, AlertTriangle, Info, AlertCircle, X,
   Mail, Smartphone, MessageSquare, Settings, FileText,
-  Eye, EyeOff, Send, Clock, Users, Globe
+  Eye, EyeOff, Send, Clock, Users, Globe, PartyPopper
 } from 'lucide-react';
+import { CampaignHeadsUpSection } from '@/components/notifications/CampaignHeadsUpSection';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -648,6 +649,10 @@ export default function Notifications() {
             <FileText className="h-4 w-4" />
             Templates
           </TabsTrigger>
+          <TabsTrigger value="campaign-heads-up" className="flex items-center gap-2">
+            <PartyPopper className="h-4 w-4" />
+            Campaign / Celebration
+          </TabsTrigger>
           <TabsTrigger value="settings" className="flex items-center gap-2">
             <Settings className="h-4 w-4" />
             Settings
@@ -700,6 +705,10 @@ export default function Notifications() {
                 <Button variant="outline" onClick={() => fetchData()} disabled={isLoading}>
                   <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
                   Refresh
+                </Button>
+                <Button variant="outline" onClick={() => setActiveTab('campaign-heads-up')}>
+                  <PartyPopper className="h-4 w-4 mr-2" />
+                  Campaign Heads-Up
                 </Button>
                 <Button onClick={() => setIsCreateOpen(true)}>
                   <Plus className="h-4 w-4 mr-2" />
@@ -894,6 +903,10 @@ export default function Notifications() {
         </TabsContent>
 
         {/* Settings Tab */}
+        <TabsContent value="campaign-heads-up">
+          <CampaignHeadsUpSection />
+        </TabsContent>
+
         <TabsContent value="settings">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Email Notifications */}
