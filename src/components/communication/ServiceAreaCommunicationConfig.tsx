@@ -91,7 +91,7 @@ export function ServiceAreaCommunicationConfig({
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [settingsRes, maskingRes, catalogRes, voipLogsRes, maskedLogsRes] = await Promise.all([
+      const [settingsRes, maskingRes, catalogRes] = await Promise.all([
         supabase
           .from('service_area_communication_settings')
           .select('*')
@@ -107,41 +107,11 @@ export function ServiceAreaCommunicationConfig({
           .select('*')
           .eq('is_active', true)
           .order('label'),
-        supabase
-          .from('voip_call_logs')
-          .select('*')
-          .eq('service_area_id', serviceAreaId)
-          .order('started_at', { ascending: false })
-          .limit(100),
-        supabase
-          .from('call_masking_call_logs')
-          .select(`
-            id,
-            call_start,
-            duration_seconds,
-            status,
-            disconnect_reason,
-            booking_id,
-            trips!inner(
-              id,
-              trip_number,
-              trip_code,
-              service_area_id,
-              passenger_name,
-              confirmed_driver_id,
-              drivers:confirmed_driver_id(full_name)
-            )
-          `)
-          .eq('trips.service_area_id', serviceAreaId)
-          .order('call_start', { ascending: false })
-          .limit(100),
       ]);
 
       if (settingsRes.error) throw settingsRes.error;
       if (maskingRes.error) throw maskingRes.error;
       if (catalogRes.error) throw catalogRes.error;
-      if (voipLogsRes.error) throw voipLogsRes.error;
-      if (maskedLogsRes.error) throw maskedLogsRes.error;
 
       const loadedSettings = settingsRes.data
         ? ({
@@ -155,10 +125,73 @@ export function ServiceAreaCommunicationConfig({
       setMaskingConfig(loadedMasking);
       setSelectedProviderConfigId(loadedMasking?.provider_config_id ?? UNSET_PROVIDER);
 
-      setProviderCatalog((catalogRes.data ?? []) as CallMaskingProviderConfig[]);
+      const catalog = (catalogRes.data ?? []) as CallMaskingProviderConfig[];
+      setProviderCatalog(catalog);
 
-      const voipLogs = voipLogsRes.data ?? [];
-      const maskedLogs = maskedLogsRes.data ?? [];
+      // Auto-assign when masking is on but no saved assignment yet.
+      if (
+        loadedSettings.call_masking_enabled
+        && !loadedMasking?.provider_config_id
+        && catalog.length >= 1
+      ) {
+        const preferred =
+          catalog.find((entry) => entry.label.toLowerCase().includes('milton keynes'))
+          ?? catalog[0];
+        setSelectedProviderConfigId(preferred.id);
+        setMaskingConfig({
+          service_area_id: serviceAreaId,
+          provider_config_id: preferred.id,
+          provider: preferred.provider,
+          country_code: preferred.country_code,
+          number_pool_id: preferred.number_pool_id,
+          outbound_caller_id: preferred.outbound_caller_id,
+          is_active: true,
+        });
+      }
+
+      // Call logs are optional — never block settings UI if history queries fail.
+      let voipLogs: Record<string, unknown>[] = [];
+      let maskedLogs: Record<string, unknown>[] = [];
+
+      const voipLogsRes = await supabase
+        .from('voip_call_logs')
+        .select('*')
+        .eq('service_area_id', serviceAreaId)
+        .order('started_at', { ascending: false })
+        .limit(100);
+      if (voipLogsRes.error) {
+        console.warn('[ServiceAreaCommunicationConfig] voip logs skipped', voipLogsRes.error);
+      } else {
+        voipLogs = voipLogsRes.data ?? [];
+      }
+
+      const maskedLogsRes = await supabase
+        .from('call_masking_call_logs')
+        .select(`
+          id,
+          call_start,
+          duration_seconds,
+          status,
+          disconnect_reason,
+          booking_id,
+          trips!inner(
+            id,
+            trip_number,
+            trip_code,
+            service_area_id,
+            passenger_name,
+            confirmed_driver_id,
+            drivers!trips_confirmed_driver_id_fkey(full_name)
+          )
+        `)
+        .eq('trips.service_area_id', serviceAreaId)
+        .order('call_start', { ascending: false })
+        .limit(100);
+      if (maskedLogsRes.error) {
+        console.warn('[ServiceAreaCommunicationConfig] masked logs skipped', maskedLogsRes.error);
+      } else {
+        maskedLogs = maskedLogsRes.data ?? [];
+      }
 
       const voipMetricsInput = voipLogs.map((log) => ({
         duration_seconds: log.duration_seconds as number | null,
@@ -553,21 +586,33 @@ export function ServiceAreaCommunicationConfig({
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label>Provider config</Label>
-                  <Select
-                    value={selectedProviderConfigId}
-                    onValueChange={applyProviderSelection}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select call masking config" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {providerCatalog.map((entry) => (
-                        <SelectItem key={entry.id} value={entry.id}>
-                          {entry.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {providerCatalog.length === 0 ? (
+                    <Alert variant="destructive">
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertDescription>
+                        No MSG91 provider configs are visible. The catalog may be missing or blocked
+                        by database permissions — contact engineering to seed{' '}
+                        <code className="text-xs">call_masking_provider_configs</code> or redeploy
+                        the latest migration.
+                      </AlertDescription>
+                    </Alert>
+                  ) : (
+                    <Select
+                      value={selectedProviderConfigId}
+                      onValueChange={applyProviderSelection}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select call masking config" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {providerCatalog.map((entry) => (
+                          <SelectItem key={entry.id} value={entry.id}>
+                            {entry.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
 
                 {maskingConfig && (
