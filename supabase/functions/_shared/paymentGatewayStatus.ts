@@ -15,6 +15,29 @@ function isLivePaymentAdapter(provider: string | null | undefined): boolean {
   return Boolean(provider && LIVE_PAYMENT_ADAPTERS.has(provider));
 }
 
+/** Machine-readable block when a service-area gateway is not bookable. */
+export type GatewayBlockCode = "PAYMENT_GATEWAY_NOT_CONFIGURED" | "PROVIDER_NOT_IMPLEMENTED";
+
+/** Map operational status → booking block code (no provider fallback). */
+export function resolveGatewayBlockCode(snapshot: GatewayStatusSnapshot): GatewayBlockCode {
+  if (
+    !snapshot.provider
+    || snapshot.status === "NOT_CONFIGURED"
+    || snapshot.status === "DISABLED"
+  ) {
+    return "PAYMENT_GATEWAY_NOT_CONFIGURED";
+  }
+  if (!isLivePaymentAdapter(snapshot.provider)) {
+    return "PROVIDER_NOT_IMPLEMENTED";
+  }
+  if (!snapshot.ready_for_production) {
+    return snapshot.status === "TEST_MODE"
+      ? "PROVIDER_NOT_IMPLEMENTED"
+      : "PAYMENT_GATEWAY_NOT_CONFIGURED";
+  }
+  return "PAYMENT_GATEWAY_NOT_CONFIGURED";
+}
+
 export type PaymentGatewayStatusCode =
   | "CONNECTED"
   | "NOT_CONFIGURED"
@@ -449,6 +472,9 @@ export async function resolveProviderGatewayStatus(
 
   if (!isLivePaymentAdapter(providerId)) {
     const webhookStored = await hasWebhookSecretConfigured(supabase, providerId, environment);
+    const notImplementedMessage = role === "driver"
+      ? `${config.display_name} payout setup is not available yet.`
+      : `${config.display_name} credentials stored. Live booking adapter not implemented (PROVIDER_NOT_IMPLEMENTED).`;
     return buildSnapshot(role, providerId, config, {
       apiKeysConfigured: true,
       webhookConfigured: webhookStored,
@@ -458,8 +484,7 @@ export async function resolveProviderGatewayStatus(
       bookingPaymentHealth: "down",
       providerHealth: "down",
       status: "TEST_MODE",
-      message:
-        `${config.display_name} credentials stored. Live booking adapter not implemented (PROVIDER_NOT_IMPLEMENTED).`,
+      message: notImplementedMessage,
       configurationError: null,
     });
   }
@@ -577,17 +602,11 @@ export async function resolveProviderGatewayStatus(
   });
 }
 
+/** Admin-selected primary provider — sole SSOT for collection + payout. */
 function resolveAreaPaymentProvider(area: {
   payment_provider?: string | null;
-  customer_payment_gateway?: string | null;
-  driver_payout_gateway?: string | null;
 }): string | null {
-  return (
-    (area.payment_provider as string | null) ??
-    (area.customer_payment_gateway as string | null) ??
-    (area.driver_payout_gateway as string | null) ??
-    null
-  );
+  return (area.payment_provider as string | null) ?? null;
 }
 
 export async function resolveServiceAreaGatewayStatuses(
@@ -769,8 +788,10 @@ export function gatewayStatusToPaymentGatewayPayload(
     configuration_error: snapshot.configuration_error,
     code: snapshot.ready_for_production
       ? null
-      : snapshot.status === "NOT_CONFIGURED"
+      : snapshot.status === "NOT_CONFIGURED" || snapshot.status === "DISABLED"
       ? "PAYMENT_GATEWAY_NOT_CONFIGURED"
+      : !isLivePaymentAdapter(snapshot.provider)
+      ? "PROVIDER_NOT_IMPLEMENTED"
       : snapshot.status,
     health: snapshot.health,
   };

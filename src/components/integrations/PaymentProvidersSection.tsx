@@ -51,6 +51,7 @@ const PROVIDER_ICONS: Record<PaymentProviderId, string> = {
   pesapal: "🇰🇪",
   hubtel: "🇬🇭",
   dpo_pay: "🌍",
+  noda: "🏦",
 };
 
 function statusBadge(provider: PaymentProviderCard) {
@@ -91,6 +92,20 @@ function bookingAdapterBadge(status: PaymentProviderCard["booking_adapter_status
     );
   }
   return <Badge variant="secondary">Adapter not configured</Badge>;
+}
+
+function payoutAdapterBadge(status: PaymentProviderCard["payout_adapter_status"]) {
+  if (status === "live") {
+    return <Badge className="bg-green-500/10 text-green-700 border-green-500/30">Payout adapter live</Badge>;
+  }
+  if (status === "not_implemented") {
+    return (
+      <Badge variant="secondary" className="font-mono text-xs">
+        Payout {PROVIDER_NOT_IMPLEMENTED_CODE}
+      </Badge>
+    );
+  }
+  return <Badge variant="secondary">Payout adapter not configured</Badge>;
 }
 
 function webhookSecretBadge(status: "added" | "missing" | undefined) {
@@ -216,6 +231,7 @@ function ProviderCard({
           <div className="flex flex-col items-end gap-2">
             {statusBadge(provider)}
             {bookingAdapterBadge(provider.booking_adapter_status)}
+            {payoutAdapterBadge(provider.payout_adapter_status)}
             <Badge variant="outline">{provider.mode === "live" ? "Live" : "Test"} mode</Badge>
           </div>
         </div>

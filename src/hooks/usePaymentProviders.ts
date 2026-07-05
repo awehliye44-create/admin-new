@@ -15,7 +15,8 @@ export type PaymentProviderId =
   | "flutterwave"
   | "pesapal"
   | "hubtel"
-  | "dpo_pay";
+  | "dpo_pay"
+  | "noda";
 
 export type ProviderEnvironment = "test" | "live";
 
@@ -56,6 +57,7 @@ export interface WebhookHealth {
 }
 
 export type BookingAdapterStatus = "live" | "not_implemented" | "not_configured";
+export type PayoutAdapterStatus = "live" | "not_implemented" | "not_configured";
 
 export interface PaymentProviderCard {
   provider: PaymentProviderId;
@@ -70,6 +72,8 @@ export interface PaymentProviderCard {
   credentials_ready?: boolean;
   booking_adapter_live?: boolean;
   booking_adapter_status?: BookingAdapterStatus;
+  payout_adapter_live?: boolean;
+  payout_adapter_status?: PayoutAdapterStatus;
   last_webhook_received: string | null;
   last_successful_event: { event_type: string; at: string } | null;
   last_failed_event: { event_type: string; at: string; error?: string | null } | null;

@@ -12,6 +12,7 @@ export const SUPPORTED_PAYMENT_PROVIDER_IDS: PaymentProviderId[] = [
   "pesapal",
   "hubtel",
   "dpo_pay",
+  "noda",
 ];
 
 export type ProviderSecretName = "publishable_key" | "secret_key" | "webhook_secret" | "merchant_id";
@@ -31,6 +32,7 @@ export const PROVIDER_SECRET_FIELDS: Record<PaymentProviderId, ProviderSecretNam
   pesapal: ["publishable_key", "secret_key", "webhook_secret"],
   hubtel: ["publishable_key", "secret_key", "webhook_secret"],
   dpo_pay: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
+  noda: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
 };
 
 export type ProviderSecretFieldLabels = Partial<Record<ProviderSecretName, string>>;
@@ -109,5 +111,11 @@ export const PROVIDER_SECRET_FIELD_LABELS: Record<PaymentProviderId, ProviderSec
     secret_key: "Service type",
     webhook_secret: "Webhook secret",
     merchant_id: "Merchant ID",
+  },
+  noda: {
+    publishable_key: "API key",
+    secret_key: "Secret key",
+    webhook_secret: "Webhook secret",
+    merchant_id: "Merchant / account ID",
   },
 };

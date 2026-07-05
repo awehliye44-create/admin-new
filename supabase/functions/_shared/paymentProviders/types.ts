@@ -12,7 +12,8 @@ export type PaymentProviderId =
   | "flutterwave"
   | "pesapal"
   | "hubtel"
-  | "dpo_pay";
+  | "dpo_pay"
+  | "noda";
 
 export type ProviderEnvironment = "test" | "live";
 
@@ -176,6 +177,12 @@ export const PROVIDER_ENV_SECRET_MAP: Record<
     webhook_secret: "DPO_PAY_WEBHOOK_SECRET",
     merchant_id: "DPO_PAY_MERCHANT_ID",
   },
+  noda: {
+    publishable_key: "NODA_API_KEY",
+    secret_key: "NODA_SECRET_KEY",
+    webhook_secret: "NODA_WEBHOOK_SECRET",
+    merchant_id: "NODA_MERCHANT_ID",
+  },
 };
 
 /** Fields shown in admin secrets dialog per provider. */
@@ -194,6 +201,7 @@ export const PROVIDER_SECRET_FIELDS: Record<PaymentProviderId, (keyof ProviderSe
   pesapal: ["publishable_key", "secret_key", "webhook_secret"],
   hubtel: ["publishable_key", "secret_key", "webhook_secret"],
   dpo_pay: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
+  noda: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
 };
 
 /** P0 supported providers — Integrations → Payment Providers UI. */
@@ -208,6 +216,7 @@ export const SUPPORTED_PAYMENT_PROVIDER_IDS: PaymentProviderId[] = [
   "pesapal",
   "hubtel",
   "dpo_pay",
+  "noda",
 ];
 
 export type ProviderSecretFieldLabels = Partial<Record<keyof ProviderSecrets, string>>;
@@ -286,5 +295,11 @@ export const PROVIDER_SECRET_FIELD_LABELS: Record<PaymentProviderId, ProviderSec
     secret_key: "Service type",
     webhook_secret: "Webhook secret",
     merchant_id: "Merchant ID",
+  },
+  noda: {
+    publishable_key: "API key",
+    secret_key: "Secret key",
+    webhook_secret: "Webhook secret",
+    merchant_id: "Merchant / account ID",
   },
 };

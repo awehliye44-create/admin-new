@@ -32,6 +32,9 @@ export const PROVIDER_MOBILE_WALLET_CATALOG: Record<string, MobileWalletMethodId
 /** Providers with live customer booking adapters (card preauth or mobile collect). */
 export const LIVE_CUSTOMER_BOOKING_PROVIDERS = new Set<string>(["stripe"]);
 
+/** Providers with live driver payout adapters. */
+export const LIVE_DRIVER_PAYOUT_PROVIDERS = new Set<string>(["stripe"]);
+
 export const PROVIDER_NOT_IMPLEMENTED_CODE = "PROVIDER_NOT_IMPLEMENTED";
 
 export function isStripePreauthProvider(provider: string | null | undefined): boolean {
@@ -47,13 +50,29 @@ export function isCustomerBookingAdapterLive(provider: string | null | undefined
   return Boolean(provider && LIVE_CUSTOMER_BOOKING_PROVIDERS.has(provider));
 }
 
+export function isPayoutAdapterLive(provider: string | null | undefined): boolean {
+  return Boolean(provider && LIVE_DRIVER_PAYOUT_PROVIDERS.has(provider));
+}
+
+export function providerPayoutNotAvailableMessage(
+  displayName: string | null | undefined,
+  provider: string,
+): string {
+  const label = displayName?.trim() || provider;
+  return `${label} payout setup is not available yet.`;
+}
+
 export function resolveProviderBookingAdapterStatus(
   provider: string | null | undefined,
   readyForProduction: boolean,
+  configured = false,
 ): "live" | "not_implemented" | "not_configured" {
-  if (!provider || !readyForProduction) return "not_configured";
-  if (isCustomerBookingAdapterLive(provider)) return "live";
-  return "not_implemented";
+  if (!provider) return "not_configured";
+  if (isCustomerBookingAdapterLive(provider) && readyForProduction) return "live";
+  if (configured && !isCustomerBookingAdapterLive(provider)) return "not_implemented";
+  if (!configured && !readyForProduction) return "not_configured";
+  if (!isCustomerBookingAdapterLive(provider)) return "not_implemented";
+  return "not_configured";
 }
 
 export function providerNotImplementedMessage(displayName: string | null, provider: string): string {

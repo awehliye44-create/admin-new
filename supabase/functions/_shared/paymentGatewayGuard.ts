@@ -1,11 +1,15 @@
 /**
  * Read-only payment gateway guard — no Stripe API calls.
- * Service Area is SSOT for customer + driver gateways (no global fallback).
+ *
+ * One service area = one admin-selected primary payment provider (`payment_provider`).
+ * No dynamic routing, no automatic fallback, no backup switching.
+ * Global provider credentials do not activate bookings — only service-area selection does.
  */
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   gatewayStatusToPaymentGatewayPayload,
+  resolveGatewayBlockCode,
   resolveProviderGatewayStatus,
   type GatewayRole,
   type GatewayStatusSnapshot,
@@ -53,19 +57,12 @@ export {
   resolveAllServiceAreaGatewayStatuses,
 } from "./paymentGatewayStatus.ts";
 
-/** Resolve the single service-area payment provider (collection + payout). */
+/** Admin-selected primary provider — sole SSOT (mirrors are not read). */
 export function resolveServiceAreaPaymentProvider(row: {
   payment_provider?: string | null;
-  customer_payment_gateway?: string | null;
-  driver_payout_gateway?: string | null;
 } | null | undefined): string | null {
   if (!row) return null;
-  return (
-    (row.payment_provider as string | null) ??
-    (row.customer_payment_gateway as string | null) ??
-    (row.driver_payout_gateway as string | null) ??
-    null
-  );
+  return (row.payment_provider as string | null) ?? null;
 }
 
 export async function loadServiceAreaGateways(
@@ -111,9 +108,10 @@ export async function checkServiceAreaGateway(
 
   const status = await resolveProviderGatewayStatus(supabase, providerId, role);
   if (!status.ready_for_production) {
+    const code = resolveGatewayBlockCode(status);
     return {
       ok: false,
-      code: PAYMENT_GATEWAY_NOT_CONFIGURED,
+      code,
       role,
       provider: status.provider,
       reason: status.message ?? status.configuration_error ?? "Payment gateway not configured",
@@ -129,13 +127,13 @@ export async function checkServiceAreaGateway(
   };
 }
 
-/** Customer booking edges: only Stripe execution is live today. */
+/** Customer booking edges: only live adapters execute — never fall back to Stripe. */
 export function assertGatewayExecutable(check: GatewayCheckResult): GatewayCheckResult {
   if (!check.ok) return check;
   if (check.provider !== "stripe") {
     return {
       ok: false,
-      code: PAYMENT_GATEWAY_NOT_CONFIGURED,
+      code: PROVIDER_NOT_IMPLEMENTED,
       role: check.role,
       provider: check.provider,
       reason: `${check.display_name} is registered but not yet enabled for live booking`,

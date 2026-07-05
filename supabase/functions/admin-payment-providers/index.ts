@@ -13,7 +13,7 @@ import {
   type ProviderEnvironment,
   type ProviderSecrets,
 } from "../_shared/paymentProviders/index.ts";
-import { isCustomerBookingAdapterLive } from "../_shared/customerPaymentWorkflow.ts";
+import { isCustomerBookingAdapterLive, isPayoutAdapterLive } from "../_shared/customerPaymentWorkflow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -149,6 +149,7 @@ async function buildProviderCard(
   const statuses = secretStatus(secrets);
   const modeMismatch = detectModeMismatch(environment, secrets.secret_key);
   const adapterLive = isCustomerBookingAdapterLive(provider);
+  const payoutAdapterLive = isPayoutAdapterLive(provider);
   const credentialsReady = Boolean(secrets.secret_key);
 
   const { data: metadataRows } = await supabase
@@ -238,6 +239,12 @@ async function buildProviderCard(
     ? "live"
     : "not_implemented";
 
+  const payoutAdapterStatus: "live" | "not_implemented" | "not_configured" = !credentialsReady
+    ? "not_configured"
+    : payoutAdapterLive
+    ? "live"
+    : "not_implemented";
+
   return {
     provider,
     display_name: config.display_name,
@@ -251,6 +258,8 @@ async function buildProviderCard(
     credentials_ready: credentialsReady,
     booking_adapter_live: adapterLive,
     booking_adapter_status: bookingAdapterStatus,
+    payout_adapter_live: payoutAdapterLive,
+    payout_adapter_status: payoutAdapterStatus,
     last_webhook_received: webhookHealth?.last_received_at ?? null,
     last_successful_event: webhookHealth?.last_successful_event ?? null,
     last_failed_event: webhookHealth?.last_failed_event ?? null,

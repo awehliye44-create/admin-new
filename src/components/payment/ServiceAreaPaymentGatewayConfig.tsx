@@ -79,6 +79,7 @@ const SUPPORTED_PROVIDERS = new Set([
   'pesapal',
   'hubtel',
   'dpo_pay',
+  'noda',
 ]);
 
 function statusBadgeClass(status: GatewayStatusCode): string {
@@ -154,16 +155,9 @@ export function ServiceAreaPaymentGatewayConfig({
 
       const area = areaRes.data as {
         payment_provider?: string | null;
-        customer_payment_gateway?: string | null;
-        driver_payout_gateway?: string | null;
       } | null;
 
-      const provider =
-        area?.payment_provider ??
-        area?.customer_payment_gateway ??
-        area?.driver_payout_gateway ??
-        statusRes.payment_provider ??
-        null;
+      const provider = area?.payment_provider ?? statusRes.payment_provider ?? null;
 
       setProviders((providersRes.data ?? []) as ProviderOption[]);
       setPaymentProvider(provider);
@@ -237,13 +231,12 @@ export function ServiceAreaPaymentGatewayConfig({
     ? resolveProviderBookingAdapterStatus(
         customerStatus.provider,
         customerStatus.ready_for_production,
+        customerStatus.configured,
       )
     : 'not_configured';
 
   const customerAdapterNotLive =
-    Boolean(paymentProvider)
-    && customerStatus?.ready_for_production === true
-    && !isCustomerBookingAdapterLive(paymentProvider);
+    Boolean(paymentProvider) && customerAdapterStatus === 'not_implemented';
 
   const bookingWorkflowLabel = isStripePreauthProvider(paymentProvider)
     ? 'Stripe preauth (card / Apple Pay / Google Pay)'
@@ -258,11 +251,12 @@ export function ServiceAreaPaymentGatewayConfig({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <ArrowRightLeft className="h-5 w-5 text-primary" />
-          Service Area Payment Provider
+          Primary Payment Provider
         </CardTitle>
         <CardDescription>
-          One provider controls both customer payment collection and driver payout for this service area.
-          No separate payout provider selection.
+          Admin selects one primary provider per service area. It controls both customer payment
+          collection and driver payout. Global provider configuration does not activate bookings —
+          only this selection does. No fallback or automatic switching.
           {serviceAreaName ? ` (${serviceAreaName})` : ''}
         </CardDescription>
       </CardHeader>
@@ -308,7 +302,7 @@ export function ServiceAreaPaymentGatewayConfig({
           <div className="flex items-center justify-between gap-2">
             <Label className="flex items-center gap-2 font-medium">
               <CreditCard className="h-4 w-4" />
-              Service Area Payment Provider
+              Primary Payment Provider
             </Label>
             <GatewayStatusBadge snapshot={customerStatus} />
           </div>
