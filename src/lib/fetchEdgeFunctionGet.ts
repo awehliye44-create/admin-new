@@ -18,8 +18,15 @@ export async function fetchEdgeFunctionGet<T>(
   }
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
   const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
-  const { data: sessionData } = await supabase.auth.getSession();
-  const token = sessionData.session?.access_token ?? anonKey;
+  let { data: sessionData } = await supabase.auth.getSession();
+  let session = sessionData.session;
+  // Force refresh if token is missing or expired/near-expiry (<30s left)
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (session && (!session.expires_at || session.expires_at - nowSec < 30)) {
+    const { data: refreshed } = await supabase.auth.refreshSession();
+    session = refreshed.session ?? session;
+  }
+  const token = session?.access_token ?? anonKey;
   const query = qs.toString();
   const url = `${supabaseUrl}/functions/v1/${functionName}${query ? `?${query}` : ''}`;
   const timeoutMs = options?.timeoutMs ?? 120_000;

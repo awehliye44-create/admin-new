@@ -695,6 +695,39 @@ export type Database = {
           },
         ]
       }
+      call_masking_provider_configs: {
+        Row: {
+          country_code: string
+          created_at: string
+          id: string
+          is_active: boolean
+          label: string
+          number_pool_id: string
+          outbound_caller_id: string
+          provider: string
+        }
+        Insert: {
+          country_code: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label: string
+          number_pool_id: string
+          outbound_caller_id: string
+          provider: string
+        }
+        Update: {
+          country_code?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          number_pool_id?: string
+          outbound_caller_id?: string
+          provider?: string
+        }
+        Relationships: []
+      }
       call_masking_sessions: {
         Row: {
           caller_id: string | null
@@ -817,6 +850,279 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      campaign_heads_up_campaigns: {
+        Row: {
+          accent_color: string
+          background_image_url: string | null
+          category: string
+          created_at: string
+          created_by: string | null
+          cta_label: string | null
+          cta_url: string | null
+          deep_link: string | null
+          delivered_count: number
+          dismissed_count: number
+          emoji: string | null
+          ends_at: string | null
+          failed_count: number
+          gradient_from: string
+          gradient_to: string
+          id: string
+          languages: Json
+          metadata: Json
+          opened_count: number
+          priority: string
+          schedule_mode: string
+          scheduled_at: string | null
+          sent_at: string | null
+          sent_count: number
+          starts_at: string | null
+          status: string
+          subtitle: string
+          tapped_count: number
+          target_app: string
+          target_region_id: string | null
+          target_scope: string
+          target_service_area_id: string | null
+          target_user_ids: string[] | null
+          target_user_segment: string | null
+          template_id: string | null
+          template_slug: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          accent_color?: string
+          background_image_url?: string | null
+          category: string
+          created_at?: string
+          created_by?: string | null
+          cta_label?: string | null
+          cta_url?: string | null
+          deep_link?: string | null
+          delivered_count?: number
+          dismissed_count?: number
+          emoji?: string | null
+          ends_at?: string | null
+          failed_count?: number
+          gradient_from?: string
+          gradient_to?: string
+          id?: string
+          languages?: Json
+          metadata?: Json
+          opened_count?: number
+          priority?: string
+          schedule_mode?: string
+          scheduled_at?: string | null
+          sent_at?: string | null
+          sent_count?: number
+          starts_at?: string | null
+          status?: string
+          subtitle: string
+          tapped_count?: number
+          target_app?: string
+          target_region_id?: string | null
+          target_scope?: string
+          target_service_area_id?: string | null
+          target_user_ids?: string[] | null
+          target_user_segment?: string | null
+          template_id?: string | null
+          template_slug?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          accent_color?: string
+          background_image_url?: string | null
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          cta_label?: string | null
+          cta_url?: string | null
+          deep_link?: string | null
+          delivered_count?: number
+          dismissed_count?: number
+          emoji?: string | null
+          ends_at?: string | null
+          failed_count?: number
+          gradient_from?: string
+          gradient_to?: string
+          id?: string
+          languages?: Json
+          metadata?: Json
+          opened_count?: number
+          priority?: string
+          schedule_mode?: string
+          scheduled_at?: string | null
+          sent_at?: string | null
+          sent_count?: number
+          starts_at?: string | null
+          status?: string
+          subtitle?: string
+          tapped_count?: number
+          target_app?: string
+          target_region_id?: string | null
+          target_scope?: string
+          target_service_area_id?: string | null
+          target_user_ids?: string[] | null
+          target_user_segment?: string | null
+          template_id?: string | null
+          template_slug?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_heads_up_campaigns_target_region_id_fkey"
+            columns: ["target_region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_heads_up_campaigns_target_service_area_id_fkey"
+            columns: ["target_service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_heads_up_campaigns_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_heads_up_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_heads_up_deliveries: {
+        Row: {
+          campaign_id: string
+          created_at: string
+          dedupe_key: string
+          delivered_at: string | null
+          dismissed_at: string | null
+          failed_at: string | null
+          failure_reason: string | null
+          id: string
+          opened_at: string | null
+          status: string
+          tapped_at: string | null
+          user_app: string
+          user_id: string
+        }
+        Insert: {
+          campaign_id: string
+          created_at?: string
+          dedupe_key: string
+          delivered_at?: string | null
+          dismissed_at?: string | null
+          failed_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          opened_at?: string | null
+          status?: string
+          tapped_at?: string | null
+          user_app: string
+          user_id: string
+        }
+        Update: {
+          campaign_id?: string
+          created_at?: string
+          dedupe_key?: string
+          delivered_at?: string | null
+          dismissed_at?: string | null
+          failed_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          opened_at?: string | null
+          status?: string
+          tapped_at?: string | null
+          user_app?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_heads_up_deliveries_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_heads_up_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_heads_up_templates: {
+        Row: {
+          accent_color: string
+          background_image_url: string | null
+          category: string
+          created_at: string
+          cta_label: string | null
+          cta_url: string | null
+          deep_link: string | null
+          default_priority: string
+          default_target_app: string
+          emoji: string | null
+          gradient_from: string
+          gradient_to: string
+          id: string
+          is_active: boolean
+          is_system: boolean
+          name: string
+          slug: string
+          subtitle: string
+          supported_languages: Json
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          accent_color?: string
+          background_image_url?: string | null
+          category: string
+          created_at?: string
+          cta_label?: string | null
+          cta_url?: string | null
+          deep_link?: string | null
+          default_priority?: string
+          default_target_app?: string
+          emoji?: string | null
+          gradient_from?: string
+          gradient_to?: string
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          name: string
+          slug: string
+          subtitle: string
+          supported_languages?: Json
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          accent_color?: string
+          background_image_url?: string | null
+          category?: string
+          created_at?: string
+          cta_label?: string | null
+          cta_url?: string | null
+          deep_link?: string | null
+          default_priority?: string
+          default_target_app?: string
+          emoji?: string | null
+          gradient_from?: string
+          gradient_to?: string
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          name?: string
+          slug?: string
+          subtitle?: string
+          supported_languages?: Json
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       canned_responses: {
         Row: {
@@ -10572,6 +10878,57 @@ export type Database = {
           },
         ]
       }
+      service_area_call_masking_config: {
+        Row: {
+          country_code: string
+          created_at: string
+          is_active: boolean
+          number_pool_id: string
+          outbound_caller_id: string
+          provider: string
+          provider_config_id: string | null
+          service_area_id: string
+          updated_at: string
+        }
+        Insert: {
+          country_code: string
+          created_at?: string
+          is_active?: boolean
+          number_pool_id: string
+          outbound_caller_id: string
+          provider: string
+          provider_config_id?: string | null
+          service_area_id: string
+          updated_at?: string
+        }
+        Update: {
+          country_code?: string
+          created_at?: string
+          is_active?: boolean
+          number_pool_id?: string
+          outbound_caller_id?: string
+          provider?: string
+          provider_config_id?: string | null
+          service_area_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_area_call_masking_config_provider_config_id_fkey"
+            columns: ["provider_config_id"]
+            isOneToOne: false
+            referencedRelation: "call_masking_provider_configs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "service_area_call_masking_config_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: true
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       service_area_cancellation_fees: {
         Row: {
           cancellation_fee: number
@@ -10606,6 +10963,59 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "service_area_cancellation_fees_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: true
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      service_area_communication_settings: {
+        Row: {
+          call_masking_enabled: boolean
+          created_at: string
+          currency: string
+          default_method: Database["public"]["Enums"]["communication_default_method"]
+          is_enabled: boolean
+          masked_call_rate_per_minute_minor: number
+          maximum_call_duration_seconds: number
+          service_area_id: string
+          updated_at: string
+          voip_enabled: boolean
+          voip_provider: string
+          voip_rate_per_minute_minor: number
+        }
+        Insert: {
+          call_masking_enabled?: boolean
+          created_at?: string
+          currency?: string
+          default_method?: Database["public"]["Enums"]["communication_default_method"]
+          is_enabled?: boolean
+          masked_call_rate_per_minute_minor?: number
+          maximum_call_duration_seconds?: number
+          service_area_id: string
+          updated_at?: string
+          voip_enabled?: boolean
+          voip_provider?: string
+          voip_rate_per_minute_minor?: number
+        }
+        Update: {
+          call_masking_enabled?: boolean
+          created_at?: string
+          currency?: string
+          default_method?: Database["public"]["Enums"]["communication_default_method"]
+          is_enabled?: boolean
+          masked_call_rate_per_minute_minor?: number
+          maximum_call_duration_seconds?: number
+          service_area_id?: string
+          updated_at?: string
+          voip_enabled?: boolean
+          voip_provider?: string
+          voip_rate_per_minute_minor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_area_communication_settings_service_area_id_fkey"
             columns: ["service_area_id"]
             isOneToOne: true
             referencedRelation: "service_areas"
@@ -10663,6 +11073,53 @@ export type Database = {
           },
           {
             foreignKeyName: "service_area_document_rules_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      service_area_driver_tiers: {
+        Row: {
+          category_priority: number
+          commission_percent: number
+          created_at: string
+          display_order: number
+          id: string
+          is_active: boolean
+          service_area_id: string
+          tier_name: string
+          trip_target: number | null
+          updated_at: string
+        }
+        Insert: {
+          category_priority?: number
+          commission_percent: number
+          created_at?: string
+          display_order?: number
+          id?: string
+          is_active?: boolean
+          service_area_id: string
+          tier_name: string
+          trip_target?: number | null
+          updated_at?: string
+        }
+        Update: {
+          category_priority?: number
+          commission_percent?: number
+          created_at?: string
+          display_order?: number
+          id?: string
+          is_active?: boolean
+          service_area_id?: string
+          tier_name?: string
+          trip_target?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_area_driver_tiers_service_area_id_fkey"
             columns: ["service_area_id"]
             isOneToOne: false
             referencedRelation: "service_areas"
@@ -11161,6 +11618,66 @@ export type Database = {
           },
         ]
       }
+      staff_coverage_requirements: {
+        Row: {
+          created_at: string
+          day_of_week: number
+          end_time: string
+          id: string
+          is_active: boolean
+          region_id: string | null
+          required_staff_count: number
+          service_area_id: string | null
+          shift_name: string
+          staff_role: Database["public"]["Enums"]["staff_role"]
+          start_time: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          day_of_week: number
+          end_time: string
+          id?: string
+          is_active?: boolean
+          region_id?: string | null
+          required_staff_count?: number
+          service_area_id?: string | null
+          shift_name: string
+          staff_role: Database["public"]["Enums"]["staff_role"]
+          start_time: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          day_of_week?: number
+          end_time?: string
+          id?: string
+          is_active?: boolean
+          region_id?: string | null
+          required_staff_count?: number
+          service_area_id?: string | null
+          shift_name?: string
+          staff_role?: Database["public"]["Enums"]["staff_role"]
+          start_time?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_coverage_requirements_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_coverage_requirements_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       staff_id_sequences: {
         Row: {
           current_value: number
@@ -11179,8 +11696,101 @@ export type Database = {
         }
         Relationships: []
       }
+      staff_leave_exceptions: {
+        Row: {
+          approved_by: string | null
+          created_at: string
+          end_time: string | null
+          id: string
+          leave_date: string
+          leave_type: string
+          reason: string | null
+          staff_id: string
+          start_time: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          approved_by?: string | null
+          created_at?: string
+          end_time?: string | null
+          id?: string
+          leave_date: string
+          leave_type: string
+          reason?: string | null
+          staff_id: string
+          start_time?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          approved_by?: string | null
+          created_at?: string
+          end_time?: string | null
+          id?: string
+          leave_date?: string
+          leave_type?: string
+          reason?: string | null
+          staff_id?: string
+          start_time?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_leave_exceptions_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      staff_pattern_assignments: {
+        Row: {
+          assigned_at: string
+          assigned_by: string | null
+          id: string
+          is_active: boolean
+          pattern_id: string
+          staff_id: string
+        }
+        Insert: {
+          assigned_at?: string
+          assigned_by?: string | null
+          id?: string
+          is_active?: boolean
+          pattern_id: string
+          staff_id: string
+        }
+        Update: {
+          assigned_at?: string
+          assigned_by?: string | null
+          id?: string
+          is_active?: boolean
+          pattern_id?: string
+          staff_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_pattern_assignments_pattern_id_fkey"
+            columns: ["pattern_id"]
+            isOneToOne: false
+            referencedRelation: "staff_work_patterns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_pattern_assignments_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       staff_profiles: {
         Row: {
+          assigned_pattern_id: string | null
           created_at: string
           created_by: string | null
           full_name: string
@@ -11193,6 +11803,7 @@ export type Database = {
           username: string | null
         }
         Insert: {
+          assigned_pattern_id?: string | null
           created_at?: string
           created_by?: string | null
           full_name: string
@@ -11205,6 +11816,7 @@ export type Database = {
           username?: string | null
         }
         Update: {
+          assigned_pattern_id?: string | null
           created_at?: string
           created_by?: string | null
           full_name?: string
@@ -11216,7 +11828,15 @@ export type Database = {
           user_id?: string
           username?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "staff_profiles_assigned_pattern_id_fkey"
+            columns: ["assigned_pattern_id"]
+            isOneToOne: false
+            referencedRelation: "staff_work_patterns"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       staff_service_areas: {
         Row: {
@@ -11250,6 +11870,84 @@ export type Database = {
             columns: ["staff_id"]
             isOneToOne: false
             referencedRelation: "staff_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      staff_work_patterns: {
+        Row: {
+          archived_at: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          effective_from: string | null
+          effective_to: string | null
+          id: string
+          is_active: boolean
+          name: string
+          pattern_type: Database["public"]["Enums"]["staff_work_pattern_type"]
+          region_id: string | null
+          schedule: Json
+          service_area_id: string | null
+          shift_length_preset: Database["public"]["Enums"]["staff_shift_length_preset"]
+          staff_role: Database["public"]["Enums"]["staff_role"] | null
+          timezone: string
+          updated_at: string
+          weekly_hours_minutes: number
+        }
+        Insert: {
+          archived_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          effective_from?: string | null
+          effective_to?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          pattern_type?: Database["public"]["Enums"]["staff_work_pattern_type"]
+          region_id?: string | null
+          schedule?: Json
+          service_area_id?: string | null
+          shift_length_preset?: Database["public"]["Enums"]["staff_shift_length_preset"]
+          staff_role?: Database["public"]["Enums"]["staff_role"] | null
+          timezone?: string
+          updated_at?: string
+          weekly_hours_minutes?: number
+        }
+        Update: {
+          archived_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          effective_from?: string | null
+          effective_to?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          pattern_type?: Database["public"]["Enums"]["staff_work_pattern_type"]
+          region_id?: string | null
+          schedule?: Json
+          service_area_id?: string | null
+          shift_length_preset?: Database["public"]["Enums"]["staff_shift_length_preset"]
+          staff_role?: Database["public"]["Enums"]["staff_role"] | null
+          timezone?: string
+          updated_at?: string
+          weekly_hours_minutes?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_work_patterns_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_work_patterns_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
             referencedColumns: ["id"]
           },
         ]
@@ -14159,6 +14857,80 @@ export type Database = {
           },
         ]
       }
+      voip_call_logs: {
+        Row: {
+          created_at: string
+          customer_id: string | null
+          driver_id: string | null
+          duration_seconds: number | null
+          end_reason: string | null
+          ended_at: string | null
+          id: string
+          provider: string
+          service_area_id: string | null
+          started_at: string
+          status: string
+          trip_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          customer_id?: string | null
+          driver_id?: string | null
+          duration_seconds?: number | null
+          end_reason?: string | null
+          ended_at?: string | null
+          id?: string
+          provider?: string
+          service_area_id?: string | null
+          started_at?: string
+          status?: string
+          trip_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          customer_id?: string | null
+          driver_id?: string | null
+          duration_seconds?: number | null
+          end_reason?: string | null
+          ended_at?: string | null
+          id?: string
+          provider?: string
+          service_area_id?: string | null
+          started_at?: string
+          status?: string
+          trip_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "voip_call_logs_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "voip_call_logs_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "voip_call_logs_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "voip_call_logs_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       zone_pricing_rules: {
         Row: {
           applies_to: string
@@ -16099,8 +16871,8 @@ export type Database = {
       compute_dispatch_score:
         | {
             Args: {
-              p_acceptance_rate: number
-              p_display_rating: number
+              p_category_priority: number
+              p_degraded_penalty?: number
               p_distance_meters: number
               p_idle_minutes: number
               p_settings: Database["public"]["Tables"]["dispatch_settings"]["Row"]
@@ -16109,8 +16881,8 @@ export type Database = {
           }
         | {
             Args: {
-              p_acceptance_rate: number
-              p_display_rating: number
+              p_category_priority: number
+              p_degraded_penalty?: number
               p_distance_meters: number
               p_idle_minutes: number
               p_settings: Database["public"]["Tables"]["dispatch_settings"]["Row"]
@@ -16121,6 +16893,15 @@ export type Database = {
       compute_driver_demand_zones_sweep_has_work: {
         Args: never
         Returns: boolean
+      }
+      compute_driver_net_preview_from_gross: {
+        Args: {
+          p_airport_charge_pence?: number
+          p_driver_id: string
+          p_gross_pence: number
+          p_service_area_id: string
+        }
+        Returns: number
       }
       compute_preset_offer_fare_pence: {
         Args: {
@@ -17168,9 +17949,17 @@ export type Database = {
         Args: { p_alert_type: string; p_driver_id: string }
         Returns: number
       }
-      resolve_driver_tier_commission_percent: {
-        Args: { p_driver_id: string }
+      resolve_driver_tier_category_priority: {
+        Args: { p_driver_id: string; p_service_area_id: string }
         Returns: number
+      }
+      resolve_driver_tier_commission_percent: {
+        Args: { p_driver_id: string; p_service_area_id: string }
+        Returns: number
+      }
+      resolve_driver_tier_name: {
+        Args: { p_driver_id: string }
+        Returns: string
       }
       resolve_negotiation_rebroadcast_fare: {
         Args: { p_trip_id: string }
@@ -17432,6 +18221,7 @@ export type Database = {
       app_role: "admin" | "moderator" | "user" | "driver" | "customer"
       app_scope: "customer" | "driver" | "corporate" | "shared" | "legal"
       app_user_role: "admin" | "driver" | "customer" | "corporate"
+      communication_default_method: "voip" | "call_masking"
       content_status: "draft" | "published"
       driver_alert_severity: "warning" | "critical" | "recovered"
       driver_alert_status: "active" | "resolved"
@@ -17466,6 +18256,9 @@ export type Database = {
         | "finance_manager"
         | "customer_support"
         | "compliance_officer"
+      staff_shift_length_preset: "8h" | "10h" | "12h" | "night_12h" | "custom"
+      staff_shift_type: "day" | "late" | "night" | "morning" | "off"
+      staff_work_pattern_type: "fixed_weekly" | "rotating" | "custom"
       trip_change_status:
         | "pending_driver_approval"
         | "approved"
@@ -17614,6 +18407,7 @@ export const Constants = {
       app_role: ["admin", "moderator", "user", "driver", "customer"],
       app_scope: ["customer", "driver", "corporate", "shared", "legal"],
       app_user_role: ["admin", "driver", "customer", "corporate"],
+      communication_default_method: ["voip", "call_masking"],
       content_status: ["draft", "published"],
       driver_alert_severity: ["warning", "critical", "recovered"],
       driver_alert_status: ["active", "resolved"],
@@ -17651,6 +18445,9 @@ export const Constants = {
         "customer_support",
         "compliance_officer",
       ],
+      staff_shift_length_preset: ["8h", "10h", "12h", "night_12h", "custom"],
+      staff_shift_type: ["day", "late", "night", "morning", "off"],
+      staff_work_pattern_type: ["fixed_weekly", "rotating", "custom"],
       trip_change_status: [
         "pending_driver_approval",
         "approved",
