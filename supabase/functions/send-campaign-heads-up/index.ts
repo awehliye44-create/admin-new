@@ -140,6 +140,19 @@ serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+      // Require admin role OR active staff profile — mass push must not be
+      // triggerable by regular authenticated users (drivers/customers).
+      const uid = userData.user.id;
+      const [{ data: adminRole }, { data: staffRow }] = await Promise.all([
+        supabase.from("user_roles").select("role").eq("user_id", uid).eq("role", "admin").maybeSingle(),
+        supabase.from("staff_profiles").select("id").eq("user_id", uid).eq("is_active", true).maybeSingle(),
+      ]);
+      if (!adminRole && !staffRow) {
+        return new Response(JSON.stringify({ error: "Forbidden — admin or staff role required" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     const { campaignId } = (await req.json()) as SendCampaignRequest;

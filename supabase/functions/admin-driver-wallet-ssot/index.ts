@@ -40,6 +40,29 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Admin-only: this endpoint returns cross-driver wallet/payout data
+    // (ledger, Stripe account IDs, payout items). Must not be reachable
+    // by regular authenticated users (drivers/customers).
+    const { data: adminRole } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .eq("role", "admin")
+      .maybeSingle();
+    if (!adminRole) {
+      const { data: staffRow } = await supabase
+        .from("staff_profiles")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (!staffRow) {
+        return new Response(JSON.stringify({ error: "Forbidden — admin or staff role required" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
     const url = new URL(req.url);
     const driverId = body.driver_id ?? url.searchParams.get("driver_id");
