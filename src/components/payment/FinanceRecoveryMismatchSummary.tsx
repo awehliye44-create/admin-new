@@ -30,7 +30,7 @@ export function FinanceRecoveryMismatchSummary({
   onAction,
   actionsDisabled = false,
 }: FinanceRecoveryMismatchSummaryProps) {
-  const canRecover = captureMismatch && outstandingPence > 0;
+  const canRecover = outstandingPence > 0;
 
   return (
     <div

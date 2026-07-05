@@ -322,3 +322,62 @@ export function deriveTripFinancialAuditStatuses(
     provider: deriveProviderAuditStatus(input),
   };
 }
+
+/** Per-trip reconciliation badge — informational only; never used to filter trip list. */
+export function deriveTripReconciliationBadge(args: {
+  capture_mismatch: boolean;
+  captured_pence: number;
+  refunded_pence: number;
+  settlement_total_pence: number;
+  provider: TripAuditStatusBadge;
+  financial_outcome?: string | null;
+  trip_status?: string | null;
+  payment_status?: string | null;
+}): TripAuditStatusBadge {
+  const outcome = norm(args.financial_outcome);
+  const tripStatus = norm(args.trip_status);
+  const paymentStatus = norm(args.payment_status);
+  if (
+    outcome.includes("cancel")
+    || tripStatus.includes("cancel")
+    || paymentStatus.includes("cancel")
+  ) {
+    return { label: "Cancelled", tone: "gray" };
+  }
+  if (args.captured_pence > 0 && args.refunded_pence >= args.captured_pence) {
+    return { label: "Refunded", tone: "red" };
+  }
+  if (args.capture_mismatch) {
+    return { label: "Mismatch", tone: "red" };
+  }
+  const providerLabel = norm(args.provider.label);
+  if (includesAny(providerLabel, ["pending capture", "requires_capture", "authorized", "processing"])) {
+    return { label: "Pending Capture", tone: "yellow" };
+  }
+  if (
+    includesAny(providerLabel, ["awaiting", "pending"])
+    || args.provider.tone === "yellow"
+  ) {
+    return { label: "Pending Settlement", tone: "yellow" };
+  }
+  return { label: "Balanced", tone: "green" };
+}
+
+export function deriveTripCaptureStatusLabel(
+  input: TripAuditStatusInput,
+  captureMismatch: boolean,
+): string {
+  if (isTripCashPayment(input.trip)) return "Cash collected";
+  if (captureMismatch) return "Capture mismatch";
+  if (hasRefund(input)) {
+    return isFullyRefunded(input) ? "Fully refunded" : "Partially refunded";
+  }
+  const capture = stripeCaptureStatus(input);
+  if (capture === "captured") return "Captured";
+  const ps = stripePaymentIntentStatus(input);
+  if (includesAny(ps, ["failed", "canceled", "cancelled"])) return "Capture failed";
+  if (includesAny(ps, ["pending_capture", "requires_capture", "authorized", "processing"])) {
+    return "Pending capture";
+  }
+  return deriveProviderAuditStatus(input).label;
+}

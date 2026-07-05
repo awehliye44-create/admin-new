@@ -220,7 +220,6 @@ export default function TripHistory() {
   usePageLoadTelemetry('TripHistory');
   const { session, isAuthReady } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const openRecoverPanel = searchParams.get('recover') === '1';
   
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('7days');
@@ -1745,14 +1744,12 @@ export default function TripHistory() {
                     );
                   })()}
 
-                  {(openRecoverPanel
-                    || (isCardTrip(selectedTrip)
-                      && getTripCaptureStatus(selectedTrip).kind === 'capture_mismatch')) && (
+                  {isCardTrip(selectedTrip) && (
                     <FinanceRecoveryPanel
                       tripId={selectedTrip.id}
                       tripCode={selectedTrip.trip_code}
                       source="trip-history"
-                      variant="summary"
+                      variant="finance"
                     />
                   )}
 

@@ -17,6 +17,8 @@ import {
 } from "./financialReconciliationSSOT.ts";
 import {
   deriveTripFinancialAuditStatuses,
+  deriveTripReconciliationBadge,
+  deriveTripCaptureStatusLabel,
   type TripAuditLedgerRecord,
   type TripAuditPaymentRecord,
   type TripAuditPayoutRecord,
@@ -479,6 +481,10 @@ export type TripFinancialAuditRow = {
   trip_status?: string | null;
   financial_outcome?: string | null;
   currency_code?: string | null;
+  created_at?: string | null;
+  payment_status?: string | null;
+  capture_status?: string | null;
+  reconciliation_status?: TripAuditStatusBadge;
 };
 
 export type TripAuditSourceRow = TripFinanceRow & {
@@ -731,6 +737,13 @@ export function mapTripToFinancialAuditRow(
     ledger,
   });
 
+  const statusInput = {
+    trip: row,
+    payment,
+    payouts: context.payoutsByTripId.get(row.id) ?? [],
+    ledger,
+  };
+
   const outstanding = computeAuditOutstandingPence({
     settlement_pence: settlementTotal,
     captured_pence: captured,
@@ -757,10 +770,24 @@ export function mapTripToFinancialAuditRow(
     tripPayments.find((p) => p.stripe_payment_intent_id)?.stripe_payment_intent_id ??
     null;
 
+  const reconciliation_status = deriveTripReconciliationBadge({
+    capture_mismatch: captureMismatch,
+    captured_pence: captured,
+    refunded_pence: refunded,
+    settlement_total_pence: settlementTotal,
+    provider: statuses.provider,
+    financial_outcome: row.financial_outcome ?? null,
+    trip_status: row.status ?? null,
+    payment_status: row.payment_status ?? null,
+  });
+
+  const capture_status = deriveTripCaptureStatusLabel(statusInput, captureMismatch);
+
   return {
     trip_id: row.id,
     trip_code: row.trip_code ?? null,
     date: row.completed_at ?? null,
+    created_at: row.created_at ?? null,
     driver_id: row.driver_id ?? null,
     customer_name: row.passenger_name?.trim() || null,
     driver_name: driverName,
@@ -791,6 +818,9 @@ export function mapTripToFinancialAuditRow(
     provider_status: statuses.provider.label,
     trip_status: row.status ?? null,
     financial_outcome: row.financial_outcome ?? null,
+    payment_status: row.payment_status ?? null,
+    capture_status,
+    reconciliation_status,
     currency_code: row.service_area_id && context.currencyCodeByServiceAreaId
       ? (context.currencyCodeByServiceAreaId.get(row.service_area_id) ?? context.defaultCurrencyCode ?? null)
       : (context.defaultCurrencyCode ?? null),

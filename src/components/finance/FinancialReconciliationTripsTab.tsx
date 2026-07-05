@@ -22,6 +22,7 @@ import type { TripFinancialAuditRow } from '@/hooks/useFinanceReconciliation';
 import type { FinanceDataSourceBadge } from '@/hooks/useFinancialReconciliationSSOT';
 import type { FinanceRecoveryAction } from '@/components/payment/PaymentControlsCard';
 import { Search } from 'lucide-react';
+import { reconciliationBadgeVariant } from '@/lib/financeTripReconciliationBadge';
 
 function isDigitalPayment(method: string | null | undefined): boolean {
   const m = String(method ?? '').toLowerCase();
@@ -137,7 +138,7 @@ export function FinancialReconciliationTripsTab({
         isRefreshing={isRefreshing}
         readOnly={readOnly}
         onRefresh={onRefresh}
-        label="Trip finance audit — manual capture/refund actions are human intervention only"
+        label="Trip finance audit — all trips in scope; badges are warnings only, not filters"
       />
 
       {!canUseFinanceActions && (
@@ -162,23 +163,31 @@ export function FinancialReconciliationTripsTab({
       </div>
 
       {filtered.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-8 text-center">
-          No trips in selected period{search ? ' matching search' : ''}.
+        <p className="text-sm text-muted-foreground py-8 text-center space-y-1">
+          <span className="block">No trips in selected period{search ? ' matching search' : ''}.</span>
+          <span className="block text-xs">
+            Widen the date range above — single-day filters only include trips completed on that calendar day.
+          </span>
         </p>
       ) : (
+        <div className="overflow-x-auto rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Trip</TableHead>
-              <TableHead>Date</TableHead>
+              <TableHead>Trip ID</TableHead>
               <TableHead>Customer</TableHead>
               <TableHead>Driver</TableHead>
-              <TableHead>Payment</TableHead>
-              <TableHead>Currency</TableHead>
+              <TableHead>Created</TableHead>
+              <TableHead>Completed</TableHead>
+              <TableHead>Payment status</TableHead>
               <TableHead>Stripe status</TableHead>
-              <TableHead className="text-right">Captured</TableHead>
-              <TableHead className="text-right">Refunded</TableHead>
+              <TableHead>Capture status</TableHead>
+              <TableHead className="text-right">Customer payable</TableHead>
+              <TableHead className="text-right">Customer captured</TableHead>
               <TableHead className="text-right">Driver net</TableHead>
+              <TableHead className="text-right">Commission</TableHead>
+              <TableHead>Settlement</TableHead>
+              <TableHead>Reconciliation</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -187,32 +196,48 @@ export function FinancialReconciliationTripsTab({
               const digital = isDigitalPayment(row.payment_method);
               const showCapture = digital && canCaptureRow(row);
               const showRefund = digital && canRefundRow(row);
+              const recon = row.reconciliation_status;
               return (
                 <TableRow key={row.trip_id}>
-                  <TableCell className="font-mono text-xs">{row.trip_code ?? row.trip_id.slice(0, 8)}</TableCell>
-                  <TableCell className="text-xs">{formatFinanceDateSafe(row.date)}</TableCell>
+                  <TableCell className="font-mono text-xs whitespace-nowrap">{row.trip_code ?? row.trip_id.slice(0, 8)}</TableCell>
                   <TableCell className="text-xs">{row.customer_name ?? '—'}</TableCell>
-                  <TableCell className="text-xs">
+                  <TableCell className="text-xs whitespace-nowrap">
                     {row.driver_id ? (
                       <DriverWalletLedgerLink driverId={row.driver_id}>{row.driver_name ?? '—'}</DriverWalletLedgerLink>
                     ) : (
                       row.driver_name ?? '—'
                     )}
                   </TableCell>
+                  <TableCell className="text-xs whitespace-nowrap">{formatFinanceDateSafe(row.created_at)}</TableCell>
+                  <TableCell className="text-xs whitespace-nowrap">{formatFinanceDateSafe(row.date)}</TableCell>
+                  <TableCell className="text-xs">{row.payment_status ?? row.payment_method ?? '—'}</TableCell>
                   <TableCell>
-                    <Badge variant={digital ? 'default' : 'secondary'} className="capitalize text-[10px]">
-                      {row.payment_method ?? '—'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-xs font-mono">{row.currency_code ?? '—'}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="text-[10px]">
+                    <Badge variant="outline" className="text-[10px] whitespace-nowrap">
                       {providerStatusLabel(row)}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-right text-xs">{fmt(row.captured_pence, row.currency_code)}</TableCell>
-                  <TableCell className="text-right text-xs">{fmt(row.refunded_pence, row.currency_code)}</TableCell>
-                  <TableCell className="text-right text-xs">{fmt(row.driver_net_pence, row.currency_code)}</TableCell>
+                  <TableCell className="text-xs">{row.capture_status ?? '—'}</TableCell>
+                  <TableCell className="text-right text-xs whitespace-nowrap">
+                    {fmt(row.settlement_total_pence ?? row.customer_paid_pence, row.currency_code)}
+                  </TableCell>
+                  <TableCell className="text-right text-xs whitespace-nowrap">{fmt(row.captured_pence, row.currency_code)}</TableCell>
+                  <TableCell className="text-right text-xs whitespace-nowrap">{fmt(row.driver_net_pence, row.currency_code)}</TableCell>
+                  <TableCell className="text-right text-xs whitespace-nowrap">
+                    {fmt(row.onecab_gross_commission_pence, row.currency_code)}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className="text-[10px] whitespace-nowrap">
+                      {row.driver_payout?.label ?? row.driver_payout_status ?? '—'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={reconciliationBadgeVariant(recon?.tone)}
+                      className="text-[10px] whitespace-nowrap"
+                    >
+                      {recon?.label ?? (row.capture_mismatch ? 'Mismatch' : 'Balanced')}
+                    </Badge>
+                  </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
                       <Button
@@ -271,6 +296,7 @@ export function FinancialReconciliationTripsTab({
             })}
           </TableBody>
         </Table>
+        </div>
       )}
 
       <Dialog open={!!drawerTrip} onOpenChange={(open) => !open && closeDrawer()}>

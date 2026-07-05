@@ -9,10 +9,7 @@ import type { PlatformReconciliationKpis } from '@/hooks/useFinanceReconciliatio
 import type { FinanceMoneyFormat } from '@/hooks/useFinanceReconciliationMoney';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
 import { formatProviderHealthLabel } from '@/lib/financialReconciliationGuards';
-import {
-  ServiceAreaGatewayStatusPanel,
-  type ServiceAreaGatewayStatusRow,
-} from '@/components/finance/ServiceAreaGatewayStatusPanel';
+import { PlatformStripePendingExplainer } from '@/components/finance/PlatformStripePendingExplainer';
 
 function KpiCard({ label, value, subtitle }: { label: string; value: string | number; subtitle?: string }) {
   return (
@@ -57,6 +54,7 @@ export function FinancialReconciliationOverviewTab({
   const platformFmt = money.fmtPlatformStripe;
   const kpisUnavailable = platformKpis == null;
   const provider = ssot.summary?.provider_money;
+  const driverMoney = ssot.summary?.driver_money;
 
   return (
     <div className="space-y-4">
@@ -91,6 +89,16 @@ export function FinancialReconciliationOverviewTab({
         />
         <KpiCard label="Reconciliation" value={ssot.summary?.reconciliation_check?.status ?? '—'} />
       </div>
+
+      {provider?.provider_pending_balance_pence != null && provider.provider_pending_balance_pence > 0 ? (
+        <PlatformStripePendingExplainer
+          pendingPence={provider.provider_pending_balance_pence}
+          availablePence={provider.provider_available_balance_pence ?? 0}
+          currencyCode={money.currencyCode}
+          driverWalletTotalPence={driverMoney?.driver_payout_liability_pence ?? driverMoney?.driver_available_payout_pence}
+          driverScheduledPayoutPence={driverMoney?.driver_pending_payout_pence}
+        />
+      ) : null}
 
       {money.isMixedCurrency && currencyGroups && currencyGroups.length > 0 ? (
         <div className="space-y-2">

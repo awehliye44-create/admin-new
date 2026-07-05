@@ -12,10 +12,9 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import {
-  ChevronDown, RefreshCw, Banknote, Undo2, Pencil, ShieldCheck, AlertTriangle, XCircle, ArrowDownToLine,
+  ChevronDown, RefreshCw, Pencil, ShieldCheck, AlertTriangle,
   PlusCircle, MinusCircle, FileEdit,
 } from 'lucide-react';
-import { SyncTripPaymentFromStripeButton } from '@/components/payment/SyncTripPaymentFromStripeButton';
 import { useFinanceActionPermission } from '@/hooks/useFinanceActionPermission';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -23,6 +22,7 @@ import { useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { formatMoneyMinor } from '@/lib/formatMoneyMinor';
 import { FinanceRecoveryMismatchSummary } from '@/components/payment/FinanceRecoveryMismatchSummary';
+import { FinanceTripActionsPanel } from '@/components/finance/FinanceTripActionsPanel';
 import {
   captureStatusColorClass,
   getCapturedTotalPence,
@@ -76,6 +76,8 @@ interface PaymentState {
   captured_at: string | null;
   refunded_at: string | null;
   trip_code?: string | null;
+  driver_id?: string | null;
+  passenger_id?: string | null;
   recovery_debt_pence?: number;
   debt_recovered_pence?: number;
   available_payout_created_pence?: number | null;
@@ -84,6 +86,7 @@ interface PaymentState {
     can_capture: boolean;
     can_refund: boolean;
     can_partial_refund: boolean;
+    can_cancel_authorisation?: boolean;
     can_sync_stripe: boolean;
     can_add_note: boolean;
   };
@@ -262,6 +265,40 @@ export function PaymentControlsCard({
     queryClient.invalidateQueries({ queryKey: ['finance-reconciliation-summary'] });
   };
 
+  const syncStripeMutation = useMutation({
+    mutationFn: async () => {
+      const body: Record<string, string> = { trip_id: tripId };
+      if (stateQuery.data?.trip_code) body.trip_code = stateQuery.data.trip_code;
+      const { data, error } = await supabase.functions.invoke('admin-sync-trip-payment-from-stripe', { body });
+      if (error) throw new Error(data?.error || error.message);
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: (data) => {
+      toast.success(data.message || 'Synced from Stripe');
+      refresh();
+      onActionComplete?.();
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const repairCommissionsMutation = useMutation({
+    mutationFn: async (driverId: string) => {
+      const { data, error } = await supabase.functions.invoke('repair-commissions', {
+        body: { driver_id: driverId, dry_run: false },
+      });
+      if (error) throw new Error(data?.error || error.message);
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: (data) => {
+      toast.success(data.message || 'Commission recalculation queued');
+      refresh();
+      onActionComplete?.();
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
   const actionMutation = useMutation({
     mutationFn: async (input: { mode: Mode; amount_pence?: number; new_total_pence?: number; reason: string }) => {
       const fn =
@@ -295,7 +332,7 @@ export function PaymentControlsCard({
   });
 
   const isFinanceVariant = variant === 'finance';
-  const showRecoveryActions = isFinanceVariant;
+  const showTripActionsPanel = isFinanceVariant;
 
   if (!isAdmin || !canUseFinanceActions) return null;
 
@@ -461,7 +498,7 @@ export function PaymentControlsCard({
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-base">
             <ShieldCheck className="h-4 w-4 text-primary" />
-            {isFinanceVariant ? 'Finance recovery (SSOT)' : 'Payment status (read-only)'}
+            {isFinanceVariant ? 'Trip Actions (SSOT)' : 'Payment status (read-only)'}
           </CardTitle>
           <Button variant="ghost" size="sm" onClick={() => stateQuery.refetch()} disabled={stateQuery.isFetching}>
             <RefreshCw className={`h-4 w-4 ${stateQuery.isFetching ? 'animate-spin' : ''}`} />
@@ -489,7 +526,7 @@ export function PaymentControlsCard({
                 settlementTotalPence={settlementTotalPence}
                 outstandingPence={extraDuePence}
                 currency={currency}
-                showActions={showRecoveryActions && extraDuePence > 0 && !isLegacyIncomplete}
+                showActions={extraDuePence > 0 && !isLegacyIncomplete}
                 onAction={(action) => {
                   if (action === 'extra_payment') openExtraPayment();
                   else if (action === 'waive') openWaive();
@@ -703,53 +740,123 @@ export function PaymentControlsCard({
             </div>
             )}
 
-            {/* Actions */}
-            {showRecoveryActions && (
-            <div className="flex flex-wrap gap-2">
-              {isUncaptured && (
-                <Button size="sm" onClick={() => openMode('capture')} disabled={actionMutation.isPending}>
-                  <Banknote className="h-4 w-4 mr-1" /> Capture Payment
-                </Button>
-              )}
-              {isUncaptured && (
-                <Button size="sm" variant="outline" onClick={() => openMode('cancel')} disabled={actionMutation.isPending}>
-                  <XCircle className="h-4 w-4 mr-1" /> Cancel / Release Hold
-                </Button>
-              )}
-              {canRefund && refundable > 0 && (
-                <>
-                  <Button size="sm" variant="outline" onClick={() => openMode('refund')} disabled={actionMutation.isPending}>
-                    <Undo2 className="h-4 w-4 mr-1" /> Refund
-                  </Button>
-                  {canPartialRefund && (
-                    <Button size="sm" variant="outline" onClick={() => openMode('partial_refund')} disabled={actionMutation.isPending}>
-                      <ArrowDownToLine className="h-4 w-4 mr-1" /> Partial Refund
-                    </Button>
-                  )}
-                </>
-              )}
-              {canSyncStripe && (
-                <SyncTripPaymentFromStripeButton tripId={tripId} onSynced={() => { refresh(); onActionComplete?.(); }} />
-              )}
-              {(isUncaptured || hasCharge) && !blockEditFareForOutstanding && (
+            {/* Trip Actions SSOT — always visible; enabled/disabled by payment state only */}
+            {showTripActionsPanel && (
+              <FinanceTripActionsPanel
+                context={{
+                  tripId,
+                  tripCode: state.trip_code,
+                  paymentIntentId: state.payment_intent_id,
+                  chargeId: state.charge_id,
+                  driverId: state.driver_id ?? null,
+                  passengerId: state.passenger_id ?? null,
+                }}
+                paymentInput={{
+                  paymentMethod: state.payment_method,
+                  stripeStatus: state.stripe_status,
+                  paymentStatus: state.payment_status,
+                  capturedPence,
+                  refundedPence: state.refunded_pence,
+                  refundablePence: refundable,
+                  authorizedPence: authorisedPence,
+                  amountCapturablePence: state.amount_capturable_pence,
+                  outstandingPence: extraDuePence,
+                  hasPaymentIntent: !!state.payment_intent_id,
+                  hasCharge: !!state.charge_id || hasCharge,
+                  tripCancelled: isCancelled,
+                  stripeSettlementVerified: state.stripe_settlement_verified,
+                  actionsAllowed: state.actions_allowed,
+                }}
+                actionsDisabled={actionMutation.isPending || syncStripeMutation.isPending || repairCommissionsMutation.isPending}
+                isPending={actionMutation.isPending || syncStripeMutation.isPending || repairCommissionsMutation.isPending}
+                onCapture={() => openMode('capture')}
+                onRefundFull={() => openMode('refund')}
+                onRefundPartial={() => openMode('partial_refund')}
+                onCancelAuthorisation={() => openMode('cancel')}
+                onResyncStripe={() => syncStripeMutation.mutate()}
+                onRequestExtraPayment={() => openExtraPayment()}
+                onRepairSettlement={() => syncStripeMutation.mutate()}
+                onRecalculateSettlement={() => {
+                  const driverId = state.driver_id;
+                  if (!driverId) {
+                    toast.error('No driver on trip — cannot recalculate commission');
+                    return;
+                  }
+                  repairCommissionsMutation.mutate(driverId);
+                }}
+                onCommissionAdjustment={() => {
+                  const driverId = state.driver_id;
+                  if (!driverId) {
+                    toast.error('No driver on trip — cannot adjust commission');
+                    return;
+                  }
+                  repairCommissionsMutation.mutate(driverId);
+                }}
+                onViewAuditLog={() => setAuditOpen(true)}
+                onPlatformAdjustment={() => openInternalAdjustment()}
+                onDriverCredit={() => {
+                  if (!state.driver_id) {
+                    toast.error('No driver assigned');
+                    return;
+                  }
+                  const params = new URLSearchParams({
+                    driverId: state.driver_id,
+                    tab: 'ledger',
+                    tripId,
+                    adjust: 'credit',
+                  });
+                  window.open(`/driver-wallet-ledger?${params.toString()}`, '_blank');
+                }}
+                onDriverDebit={() => {
+                  if (!state.driver_id) {
+                    toast.error('No driver assigned');
+                    return;
+                  }
+                  const params = new URLSearchParams({
+                    driverId: state.driver_id,
+                    tab: 'ledger',
+                    tripId,
+                    adjust: 'debit',
+                  });
+                  window.open(`/driver-wallet-ledger?${params.toString()}`, '_blank');
+                }}
+                onCustomerCredit={() => {
+                  if (!state.passenger_id) {
+                    toast.error('No customer linked');
+                    return;
+                  }
+                  toast.message('Customer credit', {
+                    description: 'Use Refund Full/Partial for card credits, or contact support for wallet credits.',
+                  });
+                }}
+                onCustomerDebit={() => {
+                  if (!state.passenger_id) {
+                    toast.error('No customer linked');
+                    return;
+                  }
+                  toast.message('Customer debit', {
+                    description: 'Use platform adjustment or Stripe dispute workflow for customer debits.',
+                  });
+                }}
+              />
+            )}
+
+            {isFullyRefunded && (
+              <Badge variant="outline" className="text-xs">Fully refunded — refund actions disabled; history remains visible above.</Badge>
+            )}
+
+            {/* Legacy quick actions retained for edit fare when no outstanding balance */}
+            {showTripActionsPanel && (isUncaptured || hasCharge) && !blockEditFareForOutstanding && (
+              <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="outline" onClick={() => openMode('edit')} disabled={actionMutation.isPending}>
                   <Pencil className="h-4 w-4 mr-1" /> Edit Fare
                 </Button>
-              )}
-              {blockEditFareForOutstanding && (
-                <p className="text-xs text-amber-700 w-full">
-                  Edit Fare is disabled while an outstanding balance exists — use Request extra payment (SSOT).
-                </p>
-              )}
-              {!isUncaptured && !hasCharge && (
-                <p className="text-xs text-muted-foreground">
-                  {isCancelled ? 'PaymentIntent cancelled — no further actions.' : 'No PaymentIntent actions available for this trip.'}
-                </p>
-              )}
-              {isFullyRefunded && (
-                <Badge variant="outline" className="text-xs">Fully refunded</Badge>
-              )}
-            </div>
+              </div>
+            )}
+            {blockEditFareForOutstanding && (
+              <p className="text-xs text-amber-700 w-full">
+                Edit Fare is disabled while an outstanding balance exists — use Request extra payment (SSOT).
+              </p>
             )}
 
             {/* Audit log */}

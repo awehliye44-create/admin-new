@@ -40,3 +40,19 @@ export function isLondonSameCalendarDay(iso: string | null | undefined, ref: Dat
   const today = getLondonCalendarParts(ref);
   return trip.y === today.y && trip.m === today.m && trip.d === today.d;
 }
+
+/** Date-only `YYYY-MM-DD` from admin date inputs → London day start/end ISO. */
+export function normalizeFinancePeriodParam(
+  value: string | null | undefined,
+  bound: "start" | "end",
+): string | null {
+  if (!value?.trim()) return null;
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const [y, m, d] = trimmed.split("-").map(Number);
+  const probe = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  const offsetMs = getLondonOffsetMs(probe);
+  const start = new Date(Date.UTC(y, m - 1, d, 0, 0, 0) - offsetMs);
+  if (bound === "start") return start.toISOString();
+  return new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1).toISOString();
+}

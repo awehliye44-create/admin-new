@@ -177,19 +177,6 @@ export function isInternalWebhookProcessingError(message: string | null | undefi
   );
 }
 
-/** Webhook delivery/processing warnings must not be treated as Stripe API outage. */
-export function isNonCriticalWebhookHealthMessage(message: string | null | undefined): boolean {
-  if (!message) return false;
-  const m = message.toLowerCase();
-  return (
-    m.includes("webhook health")
-    || m.includes("webhook failing")
-    || m.includes("webhook processing")
-    || m.includes("webhook secret")
-    || isInternalWebhookProcessingError(message)
-  );
-}
-
 async function loadStripeWebhookHealth(
   supabase: SupabaseClient,
 ): Promise<{
@@ -498,16 +485,7 @@ export async function resolveProviderGatewayStatus(
   }
 
   // Real Stripe API / connection failure — block bookings.
-  // Do NOT treat stale webhook-health messages stored on connection_test as API down.
-  const connectionTestError = config.last_connection_test_status === "error"
-    || config.status === "error";
-  const connectionErrorMessage = config.last_error_message
-    ?? `Provider ${config.display_name} connection test failed`;
-  if (
-    connectionTestError
-    && !isNonCriticalWebhookHealthMessage(connectionErrorMessage)
-    && !isNonCriticalWebhookHealthMessage(lastWebhookError)
-  ) {
+  if (config.last_connection_test_status === "error" || config.status === "error") {
     return buildSnapshot(role, providerId, config, {
       apiKeysConfigured: true,
       webhookConfigured,
@@ -520,14 +498,10 @@ export async function resolveProviderGatewayStatus(
       bookingPaymentHealth: "down",
       providerHealth: "down",
       status: "CONNECTION_FAILED",
-      message: connectionErrorMessage,
+      message: config.last_error_message
+        ?? `Provider ${config.display_name} connection test failed`,
       configurationError: config.last_error_message ?? "Connection test failed",
     });
-  }
-
-  // Stale connection_test error that is actually a webhook warning → treat as degraded.
-  if (connectionTestError && isNonCriticalWebhookHealthMessage(connectionErrorMessage)) {
-    webhookHealthy = false;
   }
 
   const stripeApiHealth: BookingPaymentHealth = "healthy";

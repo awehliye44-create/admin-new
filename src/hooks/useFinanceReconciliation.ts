@@ -323,6 +323,12 @@ export interface TripFinancialAuditRow {
   onecab_commission_status?: string;
   /** @deprecated Use provider.label */
   provider_status?: string;
+  trip_status?: string | null;
+  financial_outcome?: string | null;
+  created_at?: string | null;
+  payment_status?: string | null;
+  capture_status?: string | null;
+  reconciliation_status?: TripAuditStatusBadge;
 }
 
 export interface LegacyManualReviewItem {

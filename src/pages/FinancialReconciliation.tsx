@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
+import { format, subDays } from 'date-fns';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
@@ -96,6 +97,14 @@ function FinancialReconciliationPage() {
     }
     setFinanceScopeReady(true);
   }, [financeScopeReady, filter.regionId, filter.serviceAreaId, serviceAreas, serviceAreasLoading]);
+
+  useEffect(() => {
+    if (!financeScopeReady || from || to) return;
+    const end = new Date();
+    const start = subDays(end, 7);
+    setFrom(format(start, 'yyyy-MM-dd'));
+    setTo(format(end, 'yyyy-MM-dd'));
+  }, [financeScopeReady, from, to]);
 
   const ssot = useFinancialReconciliationSSOT({
     filter,

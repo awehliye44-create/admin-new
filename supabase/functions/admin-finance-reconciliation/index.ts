@@ -19,7 +19,7 @@ import {
   NO_MATCH_TRIP_ID,
   tripCodeOrFilter,
 } from "../_shared/tripAdminSearch.ts";
-import { getLondonDayBounds } from "../_shared/financeLondonDay.ts";
+import { getLondonDayBounds, normalizeFinancePeriodParam } from "../_shared/financeLondonDay.ts";
 import { fetchRegionPlatformKpis } from "../_shared/platformReconciliationKpis.ts";
 import { buildDriverStatementPeriodTotals } from "../_shared/driverStatementPeriodTotals.ts";
 import {
@@ -27,6 +27,11 @@ import {
   resolveFinanceCurrencyScope,
 } from "../_shared/financeCurrencySSOT.ts";
 import { resolveAllServiceAreaGatewayStatuses } from "../_shared/paymentGatewayStatus.ts";
+import {
+  applyFinanceReconciliationTripLocationFilter,
+  buildFinanceReconciliationTripQuery,
+  resolveFinanceReconciliationAuditLimit,
+} from "../_shared/financeReconciliationTripQuery.ts";
 
 const TRIP_AUDIT_SELECT = `
         id,
@@ -63,7 +68,9 @@ const TRIP_AUDIT_SELECT = `
         driver_tier_commission_percent,
         commission_pct,
         completed_at,
+        created_at,
         service_area_id,
+        region_id,
         driver:drivers!trips_driver_id_fkey(first_name, last_name)
       `;
 
@@ -123,15 +130,11 @@ const corsHeaders = {
 };
 
 function startOfTodayUtc(): string {
-  const d = new Date();
-  d.setUTCHours(0, 0, 0, 0);
-  return d.toISOString();
+  return getLondonDayBounds().start.toISOString();
 }
 
 function endOfTodayUtc(): string {
-  const d = new Date();
-  d.setUTCHours(23, 59, 59, 999);
-  return d.toISOString();
+  return getLondonDayBounds().end.toISOString();
 }
 
 const MAX_LEDGER_DRIVER_IN = 150;
@@ -392,8 +395,12 @@ serve(async (req) => {
     const url = new URL(req.url);
     const regionId = url.searchParams.get("region_id") || req.headers.get("x-region-id");
     const serviceAreaId = url.searchParams.get("service_area_id") || req.headers.get("x-service-area-id");
-    const periodFrom = url.searchParams.get("from") || startOfTodayUtc();
-    const periodTo = url.searchParams.get("to") || endOfTodayUtc();
+    const periodFrom =
+      normalizeFinancePeriodParam(url.searchParams.get("from"), "start")
+      || startOfTodayUtc();
+    const periodTo =
+      normalizeFinancePeriodParam(url.searchParams.get("to"), "end")
+      || endOfTodayUtc();
     const driverId = url.searchParams.get("driver_id");
     const search = url.searchParams.get("search");
     const searchType = url.searchParams.get("search_type");
@@ -406,11 +413,10 @@ serve(async (req) => {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    const auditLimit = statementTotalsOnly
-      ? Math.min(Number(url.searchParams.get("audit_limit") || 10000), 10000)
-      : profitSsotOnly || summaryOnly
-      ? Math.min(Number(url.searchParams.get("audit_limit") || 500), 2000)
-      : Math.min(Number(url.searchParams.get("audit_limit") || 100), 500);
+    const auditLimit = resolveFinanceReconciliationAuditLimit(
+      url.searchParams.get("audit_limit"),
+      statementTotalsOnly ? "statement" : profitSsotOnly || summaryOnly ? "summary" : "full",
+    );
 
     let resolvedRegionId = regionId;
     if (!resolvedRegionId && serviceAreaId) {
@@ -432,22 +438,18 @@ serve(async (req) => {
       currency = (region?.currency_code || "gbp").toLowerCase();
     }
 
-    let tripQuery = supabase
-      .from("trips")
-      .select(TRIP_AUDIT_SELECT)
-      .gte("completed_at", periodFrom)
-      .lte("completed_at", periodTo)
-      .or(`financial_outcome.in.(${COUNTABLE_FINANCIAL_OUTCOMES.join(",")}),status.in.(completed,no_show)`)
-      .not("completed_at", "is", null)
-      .order("completed_at", { ascending: false })
-      .limit(auditLimit);
+    let tripQuery = buildFinanceReconciliationTripQuery(supabase, {
+      periodFrom,
+      periodTo,
+      auditLimit,
+      select: TRIP_AUDIT_SELECT,
+    });
 
-    if (serviceAreaId) tripQuery = tripQuery.eq("service_area_id", serviceAreaId);
-    else if (resolvedRegionId) {
-      const { data: areas } = await supabase.from("service_areas").select("id").eq("region_id", resolvedRegionId);
-      const ids = (areas || []).map((a) => a.id);
-      if (ids.length > 0) tripQuery = tripQuery.in("service_area_id", ids);
-    }
+    tripQuery = await applyFinanceReconciliationTripLocationFilter(
+      tripQuery,
+      supabase,
+      { regionId: resolvedRegionId, serviceAreaId },
+    );
 
     const financialPromise = resolvedRegionId
       ? supabase
@@ -732,22 +734,18 @@ serve(async (req) => {
       ? []
       : search?.trim()
       ? await (async () => {
-        let auditSearchQuery = supabase
-          .from("trips")
-          .select(TRIP_AUDIT_SELECT)
-          .or(`financial_outcome.in.(${COUNTABLE_FINANCIAL_OUTCOMES.join(",")}),status.in.(completed,no_show)`)
-          .not("completed_at", "is", null)
-          .order("completed_at", { ascending: false })
-          .limit(Math.min(auditLimit, 50));
+        let auditSearchQuery = buildFinanceReconciliationTripQuery(supabase, {
+          periodFrom,
+          periodTo,
+          auditLimit: Math.min(auditLimit, 50),
+          select: TRIP_AUDIT_SELECT,
+        });
 
-        if (serviceAreaId) {
-          auditSearchQuery = auditSearchQuery.eq("service_area_id", serviceAreaId);
-        } else if (resolvedRegionId) {
-          const { data: areas } = await supabase.from("service_areas").select("id").eq("region_id", resolvedRegionId);
-          const ids = (areas || []).map((a) => a.id);
-          if (ids.length === 0) return [];
-          auditSearchQuery = auditSearchQuery.in("service_area_id", ids);
-        }
+        auditSearchQuery = await applyFinanceReconciliationTripLocationFilter(
+          auditSearchQuery,
+          supabase,
+          { regionId: resolvedRegionId, serviceAreaId },
+        );
 
         const term = search.trim();
         if (searchType === "id") {

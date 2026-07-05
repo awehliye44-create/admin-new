@@ -61,28 +61,17 @@ export function FinanceRecoveryPanel({
 
   return (
     <div className="space-y-3">
-      {isSummary ? (
-        <Alert className="border-amber-500/40 bg-amber-500/5">
-          <AlertTitle className="text-sm">Capture mismatch — finance action required</AlertTitle>
-          <AlertDescription className="text-xs space-y-2">
-            <p>
-              Money recovery (recapture, waive, internal adjustment) is owned by{' '}
-              <strong>Financial Reconciliation</strong>, not Trip History alone.
-            </p>
-            <Button asChild size="sm" variant="default" className="mt-1">
-              <Link to={financeReconciliationTripUrl(tripId, tripCode)}>
-                <Calculator className="h-4 w-4 mr-1" />
-                Open Financial Reconciliation
-              </Link>
-            </Button>
-          </AlertDescription>
-        </Alert>
-      ) : (
-        <p className="text-xs text-muted-foreground">
-          {SOURCE_LABEL[source]} — recovery uses shared backend{' '}
-          <code className="text-[10px]">admin-request-extra-payment</code> /{' '}
-          <code className="text-[10px]">admin-edit-trip-fare</code>. Amounts are validated server-side.
-        </p>
+      <p className="text-xs text-muted-foreground">
+        {SOURCE_LABEL[source]} — trip actions are always available; enabled/disabled by payment state only.
+        Mismatch indicators are warnings, not gates. Amounts validated server-side via shared admin payment APIs.
+      </p>
+      {isSummary && (
+        <Button asChild size="sm" variant="outline" className="h-7 text-xs">
+          <Link to={financeReconciliationTripUrl(tripId, tripCode)}>
+            <Calculator className="h-3.5 w-3.5 mr-1" />
+            Open in Financial Reconciliation
+          </Link>
+        </Button>
       )}
       <PaymentControlsCard
         tripId={tripId}

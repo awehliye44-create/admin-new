@@ -5,6 +5,7 @@ import type {
 } from '@/hooks/useFinanceReconciliation';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchEdgeFunctionGet } from '@/lib/fetchEdgeFunctionGet';
+import { normalizeFinanceReconciliationPeriod } from '@/lib/financeReconciliationPeriod';
 
 /** Build query params for admin-finance-reconciliation (Financial Reconciliation SSOT). */
 export function buildFinanceReconciliationParams(
@@ -16,8 +17,9 @@ export function buildFinanceReconciliationParams(
   const params: Record<string, string> = {};
   if (filter?.regionId) params.region_id = filter.regionId;
   else if (filter?.serviceAreaId) params.service_area_id = filter.serviceAreaId;
-  if (from) params.from = from;
-  if (to) params.to = to;
+  const period = normalizeFinanceReconciliationPeriod(from, to);
+  if (period.from) params.from = period.from;
+  if (period.to) params.to = period.to;
   if (extra) Object.assign(params, extra);
   return params;
 }
@@ -34,6 +36,9 @@ export function buildFinanceReconciliationPath(
   return qs ? `admin-finance-reconciliation?${qs}` : 'admin-finance-reconciliation';
 }
 
+  /** Full Financial Reconciliation page — load all trips in scope (not mismatches only). */
+export const FINANCE_RECONCILIATION_AUDIT_LIMIT = '10000';
+
 /** Invoke Financial Reconciliation SSOT edge function. */
 export async function invokeFinanceReconciliation(
   filter?: ServiceAreaFinanceSelection,
@@ -43,7 +48,10 @@ export async function invokeFinanceReconciliation(
 ): Promise<FinanceReconciliationResponse> {
   return fetchEdgeFunctionGet<FinanceReconciliationResponse>(
     'admin-finance-reconciliation',
-    buildFinanceReconciliationParams(filter, from, to, extra),
+    buildFinanceReconciliationParams(filter, from, to, {
+      audit_limit: FINANCE_RECONCILIATION_AUDIT_LIMIT,
+      ...extra,
+    }),
   );
 }
 

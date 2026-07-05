@@ -241,10 +241,18 @@ serve(async (req) => {
       && refundStatus !== 'full'
       && !tripCancelled;
 
+    const can_cancel_authorisation =
+      isDigital
+      && !!trip.stripe_payment_intent_id
+      && stripe_status === 'requires_capture'
+      && (amount_capturable ?? 0) > 0
+      && !tripCancelled;
+
     const actions_allowed = {
       can_capture,
       can_refund,
       can_partial_refund: can_refund && refundableAmount > 0,
+      can_cancel_authorisation,
       can_sync_stripe: isDigital && !!trip.stripe_payment_intent_id,
       can_add_note: true,
     };
@@ -252,6 +260,8 @@ serve(async (req) => {
     return jsonResponse({
       trip_id,
       trip_code: trip.trip_code ?? null,
+      driver_id: trip.driver_id ?? null,
+      passenger_id: trip.passenger_id ?? null,
       ssot_source: 'trip_financial_audit',
       payment_intent_id: trip.stripe_payment_intent_id,
       charge_id,
