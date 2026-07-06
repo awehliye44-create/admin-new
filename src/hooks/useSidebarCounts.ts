@@ -224,7 +224,7 @@ export function useSidebarCounts() {
     return () => window.removeEventListener('focus', handleFocus);
   }, []);
 
-  useEffect(() => registerSidebarCountsRealtime, []);
+  useEffect(() => registerSidebarCountsRealtime(), []);
 
   return { counts, isLoading, refresh };
 }
