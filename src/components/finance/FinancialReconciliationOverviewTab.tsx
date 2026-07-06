@@ -74,17 +74,17 @@ export function FinancialReconciliationOverviewTab({
       <div className="flex items-center gap-2">
         <FinanceSSOTBadge badge={ssot.badge} />
         <span className="text-xs text-muted-foreground">
-          Stripe integrity audit — verifies platform and Connect match ledger sync. Trip money is on Trip History.
+          Payment provider integrity audit — verifies platform balances match ledger sync. Trip money is on Trip History.
         </span>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
-          label={`Platform Stripe Available${money.currencyCode ? ` (${money.currencyCode})` : ''}`}
+          label={`Platform Available${money.currencyCode ? ` (${money.currencyCode})` : ''}`}
           value={provider?.provider_available_balance_pence != null ? platformFmt(provider.provider_available_balance_pence) : '—'}
         />
         <KpiCard
-          label={`Platform Stripe Pending${money.currencyCode ? ` (${money.currencyCode})` : ''}`}
+          label={`Platform Pending${money.currencyCode ? ` (${money.currencyCode})` : ''}`}
           value={provider?.provider_pending_balance_pence != null ? platformFmt(provider.provider_pending_balance_pence) : '—'}
         />
         <KpiCard
