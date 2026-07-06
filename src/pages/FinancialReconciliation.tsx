@@ -386,10 +386,8 @@ function FinancialReconciliationPage() {
                   ssot={ssot}
                   backendAudit={backendAudit}
                   money={money}
-                  filter={filter}
-                  from={from || undefined}
-                  to={to || undefined}
                 />
+
               </FinancePanelErrorBoundary>
             )}
           </TabsContent>
