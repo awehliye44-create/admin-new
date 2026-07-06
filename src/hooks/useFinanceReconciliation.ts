@@ -98,7 +98,6 @@ export interface FinanceReconciliationSummary {
     driver_paid_out_pence: number;
     driver_payout_liability_pence: number;
     driver_gross_earnings_pence?: number;
-    driver_gross_earnings_pence?: number;
     driver_net_earnings_pence?: number;
     in_flight_cashout_pence?: number;
   };
