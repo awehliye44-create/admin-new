@@ -196,3 +196,86 @@ export async function executeRevolutPay(args: {
     { method: "POST", body: JSON.stringify(body) },
   );
 }
+
+// ---------------------------------------------------------------------------
+// Merchant Payouts (settlement to the platform's bank / Revolut Business acc)
+// Endpoint: GET https://merchant.revolut.com/api/payouts
+// Docs: https://developer.revolut.com/docs/merchant/list-payouts
+// Version header pinned to 2026-04-20 per project spec.
+// ---------------------------------------------------------------------------
+export type RevolutMerchantPayout = {
+  id: string;
+  state: string;
+  amount: number;        // integer minor units
+  currency: string;
+  scheduled_for?: string;
+  completed_at?: string;
+  reference?: string;
+  [k: string]: unknown;
+};
+
+function merchantPayoutsBaseUrl(environment: ProviderEnvironment): string {
+  return environment === "live"
+    ? "https://merchant.revolut.com/api"
+    : "https://sandbox-merchant.revolut.com/api";
+}
+
+export async function listRevolutMerchantPayouts(args: {
+  environment: ProviderEnvironment;
+  secretKey: string;
+  limit?: number;
+  fromCreated?: string;   // ISO-8601
+  toCreated?: string;
+}): Promise<RevolutMerchantPayout[]> {
+  const params = new URLSearchParams();
+  if (args.limit) params.set("limit", String(args.limit));
+  if (args.fromCreated) params.set("from_created", args.fromCreated);
+  if (args.toCreated) params.set("to_created", args.toCreated);
+  const qs = params.toString();
+  const url = `${merchantPayoutsBaseUrl(args.environment)}/payouts${qs ? `?${qs}` : ""}`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${args.secretKey}`,
+      Accept: "application/json",
+      "Revolut-Api-Version": "2026-04-20",
+    },
+  });
+  const body = await parseJsonSafe(res);
+  if (!res.ok) {
+    const message = typeof body === "object" && body && "message" in body
+      ? String((body as { message?: string }).message)
+      : `Revolut Merchant payouts error (${res.status})`;
+    throw { message, status: res.status, body } satisfies RevolutApiError;
+  }
+  if (Array.isArray(body)) return body as RevolutMerchantPayout[];
+  if (body && typeof body === "object" && Array.isArray((body as { payouts?: unknown[] }).payouts)) {
+    return (body as { payouts: RevolutMerchantPayout[] }).payouts;
+  }
+  return [];
+}
+
+export async function getRevolutMerchantPayout(args: {
+  environment: ProviderEnvironment;
+  secretKey: string;
+  payoutId: string;
+}): Promise<RevolutMerchantPayout> {
+  const url = `${merchantPayoutsBaseUrl(args.environment)}/payouts/${encodeURIComponent(args.payoutId)}`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${args.secretKey}`,
+      Accept: "application/json",
+      "Revolut-Api-Version": "2026-04-20",
+    },
+  });
+  const body = await parseJsonSafe(res);
+  if (!res.ok) {
+    const message = typeof body === "object" && body && "message" in body
+      ? String((body as { message?: string }).message)
+      : `Revolut Merchant payout fetch error (${res.status})`;
+    throw { message, status: res.status, body } satisfies RevolutApiError;
+  }
+  return body as RevolutMerchantPayout;
+}
+
