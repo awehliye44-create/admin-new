@@ -12,7 +12,7 @@ import {
 const adminPerfTelemetry = new OnecabTelemetry({
   supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
   supabaseAnonKey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-  appName: 'admin_web',
+  appName: 'admin_panel',
   platform: 'web',
   appVersion: '1.0.0',
   maxValueMs: 60_000,
@@ -51,7 +51,7 @@ export function recordAdminPerformanceStep(
 
   console.info('PERF_STEP_ADMIN', payload);
 
-  adminPerfTelemetry.record('transaction_time', resolved.duration_ms, 'ms', input.action_name, payload);
+  adminPerfTelemetry.trackFlowStep(input.action_name, resolved.duration_ms, input.action_name);
 
   if (
     resolved.performance_status === 'PERF_WARNING'
