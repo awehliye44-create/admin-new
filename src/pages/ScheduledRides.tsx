@@ -555,11 +555,7 @@ export default function ScheduledRides() {
                             </Badge>
                           )}
                           {trip.payment_method && (
-                            <Badge variant="outline" className={`text-xs block w-fit ${
-                              trip.payment_method.toLowerCase() === 'cash' 
-                                ? 'bg-green-100 text-green-700' 
-                                : 'bg-blue-100 text-blue-700'
-                            }`}>
+                            <Badge variant="outline" className="text-xs block w-fit bg-blue-100 text-blue-700">
                               <CreditCard className="h-3 w-3 mr-1" />
                               {trip.payment_method}
                             </Badge>
