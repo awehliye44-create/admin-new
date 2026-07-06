@@ -125,9 +125,13 @@ export function useFinancialReconciliationSSOT({
   }, [liveOk, live.dataUpdatedAt, live.errorUpdatedAt, scopeKey]);
 
   const refetchFresh = useCallback(async () => {
-    clearFinanceReconciliationSnapshot();
+    // Do NOT clear the cached snapshot up-front — if the live fetch fails
+    // (which is the whole reason the snapshot was showing), we'd flip the
+    // page from DEGRADED_SNAPSHOT straight to UNAVAILABLE and lose all
+    // visibility. Attempt the live fetch first; only clear the snapshot
+    // once we have fresh live data (the save happens in the effect above).
     await queryClient.invalidateQueries({ queryKey });
-    return queryClient.fetchQuery({
+    const fresh = await queryClient.fetchQuery({
       queryKey,
       queryFn: () =>
         invokeFinanceReconciliation(filter, from, to, {
@@ -136,6 +140,10 @@ export function useFinancialReconciliationSSOT({
         }),
       staleTime: 0,
     });
+    // Live fetch succeeded — safe to drop the stale cached snapshot so the
+    // effect above rewrites it from the fresh response.
+    clearFinanceReconciliationSnapshot();
+    return fresh;
   }, [queryClient, queryKey, filter, from, to, searchExtra]);
 
   const refetch = useCallback(async () => refetchFresh(), [refetchFresh]);
