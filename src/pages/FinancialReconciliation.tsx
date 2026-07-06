@@ -271,7 +271,7 @@ function FinancialReconciliationPage() {
               <h1 className="text-2xl font-bold">Financial Reconciliation (SSOT)</h1>
             </div>
             <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
-              Audits Stripe platform integrity — does Stripe match ONECAB? Trip earnings are calculated on Trip History only.
+              Audits payment provider integrity — does the provider match ONECAB? Trip earnings are calculated on Trip History only.
             </p>
             <div className="flex flex-wrap items-center gap-2 mt-2">
               <FinanceSSOTBadge badge={ssotBadge} />
