@@ -121,9 +121,9 @@ export const PROVIDER_SECRET_FIELD_LABELS: Record<PaymentProviderId, ProviderSec
     merchant_id: "Merchant / account ID",
   },
   revolut: {
-    publishable_key: "Merchant API key (customer checkout)",
-    secret_key: "Business API access token",
-    webhook_secret: "Webhook signing secret",
+    publishable_key: "Production API Public key",
+    secret_key: "Production API Secret key",
+    webhook_secret: "Webhook signing secret (optional)",
     merchant_id: "Source Business account ID (payouts)",
   },
 };
