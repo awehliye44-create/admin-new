@@ -12,7 +12,7 @@ import {
 const adminPerfTelemetry = new OnecabTelemetry({
   supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
   supabaseAnonKey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-  appName: 'admin_web',
+  appName: 'admin_panel',
   platform: 'web',
   appVersion: '1.0.0',
   maxValueMs: 60_000,
