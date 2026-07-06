@@ -374,12 +374,12 @@ export default function StaffWorkPatterns() {
     if (existingId) {
       const { error } = await supabase
         .from('staff_work_patterns')
-        .update(payload)
+        .update(payload as any)
         .eq('id', existingId);
       if (error) throw error;
       toast.success('Work pattern updated');
     } else {
-      const { error } = await supabase.from('staff_work_patterns').insert(payload);
+      const { error } = await supabase.from('staff_work_patterns').insert(payload as any);
       if (error) throw error;
       toast.success('Work pattern created (open until assigned)');
     }
@@ -470,7 +470,7 @@ export default function StaffWorkPatterns() {
   const openPatterns = patterns.filter((p) => p.badge === 'open');
 
   return (
-    <AdminLayout>
+    <AdminLayout title="Staff Work Patterns">
       <div className="space-y-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
