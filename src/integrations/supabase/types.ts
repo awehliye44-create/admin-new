@@ -177,6 +177,8 @@ export type Database = {
           delta_pence: number | null
           id: string
           metadata: Json | null
+          provider: string | null
+          provider_payment_id: string | null
           reason: string
           stripe_payment_intent_id: string | null
           stripe_refund_id: string | null
@@ -191,6 +193,8 @@ export type Database = {
           delta_pence?: number | null
           id?: string
           metadata?: Json | null
+          provider?: string | null
+          provider_payment_id?: string | null
           reason: string
           stripe_payment_intent_id?: string | null
           stripe_refund_id?: string | null
@@ -205,6 +209,8 @@ export type Database = {
           delta_pence?: number | null
           id?: string
           metadata?: Json | null
+          provider?: string | null
+          provider_payment_id?: string | null
           reason?: string
           stripe_payment_intent_id?: string | null
           stripe_refund_id?: string | null
