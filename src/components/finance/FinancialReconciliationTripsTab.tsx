@@ -330,11 +330,10 @@ export function FinancialReconciliationTripsTab({
                 source="financial-reconciliation"
                 variant="finance"
                 readOnly={actionsDisabled}
-                initialAction={mapDrawerAction(drawerAction
                 initialPaymentAction={drawerAction === 'capture' || drawerAction === 'refund' ? drawerAction : null}
                 onActionComplete={onRefresh}
               />
-              )}
+
             </>
           )}
         </DialogContent>
