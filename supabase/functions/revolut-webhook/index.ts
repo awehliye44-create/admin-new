@@ -1,7 +1,6 @@
 // Revolut Merchant API webhook receiver.
 // Signature spec: https://developer.revolut.com/docs/guides/accept-payments/tutorials/work-with-webhooks/verify-the-payload-signature
 //
-// Headers sent by Revolut:
 //   Revolut-Request-Timestamp: <unix ms>
 //   Revolut-Signature:         v1=<hex-hmac-sha256>[, v2=...]
 //
@@ -9,6 +8,7 @@
 // expected      = HMAC_SHA256(REVOLUT_WEBHOOK_SECRET, signed_payload) hex
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { mapRevolutStateToPaymentStatus } from "../_shared/revolutOrders.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -43,6 +43,13 @@ async function computeHmac(secret: string, payload: string): Promise<string> {
   );
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
   return hexFromBytes(sig);
+}
+
+interface RevolutWebhookEvent {
+  event?: string;
+  order_id?: string;
+  merchant_order_ext_ref?: string;
+  data?: Record<string, unknown> & { state?: string };
 }
 
 Deno.serve(async (req) => {
@@ -97,14 +104,9 @@ Deno.serve(async (req) => {
     });
   }
 
-  let event: {
-    event?: string;
-    order_id?: string;
-    merchant_order_ext_ref?: string;
-    data?: Record<string, unknown>;
-  };
+  let event: RevolutWebhookEvent;
   try {
-    event = JSON.parse(rawBody);
+    event = JSON.parse(rawBody) as RevolutWebhookEvent;
   } catch {
     return new Response(JSON.stringify({ error: "invalid_json" }), {
       status: 400,
@@ -117,22 +119,64 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
-  // Idempotent audit log (relies on existing admin_payment_audit table).
-  await supabase.from("admin_payment_audit").insert({
+  const orderId = event.order_id ?? null;
+  const extRef = event.merchant_order_ext_ref ?? null;
+  const eventName = event.event ?? null;
+
+  // Locate the trip. Prefer provider_order_id, fall back to the ext_ref (trip id)
+  // written by create-payment-intent.
+  let tripId: string | null = null;
+  if (orderId) {
+    const { data } = await supabase
+      .from("trips")
+      .select("id")
+      .eq("payment_provider", "revolut")
+      .eq("provider_order_id", orderId)
+      .maybeSingle();
+    tripId = data?.id ?? null;
+  }
+  if (!tripId && extRef) tripId = extRef;
+
+  const stateFromEvent =
+    (event.data?.state as string | undefined) ??
+    (eventName ? eventName.replace(/^ORDER_/, "").toUpperCase() : undefined);
+  const nextStatus = mapRevolutStateToPaymentStatus(stateFromEvent);
+
+  if (tripId && nextStatus) {
+    const update: Record<string, unknown> = {
+      payment_status: nextStatus,
+      updated_at: new Date().toISOString(),
+    };
+    // On terminal capture, keep provider_charge_id fresh from the webhook payload.
+    if (nextStatus === "captured" && orderId) {
+      update.provider_charge_id = orderId;
+    }
+    const { error } = await supabase.from("trips").update(update).eq("id", tripId);
+    if (error) {
+      console.error(`[revolut-webhook] trip update failed for ${tripId}:`, error.message);
+    }
+  }
+
+  // Idempotent audit log.
+  const { error: auditError } = await supabase.from("admin_payment_audit").insert({
     action: "revolut_webhook",
     provider: "revolut",
-    provider_payment_id: event.order_id ?? null,
-    trip_id: event.merchant_order_ext_ref ?? null,
-    metadata: { event: event.event, data: event.data ?? null },
-  }).then(({ error }) => {
-    if (error) console.error("[revolut-webhook] audit insert failed:", error.message);
+    provider_payment_id: orderId,
+    trip_id: tripId,
+    metadata: {
+      event: eventName,
+      state: stateFromEvent ?? null,
+      applied_status: nextStatus,
+      data: event.data ?? null,
+    },
   });
+  if (auditError) console.error("[revolut-webhook] audit insert failed:", auditError.message);
 
-  // Business logic (capture/refund state sync) is wired in Phase 2 when
-  // customer-facing checkout goes live. For now we just ACK a verified event.
-  console.log(`[revolut-webhook] verified event=${event.event ?? "?"} order=${event.order_id ?? "?"}`);
+  console.log(
+    `[revolut-webhook] verified event=${eventName ?? "?"} order=${orderId ?? "?"} trip=${tripId ?? "?"} → status=${nextStatus ?? "none"}`,
+  );
 
-  return new Response(JSON.stringify({ received: true }), {
+  return new Response(JSON.stringify({ received: true, applied_status: nextStatus }), {
     status: 200,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });

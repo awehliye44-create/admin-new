@@ -1,9 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { calculateCommission } from "../_shared/commission.ts";
-import { resolveCurrencyFromTrip, resolveCurrencyFromServiceArea } from "../_shared/regionCurrency.ts";
+import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
 import { computePreauthHold, type PreauthBufferConfig } from "../_shared/preauthBuffer.ts";
-import Stripe from "https://esm.sh/stripe@14.21.0";
 import {
   corsHeaders,
   checkRateLimit,
@@ -13,40 +12,47 @@ import {
   errorResponse,
   logAuditEvent,
 } from "../_shared/security.ts";
-import { STRIPE_STATEMENT_DESCRIPTOR } from "../_shared/stripeStatementDescriptor.ts";
+import {
+  createRevolutOrder,
+  getRevolutMerchantConfig,
+  retrieveRevolutOrder,
+} from "../_shared/revolutOrders.ts";
 
 const RATE_LIMIT_CONFIG = { limit: 20, windowMs: 60 * 1000 };
 
 /**
- * create-payment-intent
+ * create-payment-intent (Revolut Merchant Orders)
  *
- * Called by the customer app BEFORE the trip starts to pre-authorize payment.
- * Currency is resolved from Region (single source of truth).
+ * Phase 2 rewrite. Called by the customer app BEFORE the trip starts to
+ * pre-authorise payment. Creates a Revolut order with capture_mode=manual.
+ *
+ * Response contract (backwards-compatible fields kept as aliases):
+ *   payment_intent_id  → provider order id  (was Stripe PI id)
+ *   client_secret      → provider checkout token (was Stripe PI client_secret)
+ *   amount             → hold amount in minor units
+ *   currency           → lower-case ISO code
+ *   plus explicit: provider, provider_order_id, provider_checkout_token,
+ *   provider_checkout_url, payable_pence, preauth_hold_pence,
+ *   preauth_buffer_pence, application_fee_amount (commission for internal use).
  */
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const clientIP = getClientIP(req);
   const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
-  if (!rateLimitResult.allowed) {
-    return rateLimitResponse(rateLimitResult.retryAfter!);
-  }
+  if (!rateLimitResult.allowed) return rateLimitResponse(rateLimitResult.retryAfter!);
 
   try {
-    // === Authenticate caller via JWT ===
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return errorResponse("Missing authorization header", 401, undefined, "AUTH_MISSING");
     }
 
-    const supabaseUrlForAuth = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKeyForAuth = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const authClient = createClient(supabaseUrlForAuth, supabaseServiceKeyForAuth);
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
     const token = authHeader.replace("Bearer ", "");
-    const { data: { user: authUser }, error: authError } = await authClient.auth.getUser(token);
-
+    const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !authUser) {
       return errorResponse("Unauthorized", 401, undefined, "AUTH_INVALID");
     }
@@ -57,148 +63,98 @@ serve(async (req) => {
       estimated_fare_pence,
       discount_amount_pence = 0,
       payment_method_type = "card",
-      stripe_payment_method_id,
-    } = body;
+    } = body ?? {};
 
     if (!trip_id || !estimated_fare_pence) {
-      return errorResponse("Missing required fields: trip_id, estimated_fare_pence", 400, undefined, "VALIDATION_MISSING_FIELD");
+      return errorResponse(
+        "Missing required fields: trip_id, estimated_fare_pence",
+        400, undefined, "VALIDATION_MISSING_FIELD",
+      );
     }
-
     if (estimated_fare_pence < 50) {
       return errorResponse("Minimum fare is 50 pence", 400, undefined, "VALIDATION_FAILED");
     }
 
-
-    // Payable amount = what we will MAX capture (estimated fare minus discount).
-    // This is the upper bound for `application_fee_amount` and the base for the buffer.
     const safeDiscount = Math.max(0, Math.min(Math.round(discount_amount_pence), estimated_fare_pence));
     const payable_pence = Math.max(0, estimated_fare_pence - safeDiscount);
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
-
-    if (!stripeSecretKey) {
-      return errorResponse("Stripe not configured", 500, undefined, "PAYMENT_STRIPE_ERROR");
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
-    let platformStripeAccountId: string | null = null;
-    try {
-      const platformAccount = await stripe.accounts.retrieve();
-      platformStripeAccountId = platformAccount.id;
-    } catch (accountError) {
-      console.warn('[create-payment-intent] Could not resolve platform Stripe account:', accountError);
-    }
-
-    // === Resolve currency from Region (single source of truth) ===
+    // === Region currency SSOT ===
     let currency_code: string;
     try {
       const regionCurrency = await resolveCurrencyFromTrip(supabase, trip_id);
       currency_code = regionCurrency.currency_code.toLowerCase();
     } catch (e) {
-      console.error('[create-payment-intent] Currency resolution failed:', e);
       return errorResponse((e as Error).message, 400, undefined, "REGION_CURRENCY_UNRESOLVABLE");
     }
 
-    // === Resolve caller's customer record server-side (never trust body) ===
+    // === Verify caller owns the trip ===
     const { data: callerCustomer, error: callerCustomerError } = await supabase
       .from("customers")
-      .select("id, stripe_customer_id, first_name, last_name, phone, rider_status")
+      .select("id, first_name, last_name, phone, rider_status")
       .eq("user_id", authUser.id)
       .maybeSingle();
-
     if (callerCustomerError || !callerCustomer) {
       return errorResponse("Customer profile not found for authenticated user", 403, undefined, "AUTH_INVALID");
     }
     const customer_id = callerCustomer.id;
 
-    // === Get trip details and verify ownership ===
     const { data: trip, error: tripError } = await supabase
       .from("trips")
-      .select("id, status, driver_id, service_area_id, stripe_payment_intent_id, passenger_id")
+      .select("id, status, driver_id, service_area_id, passenger_id, payment_provider, provider_order_id")
       .eq("id", trip_id)
       .single();
-
     if (tripError || !trip) {
       return errorResponse("Trip not found", 404, undefined, "TRIP_NOT_FOUND");
     }
-
     if (trip.passenger_id !== customer_id) {
       return errorResponse("Forbidden: trip does not belong to caller", 403, undefined, "AUTH_INVALID");
     }
 
-    // Idempotency: if PI already exists, return it
-    if (trip.stripe_payment_intent_id) {
-      try {
-        const existingPI = await stripe.paymentIntents.retrieve(trip.stripe_payment_intent_id);
-        if (existingPI && ["requires_payment_method", "requires_confirmation", "requires_capture"].includes(existingPI.status)) {
-          return successResponse({
-            payment_intent_id: existingPI.id,
-            client_secret: existingPI.client_secret,
-            status: existingPI.status,
-            idempotent: true,
-          });
-        }
-      } catch {
-        // PI invalid, create new one
-      }
-    }
-
-    // === Verify rider_status on caller's customer record ===
-    const customer = callerCustomer;
-
-
-    const riderStatus = (customer as any).rider_status || "active";
+    const riderStatus = (callerCustomer as { rider_status?: string }).rider_status || "active";
     if (riderStatus !== "active") {
-      console.warn(`[create-payment-intent] Blocked: rider_status=${riderStatus} for customer ${customer_id}`);
       return errorResponse(
         `Booking blocked: rider account is ${riderStatus}`,
-        403,
-        undefined,
-        "RIDER_STATUS_BLOCKED"
+        403, undefined, "RIDER_STATUS_BLOCKED",
       );
     }
 
-    // Create Stripe Customer if doesn't exist
-    let stripeCustomerId = customer.stripe_customer_id;
-    if (!stripeCustomerId) {
-      const stripeCustomer = await stripe.customers.create({
-        metadata: { onecab_customer_id: customer_id },
-        name: [customer.first_name, customer.last_name].filter(Boolean).join(" ") || undefined,
-        phone: customer.phone || undefined,
-      });
-      stripeCustomerId = stripeCustomer.id;
+    // === Resolve Revolut credentials ===
+    const { secretKey, environment } = getRevolutMerchantConfig();
 
-      await supabase
-        .from("customers")
-        .update({ stripe_customer_id: stripeCustomerId })
-        .eq("id", customer_id);
+    // === Idempotency: reuse an active Revolut order if one already exists ===
+    if (trip.payment_provider === "revolut" && trip.provider_order_id) {
+      try {
+        const existing = await retrieveRevolutOrder(environment, secretKey, trip.provider_order_id);
+        const reusable = ["PENDING", "PROCESSING", "AUTHORISED"].includes(String(existing.state ?? "").toUpperCase());
+        if (reusable) {
+          return successResponse({
+            provider: "revolut",
+            provider_order_id: existing.id,
+            provider_checkout_token: existing.token,
+            provider_checkout_url: existing.checkout_url,
+            payment_intent_id: existing.id,
+            client_secret: existing.token,
+            status: existing.state,
+            idempotent: true,
+            amount: existing.amount,
+            currency: (existing.currency ?? currency_code).toLowerCase(),
+          });
+        }
+      } catch {
+        // Fall through and create a new order.
+      }
     }
 
-    // === Get driver's connected account ===
-    // IMPORTANT: commission is calculated on the PAYABLE amount (estimated fare − discount).
-    // The pre-auth buffer is NEVER part of commission or driver earnings.
-    let driverStripeAccountId: string | null = null;
+    // === Commission (informational only in Phase 2; applied at capture / payout time) ===
     let commissionPercentage = 0;
-    let applicationFeeAmount = 0;
-
+    let commissionPence = 0;
     if (trip.driver_id) {
-      const { data: driver } = await supabase
-        .from("drivers")
-        .select("stripe_account_id, category_id")
-        .eq("id", trip.driver_id)
-        .single();
-
-      driverStripeAccountId = driver?.stripe_account_id || null;
       const result = await calculateCommission(supabase, trip.driver_id, payable_pence, trip.service_area_id);
       commissionPercentage = result.commission_pct;
-      applicationFeeAmount = result.commission_pence;
+      commissionPence = result.commission_pence;
     }
 
-    // === Resolve pre-auth buffer for this service area ===
-    // Pure payment-layer setting. NEVER touches fare math or driver earnings.
+    // === Pre-auth buffer (payment-layer setting; never touches fare math) ===
     let preauthCfg: PreauthBufferConfig | null = null;
     if (trip.service_area_id) {
       const { data: cfgRow } = await supabase
@@ -208,33 +164,26 @@ serve(async (req) => {
         .maybeSingle();
       if (cfgRow) preauthCfg = cfgRow as PreauthBufferConfig;
     }
-
     const holdResult = computePreauthHold(payable_pence, preauthCfg);
     const hold_pence = holdResult.hold_pence;
     const buffer_pence = holdResult.buffer_pence;
 
-    // Defensive: Stripe minimum charge ~50p
     if (hold_pence < 50) {
       return errorResponse("Hold amount below minimum", 400, undefined, "VALIDATION_FAILED");
     }
 
-    // === Determine payment method types ===
-    const paymentMethodTypes: string[] = ["card"];
-
-    // === Create PaymentIntent with Destination Charges ===
-    // amount = HOLD (payable + buffer). application_fee_amount = commission on PAYABLE.
-    // Stripe will release any uncaptured remainder back to the customer.
-    const piParams: Stripe.PaymentIntentCreateParams = {
-      amount: hold_pence,
+    // === Create Revolut order (manual capture) ===
+    const order = await createRevolutOrder({
+      environment,
+      secretKey,
+      amountMinor: hold_pence,
       currency: currency_code,
-      customer: stripeCustomerId,
-      capture_method: "manual",
-      payment_method_types: paymentMethodTypes,
+      tripId: trip_id,
+      description: `ONECAB trip ${trip_id}`,
       metadata: {
         trip_id,
         customer_id,
-        payment_method_type,
-        platform_stripe_account_id: platformStripeAccountId ?? 'unknown',
+        payment_method_type: String(payment_method_type),
         commission_pct: String(commissionPercentage),
         estimated_fare_pence: String(estimated_fare_pence),
         discount_amount_pence: String(safeDiscount),
@@ -242,57 +191,18 @@ serve(async (req) => {
         preauth_buffer_pence: String(buffer_pence),
         preauth_hold_pence: String(hold_pence),
       },
-    };
-
-    // Add Destination Charges if driver has a connected account
-    if (driverStripeAccountId) {
-      piParams.transfer_data = {
-        destination: driverStripeAccountId,
-      };
-      piParams.application_fee_amount = applicationFeeAmount;
-      piParams.metadata = {
-        ...piParams.metadata,
-        application_fee_amount_pence: String(applicationFeeAmount),
-        stripe_destination_account_id: driverStripeAccountId,
-        connect_flow: 'destination_charge',
-      };
-    } else {
-      console.warn(`[create-payment-intent] Driver has no Stripe connected account for trip ${trip_id}. Commission will be enforced at capture time.`);
-      piParams.metadata = {
-        ...piParams.metadata,
-        application_fee_amount_pence: String(applicationFeeAmount),
-        no_connected_account: "true",
-        connect_flow: 'platform_charge_manual_payout',
-      };
-    }
-
-    // Attach payment method if provided (for saved cards)
-    if (stripe_payment_method_id) {
-      piParams.payment_method = stripe_payment_method_id;
-    }
-
-    console.log(`[create-payment-intent] Statement descriptor SSOT: ${STRIPE_STATEMENT_DESCRIPTOR} (account static; no PI suffix)`);
-
-    const paymentIntent = await stripe.paymentIntents.create(piParams, {
-      idempotencyKey: `create_pi_${trip_id}`,
     });
 
-    console.log(`[create-payment-intent] Created PI: ${paymentIntent.id} for trip ${trip_id}, currency: ${currency_code}, platform_account=${platformStripeAccountId ?? 'unknown'}`);
-    console.log(`[stripe-settlement-create] payment_intent_id=${paymentIntent.id} trip=${trip_id} charge_type=${driverStripeAccountId ? 'destination_charge' : 'platform_charge_manual_payout'} final_fare_pence=${payable_pence} commission_pence=${applicationFeeAmount} driver_transfer_amount=${Math.max(0, payable_pence - applicationFeeAmount)} application_fee_amount=${driverStripeAccountId ? applicationFeeAmount : 'none'} connected_account_id=${driverStripeAccountId || "none"} platform_account_id=${platformStripeAccountId ?? 'unknown'} preauth_hold_pence=${hold_pence} preauth_buffer_pence=${buffer_pence}`);
-
-    // Store PI + informational hold/buffer columns on the trip.
-    // authorised_amount_pence = the actual Stripe hold (informational).
-    // preauth_buffer_pence    = how much of that hold is buffer (informational).
-    // Neither column feeds into fare/commission/ledger math.
+    // === Persist provider fields onto the trip ===
     await supabase
       .from("trips")
       .update({
-        stripe_payment_intent_id: paymentIntent.id,
-        stripe_application_fee_amount_pence: applicationFeeAmount,
-        stripe_destination_account_id: driverStripeAccountId,
-        stripe_settlement_verified: false,
-        stripe_settlement_warning: driverStripeAccountId ? null : 'NO_DRIVER_CONNECT_ACCOUNT_PLATFORM_CHARGE_ONLY_UNTIL_MANUAL_PAYOUT',
-        payment_method: payment_method_type === "apple_pay" ? "APPLE_PAY" : payment_method_type === "google_pay" ? "GOOGLE_PAY" : "CARD",
+        payment_provider: "revolut",
+        provider_order_id: order.id,
+        provider_checkout_token: order.token ?? null,
+        payment_method:
+          payment_method_type === "apple_pay" ? "APPLE_PAY" :
+          payment_method_type === "google_pay" ? "GOOGLE_PAY" : "CARD",
         payment_status: "authorized",
         authorised_amount_pence: hold_pence,
         preauth_buffer_pence: buffer_pence,
@@ -303,43 +213,48 @@ serve(async (req) => {
     await logAuditEvent(supabase, "payment_intent_created", {
       tripId: trip_id,
       details: {
-        payment_intent_id: paymentIntent.id,
+        provider: "revolut",
+        provider_order_id: order.id,
+        environment,
         estimated_fare_pence,
         discount_amount_pence: safeDiscount,
         payable_pence,
         preauth_buffer_pence: buffer_pence,
         preauth_hold_pence: hold_pence,
-        application_fee: applicationFeeAmount,
+        commission_pct: commissionPercentage,
+        expected_commission_pence: commissionPence,
         payment_method_type,
-        driver_account: driverStripeAccountId,
         currency: currency_code,
       },
       ipAddress: clientIP,
       userAgent: req.headers.get("user-agent") || "unknown",
     });
 
+    console.log(`[create-payment-intent] revolut order=${order.id} trip=${trip_id} hold=${hold_pence} ${currency_code} env=${environment}`);
+
     return successResponse({
-      payment_intent_id: paymentIntent.id,
-      client_secret: paymentIntent.client_secret,
-      status: paymentIntent.status,
-      // Spec API contract — explicit and unambiguous:
+      provider: "revolut",
+      provider_order_id: order.id,
+      provider_checkout_token: order.token,
+      provider_checkout_url: order.checkout_url,
+      // Backwards-compatible aliases for existing customer app callers:
+      payment_intent_id: order.id,
+      client_secret: order.token,
+      status: order.state ?? "PENDING",
       estimated_fare_pence,
       discount_amount_pence: safeDiscount,
-      payable_pence,                    // max we will capture
+      payable_pence,
       preauth_buffer_pence: buffer_pence,
-      preauth_hold_pence: hold_pence,   // what Stripe holds on the card
-      // Legacy alias kept for client compatibility:
+      preauth_hold_pence: hold_pence,
       amount: hold_pence,
       currency: currency_code,
-      application_fee_amount: applicationFeeAmount,
-      stripe_customer_id: stripeCustomerId,
+      application_fee_amount: commissionPence,
     });
-
   } catch (error) {
     console.error("[create-payment-intent] Error:", error);
     return errorResponse(
       error instanceof Error ? error.message : "Unknown error",
-      500
+      500,
     );
   }
 });
