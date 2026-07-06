@@ -51,7 +51,7 @@ export function recordAdminPerformanceStep(
 
   console.info('PERF_STEP_ADMIN', payload);
 
-  adminPerfTelemetry.record('transaction_time', resolved.duration_ms, 'ms', input.action_name, payload);
+  adminPerfTelemetry.trackFlowStep(input.action_name, resolved.duration_ms, input.action_name);
 
   if (
     resolved.performance_status === 'PERF_WARNING'
