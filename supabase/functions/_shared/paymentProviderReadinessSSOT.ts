@@ -18,6 +18,11 @@ import {
   isCustomerBookingAdapterLive,
   isPayoutAdapterLive,
 } from "./customerPaymentWorkflow.ts";
+import { getPaymentProviderAdapter } from "./paymentProviders/index.ts";
+import type { ConnectionTestResult } from "./paymentProviders/types.ts";
+
+/** Re-run live API auth when cached test is missing, failed, or older than this. */
+export const LIVE_PROVIDER_AUTH_TEST_MAX_AGE_MS = 5 * 60 * 1000;
 
 export type AdapterReadinessStatus = "live" | "not_implemented" | "not_configured";
 
@@ -95,3 +100,61 @@ const PROVIDER_MOBILE_WALLET_CATALOG: Record<string, string[]> = {
   waafi_pay: [],
   sahal_pay: [],
 };
+
+type ProviderConfigProbe = {
+  provider: string;
+  last_connection_test_at: string | null;
+  last_connection_test_status: string | null;
+  last_error_message: string | null;
+  environment: string;
+};
+
+export async function verifyLiveProviderApiAuthentication(
+  supabase: SupabaseClient,
+  provider: PaymentProviderId,
+  environment: ProviderEnvironment,
+  config?: ProviderConfigProbe | null,
+): Promise<ConnectionTestResult> {
+  if (!isCustomerBookingAdapterLive(provider) && !isPayoutAdapterLive(provider)) {
+    return {
+      ok: true,
+      message: `${provider} adapter registry only — no live API probe required`,
+      credentials_ready: true,
+    };
+  }
+
+  const lastAt = config?.last_connection_test_at
+    ? new Date(config.last_connection_test_at).getTime()
+    : 0;
+  const cacheFresh = Boolean(
+    config?.last_connection_test_status === "ok"
+      && lastAt > Date.now() - LIVE_PROVIDER_AUTH_TEST_MAX_AGE_MS,
+  );
+
+  if (cacheFresh) {
+    return {
+      ok: true,
+      message: `${provider} API authentication verified recently`,
+      mode: environment,
+      credentials_ready: true,
+      booking_adapter_live: isCustomerBookingAdapterLive(provider),
+    };
+  }
+
+  const adapter = getPaymentProviderAdapter(supabase, provider, environment);
+  const result = await adapter.testConnection();
+
+  await supabase
+    .from("payment_provider_configs")
+    .update({
+      last_connection_test_at: new Date().toISOString(),
+      last_connection_test_status: result.ok ? "ok" : "error",
+      last_error_message: result.ok ? null : result.message,
+      status: result.ok
+        ? (environment === "live" ? "live" : "test")
+        : "error",
+    })
+    .eq("provider", provider);
+
+  return result;
+}

@@ -1,8 +1,31 @@
+import { formatRevolutApiFailure, revolutHttpStatusLabel } from "./revolutApi.ts";
 import { assertEquals } from "https://deno.land/std@0.168.0/testing/asserts.ts";
 import {
   resolveAdapterReadinessStatus,
   resolveProviderBookingWorkflow,
 } from "./paymentProviderReadinessSSOT.ts";
+
+Deno.test("revolutHttpStatusLabel maps common HTTP statuses", () => {
+  assertEquals(revolutHttpStatusLabel(401), "Unauthorized");
+  assertEquals(revolutHttpStatusLabel(403), "Forbidden");
+  assertEquals(revolutHttpStatusLabel(404), "Endpoint not found");
+  assertEquals(revolutHttpStatusLabel(429), "Rate limited");
+});
+
+Deno.test("formatRevolutApiFailure surfaces HTTP status and Revolut message", () => {
+  const formatted = formatRevolutApiFailure(
+    {
+      status: 401,
+      message: "Unauthorized",
+      body: { message: "The request should be authorized.", code: "unauthorized" },
+    },
+    "merchant",
+  );
+  assertEquals(formatted.http_status, 401);
+  assertEquals(formatted.http_status_label, "Unauthorized");
+  assertEquals(formatted.revolut_error_code, "unauthorized");
+  assertEquals(formatted.message.includes("401 Unauthorized"), true);
+});
 
 Deno.test("resolveAdapterReadinessStatus marks live Revolut when credentials ready", () => {
   assertEquals(resolveAdapterReadinessStatus(true, true), "live");

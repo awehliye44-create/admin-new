@@ -4,6 +4,7 @@ import {
   type ProviderEnvironment,
   type ProviderSecrets,
   PROVIDER_ENV_SECRET_MAP,
+  PROVIDER_ENV_SECRET_FALLBACKS,
   PROVIDER_SECRET_FIELDS,
 } from "./types.ts";
 
@@ -42,9 +43,21 @@ export async function getProviderSecrets(
       continue;
     }
     const envVar = envMap[name];
-    if (!envVar) continue;
-    const envValue = Deno.env.get(envVar);
-    if (envValue) result[name] = envValue;
+    if (envVar) {
+      const envValue = Deno.env.get(envVar);
+      if (envValue) {
+        result[name] = envValue;
+        continue;
+      }
+    }
+    const fallbacks = PROVIDER_ENV_SECRET_FALLBACKS[provider]?.[name] ?? [];
+    for (const fallbackVar of fallbacks) {
+      const fallbackValue = Deno.env.get(fallbackVar);
+      if (fallbackValue) {
+        result[name] = fallbackValue;
+        break;
+      }
+    }
   }
 
   // WaafiPay: legacy vault stored merchant id under publishable_key

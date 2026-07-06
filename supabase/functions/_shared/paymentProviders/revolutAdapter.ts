@@ -9,8 +9,11 @@ import type {
 } from "./types.ts";
 import {
   executeRevolutPay,
+  formatRevolutApiFailure,
   listRevolutAccounts,
   revolutMerchantRequest,
+  testRevolutMerchantConnection,
+  type RevolutApiError,
 } from "../revolutApi.ts";
 
 export function createRevolutAdapter(
@@ -21,9 +24,9 @@ export function createRevolutAdapter(
     return getProviderSecrets(supabase, "revolut", environment);
   }
 
-  function businessToken(secrets: Awaited<ReturnType<typeof getSecrets>>): string {
+  function merchantSecret(secrets: Awaited<ReturnType<typeof getSecrets>>): string {
     const token = secrets.secret_key?.trim();
-    if (!token) throw new Error("Revolut API secret key is not configured");
+    if (!token) throw new Error("Revolut Merchant API secret key is not configured");
     return token;
   }
 
@@ -32,7 +35,7 @@ export function createRevolutAdapter(
 
     async createPaymentIntent(amountPence, currency, metadata = {}) {
       const secrets = await getSecrets();
-      const sk = businessToken(secrets);
+      const sk = merchantSecret(secrets);
       const order = await revolutMerchantRequest<{
         id: string;
         token?: string;
@@ -57,7 +60,7 @@ export function createRevolutAdapter(
 
     async authorizePayment(providerPaymentId) {
       const secrets = await getSecrets();
-      const sk = businessToken(secrets);
+      const sk = merchantSecret(secrets);
       const order = await revolutMerchantRequest<{ state?: string }>(
         environment,
         sk,
@@ -68,7 +71,7 @@ export function createRevolutAdapter(
 
     async capturePayment(providerPaymentId, amountPence) {
       const secrets = await getSecrets();
-      const sk = businessToken(secrets);
+      const sk = merchantSecret(secrets);
       const order = await revolutMerchantRequest<{ state?: string }>(
         environment,
         sk,
@@ -83,7 +86,7 @@ export function createRevolutAdapter(
 
     async refundPayment(providerPaymentId, amountPence) {
       const secrets = await getSecrets();
-      const sk = businessToken(secrets);
+      const sk = merchantSecret(secrets);
       const refund = await revolutMerchantRequest<{ id?: string; state?: string }>(
         environment,
         sk,
@@ -102,7 +105,7 @@ export function createRevolutAdapter(
       if (!accountId) throw new Error("Revolut merchant / account ID is not configured");
       const pay = await executeRevolutPay({
         environment,
-        accessToken: businessToken(secrets),
+        accessToken: merchantSecret(secrets),
         sourceAccountId: accountId,
         counterpartyId: destinationAccountId,
         amountPence,
@@ -119,7 +122,7 @@ export function createRevolutAdapter(
       if (!accountId) throw new Error("Revolut merchant / account ID is not configured");
       const pay = await executeRevolutPay({
         environment,
-        accessToken: businessToken(secrets),
+        accessToken: merchantSecret(secrets),
         sourceAccountId: accountId,
         counterpartyId: destinationAccountId,
         amountPence,
@@ -132,7 +135,7 @@ export function createRevolutAdapter(
 
     async getBalance(currency = "gbp") {
       const secrets = await getSecrets();
-      const accounts = await listRevolutAccounts(environment, businessToken(secrets));
+      const accounts = await listRevolutAccounts(environment, merchantSecret(secrets));
       const match = accounts.find((a) => (a.currency ?? "").toLowerCase() === currency.toLowerCase())
         ?? accounts[0];
       const balanceMajor = Number(match?.balance ?? 0);
@@ -162,37 +165,70 @@ export function createRevolutAdapter(
       const secrets = await getSecrets();
       const warnings: string[] = [];
       if (!secrets.secret_key?.trim()) {
-        return { ok: false, message: "Revolut API secret key is missing", credentials_ready: false };
+        return {
+          ok: false,
+          message: "Revolut Merchant API secret key is missing (save Production API Secret key in Live mode)",
+          credentials_ready: false,
+        };
       }
       const mismatch = detectModeMismatch(environment, secrets.secret_key);
       if (mismatch) warnings.push(mismatch);
       if (!secrets.merchant_id?.trim()) {
-        warnings.push("Merchant / source account ID missing — driver payouts require merchant_id");
+        warnings.push("Source Business account ID missing — driver payouts require merchant_id");
       }
+
+      const merchantKey = secrets.secret_key.trim();
       try {
-        const accounts = await listRevolutAccounts(environment, secrets.secret_key.trim());
-        const liveOk = accounts.length > 0;
-        return {
-          ok: liveOk,
-          message: liveOk
-            ? `Revolut Business API connected (${accounts.length} account(s)). Live payout adapter enabled.`
-            : "Revolut API responded but returned no accounts",
-          mode: environment,
-          warnings: warnings.length ? warnings : undefined,
-          credentials_ready: true,
-          booking_adapter_live: true,
-        };
+        await testRevolutMerchantConnection(environment, merchantKey);
       } catch (err) {
-        const msg = (err as { message?: string })?.message ?? String(err);
+        const failure = formatRevolutApiFailure(err as RevolutApiError, "merchant");
         return {
           ok: false,
-          message: `Revolut connection failed: ${msg}`,
+          message: failure.message,
           mode: environment,
           warnings,
-          credentials_ready: Boolean(secrets.secret_key?.trim()),
+          credentials_ready: true,
           booking_adapter_live: false,
+          http_status: failure.http_status,
+          http_status_label: failure.http_status_label,
+          revolut_error_code: failure.revolut_error_code,
+          revolut_message: failure.revolut_message,
+          api_surface: failure.api_surface,
         };
       }
+
+      try {
+        const accounts = await listRevolutAccounts(environment, merchantKey);
+        if (accounts.length > 0) {
+          return {
+            ok: true,
+            message: `Revolut Merchant API authenticated (${environment}). Business API also reachable (${accounts.length} account(s)).`,
+            mode: environment,
+            warnings: warnings.length ? warnings : undefined,
+            credentials_ready: true,
+            booking_adapter_live: true,
+            api_surface: "merchant",
+          };
+        }
+        warnings.push(
+          "Merchant API authenticated, but Business API returned no accounts — use a Business API token for driver payouts if payouts fail",
+        );
+      } catch (businessErr) {
+        const biz = formatRevolutApiFailure(businessErr as RevolutApiError, "business");
+        warnings.push(
+          `Merchant API OK. Business API not authenticated with this secret — ${biz.http_status} ${biz.http_status_label}${biz.revolut_message ? `: ${biz.revolut_message}` : ""}. Customer booking can proceed; configure Business API token for payouts.`,
+        );
+      }
+
+      return {
+        ok: true,
+        message: `Revolut Merchant API authenticated (${environment} mode). Customer collection ready.`,
+        mode: environment,
+        warnings: warnings.length ? warnings : undefined,
+        credentials_ready: true,
+        booking_adapter_live: true,
+        api_surface: "merchant",
+      };
     },
   };
 }

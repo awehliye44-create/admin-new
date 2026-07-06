@@ -254,6 +254,14 @@ function ProviderCard({
           </Alert>
         ))}
 
+        {provider.last_error_message ? (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Connection test failed</AlertTitle>
+            <AlertDescription className="whitespace-pre-wrap">{provider.last_error_message}</AlertDescription>
+          </Alert>
+        ) : null}
+
         <div className="grid gap-2 text-sm md:grid-cols-2">
           <div className="flex justify-between">
             <span className="text-muted-foreground">API key</span>
@@ -558,10 +566,31 @@ export function PaymentProvidersCardsGrid() {
               testConnection.mutate(
                 { provider: provider.provider, environment: provider.mode },
                 {
-                  onSuccess: (result: { ok: boolean; message: string }) => {
+                  onSuccess: (result: {
+                    ok: boolean;
+                    message: string;
+                    http_status?: number;
+                    http_status_label?: string;
+                    revolut_error_code?: string | null;
+                    revolut_message?: string | null;
+                    api_surface?: string;
+                    warnings?: string[];
+                  }) => {
+                    const lines = [
+                      result.message,
+                      result.http_status
+                        ? `HTTP ${result.http_status} ${result.http_status_label ?? ""}`.trim()
+                        : null,
+                      result.revolut_error_code ? `Revolut code: ${result.revolut_error_code}` : null,
+                      result.revolut_message && result.revolut_message !== result.message
+                        ? `Revolut message: ${result.revolut_message}`
+                        : null,
+                      result.api_surface ? `API: ${result.api_surface}` : null,
+                      ...(result.warnings ?? []),
+                    ].filter(Boolean);
                     toast({
                       title: result.ok ? "Connection successful" : "Connection failed",
-                      description: result.message,
+                      description: lines.join("\n"),
                       variant: result.ok ? "default" : "destructive",
                     });
                   },

@@ -6,6 +6,93 @@ export type RevolutApiError = {
   body?: unknown;
 };
 
+export function revolutHttpStatusLabel(status: number): string {
+  switch (status) {
+    case 401:
+      return "Unauthorized";
+    case 403:
+      return "Forbidden";
+    case 404:
+      return "Endpoint not found";
+    case 429:
+      return "Rate limited";
+    case 400:
+      return "Bad request";
+    case 500:
+      return "Internal server error";
+    case 502:
+      return "Bad gateway";
+    case 503:
+      return "Service unavailable";
+    default:
+      return `HTTP ${status}`;
+  }
+}
+
+export function parseRevolutErrorBody(body: unknown): {
+  revolut_message: string | null;
+  revolut_error_code: string | null;
+} {
+  if (!body || typeof body !== "object") {
+    return { revolut_message: typeof body === "string" ? body : null, revolut_error_code: null };
+  }
+  const record = body as Record<string, unknown>;
+  const revolut_message = [
+    record.message,
+    record.error_description,
+    record.error,
+  ].find((v) => typeof v === "string" && v.trim()) as string | undefined ?? null;
+  const revolut_error_code = [
+    record.code,
+    record.error_code,
+    record.errorCode,
+    record.type,
+  ].find((v) => typeof v === "string" && v.trim()) as string | undefined ?? null;
+  return { revolut_message, revolut_error_code };
+}
+
+export function formatRevolutApiFailure(
+  err: RevolutApiError,
+  apiSurface: "merchant" | "business",
+): {
+  message: string;
+  http_status: number;
+  http_status_label: string;
+  revolut_error_code: string | null;
+  revolut_message: string | null;
+  api_surface: "merchant" | "business";
+} {
+  const http_status = err.status;
+  const http_status_label = revolutHttpStatusLabel(http_status);
+  const parsed = parseRevolutErrorBody(err.body);
+  const revolut_message = parsed.revolut_message ?? err.message;
+  const revolut_error_code = parsed.revolut_error_code;
+  const message = [
+    `Revolut ${apiSurface} API: ${http_status} ${http_status_label}`,
+    revolut_error_code ? `Code: ${revolut_error_code}` : null,
+    revolut_message,
+  ].filter(Boolean).join(" — ");
+  return {
+    message,
+    http_status,
+    http_status_label,
+    revolut_error_code,
+    revolut_message,
+    api_surface,
+  };
+}
+
+export async function testRevolutMerchantConnection(
+  environment: ProviderEnvironment,
+  secretKey: string,
+): Promise<void> {
+  await revolutMerchantRequest<unknown>(
+    environment,
+    secretKey,
+    "/orders?limit=1",
+  );
+}
+
 export function revolutBusinessBaseUrl(environment: ProviderEnvironment): string {
   return environment === "live"
     ? "https://b2b.revolut.com/api/1.0"

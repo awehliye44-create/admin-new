@@ -59,6 +59,12 @@ export interface ConnectionTestResult {
   warnings?: string[];
   credentials_ready?: boolean;
   booking_adapter_live?: boolean;
+  /** Revolut / provider HTTP diagnostics for admin UI. */
+  http_status?: number;
+  http_status_label?: string;
+  revolut_error_code?: string | null;
+  revolut_message?: string | null;
+  api_surface?: "merchant" | "business";
 }
 
 export interface PaymentProviderAdapter {
@@ -189,6 +195,17 @@ export const PROVIDER_ENV_SECRET_MAP: Record<
     secret_key: "REVOLUT_SECRET_KEY",
     webhook_secret: "REVOLUT_WEBHOOK_SECRET",
     merchant_id: "REVOLUT_MERCHANT_ID",
+  },
+};
+
+/** Additional Supabase Edge env fallbacks per provider secret field. */
+export const PROVIDER_ENV_SECRET_FALLBACKS: Partial<
+  Record<PaymentProviderId, Partial<Record<keyof ProviderSecrets, string[]>>>
+> = {
+  revolut: {
+    secret_key: ["REVOLUT_MERCHANT_API_KEY", "REVOLUT_MERCHANT_SECRET_KEY"],
+    webhook_secret: ["REVOLUT_WEBHOOK_SIGNING_SECRET"],
+    publishable_key: ["REVOLUT_MERCHANT_PUBLIC_KEY", "REVOLUT_PUBLIC_KEY"],
   },
 };
 

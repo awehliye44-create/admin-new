@@ -9,6 +9,7 @@ import {
   loadPaymentProviderCredentialReadiness,
   resolveProviderBookingWorkflow,
   type ProviderBookingWorkflow,
+  verifyLiveProviderApiAuthentication,
 } from "./paymentProviderReadinessSSOT.ts";
 import type { PaymentProviderId, ProviderEnvironment } from "./paymentProviders/types.ts";
 
@@ -497,6 +498,31 @@ export async function resolveProviderGatewayStatus(
     }));
   }
 
+  const liveAuth = await verifyLiveProviderApiAuthentication(
+    supabase,
+    providerId as PaymentProviderId,
+    environment,
+    config,
+  );
+  if (!liveAuth.ok) {
+    const authMessage = liveAuth.message ?? "Live provider API authentication failed";
+    return buildSnapshot(role, providerId, config, withCredentials({
+      apiKeysConfigured: true,
+      webhookConfigured: providerId === "stripe" ? webhookConfigured : webhookStored,
+      webhookHealthy,
+      lastWebhookAt,
+      lastWebhookError,
+      stripeApiHealth: "down",
+      webhookDeliveryHealth,
+      webhookProcessingHealth,
+      bookingPaymentHealth: "down",
+      providerHealth: "down",
+      status: "CONNECTION_FAILED",
+      message: authMessage,
+      configurationError: authMessage,
+    }));
+  }
+
   if (providerId === "stripe" && role === "customer" && webhookConfigured === false) {
     return buildSnapshot(role, providerId, config, withCredentials({
       apiKeysConfigured: true,
@@ -517,8 +543,11 @@ export async function resolveProviderGatewayStatus(
     }));
   }
 
-  // Real Stripe API / connection failure — block bookings.
-  if (config.last_connection_test_status === "error" || config.status === "error") {
+  // Legacy row-level error flag — live auth probe above is SSOT for Revolut.
+  if (
+    providerId === "stripe"
+    && (config.last_connection_test_status === "error" || config.status === "error")
+  ) {
     return buildSnapshot(role, providerId, config, withCredentials({
       apiKeysConfigured: true,
       webhookConfigured,
