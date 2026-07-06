@@ -11,7 +11,6 @@
 import {
   buildSplitReconciliationCheck,
   computePaymentMethodLedgerMetrics,
-  isCashTrip,
   tripTipsPence,
   type PaymentCaptureRow,
 } from "./financialReconciliationSSOT.ts";
@@ -38,7 +37,6 @@ export type FinanceBackendAuditV1 = {
   currency_code: string;
   incoming_money: {
     card_customer_revenue_pence: number;
-    cash_collected_by_driver_pence: number;
     customer_captured_total_pence: number;
     customer_refunded_total_pence: number;
     net_customer_money_in_pence: number;
@@ -227,7 +225,8 @@ export function buildTripAuditRows(
     const driverNet = tripDriverNetPence(row) ?? 0;
     const paidOut = payoutByTrip.get(row.id) ?? 0;
     const tips = tripTipsPence(row);
-    const cardPayable = isCashTrip(row) ? 0 : driverNet + tips;
+    const cardPayable =
+(row) ? 0 : driverNet + tips;
     return {
       trip_id: row.id,
       trip_code: row.trip_code ?? null,
@@ -236,7 +235,8 @@ export function buildTripAuditRows(
       driver_net_pence: driverNet,
       onecab_commission_pence: tripGrossCommissionPence(row),
       provider_fee_pence: tripStripeFeePence(row),
-      payout_status: paidOut > 0 ? "paid_out" : isCashTrip(row) ? "historical_legacy" : "unpaid",
+      payout_status: paidOut > 0 ? "paid_out" :
+(row) ? "historical_legacy" : "unpaid",
       paid_out_amount_pence: paidOut,
       remaining_driver_liability_pence: Math.max(0, cardPayable - paidOut),
     };
@@ -455,7 +455,6 @@ export function buildFinanceBackendAuditV1(args: {
 
   const answered: Record<string, string | number> = {
     A_card_customer_revenue_pence: ledgerSplit.card_customer_revenue_pence,
-    A2_cash_collected_by_driver_pence: ledgerSplit.cash_collected_by_driver_pence,
     B_total_refunded_pence: refunded,
     C_net_card_revenue_pence: ledgerSplit.net_card_revenue_pence,
     D_driver_paid_out_total_pence: payoutDebits.total,
@@ -464,7 +463,6 @@ export function buildFinanceBackendAuditV1(args: {
     G_driver_available_now_pence: driverAvailableNow,
     H_driver_pending_settlement_pence: driverPendingSettlement,
     I_onecab_card_commission_net_pence: ledgerSplit.onecab_card_net_commission_pence,
-    I2_onecab_cash_commission_receivable_pence: ledgerSplit.onecab_cash_commission_receivable_pence,
     J_provider_processing_fee_pence: providerFees,
     K_wallet_vs_payout_diagnosis: walletIntegrity[0]?.explanation ??
       (balanced
@@ -481,8 +479,8 @@ export function buildFinanceBackendAuditV1(args: {
     currency_code: args.currencyCode.toUpperCase(),
     incoming_money: {
       card_customer_revenue_pence: ledgerSplit.card_customer_revenue_pence,
-      cash_collected_by_driver_pence: ledgerSplit.cash_collected_by_driver_pence,
       customer_captured_total_pence: ledgerSplit.card_customer_revenue_pence,
+
       customer_refunded_total_pence: refunded,
       net_customer_money_in_pence: ledgerSplit.net_card_revenue_pence,
       net_card_revenue_pence: ledgerSplit.net_card_revenue_pence,

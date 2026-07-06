@@ -13,7 +13,6 @@ export type PlatformReconciliationKpis = {
   ledger_only_records: number;
   todays_captures_pence: number;
   todays_card_trips: number;
-  todays_cash_trips: number;
   driver_count: number;
 };
 
@@ -56,17 +55,11 @@ export function aggregatePlatformKpisFromDriverSnapshots(
 
   let todaysCaptures = 0;
   let todaysCardTrips = 0;
-  let todaysCashTrips = 0;
-
   for (const row of auditRows) {
     if (!isLondonSameCalendarDay(row.date)) continue;
     const method = String(row.payment_method ?? "").toLowerCase();
-    if (method === "cash") {
-      todaysCashTrips += 1;
-    } else {
-      todaysCardTrips += 1;
-      todaysCaptures += Math.max(0, row.captured_pence ?? 0);
-    }
+    todaysCardTrips += 1;
+    todaysCaptures += Math.max(0, row.captured_pence ?? 0);
   }
 
   return {
@@ -79,7 +72,6 @@ export function aggregatePlatformKpisFromDriverSnapshots(
     ledger_only_records: ledgerOnly,
     todays_captures_pence: todaysCaptures,
     todays_card_trips: todaysCardTrips,
-    todays_cash_trips: todaysCashTrips,
     driver_count: drivers.length,
   };
 }

@@ -18,7 +18,6 @@ function degradeCheck(
     balanced: false,
     status: DEGRADED_STATUS,
     card_reconciliation: degradeLeg(base.card_reconciliation),
-    cash_reconciliation: degradeLeg(base.cash_reconciliation),
   };
 }
 

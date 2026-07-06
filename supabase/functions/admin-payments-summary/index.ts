@@ -48,20 +48,18 @@ serve(async (req) => {
     // ── SSOT: driver_financial_summary (100% derived from driver_wallet_ledger) ──
     const { data: summaryRows } = await supabase
       .from('driver_financial_summary')
-      .select('gross_trip_total, company_commission_total, card_net_credits, cash_commission_debits, total_payouts_sent, wallet_balance, completed_trips, today_gross_earnings, today_trip_count, card_gross_total, cash_gross_total');
+      .select('gross_trip_total, company_commission_total, card_net_credits, total_payouts_sent, wallet_balance, completed_trips, today_gross_earnings, today_trip_count, card_gross_total');
 
     const all = summaryRows || [];
     const totalGrossFares = all.reduce((s, d) => s + Number(d.gross_trip_total || 0), 0);
     const totalCommission = all.reduce((s, d) => s + Number(d.company_commission_total || 0), 0);
     const totalDriverNet = all.reduce((s, d) => s + Number(d.card_net_credits || 0), 0);
-    const totalCashCommission = all.reduce((s, d) => s + Number(d.cash_commission_debits || 0), 0);
     const totalPayoutsSent = all.reduce((s, d) => s + Number(d.total_payouts_sent || 0), 0);
     const totalWalletBalance = all.reduce((s, d) => s + Number(d.wallet_balance || 0), 0);
     const totalTrips = all.reduce((s, d) => s + Number(d.completed_trips || 0), 0);
     const todayGross = all.reduce((s, d) => s + Number(d.today_gross_earnings || 0), 0);
     const todayTrips = all.reduce((s, d) => s + Number(d.today_trip_count || 0), 0);
     const totalCardGross = all.reduce((s, d) => s + Number(d.card_gross_total || 0), 0);
-    const totalCashGross = all.reduce((s, d) => s + Number(d.cash_gross_total || 0), 0);
 
     // ── Pending payments: trips with payment_status = 'pending' (not yet captured/confirmed) ──
     const { count: pendingCount } = await supabase
@@ -103,11 +101,9 @@ serve(async (req) => {
       totalGrossFares,
       totalCommission,       // Platform commission (ONECAB revenue)
       totalDriverNet,        // Card net credits to drivers
-      totalCashCommission,   // Cash commission owed by drivers
       totalPayoutsSent,
       totalWalletBalance,
       totalCardGross,
-      totalCashGross,
 
       // Legacy field (maps to totalCommission for backwards compat)
       totalRevenue: totalCommission,

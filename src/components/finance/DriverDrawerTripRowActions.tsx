@@ -11,7 +11,6 @@ import {
 import type { TripFinancialAuditRow } from '@/hooks/useFinanceReconciliation';
 import { derivePaymentActionAvailability } from '@/lib/financeTripActionsSSOT';
 import { tripSettlementRecoverUrl } from '@/lib/financialReconciliationRoutes';
-import { isHistoricalLegacyCashTrip } from '../../../shared/digitalFinanceSSOT';
 import { useMutation } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -52,7 +51,6 @@ export function DriverDrawerTripRowActions({
   onTripAction: (row: TripFinancialAuditRow, action: DriverDrawerTripAction) => void;
   onSynced?: () => void;
 }) {
-  const legacy = isHistoricalLegacyCashTrip(row.payment_method);
   const availability = derivePaymentActionAvailability(buildPaymentInput(row));
   const piId = row.stripe_payment_intent_id;
 
@@ -71,15 +69,6 @@ export function DriverDrawerTripRowActions({
     },
     onError: (err: Error) => toast.error(err.message),
   });
-
-  if (legacy) {
-    return (
-      <Button variant="ghost" size="sm" className="h-7 px-2 text-[10px]" onClick={() => onTripAction(row, 'view')}>
-        View
-      </Button>
-    );
-  }
-
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>

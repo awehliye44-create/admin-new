@@ -120,12 +120,10 @@ export type EnabledPaymentMethodsSnake = {
   card: boolean;
   apple_pay: boolean;
   google_pay: boolean;
-  cash: boolean;
   wallet: boolean;
 };
 
 export type PaymentMethodsCamel = {
-  cash: boolean;
   card: boolean;
   wallet: boolean;
   applePay: boolean;
@@ -154,10 +152,8 @@ export function buildServiceAreaPaymentMethodFlags(
   const provider = gatewayCheck.ok ? gatewayCheck.provider : null;
   const isStripe = gatewayCheck.ok && isStripePreauthProvider(provider);
   const isMobile = gatewayCheck.ok && isMobileWalletCollectProvider(provider);
-  const cash = false;
 
   const paymentMethods: PaymentMethodsCamel = {
-    cash,
     card: isStripe ? Boolean(pm.card_enabled) : false,
     wallet: isStripe ? Boolean(pm.wallet_enabled) : false,
     applePay: isStripe ? Boolean(pm.apple_pay_enabled) : false,
@@ -168,7 +164,6 @@ export function buildServiceAreaPaymentMethodFlags(
     card: paymentMethods.card,
     apple_pay: paymentMethods.applePay,
     google_pay: paymentMethods.googlePay,
-    cash,
     wallet: paymentMethods.wallet,
   };
 

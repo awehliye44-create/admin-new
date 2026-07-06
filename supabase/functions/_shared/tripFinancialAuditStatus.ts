@@ -5,8 +5,7 @@
 
 import {
   getTripDebtRecoveredPence,
-  getTripDriverNetPence,
-  isCashTrip,
+  getTripDriverNetPence
 } from "./tripSettlementFinanceSSOT.ts";
 import { type TripSSOTRow } from "./financialReconciliationSSOT.ts";
 
@@ -69,9 +68,6 @@ function includesAny(haystack: string, needles: string[]): boolean {
   return needles.some((n) => haystack.includes(n));
 }
 
-export function isTripCashPayment(row: TripAuditStatusTrip): boolean {
-  return isCashTrip(row as TripSSOTRow);
-}
 
 function paidOutPence(payouts: TripAuditPayoutRecord[]): number {
   let total = 0;
@@ -152,7 +148,6 @@ function hasRefund(input: TripAuditStatusInput): boolean {
 }
 
 function isCardCaptured(input: TripAuditStatusInput): boolean {
-  if (isTripCashPayment(input.trip)) return false;
   return stripeCaptureStatus(input) === "captured";
 }
 
@@ -166,7 +161,6 @@ function stripeBalanceTransactionSettled(input: TripAuditStatusInput): boolean {
 }
 
 function isProviderSettled(input: TripAuditStatusInput): boolean {
-  if (isTripCashPayment(input.trip)) return false;
   if (stripeBalanceTransactionSettled(input)) return true;
   const providerFields = [
     norm(input.trip.provider_status),
@@ -192,21 +186,11 @@ function payoutStatus(input: TripAuditStatusInput): string {
 }
 
 function commissionStatus(input: TripAuditStatusInput): string {
-  if (isTripCashPayment(input.trip)) {
-    const types = ledgerTypes(input.ledger ?? []);
-    if (types.has("CASH_COMMISSION_DEBT")) return "receivable";
-    if (types.has("PLATFORM_COMMISSION")) return "earned";
-    return Math.max(0, input.trip.commission_pence ?? 0) > 0 ? "receivable" : "none";
-  }
   if (isCardCaptured(input) || isProviderSettled(input)) return "earned";
   return Math.max(0, input.trip.commission_pence ?? 0) > 0 ? "earned" : "pending";
 }
 
 export function deriveDriverPayoutAuditStatus(input: TripAuditStatusInput): TripAuditStatusBadge {
-  if (isTripCashPayment(input.trip)) {
-    return { label: "Already Collected", tone: "green" };
-  }
-
   if (isDisputed(input)) {
     return { label: "On Hold", tone: "orange" };
   }
@@ -254,12 +238,6 @@ export function deriveOnecabCommissionAuditStatus(input: TripAuditStatusInput): 
     return { label: "Reversed", tone: "red" };
   }
 
-  if (isTripCashPayment(input.trip)) {
-    const status = commissionStatus(input);
-    if (status === "earned") return { label: "Earned", tone: "green" };
-    return { label: "Receivable", tone: "orange" };
-  }
-
   if (commissionStatus(input) === "earned") {
     return { label: "Earned", tone: "green" };
   }
@@ -272,10 +250,6 @@ export function deriveOnecabCommissionAuditStatus(input: TripAuditStatusInput): 
 }
 
 export function deriveProviderAuditStatus(input: TripAuditStatusInput): TripAuditStatusBadge {
-  if (isTripCashPayment(input.trip)) {
-    return { label: "Historical Legacy Trip", tone: "gray" };
-  }
-
   if (isDisputed(input)) {
     return { label: "Disputed", tone: "orange" };
   }
@@ -367,7 +341,6 @@ export function deriveTripCaptureStatusLabel(
   input: TripAuditStatusInput,
   captureMismatch: boolean,
 ): string {
-  if (isTripCashPayment(input.trip)) return "Historical Legacy Trip";
   if (captureMismatch) return "Capture mismatch";
   if (hasRefund(input)) {
     return isFullyRefunded(input) ? "Fully refunded" : "Partially refunded";

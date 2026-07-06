@@ -25,16 +25,10 @@ export interface DriverFinancialSummary {
   card_gross_total: number;
   card_commission_total: number;
   card_trip_count: number;
-  // Cash breakdown
-  cash_gross_total: number;
-  cash_net_earnings: number;
-  cash_commission_debits: number;
-  cash_trip_count: number;
   // Commission
   company_commission_total: number;
   // Today
   today_gross_earnings: number;
-  today_cash_earnings: number;
   today_card_earnings: number;
   today_trip_count: number;
   // Ledger
@@ -46,7 +40,7 @@ export interface DriverFinancialSummary {
   available_for_payout: number;
   /** Sum of pending/processing early-cashout requested amounts (matches driver-wallet-summary). */
   reserved_cashout_pence: number;
-  /** Ledger liability from driver_financial_summary.wallet_balance — not payout-ready cash. */
+  /** Ledger liability from driver_financial_summary.wallet_balance. */
   net_available_for_payout: number;
   amount_owed_to_onecab: number;
 }
@@ -89,8 +83,6 @@ export function formatPence(pence: number, currencyCode: string = ''): string {
 // Get entry type display name and color
 export function getEntryTypeDisplay(entryType: string): { label: string; color: string } {
   switch (entryType) {
-    case 'CASH_COMMISSION_DEBT':
-      return { label: 'Cash Commission Debit', color: 'text-red-500' };
     case 'TRIP_EARNING_NET':
       return { label: 'Card Trip Credit', color: 'text-green-500' };
     case 'PAYOUT':
@@ -143,13 +135,8 @@ const mapSummary = (d: any): DriverFinancialSummary => ({
   card_gross_total: Number(d.card_gross_total) || 0,
   card_commission_total: Number(d.card_commission_total) || 0,
   card_trip_count: Number(d.card_trip_count) || 0,
-  cash_gross_total: Number(d.cash_gross_total) || 0,
-  cash_net_earnings: Number(d.cash_net_earnings) || 0,
-  cash_commission_debits: Number(d.cash_commission_debits) || 0,
-  cash_trip_count: Number(d.cash_trip_count) || 0,
   company_commission_total: Number(d.company_commission_total) || 0,
   today_gross_earnings: Number(d.today_gross_earnings) || 0,
-  today_cash_earnings: Number(d.today_cash_earnings) || 0,
   today_card_earnings: Number(d.today_card_earnings) || 0,
   today_trip_count: Number(d.today_trip_count) || 0,
   adjustments_total: Number(d.adjustments_total) || 0,

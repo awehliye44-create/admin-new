@@ -23,14 +23,9 @@ import type { FinanceDataSourceBadge } from '@/hooks/useFinancialReconciliationS
 import type { FinanceRecoveryAction } from '@/components/payment/PaymentControlsCard';
 import { Search } from 'lucide-react';
 import { reconciliationBadgeVariant } from '@/lib/financeTripReconciliationBadge';
-import {
-  HISTORICAL_LEGACY_TRIP_LABEL,
-  isDigitalPaymentMethod,
-  isHistoricalLegacyCashTrip,
-} from '../../../shared/digitalFinanceSSOT';
 
-function isDigitalPayment(method: string | null | undefined): boolean {
-  return isDigitalPaymentMethod(method);
+function isDigitalPayment(_method: string | null | undefined): boolean {
+  return true;
 }
 
 function providerStatusLabel(row: TripFinancialAuditRow): string {
@@ -215,13 +210,11 @@ export function FinancialReconciliationTripsTab({
                   <TableCell className="text-xs whitespace-nowrap">{formatFinanceDateSafe(row.created_at)}</TableCell>
                   <TableCell className="text-xs whitespace-nowrap">{formatFinanceDateSafe(row.date)}</TableCell>
                   <TableCell className="text-xs">
-                    {isHistoricalLegacyCashTrip(row.payment_method)
-                      ? HISTORICAL_LEGACY_TRIP_LABEL
-                      : (row.payment_status ?? row.payment_method ?? '—')}
+                    {row.payment_status ?? row.payment_method ?? '—'}
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline" className="text-[10px] whitespace-nowrap">
-                      {digital ? providerStatusLabel(row) : HISTORICAL_LEGACY_TRIP_LABEL}
+                      {providerStatusLabel(row)}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-xs">{digital ? (row.capture_status ?? '—') : '—'}</TableCell>
@@ -331,22 +324,16 @@ export function FinancialReconciliationTripsTab({
                 <div><span className="text-muted-foreground">Payout:</span> {drawerTrip.driver_payout?.label ?? '—'}</div>
                 <div><span className="text-muted-foreground">Provider:</span> {drawerTrip.provider?.label ?? '—'}</div>
               </div>
-              {isHistoricalLegacyCashTrip(drawerTrip.payment_method) ? (
-                <p className="text-sm text-muted-foreground rounded-md border border-dashed p-3 bg-muted/20">
-                  {HISTORICAL_LEGACY_TRIP_LABEL} — read-only audit record. No Provider capture, refund, or recovery actions.
-                </p>
-              ) : (
               <FinanceRecoveryPanel
                 tripId={drawerTrip.trip_id}
                 tripCode={drawerTrip.trip_code}
                 source="financial-reconciliation"
                 variant="finance"
                 readOnly={actionsDisabled}
-                initialAction={mapDrawerAction(drawerAction)}
                 initialPaymentAction={drawerAction === 'capture' || drawerAction === 'refund' ? drawerAction : null}
                 onActionComplete={onRefresh}
               />
-              )}
+
             </>
           )}
         </DialogContent>

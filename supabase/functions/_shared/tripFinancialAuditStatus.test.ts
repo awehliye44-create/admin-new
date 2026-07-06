@@ -6,14 +6,6 @@ import {
   deriveTripFinancialAuditStatuses,
 } from "./tripFinancialAuditStatus.ts";
 
-const cashTrip = {
-  id: "t-cash",
-  payment_method: "CASH",
-  commission_pence: 222,
-  capture_amount_pence: 0,
-  refund_amount_pence: 0,
-};
-
 const cardTrip = {
   id: "t-card",
   payment_method: "card",
@@ -25,22 +17,7 @@ const cardTrip = {
   payment_status: "captured",
 };
 
-Deno.test("cash trip — driver collected, commission receivable, cash provider", () => {
-  const input = {
-    trip: cashTrip,
-    ledger: [{ type: "CASH_COMMISSION_DEBT", amount_pence: -222 }],
-  };
-  assertEquals(deriveDriverPayoutAuditStatus(input).label, "Already Collected");
-  assertEquals(deriveDriverPayoutAuditStatus(input).tone, "green");
-  assertEquals(deriveOnecabCommissionAuditStatus(input).label, "Receivable");
-  assertEquals(deriveProviderAuditStatus(input).label, "Historical Legacy Trip");
-  assertEquals(deriveProviderAuditStatus(input).tone, "gray");
-});
 
-Deno.test("cash trip never shows Captured or Settled", () => {
-  const input = { trip: { ...cashTrip, stripe_settlement_verified: true, payment_status: "captured" } };
-  assertEquals(deriveProviderAuditStatus(input).label, "Historical Legacy Trip");
-});
 
 Deno.test("card captured not paid out — awaiting payout, earned, captured", () => {
   const input = { trip: cardTrip, payouts: [] };

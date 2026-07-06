@@ -215,9 +215,9 @@ async function fetchLedgerRows(args: {
   if (args.filter === 'debt_recovery') {
     query = query.in('type', [...ADMIN_DEBT_RECOVERY_LEDGER_TYPES]);
   } else if (args.filter === 'driver_earnings') {
-    query = query.in('type', ['TRIP_EARNING_NET', 'DRIVER_TIP_CREDIT', 'CASH_TRIP_EARNING']);
+    query = query.in('type', ['TRIP_EARNING_NET', 'DRIVER_TIP_CREDIT']);
   } else if (args.filter === 'onecab_commission') {
-    query = query.in('type', ['PLATFORM_COMMISSION', 'CASH_COMMISSION_DEBT', 'COMMISSION_RECOVERED']);
+    query = query.in('type', ['PLATFORM_COMMISSION', 'COMMISSION_RECOVERED']);
   } else if (args.filter === 'payouts') {
     query = query.in('type', [
       'WEEKLY_PAYOUT', 'EARLY_CASHOUT', 'MANUAL_PAYOUT', 'PAYOUT', 'PAYOUT_CREATED', 'CASHOUT_FEE', 'PAYOUT_FAILED_RETURN',

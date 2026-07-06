@@ -85,7 +85,6 @@ interface Invoice {
   bonuses_pence: number;
   penalties_pence: number;
   adjustments_pence: number;
-  cash_collected_pence: number;
   net_earnings_pence: number;
   completed_trips: number;
   no_show_trips: number;
@@ -99,7 +98,6 @@ interface Invoice {
   invoice_email_status: string | null;
   invoice_email_error: string | null;
   card_trips: number | null;
-  cash_trips: number | null;
   created_at: string;
   sent_at: string | null;
   viewed_at: string | null;

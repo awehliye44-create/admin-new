@@ -35,7 +35,6 @@ export interface FinanceSettlementSummaryResponse {
   stripe_platform_summary: {
     available_platform_balance_pence: number;
     pending_platform_balance_pence: number;
-    unallocated_platform_cash_pence: number;
     error: string | null;
     note: string;
   };
@@ -54,7 +53,6 @@ export interface FinanceSettlementSummaryResponse {
     calculated_onecab_net_pence: number;
     available_driver_payable_pence: number;
     pending_transfers_pence: number;
-    unallocated_platform_cash_pence: number;
     reserves_or_adjustments_pence: number;
     reconciles: boolean;
     mismatch_warning: string | null;
@@ -86,7 +84,6 @@ export interface LedgerReconciliationCheck {
 export interface FinanceReconciliationSummary {
   customer_revenue: {
     card_customer_revenue_pence: number;
-    cash_collected_by_driver_pence: number;
     refunded_amount_pence: number;
     net_card_revenue_pence: number;
     total_customer_revenue_pence: number;
@@ -95,20 +92,17 @@ export interface FinanceReconciliationSummary {
   };
   driver_money: {
     card_driver_payable_pence: number;
-    cash_driver_already_received_pence: number;
     driver_wallet_balance_pence: number;
     driver_available_payout_pence: number;
     driver_pending_payout_pence: number;
     driver_paid_out_pence: number;
     driver_payout_liability_pence: number;
-    onecab_cash_commission_owed_pence: number;
-    in_flight_cashout_pence: number;
     driver_gross_earnings_pence?: number;
     driver_net_earnings_pence?: number;
+    in_flight_cashout_pence?: number;
   };
   onecab_money: {
     onecab_card_commission_pence: number;
-    onecab_cash_commission_receivable_pence: number;
     onecab_gross_commission_pence: number;
     provider_processing_fee_pence: number;
     onecab_card_net_commission_pence: number;
@@ -131,11 +125,6 @@ export interface FinanceReconciliationSummary {
       card_customer_revenue_pence: number;
       card_driver_payable_pence: number;
       onecab_card_commission_pence: number;
-    };
-    cash_reconciliation: LedgerReconciliationCheck & {
-      cash_collected_by_driver_pence: number;
-      cash_driver_already_received_pence: number;
-      onecab_cash_commission_receivable_pence: number;
     };
     net_customer_revenue_pence: number;
     driver_paid_out_pence?: number;
@@ -363,7 +352,6 @@ export interface DriverStatementPeriodTotal {
   bonuses_pence: number;
   penalties_pence: number;
   adjustments_pence: number;
-  cash_collected_pence: number;
   net_earnings_pence: number;
   payouts_received_pence: number;
 }
@@ -471,17 +459,13 @@ export function toSettlementOverviewResponse(data: FinanceReconciliationResponse
     stripe_platform_summary: {
       available_platform_balance_pence: s.provider_money.provider_available_balance_pence,
       pending_platform_balance_pence: s.provider_money.provider_pending_balance_pence,
-      unallocated_platform_cash_pence:
-        s.provider_money.provider_available_balance_pence -
-        s.driver_money.driver_payout_liability_pence -
-        s.driver_money.in_flight_cashout_pence,
       error: data.meta.stripe_balance_error,
-      note: 'Platform balance is total Provider cash — NOT ONECAB commission',
+      note: 'Platform balance — NOT ONECAB commission',
     },
     driver_payout_summary: {
       wallet_balance_pence: s.driver_money.driver_wallet_balance_pence,
       available_payout_pence: s.driver_money.driver_available_payout_pence,
-      pending_payout_pence: s.driver_money.driver_pending_payout_pence + s.driver_money.in_flight_cashout_pence,
+      pending_payout_pence: s.driver_money.driver_pending_payout_pence,
       paid_out_pence: s.driver_money.driver_paid_out_pence,
       failed_amount_today_pence: 0,
       failure_reasons: [],
@@ -494,10 +478,6 @@ export function toSettlementOverviewResponse(data: FinanceReconciliationResponse
       calculated_onecab_net_pence: s.onecab_money.onecab_card_net_commission_pence,
       available_driver_payable_pence: s.driver_money.driver_payout_liability_pence,
       pending_transfers_pence: s.driver_money.in_flight_cashout_pence,
-      unallocated_platform_cash_pence:
-        s.provider_money.provider_available_balance_pence -
-        s.driver_money.driver_payout_liability_pence -
-        s.driver_money.in_flight_cashout_pence,
       reserves_or_adjustments_pence: check.delta_pence,
       reconciles: check.balanced,
       mismatch_warning: check.balanced ? null : `RECONCILIATION_MISMATCH — variance ${check.variance_pence ?? check.delta_pence}p`,

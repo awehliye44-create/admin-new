@@ -97,15 +97,6 @@ serve(async (req) => {
           });
         }
 
-        if ((trip.payment_method ?? '').toLowerCase() === 'cash') {
-          return new Response(JSON.stringify({
-            error: 'Historical legacy cash trip — no operational payment actions.',
-            code: 'CASH_NOT_SUPPORTED',
-          }), {
-            status: 410,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
 
         // Update payment status to confirmed/paid
         const newStatus = 'captured';

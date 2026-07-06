@@ -24,15 +24,10 @@ export type LedgerEarningFields = {
 
 const CARD_METHODS = new Set(["card", "apple_pay", "google_pay"]);
 const CAPTURED_PAYMENT_STATUSES = new Set(["captured", "paid", "succeeded"]);
-const CASH_COLLECTED_STATUSES = new Set(["collected_cash", "cash_collected"]);
 
 export function isCardTrip(trip: { payment_method?: string | null }): boolean {
   const method = (trip.payment_method ?? "").toLowerCase();
   return CARD_METHODS.has(method);
-}
-
-export function isCashTrip(trip: { payment_method?: string | null }): boolean {
-  return String(trip.payment_method ?? "").trim().toLowerCase() === "cash";
 }
 
 export function getPaymentRowCapturedPence(payment: PaymentCaptureFields): number {
@@ -83,18 +78,6 @@ export function getTripSettlementFarePence(
     return 0;
   }
 
-  if (!isCardTrip(trip)) {
-    const status = (trip.payment_status ?? "").toLowerCase();
-    if (CASH_COLLECTED_STATUSES.has(status)) {
-      if (trip.final_fare_pence != null && trip.final_fare_pence > 0) {
-        return trip.final_fare_pence;
-      }
-      if (paymentCaptured != null && paymentCaptured > 0) return paymentCaptured;
-      if (trip.capture_amount_pence != null && trip.capture_amount_pence > 0) {
-        return trip.capture_amount_pence;
-      }
-    }
-  }
 
   if (trip.final_fare_pence != null) {
     return Math.max(0, trip.final_fare_pence);
@@ -155,8 +138,8 @@ export function getTripCapturedPenceForAudit(args: {
   return Math.max(0, args.tripCaptureAmountPence ?? 0);
 }
 
-export function customerPaidLabel(trip: { payment_method?: string | null }): "Customer Paid" | "Historical Legacy Trip" {
-  return isCashTrip(trip) ? "Historical Legacy Trip" : "Customer Paid";
+export function customerPaidLabel(_trip: { payment_method?: string | null }): "Customer Paid" {
+  return "Customer Paid";
 }
 
 /** Completed-trip payment status badge — not ambiguous "card" alone. */
@@ -165,7 +148,6 @@ export function completedTripPaymentStatusLabel(trip: {
   payment_status?: string | null;
 }): string | null {
   const status = String(trip.payment_status ?? "").trim().toLowerCase();
-  if (isCashTrip(trip)) return "Historical Legacy Trip";
   if (status === "refunded") return "Refunded";
   if (status === "partially_refunded") return "Partially refunded";
   if (isCardTrip(trip) && CAPTURED_PAYMENT_STATUSES.has(status)) {

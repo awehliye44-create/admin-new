@@ -177,7 +177,6 @@ export default function StatementRuns() {
             bonuses_pence: bonuses,
             penalties_pence: penalties,
             adjustments_pence: adjustments,
-            cash_collected_pence: 0,
             net_earnings_pence: netEarnings,
             completed_trips: completedTrips,
             no_show_trips: noShowTrips,
