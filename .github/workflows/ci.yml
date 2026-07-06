@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  ci:
+    name: Build · SSOT guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Finance recovery SSOT guard
+        run: bash scripts/check-finance-recovery-ssot.sh
+
+      - name: Finance payout SSOT parity guard
+        run: bash scripts/check-finance-payout-ssot-parity.sh
+
+      - name: SSOT unit tests
+        run: npx vitest run src/lib/__tests__/digitalFinanceSSOT.test.ts src/lib/__tests__/tripCaptureStatus.test.ts
+
+      - name: Build
+        run: npm run build
+        env:
+          GITHUB_PAGES: "true"
+          VITE_SUPABASE_URL: https://thazislrdkjpvvghtvzo.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRoYXppc2xyZGtqcHZ2Z2h0dnpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc4NzA1MjIsImV4cCI6MjA4MzQ0NjUyMn0.pXaycIz1t7JXuItyqvjNNrFsZpsaXbB5bV1OWSQLbWM
+          VITE_SUPABASE_PROJECT_ID: thazislrdkjpvvghtvzo
