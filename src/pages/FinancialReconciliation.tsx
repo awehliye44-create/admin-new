@@ -16,7 +16,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DriverWalletSsotPanel } from '@/components/finance/DriverWalletSsotPanel';
 import { FinancialReconciliationOverviewTab } from '@/components/finance/FinancialReconciliationOverviewTab';
 import { FinancialReconciliationAlertsTab } from '@/components/finance/FinancialReconciliationAlertsTab';
-import { FinancialReconciliationStripeTab } from '@/components/finance/FinancialReconciliationStripeTab';
 import { FinancialReconciliationTripsTab } from '@/components/finance/FinancialReconciliationTripsTab';
 import { DigitalFinanceEraPanel } from '@/components/finance/DigitalFinanceEraPanel';
 import { FinancePanelErrorBoundary } from '@/components/finance/FinancePanelErrorBoundary';
@@ -24,7 +23,7 @@ import { useFinanceReconciliationMoney } from '@/hooks/useFinanceReconciliationM
 import { AlertTriangle, RefreshCw, ShieldCheck } from 'lucide-react';
 import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 
-const FR_TABS = ['overview', 'drivers', 'trips', 'stripe', 'alerts'] as const;
+const FR_TABS = ['overview', 'drivers', 'trips', 'alerts'] as const;
 type FrTab = (typeof FR_TABS)[number];
 
 function parseFrTab(value: string | null): FrTab {
@@ -156,14 +155,6 @@ function FinancialReconciliationPage() {
     setRecoverTripCode(null);
   }, []);
 
-  /** money_movement may live on response root or inside summary — merge for Provider tab. */
-  const stripeSummary = useMemo(() => {
-    if (!summary) return null;
-    const movement = summary.money_movement ?? data?.money_movement;
-    if (movement === summary.money_movement) return summary;
-    return { ...summary, money_movement: movement };
-  }, [summary, data?.money_movement]);
-
   const tripAuditRows = data?.trip_financial_audit ?? [];
 
   const frPerfRef = useRef<ReturnType<typeof startAdminPerformanceStep> | null>(null);
@@ -195,8 +186,8 @@ function FinancialReconciliationPage() {
     return reconciliationStatus;
   }, [summary, ssot.readOnly]);
 
-  if (searchParams.get('tab') === 'connect-balance') {
-    return <Navigate to="/driver-wallet-ledger?tab=stripe" replace />;
+  if (searchParams.get('tab') === 'connect-balance' || searchParams.get('tab') === 'stripe') {
+    return <Navigate to="/financial-reconciliation?tab=overview" replace />;
   }
 
   const lastSyncedLabel = lastSyncedAt
@@ -328,7 +319,6 @@ function FinancialReconciliationPage() {
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="drivers">Drivers</TabsTrigger>
             <TabsTrigger value="trips">Trips ({tripAuditRows.length})</TabsTrigger>
-            <TabsTrigger value="stripe">Provider</TabsTrigger>
             <TabsTrigger value="alerts">Alerts</TabsTrigger>
           </TabsList>
 
@@ -389,31 +379,6 @@ function FinancialReconciliationPage() {
             )}
           </TabsContent>
 
-          <TabsContent value="stripe" className="mt-4">
-            {frTab === 'stripe' && (
-              <FinancePanelErrorBoundary panelName="Provider">
-                <FinancialReconciliationStripeTab
-                  summary={stripeSummary}
-                  money={money}
-                  serviceFilter={filter}
-                  periodFrom={from || undefined}
-                  periodTo={to || undefined}
-                  periodLabel={from && to ? `${from} → ${to}` : undefined}
-                  auditRows={tripAuditRows}
-                  paymentIntents={data?.stripe_payment_intents ?? []}
-                  stripeBalanceError={data?.meta?.stripe_balance_error ?? null}
-                ssotStatus={ssotStatus}
-                ssotBadge={ssotBadge}
-                lastSyncedAt={lastSyncedAt}
-                snapshotSavedAt={snapshotSavedAt}
-                readOnly={readOnly}
-                onRefreshStripe={() => void refetchFresh()}
-                isRefreshingStripe={isFetching}
-              />
-              </FinancePanelErrorBoundary>
-            )}
-          </TabsContent>
-
           <TabsContent value="alerts" className="mt-4">
             {frTab === 'alerts' && (
               <FinancePanelErrorBoundary panelName="Alerts">
@@ -421,9 +386,8 @@ function FinancialReconciliationPage() {
                   ssot={ssot}
                   backendAudit={backendAudit}
                   money={money}
-                  regionId={filter.regionId ?? null}
-                  readOnly={readOnly}
                 />
+
               </FinancePanelErrorBoundary>
             )}
           </TabsContent>

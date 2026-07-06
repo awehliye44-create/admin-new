@@ -7,10 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatPence } from '@/hooks/useDriverWallet';
 import type { DriverWalletSsotRow } from '@/hooks/useDriverWalletSsot';
-import {
-  canRetryPayoutItemRecord,
-  retryPayoutItemFromRecord,
-} from '@/hooks/useMondayPayoutDiagnostics';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -82,7 +78,6 @@ export function DriverWalletPayoutsTab({
   isLoading?: boolean;
 }) {
   const queryClient = useQueryClient();
-  const [retryingId, setRetryingId] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -114,24 +109,6 @@ export function DriverWalletPayoutsTab({
   const currentBatches = groupByBatch(currentBatchItems);
   const previousBatches = groupByBatch(previousBatchItems);
 
-  const handleRetry = async (pi: Record<string, unknown>) => {
-    const id = String(pi.id);
-    setRetryingId(id);
-    try {
-      await retryPayoutItemFromRecord({
-        payoutItemId: id,
-        status: String(pi.status ?? ''),
-        stripeTransferId: pi.stripe_transfer_id ? String(pi.stripe_transfer_id) : null,
-        stripePayoutId: pi.stripe_payout_id ? String(pi.stripe_payout_id) : null,
-      });
-      toast.success('Payout retry submitted');
-      await queryClient.invalidateQueries({ queryKey: ['driver-wallet-ssot-detail', driver.driver_id] });
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setRetryingId(null);
-    }
-  };
 
   const renderBatchTable = (groups: BatchGroup[], empty: string) => (
     <Table>
@@ -164,7 +141,7 @@ export function DriverWalletPayoutsTab({
     </Table>
   );
 
-  const renderItemTable = (rows: Array<Record<string, unknown>>, empty: string, showRetry = false) => (
+  const renderItemTable = (rows: Array<Record<string, unknown>>, empty: string) => (
     <Table>
       <TableHeader>
         <TableRow>
@@ -174,21 +151,15 @@ export function DriverWalletPayoutsTab({
           <TableHead>Provider transfer</TableHead>
           <TableHead>Provider payout</TableHead>
           <TableHead>Updated</TableHead>
-          {showRetry ? <TableHead className="w-24" /> : null}
         </TableRow>
       </TableHeader>
       <TableBody>
         {rows.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={showRetry ? 7 : 6} className="text-center text-muted-foreground py-6">{empty}</TableCell>
+            <TableCell colSpan={6} className="text-center text-muted-foreground py-6">{empty}</TableCell>
           </TableRow>
         ) : (
           rows.map((pi) => {
-            const canRetry = canRetryPayoutItemRecord({
-              status: String(pi.status ?? ''),
-              stripeTransferId: pi.stripe_transfer_id ? String(pi.stripe_transfer_id) : null,
-              stripePayoutId: pi.stripe_payout_id ? String(pi.stripe_payout_id) : null,
-            });
             return (
               <TableRow key={String(pi.id)}>
                 <TableCell className="font-mono text-xs">{batchLabel(pi)}</TableCell>
@@ -199,20 +170,6 @@ export function DriverWalletPayoutsTab({
                 <TableCell className="font-mono text-xs">{String(pi.stripe_transfer_id ?? '—')}</TableCell>
                 <TableCell className="font-mono text-xs">{String(pi.stripe_payout_id ?? '—')}</TableCell>
                 <TableCell className="text-xs">{formatDate((pi.updated_at ?? pi.created_at) as string)}</TableCell>
-                {showRetry ? (
-                  <TableCell>
-                    {canRetry ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={retryingId === String(pi.id)}
-                        onClick={() => handleRetry(pi)}
-                      >
-                        {retryingId === String(pi.id) ? <RefreshCw className="h-3 w-3 animate-spin" /> : 'Retry'}
-                      </Button>
-                    ) : null}
-                  </TableCell>
-                ) : null}
               </TableRow>
             );
           })
@@ -243,7 +200,7 @@ export function DriverWalletPayoutsTab({
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Failed payouts</CardTitle>
         </CardHeader>
-        <CardContent>{renderItemTable(failedPayouts, 'No failed payouts', true)}</CardContent>
+        <CardContent>{renderItemTable(failedPayouts, 'No failed payouts')}</CardContent>
       </Card>
 
       <Card>

@@ -8,8 +8,6 @@ import type { FinancialReconciliationSSOTResult } from '@/hooks/useFinancialReco
 import type { PlatformReconciliationKpis } from '@/hooks/useFinanceReconciliation';
 import type { FinanceMoneyFormat } from '@/hooks/useFinanceReconciliationMoney';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
-import { formatProviderHealthLabel } from '@/lib/financialReconciliationGuards';
-import { PlatformStripePendingExplainer } from '@/components/finance/PlatformStripePendingExplainer';
 import {
   ServiceAreaGatewayStatusPanel,
   type ServiceAreaGatewayStatusRow,
@@ -55,10 +53,7 @@ export function FinancialReconciliationOverviewTab({
   isRefreshing?: boolean;
 }) {
   const fmt = money.fmt;
-  const platformFmt = money.fmtPlatformStripe;
   const kpisUnavailable = platformKpis == null;
-  const provider = ssot.summary?.provider_money;
-  const driverMoney = ssot.summary?.driver_money;
 
   return (
     <div className="space-y-4">
@@ -78,31 +73,9 @@ export function FinancialReconciliationOverviewTab({
         </span>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard
-          label={`Platform Available${money.currencyCode ? ` (${money.currencyCode})` : ''}`}
-          value={provider?.provider_available_balance_pence != null ? platformFmt(provider.provider_available_balance_pence) : '—'}
-        />
-        <KpiCard
-          label={`Platform Pending${money.currencyCode ? ` (${money.currencyCode})` : ''}`}
-          value={provider?.provider_pending_balance_pence != null ? platformFmt(provider.provider_pending_balance_pence) : '—'}
-        />
-        <KpiCard
-          label="Provider Health"
-          value={formatProviderHealthLabel(provider?.provider_health_status, isRefreshing)}
-        />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-2">
         <KpiCard label="Reconciliation" value={ssot.summary?.reconciliation_check?.status ?? '—'} />
       </div>
-
-      {provider?.provider_pending_balance_pence != null && provider.provider_pending_balance_pence > 0 ? (
-        <PlatformStripePendingExplainer
-          pendingPence={provider.provider_pending_balance_pence}
-          availablePence={provider.provider_available_balance_pence ?? 0}
-          currencyCode={money.currencyCode}
-          driverWalletTotalPence={driverMoney?.driver_payout_liability_pence ?? driverMoney?.driver_available_payout_pence}
-          driverScheduledPayoutPence={driverMoney?.driver_pending_payout_pence}
-        />
-      ) : null}
 
       {money.isMixedCurrency && currencyGroups && currencyGroups.length > 0 ? (
         <div className="space-y-2">
@@ -150,8 +123,6 @@ export function FinancialReconciliationOverviewTab({
         <Link to="/trip-history" className="underline">Trip History (Trip Settlement SSOT)</Link>
         {' · '}
         <Link to="/financial-reconciliation?tab=drivers" className="underline">Drivers</Link>
-        {' · '}
-        <Link to="/financial-reconciliation?tab=stripe" className="underline">Provider</Link>
       </p>
     </div>
   );
