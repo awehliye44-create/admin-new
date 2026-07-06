@@ -37,7 +37,7 @@ export type FinanceBackendAuditV1 = {
   currency_code: string;
   incoming_money: {
     card_customer_revenue_pence: number;
-    cash_collected_by_driver_pence: number;
+    customer_captured_total_pence: number;
     customer_captured_total_pence: number;
     customer_refunded_total_pence: number;
     net_customer_money_in_pence: number;
