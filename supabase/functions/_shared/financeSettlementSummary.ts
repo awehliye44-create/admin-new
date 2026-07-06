@@ -504,6 +504,7 @@ export type TripAuditSourceRow = TripFinanceRow & {
   driver_id?: string | null;
   passenger_name?: string | null;
   service_area_id?: string | null;
+  created_at?: string | null;
   driver?: { first_name?: string | null; last_name?: string | null } | null;
 };
 
