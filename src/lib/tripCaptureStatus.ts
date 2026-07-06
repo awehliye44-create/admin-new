@@ -15,7 +15,6 @@ import {
 export { isCardTrip, getPaymentRowCapturedPence } from '@/lib/tripSettlementFinanceSSOT';
 
 export type CaptureStatusKind =
-  | 'historical_legacy'
   | 'pending_capture'
   | 'pending'
   | 'captured'
@@ -426,13 +425,6 @@ export function getTripCaptureStatus(trip: TripCaptureFields): TripCaptureStatus
   const paymentStatus = (trip.payment_status || '').toLowerCase();
 
   if (!isCardTrip(trip)) {
-    if (paymentStatus === 'collected_cash') {
-      return baseStatus(trip, {
-        kind: 'historical_legacy',
-        label: 'Historical Legacy Trip',
-        shortLabel: 'Historical Legacy Trip',
-      });
-    }
     return baseStatus(trip, {
       kind: 'unknown',
       label: trip.payment_status || '—',
@@ -523,7 +515,6 @@ export function captureStatusColorClass(kind: CaptureStatusKind): string {
   switch (kind) {
     case 'captured':
     case 'captured_split':
-    case 'historical_legacy':
       return 'text-green-600';
     case 'capture_mismatch':
       return 'text-amber-600';

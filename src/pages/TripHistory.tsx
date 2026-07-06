@@ -1224,15 +1224,7 @@ export default function TripHistory() {
                           const sym = getCurrencySymbol(resolveTripCurrency(trip));
                           const payable = getTripCustomerPayablePence(trip);
                           const captured = getTripStripeCapturedPence(trip);
-                          const legacy = isHistoricalLegacyCashTrip(trip.payment_method);
-                          if (legacy) {
-                            return (
-                              <span className="text-muted-foreground text-xs font-normal">
-                                Historical legacy — read-only
-                              </span>
-                            );
-                          }
-                          const shortfall = Math.max(0, payable - captured);
+                           const shortfall = Math.max(0, payable - captured);
                           if (payable <= 0 && captured <= 0) {
                             return <span className="text-muted-foreground">—</span>;
                           }
@@ -1244,11 +1236,9 @@ export default function TripHistory() {
                               <span className="text-green-600">
                                 Captured {sym}{(captured / 100).toFixed(2)}
                               </span>
-                              {shouldShowDigitalCaptureShortfall(trip.payment_method, payable, captured) && (
-                                <span className="text-[10px] text-amber-600 font-normal">
+                              {<span className="text-[10px] text-amber-600 font-normal">
                                   Shortfall {sym}{(shortfall / 100).toFixed(2)}
-                                </span>
-                              )}
+                                </span>}
                             </>
                           );
                         })()}
@@ -1272,10 +1262,7 @@ export default function TripHistory() {
                     <TableCell>
                       <div className="flex flex-col gap-0.5">
                         <Badge variant="outline" className="text-[10px] w-fit">
-                          {historicalLegacyTripPaymentLabel(trip.payment_method)
-                            ?? (trip.payment_method === 'apple_pay' ? '📱 Apple Pay'
-                            : trip.payment_method === 'card' ? '💳 Card'
-                            : trip.payment_method || 'Unknown')}
+                          {trip.payment_method === 'apple_pay' ? '📱 Apple Pay' : trip.payment_method === 'card' ? '💳 Card' : trip.payment_method || 'Unknown'}
                         </Badge>
                         {(() => {
                           const captureStatus = getTripCaptureStatus(trip);
@@ -1417,16 +1404,9 @@ export default function TripHistory() {
                       <div>
                         <Label className="text-xs text-muted-foreground">Payment</Label>
                         <p className="font-medium capitalize">
-                          {historicalLegacyTripPaymentLabel(selectedTrip.payment_method)
-                            ?? (selectedTrip.payment_method || '—')}
+                          {selectedTrip.payment_method || '—'}
                         </p>
                       </div>
-                      {isHistoricalLegacyCashTrip(selectedTrip.payment_method) ? (
-                        <div className="col-span-2 rounded-md border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
-                          Historical legacy trip — pre-digital era record. No Provider capture or shortfall applies.
-                        </div>
-                      ) : (
-                        <>
                       <div>
                         <Label className="text-xs text-muted-foreground">Customer payable</Label>
                         <p className="font-medium">
@@ -1443,20 +1423,12 @@ export default function TripHistory() {
                             : '—'}
                         </p>
                       </div>
-                      {shouldShowDigitalCaptureShortfall(
-                        selectedTrip.payment_method,
-                        getTripCustomerPayablePence(selectedTrip),
-                        getTripStripeCapturedPence(selectedTrip),
-                      ) && (
-                        <div>
+                      <div>
                           <Label className="text-xs text-muted-foreground">Provider capture shortfall</Label>
                           <p className="font-medium text-amber-600">
                             {`${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${((getTripCustomerPayablePence(selectedTrip) - getTripStripeCapturedPence(selectedTrip)) / 100).toFixed(2)}`}
                           </p>
                         </div>
-                      )}
-                        </>
-                      )}
                       {(() => {
                         const refund = getTripRefundDisplay(selectedTrip);
                         if (!refund.showRefundBreakdown) return null;
@@ -1809,7 +1781,7 @@ export default function TripHistory() {
                           className={`text-xs ${
                             (() => {
                               const k = getTripCaptureStatus(selectedTrip).kind;
-                              if (k === 'captured' || k === 'captured_split' || k === 'historical_legacy') {
+                              if (k === 'captured' || k === 'captured_split') {
                                 return 'bg-green-500/10 text-green-700 border-green-500/30';
                               }
                               if (k === 'capture_mismatch' || k === 'pending_capture') {

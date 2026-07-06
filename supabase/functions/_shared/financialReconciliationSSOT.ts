@@ -8,7 +8,7 @@
  * - payments (customer revenue)
  * - trips (commission, driver earnings)
  * - driver_wallet_ledger (paid out, adjustments)
- * - provider balance API (cash positions only)
+ * - provider balance API (digital positions only)
  */
 
 import { computeLedgerWalletBalancePence } from "./onecabFinanceLedger.ts";
@@ -264,7 +264,7 @@ export function sumCapturedPaymentsByTripId(
   return byTrip;
 }
 
-/** Digital customer revenue — captured payments on non-cash trips only. */
+/** Digital customer revenue — captured payments on digital trips. */
 export function sumDigitalCustomerRevenuePence(args: {
   payments: PaymentCaptureRow[];
   digitalTripIds: Set<string>;
@@ -392,7 +392,7 @@ export function driverRemainingLiabilityPence(args: {
 }
 
 /**
- * @deprecated Phase 3A.4 — trip-based liability inflated cash-trip earnings.
+ * @deprecated Phase 3A.4 — trip-based liability inflated earnings.
  * Use perDriverLedgerLiabilityPence() for allocation, reconciliation, and payout gating.
  */
 export function perDriverRemainingLiabilityPence(args: {
@@ -412,7 +412,7 @@ export function perDriverRemainingLiabilityPence(args: {
 
 /**
  * Phase 3A.4 — digital driver liability SSOT.
- * Wallet ledger balance excluding PLATFORM_COMMISSION and CASH_TRIP_EARNING.
+ * Wallet ledger balance excluding PLATFORM_COMMISSION.
  * Payout / early-cashout debits are already netted in the ledger sum.
  */
 export function perDriverLedgerLiabilityPence(ledger: LedgerSSOTRow[]): number {
@@ -474,7 +474,7 @@ export function allocateProviderBalanceByLiability(args: {
  *   + bank paid out (0 when liability is post-payout ledger)
  *   + completed early cashouts (0 when liability is post-payout ledger)
  *
- * Cash-trip ONECAB commission is excluded from RHS. Cash fares are excluded from LHS.
+ * Digital-only platform — all trips are card/wallet.
  */
 export function buildDigitalReconciliationCheck(args: {
   digitalNetCustomerRevenuePence: number;
@@ -520,7 +520,7 @@ export function buildDigitalReconciliationCheck(args: {
 
 /**
  * @deprecated Phase 3A.6 — use buildDigitalReconciliationCheck for payout gating.
- * Legacy all-trip ONECAB scope (includes cash-trip commission on RHS).
+ * Legacy all-trip ONECAB scope.
  */
 export function buildReconciliationCheck(args: {
   netCustomerRevenuePence: number;
@@ -584,15 +584,12 @@ export type SSOTComputedMetrics = {
   onecab_card_net_commission_pence: number;
 };
 
-/** Card vs cash ledger split for Financial Reconciliation UI. */
+/** Digital payment method ledger metrics for Financial Reconciliation UI. */
 export type PaymentMethodLedgerMetrics = {
   card_customer_revenue_pence: number;
-  cash_collected_by_driver_pence: number;
   net_card_revenue_pence: number;
   card_driver_payable_pence: number;
-  cash_driver_already_received_pence: number;
   onecab_card_commission_pence: number;
-  onecab_cash_commission_receivable_pence: number;
   onecab_card_net_commission_pence: number;
   stripe_processing_fees_pence: number;
   /** Completed card trips not yet capture-confirmed — not reconciled totals. */
@@ -604,9 +601,8 @@ export type PaymentMethodLedgerMetrics = {
 
 export function totalCommissionEarnedPence(
   cardCommissionPence: number,
-  cashCommissionPence: number,
 ): number {
-  return Math.max(0, cardCommissionPence) + Math.max(0, cashCommissionPence);
+  return Math.max(0, cardCommissionPence);
 }
 
 /** Net platform revenue — Stripe fees apply to card trips only. */
@@ -775,7 +771,6 @@ export function computeSSOTMetrics(args: {
   });
   const totalCommissionEarned = totalCommissionEarnedPence(
     ledgerSplit.onecab_card_commission_pence,
-    ledgerSplit.onecab_cash_commission_receivable_pence,
   );
   const netPlatform = netPlatformRevenuePence(
     totalCommissionEarned,

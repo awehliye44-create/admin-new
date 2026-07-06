@@ -324,18 +324,13 @@ export function FinancialReconciliationTripsTab({
                 <div><span className="text-muted-foreground">Payout:</span> {drawerTrip.driver_payout?.label ?? '—'}</div>
                 <div><span className="text-muted-foreground">Provider:</span> {drawerTrip.provider?.label ?? '—'}</div>
               </div>
-              {isHistoricalLegacyCashTrip(drawerTrip.payment_method) ? (
-                <p className="text-sm text-muted-foreground rounded-md border border-dashed p-3 bg-muted/20">
-                  {HISTORICAL_LEGACY_TRIP_LABEL} — read-only audit record. No Provider capture, refund, or recovery actions.
-                </p>
-              ) : (
               <FinanceRecoveryPanel
                 tripId={drawerTrip.trip_id}
                 tripCode={drawerTrip.trip_code}
                 source="financial-reconciliation"
                 variant="finance"
                 readOnly={actionsDisabled}
-                initialAction={mapDrawerAction(drawerAction)}
+                initialAction={mapDrawerAction(drawerAction
                 initialPaymentAction={drawerAction === 'capture' || drawerAction === 'refund' ? drawerAction : null}
                 onActionComplete={onRefresh}
               />

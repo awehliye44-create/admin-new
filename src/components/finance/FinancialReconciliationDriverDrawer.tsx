@@ -523,7 +523,6 @@ export function FinancialReconciliationDriverDrawer({
                     </TableRow>
                   ) : null}
                   {filteredTrips.map((row) => {
-                    const legacy = isHistoricalLegacyCashTrip(row.payment_method);
                     const recon = row.reconciliation_status;
                     return (
                       <TableRow key={row.trip_id} className="text-xs">
@@ -533,11 +532,11 @@ export function FinancialReconciliationDriverDrawer({
                         <TableCell className="font-mono">{row.trip_code ?? row.trip_id.slice(0, 8)}</TableCell>
                         <TableCell>{row.customer_name ?? '—'}</TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {legacy ? 'Historical Legacy' : fmt(row.captured_pence ?? row.customer_paid_pence)}
+                          {fmt(row.captured_pence ?? row.customer_paid_pence)}
                         </TableCell>
-                        <TableCell>{legacy ? '—' : providerLabel(row)}</TableCell>
+                        <TableCell>{providerLabel(row)}</TableCell>
                         <TableCell>
-                          {legacy ? 'Historical Legacy Trip' : (row.payment_method ?? '—')}
+                          {row.payment_method ?? '—'}
                         </TableCell>
                         <TableCell>
                           {(row.refunded_pence ?? 0) > 0 ? fmt(row.refunded_pence) : '—'}
@@ -611,8 +610,7 @@ export function FinancialReconciliationDriverDrawer({
                 <div><span className="text-muted-foreground">Provider:</span> {providerLabel(selectedTrip)}</div>
                 <div><span className="text-muted-foreground">Payout:</span> {selectedTrip.driver_payout?.label ?? '—'}</div>
               </div>
-              {!isHistoricalLegacyCashTrip(selectedTrip.payment_method) ? (
-                <FinanceRecoveryPanel
+              <FinanceRecoveryPanel
                   tripId={selectedTrip.trip_id}
                   tripCode={selectedTrip.trip_code}
                   source="financial-reconciliation"
@@ -625,9 +623,6 @@ export function FinancialReconciliationDriverDrawer({
                     closeTripDialog();
                   }}
                 />
-              ) : (
-                <p className="text-sm text-muted-foreground">Historical legacy trip — read-only audit record.</p>
-              )}
             </>
           ) : null}
         </DialogContent>
