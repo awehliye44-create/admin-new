@@ -180,6 +180,7 @@ interface CompletedTrip {
   fare_breakdown: Record<string, unknown> | null;
   tip_pence: number | null;
   tip_amount_pence: number | null;
+  refunded_at?: string | null;
   driver?: {
     id: string;
     first_name: string;

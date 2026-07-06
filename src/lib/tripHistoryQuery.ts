@@ -58,9 +58,9 @@ function isRecoverableTripHistoryQueryError(error: { message?: string; code?: st
 export type TripHistoryRow = Record<string, unknown> & { id: string };
 
 async function applyTripHistoryLocationFilter(
-  query: ReturnType<ReturnType<typeof supabase.from>['select']>,
+  query: any,
   args: { regionId?: string; serviceAreaId?: string },
-) {
+): Promise<any> {
   if (args.serviceAreaId && args.serviceAreaId !== 'all') {
     return query.eq('service_area_id', args.serviceAreaId);
   }
@@ -69,7 +69,7 @@ async function applyTripHistoryLocationFilter(
       .from('service_areas')
       .select('id')
       .eq('region_id', args.regionId);
-    const areaIds = (areas ?? []).map((row) => row.id as string).filter(Boolean);
+    const areaIds = (areas ?? []).map((row: any) => row.id as string).filter(Boolean);
     if (areaIds.length > 0) {
       return query.or(`region_id.eq.${args.regionId},service_area_id.in.(${areaIds.join(',')})`);
     }

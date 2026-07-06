@@ -218,10 +218,10 @@ export function ServiceAreaCommunicationConfig({
       if (voipDriverIds.length > 0) {
         const { data: drivers } = await supabase
           .from('drivers')
-          .select('id, full_name')
+          .select('id, first_name, last_name')
           .in('id', voipDriverIds);
         for (const driver of drivers ?? []) {
-          driverNameById.set(driver.id, driver.full_name);
+          driverNameById.set(driver.id, `${driver.first_name ?? ''} ${driver.last_name ?? ''}`.trim());
         }
       }
 

@@ -95,7 +95,7 @@ export function ServiceAreaMobileWalletMethodsConfig({
             apple_pay_enabled: existing?.apple_pay_enabled ?? false,
             google_pay_enabled: existing?.google_pay_enabled ?? false,
             mobile_wallet_methods: nextMethods,
-          } as Record<string, unknown>,
+          } as any,
           { onConflict: 'service_area_id' },
         );
 
