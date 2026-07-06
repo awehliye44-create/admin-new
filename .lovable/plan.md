@@ -1,77 +1,102 @@
-# Phase 3 — Driver Payouts on Revolut + Legacy Stripe Removal
+# Digital-Only Enforcement — ONECAB (Admin project)
 
-Move the driver-payout leg onto Revolut Business `/pay`, rewrite the deferred Phase 2 admin trip endpoints to be provider-routed, and permanently delete the Stripe Connect code paths per the project cleanup policy.
+This project is the **Admin panel**. Customer app and Driver app live in separate projects; changes there must be made in those repos. This plan enforces the rule inside Admin + shared backend (edge functions + DB constraints) that this repo owns.
 
-## Hard blocker before we start
+## Scope in this repo
 
-Revolut Business `/pay` needs a **source account UUID** — the Business account the platform pays drivers *out of*. This is one call away:
+1. **Backend hard rule (DB + edge functions)** — reject any new trip/booking whose `payment_method` is cash. Historical rows stay untouched.
+2. **Admin UI purge** — remove cash from all active operational surfaces (booking creation, dispatch, fare tools, service-area payment method configuration).
+3. **Finance surfaces** — exclude cash from current Financial Reconciliation totals, alerts, wallet, settlement, payouts, debt recovery. Cash rows in Trip History stay as "Historical legacy trip" (already implemented via `isHistoricalLegacyCashTrip`).
+4. **Deletions** — permanently delete cash-only code paths (per user's cleanup policy). No commented fallbacks.
 
+Out of scope: Customer App and Driver App code (separate projects — user must apply the same rule there).
+
+## Changes
+
+### 1. Database (migration)
+
+- Add CHECK constraint on `public.trips.payment_method`:
+  - New rows must satisfy `payment_method IN ('card','wallet','apple_pay','google_pay','revolut')` (aligned with `StripeDigitalPaymentMethodType` used in `useServiceAreaPaymentMethods`).
+  - Implemented as a **BEFORE INSERT trigger** (not a CHECK constraint on the column) so historical `cash` rows remain valid and only new inserts are blocked. Follows project rule "validation triggers over CHECK".
+- Add same trigger on `public.ride_offers` / `public.trip_change_requests` if they carry `payment_method`.
+- Remove `'cash'` from `public.region_payment_methods` / `public.service_area_payment_methods` active seed rows (data update via insert tool, not migration).
+
+### 2. Admin edge functions
+
+Audit and update these to reject cash on new writes:
+- `create-payment-intent`
+- `admin-request-extra-payment`
+- `admin-capture-trip-payment`, `admin-cancel-trip-payment`, `admin-refund-trip-payment`
+- Any booking-creation function (admin manual dispatch)
+- `record-financial-outcome` — exclude cash from new ledger entries; historical cash never generates new commission/debt-recovery entries.
+
+Delete (do not stub):
+- Cash-only debt recovery paths in wallet ledger writers (`DEBT_RECOVERY` from cash cannot be created for new trips; existing rows preserved).
+- Cash shortfall computation on new trips.
+
+### 3. Admin UI
+
+**Booking / Dispatch:**
+- Remove `cash` option from any admin "new booking" or "dispatch" form.
+- Remove cash filter chips from Trips / Dispatch pages.
+
+**Service Area config:**
+- `ServiceAreaPaymentConfig` / `useServiceAreaPaymentMethods` already digital-only (`StripeDigitalPaymentMethodType`). Verify no cash toggle remains; delete any residual.
+
+**Finance pages:**
+- Financial Reconciliation totals: exclude `payment_method='cash'` from all current-period aggregations (KPIs, drivers tab, trips tab, alerts).
+- Wallet / Payouts / Settlement: exclude cash from current calculations.
+- Trip History: keep the existing "Historical legacy trip — read-only" treatment; remove any remaining cash-specific action buttons on historical rows (view-only).
+
+**Alerts / debt:**
+- Remove cash-outstanding alert rules from active detection.
+
+### 4. Historical cash trips (unchanged behaviour)
+
+- Continue to render as "Historical legacy trip" via existing `isHistoricalLegacyCashTrip` / `historicalLegacyTripPaymentLabel` helpers.
+- Not counted in current reconciliation, wallet, or payouts.
+- No shortfall banners (already fixed).
+
+## Technical details
+
+**Trigger sketch:**
+
+```sql
+create or replace function public.enforce_digital_only_payment_method()
+returns trigger language plpgsql as $$
+begin
+  if new.payment_method is not null
+     and lower(new.payment_method) not in ('card','wallet','apple_pay','google_pay','revolut')
+  then
+    raise exception 'ONECAB is digital-only: payment_method % is not allowed for new trips', new.payment_method
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end$$;
+
+create trigger trg_trips_digital_only
+  before insert on public.trips
+  for each row execute function public.enforce_digital_only_payment_method();
 ```
-GET https://b2b.revolut.com/api/1.0/accounts
-Authorization: Bearer <REVOLUT_BUSINESS_API_KEY>
-```
 
-I'll do this the same way we did the webhook: run it as a one-shot edge function against the stored Business key and pick the account matching the payout currency (typically GBP). But first I need to know whether the **Business API access token is the same key already stored as `REVOLUT_MERCHANT_SECRET_KEY`**, or a separate Business API token (Revolut treats Merchant and Business as different API surfaces with separate keys).
-
-If Business is a separate key, please generate it in Revolut Business → APIs → Business API and paste it — I'll store it as `REVOLUT_BUSINESS_API_KEY` and continue.
-
-Once the token is in place I'll fetch the account UUID automatically and store it as `REVOLUT_BUSINESS_SOURCE_ACCOUNT_ID`.
-
-## What Phase 3 delivers
-
-### 1. Driver onboarding (replaces `stripe-onboard-driver`)
-- New `revolut-onboard-driver-destination` edge function. Admin (or driver, via a rider-facing endpoint later) submits IBAN / UK sort-code+account / Revtag. Function creates a Revolut **counterparty**, stores `counterparty_id` in `driver_payout_destinations.destination_payload`, marks `provider = 'revolut'`. Uses the existing `createRevolutCounterparty` helper in `_shared/revolutApi.ts`.
-- Delete `stripe-onboard-driver` and all Stripe Connect onboarding UI paths.
-
-### 2. Driver payout (replaces `admin-driver-payout` + `admin-driver-connect-payout`)
-- Single new `admin-driver-payout` (rewritten from scratch): reads driver wallet ledger balance, resolves active Revolut counterparty, calls `executeRevolutPay` via Business API, writes payout row + ledger debit atomically only after Revolut confirms success (per **Stripe Payout Execution Safety** memory, translated to Revolut).
-- Removes both `admin-driver-connect-payout` and the Stripe scheduling / lockdown functions (`admin-connect-payout-lockdown`, `admin-connect-payout-status`, `stripe-connected-balance-tx`, `admin-monday-payout-diagnostics`, `admin-stripe-payout-peek`, `stripe-reconciliation-audit`, `admin-sync-refund-from-stripe`, `admin-sync-trip-payment-from-stripe`, `phase-3d2-stripe-balance-audit`, `phase-3d3a-future-payout-probe`).
-- Early cashout stays on the same new function with a `mode: 'early_cashout'` branch (per **Early Cashout Workflow** memory).
-
-### 3. Balance + reconciliation
-- New `revolut-business-balance` edge function replaces `stripe-connected-balance-tx`; reads account balance via Business API.
-- New `revolut-reconciliation-audit` replaces `stripe-reconciliation-audit`; walks `driver_wallet_ledger` vs Revolut payout list and reports drift.
-
-### 4. Provider-routed admin trip endpoints (deferred from Phase 2)
-- `admin-capture-trip-payment` / `admin-cancel-trip-payment` / `admin-refund-trip-payment` / `admin-request-extra-payment` are rewritten to dispatch on `trips.payment_provider`. For `'revolut'` they call the Phase 2 Revolut helpers plus the new commission ledger writeback (which no longer relies on Stripe transfer IDs). For historical Stripe trips (`payment_provider IS NULL` and `stripe_payment_intent_id IS NOT NULL`) they keep the existing Stripe path — historical trips remain refundable/capturable via Stripe until every open one is closed, then Phase 4 drops the Stripe branch entirely.
-- Note: this is the one narrow exception to the "no fallback" rule and is required by real-money audit obligations on captured trips already on Stripe. It is a bounded, dated transition path — not a new fallback.
-
-### 5. Database
-- Add `driver_wallet_ledger.provider_payout_id` (text) so payout ledger entries reference the Revolut transaction ID, alongside the existing Stripe columns which stay as historical evidence.
-- Drop nothing yet — Stripe Connect columns on trips/payouts are historical evidence and removed in Phase 4.
-
-### 6. Admin UI (this repo)
-- `PaymentProviders` page: mark Revolut as live for both customer payments and driver payouts; remove the Stripe onboarding CTA.
-- Payments list & detail: show Revolut order / refund IDs alongside historical Stripe IDs, dispatching on `payment_provider`.
-- Driver wallet / payout screens: replace the "Connect Stripe" flow with "Add Revolut destination" (IBAN/Revtag entry).
-- Delete every UI page and hook that only makes sense with Stripe Connect (`useConnectPayoutStatus`, `useMondayPayoutDiagnostics`, connect lockdown page, etc.) once the corresponding backend function is deleted.
-
-### 7. Docs
-- `docs/REVOLUT_DRIVER_PAYOUT_ARCHITECTURE.md` covering the counterparty flow, `/pay` idempotency, and the atomic wallet-debit sequence.
-
-## Rollout order
-
-1. **Confirm Business API token, fetch and store source account UUID.** (blocker)
-2. Migration: add `driver_wallet_ledger.provider_payout_id`.
-3. Ship `revolut-onboard-driver-destination` + `revolut-business-balance`.
-4. Ship rewritten `admin-driver-payout` (Revolut path). Existing Stripe payout button stays disabled from Phase 3 day 1 — the platform can only pay via Revolut.
-5. Rewrite `admin-capture/cancel/refund/extra-payment` to route by `payment_provider`.
-6. Ship admin UI updates.
-7. Delete every Stripe-only function/page/hook listed above in a single sweep.
-8. Ship `revolut-reconciliation-audit`.
-9. Write architecture doc.
-
-## Phase 4 (not in this phase)
-- Drop Stripe columns on `trips`, `payout_items`, `payout_batches` once all historical Stripe trips are terminal.
-- Delete the historical-Stripe branch inside admin capture/refund and delete `_shared/stripeSettlement.ts` and related helpers.
-- Retire `stripe_connect_payouts`, `processed_stripe_events`, `driver.stripe_account_id`.
+**Files likely touched (Admin repo):**
+- `supabase/migrations/*` (new trigger migration)
+- `supabase/functions/create-payment-intent/index.ts`
+- `supabase/functions/admin-request-extra-payment/index.ts`
+- `supabase/functions/record-financial-outcome/index.ts`
+- `src/pages/FinancialReconciliation.tsx` + `src/components/finance/*` (cash exclusion in aggregations, remove cash filters)
+- `src/pages/TripHistory.tsx` (verify no cash action buttons on historical rows)
+- Any admin "new booking / dispatch" component that still lists `cash`
+- Delete: cash-shortfall helpers, cash debt-recovery writers scoped to new trips
 
 ## Verification
 
-- Fetch source account UUID via one-shot: expect `state = "ACTIVE"`.
-- Create a test counterparty against a Revtag; expect a counterparty UUID.
-- Dry-run `/pay` with `request_id` and 1-penny amount against staging Business account, then reverse manually if needed.
-- Trigger a real customer capture (Phase 2) → confirm webhook flips `payment_status = 'captured'` → run the new `admin-driver-payout` → confirm Revolut payout returns `id` and ledger writes the debit.
-- `tsgo` clean; existing vitest suites pass; the CI Stripe test file gets rewritten or deleted rather than skipped.
+- Attempt to insert a `payment_method='cash'` trip → DB rejects.
+- Admin booking form does not offer cash.
+- Financial Reconciliation totals unchanged when only historical cash exists in range (they are excluded).
+- Trip History still shows historical cash rows labelled "Historical legacy trip", no shortfall, no actions.
+- Search: `rg -n "'cash'|\"cash\"" src/ supabase/functions/` returns only historical/read-only references.
 
-Approve to proceed and paste the Business API key (or confirm the existing merchant key doubles as Business).
+## Out-of-scope reminder
+
+Customer App and Driver App enforcement must be done in their own repos. This plan only covers Admin + shared backend in this repo.
