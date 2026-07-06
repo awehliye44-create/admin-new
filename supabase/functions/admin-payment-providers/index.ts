@@ -3,9 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   detectModeMismatch,
   getPaymentProviderAdapter,
-  getProviderSecrets,
   maskSecretValue,
-  secretStatus,
   STRIPE_MONITORED_EVENTS,
   SUPPORTED_PAYMENT_PROVIDER_IDS,
   PROVIDER_SECRET_FIELDS,
@@ -13,7 +11,9 @@ import {
   type ProviderEnvironment,
   type ProviderSecrets,
 } from "../_shared/paymentProviders/index.ts";
-import { isCustomerBookingAdapterLive, isPayoutAdapterLive } from "../_shared/customerPaymentWorkflow.ts";
+import { isCustomerBookingAdapterLive } from "../_shared/customerPaymentWorkflow.ts";
+import { loadPaymentProviderCredentialReadiness } from "../_shared/paymentProviderReadinessSSOT.ts";
+import { resolveProviderGatewayStatus } from "../_shared/paymentGatewayStatus.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -147,12 +147,24 @@ async function buildProviderCard(
   const provider = config.provider as PaymentProviderId;
   const environment = (config.environment as ProviderEnvironment) ?? "live";
 
-  const secrets = await getProviderSecrets(supabase, provider, environment);
-  const statuses = secretStatus(secrets);
+  const credentialReadiness = await loadPaymentProviderCredentialReadiness(
+    supabase,
+    provider,
+    environment,
+  );
+  const secrets = credentialReadiness.secrets;
+  const statuses = {
+    api_key: credentialReadiness.api_key_status,
+    webhook: credentialReadiness.webhook_secret_status,
+  };
   const modeMismatch = detectModeMismatch(environment, secrets.secret_key);
-  const adapterLive = isCustomerBookingAdapterLive(provider);
-  const payoutAdapterLive = isPayoutAdapterLive(provider);
-  const credentialsReady = Boolean(secrets.secret_key);
+  const adapterLive = credentialReadiness.booking_adapter_live;
+  const payoutAdapterLive = credentialReadiness.payout_adapter_live;
+  const credentialsReady = credentialReadiness.credentials_ready;
+  const [customerGateway, driverGateway] = await Promise.all([
+    resolveProviderGatewayStatus(supabase, provider, "customer"),
+    resolveProviderGatewayStatus(supabase, provider, "driver"),
+  ]);
 
   const { data: metadataRows } = await supabase
     .from("payment_provider_secret_metadata")
@@ -235,17 +247,8 @@ async function buildProviderCard(
     warnings.push("Webhook secret not stored yet (optional until webhook processor is built).");
   }
 
-  const bookingAdapterStatus: "live" | "not_implemented" | "not_configured" = !credentialsReady
-    ? "not_configured"
-    : adapterLive
-    ? "live"
-    : "not_implemented";
-
-  const payoutAdapterStatus: "live" | "not_implemented" | "not_configured" = !credentialsReady
-    ? "not_configured"
-    : payoutAdapterLive
-    ? "live"
-    : "not_implemented";
+  const bookingAdapterStatus = credentialReadiness.booking_adapter_status;
+  const payoutAdapterStatus = credentialReadiness.payout_adapter_status;
 
   return {
     provider,
@@ -262,6 +265,11 @@ async function buildProviderCard(
     booking_adapter_status: bookingAdapterStatus,
     payout_adapter_live: payoutAdapterLive,
     payout_adapter_status: payoutAdapterStatus,
+    ready_for_production: customerGateway.ready_for_production,
+    booking_workflow: customerGateway.booking_workflow,
+    customer_gateway_status: customerGateway.status,
+    driver_gateway_status: driverGateway.status,
+    configuration_error: customerGateway.configuration_error,
     last_webhook_received: webhookHealth?.last_received_at ?? null,
     last_successful_event: webhookHealth?.last_successful_event ?? null,
     last_failed_event: webhookHealth?.last_failed_event ?? null,

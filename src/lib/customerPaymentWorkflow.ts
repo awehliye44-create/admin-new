@@ -30,15 +30,46 @@ export const PROVIDER_MOBILE_WALLET_CATALOG: Record<string, MobileWalletMethodId
 };
 
 /** Providers with live customer booking adapters (card preauth or mobile collect). */
-export const LIVE_CUSTOMER_BOOKING_PROVIDERS = new Set<string>(["stripe"]);
+export const LIVE_CUSTOMER_BOOKING_PROVIDERS = new Set<string>(["stripe", "revolut"]);
 
 /** Providers with live driver payout adapters. */
-export const LIVE_DRIVER_PAYOUT_PROVIDERS = new Set<string>(["stripe"]);
+export const LIVE_DRIVER_PAYOUT_PROVIDERS = new Set<string>(["stripe", "revolut"]);
 
 export const PROVIDER_NOT_IMPLEMENTED_CODE = "PROVIDER_NOT_IMPLEMENTED";
 
 export function isStripePreauthProvider(provider: string | null | undefined): boolean {
   return provider === "stripe";
+}
+
+export function isRevolutMerchantProvider(provider: string | null | undefined): boolean {
+  return provider === "revolut";
+}
+
+export function resolveBookingWorkflowLabel(
+  workflow: string | null | undefined,
+  provider: string | null | undefined,
+): string {
+  switch (workflow) {
+    case "stripe_preauth":
+      return "Stripe preauth (card / Apple Pay / Google Pay)";
+    case "revolut_merchant":
+      return "Revolut Merchant checkout";
+    case "mobile_wallet_collect":
+      return "Mobile wallet collect (pay before dispatch)";
+    case "blocked":
+      return "Blocked — provider not ready";
+    default:
+      if (isStripePreauthProvider(provider)) {
+        return "Stripe preauth (card / Apple Pay / Google Pay)";
+      }
+      if (isRevolutMerchantProvider(provider)) {
+        return "Revolut Merchant checkout";
+      }
+      if (isMobileWalletCollectProvider(provider)) {
+        return "Mobile wallet collect (pay before dispatch)";
+      }
+      return "Not configured";
+  }
 }
 
 export function isMobileWalletCollectProvider(provider: string | null | undefined): boolean {
@@ -66,7 +97,9 @@ export function resolveProviderBookingAdapterStatus(
   provider: string | null | undefined,
   readyForProduction: boolean,
   configured = false,
+  backendStatus?: "live" | "not_implemented" | "not_configured",
 ): "live" | "not_implemented" | "not_configured" {
+  if (backendStatus) return backendStatus;
   if (!provider) return "not_configured";
   if (isCustomerBookingAdapterLive(provider) && readyForProduction) return "live";
   if (configured && !isCustomerBookingAdapterLive(provider)) return "not_implemented";

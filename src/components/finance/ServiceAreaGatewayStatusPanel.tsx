@@ -7,9 +7,7 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertTriangle } from 'lucide-react';
 import {
-  isCustomerBookingAdapterLive,
   providerNotImplementedMessage,
-  resolveProviderBookingAdapterStatus,
 } from '@/lib/customerPaymentWorkflow';
 
 export type ServiceAreaGatewayStatusRow = {
@@ -28,6 +26,7 @@ export type ServiceAreaGatewayStatusRow = {
     provider: string | null;
     configuration_error: string | null;
     ready_for_production?: boolean;
+    booking_adapter_status?: 'live' | 'not_implemented' | 'not_configured';
     booking_payment_health?: "healthy" | "degraded" | "down" | null;
     provider_health?: "healthy" | "degraded" | "down" | null;
     health?: {
@@ -100,14 +99,9 @@ export function ServiceAreaGatewayStatusPanel({
     (r) => r.customer.status === 'NOT_CONFIGURED' || r.driver.status === 'NOT_CONFIGURED',
   );
 
-  const hasProviderNotImplemented = rows.some((r) => {
-    const ready = r.customer.status === 'CONNECTED' || r.customer.status === 'TEST_MODE';
-    return (
-      r.customer.provider
-      && ready
-      && !isCustomerBookingAdapterLive(r.customer.provider)
-    );
-  });
+  const hasProviderNotImplemented = rows.some(
+    (r) => r.customer.booking_adapter_status === 'not_implemented',
+  );
 
   return (
     <Card>
@@ -195,16 +189,7 @@ export function ServiceAreaGatewayStatusPanel({
                     <TableCell>
                       {(() => {
                         // Booking adapter readiness uses payment API health, not webhook warnings.
-                        const ready =
-                          row.customer.ready_for_production === true
-                          || row.customer.booking_payment_health === 'healthy'
-                          || row.customer.booking_payment_health === 'degraded'
-                          || row.customer.status === 'CONNECTED'
-                          || row.customer.status === 'TEST_MODE';
-                        const adapter = resolveProviderBookingAdapterStatus(
-                          row.customer.provider,
-                          ready,
-                        );
+                        const adapter = row.customer.booking_adapter_status ?? 'not_configured';
                         if (adapter === 'live') {
                           return <Badge className="bg-green-600 text-white">Live</Badge>;
                         }

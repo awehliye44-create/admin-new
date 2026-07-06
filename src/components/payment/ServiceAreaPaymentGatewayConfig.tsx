@@ -15,11 +15,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { invokePaymentProviders } from '@/hooks/usePaymentProviders';
 import {
-  isCustomerBookingAdapterLive,
-  isMobileWalletCollectProvider,
-  isStripePreauthProvider,
   providerNotImplementedMessage,
-  resolveProviderBookingAdapterStatus,
+  resolveBookingWorkflowLabel,
 } from '@/lib/customerPaymentWorkflow';
 
 interface ProviderOption {
@@ -48,6 +45,11 @@ type GatewayStatusSnapshot = {
   ready_for_production: boolean;
   message: string | null;
   configuration_error: string | null;
+  booking_adapter_status?: 'live' | 'not_implemented' | 'not_configured';
+  payout_adapter_status?: 'live' | 'not_implemented' | 'not_configured';
+  booking_workflow?: string;
+  credentials_ready?: boolean;
+  api_key_status?: 'added' | 'missing';
   health?: {
     api_keys_configured?: boolean;
     webhook_configured?: boolean | null;
@@ -228,22 +230,16 @@ export function ServiceAreaPaymentGatewayConfig({
     customerStatus?.configuration_error || driverStatus?.configuration_error,
   );
 
-  const customerAdapterStatus = customerStatus
-    ? resolveProviderBookingAdapterStatus(
-        customerStatus.provider,
-        customerStatus.ready_for_production,
-        customerStatus.configured,
-      )
-    : 'not_configured';
+  const customerAdapterStatus =
+    customerStatus?.booking_adapter_status ?? 'not_configured';
 
   const customerAdapterNotLive =
     Boolean(paymentProvider) && customerAdapterStatus === 'not_implemented';
 
-  const bookingWorkflowLabel = isStripePreauthProvider(paymentProvider)
-    ? 'Provider preauth (card / Apple Pay / Google Pay)'
-    : isMobileWalletCollectProvider(paymentProvider)
-      ? 'Mobile wallet collect (pay before dispatch)'
-      : 'Not configured';
+  const bookingWorkflowLabel = resolveBookingWorkflowLabel(
+    customerStatus?.booking_workflow,
+    paymentProvider,
+  );
 
   const displayName = providerLabel(paymentProvider);
 
