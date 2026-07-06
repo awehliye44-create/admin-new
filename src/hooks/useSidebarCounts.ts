@@ -170,16 +170,23 @@ function scheduleRealtimeRefetch() {
 
 function ensureSidebarCountsRealtime() {
   if (sidebarCountsChannel) return;
-  sidebarCountsChannel = supabase
-    .channel('sidebar-counts')
+  const channel = supabase.channel(`sidebar-counts-${crypto.randomUUID()}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, scheduleRealtimeRefetch)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'rider_feedback' }, scheduleRealtimeRefetch)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'documents' }, scheduleRealtimeRefetch)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, scheduleRealtimeRefetch)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'promo_codes' }, scheduleRealtimeRefetch)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'admin_settings' }, scheduleRealtimeRefetch)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_change_requests' }, scheduleRealtimeRefetch)
-    .subscribe();
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_change_requests' }, scheduleRealtimeRefetch);
+
+  sidebarCountsChannel = channel;
+  channel.subscribe((status) => {
+    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+      if (sidebarCountsChannel === channel) {
+        sidebarCountsChannel = null;
+      }
+    }
+  });
 }
 
 let realtimeSubscriberCount = 0;
