@@ -337,10 +337,9 @@ export const COUNTABLE_FINANCIAL_OUTCOMES = COUNTABLE_OUTCOMES;
 export type FinanceReconciliationSummary = {
   customer_revenue: {
     card_customer_revenue_pence: number;
-    cash_collected_by_driver_pence: number;
     refunded_amount_pence: number;
     net_card_revenue_pence: number;
-    /** @deprecated Use card_customer_revenue_pence + cash_collected_by_driver_pence */
+    /** @deprecated Use card_customer_revenue_pence */
     total_customer_revenue_pence: number;
     /** @deprecated Use net_card_revenue_pence for Stripe revenue */
     net_customer_revenue_pence: number;
@@ -348,22 +347,19 @@ export type FinanceReconciliationSummary = {
   };
   driver_money: {
     card_driver_payable_pence: number;
-    cash_driver_already_received_pence: number;
     driver_wallet_balance_pence: number;
     driver_available_payout_pence: number;
     driver_pending_payout_pence: number;
     driver_paid_out_pence: number;
     driver_payout_liability_pence: number;
-    onecab_cash_commission_owed_pence: number;
     in_flight_cashout_pence: number;
     /** @deprecated Lifetime earnings — use Driver Earnings screen */
     driver_gross_earnings_pence?: number;
-    /** @deprecated Mixed card+cash — use card_driver_payable_pence */
+    /** @deprecated use card_driver_payable_pence */
     driver_net_earnings_pence?: number;
   };
   onecab_money: {
     onecab_card_commission_pence: number;
-    onecab_cash_commission_receivable_pence: number;
     onecab_gross_commission_pence: number;
     provider_processing_fee_pence: number;
     onecab_card_net_commission_pence: number;
@@ -393,16 +389,7 @@ export type FinanceReconciliationSummary = {
       balanced: boolean;
       status: "BALANCED" | "RECONCILIATION_MISMATCH";
     };
-    cash_reconciliation?: {
-      cash_collected_by_driver_pence: number;
-      cash_driver_already_received_pence: number;
-      onecab_cash_commission_receivable_pence: number;
-      expected_sum_pence: number;
-      variance_pence: number;
-      delta_pence: number;
-      balanced: boolean;
-      status: "BALANCED" | "RECONCILIATION_MISMATCH";
-    };
+
     net_customer_revenue_pence: number;
     driver_paid_out_pence: number;
     driver_remaining_liability_pence: number;
