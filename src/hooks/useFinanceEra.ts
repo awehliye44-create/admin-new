@@ -1,4 +1,4 @@
-/** Finance era is permanently digital — legacy cash workflows are retired. */
+/** Finance era is permanently digital. */
 export type FinanceEra = 'digital';
 
 export function useFinanceEra(): {

@@ -51,7 +51,7 @@ import { isDigitalPaymentMethod } from '../../shared/digitalFinanceSSOT';
 
 export function isDigitalTripPayment(method: string | null | undefined): boolean {
   const m = String(method ?? '').toLowerCase();
-  return isDigitalPaymentMethod(method) && m !== 'cash_only';
+  return isDigitalPaymentMethod(method);
 }
 
 export function derivePaymentActionAvailability(input: TripPaymentActionInput): PaymentActionAvailability {

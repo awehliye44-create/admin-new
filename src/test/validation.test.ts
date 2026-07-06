@@ -136,7 +136,6 @@ describe("Validation Utilities", () => {
 
   describe("validatePaymentMethod", () => {
     it("should accept valid payment methods", () => {
-      expect(validatePaymentMethod("CASH").success).toBe(true);
       expect(validatePaymentMethod("CARD").success).toBe(true);
       expect(validatePaymentMethod("WALLET").success).toBe(true);
       expect(validatePaymentMethod("APPLE_PAY").success).toBe(true);

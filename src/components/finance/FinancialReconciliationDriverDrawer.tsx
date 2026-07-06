@@ -46,7 +46,6 @@ import {
 import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
 import { resolveStripeAccountStatus } from '@/lib/driverWalletStripeDisplay';
 import { reconciliationBadgeVariant } from '@/lib/financeTripReconciliationBadge';
-import { isHistoricalLegacyCashTrip } from '../../../shared/digitalFinanceSSOT';
 
 type PaymentStatusTab =
   | 'all'
@@ -57,8 +56,8 @@ type PaymentStatusTab =
   | 'pending_settlement'
   | 'paid_out';
 
-function isDigitalPayment(method: string | null | undefined): boolean {
-  return !isHistoricalLegacyCashTrip(method);
+function isDigitalPayment(_method: string | null | undefined): boolean {
+  return true;
 }
 
 function providerLabel(row: TripFinancialAuditRow): string {

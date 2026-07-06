@@ -180,7 +180,6 @@ describe("Security Utilities", () => {
 
     describe("isValidPaymentMethod", () => {
       it("should accept valid payment methods", () => {
-        expect(isValidPaymentMethod("CASH")).toBe(true);
         expect(isValidPaymentMethod("CARD")).toBe(true);
         expect(isValidPaymentMethod("WALLET")).toBe(true);
         expect(isValidPaymentMethod("APPLE_PAY")).toBe(true);
@@ -190,7 +189,6 @@ describe("Security Utilities", () => {
       it("should reject invalid payment methods", () => {
         expect(isValidPaymentMethod("BITCOIN")).toBe(false);
         expect(isValidPaymentMethod("PAYPAL")).toBe(false);
-        expect(isValidPaymentMethod("cash")).toBe(false); // Case sensitive
         expect(isValidPaymentMethod("")).toBe(false);
       });
     });

@@ -121,7 +121,7 @@ export function FinancialReconciliationStripeTab({
         if (!pi || seen.has(pi)) return false;
         seen.add(pi);
         const method = (row.payment_method ?? '').toLowerCase();
-        return method !== 'cash';
+        return true;
       })
       .map((row) => ({
         payment_intent_id: row.stripe_payment_intent_id!,

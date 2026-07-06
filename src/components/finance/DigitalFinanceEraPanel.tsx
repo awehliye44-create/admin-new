@@ -1,7 +1,7 @@
 import { ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
-/** Digital-only finance era — cash workflows permanently retired. */
+/** Digital-only finance era. */
 export function DigitalFinanceEraPanel() {
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">

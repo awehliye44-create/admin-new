@@ -120,7 +120,6 @@ export function ServiceAreaPaymentConfig({ serviceAreaId, serviceAreaName }: Ser
       <CardContent className="space-y-3">
         <div className="flex items-center gap-2 mb-2">
           <Badge variant="outline">Gateway: Provider</Badge>
-          <Badge variant="secondary">No cash</Badge>
         </div>
         {stripeDigitalMethods.map((method) => {
           const isEnabled = paymentConfig[`${method.id}_enabled` as keyof typeof paymentConfig] as boolean;

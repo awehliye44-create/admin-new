@@ -24,7 +24,6 @@ function toneFromLabel(label: string): TripAuditStatusTone {
   if (l.includes('awaiting payout') || l.includes('pending capture')) return 'yellow';
   if (l.includes('captured')) return 'blue';
   if (l.includes('historical legacy')) return 'gray';
-  if (l.includes('cash collected')) return 'gray';
   if (l.includes('reversed') || l.includes('refunded') || l.includes('failed')) return 'red';
   if (l.includes('receivable') || l.includes('on hold') || l.includes('under review') || l.includes('disputed')) {
     return 'orange';

@@ -23,14 +23,9 @@ import type { FinanceDataSourceBadge } from '@/hooks/useFinancialReconciliationS
 import type { FinanceRecoveryAction } from '@/components/payment/PaymentControlsCard';
 import { Search } from 'lucide-react';
 import { reconciliationBadgeVariant } from '@/lib/financeTripReconciliationBadge';
-import {
-  HISTORICAL_LEGACY_TRIP_LABEL,
-  isDigitalPaymentMethod,
-  isHistoricalLegacyCashTrip,
-} from '../../../shared/digitalFinanceSSOT';
 
-function isDigitalPayment(method: string | null | undefined): boolean {
-  return isDigitalPaymentMethod(method);
+function isDigitalPayment(_method: string | null | undefined): boolean {
+  return true;
 }
 
 function providerStatusLabel(row: TripFinancialAuditRow): string {
@@ -215,13 +210,11 @@ export function FinancialReconciliationTripsTab({
                   <TableCell className="text-xs whitespace-nowrap">{formatFinanceDateSafe(row.created_at)}</TableCell>
                   <TableCell className="text-xs whitespace-nowrap">{formatFinanceDateSafe(row.date)}</TableCell>
                   <TableCell className="text-xs">
-                    {isHistoricalLegacyCashTrip(row.payment_method)
-                      ? HISTORICAL_LEGACY_TRIP_LABEL
-                      : (row.payment_status ?? row.payment_method ?? '—')}
+                    {row.payment_status ?? row.payment_method ?? '—'}
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline" className="text-[10px] whitespace-nowrap">
-                      {digital ? providerStatusLabel(row) : HISTORICAL_LEGACY_TRIP_LABEL}
+                      {providerStatusLabel(row)}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-xs">{digital ? (row.capture_status ?? '—') : '—'}</TableCell>

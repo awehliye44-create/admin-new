@@ -57,11 +57,6 @@ import {
   isCardTrip,
   summarizeTripPayments,
 } from '@/lib/tripCaptureStatus';
-import {
-  historicalLegacyTripPaymentLabel,
-  isHistoricalLegacyCashTrip,
-  shouldShowDigitalCaptureShortfall,
-} from '../../shared/digitalFinanceSSOT';
 import { FinancialReconciliationTripLink } from '@/components/finance/FinancialReconciliationTripLink';
 import { FinanceRecoveryPanel } from '@/components/payment/FinanceRecoveryPanel';
 import { SyncStripeRefundButton } from '@/components/payment/SyncStripeRefundButton';

@@ -65,7 +65,6 @@ function formatPaymentMethod(method: string | null | undefined): string {
   const m = (method ?? '').toLowerCase();
   if (m === 'card') return 'Card';
   if (m === 'wallet' || m === 'apple_pay' || m === 'google_pay') return 'Digital wallet';
-  if (m === 'cash') return 'Historical legacy trip';
   return method || '—';
 }
 
