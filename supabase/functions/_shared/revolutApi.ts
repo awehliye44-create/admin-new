@@ -279,3 +279,81 @@ export async function getRevolutMerchantPayout(args: {
   return body as RevolutMerchantPayout;
 }
 
+// ---------------------------------------------------------------------------
+// Merchant Payment details
+// GET https://merchant.revolut.com/api/1.0/payments/{payment_id}
+// Version header pinned to 2026-04-20 per project spec.
+// ---------------------------------------------------------------------------
+export type RevolutMerchantPayment = {
+  id: string;
+  order_id?: string;
+  state?: string;
+  status?: string;
+  amount?: number;              // integer minor units
+  currency?: string;
+  fee?: number;
+  fees?: unknown;
+  refunded_amount?: number;
+  created_at?: string;
+  updated_at?: string;
+  payment_method?: unknown;
+  card?: unknown;
+  [k: string]: unknown;
+};
+
+export type OnecabPaymentReconciliation = {
+  payment_id: string;
+  order_id: string | null;
+  state: string | null;
+  amount_minor: number | null;
+  currency: string | null;
+  fee_minor: number | null;
+  refunded_amount_minor: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+  payment_method: unknown;
+  raw: RevolutMerchantPayment;
+};
+
+export async function getRevolutMerchantPayment(args: {
+  environment: ProviderEnvironment;
+  secretKey: string;
+  paymentId: string;
+}): Promise<RevolutMerchantPayment> {
+  const url = `${revolutMerchantBaseUrl(args.environment)}/payments/${encodeURIComponent(args.paymentId)}`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${args.secretKey}`,
+      Accept: "application/json",
+      "Revolut-Api-Version": "2026-04-20",
+    },
+  });
+  const body = await parseJsonSafe(res);
+  if (!res.ok) {
+    const message = typeof body === "object" && body && "message" in body
+      ? String((body as { message?: string }).message)
+      : `Revolut Merchant payment fetch error (${res.status})`;
+    throw { message, status: res.status, body } satisfies RevolutApiError;
+  }
+  return body as RevolutMerchantPayment;
+}
+
+export function mapRevolutPaymentToOnecab(p: RevolutMerchantPayment): OnecabPaymentReconciliation {
+  const method = p.payment_method ?? p.card ?? null;
+  return {
+    payment_id: p.id,
+    order_id: p.order_id ?? null,
+    state: (p.state ?? p.status ?? null) as string | null,
+    amount_minor: typeof p.amount === "number" ? p.amount : null,
+    currency: p.currency ?? null,
+    fee_minor: typeof p.fee === "number" ? p.fee : null,
+    refunded_amount_minor: typeof p.refunded_amount === "number" ? p.refunded_amount : null,
+    created_at: p.created_at ?? null,
+    updated_at: p.updated_at ?? null,
+    payment_method: method,
+    raw: p,
+  };
+}
+
+
