@@ -27,6 +27,8 @@ import {
   readPlatformAvailablePence,
 } from "../_shared/payoutRetryGuard.ts";
 import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
+import { getPaymentProviderAdapter } from "../_shared/paymentProviders/index.ts";
+import type { ProviderEnvironment } from "../_shared/paymentProviders/types.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 
 const corsHeaders = {
@@ -384,10 +386,16 @@ serve(async (req) => {
         'stripe';
     }
 
+    let revolutPayoutDestination: {
+      id: string;
+      destination_label?: string | null;
+      destination_payload?: Record<string, unknown> | null;
+    } | null = null;
+
     if (driverPayoutGateway !== 'stripe') {
       const { data: activeDestination } = await supabase
         .from('driver_payout_destinations')
-        .select('id, destination_label, destination_last4')
+        .select('id, destination_label, destination_last4, destination_payload')
         .eq('driver_id', driver_id)
         .eq('provider', driverPayoutGateway)
         .eq('is_active', true)
@@ -403,17 +411,30 @@ serve(async (req) => {
         });
       }
 
-      return manualPayoutBlockedResponse({
-        error: `${driverPayoutGateway} payout execution is not yet enabled (PROVIDER_NOT_IMPLEMENTED).`,
-        error_code: 'PROVIDER_NOT_IMPLEMENTED',
-        status: 400,
-        ssot: {
-          driver_payout_gateway: driverPayoutGateway,
-          masked_destination: activeDestination.destination_label,
-        },
-      });
+      if (driverPayoutGateway === 'revolut') {
+        revolutPayoutDestination = activeDestination as typeof revolutPayoutDestination;
+      } else {
+        return manualPayoutBlockedResponse({
+          error: `${driverPayoutGateway} payout execution is not yet enabled (PROVIDER_NOT_IMPLEMENTED).`,
+          error_code: 'PROVIDER_NOT_IMPLEMENTED',
+          status: 400,
+          ssot: {
+            driver_payout_gateway: driverPayoutGateway,
+            masked_destination: activeDestination.destination_label,
+          },
+        });
+      }
     }
 
+    const usesRevolutPayout = driverPayoutGateway === 'revolut' && Boolean(revolutPayoutDestination?.id);
+
+    let payoutEligibility = {
+      stripe_connected: false,
+      payout_eligible: usesRevolutPayout,
+      payout_blocked: false,
+    };
+
+    if (!usesRevolutPayout) {
     let externalAccountExists = true;
     let requirementsCurrentlyDue: string[] = [];
     if (stripeSecretKey && driver.stripe_account_id) {
@@ -427,7 +448,7 @@ serve(async (req) => {
       }
     }
 
-    const payoutEligibility = derivePayoutEligibility({
+    payoutEligibility = derivePayoutEligibility({
       stripe_account_id: driver.stripe_account_id,
       payouts_enabled: driver.payouts_enabled,
       charges_enabled: driver.charges_enabled,
@@ -458,10 +479,26 @@ serve(async (req) => {
         },
       });
     }
+    }
 
     let stripeAvailablePence = 0;
     let stripePendingPence = 0;
-    if (!verificationMode && stripeSecretKey) {
+    if (usesRevolutPayout && !verificationMode) {
+      try {
+        const { data: revolutCfg } = await supabase
+          .from('payment_provider_configs')
+          .select('environment')
+          .eq('provider', 'revolut')
+          .maybeSingle();
+        const revolutEnv = ((revolutCfg?.environment as ProviderEnvironment) ?? 'live');
+        const adapter = getPaymentProviderAdapter(supabase, 'revolut', revolutEnv);
+        const bal = await adapter.getBalance(currency_code.toLowerCase());
+        stripeAvailablePence = bal.available_pence;
+        stripePendingPence = bal.pending_pence;
+      } catch (revolutBalErr) {
+        console.warn('[payout] Revolut balance lookup failed:', revolutBalErr);
+      }
+    } else if (!verificationMode && stripeSecretKey) {
       const stripe = new Stripe(stripeSecretKey, { apiVersion: '2023-10-16' });
       const balance = await stripe.balance.retrieve();
       stripeAvailablePence = balance.available.find((b) => b.currency === 'gbp')?.amount ?? 0;
@@ -602,13 +639,13 @@ serve(async (req) => {
       });
     }
 
-    if (!driver.stripe_account_id) {
+    if (!usesRevolutPayout && !driver.stripe_account_id) {
       return new Response(JSON.stringify({ error: 'Driver has no connected Stripe account' }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    if (!stripeExecutionEnabled) {
+    if (!usesRevolutPayout && !stripeExecutionEnabled) {
       const finance = await fetchDriverFinanceSnapshot(supabase, driver_id);
       const runDate = new Date().toISOString().slice(0, 10);
       const settlementSnapshot = await buildPayoutSettlementSnapshot(
@@ -739,7 +776,30 @@ serve(async (req) => {
     let stripePayoutId: string | null = null;
     let stripeError: string | null = null;
 
-    if (stripeSecretKey) {
+    if (usesRevolutPayout && revolutPayoutDestination) {
+      const counterpartyId = (revolutPayoutDestination.destination_payload as {
+        revolut_counterparty_id?: string;
+      } | null)?.revolut_counterparty_id;
+      if (!counterpartyId) {
+        stripeError = 'Revolut counterparty missing — driver must re-save payout destination';
+      } else {
+        try {
+          const { data: revolutCfg } = await supabase
+            .from('payment_provider_configs')
+            .select('environment')
+            .eq('provider', 'revolut')
+            .maybeSingle();
+          const revolutEnv = ((revolutCfg?.environment as ProviderEnvironment) ?? 'live');
+          const adapter = getPaymentProviderAdapter(supabase, 'revolut', revolutEnv);
+          const payout = await adapter.createPayout(payoutAmount, counterpartyId);
+          stripePayoutId = payout.payout_id;
+          console.log(`[payout] Revolut pay created: ${stripePayoutId}`);
+        } catch (revolutErr) {
+          console.error('[payout] Revolut error:', revolutErr);
+          stripeError = (revolutErr as Error).message ?? String(revolutErr);
+        }
+      }
+    } else if (stripeSecretKey) {
       try {
         const stripe = new Stripe(stripeSecretKey, { apiVersion: '2023-10-16' });
         const idempotencyKey = `payout_${payoutItem.id}`;

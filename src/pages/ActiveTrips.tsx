@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -58,6 +58,7 @@ import { getCurrencySymbol, getDistanceUnitShort, convertDistance } from '@/lib/
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
 import { filterAdminActiveTrips, formatAdminActiveTripTimerLabel } from '@/lib/adminActiveTripFilter';
+import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 import { FinancialReconciliationTripLink } from '@/components/finance/FinancialReconciliationTripLink';
 import { resolvePayableFarePence } from '@/lib/fareDisplaySSOT';
 import { computeLiveTripFarePreview } from '@/lib/liveTripFareSSOT';
@@ -194,6 +195,19 @@ export default function ActiveTrips() {
   const [cancelReason, setCancelReason] = useState('');
   const [forceEndFare, setForceEndFare] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  const activeTripsPerfRef = useRef<ReturnType<typeof startAdminPerformanceStep> | null>(null);
+  useEffect(() => {
+    activeTripsPerfRef.current = startAdminPerformanceStep({
+      action_name: 'admin_active_trips_load',
+    });
+  }, []);
+
+  useEffect(() => {
+    if (isLoading) return;
+    activeTripsPerfRef.current?.complete({ success: true });
+    activeTripsPerfRef.current = null;
+  }, [isLoading]);
 
   const fetchData = useCallback(async (isBackground = false) => {
     try {

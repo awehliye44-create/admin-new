@@ -159,7 +159,7 @@ async function buildProviderCard(
     .eq("environment", environment);
 
   const masks: Record<string, string | null> = {};
-  const fieldNames = PROVIDER_SECRET_FIELDS[provider];
+  const fieldNames = PROVIDER_SECRET_FIELDS[provider] ?? [];
   for (const name of fieldNames) {
     const meta = metadataRows?.find((m) => m.secret_name === name);
     if (meta?.masked_value) {

@@ -99,7 +99,8 @@ export function useSupportConversations(statusFilter?: string) {
 
       return (data || []) as SupportConversation[];
     },
-    refetchInterval: 10000,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
   });
 }
 

@@ -52,6 +52,7 @@ const PROVIDER_ICONS: Record<PaymentProviderId, string> = {
   hubtel: "🇬🇭",
   dpo_pay: "🌍",
   noda: "🏦",
+  revolut: "💷",
 };
 
 function statusBadge(provider: PaymentProviderCard) {
@@ -142,8 +143,13 @@ function SecretsDialog({
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
 
-  const fields = PROVIDER_SECRET_FIELDS[provider.provider];
-  const labels = PROVIDER_SECRET_FIELD_LABELS[provider.provider];
+  const fields = PROVIDER_SECRET_FIELDS[provider.provider] ?? [
+    "publishable_key",
+    "secret_key",
+    "webhook_secret",
+    "merchant_id",
+  ];
+  const labels = PROVIDER_SECRET_FIELD_LABELS[provider.provider] ?? {};
 
   const handleSave = () => {
     onSave(values);
@@ -169,7 +175,7 @@ function SecretsDialog({
           {fields.map((fieldName) => {
             const label = labels[fieldName] ?? fieldName;
             const isSecret = fieldName === "secret_key" || fieldName === "webhook_secret";
-            const masked = provider.secrets[fieldName as keyof typeof provider.secrets];
+            const masked = provider.secrets?.[fieldName as keyof typeof provider.secrets];
             return (
               <div key={fieldName} className="space-y-2">
                 <Label>
@@ -237,7 +243,7 @@ function ProviderCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {provider.warnings.map((w) => (
+        {(provider.warnings ?? []).map((w) => (
           <Alert
             key={w}
             variant={w.startsWith("Critical") ? "destructive" : "default"}
@@ -364,7 +370,7 @@ function ProviderCard({
                 </div>
               )}
             </div>
-            {provider.webhook_health.recent_events.length > 0 && (
+            {(provider.webhook_health?.recent_events ?? []).length > 0 && (
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -374,7 +380,7 @@ function ProviderCard({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {provider.webhook_health.recent_events.map((e) => (
+                  {(provider.webhook_health?.recent_events ?? []).map((e) => (
                     <TableRow key={e.event_id}>
                       <TableCell className="text-xs">{e.event_type}</TableCell>
                       <TableCell>

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { format, subDays } from 'date-fns';
 import { AdminLayout } from '@/components/layout/AdminLayout';
@@ -22,6 +22,7 @@ import { DigitalFinanceEraPanel } from '@/components/finance/DigitalFinanceEraPa
 import { FinancePanelErrorBoundary } from '@/components/finance/FinancePanelErrorBoundary';
 import { useFinanceReconciliationMoney } from '@/hooks/useFinanceReconciliationMoney';
 import { AlertTriangle, RefreshCw, ShieldCheck } from 'lucide-react';
+import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 
 const FR_TABS = ['overview', 'drivers', 'trips', 'stripe', 'alerts'] as const;
 type FrTab = (typeof FR_TABS)[number];
@@ -164,6 +165,22 @@ function FinancialReconciliationPage() {
   }, [summary, data?.money_movement]);
 
   const tripAuditRows = data?.trip_financial_audit ?? [];
+
+  const frPerfRef = useRef<ReturnType<typeof startAdminPerformanceStep> | null>(null);
+  useEffect(() => {
+    frPerfRef.current = startAdminPerformanceStep({
+      action_name: 'admin_financial_reconciliation_load',
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!financeScopeReady || isLoading) return;
+    frPerfRef.current?.complete({
+      success: !error,
+      error_code: error ? 'financial_reconciliation_load_failed' : null,
+    });
+    frPerfRef.current = null;
+  }, [financeScopeReady, isLoading, error]);
 
   const reconciliationChip = useMemo(() => {
     if (!summary) return null;

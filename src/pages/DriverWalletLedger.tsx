@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { FinanceLedgerPanel } from '@/components/finance/FinanceLedgerPanel';
@@ -21,6 +21,7 @@ import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
 import { useDriverWalletSsotDetail } from '@/hooks/useDriverWalletSsot';
 import { parseDriverWalletLedgerTab, type DriverWalletLedgerTab } from '@/lib/driverWalletLedgerRoutes';
 import { ServiceAreaGatewayStatusFetcher } from '@/components/finance/ServiceAreaGatewayStatusFetcher';
+import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 
 /** Single-driver Stripe Connect truth — reads Stripe only; trip money lives on Trip History. */
 export default function DriverWalletLedger() {
@@ -67,6 +68,23 @@ export default function DriverWalletLedger() {
 
   const currencyCode = serviceFilter.currencyCode ?? 'GBP';
   const loadingDetail = (isLoading || isFetching) && !!driverId;
+
+  const walletPerfRef = useRef<ReturnType<typeof startAdminPerformanceStep> | null>(null);
+  useEffect(() => {
+    walletPerfRef.current = startAdminPerformanceStep({
+      action_name: 'admin_driver_wallet_ledger_load',
+    });
+  }, []);
+
+  useEffect(() => {
+    if (loadingDetail) return;
+    walletPerfRef.current?.complete({
+      success: !driverId || !!driver,
+      error_code: driverId && !driver ? 'driver_wallet_detail_missing' : null,
+      metadata: { driver_id: driverId },
+    });
+    walletPerfRef.current = null;
+  }, [loadingDetail, driverId, driver]);
 
   return (
     <AdminLayout

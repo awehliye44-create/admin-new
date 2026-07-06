@@ -80,6 +80,7 @@ const SUPPORTED_PROVIDERS = new Set([
   'hubtel',
   'dpo_pay',
   'noda',
+  'revolut',
 ]);
 
 function statusBadgeClass(status: GatewayStatusCode): string {

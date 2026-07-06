@@ -13,7 +13,8 @@ export type PaymentProviderId =
   | "pesapal"
   | "hubtel"
   | "dpo_pay"
-  | "noda";
+  | "noda"
+  | "revolut";
 
 export type ProviderEnvironment = "test" | "live";
 
@@ -183,6 +184,12 @@ export const PROVIDER_ENV_SECRET_MAP: Record<
     webhook_secret: "NODA_WEBHOOK_SECRET",
     merchant_id: "NODA_MERCHANT_ID",
   },
+  revolut: {
+    publishable_key: "REVOLUT_API_KEY",
+    secret_key: "REVOLUT_SECRET_KEY",
+    webhook_secret: "REVOLUT_WEBHOOK_SECRET",
+    merchant_id: "REVOLUT_MERCHANT_ID",
+  },
 };
 
 /** Fields shown in admin secrets dialog per provider. */
@@ -202,6 +209,7 @@ export const PROVIDER_SECRET_FIELDS: Record<PaymentProviderId, (keyof ProviderSe
   hubtel: ["publishable_key", "secret_key", "webhook_secret"],
   dpo_pay: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
   noda: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
+  revolut: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
 };
 
 /** P0 supported providers — Integrations → Payment Providers UI. */
@@ -217,6 +225,7 @@ export const SUPPORTED_PAYMENT_PROVIDER_IDS: PaymentProviderId[] = [
   "hubtel",
   "dpo_pay",
   "noda",
+  "revolut",
 ];
 
 export type ProviderSecretFieldLabels = Partial<Record<keyof ProviderSecrets, string>>;
@@ -297,6 +306,12 @@ export const PROVIDER_SECRET_FIELD_LABELS: Record<PaymentProviderId, ProviderSec
     merchant_id: "Merchant ID",
   },
   noda: {
+    publishable_key: "API key",
+    secret_key: "Secret key",
+    webhook_secret: "Webhook secret",
+    merchant_id: "Merchant / account ID",
+  },
+  revolut: {
     publishable_key: "API key",
     secret_key: "Secret key",
     webhook_secret: "Webhook secret",
