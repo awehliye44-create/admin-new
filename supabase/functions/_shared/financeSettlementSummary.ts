@@ -95,17 +95,12 @@ export function tripGrossCommissionPence(row: TripFinanceRow): number {
   return Math.max(0, row.commission_pence ?? 0);
 }
 
-export function isCashTripFinanceRow(row: TripFinanceRow): boolean {
-  return String(row.payment_method ?? "").toUpperCase() === "CASH";
-}
 
 export function tripStripeFeePence(row: TripFinanceRow): number {
-  if (isCashTripFinanceRow(row)) return 0;
   return Math.max(0, row.stripe_processing_fee_pence ?? 0);
 }
 
 export function tripOnecabNetPence(row: TripFinanceRow): number {
-  if (isCashTripFinanceRow(row)) return tripGrossCommissionPence(row);
   if (row.onecab_net_pence != null) return Math.max(0, row.onecab_net_pence);
   return Math.max(0, tripGrossCommissionPence(row) - tripStripeFeePence(row));
 }

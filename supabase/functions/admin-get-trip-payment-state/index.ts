@@ -213,7 +213,7 @@ serve(async (req) => {
     );
 
     const paymentMethod = String(charge_payment_method ?? trip.payment_method ?? '').toLowerCase();
-    const isDigital = paymentMethod !== '' && paymentMethod !== 'cash';
+    const isDigital = paymentMethod !== '';
     const financialOutcome = String(trip.financial_outcome ?? '').toLowerCase();
     const tripCancelled =
       financialOutcome.includes('cancel')

@@ -94,7 +94,7 @@ serve(async (req) => {
         .from('driver_wallet_ledger')
         .select('id')
         .eq('related_trip_id', trip_id)
-        .in('type', ['CASH_COMMISSION_DEBT', 'TRIP_EARNING_NET', 'PLATFORM_COMMISSION'])
+        .in('type', ['TRIP_EARNING_NET', 'PLATFORM_COMMISSION'])
         .limit(1);
 
       if (existingLedger && existingLedger.length > 0) {
@@ -116,15 +116,6 @@ serve(async (req) => {
 
     const revenue_type = outcome === 'NO_SHOW' ? 'no_show_revenue' : 'late_cancellation_revenue';
 
-    // ONECAB is digital-only. Reject any attempt to record a financial outcome
-    // against a cash payment method — historical cash trips are read-only.
-    if ((payment_method || '').toUpperCase() === 'CASH') {
-      return new Response(
-        JSON.stringify({
-          error: 'ONECAB is digital-only. Cash payment method is not supported for new financial outcomes.',
-          code: 'CASH_NOT_SUPPORTED',
-        }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

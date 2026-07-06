@@ -104,8 +104,6 @@ serve(async (req) => {
       const tipPence = trip.tip_pence || 0;
       const airportPence = trip.airport_charge_pence || 0;
       const passThroughPence = trip.other_pass_through_charges_pence || 0;
-      const isCash = (trip.payment_method || '').toUpperCase() === 'CASH';
-      if (isCash) continue; // Historical legacy — digital-only platform; no cash settlement repair
       const issues: string[] = [];
 
       // === Resolve correct currency from Region ===
@@ -159,7 +157,7 @@ serve(async (req) => {
         .from('driver_wallet_ledger')
         .select('id, type')
         .eq('related_trip_id', trip.id)
-        .in('type', ['CASH_COMMISSION_DEBT', 'TRIP_EARNING_NET', 'CASH_TRIP_EARNING', 'PLATFORM_COMMISSION']);
+        .in('type', ['TRIP_EARNING_NET', 'PLATFORM_COMMISSION']);
 
       const walletTypes = new Set((existingWalletEntries || []).map(e => e.type));
       const missingWalletEntries: string[] = [];

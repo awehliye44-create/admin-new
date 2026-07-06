@@ -10,8 +10,7 @@
 
 import {
   buildSplitReconciliationCheck,
-  computePaymentMethodLedgerMetrics,
-  isCashTrip,
+  computePaymentMethodLedgerMetrics
   tripTipsPence,
   type PaymentCaptureRow,
 } from "./financialReconciliationSSOT.ts";
@@ -227,7 +226,8 @@ export function buildTripAuditRows(
     const driverNet = tripDriverNetPence(row) ?? 0;
     const paidOut = payoutByTrip.get(row.id) ?? 0;
     const tips = tripTipsPence(row);
-    const cardPayable = isCashTrip(row) ? 0 : driverNet + tips;
+    const cardPayable =
+(row) ? 0 : driverNet + tips;
     return {
       trip_id: row.id,
       trip_code: row.trip_code ?? null,
@@ -236,7 +236,8 @@ export function buildTripAuditRows(
       driver_net_pence: driverNet,
       onecab_commission_pence: tripGrossCommissionPence(row),
       provider_fee_pence: tripStripeFeePence(row),
-      payout_status: paidOut > 0 ? "paid_out" : isCashTrip(row) ? "historical_legacy" : "unpaid",
+      payout_status: paidOut > 0 ? "paid_out" :
+(row) ? "historical_legacy" : "unpaid",
       paid_out_amount_pence: paidOut,
       remaining_driver_liability_pence: Math.max(0, cardPayable - paidOut),
     };

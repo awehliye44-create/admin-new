@@ -12,7 +12,7 @@ import {
   isCardTrip,
 } from '@/lib/tripSettlementFinanceSSOT';
 
-export { isCardTrip, isCashTrip, getPaymentRowCapturedPence } from '@/lib/tripSettlementFinanceSSOT';
+export { isCardTrip, getPaymentRowCapturedPence } from '@/lib/tripSettlementFinanceSSOT';
 
 export type CaptureStatusKind =
   | 'historical_legacy'

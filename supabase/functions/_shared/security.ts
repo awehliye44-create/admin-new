@@ -158,8 +158,7 @@ export function isPositiveInteger(num: number): boolean {
 }
 
 /**
- * Validate payment method — ONECAB is digital-only. Cash is NOT a valid
- * payment method for new trips. Historical cash trips are read-only for audit.
+ * Validate payment method — ONECAB is digital-only.
  */
 export function isValidPaymentMethod(method: string): boolean {
   const validMethods = ['CARD', 'WALLET', 'APPLE_PAY', 'GOOGLE_PAY', 'REVOLUT', 'CORPORATE_ACCOUNT'];

@@ -220,12 +220,11 @@ serve(async (req) => {
     // Build payment methods
     const pm = paymentRes.data;
     const paymentMethods = pm ? {
-      cash: false,
       card: pm.card_enabled ?? true,
       wallet: pm.wallet_enabled ?? false,
       applePay: pm.apple_pay_enabled ?? false,
       googlePay: pm.google_pay_enabled ?? false,
-    } : { cash: false, card: true, wallet: false, applePay: false, googlePay: false };
+    } : { card: true, wallet: false, applePay: false, googlePay: false };
 
     // Check offer schedule
     const scheduleCheck = checkOfferSchedule(offerConfigRes.data as any, matchingRegion.timezone);

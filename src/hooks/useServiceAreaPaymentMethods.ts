@@ -20,7 +20,7 @@ export interface ServiceAreaPaymentConfig {
   mobile_wallet_methods?: MobileWalletMethodId[] | null;
 }
 
-/** Provider card-preauth digital methods only — no cash (ONECAB is fully digital). */
+/** Provider card-preauth digital methods only — ONECAB is fully digital. */
 export const STRIPE_DIGITAL_PAYMENT_METHODS: PaymentMethod[] = [
   { id: 'card', name: 'Card', icon: 'credit-card', platform: 'all' },
   { id: 'apple_pay', name: 'Apple Pay', icon: 'apple', platform: 'ios' },
@@ -125,7 +125,6 @@ export function useServiceAreaPaymentMethods(serviceAreaId?: string) {
           wallet_enabled: updatedConfig.wallet_enabled,
           apple_pay_enabled: updatedConfig.apple_pay_enabled,
           google_pay_enabled: updatedConfig.google_pay_enabled,
-          cash_enabled: false,
           mobile_wallet_methods: updatedConfig.mobile_wallet_methods ?? null,
         } as any, {
           onConflict: 'service_area_id',
