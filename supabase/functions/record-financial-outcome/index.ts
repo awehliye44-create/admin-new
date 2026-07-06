@@ -115,7 +115,18 @@ serve(async (req) => {
     );
 
     const revenue_type = outcome === 'NO_SHOW' ? 'no_show_revenue' : 'late_cancellation_revenue';
-    const isCash = (payment_method || '').toUpperCase() === 'CASH';
+
+    // ONECAB is digital-only. Reject any attempt to record a financial outcome
+    // against a cash payment method — historical cash trips are read-only.
+    if ((payment_method || '').toUpperCase() === 'CASH') {
+      return new Response(
+        JSON.stringify({
+          error: 'ONECAB is digital-only. Cash payment method is not supported for new financial outcomes.',
+          code: 'CASH_NOT_SUPPORTED',
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     console.log(`[record-financial-outcome] ${outcome} for trip ${trip_id}: fee=${fee_pence}p, commission=${commission_pence}p, driverNet=${driver_net_pence}p`);
 
@@ -142,34 +153,29 @@ serve(async (req) => {
 
     // === trip_finance DEPRECATED — all financial data in driver_wallet_ledger ===
 
-    // Digital-only ledger — historical legacy cash trips get trip update only.
-    if (!isCash) {
-      if (driver_net_pence > 0) {
-        await supabase
-          .from('driver_wallet_ledger')
-          .insert({
-            driver_id,
-            related_trip_id: trip_id,
-            type: 'TRIP_EARNING_NET',
-            amount_pence: driver_net_pence,
-            currency: currency_code,
-            description: `Driver earnings from ${outcome === 'NO_SHOW' ? 'no-show' : 'late cancellation'} fee`,
-          });
-      }
-
-      if (commission_pence > 0) {
-        await supabase.from('driver_wallet_ledger').insert({
+    if (driver_net_pence > 0) {
+      await supabase
+        .from('driver_wallet_ledger')
+        .insert({
           driver_id,
           related_trip_id: trip_id,
-          type: 'PLATFORM_COMMISSION',
-          amount_pence: commission_pence,
+          type: 'TRIP_EARNING_NET',
+          amount_pence: driver_net_pence,
           currency: currency_code,
-          description: `Platform commission from ${outcome === 'NO_SHOW' ? 'no-show' : 'late cancellation'} fee`,
+          description: `Driver earnings from ${outcome === 'NO_SHOW' ? 'no-show' : 'late cancellation'} fee`,
         });
-        console.log(`[record-financial-outcome] PLATFORM_COMMISSION: +${commission_pence}p`);
-      }
-    } else {
-      console.log(`[record-financial-outcome] Historical legacy cash trip ${trip_id} — skipped cash settlement ledger`);
+    }
+
+    if (commission_pence > 0) {
+      await supabase.from('driver_wallet_ledger').insert({
+        driver_id,
+        related_trip_id: trip_id,
+        type: 'PLATFORM_COMMISSION',
+        amount_pence: commission_pence,
+        currency: currency_code,
+        description: `Platform commission from ${outcome === 'NO_SHOW' ? 'no-show' : 'late cancellation'} fee`,
+      });
+      console.log(`[record-financial-outcome] PLATFORM_COMMISSION: +${commission_pence}p`);
     }
 
     // Clear driver current trip
