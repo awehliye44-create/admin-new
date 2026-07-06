@@ -19,6 +19,7 @@ import { FinancialReconciliationAlertsTab } from '@/components/finance/Financial
 import { FinancialReconciliationStripeTab } from '@/components/finance/FinancialReconciliationStripeTab';
 import { FinancialReconciliationTripsTab } from '@/components/finance/FinancialReconciliationTripsTab';
 import { DigitalFinanceEraPanel } from '@/components/finance/DigitalFinanceEraPanel';
+import { FinancePanelErrorBoundary } from '@/components/finance/FinancePanelErrorBoundary';
 import { useFinanceReconciliationMoney } from '@/hooks/useFinanceReconciliationMoney';
 import { AlertTriangle, RefreshCw, ShieldCheck } from 'lucide-react';
 
@@ -315,68 +316,75 @@ function FinancialReconciliationPage() {
           </TabsList>
 
           <TabsContent value="overview" className="mt-4">
-            <FinancialReconciliationOverviewTab
-              ssot={ssot}
-              platformKpis={data?.platform_kpis}
-              money={money}
-              currencyGroups={data?.currency_groups}
-              serviceAreaGateways={data?.service_area_payment_gateways}
-              readOnly={readOnly}
-              onRefresh={() => void refetchFresh()}
-              isRefreshing={isFetching}
-            />
+            <FinancePanelErrorBoundary panelName="Overview">
+              <FinancialReconciliationOverviewTab
+                ssot={ssot}
+                platformKpis={data?.platform_kpis}
+                money={money}
+                currencyGroups={data?.currency_groups}
+                serviceAreaGateways={data?.service_area_payment_gateways}
+                readOnly={readOnly}
+                onRefresh={() => void refetchFresh()}
+                isRefreshing={isFetching}
+              />
+            </FinancePanelErrorBoundary>
           </TabsContent>
 
           <TabsContent value="drivers" className="mt-4">
             {frTab === 'drivers' && (
-              <DriverWalletSsotPanel
-                regionId={filter.regionId}
-                currencyCode={ccy || undefined}
-                filter={filter}
-                pageFrom={from || undefined}
-                pageTo={to || undefined}
-                money={money}
-                readOnly={readOnly}
-                ssotBadge={ssotBadge}
-                lastSyncedAt={lastSyncedAt}
-                serviceAreaName={
-                  serviceAreas.find((sa) => sa.id === filter.serviceAreaId)?.name
-                  ?? serviceAreas.find((sa) => sa.region_id === filter.regionId)?.name
-                  ?? null
-                }
-              />
+              <FinancePanelErrorBoundary panelName="Drivers">
+                <DriverWalletSsotPanel
+                  regionId={filter.regionId}
+                  currencyCode={ccy || undefined}
+                  filter={filter}
+                  pageFrom={from || undefined}
+                  pageTo={to || undefined}
+                  money={money}
+                  readOnly={readOnly}
+                  ssotBadge={ssotBadge}
+                  lastSyncedAt={lastSyncedAt}
+                  serviceAreaName={
+                    serviceAreas.find((sa) => sa.id === filter.serviceAreaId)?.name
+                    ?? serviceAreas.find((sa) => sa.region_id === filter.regionId)?.name
+                    ?? null
+                  }
+                />
+              </FinancePanelErrorBoundary>
             )}
           </TabsContent>
 
           <TabsContent value="trips" className="mt-4">
             {frTab === 'trips' && (
-              <FinancialReconciliationTripsTab
-                rows={tripAuditRows}
-                money={money}
-                readOnly={readOnly}
-                ssotBadge={ssotBadge}
-                lastSyncedAt={lastSyncedAt}
-                isRefreshing={isFetching}
-                onRefresh={() => void refetchFresh()}
-                initialTripId={recoverTripId}
-                initialTripCode={recoverTripCode}
-                onInitialTripConsumed={clearRecoverTrip}
-              />
+              <FinancePanelErrorBoundary panelName="Trips">
+                <FinancialReconciliationTripsTab
+                  rows={tripAuditRows}
+                  money={money}
+                  readOnly={readOnly}
+                  ssotBadge={ssotBadge}
+                  lastSyncedAt={lastSyncedAt}
+                  isRefreshing={isFetching}
+                  onRefresh={() => void refetchFresh()}
+                  initialTripId={recoverTripId}
+                  initialTripCode={recoverTripCode}
+                  onInitialTripConsumed={clearRecoverTrip}
+                />
+              </FinancePanelErrorBoundary>
             )}
           </TabsContent>
 
           <TabsContent value="stripe" className="mt-4">
             {frTab === 'stripe' && (
-              <FinancialReconciliationStripeTab
-                summary={stripeSummary}
-                money={money}
-                serviceFilter={filter}
-                periodFrom={from || undefined}
-                periodTo={to || undefined}
-                periodLabel={from && to ? `${from} → ${to}` : undefined}
-                auditRows={tripAuditRows}
-                paymentIntents={data?.stripe_payment_intents ?? []}
-                stripeBalanceError={data?.meta?.stripe_balance_error ?? null}
+              <FinancePanelErrorBoundary panelName="Stripe">
+                <FinancialReconciliationStripeTab
+                  summary={stripeSummary}
+                  money={money}
+                  serviceFilter={filter}
+                  periodFrom={from || undefined}
+                  periodTo={to || undefined}
+                  periodLabel={from && to ? `${from} → ${to}` : undefined}
+                  auditRows={tripAuditRows}
+                  paymentIntents={data?.stripe_payment_intents ?? []}
+                  stripeBalanceError={data?.meta?.stripe_balance_error ?? null}
                 ssotStatus={ssotStatus}
                 ssotBadge={ssotBadge}
                 lastSyncedAt={lastSyncedAt}
@@ -385,18 +393,21 @@ function FinancialReconciliationPage() {
                 onRefreshStripe={() => void refetchFresh()}
                 isRefreshingStripe={isFetching}
               />
+              </FinancePanelErrorBoundary>
             )}
           </TabsContent>
 
           <TabsContent value="alerts" className="mt-4">
             {frTab === 'alerts' && (
-              <FinancialReconciliationAlertsTab
-                ssot={ssot}
-                backendAudit={backendAudit}
-                money={money}
-                regionId={filter.regionId ?? null}
-                readOnly={readOnly}
-              />
+              <FinancePanelErrorBoundary panelName="Alerts">
+                <FinancialReconciliationAlertsTab
+                  ssot={ssot}
+                  backendAudit={backendAudit}
+                  money={money}
+                  regionId={filter.regionId ?? null}
+                  readOnly={readOnly}
+                />
+              </FinancePanelErrorBoundary>
             )}
           </TabsContent>
         </Tabs>

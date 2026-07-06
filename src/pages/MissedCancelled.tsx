@@ -34,7 +34,8 @@ import {
   XCircle, Loader2, Search, RefreshCw, Clock, MapPin, Phone,
   Eye, AlertTriangle, Ban, UserX, TrendingDown,
 } from 'lucide-react';
-import { format, subDays, startOfDay, endOfDay } from 'date-fns';
+import { subDays, startOfDay, endOfDay } from 'date-fns';
+import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
@@ -117,7 +118,7 @@ export default function MissedCancelled() {
     }
   }, [dateFilter]);
 
-  const { data: allTrips = [], isLoading } = useQuery({
+  const { data: allTrips = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['missed-cancelled', dateFilter],
     queryFn: async () => {
       const { start, end } = getDateRange();
@@ -343,6 +344,18 @@ export default function MissedCancelled() {
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
+          ) : isError ? (
+            <div className="py-12 text-center space-y-4">
+              <AlertTriangle className="h-12 w-12 text-destructive mx-auto" />
+              <h3 className="text-lg font-medium">Could not load trips</h3>
+              <p className="text-muted-foreground text-sm">
+                {error instanceof Error ? error.message : 'An unexpected error occurred.'}
+              </p>
+              <Button variant="outline" onClick={() => void refetch()}>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Retry
+              </Button>
+            </div>
           ) : filteredTrips.length === 0 ? (
             <div className="py-12 text-center">
               <XCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -424,7 +437,7 @@ export default function MissedCancelled() {
                         {formatTripFare(trip)}
                       </TableCell>
                       <TableCell className="text-muted-foreground text-sm">
-                        {format(new Date(trip.created_at), 'MMM d, HH:mm')}
+                        {formatFinanceDateSafe(trip.created_at, 'MMM d, HH:mm')}
                       </TableCell>
                       <TableCell className="text-right">
                         <Button 
@@ -475,7 +488,7 @@ export default function MissedCancelled() {
                 <div>
                   <Label className="text-muted-foreground">Created</Label>
                   <p className="font-medium">
-                    {format(new Date(selectedTrip.created_at), 'PPP p')}
+                    {formatFinanceDateSafe(selectedTrip.created_at, 'PPP p')}
                   </p>
                 </div>
                 <div>
@@ -526,24 +539,24 @@ export default function MissedCancelled() {
                 <div className="bg-muted/50 rounded-lg p-3 space-y-2 text-sm">
                   <div className="flex justify-between gap-3">
                     <span className="text-muted-foreground">Created</span>
-                    <span>{format(new Date(selectedTrip.created_at), 'PPp')}</span>
+                    <span>{formatFinanceDateSafe(selectedTrip.created_at, 'PPp')}</span>
                   </div>
                   {selectedTrip.pickup_waiting_started_at && (
                     <div className="flex justify-between gap-3">
                       <span className="text-muted-foreground">Pickup waiting started</span>
-                      <span>{format(new Date(selectedTrip.pickup_waiting_started_at), 'PPp')}</span>
+                      <span>{formatFinanceDateSafe(selectedTrip.pickup_waiting_started_at, 'PPp')}</span>
                     </div>
                   )}
                   {selectedTrip.arrived_at && (
                     <div className="flex justify-between gap-3">
                       <span className="text-muted-foreground">Driver arrived</span>
-                      <span>{format(new Date(selectedTrip.arrived_at), 'PPp')}</span>
+                      <span>{formatFinanceDateSafe(selectedTrip.arrived_at, 'PPp')}</span>
                     </div>
                   )}
                   {selectedTrip.cancelled_at && (
                     <div className="flex justify-between gap-3">
                       <span className="text-muted-foreground">Cancelled</span>
-                      <span>{format(new Date(selectedTrip.cancelled_at), 'PPp')}</span>
+                      <span>{formatFinanceDateSafe(selectedTrip.cancelled_at, 'PPp')}</span>
                     </div>
                   )}
                   {selectedTrip.arrival_cancellation_applied && (
@@ -558,7 +571,7 @@ export default function MissedCancelled() {
                   {selectedTrip.arrival_cancellation_applied_at && (
                     <div className="flex justify-between gap-3 text-xs text-muted-foreground">
                       <span>Fee applied at</span>
-                      <span>{format(new Date(selectedTrip.arrival_cancellation_applied_at), 'PPp')}</span>
+                      <span>{formatFinanceDateSafe(selectedTrip.arrival_cancellation_applied_at, 'PPp')}</span>
                     </div>
                   )}
                 </div>

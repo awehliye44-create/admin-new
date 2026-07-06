@@ -44,6 +44,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
+import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 import { toast } from 'sonner';
 import { getCurrencySymbol, formatDistance as formatDistanceUtil, getDistanceUnitShort } from '@/lib/regionSettings';
 import { TripInvoiceCard, TripInvoiceStatusBadge } from '@/components/trips/TripInvoiceCard';
@@ -1294,7 +1295,7 @@ export default function TripHistory() {
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {trip.completed_at 
-                        ? format(new Date(trip.completed_at), 'MMM d, HH:mm')
+                        ? formatFinanceDateSafe(trip.completed_at, 'MMM d, HH:mm')
                         : 'N/A'}
                     </TableCell>
                     <TableCell className="text-right">
@@ -1459,7 +1460,7 @@ export default function TripHistory() {
                             {selectedTrip.refunded_at && (
                               <div className="col-span-2">
                                 <Label className="text-xs text-muted-foreground">Refunded At</Label>
-                                <p className="text-sm">{format(new Date(String(selectedTrip.refunded_at)), 'MMM d, yyyy HH:mm')}</p>
+                                <p className="text-sm">{formatFinanceDateSafe(String(selectedTrip.refunded_at), 'MMM d, yyyy HH:mm')}</p>
                               </div>
                             )}
                           </>
@@ -1572,7 +1573,7 @@ export default function TripHistory() {
                                   </div>
                                   {stop.arrived_at && (
                                     <p className="text-xs text-muted-foreground shrink-0">
-                                      {format(new Date(stop.arrived_at), 'h:mm a')}
+                                      {formatFinanceDateSafe(stop.arrived_at, 'h:mm a')}
                                     </p>
                                   )}
                                 </div>
@@ -1584,7 +1585,7 @@ export default function TripHistory() {
                                 )}
                                 {stop.completed_at && !isDropoff && (
                                   <p className="text-xs text-muted-foreground mt-1">
-                                    Left: {format(new Date(stop.completed_at), 'h:mm a')}
+                                    Left: {formatFinanceDateSafe(stop.completed_at, 'h:mm a')}
                                   </p>
                                 )}
                               </div>
@@ -1604,7 +1605,7 @@ export default function TripHistory() {
                                 <p className="text-xs font-medium text-green-700 dark:text-green-400">Pickup</p>
                                 {selectedTrip.started_at && (
                                   <p className="text-xs text-muted-foreground">
-                                    {format(new Date(selectedTrip.started_at), 'h:mm a')}
+                                    {formatFinanceDateSafe(selectedTrip.started_at, 'h:mm a')}
                                   </p>
                                 )}
                               </div>
@@ -1627,7 +1628,7 @@ export default function TripHistory() {
                                 <p className="text-xs font-medium text-red-700 dark:text-red-400">Dropoff</p>
                                 {selectedTrip.completed_at && (
                                   <p className="text-xs text-muted-foreground">
-                                    {format(new Date(selectedTrip.completed_at), 'h:mm a')}
+                                    {formatFinanceDateSafe(selectedTrip.completed_at, 'h:mm a')}
                                   </p>
                                 )}
                               </div>
@@ -1806,7 +1807,7 @@ export default function TripHistory() {
                       <Label className="text-muted-foreground text-xs">Started</Label>
                       <p className="text-sm font-medium">
                         {selectedTrip.started_at 
-                          ? format(new Date(selectedTrip.started_at), 'MMMM do, yyyy h:mm a')
+                          ? formatFinanceDateSafe(selectedTrip.started_at, 'MMMM do, yyyy h:mm a')
                           : 'N/A'}
                       </p>
                     </div>
@@ -1814,7 +1815,7 @@ export default function TripHistory() {
                       <Label className="text-muted-foreground text-xs">Completed</Label>
                       <p className="text-sm font-medium">
                         {selectedTrip.completed_at 
-                          ? format(new Date(selectedTrip.completed_at), 'MMMM do, yyyy h:mm a')
+                          ? formatFinanceDateSafe(selectedTrip.completed_at, 'MMMM do, yyyy h:mm a')
                           : 'N/A'}
                       </p>
                     </div>

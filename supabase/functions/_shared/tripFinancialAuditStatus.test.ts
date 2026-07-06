@@ -33,13 +33,13 @@ Deno.test("cash trip — driver collected, commission receivable, cash provider"
   assertEquals(deriveDriverPayoutAuditStatus(input).label, "Already Collected");
   assertEquals(deriveDriverPayoutAuditStatus(input).tone, "green");
   assertEquals(deriveOnecabCommissionAuditStatus(input).label, "Receivable");
-  assertEquals(deriveProviderAuditStatus(input).label, "Cash Collected");
+  assertEquals(deriveProviderAuditStatus(input).label, "Historical Legacy Trip");
   assertEquals(deriveProviderAuditStatus(input).tone, "gray");
 });
 
 Deno.test("cash trip never shows Captured or Settled", () => {
   const input = { trip: { ...cashTrip, stripe_settlement_verified: true, payment_status: "captured" } };
-  assertEquals(deriveProviderAuditStatus(input).label, "Cash Collected");
+  assertEquals(deriveProviderAuditStatus(input).label, "Historical Legacy Trip");
 });
 
 Deno.test("card captured not paid out — awaiting payout, earned, captured", () => {

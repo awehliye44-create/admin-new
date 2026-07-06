@@ -273,7 +273,7 @@ export function deriveOnecabCommissionAuditStatus(input: TripAuditStatusInput): 
 
 export function deriveProviderAuditStatus(input: TripAuditStatusInput): TripAuditStatusBadge {
   if (isTripCashPayment(input.trip)) {
-    return { label: "Cash Collected", tone: "gray" };
+    return { label: "Historical Legacy Trip", tone: "gray" };
   }
 
   if (isDisputed(input)) {
