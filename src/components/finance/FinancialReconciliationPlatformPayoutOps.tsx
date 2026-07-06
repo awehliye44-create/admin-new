@@ -87,7 +87,7 @@ export function FinancialReconciliationPlatformPayoutOps({
   const filteredCashouts = useMemo(() => earlyCashouts, [earlyCashouts]);
 
   const handleRetry = async (row: MondayPayoutDiagnosticsRow) => {
-    setRetryingPayoutId(row.payout_item_id);
+    setRetryingPayoutId(String(row.payout_item_id ?? ''));
     try {
       await retryMondayPayoutItem(row);
       toast.success('Payout retry submitted');

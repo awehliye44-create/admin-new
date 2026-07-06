@@ -1,18 +1,22 @@
+// Admin: refund a captured Revolut order (full or partial).
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import Stripe from "https://esm.sh/stripe@14.21.0";
 import { z } from "https://esm.sh/zod@3.23.8";
 import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
-import { applyStripeRefundToOnecab } from "../_shared/applyStripeRefund.ts";
+import {
+  refundRevolutOrder,
+  retrieveRevolutOrder,
+  getRevolutMerchantConfig,
+} from "../_shared/revolutOrders.ts";
+import { applyProviderRefundToOnecab } from "../_shared/applyProviderRefund.ts";
 
 const InputSchema = z.object({
   trip_id: z.string().uuid(),
   amount_pence: z.number().int().positive().optional(),
-  reason: z.string().trim().min(5, 'Reason must be at least 5 characters').max(1000),
+  reason: z.string().trim().min(5).max(1000),
 });
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
-
   try {
     const gate = await requireAdmin(req);
     if (!gate.ok) return gate.response;
@@ -23,31 +27,25 @@ serve(async (req) => {
     if (!parsed.success) return jsonResponse({ error: 'Invalid input', details: parsed.error.flatten() }, 400);
     const { trip_id, amount_pence, reason } = parsed.data;
 
-    const stripeKey = Deno.env.get('STRIPE_SECRET_KEY');
-    if (!stripeKey) return jsonResponse({ error: 'STRIPE_SECRET_KEY not configured' }, 500);
+    const { secretKey, environment } = getRevolutMerchantConfig();
 
     const { data: trip, error: tripErr } = await gate.supabase
       .from('trips')
-      .select('id, stripe_payment_intent_id, stripe_charge_id, refund_amount_pence')
+      .select('id, provider_order_id, capture_amount_pence, refund_amount_pence, payment_status')
       .eq('id', trip_id)
       .single();
     if (tripErr || !trip) return jsonResponse({ error: 'Trip not found' }, 404);
-    if (!trip.stripe_payment_intent_id) return jsonResponse({ error: 'Trip has no PaymentIntent' }, 400);
+    if (!trip.provider_order_id) return jsonResponse({ error: 'Trip has no Revolut order' }, 400);
 
-    const stripe = new Stripe(stripeKey, { apiVersion: '2023-10-16' });
-    const pi = await stripe.paymentIntents.retrieve(trip.stripe_payment_intent_id, {
-      expand: ['latest_charge'],
-    });
+    const orderBefore = await retrieveRevolutOrder(environment, secretKey, trip.provider_order_id);
+    const state = (orderBefore.state ?? '').toUpperCase();
+    if (state !== 'COMPLETED' && state !== 'REFUNDED') {
+      return jsonResponse({ error: `Cannot refund — Revolut order state is "${state}" (must be COMPLETED)` }, 400);
+    }
 
-    const charge = pi.latest_charge && typeof pi.latest_charge === 'object'
-      ? pi.latest_charge as Stripe.Charge
-      : null;
-    if (!charge) return jsonResponse({ error: 'No charge found on PaymentIntent — capture first' }, 400);
-
-    const captured = charge.amount_captured ?? 0;
-    const alreadyRefunded = charge.amount_refunded ?? 0;
+    const captured = Math.max(0, trip.capture_amount_pence ?? Number(orderBefore.amount ?? 0));
+    const alreadyRefunded = Math.max(0, trip.refund_amount_pence ?? 0);
     const refundable = Math.max(0, captured - alreadyRefunded);
-
     if (refundable <= 0) return jsonResponse({ error: 'Nothing left to refund' }, 400);
 
     const refundAmount = amount_pence ?? refundable;
@@ -56,18 +54,21 @@ serve(async (req) => {
       return jsonResponse({ error: `amount_pence (${refundAmount}) exceeds refundable (${refundable})` }, 400);
     }
 
-    const refund = await stripe.refunds.create(
-      { charge: charge.id, amount: refundAmount, reason: 'requested_by_customer', metadata: { trip_id, admin_reason: reason } },
-      { idempotencyKey: `admin_refund_${trip_id}_${refundAmount}_${Date.now()}` },
+    const refund = await refundRevolutOrder(
+      environment,
+      secretKey,
+      trip.provider_order_id,
+      refundAmount,
+      reason,
     );
 
-    const applyResult = await applyStripeRefundToOnecab(gate.supabase, {
+    const applyResult = await applyProviderRefundToOnecab(gate.supabase, {
       tripId: trip_id,
       amountRefundedPence: alreadyRefunded + refundAmount,
-      stripeRefundId: refund.id,
-      stripeChargeId: charge.id,
-      stripePaymentIntentId: trip.stripe_payment_intent_id,
-      source: "admin_refund",
+      provider: 'revolut',
+      providerRefundId: refund.id ?? null,
+      providerOrderId: trip.provider_order_id,
+      source: 'admin_refund',
       refundReason: reason,
     });
 
@@ -79,15 +80,21 @@ serve(async (req) => {
       amount_pence_before: alreadyRefunded,
       amount_pence_after: alreadyRefunded + refundAmount,
       delta_pence: refundAmount,
-      stripe_payment_intent_id: trip.stripe_payment_intent_id,
-      stripe_refund_id: refund.id,
-      metadata: { captured_total: captured, refundable_before: refundable },
+      provider: 'revolut',
+      provider_payment_id: trip.provider_order_id,
+      metadata: {
+        captured_total: captured,
+        refundable_before: refundable,
+        revolut_refund_id: refund.id ?? null,
+        revolut_state: refund.state ?? null,
+      },
     });
 
     return jsonResponse({
       success: true,
-      stripe_refund_id: refund.id,
-      stripe_payment_intent_id: trip.stripe_payment_intent_id,
+      provider: 'revolut',
+      provider_order_id: trip.provider_order_id,
+      revolut_refund_id: refund.id ?? null,
       refunded_pence: refundAmount,
       total_refunded_pence: alreadyRefunded + refundAmount,
       payment_status: applyResult.payment_status,
@@ -98,6 +105,6 @@ serve(async (req) => {
     });
   } catch (e) {
     console.error('[admin-refund-trip-payment] Error:', e);
-    return jsonResponse({ error: (e as Error).message }, 500);
+    return jsonResponse({ error: (e as Error).message ?? String(e) }, 500);
   }
 });

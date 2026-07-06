@@ -5558,6 +5558,7 @@ export type Database = {
           description: string | null
           driver_id: string
           id: string
+          provider_payout_id: string | null
           related_trip_id: string | null
           service_area_id: string | null
           stripe_payout_id: string | null
@@ -5571,6 +5572,7 @@ export type Database = {
           description?: string | null
           driver_id: string
           id?: string
+          provider_payout_id?: string | null
           related_trip_id?: string | null
           service_area_id?: string | null
           stripe_payout_id?: string | null
@@ -5584,6 +5586,7 @@ export type Database = {
           description?: string | null
           driver_id?: string
           id?: string
+          provider_payout_id?: string | null
           related_trip_id?: string | null
           service_area_id?: string | null
           stripe_payout_id?: string | null
@@ -10872,6 +10875,51 @@ export type Database = {
           name?: string
           status?: string
           timezone?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      revolut_merchant_payouts: {
+        Row: {
+          amount_minor: number
+          completed_at: string | null
+          created_at: string
+          currency: string
+          fetched_at: string
+          id: string
+          raw: Json
+          reference: string | null
+          revolut_payout_id: string
+          scheduled_for: string | null
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          amount_minor: number
+          completed_at?: string | null
+          created_at?: string
+          currency: string
+          fetched_at?: string
+          id?: string
+          raw: Json
+          reference?: string | null
+          revolut_payout_id: string
+          scheduled_for?: string | null
+          state: string
+          updated_at?: string
+        }
+        Update: {
+          amount_minor?: number
+          completed_at?: string | null
+          created_at?: string
+          currency?: string
+          fetched_at?: string
+          id?: string
+          raw?: Json
+          reference?: string | null
+          revolut_payout_id?: string
+          scheduled_for?: string | null
+          state?: string
           updated_at?: string
         }
         Relationships: []

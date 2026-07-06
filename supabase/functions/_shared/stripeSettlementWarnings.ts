@@ -1,42 +1,46 @@
-const INFORMATIONAL_WARNING_CODES = new Set([
-  'SEPARATE_CHARGE_TRANSFER_USED_NO_APPLICATION_FEE_OBJECT',
-  'NO_DRIVER_CONNECT_ACCOUNT_PLATFORM_RETAINED_FULL_CHARGE_MANUAL_PAYOUT_REQUIRED',
-  'NO_DRIVER_CONNECT_ACCOUNT_PLATFORM_CHARGE_ONLY_UNTIL_MANUAL_PAYOUT',
+/**
+ * Formatting helpers for historical Stripe settlement warnings surfaced by
+ * `admin-get-trip-payment-state`. Pure string utilities — no Stripe SDK,
+ * no runtime settlement logic. New settlements go through Revolut helpers
+ * in `_shared/revolutOrders.ts`.
+ */
+
+export type SettlementWarningSeverity = "info" | "warning" | "error";
+
+const INFORMATIONAL_WARNINGS = new Set<string>([
+  "SEPARATE_CHARGE_TRANSFER_USED_NO_APPLICATION_FEE_OBJECT",
 ]);
 
-const WARNING_LABELS: Record<string, string> = {
-  SEPARATE_CHARGE_TRANSFER_USED_NO_APPLICATION_FEE_OBJECT:
-    'Driver payout verified via separate Connect transfer (no application fee object on charge).',
-  NO_DRIVER_CONNECT_ACCOUNT_PLATFORM_RETAINED_FULL_CHARGE_MANUAL_PAYOUT_REQUIRED:
-    'No driver Connect account — platform retained the full charge; manual driver payout required.',
-  NO_DRIVER_CONNECT_ACCOUNT_PLATFORM_CHARGE_ONLY_UNTIL_MANUAL_PAYOUT:
-    'No driver Connect account at booking — platform charge only until manual payout.',
-};
+const ERROR_WARNINGS = new Set<string>([
+  "STRIPE_SETTLEMENT_NOT_VERIFIED_NO_APPLICATION_FEE_OR_TRANSFER",
+  "STRIPE_SETTLEMENT_UNVERIFIED",
+]);
 
-export type SettlementWarningSeverity = 'info' | 'error' | null;
+export function isInformationalSettlementWarning(warning: string | null | undefined): boolean {
+  if (!warning) return false;
+  return INFORMATIONAL_WARNINGS.has(warning);
+}
 
 export function getSettlementWarningSeverity(
   verified: boolean,
-  warning: string | null,
+  warning: string | null | undefined,
 ): SettlementWarningSeverity {
+  if (!warning) return verified ? "info" : "info";
+  if (INFORMATIONAL_WARNINGS.has(warning)) return "info";
+  if (ERROR_WARNINGS.has(warning)) return "error";
+  return verified ? "info" : "warning";
+}
+
+export function formatSettlementWarning(warning: string | null | undefined): string | null {
   if (!warning) return null;
-  if (verified && INFORMATIONAL_WARNING_CODES.has(warning)) return 'info';
-  if (!verified) return 'error';
-  if (warning.startsWith('STRIPE_SETTLEMENT_NOT_VERIFIED')) return 'error';
-  if (
-    warning.startsWith('DESTINATION_CHARGE_APP_FEE_MISMATCH') ||
-    warning.startsWith('SEPARATE_TRANSFER_MISMATCH')
-  ) {
-    return 'error';
+  switch (warning) {
+    case "SEPARATE_CHARGE_TRANSFER_USED_NO_APPLICATION_FEE_OBJECT":
+      return "Legacy separate-charge-transfer settlement (historical Stripe).";
+    case "STRIPE_SETTLEMENT_NOT_VERIFIED_NO_APPLICATION_FEE_OR_TRANSFER":
+      return "Stripe settlement could not be verified — no application fee or transfer recorded.";
+    case "STRIPE_SETTLEMENT_UNVERIFIED":
+      return "Stripe settlement is unverified.";
+    default:
+      return warning.replaceAll("_", " ").toLowerCase();
   }
-  return verified ? 'info' : 'error';
-}
-
-export function formatSettlementWarning(warning: string | null): string | null {
-  if (!warning) return null;
-  return WARNING_LABELS[warning] ?? warning;
-}
-
-export function isInformationalSettlementWarning(warning: string | null): boolean {
-  return !!warning && INFORMATIONAL_WARNING_CODES.has(warning);
 }
