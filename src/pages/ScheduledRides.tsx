@@ -739,11 +739,7 @@ export default function ScheduledRides() {
                     <CreditCard className="h-3 w-3" />
                     Payment Method
                   </Label>
-                  <Badge variant="outline" className={`mt-1 ${
-                    selectedTrip.payment_method?.toLowerCase() === 'cash' 
-                      ? 'bg-green-100 text-green-700' 
-                      : 'bg-blue-100 text-blue-700'
-                  }`}>
+                  <Badge variant="outline" className="mt-1 bg-blue-100 text-blue-700">
                     {selectedTrip.payment_method || 'Not specified'}
                   </Badge>
                 </div>
