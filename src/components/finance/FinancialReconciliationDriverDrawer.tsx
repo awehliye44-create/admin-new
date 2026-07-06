@@ -209,7 +209,8 @@ export function FinancialReconciliationDriverDrawer({
 
   const driver = walletDetail ?? driverRow;
   const perDriver = perDriverData?.finance_reconciliation_driver_ssot;
-  const connectAccount = connectStatus?.connect_accounts.find((a) => a.driver_id === driverId) ?? null;
+
+
 
   const digitalTrips = useMemo(
     () => tripRows.filter((r) => isDigitalPayment(r.payment_method)),
