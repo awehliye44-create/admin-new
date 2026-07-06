@@ -69,15 +69,6 @@ export function DriverDrawerTripRowActions({
     },
     onError: (err: Error) => toast.error(err.message),
   });
-
-  if (legacy) {
-    return (
-      <Button variant="ghost" size="sm" className="h-7 px-2 text-[10px]" onClick={() => onTripAction(row, 'view')}>
-        View
-      </Button>
-    );
-  }
-
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
