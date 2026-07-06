@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 import type { FinanceReconciliationResponse } from '@/hooks/useFinanceReconciliation';
 import {
-  formatMoneyMinor,
   formatWithFinanceCurrencyMeta,
   getCurrencyMinorUnit,
   type FinanceCurrencyMeta,
@@ -14,8 +13,6 @@ export type FinanceMoneyFormat = {
   isMixedCurrency: boolean;
   /** Format amount using page scope currency (or trip override). */
   fmt: (amountMinor: number | null | undefined, tripCurrencyCode?: string | null) => string;
-  /** Label for platform Provider balance — always platform account currency. */
-  fmtPlatformStripe: (amountMinor: number | null | undefined, platformCurrency?: string | null) => string;
 };
 
 function pickCurrencyMeta(
@@ -49,22 +46,12 @@ export function useFinanceReconciliationMoney(
       return formatWithFinanceCurrencyMeta(amountMinor, meta, tripCurrencyCode ?? filterCurrencyCode);
     };
 
-    const fmtPlatformStripe = (
-      amountMinor: number | null | undefined,
-      platformCurrency?: string | null,
-    ) => {
-      const code = platformCurrency ?? meta?.currency_code ?? filterCurrencyCode;
-      if (!code || amountMinor == null) return '—';
-      return formatMoneyMinor(amountMinor, code, 'en-GB', getCurrencyMinorUnit(code));
-    };
-
     return {
       currencyCode,
       currencySymbol: meta?.currency_symbol ?? null,
       currencyMinorUnit,
       isMixedCurrency,
       fmt,
-      fmtPlatformStripe,
     };
   }, [response, filterCurrencyCode]);
 }

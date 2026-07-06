@@ -1,19 +1,21 @@
-export type DriverWalletLedgerTab = 'overview' | 'payouts' | 'stripe' | 'ledger';
+export type DriverWalletLedgerTab = 'overview' | 'payouts' | 'ledger';
 
 /** @deprecated Legacy tab slugs */
 export type DriverWalletLedgerLegacyTab =
   | 'accounting'
   | 'history'
-  | 'connect-balance';
+  | 'connect-balance'
+  | 'stripe';
 
 const LEGACY_TAB_ALIASES: Record<string, DriverWalletLedgerTab> = {
-  accounting: 'stripe',
+  accounting: 'overview',
   history: 'ledger',
-  'connect-balance': 'stripe',
+  'connect-balance': 'overview',
+  stripe: 'overview',
 };
 
 export function parseDriverWalletLedgerTab(value: string | null): DriverWalletLedgerTab {
-  if (value === 'overview' || value === 'payouts' || value === 'stripe' || value === 'ledger') {
+  if (value === 'overview' || value === 'payouts' || value === 'ledger') {
     return value;
   }
   if (value && LEGACY_TAB_ALIASES[value]) {
