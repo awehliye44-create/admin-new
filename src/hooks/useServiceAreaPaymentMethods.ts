@@ -127,7 +127,7 @@ export function useServiceAreaPaymentMethods(serviceAreaId?: string) {
           google_pay_enabled: updatedConfig.google_pay_enabled,
           cash_enabled: false,
           mobile_wallet_methods: updatedConfig.mobile_wallet_methods ?? null,
-        } as Record<string, unknown>, {
+        } as any, {
           onConflict: 'service_area_id',
         });
 
@@ -135,7 +135,7 @@ export function useServiceAreaPaymentMethods(serviceAreaId?: string) {
 
       await supabase
         .from('service_areas')
-        .update({ updated_at: new Date().toISOString() } as Record<string, unknown>)
+        .update({ updated_at: new Date().toISOString() } as any)
         .eq('id', serviceAreaId);
 
     } catch (err) {

@@ -187,7 +187,7 @@ export function ServiceAreaPaymentGatewayConfig({
           payment_provider: value,
           customer_payment_gateway: value,
           driver_payout_gateway: value,
-        } as Record<string, string | null>)
+        } as any)
         .eq('id', serviceAreaId);
 
       if (error) throw error;
