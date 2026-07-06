@@ -1,9 +1,9 @@
 /**
  * Driver payout SSOT — ONECAB executes Instant Payout only.
  *
- * Display: show Stripe Standard Available (balance.available) and Instant Available separately.
- * Execution: cashout_now = min(ledger owed, finance-cleared, Stripe Instant Available)
- * awaiting_settlement = max(0, ledger − Stripe Standard Available)
+ * Display: show Provider Standard Available (balance.available) and Instant Available separately.
+ * Execution: cashout_now = min(ledger owed, finance-cleared, Provider Instant Available)
+ * awaiting_settlement = max(0, ledger − Provider Standard Available)
  */
 
 export const ONECAB_CASHOUT_FEE_PENCE = 100;
@@ -88,7 +88,7 @@ export function formatAdminDriverPayoutSsotSummary(args: {
   const owed = `${sym}${(Math.max(0, args.walletOwedPence) / 100).toFixed(2)}`;
   const connect = `${sym}${(Math.max(0, args.connectAvailablePence) / 100).toFixed(2)}`;
   const cashout = `${sym}${(Math.max(0, args.cashoutNowPence) / 100).toFixed(2)}`;
-  return `Driver is owed ${owed}. Stripe Connect has ${connect} instantly available. Cash-out available now: ${cashout}.`;
+  return `Driver is owed ${owed}. Provider has ${connect} instantly available. Cash-out available now: ${cashout}.`;
 }
 
 export function buildCashoutBlockReasons(args: {
@@ -107,7 +107,7 @@ export function buildCashoutBlockReasons(args: {
     reasons.push(...args.payoutBlockedReasons);
   }
   if (!args.payoutsEnabled) {
-    reasons.push('Stripe Connect payouts disabled');
+    reasons.push('Provider payouts disabled');
   }
   if (args.walletOwedPence <= 0) {
     reasons.push('ONECAB wallet balance is zero or negative');
@@ -116,7 +116,7 @@ export function buildCashoutBlockReasons(args: {
     reasons.push('Finance-cleared amount is zero');
   }
   if (args.connectAvailablePence <= 0) {
-    reasons.push('Stripe Connect available balance is zero');
+    reasons.push('Provider available balance is zero');
   }
   if (args.cashoutNowPence != null && args.cashoutNowPence > 0 && args.cashoutNowPence < MIN_CASHOUT_AMOUNT_PENCE) {
     reasons.push(`Below minimum cash-out (£${(MIN_CASHOUT_AMOUNT_PENCE / 100).toFixed(2)})`);

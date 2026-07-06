@@ -171,8 +171,8 @@ export function DriverWalletPayoutsTab({
           <TableHead>Batch</TableHead>
           <TableHead className="text-right">Amount</TableHead>
           <TableHead>Status</TableHead>
-          <TableHead>Stripe transfer</TableHead>
-          <TableHead>Stripe payout</TableHead>
+          <TableHead>Provider transfer</TableHead>
+          <TableHead>Provider payout</TableHead>
           <TableHead>Updated</TableHead>
           {showRetry ? <TableHead className="w-24" /> : null}
         </TableRow>

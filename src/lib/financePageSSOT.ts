@@ -10,13 +10,13 @@ export const MONDAY_PAYOUT_DIAGNOSTICS_OPTS = {
 export const PAYOUT_AUDIT_TABLE_TITLE = 'Payout Audit — who was paid';
 
 export const PAYOUT_AUDIT_TABLE_DESCRIPTION =
-  'All recorded payout items (weekly, manual, early cashout) for the selected period. Status reflects ledger/provider state — Paid does not mean bank arrival until Stripe reports in transit or paid.';
+  'All recorded payout items (weekly, manual, early cashout) for the selected period. Status reflects ledger/provider state — Paid does not mean bank arrival until Provider reports in transit or paid.';
 
 export const PAYOUT_AUDIT_EMPTY_MESSAGE =
   'No payout records yet. Failed payouts always appear here once recorded.';
 
 export const FINANCE_SSOT_FOOTNOTE =
-  'Trip Settlement (Trip History) calculates trip money. Financial Reconciliation audits Stripe integrity only.';
+  'Trip Settlement (Trip History) calculates trip money. Financial Reconciliation audits Provider integrity only.';
 
 export type MondayPayoutQuery = Pick<
   UseQueryResult<MondayPayoutDiagnosticsResponse>,

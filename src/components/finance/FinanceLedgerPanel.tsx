@@ -28,7 +28,7 @@ function partyBadgeClass(party: string): string {
       return 'bg-violet-500/15 text-violet-300 border-violet-500/30';
     case 'ONECAB':
       return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
-    case 'Stripe':
+    case 'Provider':
       return 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30';
     default:
       return 'bg-muted text-muted-foreground border-border';
@@ -109,7 +109,7 @@ export function FinanceLedgerPanel({
             <span className="text-muted-foreground font-normal">({filteredRows.length} rows)</span>
           </CardTitle>
           <p className="text-xs text-muted-foreground mt-1">
-            Audit log — trip settlements, Stripe transfers/payouts, adjustments, refunds, and admin corrections.
+            Audit log — trip settlements, Provider transfers/payouts, adjustments, refunds, and admin corrections.
           </p>
         </CardHeader>
         <CardContent className="p-0">

@@ -22,7 +22,7 @@ export function financeReconciliationTripUrl(tripId: string, tripCode?: string |
   return `/financial-reconciliation?${params.toString()}`;
 }
 
-/** Read-only platform finance audit — per-trip commission / Stripe fees live here, not Trip History. */
+/** Read-only platform finance audit — per-trip commission / Provider fees live here, not Trip History. */
 export function financialReconciliationTripsTabUrl(tripId: string, tripCode?: string | null): string {
   const params = new URLSearchParams({ tab: 'trips' });
   if (tripCode?.trim()) {

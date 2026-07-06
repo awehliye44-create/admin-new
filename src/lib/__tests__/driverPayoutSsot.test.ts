@@ -29,7 +29,7 @@ describe('driverPayoutSsot', () => {
         currencyCode: 'gbp',
       }),
     ).toBe(
-      'Driver is owed £9.73. Stripe Connect has £21.30 instantly available. Cash-out available now: £9.73.',
+      'Driver is owed £9.73. Provider has £21.30 instantly available. Cash-out available now: £9.73.',
     );
   });
 });

@@ -626,9 +626,9 @@ export default function CorporateAccounts() {
                   </p>
                 </div>
                 {([
-                  { key: 'payment_card_enabled', label: 'Card (Stripe)', desc: 'Credit/debit cards via Stripe' },
-                  { key: 'payment_apple_pay_enabled', label: 'Apple Pay (Stripe)', desc: 'iOS — via Stripe' },
-                  { key: 'payment_google_pay_enabled', label: 'Google Pay (Stripe)', desc: 'Android — via Stripe' },
+                  { key: 'payment_card_enabled', label: 'Card (Provider)', desc: 'Credit/debit cards via Provider' },
+                  { key: 'payment_apple_pay_enabled', label: 'Apple Pay (Provider)', desc: 'iOS — via Provider' },
+                  { key: 'payment_google_pay_enabled', label: 'Google Pay (Provider)', desc: 'Android — via Provider' },
                   { key: 'payment_wallet_enabled', label: 'Corporate Wallet / Prepaid', desc: 'Only effective when prepaid balance > 0' },
                   { key: 'payment_invoice_enabled', label: 'Invoice / Monthly billing', desc: '⚠ Risk: driver paid before corporate pays ONECAB' },
                 ] as const).map((m) => (

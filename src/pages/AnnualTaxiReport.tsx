@@ -244,8 +244,8 @@ export default function AnnualTaxiReport() {
           <Info className="h-4 w-4" />
           <AlertTitle>Reporting only</AlertTitle>
           <AlertDescription>
-            Financial Reconciliation audits Stripe integrity. Trip settlement values are on Trip History only.
-            and Stripe reconciliation. This page never calculates or modifies financial values.
+            Financial Reconciliation audits Provider integrity. Trip settlement values are on Trip History only.
+            and Provider reconciliation. This page never calculates or modifies financial values.
           </AlertDescription>
         </Alert>
 

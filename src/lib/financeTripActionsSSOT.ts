@@ -82,7 +82,7 @@ export function derivePaymentActionAvailability(input: TripPaymentActionInput): 
         : !hasPi ? 'No PaymentIntent'
           : !isUncaptured ? 'Payment is not awaiting capture'
             : tripCancelled ? 'Trip cancelled'
-              : 'Capture not available for current Stripe state',
+              : 'Capture not available for current Provider state',
     ),
     retry_capture: canCapture ? enabled() : disabled('Retry capture requires an uncaptured authorisation'),
     void_payment: isUncaptured ? enabled() : disabled('Void applies only before capture (authorised hold)'),
@@ -97,8 +97,8 @@ export function derivePaymentActionAvailability(input: TripPaymentActionInput): 
         : captured <= 0 ? 'Nothing captured to refund'
           : 'Partial refund not available',
     ),
-    resync_stripe: canSync ? enabled() : disabled('No Stripe PaymentIntent to sync'),
-    refresh_stripe: canSync ? enabled() : disabled('No Stripe PaymentIntent to refresh'),
+    resync_stripe: canSync ? enabled() : disabled('No Provider PaymentIntent to sync'),
+    refresh_stripe: canSync ? enabled() : disabled('No Provider PaymentIntent to refresh'),
     repair_settlement: digital && hasCharge
       ? enabled()
       : disabled('Settlement repair requires a captured digital payment'),

@@ -256,7 +256,7 @@ describe('tripCaptureStatus — Trip History finance SSOT', () => {
     expect(breakdown.showBreakdown).toBe(true);
   });
 
-  it('MK-260704-002: payable vs Stripe captured — no mod double-count, shortfall 965', () => {
+  it('MK-260704-002: payable vs Provider captured — no mod double-count, shortfall 965', () => {
     const trip: TripCaptureFields = {
       payment_method: 'card',
       payment_status: 'captured',
@@ -266,7 +266,7 @@ describe('tripCaptureStatus — Trip History finance SSOT', () => {
       customer_modification_charge_pence: 1241,
       pickup_waiting_charge_pence: 24,
       total_waiting_charge_pence: 24,
-      // Stripe actual
+      // Provider actual
       payment_captured_pence: 801,
       capture_amount_pence: 801,
       payment_count: 1,

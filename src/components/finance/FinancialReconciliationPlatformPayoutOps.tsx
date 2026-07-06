@@ -47,7 +47,7 @@ function getKindDisplay(kind: string) {
   return kinds[kind] || kind;
 }
 
-/** Platform payout operations — only on Financial Reconciliation → Stripe (SSOT). */
+/** Platform payout operations — only on Financial Reconciliation → Provider (SSOT). */
 export function FinancialReconciliationPlatformPayoutOps({
   serviceFilter,
   currencyCode,

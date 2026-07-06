@@ -1,4 +1,4 @@
-// Stub — Stripe Connect payouts retired in Phase 3.
+// Stub — Provider payouts retired in Phase 3.
 // TODO(Phase 3 UI purge): delete call sites and this file.
 
 export type MondayPayoutTodayCardsData = {

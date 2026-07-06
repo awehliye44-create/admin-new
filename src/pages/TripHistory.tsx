@@ -717,7 +717,7 @@ export default function TripHistory() {
     return null;
   };
 
-  /** Expected customer payable (not Stripe captured). */
+  /** Expected customer payable (not Provider captured). */
   const getTripCustomerPayablePence = (trip: CompletedTrip): number => {
     const finalCustomer = trip.final_customer_fare_pence ?? 0;
     const waiting =
@@ -729,7 +729,7 @@ export default function TripHistory() {
     return resolveTripDisplayFare(trip).payable_pence;
   };
 
-  /** Stripe actual captured amount only. */
+  /** Provider actual captured amount only. */
   const getTripStripeCapturedPence = (trip: CompletedTrip): number => {
     if (trip.payment_captured_pence != null && trip.payment_captured_pence > 0) {
       return trip.payment_captured_pence;
@@ -998,7 +998,7 @@ export default function TripHistory() {
               Completed Trips
             </CardTitle>
             <CardDescription className="flex items-center gap-2 flex-wrap">
-              Finished rides (completed / no-show) by completion date — customer fare from backend SSOT; commission &amp; Stripe fees in Financial Reconciliation
+              Finished rides (completed / no-show) by completion date — customer fare from backend SSOT; commission &amp; Provider fees in Financial Reconciliation
               {activeRegion && (
                 <Badge variant="outline" className="ml-2 text-xs">
                   {activeRegion.name} • {getActiveCurrencySymbol()} • {getActiveDistanceUnit()}
@@ -1428,7 +1428,7 @@ export default function TripHistory() {
                       </div>
                       {isHistoricalLegacyCashTrip(selectedTrip.payment_method) ? (
                         <div className="col-span-2 rounded-md border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
-                          Historical legacy trip — pre-digital era record. No Stripe capture or shortfall applies.
+                          Historical legacy trip — pre-digital era record. No Provider capture or shortfall applies.
                         </div>
                       ) : (
                         <>
@@ -1441,7 +1441,7 @@ export default function TripHistory() {
                         </p>
                       </div>
                       <div>
-                        <Label className="text-xs text-muted-foreground">Stripe captured</Label>
+                        <Label className="text-xs text-muted-foreground">Provider captured</Label>
                         <p className="font-medium text-green-600">
                           {getTripStripeCapturedPence(selectedTrip) > 0
                             ? `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${(getTripStripeCapturedPence(selectedTrip) / 100).toFixed(2)}`
@@ -1454,7 +1454,7 @@ export default function TripHistory() {
                         getTripStripeCapturedPence(selectedTrip),
                       ) && (
                         <div>
-                          <Label className="text-xs text-muted-foreground">Stripe capture shortfall</Label>
+                          <Label className="text-xs text-muted-foreground">Provider capture shortfall</Label>
                           <p className="font-medium text-amber-600">
                             {`${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${((getTripCustomerPayablePence(selectedTrip) - getTripStripeCapturedPence(selectedTrip)) / 100).toFixed(2)}`}
                           </p>
@@ -1791,7 +1791,7 @@ export default function TripHistory() {
                     </h4>
                     <div className="rounded-md border p-4 space-y-3">
                       <p className="text-sm text-muted-foreground">
-                        Commission, driver net, settlement totals, and Stripe fees are audited in Financial Reconciliation only — not calculated on this page.
+                        Commission, driver net, settlement totals, and Provider fees are audited in Financial Reconciliation only — not calculated on this page.
                       </p>
                       <FinancialReconciliationTripLink
                         tripId={selectedTrip.id}

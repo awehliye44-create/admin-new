@@ -34,7 +34,7 @@ export function FinancialReconciliationRefreshBar({
           <span className="text-xs text-muted-foreground">· Last synced {lastSyncedLabel}</span>
         )}
         {badge === 'REFRESHING' && (
-          <span className="text-xs text-muted-foreground">· Fetching live Stripe + trip data…</span>
+          <span className="text-xs text-muted-foreground">· Fetching live Provider + trip data…</span>
         )}
       </div>
       {onRefresh && (

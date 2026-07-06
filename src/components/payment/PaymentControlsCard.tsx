@@ -122,7 +122,7 @@ const ACTION_LABEL: Record<AuditEntry['action'] | 'extra_payment', string> = {
   cancel: 'Hold released',
   extra_payment: 'Extra payment',
   finance_note: 'Finance note',
-  sync_stripe: 'Sync Stripe',
+  sync_stripe: 'Sync Provider',
 };
 
 const INFORMATIONAL_SETTLEMENT_WARNINGS = new Set([
@@ -277,7 +277,7 @@ export function PaymentControlsCard({
       return data;
     },
     onSuccess: (data) => {
-      toast.success(data.message || 'Synced from Stripe');
+      toast.success(data.message || 'Synced from Provider');
       refresh();
       onActionComplete?.();
     },
@@ -323,7 +323,7 @@ export function PaymentControlsCard({
     },
     onSuccess: (data) => {
       const id = data.stripe_refund_id || data.stripe_charge_id || data.stripe_payment_intent_id;
-      toast.success(data.message || 'Action completed', { description: id ? `Stripe ref: ${id}` : undefined });
+      toast.success(data.message || 'Action completed', { description: id ? `Provider ref: ${id}` : undefined });
       setMode(null);
       setReason('');
       setAmountInput('');
@@ -590,7 +590,7 @@ export function PaymentControlsCard({
                     : 'bg-destructive/10 text-destructive border-destructive/40'
                 }
               >
-                {state.stripe_settlement_verified ? 'Stripe settlement verified' : 'Stripe settlement not verified'}
+                {state.stripe_settlement_verified ? 'Provider settlement verified' : 'Provider settlement not verified'}
               </Badge>
             </div>
 
@@ -668,7 +668,7 @@ export function PaymentControlsCard({
               </div>
               {isLegacyTrip && (
                 <div className="text-[11px] text-muted-foreground italic">
-                  Legacy reconciled from Stripe capture — final fare derived from captured amount.
+                  Legacy reconciled from Provider capture — final fare derived from captured amount.
                 </div>
               )}
               {isLegacyIncomplete && (
@@ -701,11 +701,11 @@ export function PaymentControlsCard({
                 <div className="flex justify-between"><span className="text-muted-foreground">Available payout created</span><span>{formatPence(state.available_payout_created_pence, currency)}</span></div>
               )}
               <div className="flex justify-between"><span className="text-muted-foreground">Gross commission</span><span>{formatPence(state.commission_pence, currency)}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Stripe fee</span><span className="text-orange-600">{state.stripe_fee_pence > 0 ? `−${formatPence(state.stripe_fee_pence, currency)}` : '—'}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Provider fee</span><span className="text-orange-600">{state.stripe_fee_pence > 0 ? `−${formatPence(state.stripe_fee_pence, currency)}` : '—'}</span></div>
               <div className="flex justify-between font-medium"><span>ONECAB net</span><span className="text-blue-600">{formatPence(state.onecab_net_pence, currency)}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Driver net</span><span className="text-green-600">{driverNetPence != null ? formatPence(driverNetPence, currency) : 'Unknown'}</span></div>
               <Separator className="my-1" />
-              <div className="flex justify-between"><span className="text-muted-foreground">Stripe application fee</span><span>{state.stripe_application_fee_amount_pence != null ? formatPence(state.stripe_application_fee_amount_pence, currency) : '—'}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Provider application fee</span><span>{state.stripe_application_fee_amount_pence != null ? formatPence(state.stripe_application_fee_amount_pence, currency) : '—'}</span></div>
               {state.stripe_application_fee_id && <div className="flex justify-between gap-2"><span className="text-muted-foreground">Application fee ID</span><code className="text-[10px] truncate">{state.stripe_application_fee_id}</code></div>}
               {state.stripe_destination_account_id && <div className="flex justify-between gap-2"><span className="text-muted-foreground">Driver destination</span><code className="text-[10px] truncate">{state.stripe_destination_account_id}</code></div>}
               {state.stripe_transfer_id && <div className="flex justify-between gap-2"><span className="text-muted-foreground">Driver transfer</span><code className="text-[10px] truncate">{state.stripe_transfer_id}</code></div>}
@@ -837,7 +837,7 @@ export function PaymentControlsCard({
                     return;
                   }
                   toast.message('Customer debit', {
-                    description: 'Use platform adjustment or Stripe dispute workflow for customer debits.',
+                    description: 'Use platform adjustment or Provider dispute workflow for customer debits.',
                   });
                 }}
               />

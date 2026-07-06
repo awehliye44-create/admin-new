@@ -1,5 +1,5 @@
-// Stub after Phase 3 Stripe Connect payout removal.
-// The Monday-Stripe-payout diagnostics hook is retired; UI shells that still
+// Stub after Phase 3 Provider payout removal.
+// The Monday-Provider-payout diagnostics hook is retired; UI shells that still
 // import it receive an empty, permanently-idle response so pages compile.
 // TODO(Phase 3 UI purge): delete every remaining call site and remove this file.
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
@@ -51,7 +51,7 @@ export function useMondayPayoutDiagnostics(
 }
 
 export async function retryMondayPayoutItem(_row: MondayPayoutDiagnosticsRow): Promise<void> {
-  throw new Error("Stripe Connect Monday payouts have been removed. Use Revolut payouts.");
+  throw new Error("Provider Monday payouts have been removed. Use Revolut payouts.");
 }
 
 export function canRetryMondayPayoutItem(_row: MondayPayoutDiagnosticsRow): boolean {
@@ -59,7 +59,7 @@ export function canRetryMondayPayoutItem(_row: MondayPayoutDiagnosticsRow): bool
 }
 
 export function retryBlockedTooltip(_row: MondayPayoutDiagnosticsRow): string {
-  return "Stripe Connect payouts retired — driver payouts move to Revolut Business /pay.";
+  return "Provider payouts retired — driver payouts move to Revolut Business /pay.";
 }
 
 // Legacy aliases retained for call sites still on the old naming.
@@ -67,5 +67,5 @@ export function canRetryPayoutItemRecord(_record: PayoutRetryRecord | MondayPayo
   return false;
 }
 export async function retryPayoutItemFromRecord(_record: PayoutRetryRecord | MondayPayoutDiagnosticsRow): Promise<void> {
-  throw new Error("Stripe Connect Monday payouts have been removed. Use Revolut payouts.");
+  throw new Error("Provider Monday payouts have been removed. Use Revolut payouts.");
 }

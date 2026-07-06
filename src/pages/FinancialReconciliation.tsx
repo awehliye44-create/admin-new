@@ -156,7 +156,7 @@ function FinancialReconciliationPage() {
     setRecoverTripCode(null);
   }, []);
 
-  /** money_movement may live on response root or inside summary — merge for Stripe tab. */
+  /** money_movement may live on response root or inside summary — merge for Provider tab. */
   const stripeSummary = useMemo(() => {
     if (!summary) return null;
     const movement = summary.money_movement ?? data?.money_movement;
@@ -328,7 +328,7 @@ function FinancialReconciliationPage() {
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="drivers">Drivers</TabsTrigger>
             <TabsTrigger value="trips">Trips ({tripAuditRows.length})</TabsTrigger>
-            <TabsTrigger value="stripe">Stripe</TabsTrigger>
+            <TabsTrigger value="stripe">Provider</TabsTrigger>
             <TabsTrigger value="alerts">Alerts</TabsTrigger>
           </TabsList>
 
@@ -391,7 +391,7 @@ function FinancialReconciliationPage() {
 
           <TabsContent value="stripe" className="mt-4">
             {frTab === 'stripe' && (
-              <FinancePanelErrorBoundary panelName="Stripe">
+              <FinancePanelErrorBoundary panelName="Provider">
                 <FinancialReconciliationStripeTab
                   summary={stripeSummary}
                   money={money}

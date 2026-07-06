@@ -14,7 +14,7 @@ export type FinanceMoneyFormat = {
   isMixedCurrency: boolean;
   /** Format amount using page scope currency (or trip override). */
   fmt: (amountMinor: number | null | undefined, tripCurrencyCode?: string | null) => string;
-  /** Label for platform Stripe balance — always platform account currency. */
+  /** Label for platform Provider balance — always platform account currency. */
   fmtPlatformStripe: (amountMinor: number | null | undefined, platformCurrency?: string | null) => string;
 };
 

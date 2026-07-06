@@ -121,7 +121,7 @@ export function DriverWalletSsotPanel({
           <div>
             <CardTitle className="text-base">Drivers</CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
-              Click a driver to open payment history — Stripe-like detail drawer. Digital payouts only.
+              Click a driver to open payment history — Provider-like detail drawer. Digital payouts only.
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
@@ -137,9 +137,9 @@ export function DriverWalletSsotPanel({
               <TableHeader>
                 <TableRow>
                   <TableHead>Driver</TableHead>
-                  <TableHead className="text-right">Available in Stripe</TableHead>
+                  <TableHead className="text-right">Available in Provider</TableHead>
                   <TableHead className="text-right">Scheduled Payout</TableHead>
-                  <TableHead>Last Stripe Payout</TableHead>
+                  <TableHead>Last Provider Payout</TableHead>
                   <TableHead>Reconciliation Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>

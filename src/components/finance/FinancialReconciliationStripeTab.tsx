@@ -160,13 +160,13 @@ export function FinancialReconciliationStripeTab({
         isRefreshing={isRefreshingStripe}
         readOnly={readOnly}
         onRefresh={onRefreshStripe}
-        label="Stripe Connect balances and money movement"
+        label="Provider balances and money movement"
       />
 
       {ssotStatus === 'DEGRADED_SNAPSHOT' && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Stripe balances may be stale</AlertTitle>
+          <AlertTitle>Provider balances may be stale</AlertTitle>
           <AlertDescription>
             {snapshotSavedLabel
               ? `Showing cached snapshot from ${snapshotSavedLabel}. Refresh when live SSOT is available.`
@@ -180,7 +180,7 @@ export function FinancialReconciliationStripeTab({
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>Connect money movement timed out</AlertTitle>
           <AlertDescription>
-            Stripe Connect account balances could not be loaded within 25 seconds. Connect Accounts and
+            Provider account balances could not be loaded within 25 seconds. Connect Accounts and
             payout rows below may be incomplete — click Refresh to retry.
           </AlertDescription>
         </Alert>
@@ -195,7 +195,7 @@ export function FinancialReconciliationStripeTab({
             disabled={readOnly || isRefreshingStripe}
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshingStripe ? 'animate-spin' : ''}`} />
-            Refresh Stripe now
+            Refresh Provider now
           </Button>
         )}
       </div>
@@ -213,7 +213,7 @@ export function FinancialReconciliationStripeTab({
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">
-              Platform Stripe balance{scopeCurrency ? ` (${scopeCurrency})` : ''}
+              Platform Provider balance{scopeCurrency ? ` (${scopeCurrency})` : ''}
             </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-4">
@@ -252,7 +252,7 @@ export function FinancialReconciliationStripeTab({
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Stripe sync status</CardTitle>
+            <CardTitle className="text-base">Provider sync status</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             <div>
@@ -274,17 +274,17 @@ export function FinancialReconciliationStripeTab({
 
         <Card className={stripeBalanceError ? 'border-destructive/40' : undefined}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Stripe API errors</CardTitle>
+            <CardTitle className="text-base">Provider API errors</CardTitle>
           </CardHeader>
           <CardContent>
             {stripeBalanceError ? (
               <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>Stripe balance fetch failed</AlertTitle>
+                <AlertTitle>Provider balance fetch failed</AlertTitle>
                 <AlertDescription className="text-xs font-mono">{stripeBalanceError}</AlertDescription>
               </Alert>
             ) : (
-              <p className="text-sm text-muted-foreground">No Stripe API errors in the latest reconciliation load.</p>
+              <p className="text-sm text-muted-foreground">No Provider API errors in the latest reconciliation load.</p>
             )}
           </CardContent>
         </Card>
@@ -294,7 +294,7 @@ export function FinancialReconciliationStripeTab({
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Platform weekly payouts (aggregate)</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Platform-scope totals only. Per-driver bank payout history lives on Driver Wallet Ledger → Stripe.
+            Platform-scope totals only. Per-driver bank payout history lives on Driver Wallet Ledger → Provider.
           </p>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-6">
@@ -339,7 +339,7 @@ export function FinancialReconciliationStripeTab({
                   <TableHead>Charge ID</TableHead>
                   <TableHead>Driver</TableHead>
                   <TableHead>Trip</TableHead>
-                  <TableHead className="text-right">Stripe application fee</TableHead>
+                  <TableHead className="text-right">Provider application fee</TableHead>
                   <TableHead>Created</TableHead>
                 </TableRow>
               </TableHeader>
@@ -366,7 +366,7 @@ export function FinancialReconciliationStripeTab({
           <div className="grid gap-3 sm:grid-cols-3 mb-4">
             <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Net card revenue</p><p className="text-lg font-semibold">{fmtNullable(summary?.customer_revenue?.net_card_revenue_pence)}</p></CardContent></Card>
             <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Refunded</p><p className="text-lg font-semibold">{fmtNullable(summary?.customer_revenue?.refunded_amount_pence)}</p></CardContent></Card>
-            <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Pending Stripe confirmation</p><p className="text-lg font-semibold">{fmtNullable(summary?.pending_stripe_confirmation?.expected_revenue_pence)}</p></CardContent></Card>
+            <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Pending Provider confirmation</p><p className="text-lg font-semibold">{fmtNullable(summary?.pending_stripe_confirmation?.expected_revenue_pence)}</p></CardContent></Card>
           </div>
           {resolvedPaymentIntents.length === 0 ? (
             <p className="text-sm text-muted-foreground py-6 text-center">No card payment intents in selected period.</p>
@@ -445,7 +445,7 @@ export function FinancialReconciliationStripeTab({
               <AlertTriangle className="h-4 w-4" />
               <AlertTitle>Connect Accounts unavailable</AlertTitle>
               <AlertDescription>
-                Live Stripe Connect balance sync timed out. Use Refresh to load per-account balances.
+                Live Provider balance sync timed out. Use Refresh to load per-account balances.
               </AlertDescription>
             </Alert>
           ) : connectAccountsAll.length === 0 ? (
@@ -456,10 +456,10 @@ export function FinancialReconciliationStripeTab({
                 <TableRow>
                   <TableHead>Driver</TableHead>
                   <TableHead>Connect account</TableHead>
-                  <TableHead className="text-right">Stripe available</TableHead>
-                  <TableHead className="text-right">Stripe pending</TableHead>
+                  <TableHead className="text-right">Provider available</TableHead>
+                  <TableHead className="text-right">Provider pending</TableHead>
                   <TableHead className="text-right">In transit</TableHead>
-                  <TableHead className="text-right">Stripe total</TableHead>
+                  <TableHead className="text-right">Provider total</TableHead>
                   <TableHead>Last payout</TableHead>
                   <TableHead>Last synced</TableHead>
                   <TableHead>Status</TableHead>

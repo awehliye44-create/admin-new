@@ -109,7 +109,7 @@ function GatewayStatusBadge({ snapshot }: { snapshot: GatewayStatusSnapshot | nu
 
 function payoutLabel(provider: string | null, displayName: string): string {
   if (!provider) return 'Not selected';
-  if (provider === 'stripe') return 'Stripe Connect';
+  if (provider === 'stripe') return 'Provider';
   return displayName;
 }
 
@@ -240,7 +240,7 @@ export function ServiceAreaPaymentGatewayConfig({
     Boolean(paymentProvider) && customerAdapterStatus === 'not_implemented';
 
   const bookingWorkflowLabel = isStripePreauthProvider(paymentProvider)
-    ? 'Stripe preauth (card / Apple Pay / Google Pay)'
+    ? 'Provider preauth (card / Apple Pay / Google Pay)'
     : isMobileWalletCollectProvider(paymentProvider)
       ? 'Mobile wallet collect (pay before dispatch)'
       : 'Not configured';

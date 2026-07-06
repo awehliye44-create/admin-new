@@ -66,7 +66,7 @@ export function DriverDrawerTripRowActions({
       return data;
     },
     onSuccess: (data) => {
-      toast.success(data?.message ?? 'Synced from Stripe');
+      toast.success(data?.message ?? 'Synced from Provider');
       onSynced?.();
     },
     onError: (err: Error) => toast.error(err.message),
@@ -97,7 +97,7 @@ export function DriverDrawerTripRowActions({
               rel="noopener noreferrer"
               className="flex items-center"
             >
-              View Stripe PaymentIntent
+              View Provider PaymentIntent
               <ExternalLink className="h-3 w-3 ml-auto opacity-50" />
             </a>
           </DropdownMenuItem>
@@ -112,18 +112,18 @@ export function DriverDrawerTripRowActions({
               rel="noopener noreferrer"
               className="flex items-center"
             >
-              View Stripe charge
+              View Provider charge
               <ExternalLink className="h-3 w-3 ml-auto opacity-50" />
             </a>
           </DropdownMenuItem>
         ) : (
-          <DropdownMenuItem disabled>View Stripe charge (not captured)</DropdownMenuItem>
+          <DropdownMenuItem disabled>View Provider charge (not captured)</DropdownMenuItem>
         )}
         <DropdownMenuItem
           disabled={actionsDisabled || !availability.resync_stripe.enabled || syncMutation.isPending}
           onClick={() => syncMutation.mutate()}
         >
-          Sync from Stripe
+          Sync from Provider
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem

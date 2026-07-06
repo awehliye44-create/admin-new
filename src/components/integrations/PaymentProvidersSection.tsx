@@ -296,7 +296,7 @@ function ProviderCard({
           <div className="rounded-lg border bg-muted/30 p-3 space-y-2 text-sm">
             <p className="font-medium flex items-center gap-2">
               <Shield className="h-4 w-4" />
-              Stripe technical configuration
+              Provider technical configuration
             </p>
             <div className="grid gap-1.5">
               <div className="flex justify-between gap-4">
@@ -463,7 +463,7 @@ export function PaymentProvidersConfigurationReadiness({
         <AlertTitle>Configuration readiness phase</AlertTitle>
         <AlertDescription>
           Use this page to prepare API keys, secrets, and test/live mode before vendors deliver
-          credentials. Milton Keynes remains Stripe (customer) and Stripe Connect (driver) — unchanged.
+          credentials. Milton Keynes remains Provider (customer) and Provider (driver) — unchanged.
           Service area gateway and mobile wallet allowlists are configured under each Service Area →
           Offers & Payment.
         </AlertDescription>
@@ -509,7 +509,7 @@ export function PaymentProvidersCardsGrid() {
           <h2 className="text-lg font-semibold">Payment Providers</h2>
           <p className="text-sm text-muted-foreground">
             Store provider credentials and webhook secrets now. Adding keys does not make a provider live —
-            only Stripe has a live booking adapter today. Other providers return{" "}
+            only Provider has a live booking adapter today. Other providers return{" "}
             <code className="text-xs">{PROVIDER_NOT_IMPLEMENTED_CODE}</code> until adapter, webhook
             processing, sandbox testing, and production approval are complete.
           </p>

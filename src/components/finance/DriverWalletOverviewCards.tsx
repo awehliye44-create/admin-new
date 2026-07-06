@@ -71,7 +71,7 @@ export function DriverWalletOverviewCards({
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Loading Stripe payout position…
+        Loading Provider payout position…
       </div>
     );
   }
@@ -79,7 +79,7 @@ export function DriverWalletOverviewCards({
   if (!driver && !driverId) {
     return (
       <p className="text-sm text-muted-foreground py-8">
-        Select a driver above to view their Stripe payout position.
+        Select a driver above to view their Provider payout position.
       </p>
     );
   }
@@ -88,7 +88,7 @@ export function DriverWalletOverviewCards({
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Loading driver Stripe payout position…
+        Loading driver Provider payout position…
       </div>
     );
   }
@@ -112,14 +112,14 @@ export function DriverWalletOverviewCards({
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Stripe Connect only — reads <span className="font-medium text-foreground">balance.available</span> and payout
+        Provider only — reads <span className="font-medium text-foreground">balance.available</span> and payout
         history. Trip earnings are calculated on Trip History (Trip Settlement SSOT).
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <OverviewCard
-          title="Available in Stripe"
-          description="Money currently available in the driver's Stripe Connect account (Stripe API balance.available)."
-          badge="Stripe"
+          title="Available in Provider"
+          description="Money currently available in the driver's Provider account (Provider API balance.available)."
+          badge="Provider"
         >
           <p className="text-2xl font-semibold">
             {!driver.connected_account_id
@@ -131,8 +131,8 @@ export function DriverWalletOverviewCards({
         </OverviewCard>
 
         <OverviewCard
-          title="Pending in Stripe"
-          description="Funds not yet available for payout (Stripe balance.pending)."
+          title="Pending in Provider"
+          description="Funds not yet available for payout (Provider balance.pending)."
           badge="Pending"
         >
           <p className="text-2xl font-semibold">
@@ -144,7 +144,7 @@ export function DriverWalletOverviewCards({
 
         <OverviewCard
           title="Next Weekly Transfer"
-          description="Expected Stripe automatic payout from Connect available balance."
+          description="Expected Provider automatic payout from Connect available balance."
           badge="Weekly"
         >
           {!driver.connected_account_id || stripeAvailable == null ? (
@@ -157,8 +157,8 @@ export function DriverWalletOverviewCards({
         </OverviewCard>
 
         <OverviewCard
-          title="Last Stripe Payout"
-          description="Most recent Stripe Connect payout to the driver's bank."
+          title="Last Provider Payout"
+          description="Most recent Provider payout to the driver's bank."
           badge="Payout"
         >
           {lastPayout.at || lastPayout.amountPence != null ? (
@@ -175,7 +175,7 @@ export function DriverWalletOverviewCards({
         </OverviewCard>
 
         <OverviewCard
-          title="Stripe Account"
+          title="Provider Account"
           description="Connect account health for payouts and charges."
           badge="Account"
         >

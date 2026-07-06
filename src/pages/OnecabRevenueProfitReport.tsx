@@ -25,7 +25,7 @@ type PeriodMode = 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'custom';
 type ExpenseCategory = 'technology' | 'marketing' | 'operations' | 'staff' | 'other';
 
 const SUBCATEGORIES: Record<ExpenseCategory, string[]> = {
-  technology: ['Stripe', 'Supabase', 'Google Maps', 'Firebase', 'Domains', 'Hosting'],
+  technology: ['Provider', 'Supabase', 'Google Maps', 'Firebase', 'Domains', 'Hosting'],
   marketing: ['Advertising', 'Flyers', 'Promotions'],
   operations: ['Insurance', 'Accountant', 'Phone', 'Internet', 'Office Costs'],
   staff: ['Director Salary', 'Admin Salary', 'Support Staff'],
@@ -231,7 +231,7 @@ export default function OnecabRevenueProfitReport() {
   // Expense dialog state
   const [openDialog, setOpenDialog] = useState(false);
   const [newCategory, setNewCategory] = useState<ExpenseCategory>('technology');
-  const [newSub, setNewSub] = useState('Stripe');
+  const [newSub, setNewSub] = useState('Provider');
   const [newAmount, setNewAmount] = useState('');
   const [newDate, setNewDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [newCurrency, setNewCurrency] = useState('GBP');
@@ -335,7 +335,7 @@ export default function OnecabRevenueProfitReport() {
           <AlertTitle>Business reporting only</AlertTitle>
           <AlertDescription>
             This page is for company management and finance. It never modifies Financial Reconciliation, driver wallets,
-            payouts, settlements or Stripe allocation.
+            payouts, settlements or Provider allocation.
           </AlertDescription>
         </Alert>
 
@@ -427,7 +427,7 @@ export default function OnecabRevenueProfitReport() {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Booking value, ONECAB commission, Stripe fees, and net platform revenue are displayed only in
+              Booking value, ONECAB commission, Provider fees, and net platform revenue are displayed only in
               Financial Reconciliation → Overview. Profit below uses SSOT net revenue when available.
             </p>
             <Button asChild variant="outline" size="sm">

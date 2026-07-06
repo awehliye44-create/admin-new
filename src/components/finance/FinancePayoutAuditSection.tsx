@@ -114,7 +114,7 @@ export function FinancePayoutAuditSection({
           <CardTitle className="text-base">{PAYOUT_AUDIT_TABLE_TITLE}</CardTitle>
           <p className="text-sm text-muted-foreground">
             {PAYOUT_AUDIT_TABLE_DESCRIPTION}
-            {platformMode ? ' Open Driver Wallet Ledger for per-driver Stripe and bank payout detail.' : ''}
+            {platformMode ? ' Open Driver Wallet Ledger for per-driver Provider and bank payout detail.' : ''}
           </p>
         </CardHeader>
         <CardContent>

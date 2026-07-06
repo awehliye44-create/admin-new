@@ -24,7 +24,7 @@ interface Props {
  * Pre-Authorization Buffer config card.
  *
  * IMPORTANT (do not violate):
- * - This is a PAYMENT-layer setting. It only inflates the Stripe AUTH HOLD.
+ * - This is a PAYMENT-layer setting. It only inflates the Provider AUTH HOLD.
  * - It is NEVER added to the fare, driver earnings, commission or final capture.
  * - Customer always sees Estimated Fare and Pre-auth Hold separately on checkout.
  */
@@ -105,7 +105,7 @@ export function PreauthBufferConfig({ serviceAreaId, serviceAreaName, regionCurr
             <CardDescription>
               Inflates the temporary card hold above the estimated fare for{" "}
               {serviceAreaName || "this service area"}. <strong>This is not part of the fare</strong>{" "}
-              — it&apos;s only a payment safety hold. Stripe releases the unused amount when the
+              — it&apos;s only a payment safety hold. Provider releases the unused amount when the
               final fare is captured.
             </CardDescription>
           </div>
@@ -221,7 +221,7 @@ export function PreauthBufferConfig({ serviceAreaId, serviceAreaName, regionCurr
             </div>
           </div>
           <p className="text-[11px] text-muted-foreground pt-1">
-            Final amount captured = real trip fare. Buffer is <strong>not</strong> charged — Stripe releases it.
+            Final amount captured = real trip fare. Buffer is <strong>not</strong> charged — Provider releases it.
           </p>
         </div>
 

@@ -56,7 +56,7 @@ function buildTimeline(driver: DriverWalletSsotRow): TimelineEvent[] {
       id: `stripe-po-${String(sp.payout_id)}`,
       at: String(sp.initiated_at ?? ''),
       kind: 'stripe',
-      label: `Stripe bank payout ${String(sp.status ?? '')}`,
+      label: `Provider bank payout ${String(sp.status ?? '')}`,
       amountPence: Number(sp.amount_pence ?? 0),
       detail: sp.bank_last4 ? `bank ···${String(sp.bank_last4)}` : undefined,
     });
@@ -95,7 +95,7 @@ export function DriverWalletHistoryTab({
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Timeline</CardTitle>
-        <p className="text-sm text-muted-foreground">Newest first — ledger, payouts, and Stripe events.</p>
+        <p className="text-sm text-muted-foreground">Newest first — ledger, payouts, and Provider events.</p>
       </CardHeader>
       <CardContent>
         {timeline.length === 0 ? (
