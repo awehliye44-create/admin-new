@@ -10,7 +10,7 @@
 
 import {
   buildSplitReconciliationCheck,
-  computePaymentMethodLedgerMetrics
+  computePaymentMethodLedgerMetrics,
   tripTipsPence,
   type PaymentCaptureRow,
 } from "./financialReconciliationSSOT.ts";
