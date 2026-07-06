@@ -11,8 +11,8 @@ type PlatformStripePendingExplainerProps = {
 };
 
 /**
- * Platform Stripe Pending ≠ driver weekly earnings.
- * ONECAB platform incoming settlement from Stripe (authorisations, uncaptured/captured-not-settled, timing).
+ * Platform Provider Pending ≠ driver weekly earnings.
+ * ONECAB platform incoming settlement from Provider (authorisations, uncaptured/captured-not-settled, timing).
  */
 export function PlatformStripePendingExplainer({
   pendingPence,
@@ -27,14 +27,14 @@ export function PlatformStripePendingExplainer({
   return (
     <Alert className="border-blue-500/30 bg-blue-500/5">
       <Info className="h-4 w-4 text-blue-600" />
-      <AlertTitle className="text-sm">Platform Stripe Pending — {fmt(pendingPence)}</AlertTitle>
+      <AlertTitle className="text-sm">Platform Provider Pending — {fmt(pendingPence)}</AlertTitle>
       <AlertDescription className="text-xs space-y-2 mt-1">
         <p>
-          <strong>Not driver wallet earnings.</strong> This is ONECAB&apos;s platform Stripe balance awaiting settlement
+          <strong>Not driver wallet earnings.</strong> This is ONECAB&apos;s platform Provider balance awaiting settlement
           (card authorisations, captured-but-not-yet-available funds, refunds in transit, platform timing).
         </p>
         <ul className="list-disc pl-4 space-y-0.5">
-          <li>Platform Stripe Available: {fmt(availablePence)}</li>
+          <li>Platform Provider Available: {fmt(availablePence)}</li>
           {hasDriverContext ? (
             <>
               <li>Driver wallet unpaid (all drivers in scope): {fmt(driverWalletTotalPence ?? 0)}</li>

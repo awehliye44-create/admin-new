@@ -170,7 +170,7 @@ export function ServiceAreaGatewayStatusPanel({
                     '—';
                   const payoutName =
                     provider === 'stripe'
-                      ? 'Stripe Connect'
+                      ? 'Provider'
                       : (row.driver.display_name ?? displayName);
                   return (
                   <TableRow key={row.service_area_id}>

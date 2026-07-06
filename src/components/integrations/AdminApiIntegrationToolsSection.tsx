@@ -661,7 +661,7 @@ export function AdminApiIntegrationToolsSection() {
                 <Input
                   value={integrationForm.name}
                   onChange={(e) => setIntegrationForm({ ...integrationForm, name: e.target.value })}
-                  placeholder="e.g., Production Stripe"
+                  placeholder="e.g., Production Provider"
                 />
               </div>
               <div className="grid gap-2">

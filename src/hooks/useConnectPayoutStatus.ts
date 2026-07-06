@@ -1,4 +1,4 @@
-// Stub — Stripe Connect payout status retired in Phase 3.
+// Stub — Provider payout status retired in Phase 3.
 // TODO(Phase 3 UI purge): remove call sites and delete this file.
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
@@ -20,7 +20,7 @@ export type ConnectPayoutStatus = {
 const REMOVED: ConnectPayoutStatus = {
   enabled: false,
   provider: null,
-  message: "Stripe Connect payouts retired — pending Revolut Business /pay integration.",
+  message: "Provider payouts retired — pending Revolut Business /pay integration.",
   connect_accounts: [],
 };
 

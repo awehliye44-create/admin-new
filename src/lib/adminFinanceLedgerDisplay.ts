@@ -15,7 +15,7 @@ export type AdminFinanceLedgerFilter =
   | 'bonus'
   | 'discounts';
 
-export type AdminFinanceParty = 'customer' | 'driver' | 'ONECAB' | 'Stripe' | 'system';
+export type AdminFinanceParty = 'customer' | 'driver' | 'ONECAB' | 'Provider' | 'system';
 
 export const ADMIN_FINANCE_FILTER_LABELS: Record<AdminFinanceLedgerFilter, string> = {
   all: 'All',

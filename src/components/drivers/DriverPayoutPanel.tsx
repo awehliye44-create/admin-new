@@ -144,7 +144,7 @@ export function DriverPayoutPanel({
 
       {usesStripe ? (
         <div className="space-y-2 text-sm">
-          <p className="font-medium">Stripe Connect</p>
+          <p className="font-medium">Provider</p>
           {stripeAccountId ? (
             <div className="grid grid-cols-2 gap-2">
               <div className="p-2 bg-muted/50 rounded">
@@ -163,7 +163,7 @@ export function DriverPayoutPanel({
               </div>
             </div>
           ) : (
-            <p className="text-muted-foreground">Driver has not connected Stripe Connect.</p>
+            <p className="text-muted-foreground">Driver has not connected Provider.</p>
           )}
         </div>
       ) : (

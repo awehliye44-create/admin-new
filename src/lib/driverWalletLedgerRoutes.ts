@@ -37,10 +37,10 @@ export function ledgerAuditTypeLabel(rawType: string): string {
     return 'Trip Settlement';
   }
   if (type.includes('TRANSFER') || type === 'STRIPE_TRANSFER' || type === 'CONNECT_TRANSFER') {
-    return 'Stripe Transfer';
+    return 'Provider Transfer';
   }
   if (type.includes('PAYOUT') || type === 'WEEKLY_PAYOUT' || type === 'EARLY_CASHOUT') {
-    return 'Stripe Payout';
+    return 'Provider Payout';
   }
   if (type.includes('ADJUST')) return 'Adjustment';
   if (type.includes('REFUND')) return 'Refund';

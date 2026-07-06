@@ -25,7 +25,7 @@ export function resolveStripeAccountStatus(args: {
   return 'Pending verification';
 }
 
-/** Driver money on overview — Stripe balance.available only. */
+/** Driver money on overview — Provider balance.available only. */
 export function driverStripeAvailablePence(
   driver: DriverWalletSsotRow | null | undefined,
 ): number | null {
@@ -34,7 +34,7 @@ export function driverStripeAvailablePence(
   return Math.max(0, driver.stripe_connect_available_pence);
 }
 
-/** Stripe balance.pending — not driver-facing spendable money. */
+/** Provider balance.pending — not driver-facing spendable money. */
 export function driverStripePendingPence(
   driver: DriverWalletSsotRow | null | undefined,
 ): number | null {
@@ -43,7 +43,7 @@ export function driverStripePendingPence(
   return Math.max(0, driver.stripe_connect_pending_pence);
 }
 
-/** Next weekly transfer display — Stripe available only (no ledger/batch fallback). */
+/** Next weekly transfer display — Provider available only (no ledger/batch fallback). */
 export function driverNextWeeklyTransferPence(
   driver: DriverWalletSsotRow | null | undefined,
 ): number | null {

@@ -134,7 +134,7 @@ function QuickActionsPanel({ navigate }: { navigate: (path: string) => void }) {
       label: 'Finance & Payouts',
       description: counts.pendingDocuments > 0
         ? `${counts.pendingDocuments} driver document${counts.pendingDocuments !== 1 ? 's' : ''} pending review`
-        : 'Platform reconciliation, trips, and Stripe health',
+        : 'Platform reconciliation, trips, and Provider health',
       path: '/financial-reconciliation',
       badge: counts.pendingDocuments,
     },

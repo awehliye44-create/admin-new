@@ -8,7 +8,7 @@ import {
 describe('financeAlertClassification', () => {
   it('exposes exactly 8 spec alert labels', () => {
     expect(FINANCE_ALERT_SPEC_LABELS).toHaveLength(8);
-    expect(FINANCE_ALERT_SPEC_LABELS).toContain('Stripe without Ledger');
+    expect(FINANCE_ALERT_SPEC_LABELS).toContain('Provider without Ledger');
     expect(FINANCE_ALERT_SPEC_LABELS).toContain('Webhook failure');
   });
 
@@ -35,24 +35,24 @@ describe('financeAlertClassification', () => {
     ).toBe(true);
   });
 
-  it('classifies Stripe without Ledger from payout mismatch', () => {
+  it('classifies Provider without Ledger from payout mismatch', () => {
     expect(
       classifyFinanceMismatch({
         kind: 'payout',
         reference_id: 'po_1',
-        message: 'Stripe payout paid but no matching driver_wallet_ledger stripe_payout_id entry.',
+        message: 'Provider payout paid but no matching driver_wallet_ledger stripe_payout_id entry.',
       })?.label,
-    ).toBe('Stripe without Ledger');
+    ).toBe('Provider without Ledger');
   });
 
-  it('classifies Ledger without Stripe from payout mismatch', () => {
+  it('classifies Ledger without Provider from payout mismatch', () => {
     expect(
       classifyFinanceMismatch({
         kind: 'payout',
         reference_id: 'po_2',
         message: 'Ledger debit does not match driver wallet ledger stripe payout.',
       })?.label,
-    ).toBe('Ledger without Stripe');
+    ).toBe('Ledger without Provider');
   });
 
   it('classifies duplicate payout', () => {

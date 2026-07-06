@@ -85,7 +85,7 @@ export function WeeklyMondaySettlementPanel({
             Weekly Monday Settlement
           </CardTitle>
           <p className="text-sm text-muted-foreground mt-1">
-            Dry run simulates eligibility. Create batch writes payout_items only — no Stripe transfers in this phase.
+            Dry run simulates eligibility. Create batch writes payout_items only — no Provider transfers in this phase.
           </p>
         </div>
         <div className="flex gap-2 shrink-0">

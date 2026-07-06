@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
  * Pre-Authorization Buffer (PAYMENT layer)
  *
  * Per service area. Used ONLY by `create-payment-intent` to inflate the
- * Stripe auth hold above the estimated fare. Never touches fare math,
+ * Provider auth hold above the estimated fare. Never touches fare math,
  * driver earnings, commission, or final captured amount.
  */
 export interface PreauthBufferConfig {

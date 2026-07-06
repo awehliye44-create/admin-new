@@ -9,7 +9,7 @@ import {
 } from '@/lib/customerPaymentWorkflow';
 
 describe('admin customerPaymentWorkflow', () => {
-  it('identifies Stripe vs mobile wallet gateways', () => {
+  it('identifies Provider vs mobile wallet gateways', () => {
     expect(isStripePreauthProvider('stripe')).toBe(true);
     expect(isMobileWalletCollectProvider('sifalo_pay')).toBe(true);
     expect(isMobileWalletCollectProvider('intasend')).toBe(true);
@@ -25,7 +25,7 @@ describe('admin customerPaymentWorkflow', () => {
     expect(catalogMethodsForProvider('intasend')).toEqual(['mpesa']);
   });
 
-  it('flags non-Stripe ready providers as not_implemented', () => {
+  it('flags non-Provider ready providers as not_implemented', () => {
     expect(isCustomerBookingAdapterLive('sifalo_pay')).toBe(false);
     expect(resolveProviderBookingAdapterStatus('sifalo_pay', true)).toBe('not_implemented');
     expect(resolveProviderBookingAdapterStatus('stripe', true)).toBe('live');

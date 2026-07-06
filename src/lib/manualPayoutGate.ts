@@ -6,7 +6,7 @@ export const MANUAL_PAYOUT_NO_SSOT_BALANCE_MESSAGE =
 
 /** Amber warning when soft reconciliation warnings are present — payout still allowed. */
 export const MANUAL_PAYOUT_SOFT_WARNING_MESSAGE =
-  'Finance review warning present. Payout amount is still capped by Stripe available balance.';
+  'Finance review warning present. Payout amount is still capped by Provider available balance.';
 
 export type ManualPayoutDriverFlags = {
   stripe_account_id?: string | null;
@@ -14,7 +14,7 @@ export type ManualPayoutDriverFlags = {
   payouts_enabled?: boolean | null;
 };
 
-/** True when Stripe Connect onboarding is finished and payouts are live. */
+/** True when Provider onboarding is finished and payouts are live. */
 export function isDriverStripeOnboardingComplete(
   driver: ManualPayoutDriverFlags,
 ): boolean {

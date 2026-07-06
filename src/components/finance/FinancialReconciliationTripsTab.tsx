@@ -184,7 +184,7 @@ export function FinancialReconciliationTripsTab({
               <TableHead>Created</TableHead>
               <TableHead>Completed</TableHead>
               <TableHead>Payment status</TableHead>
-              <TableHead>Stripe status</TableHead>
+              <TableHead>Provider status</TableHead>
               <TableHead>Capture status</TableHead>
               <TableHead className="text-right">Customer payable</TableHead>
               <TableHead className="text-right">Customer captured</TableHead>
@@ -318,7 +318,7 @@ export function FinancialReconciliationTripsTab({
                   Trip payment — {drawerTrip.trip_code ?? drawerTrip.trip_id.slice(0, 8)}
                 </DialogTitle>
                 <DialogDescription>
-                  Live Stripe payment state. Manual actions re-read Stripe before mutating backend SSOT.
+                  Live Provider payment state. Manual actions re-read Provider before mutating backend SSOT.
                 </DialogDescription>
               </DialogHeader>
               <div className="grid grid-cols-2 gap-2 text-xs rounded-md border p-3 bg-muted/20">
@@ -333,7 +333,7 @@ export function FinancialReconciliationTripsTab({
               </div>
               {isHistoricalLegacyCashTrip(drawerTrip.payment_method) ? (
                 <p className="text-sm text-muted-foreground rounded-md border border-dashed p-3 bg-muted/20">
-                  {HISTORICAL_LEGACY_TRIP_LABEL} — read-only audit record. No Stripe capture, refund, or recovery actions.
+                  {HISTORICAL_LEGACY_TRIP_LABEL} — read-only audit record. No Provider capture, refund, or recovery actions.
                 </p>
               ) : (
               <FinanceRecoveryPanel

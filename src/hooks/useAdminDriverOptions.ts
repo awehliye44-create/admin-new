@@ -27,7 +27,7 @@ function toDriverOption(row: AdminDriverRow): DriverOption {
 export function useAdminDriverOptions(args?: {
   regionId?: string | null;
   serviceAreaId?: string | null;
-  /** When true, only drivers with a Stripe Connect account (wallet SSOT scope). */
+  /** When true, only drivers with a Provider account (wallet SSOT scope). */
   stripeConnectOnly?: boolean;
 }) {
   const regionId = args?.regionId ?? null;

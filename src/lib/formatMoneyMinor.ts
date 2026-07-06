@@ -1,6 +1,6 @@
 import { getCurrencySymbol } from '@/lib/regionSettings';
 
-/** ISO 4217 zero-decimal currencies (Stripe-aligned subset). */
+/** ISO 4217 zero-decimal currencies (Provider-aligned subset). */
 const ZERO_DECIMAL_CURRENCIES = new Set([
   'BIF', 'CLP', 'DJF', 'GNF', 'ISK', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG',
   'RWF', 'SOS', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF',

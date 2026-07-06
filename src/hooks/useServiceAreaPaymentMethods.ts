@@ -20,7 +20,7 @@ export interface ServiceAreaPaymentConfig {
   mobile_wallet_methods?: MobileWalletMethodId[] | null;
 }
 
-/** Stripe card-preauth digital methods only — no cash (ONECAB is fully digital). */
+/** Provider card-preauth digital methods only — no cash (ONECAB is fully digital). */
 export const STRIPE_DIGITAL_PAYMENT_METHODS: PaymentMethod[] = [
   { id: 'card', name: 'Card', icon: 'credit-card', platform: 'all' },
   { id: 'apple_pay', name: 'Apple Pay', icon: 'apple', platform: 'ios' },

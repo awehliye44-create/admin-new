@@ -324,7 +324,7 @@ export function FinancialReconciliationDriverDrawer({
                   </Badge>
                 </div>
                 <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1 text-xs text-muted-foreground">
-                  <span>Stripe account: <span className="text-foreground font-mono">{driver?.connected_account_id ?? '—'}</span></span>
+                  <span>Provider account: <span className="text-foreground font-mono">{driver?.connected_account_id ?? '—'}</span></span>
                   <span>Payouts: <span className="text-foreground">{payoutsActive ? 'Active' : 'Inactive'}</span></span>
                   <span>Payments: <span className="text-foreground">{paymentsActive ? 'Active' : 'Inactive'}</span></span>
                   <span>Connect: <span className="text-foreground">{accountStatus}</span></span>
@@ -398,17 +398,17 @@ export function FinancialReconciliationDriverDrawer({
                   {digitalTrips.length} digital trip{digitalTrips.length === 1 ? '' : 's'}
                 </p>
                 <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-                  <OverviewMetric label="Stripe captured" value={fmt(overview.stripeCaptured)} hint="Customer paid (actual capture)" />
+                  <OverviewMetric label="Provider captured" value={fmt(overview.stripeCaptured)} hint="Customer paid (actual capture)" />
                   <OverviewMetric label="Customer payable" value={fmt(overview.customerPayable)} hint="Expected fare (trip SSOT)" />
                   {overview.shortfall > 0 ? (
-                    <OverviewMetric label="Stripe capture shortfall" value={fmt(overview.shortfall)} hint="Digital trips only · payable − captured" />
+                    <OverviewMetric label="Provider capture shortfall" value={fmt(overview.shortfall)} hint="Digital trips only · payable − captured" />
                   ) : null}
                   <OverviewMetric label="Refunded" value={fmt(overview.refunded)} />
                   <OverviewMetric label="Driver net earnings" value={fmt(overview.driverNet)} />
                   <OverviewMetric label="ONECAB commission" value={fmt(overview.commission)} />
                   <OverviewMetric label="Pending settlement" value={fmt(pendingBatch)} hint="In payout batch" />
                   <OverviewMetric label="Available for payout" value={fmt(eligiblePayout)} hint="Finance-cleared payable" />
-                  <OverviewMetric label="Paid out" value={fmt(paidOut)} hint="Stripe Connect transfers" />
+                  <OverviewMetric label="Paid out" value={fmt(paidOut)} hint="Provider transfers" />
                   <OverviewMetric label="Wallet balance" value={fmt(walletBalance)} />
                   <OverviewMetric
                     label="Reconciliation"
@@ -418,11 +418,11 @@ export function FinancialReconciliationDriverDrawer({
               </>
             )}
 
-            {/* Compare with Stripe */}
+            {/* Compare with Provider */}
             <Card>
               <CardContent className="pt-4 pb-4">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm font-medium">ONECAB ledger vs Stripe</p>
+                  <p className="text-sm font-medium">ONECAB ledger vs Provider</p>
                   <Badge variant={compareBalanced ? 'default' : 'destructive'}>
                     {compareBalanced ? 'Balanced' : 'Mismatch'}
                   </Badge>
@@ -430,11 +430,11 @@ export function FinancialReconciliationDriverDrawer({
                 <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 text-[10px] uppercase text-muted-foreground mb-1 px-0">
                   <span />
                   <span className="text-right">ONECAB</span>
-                  <span className="text-right">Stripe / Ledger</span>
+                  <span className="text-right">Provider / Ledger</span>
                   <span className="text-right">Diff</span>
                 </div>
                 <CompareRow
-                  label="ONECAB customer paid vs Stripe captured"
+                  label="ONECAB customer paid vs Provider captured"
                   left={stripeCapturedTotal}
                   right={perDriver?.digital_net_customer_revenue_pence ?? stripeCapturedTotal}
                   diff={stripeCapturedTotal - (perDriver?.digital_net_customer_revenue_pence ?? stripeCapturedTotal)}
@@ -448,7 +448,7 @@ export function FinancialReconciliationDriverDrawer({
                   fmt={(p) => fmt(p)}
                 />
                 <CompareRow
-                  label="Payout item vs Stripe transfer/payout"
+                  label="Payout item vs Provider transfer/payout"
                   left={pendingBatch + paidOut}
                   right={paidOut}
                   diff={pendingBatch}
@@ -467,7 +467,7 @@ export function FinancialReconciliationDriverDrawer({
                   <p className="text-sm font-medium">Why payout may not be scheduled</p>
                   <ul className="mt-2 space-y-1 text-xs text-muted-foreground list-disc pl-4">
                     {eligiblePayout <= 0 && driver?.stripe_connect_available_pence === 0 ? (
-                      <li>Platform Stripe Connect available is {fmt(0)} — awaiting Stripe settlement</li>
+                      <li>Platform Provider available is {fmt(0)} — awaiting Provider settlement</li>
                     ) : null}
                     {pendingBatch <= 0 && eligiblePayout > 0 ? (
                       <li>Payout batch not yet created for cleared earnings</li>
@@ -505,7 +505,7 @@ export function FinancialReconciliationDriverDrawer({
                     <TableHead>Trip</TableHead>
                     <TableHead>Customer</TableHead>
                     <TableHead className="text-right">Customer paid</TableHead>
-                    <TableHead>Stripe status</TableHead>
+                    <TableHead>Provider status</TableHead>
                     <TableHead>Payment method</TableHead>
                     <TableHead>Refund status</TableHead>
                     <TableHead className="text-right">Driver net</TableHead>
@@ -603,7 +603,7 @@ export function FinancialReconciliationDriverDrawer({
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs rounded-md border p-3 bg-muted/20">
-                <div><span className="text-muted-foreground">Stripe captured:</span> {fmt(selectedTrip.captured_pence)}</div>
+                <div><span className="text-muted-foreground">Provider captured:</span> {fmt(selectedTrip.captured_pence)}</div>
                 <div><span className="text-muted-foreground">Customer payable:</span> {fmt(selectedTrip.settlement_total_pence ?? selectedTrip.customer_paid_pence)}</div>
                 <div><span className="text-muted-foreground">Refunded:</span> {fmt(selectedTrip.refunded_pence)}</div>
                 <div><span className="text-muted-foreground">Shortfall:</span> {fmt(Math.max(0, (selectedTrip.settlement_total_pence ?? selectedTrip.customer_paid_pence ?? 0) - (selectedTrip.captured_pence ?? 0)))}</div>

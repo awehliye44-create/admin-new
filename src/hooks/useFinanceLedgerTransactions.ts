@@ -122,7 +122,7 @@ function mapLedgerRow(row: LedgerDbRow): FinanceLedgerTransactionRow {
     amount_pence: row.amount_pence,
     currency: row.currency ?? 'gbp',
     payment_method: trip?.payment_method ?? null,
-    source: row.stripe_transfer_id || row.stripe_payout_id ? 'Stripe' : 'ledger',
+    source: row.stripe_transfer_id || row.stripe_payout_id ? 'Provider' : 'ledger',
     status: null,
     ledger_reference: row.id,
     description: row.description,
@@ -148,11 +148,11 @@ function mapPaymentRow(row: PaymentDbRow): FinanceLedgerTransactionRow {
     amount_pence: amount,
     currency: row.currency ?? 'gbp',
     payment_method: trip?.payment_method ?? 'card',
-    source: row.provider_webhook_event_id ? 'webhook' : (row.payment_provider ?? 'Stripe'),
+    source: row.provider_webhook_event_id ? 'webhook' : (row.payment_provider ?? 'Provider'),
     status: row.status,
     ledger_reference: row.id,
     description: row.stripe_fee_pence
-      ? `Stripe fee ${formatPence(row.stripe_fee_pence, row.currency ?? 'gbp')}`
+      ? `Provider fee ${formatPence(row.stripe_fee_pence, row.currency ?? 'gbp')}`
       : null,
   };
 }

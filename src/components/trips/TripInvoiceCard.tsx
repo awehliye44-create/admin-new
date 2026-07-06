@@ -128,7 +128,7 @@ export function TripInvoiceCard({ trip, onUpdated, compact = false }: TripInvoic
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Finance details (commission, driver net, Stripe fees) are available in Financial Reconciliation.
+        Finance details (commission, driver net, Provider fees) are available in Financial Reconciliation.
       </p>
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">

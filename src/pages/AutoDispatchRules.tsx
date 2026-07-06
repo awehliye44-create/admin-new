@@ -629,7 +629,7 @@ export default function AutoDispatchRules() {
               <div className="rounded-lg border bg-muted/30 p-4 space-y-1 text-sm max-w-md">
                 <p className="font-semibold mb-2">Digital Trip</p>
                 <div className="flex justify-between"><span className="text-muted-foreground">Payment Method</span><span>Card</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Settlement</span><span>Stripe SSOT Pipeline</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Settlement</span><span>Provider SSOT Pipeline</span></div>
                 <div className="flex justify-between font-semibold pt-1 border-t mt-1"><span>Driver Earnings</span><span>Calculated by Financial SSOT</span></div>
               </div>
             </div>

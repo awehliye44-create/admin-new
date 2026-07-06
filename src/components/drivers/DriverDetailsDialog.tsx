@@ -592,14 +592,14 @@ export function DriverDetailsDialog({
       if (data?.url) {
         // Copy link to clipboard
         await navigator.clipboard.writeText(data.url);
-        toast.success('Stripe onboarding link copied to clipboard! Share it with the driver.');
+        toast.success('Provider onboarding link copied to clipboard! Share it with the driver.');
         if (data.stripe_account_id && !driver.stripe_account_id) {
           onDriverUpdate({ ...driver, stripe_account_id: data.stripe_account_id });
         }
       }
     } catch (err) {
       console.error('Error generating onboarding link:', err);
-      toast.error('Failed to generate Stripe onboarding link');
+      toast.error('Failed to generate Provider onboarding link');
     } finally {
       setIsSendingOnboardLink(false);
     }
@@ -753,7 +753,7 @@ export function DriverDetailsDialog({
                 {(!driver.onboarding_complete || !driver.stripe_account_id) && (
                   <div className="p-4 border rounded-lg space-y-3">
                     <p className="text-sm text-muted-foreground">
-                      Stripe Connect onboarding (Stripe payout service areas only).
+                      Provider onboarding (Provider payout service areas only).
                     </p>
                     {isDriverStripeOnboardingComplete(driver) ? (
                       <p className="text-sm text-muted-foreground">

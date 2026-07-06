@@ -140,7 +140,7 @@ export function FinancialReconciliationOverviewTab({
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <KpiCard label="Balanced Drivers" value={platformKpis?.balanced_drivers ?? 0} />
           <KpiCard label="Failed Payouts" value={fmt(platformKpis?.failed_payouts_pence)} />
-          <KpiCard label="Stripe-only Records" value={platformKpis?.stripe_only_records ?? 0} />
+          <KpiCard label="Provider-only Records" value={platformKpis?.stripe_only_records ?? 0} />
           <KpiCard label="Ledger-only Records" value={platformKpis?.ledger_only_records ?? 0} />
         </div>
       )}
@@ -151,7 +151,7 @@ export function FinancialReconciliationOverviewTab({
         {' · '}
         <Link to="/financial-reconciliation?tab=drivers" className="underline">Drivers</Link>
         {' · '}
-        <Link to="/financial-reconciliation?tab=stripe" className="underline">Stripe</Link>
+        <Link to="/financial-reconciliation?tab=stripe" className="underline">Provider</Link>
       </p>
     </div>
   );

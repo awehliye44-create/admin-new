@@ -23,7 +23,7 @@ import { parseDriverWalletLedgerTab, type DriverWalletLedgerTab } from '@/lib/dr
 import { ServiceAreaGatewayStatusFetcher } from '@/components/finance/ServiceAreaGatewayStatusFetcher';
 import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 
-/** Single-driver Stripe Connect truth — reads Stripe only; trip money lives on Trip History. */
+/** Single-driver Provider truth — reads Provider only; trip money lives on Trip History. */
 export default function DriverWalletLedger() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(
@@ -89,7 +89,7 @@ export default function DriverWalletLedger() {
   return (
     <AdminLayout
       title="Driver Wallet Ledger (SSOT)"
-      description="Stripe Connect payout truth — Overview, Payouts, and Stripe tabs read Connect only. Trip earnings are on Trip History."
+      description="Provider payout truth — Overview, Payouts, and Provider tabs read Connect only. Trip earnings are on Trip History."
     >
       <div className="space-y-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -118,7 +118,7 @@ export default function DriverWalletLedger() {
           <TabsList className="flex flex-wrap h-auto gap-1">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="payouts">Payouts</TabsTrigger>
-            <TabsTrigger value="stripe">Stripe</TabsTrigger>
+            <TabsTrigger value="stripe">Provider</TabsTrigger>
             <TabsTrigger value="ledger">Ledger</TabsTrigger>
           </TabsList>
 
@@ -151,7 +151,7 @@ export default function DriverWalletLedger() {
 
           <TabsContent value="ledger" className="mt-4 space-y-4">
             <p className="text-sm text-muted-foreground">
-              Audit log only — trip settlements, Stripe transfers/payouts, adjustments, refunds, and admin corrections.
+              Audit log only — trip settlements, Provider transfers/payouts, adjustments, refunds, and admin corrections.
               Not used for driver-facing balances.
             </p>
             <FinancePeriodFilter

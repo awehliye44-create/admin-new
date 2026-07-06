@@ -76,7 +76,7 @@ export function ServiceAreaPaymentConfig({ serviceAreaId, serviceAreaName }: Ser
           <Alert>
             <Info className="h-4 w-4" />
             <AlertDescription>
-              ONECAB is fully digital. Cash is not enabled. Stripe card preauth toggles do not apply
+              ONECAB is fully digital. Cash is not enabled. Provider card preauth toggles do not apply
               to this gateway.
             </AlertDescription>
           </Alert>
@@ -110,16 +110,16 @@ export function ServiceAreaPaymentConfig({ serviceAreaId, serviceAreaName }: Ser
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <CreditCard className="h-5 w-5 text-primary" />
-          Stripe digital payment methods
+          Provider digital payment methods
         </CardTitle>
         <CardDescription>
           Methods available for customers in {serviceAreaName || 'this service area'} when the gateway
-          is Stripe (card pre-authorisation workflow). Cash is disabled — ONECAB is fully digital.
+          is Provider (card pre-authorisation workflow). Cash is disabled — ONECAB is fully digital.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex items-center gap-2 mb-2">
-          <Badge variant="outline">Gateway: Stripe</Badge>
+          <Badge variant="outline">Gateway: Provider</Badge>
           <Badge variant="secondary">No cash</Badge>
         </div>
         {stripeDigitalMethods.map((method) => {

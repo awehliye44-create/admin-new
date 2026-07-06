@@ -476,7 +476,7 @@ export function toSettlementOverviewResponse(data: FinanceReconciliationResponse
         s.driver_money.driver_payout_liability_pence -
         s.driver_money.in_flight_cashout_pence,
       error: data.meta.stripe_balance_error,
-      note: 'Platform balance is total Stripe cash — NOT ONECAB commission',
+      note: 'Platform balance is total Provider cash — NOT ONECAB commission',
     },
     driver_payout_summary: {
       wallet_balance_pence: s.driver_money.driver_wallet_balance_pence,

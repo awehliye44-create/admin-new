@@ -142,8 +142,8 @@ export function FinanceTripActionsPanel({
     { key: 'cancel_authorisation', label: 'Cancel Authorisation', icon: <XCircle className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onCancelAuthorisation, variant: 'destructive' },
     { key: 'void_payment', label: 'Void Payment (before capture)', icon: <XCircle className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onCancelAuthorisation, variant: 'destructive' },
     { key: 'request_extra_payment', label: 'Request Extra Payment', icon: <PlusCircle className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onRequestExtraPayment },
-    { key: 'resync_stripe', label: 'Resync Stripe', icon: <RefreshCw className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onResyncStripe },
-    { key: 'refresh_stripe', label: 'Refresh Live Stripe Data', icon: <RefreshCw className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onResyncStripe },
+    { key: 'resync_stripe', label: 'Resync Provider', icon: <RefreshCw className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onResyncStripe },
+    { key: 'refresh_stripe', label: 'Refresh Live Provider Data', icon: <RefreshCw className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onResyncStripe },
     { key: 'repair_settlement', label: 'Repair Settlement', icon: <Wrench className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onRepairSettlement },
     { key: 'recalculate_settlement', label: 'Recalculate Settlement', icon: <Calculator className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onRecalculateSettlement },
     { key: 'retry_settlement', label: 'Retry Settlement', icon: <RefreshCw className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onRepairSettlement },
@@ -215,7 +215,7 @@ export function FinanceTripActionsPanel({
             )}
             <ViewLink
               to={`/financial-reconciliation?tab=stripe${context.paymentIntentId ? `&pi=${context.paymentIntentId}` : ''}`}
-              label="View Stripe Events"
+              label="View Provider Events"
               icon={<CreditCard className="h-3.5 w-3.5 mr-1 shrink-0" />}
             />
             <ActionButton
@@ -232,7 +232,7 @@ export function FinanceTripActionsPanel({
         <div>
           <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Payment Actions</h4>
           <p className="text-[11px] text-muted-foreground mb-2">
-            Enabled or disabled by Stripe/payment state only — not by reconciliation match.
+            Enabled or disabled by Provider/payment state only — not by reconciliation match.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
             {paymentButtons.map(({ key, label, icon, onClick, variant }) => {

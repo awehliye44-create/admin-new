@@ -19,17 +19,17 @@ export function FinanceReconciliationMismatchBanner({ regionId }: { regionId?: s
   return (
     <Alert variant={totalIssues > 0 ? 'destructive' : 'default'}>
       <AlertTriangle className="h-4 w-4" />
-      <AlertTitle>Reconciliation compare (ledger vs Stripe)</AlertTitle>
+      <AlertTitle>Reconciliation compare (ledger vs Provider)</AlertTitle>
       <AlertDescription className="space-y-2">
         <div className="flex flex-wrap gap-2">
           {mismatch > 0 ? <Badge variant="destructive">{mismatch} mismatch</Badge> : null}
           {local_only > 0 ? <Badge variant="secondary">{local_only} local only</Badge> : null}
-          {stripe_only > 0 ? <Badge variant="secondary">{stripe_only} Stripe only</Badge> : null}
+          {stripe_only > 0 ? <Badge variant="secondary">{stripe_only} Provider only</Badge> : null}
           {pending > 0 ? <Badge variant="outline">{pending} pending batch</Badge> : null}
         </div>
         <p className="text-sm">
-          Not marked BALANCED when provider balance is negative, Stripe payout lacks ledger debit,
-          local payout lacks Stripe evidence, or failed payout stuck processing.
+          Not marked BALANCED when provider balance is negative, Provider payout lacks ledger debit,
+          local payout lacks Provider evidence, or failed payout stuck processing.
         </p>
         {issueRows.length > 0 ? (
           <ul className="text-xs list-none pl-0 space-y-1">

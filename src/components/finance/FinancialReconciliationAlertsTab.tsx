@@ -51,14 +51,14 @@ export function FinancialReconciliationAlertsTab({
     if (row.completed_payouts_without_ledger_pence > 0) {
       alertItems.push({
         id: `wi-${row.driver_id}`,
-        label: 'Ledger without Stripe',
+        label: 'Ledger without Provider',
         detail: (
           <>
             <DriverWalletLedgerLink driverId={row.driver_id} tab="payouts">
               {row.driver_name ?? row.driver_id.slice(0, 8)}
             </DriverWalletLedgerLink>
             {': '}
-            {row.explanation ?? `Stripe payout without ledger debit ${fmt(row.completed_payouts_without_ledger_pence)}`}
+            {row.explanation ?? `Provider payout without ledger debit ${fmt(row.completed_payouts_without_ledger_pence)}`}
           </>
         ),
         severity: 'destructive',
@@ -70,7 +70,7 @@ export function FinancialReconciliationAlertsTab({
     if (row.provider_reference && !row.ledger_entry_created) {
       alertItems.push({
         id: `payout-no-ledger-${row.payout_id}`,
-        label: 'Stripe without Ledger',
+        label: 'Provider without Ledger',
         detail: `${row.payout_id.slice(0, 8)}… · ${fmt(row.amount_pence)} · ${row.status}`,
         severity: 'destructive',
       });

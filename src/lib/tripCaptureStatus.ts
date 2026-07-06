@@ -1,7 +1,7 @@
 /**
  * Card-trip capture confirmation — payments table + trips fields as SSOT.
  * Expected payable = final_customer_fare_pence + waiting + tip (mod already in final_customer).
- * Captured = payments.captured_amount_pence / trips.capture_amount_pence (Stripe actual only).
+ * Captured = payments.captured_amount_pence / trips.capture_amount_pence (Provider actual only).
  * Never label expected payable as "captured".
  */
 
@@ -335,7 +335,7 @@ export function getExpectedCustomerTotalPence(trip: TripCaptureFields): number |
   return fare + tip + lifecycleExtras;
 }
 
-/** Outstanding shortfall: expected payable − Stripe captured (digital trips only). */
+/** Outstanding shortfall: expected payable − Provider captured (digital trips only). */
 export function getOutstandingShortfallPence(trip: TripCaptureFields): number {
   if (!isCardTrip(trip)) return 0;
   const expected = getExpectedCustomerTotalPence(trip);
@@ -344,7 +344,7 @@ export function getOutstandingShortfallPence(trip: TripCaptureFields): number {
   return Math.max(0, expected - captured);
 }
 
-/** Count Stripe payment intents (payments rows + shortfall PI stored in metadata). */
+/** Count Provider payment intents (payments rows + shortfall PI stored in metadata). */
 export function getTripPaymentIntentCount(
   paymentCount: number,
   hasShortfallPaymentIntent = false,
@@ -461,7 +461,7 @@ export function getTripCaptureStatus(trip: TripCaptureFields): TripCaptureStatus
         kind: 'pending_capture',
         label: 'Pending capture',
         shortLabel: 'Pending capture',
-        tooltip: 'Card authorised but not yet captured in Stripe.',
+        tooltip: 'Card authorised but not yet captured in Provider.',
       });
     }
     return baseStatus(trip, {
@@ -479,7 +479,7 @@ export function getTripCaptureStatus(trip: TripCaptureFields): TripCaptureStatus
       shortLabel: split ? 'Captured (split) ✓' : 'Captured ✓',
       tooltip: split
         ? `${paymentCount} payment intents; ${(capturedTotal / 100).toFixed(2)} captured total`
-        : `${(capturedTotal / 100).toFixed(2)} captured in Stripe`,
+        : `${(capturedTotal / 100).toFixed(2)} captured in Provider`,
     });
   }
 
@@ -515,7 +515,7 @@ export function getTripCaptureStatus(trip: TripCaptureFields): TripCaptureStatus
     kind: 'capture_mismatch',
     label: 'Capture mismatch',
     shortLabel: 'Capture mismatch',
-    tooltip: `Expected ${fmt(expectedTotal)} (fare ${fmt(fare)} + tip ${fmt(tip)}${extrasLabel}); captured ${fmt(capturedTotal)} (${diff > 0 ? '+' : ''}${fmt(diff)}). Stripe did not capture the full customer total.`,
+    tooltip: `Expected ${fmt(expectedTotal)} (fare ${fmt(fare)} + tip ${fmt(tip)}${extrasLabel}); captured ${fmt(capturedTotal)} (${diff > 0 ? '+' : ''}${fmt(diff)}). Provider did not capture the full customer total.`,
   });
 }
 

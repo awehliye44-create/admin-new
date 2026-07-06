@@ -105,7 +105,7 @@ export function safeOnecabMoney(summary: FinanceReconciliationSummary | null | u
 
 export function safeProviderMoney(summary: FinanceReconciliationSummary | null | undefined) {
   return summary?.provider_money ?? {
-    provider_name: 'Stripe',
+    provider_name: 'Provider',
     provider_available_balance_pence: 0,
     provider_pending_balance_pence: 0,
     provider_health_status: 'healthy' as const,

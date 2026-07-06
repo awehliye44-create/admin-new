@@ -178,7 +178,7 @@ export function ServiceAreaMobileWalletMethodsConfig({
               <div>
                 <Label className="font-medium">Card (IntaSend)</Label>
                 <p className="text-xs text-muted-foreground">
-                  Optional card collect via IntaSend — not Stripe preauth. Requires live adapter
+                  Optional card collect via IntaSend — not Provider preauth. Requires live adapter
                   (PROVIDER_NOT_IMPLEMENTED until contracts confirmed).
                 </p>
               </div>

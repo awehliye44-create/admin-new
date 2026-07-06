@@ -1,4 +1,4 @@
-/** Europe/London calendar day bounds — matches payout diagnostics and Stripe “today” cards. */
+/** Europe/London calendar day bounds — matches payout diagnostics and Provider “today” cards. */
 export const FINANCE_LONDON_TZ = 'Europe/London';
 
 export function getLondonCalendarParts(date: Date = new Date()): { y: number; m: number; d: number } {

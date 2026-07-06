@@ -58,7 +58,7 @@ export function TripFinanceNoteDialog({
         <DialogHeader>
           <DialogTitle>Add finance note</DialogTitle>
           <DialogDescription>
-            {tripCode ?? tripId.slice(0, 8)} — audit-only note. Does not change fare, commission, or Stripe amounts.
+            {tripCode ?? tripId.slice(0, 8)} — audit-only note. Does not change fare, commission, or Provider amounts.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
