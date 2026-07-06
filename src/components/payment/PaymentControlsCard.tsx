@@ -121,6 +121,8 @@ const ACTION_LABEL: Record<AuditEntry['action'] | 'extra_payment', string> = {
   edit_fare: 'Edit fare',
   cancel: 'Hold released',
   extra_payment: 'Extra payment',
+  finance_note: 'Finance note',
+  sync_stripe: 'Sync Stripe',
 };
 
 const INFORMATIONAL_SETTLEMENT_WARNINGS = new Set([
