@@ -388,6 +388,60 @@ export type Database = {
         }
         Relationships: []
       }
+      app_performance_baselines: {
+        Row: {
+          action_name: string
+          app_name: string
+          baseline_type: string
+          created_at: string
+          failure_count: number
+          id: string
+          notes: string | null
+          p50_ms: number | null
+          p95_ms: number | null
+          p99_ms: number | null
+          platform: string
+          sample_count: number
+          target_ms: number
+          timeout_count: number
+          verdict: string
+        }
+        Insert: {
+          action_name: string
+          app_name: string
+          baseline_type: string
+          created_at?: string
+          failure_count?: number
+          id?: string
+          notes?: string | null
+          p50_ms?: number | null
+          p95_ms?: number | null
+          p99_ms?: number | null
+          platform: string
+          sample_count?: number
+          target_ms: number
+          timeout_count?: number
+          verdict: string
+        }
+        Update: {
+          action_name?: string
+          app_name?: string
+          baseline_type?: string
+          created_at?: string
+          failure_count?: number
+          id?: string
+          notes?: string | null
+          p50_ms?: number | null
+          p95_ms?: number | null
+          p99_ms?: number | null
+          platform?: string
+          sample_count?: number
+          target_ms?: number
+          timeout_count?: number
+          verdict?: string
+        }
+        Relationships: []
+      }
       app_performance_events: {
         Row: {
           app_name: string
@@ -6793,6 +6847,79 @@ export type Database = {
             columns: ["invoice_id"]
             isOneToOne: false
             referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoice_email_outbox: {
+        Row: {
+          created_at: string
+          email_type: string
+          error_message: string | null
+          id: string
+          metadata: Json | null
+          pdf_storage_path: string | null
+          provider_message_id: string | null
+          recipient_email: string
+          recipient_user_id: string
+          retry_count: number
+          sent_at: string | null
+          status: string
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email_type?: string
+          error_message?: string | null
+          id?: string
+          metadata?: Json | null
+          pdf_storage_path?: string | null
+          provider_message_id?: string | null
+          recipient_email: string
+          recipient_user_id: string
+          retry_count?: number
+          sent_at?: string | null
+          status?: string
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email_type?: string
+          error_message?: string | null
+          id?: string
+          metadata?: Json | null
+          pdf_storage_path?: string | null
+          provider_message_id?: string | null
+          recipient_email?: string
+          recipient_user_id?: string
+          retry_count?: number
+          sent_at?: string | null
+          status?: string
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_email_outbox_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_email_outbox_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_email_outbox_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
             referencedColumns: ["id"]
           },
         ]
@@ -17228,6 +17355,10 @@ export type Database = {
         Args: { _admin_notes?: string; _merchant_id: string }
         Returns: Json
       }
+      assert_driver_presence_online_eligible: {
+        Args: { p_driver_id: string }
+        Returns: Json
+      }
       assert_payment_authorized: {
         Args: { _trip_id: string }
         Returns: boolean
@@ -17857,6 +17988,28 @@ export type Database = {
         Args: { p_service_area_id: string }
         Returns: Json
       }
+      get_p95_action_metrics: {
+        Args: {
+          p_app_name: string
+          p_flow_type?: string
+          p_group_by?: string
+          p_hours?: number
+        }
+        Returns: {
+          action_name: string
+          event_count: number
+          failure_count: number
+          flow_type: string
+          latest_at: string
+          p50_ms: number
+          p95_ms: number
+          p99_ms: number
+          platform: string
+          regression_count: number
+          timeout_count: number
+          warning_count: number
+        }[]
+      }
       get_p95_screen_metrics: {
         Args: { p_app_name: string; p_metric_name: string }
         Returns: {
@@ -17864,6 +18017,33 @@ export type Database = {
           latest_at: string
           p95_ms: number
           screen_name: string
+        }[]
+      }
+      get_performance_baseline_verdicts: {
+        Args: { p_app_name?: string }
+        Returns: {
+          action_name: string
+          after_at: string
+          after_failure_count: number
+          after_notes: string
+          after_p50_ms: number
+          after_p95_ms: number
+          after_p99_ms: number
+          after_timeout_count: number
+          after_verdict: string
+          app_name: string
+          before_at: string
+          before_failure_count: number
+          before_notes: string
+          before_p50_ms: number
+          before_p95_ms: number
+          before_p99_ms: number
+          before_timeout_count: number
+          before_verdict: string
+          final_verdict: string
+          improvement_pct: number
+          platform: string
+          target_ms: number
         }[]
       }
       get_performance_p95: {
