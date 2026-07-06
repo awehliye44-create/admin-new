@@ -4,7 +4,6 @@ import { AdminLayout } from '@/components/layout/AdminLayout';
 import { FinanceLedgerPanel } from '@/components/finance/FinanceLedgerPanel';
 import { DriverWalletOverviewCards } from '@/components/finance/DriverWalletOverviewCards';
 import { DriverWalletPayoutsTab } from '@/components/finance/DriverWalletPayoutsTab';
-import { DriverWalletStripeTab } from '@/components/finance/DriverWalletStripeTab';
 import { DriverSelector } from '@/components/finance/DriverSelector';
 import {
   DEFAULT_SERVICE_AREA_SELECTION,
@@ -89,7 +88,7 @@ export default function DriverWalletLedger() {
   return (
     <AdminLayout
       title="Driver Wallet Ledger (SSOT)"
-      description="Provider payout truth — Overview, Payouts, and Provider tabs read Connect only. Trip earnings are on Trip History."
+      description="Provider payout truth — Overview, Payouts, and Ledger tabs. Trip earnings are on Trip History."
     >
       <div className="space-y-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -118,7 +117,6 @@ export default function DriverWalletLedger() {
           <TabsList className="flex flex-wrap h-auto gap-1">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="payouts">Payouts</TabsTrigger>
-            <TabsTrigger value="stripe">Provider</TabsTrigger>
             <TabsTrigger value="ledger">Ledger</TabsTrigger>
           </TabsList>
 
@@ -127,7 +125,6 @@ export default function DriverWalletLedger() {
               driver={driver}
               driverId={driverId}
               currencyCode={currencyCode}
-              regionId={serviceFilter.regionId}
               isLoading={isLoading && !!driverId}
             />
           </TabsContent>
@@ -136,15 +133,6 @@ export default function DriverWalletLedger() {
             <DriverWalletPayoutsTab
               driver={driver}
               currencyCode={currencyCode}
-              isLoading={loadingDetail}
-            />
-          </TabsContent>
-
-          <TabsContent value="stripe" className="mt-4">
-            <DriverWalletStripeTab
-              driver={driver}
-              currencyCode={currencyCode}
-              regionId={serviceFilter.regionId}
               isLoading={loadingDetail}
             />
           </TabsContent>

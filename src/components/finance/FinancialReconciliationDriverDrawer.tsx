@@ -33,7 +33,6 @@ import type { FinanceDataSourceBadge } from '@/hooks/useFinancialReconciliationS
 import { useDriverWalletSsotDetail } from '@/hooks/useDriverWalletSsot';
 import { usePerDriverFinancialReconciliation } from '@/hooks/usePerDriverFinancialReconciliation';
 import { useDriverTripFinancialAudit } from '@/hooks/useDriverTripFinancialAudit';
-import { useConnectPayoutStatus } from '@/hooks/useConnectPayoutStatus';
 import { useFinanceActionPermission } from '@/hooks/useFinanceActionPermission';
 import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 import {
@@ -44,7 +43,6 @@ import {
   type DriverDateRangePreset,
 } from '@/lib/financialReconciliationDriverDateRange';
 import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
-import { resolveStripeAccountStatus } from '@/lib/driverWalletStripeDisplay';
 import { reconciliationBadgeVariant } from '@/lib/financeTripReconciliationBadge';
 
 type PaymentStatusTab =
@@ -208,7 +206,6 @@ export function FinancialReconciliationDriverDrawer({
       enabled: open && !!driverId,
     });
 
-  const { data: connectStatus } = useConnectPayoutStatus(filter.regionId ?? null);
 
   const driver = walletDetail ?? driverRow;
   const perDriver = perDriverData?.finance_reconciliation_driver_ssot;
@@ -288,16 +285,7 @@ export function FinancialReconciliationDriverDrawer({
     setSelectedTripPaymentAction(null);
   };
 
-  const accountStatus = resolveStripeAccountStatus({
-    connectedAccountId: driver?.connected_account_id,
-    chargesEnabled: connectAccount?.charges_enabled,
-    payoutsEnabled: connectAccount?.payouts_enabled,
-    detailsSubmitted: connectAccount?.details_submitted,
-    connectAccountStatus: connectAccount?.connect_account_status,
-  });
 
-  const paymentsActive = connectAccount?.charges_enabled !== false;
-  const payoutsActive = connectAccount?.payouts_enabled !== false;
 
   if (!driverRow) return null;
 
@@ -324,9 +312,6 @@ export function FinancialReconciliationDriverDrawer({
                 </div>
                 <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1 text-xs text-muted-foreground">
                   <span>Provider account: <span className="text-foreground font-mono">{driver?.connected_account_id ?? '—'}</span></span>
-                  <span>Payouts: <span className="text-foreground">{payoutsActive ? 'Active' : 'Inactive'}</span></span>
-                  <span>Payments: <span className="text-foreground">{paymentsActive ? 'Active' : 'Inactive'}</span></span>
-                  <span>Connect: <span className="text-foreground">{accountStatus}</span></span>
                   <span>Service area: <span className="text-foreground">{serviceAreaName ?? '—'}</span></span>
                   <span>Currency: <span className="text-foreground">{currencyCode.toUpperCase()}</span></span>
                 </div>
