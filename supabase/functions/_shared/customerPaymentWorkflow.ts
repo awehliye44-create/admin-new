@@ -36,10 +36,10 @@ export const PROVIDER_MOBILE_WALLET_CATALOG: Record<string, MobileWalletMethodId
 };
 
 /** Providers with live customer booking adapters (card preauth or mobile collect). */
-export const LIVE_CUSTOMER_BOOKING_PROVIDERS = new Set<string>(["stripe"]);
+export const LIVE_CUSTOMER_BOOKING_PROVIDERS = new Set<string>(["stripe", "revolut"]);
 
-/** Providers with live driver payout adapters (Stripe Connect, etc.). */
-export const LIVE_DRIVER_PAYOUT_PROVIDERS = new Set<string>(["stripe"]);
+/** Providers with live driver payout adapters (Stripe Connect, Revolut Business, etc.). */
+export const LIVE_DRIVER_PAYOUT_PROVIDERS = new Set<string>(["stripe", "revolut"]);
 
 export function isMobileWalletCollectProvider(provider: string | null | undefined): boolean {
   if (!provider) return false;

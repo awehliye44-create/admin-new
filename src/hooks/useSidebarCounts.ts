@@ -17,6 +17,7 @@ export interface SidebarCounts {
 
 const CACHE_KEY = 'sidebar-counts-cache';
 const CACHE_TTL_MS = 30000; // 30 seconds
+const REALTIME_REFETCH_DEBOUNCE_MS = 750;
 
 interface CachedCounts {
   data: SidebarCounts;
@@ -34,61 +35,48 @@ const defaultCounts: SidebarCounts = {
   pendingVehicleChanges: 0,
 };
 
-/** One realtime channel shared by AdminSidebar + Dashboard QuickActions (same channel name cannot subscribe twice). */
+/** One realtime channel + one in-flight fetch shared by all hook instances. */
 let sidebarCountsChannel: RealtimeChannel | null = null;
-const sidebarCountsRefetchers = new Set<() => void>();
+let sharedCounts: SidebarCounts = defaultCounts;
+let sharedLoading = true;
+let fetchInFlight: Promise<SidebarCounts> | null = null;
+let realtimeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+const countListeners = new Set<(counts: SidebarCounts) => void>();
+const loadingListeners = new Set<(loading: boolean) => void>();
 
-function refetchAllSidebarCounts() {
-  sidebarCountsRefetchers.forEach((refetch) => refetch());
+function notifyCounts(counts: SidebarCounts) {
+  sharedCounts = counts;
+  countListeners.forEach((listener) => listener(counts));
 }
 
-function registerSidebarCountsRealtime(refetch: () => void): () => void {
-  sidebarCountsRefetchers.add(refetch);
-  if (!sidebarCountsChannel) {
-    sidebarCountsChannel = supabase
-      .channel('sidebar-counts')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, refetchAllSidebarCounts)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rider_feedback' }, refetchAllSidebarCounts)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'documents' }, refetchAllSidebarCounts)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, refetchAllSidebarCounts)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'promo_codes' }, refetchAllSidebarCounts)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'admin_settings' }, refetchAllSidebarCounts)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_change_requests' }, refetchAllSidebarCounts)
-      .subscribe();
-  }
-  return () => {
-    sidebarCountsRefetchers.delete(refetch);
-    if (sidebarCountsRefetchers.size === 0 && sidebarCountsChannel) {
-      supabase.removeChannel(sidebarCountsChannel);
-      sidebarCountsChannel = null;
-    }
-  };
+function notifyLoading(loading: boolean) {
+  sharedLoading = loading;
+  loadingListeners.forEach((listener) => listener(loading));
 }
 
-export function useSidebarCounts() {
-  const [counts, setCounts] = useState<SidebarCounts>(defaultCounts);
-  const [isLoading, setIsLoading] = useState(true);
+async function fetchSidebarCountsOnce(skipCache = false): Promise<SidebarCounts> {
+  if (fetchInFlight) return fetchInFlight;
 
-  const fetchCounts = useCallback(async (skipCache = false) => {
-    // Check cache first
+  fetchInFlight = (async () => {
     if (!skipCache) {
       try {
         const cached = localStorage.getItem(CACHE_KEY);
         if (cached) {
           const parsed: CachedCounts = JSON.parse(cached);
           if (Date.now() - parsed.timestamp < CACHE_TTL_MS) {
-            setCounts(parsed.data);
-            setIsLoading(false);
-            return;
+            notifyCounts(parsed.data);
+            notifyLoading(false);
+            return parsed.data;
           }
         }
-      } catch (e) {
+      } catch {
         // Ignore cache errors
       }
     }
 
+    notifyLoading(true);
+
     try {
-      // Fetch all counts in parallel
       const [
         activeTripsResult,
         scheduledRidesResult,
@@ -99,63 +87,47 @@ export function useSidebarCounts() {
         pendingDriversResult,
         pendingVehicleChangesResult,
       ] = await Promise.all([
-        // Active trips — SSOT status list + exclude stale unassigned searching
         supabase
           .from('trips')
           .select('id, status, searching_expires_at, driver_id, created_at, trip_code')
           .in('status', [...ACTIVE_TRIP_DB_STATUSES]),
-        
-        // Scheduled rides (is_scheduled = true and scheduled_at in future)
         supabase
           .from('trips')
           .select('id', { count: 'exact', head: true })
           .eq('is_scheduled', true)
           .in('scheduled_status', ['pending', 'confirmed']),
-        
-        // Pending feedback (status = pending or new)
         supabase
           .from('rider_feedback')
           .select('id', { count: 'exact', head: true })
           .in('status', ['pending', 'new']),
-        
-        // Pending documents (status = pending)
         supabase
           .from('documents')
           .select('id', { count: 'exact', head: true })
           .eq('status', 'pending'),
-        
-        // Active promo codes
         supabase
           .from('promo_codes')
           .select('id', { count: 'exact', head: true })
           .eq('is_active', true),
-        
-        // Pending account requests from admin_settings JSON
         supabase
           .from('admin_settings')
           .select('setting_value')
           .eq('setting_key', 'account_requests')
           .maybeSingle(),
-        
-        // Pending drivers (approval_status = pending)
         supabase
           .from('drivers')
           .select('id', { count: 'exact', head: true })
           .eq('approval_status', 'pending'),
-        
-        // Pending vehicle change requests
         supabase
           .from('vehicle_change_requests')
           .select('id', { count: 'exact', head: true })
           .eq('status', 'pending'),
       ]);
 
-      // Parse account requests from JSON
       let pendingAccountRequests = 0;
       if (accountRequestsResult.data?.setting_value) {
         const requests = accountRequestsResult.data.setting_value as any[];
-        pendingAccountRequests = Array.isArray(requests) 
-          ? requests.filter((r: any) => r.status === 'pending').length 
+        pendingAccountRequests = Array.isArray(requests)
+          ? requests.filter((r: any) => r.status === 'pending').length
           : 0;
       }
 
@@ -170,37 +142,89 @@ export function useSidebarCounts() {
         pendingVehicleChanges: pendingVehicleChangesResult.count || 0,
       };
 
-      setCounts(newCounts);
-      
-      // Cache the results
       localStorage.setItem(CACHE_KEY, JSON.stringify({
         data: newCounts,
         timestamp: Date.now(),
       }));
+      notifyCounts(newCounts);
+      return newCounts;
     } catch (error) {
       console.error('Error fetching sidebar counts:', error);
+      return sharedCounts;
     } finally {
-      setIsLoading(false);
+      notifyLoading(false);
+      fetchInFlight = null;
     }
+  })();
+
+  return fetchInFlight;
+}
+
+function scheduleRealtimeRefetch() {
+  if (realtimeDebounceTimer) return;
+  realtimeDebounceTimer = setTimeout(() => {
+    realtimeDebounceTimer = null;
+    void fetchSidebarCountsOnce(true);
+  }, REALTIME_REFETCH_DEBOUNCE_MS);
+}
+
+function ensureSidebarCountsRealtime() {
+  if (sidebarCountsChannel) return;
+  sidebarCountsChannel = supabase
+    .channel('sidebar-counts')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, scheduleRealtimeRefetch)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'rider_feedback' }, scheduleRealtimeRefetch)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'documents' }, scheduleRealtimeRefetch)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, scheduleRealtimeRefetch)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'promo_codes' }, scheduleRealtimeRefetch)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'admin_settings' }, scheduleRealtimeRefetch)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_change_requests' }, scheduleRealtimeRefetch)
+    .subscribe();
+}
+
+let realtimeSubscriberCount = 0;
+
+function registerSidebarCountsRealtime(): () => void {
+  realtimeSubscriberCount += 1;
+  ensureSidebarCountsRealtime();
+  return () => {
+    realtimeSubscriberCount -= 1;
+    if (realtimeSubscriberCount <= 0 && sidebarCountsChannel) {
+      supabase.removeChannel(sidebarCountsChannel);
+      sidebarCountsChannel = null;
+      realtimeSubscriberCount = 0;
+    }
+  };
+}
+
+export function useSidebarCounts() {
+  const [counts, setCounts] = useState<SidebarCounts>(sharedCounts);
+  const [isLoading, setIsLoading] = useState(sharedLoading);
+
+  useEffect(() => {
+    countListeners.add(setCounts);
+    loadingListeners.add(setIsLoading);
+    return () => {
+      countListeners.delete(setCounts);
+      loadingListeners.delete(setIsLoading);
+    };
   }, []);
 
-  // Initial fetch
-  useEffect(() => {
-    fetchCounts();
-  }, [fetchCounts]);
+  const refresh = useCallback(() => fetchSidebarCountsOnce(true), []);
 
-  // Refresh on window focus
+  useEffect(() => {
+    void fetchSidebarCountsOnce();
+  }, []);
+
   useEffect(() => {
     const handleFocus = () => {
-      fetchCounts(true);
+      void fetchSidebarCountsOnce(true);
     };
-
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
-  }, [fetchCounts]);
+  }, []);
 
-  // Single shared realtime channel — AdminSidebar and Dashboard both use this hook.
-  useEffect(() => registerSidebarCountsRealtime(() => fetchCounts(true)), [fetchCounts]);
+  useEffect(() => registerSidebarCountsRealtime, []);
 
-  return { counts, isLoading, refresh: () => fetchCounts(true) };
+  return { counts, isLoading, refresh };
 }

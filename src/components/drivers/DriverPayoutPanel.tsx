@@ -57,8 +57,7 @@ export function DriverPayoutPanel({
           )
           .eq("driver_id", driverId)
           .eq("is_active", true)
-          .is("archived_at", null)
-          .maybeSingle(),
+          .is("archived_at", null),
         supabase
           .from("driver_payout_destination_audit")
           .select(
@@ -72,7 +71,7 @@ export function DriverPayoutPanel({
       return {
         serviceArea: areaRes.data,
         region: regionRes.data,
-        destination: destinationRes.data,
+        destinations: destinationRes.data ?? [],
         audit: auditRes.data ?? [],
       };
     },
@@ -92,7 +91,18 @@ export function DriverPayoutPanel({
     "stripe";
   const usesStripe = payoutGateway === "stripe";
   const region = data?.region;
-  const destination = data?.destination;
+  const destinations = (data?.destinations ?? []) as Array<{
+    id?: string;
+    provider?: string;
+    destination_type?: string | null;
+    destination_label?: string | null;
+    destination_last4?: string | null;
+    account_holder_name?: string | null;
+    updated_at?: string | null;
+  }>;
+  const destination = destinations.find((row) => row.provider === payoutGateway) ?? null;
+  const staleOtherProvider = destinations.find((row) => row.provider && row.provider !== payoutGateway) ?? null;
+  const providerMismatch = Boolean(!usesStripe && !destination && staleOtherProvider);
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading payout settings…</p>;
@@ -124,6 +134,13 @@ export function DriverPayoutPanel({
           </p>
         </div>
       </div>
+
+      {providerMismatch ? (
+        <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+          Provider mismatch: driver has an active destination for {String(staleOtherProvider?.provider).replace(/_/g, " ")}, but
+          this service area uses {payoutGateway.replace(/_/g, " ")}. Payout is blocked until a {payoutGateway.replace(/_/g, " ")} destination is added.
+        </p>
+      ) : null}
 
       {usesStripe ? (
         <div className="space-y-2 text-sm">

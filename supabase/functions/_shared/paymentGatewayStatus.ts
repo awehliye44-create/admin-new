@@ -9,7 +9,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 export type GatewayRole = "customer" | "driver";
 
 /** Live adapters only — credentials alone do not make a provider production-ready. */
-const LIVE_PAYMENT_ADAPTERS = new Set<string>(["stripe"]);
+const LIVE_PAYMENT_ADAPTERS = new Set<string>(["stripe", "revolut"]);
 
 function isLivePaymentAdapter(provider: string | null | undefined): boolean {
   return Boolean(provider && LIVE_PAYMENT_ADAPTERS.has(provider));

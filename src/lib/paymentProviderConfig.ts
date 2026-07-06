@@ -13,6 +13,7 @@ export const SUPPORTED_PAYMENT_PROVIDER_IDS: PaymentProviderId[] = [
   "hubtel",
   "dpo_pay",
   "noda",
+  "revolut",
 ];
 
 export type ProviderSecretName = "publishable_key" | "secret_key" | "webhook_secret" | "merchant_id";
@@ -33,6 +34,7 @@ export const PROVIDER_SECRET_FIELDS: Record<PaymentProviderId, ProviderSecretNam
   hubtel: ["publishable_key", "secret_key", "webhook_secret"],
   dpo_pay: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
   noda: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
+  revolut: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
 };
 
 export type ProviderSecretFieldLabels = Partial<Record<ProviderSecretName, string>>;
@@ -117,5 +119,11 @@ export const PROVIDER_SECRET_FIELD_LABELS: Record<PaymentProviderId, ProviderSec
     secret_key: "Secret key",
     webhook_secret: "Webhook secret",
     merchant_id: "Merchant / account ID",
+  },
+  revolut: {
+    publishable_key: "Merchant API key (customer checkout)",
+    secret_key: "Business API access token",
+    webhook_secret: "Webhook signing secret",
+    merchant_id: "Source Business account ID (payouts)",
   },
 };

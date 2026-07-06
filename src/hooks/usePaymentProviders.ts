@@ -16,7 +16,8 @@ export type PaymentProviderId =
   | "pesapal"
   | "hubtel"
   | "dpo_pay"
-  | "noda";
+  | "noda"
+  | "revolut";
 
 export type ProviderEnvironment = "test" | "live";
 

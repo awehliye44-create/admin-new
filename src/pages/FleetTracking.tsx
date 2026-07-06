@@ -354,8 +354,8 @@ export default function FleetTracking() {
   useEffect(() => {
     fetchData();
     
-    // Background refresh every 30s (no spinner)
-    const interval = setInterval(() => fetchData(true), 30000);
+    // Background refresh every 60s — driver location patches via realtime subscription.
+    const interval = setInterval(() => fetchData(true), 60_000);
     return () => clearInterval(interval);
   }, [fetchData]);
 
