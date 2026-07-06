@@ -14,12 +14,19 @@ import type {
   ProviderEnvironment,
   ProviderSecrets,
 } from "./paymentProviders/types.ts";
-import {
-  isCustomerBookingAdapterLive,
-  isPayoutAdapterLive,
-} from "./customerPaymentWorkflow.ts";
-import { getPaymentProviderAdapter } from "./paymentProviders/index.ts";
 import type { ConnectionTestResult } from "./paymentProviders/types.ts";
+
+/** Leaf registry — do not import customerPaymentWorkflow here (circular via paymentGatewayGuard). */
+const LIVE_CUSTOMER_BOOKING_PROVIDERS = new Set<string>(["stripe", "revolut"]);
+const LIVE_DRIVER_PAYOUT_PROVIDERS = new Set<string>(["stripe", "revolut"]);
+
+function isCustomerBookingAdapterLive(provider: string): boolean {
+  return LIVE_CUSTOMER_BOOKING_PROVIDERS.has(provider);
+}
+
+function isPayoutAdapterLive(provider: string): boolean {
+  return LIVE_DRIVER_PAYOUT_PROVIDERS.has(provider);
+}
 
 /** Re-run live API auth when cached test is missing, failed, or older than this. */
 export const LIVE_PROVIDER_AUTH_TEST_MAX_AGE_MS = 5 * 60 * 1000;
@@ -141,6 +148,7 @@ export async function verifyLiveProviderApiAuthentication(
     };
   }
 
+  const { getPaymentProviderAdapter } = await import("./paymentProviders/index.ts");
   const adapter = getPaymentProviderAdapter(supabase, provider, environment);
   const result = await adapter.testConnection();
 

@@ -503,7 +503,10 @@ export async function resolveProviderGatewayStatus(
     providerId as PaymentProviderId,
     environment,
     config,
-  );
+  ).catch((probeErr) => ({
+    ok: false as const,
+    message: `Live provider API probe failed: ${(probeErr as Error)?.message ?? String(probeErr)}`,
+  }));
   if (!liveAuth.ok) {
     const authMessage = liveAuth.message ?? "Live provider API authentication failed";
     return buildSnapshot(role, providerId, config, withCredentials({
