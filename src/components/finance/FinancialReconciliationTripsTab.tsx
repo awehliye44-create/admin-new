@@ -23,10 +23,14 @@ import type { FinanceDataSourceBadge } from '@/hooks/useFinancialReconciliationS
 import type { FinanceRecoveryAction } from '@/components/payment/PaymentControlsCard';
 import { Search } from 'lucide-react';
 import { reconciliationBadgeVariant } from '@/lib/financeTripReconciliationBadge';
+import {
+  HISTORICAL_LEGACY_TRIP_LABEL,
+  isDigitalPaymentMethod,
+  isHistoricalLegacyCashTrip,
+} from '../../../shared/digitalFinanceSSOT';
 
 function isDigitalPayment(method: string | null | undefined): boolean {
-  const m = String(method ?? '').toLowerCase();
-  return m !== '' && m !== 'cash';
+  return isDigitalPaymentMethod(method);
 }
 
 function providerStatusLabel(row: TripFinancialAuditRow): string {
@@ -210,17 +214,23 @@ export function FinancialReconciliationTripsTab({
                   </TableCell>
                   <TableCell className="text-xs whitespace-nowrap">{formatFinanceDateSafe(row.created_at)}</TableCell>
                   <TableCell className="text-xs whitespace-nowrap">{formatFinanceDateSafe(row.date)}</TableCell>
-                  <TableCell className="text-xs">{row.payment_status ?? row.payment_method ?? '—'}</TableCell>
+                  <TableCell className="text-xs">
+                    {isHistoricalLegacyCashTrip(row.payment_method)
+                      ? HISTORICAL_LEGACY_TRIP_LABEL
+                      : (row.payment_status ?? row.payment_method ?? '—')}
+                  </TableCell>
                   <TableCell>
                     <Badge variant="outline" className="text-[10px] whitespace-nowrap">
-                      {providerStatusLabel(row)}
+                      {digital ? providerStatusLabel(row) : HISTORICAL_LEGACY_TRIP_LABEL}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-xs">{row.capture_status ?? '—'}</TableCell>
+                  <TableCell className="text-xs">{digital ? (row.capture_status ?? '—') : '—'}</TableCell>
                   <TableCell className="text-right text-xs whitespace-nowrap">
                     {fmt(row.settlement_total_pence ?? row.customer_paid_pence, row.currency_code)}
                   </TableCell>
-                  <TableCell className="text-right text-xs whitespace-nowrap">{fmt(row.captured_pence, row.currency_code)}</TableCell>
+                  <TableCell className="text-right text-xs whitespace-nowrap">
+                    {digital ? fmt(row.captured_pence, row.currency_code) : '—'}
+                  </TableCell>
                   <TableCell className="text-right text-xs whitespace-nowrap">{fmt(row.driver_net_pence, row.currency_code)}</TableCell>
                   <TableCell className="text-right text-xs whitespace-nowrap">
                     {fmt(row.onecab_gross_commission_pence, row.currency_code)}
@@ -321,6 +331,11 @@ export function FinancialReconciliationTripsTab({
                 <div><span className="text-muted-foreground">Payout:</span> {drawerTrip.driver_payout?.label ?? '—'}</div>
                 <div><span className="text-muted-foreground">Provider:</span> {drawerTrip.provider?.label ?? '—'}</div>
               </div>
+              {isHistoricalLegacyCashTrip(drawerTrip.payment_method) ? (
+                <p className="text-sm text-muted-foreground rounded-md border border-dashed p-3 bg-muted/20">
+                  {HISTORICAL_LEGACY_TRIP_LABEL} — read-only audit record. No Stripe capture, refund, or recovery actions.
+                </p>
+              ) : (
               <FinanceRecoveryPanel
                 tripId={drawerTrip.trip_id}
                 tripCode={drawerTrip.trip_code}
@@ -331,6 +346,7 @@ export function FinancialReconciliationTripsTab({
                 initialPaymentAction={drawerAction === 'capture' || drawerAction === 'refund' ? drawerAction : null}
                 onActionComplete={onRefresh}
               />
+              )}
             </>
           )}
         </DialogContent>

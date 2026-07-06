@@ -215,6 +215,8 @@ describe('tripCaptureStatus — Trip History finance SSOT', () => {
     };
     expect(getTripSettlementFarePence(trip)).toBe(850);
     expect(getTripDriverNetPence(trip)).toBe(680);
+    expect(getOutstandingShortfallPence(trip)).toBe(0);
+    expect(getTripCaptureStatus(trip).kind).toBe('historical_legacy');
   });
 
   it('average fare uses settlement fare: captured 512 not legacy 480', () => {

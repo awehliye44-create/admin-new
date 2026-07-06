@@ -15,7 +15,7 @@ import {
 export { isCardTrip, isCashTrip, getPaymentRowCapturedPence } from '@/lib/tripSettlementFinanceSSOT';
 
 export type CaptureStatusKind =
-  | 'cash_collected'
+  | 'historical_legacy'
   | 'pending_capture'
   | 'pending'
   | 'captured'
@@ -335,8 +335,9 @@ export function getExpectedCustomerTotalPence(trip: TripCaptureFields): number |
   return fare + tip + lifecycleExtras;
 }
 
-/** Outstanding shortfall: expected payable − Stripe captured (never negative). */
+/** Outstanding shortfall: expected payable − Stripe captured (digital trips only). */
 export function getOutstandingShortfallPence(trip: TripCaptureFields): number {
+  if (!isCardTrip(trip)) return 0;
   const expected = getExpectedCustomerTotalPence(trip);
   const captured = getCapturedTotalPence(trip);
   if (expected == null || captured == null) return 0;
@@ -427,7 +428,7 @@ export function getTripCaptureStatus(trip: TripCaptureFields): TripCaptureStatus
   if (!isCardTrip(trip)) {
     if (paymentStatus === 'collected_cash') {
       return baseStatus(trip, {
-        kind: 'cash_collected',
+        kind: 'historical_legacy',
         label: 'Historical Legacy Trip',
         shortLabel: 'Historical Legacy Trip',
       });
@@ -522,7 +523,7 @@ export function captureStatusColorClass(kind: CaptureStatusKind): string {
   switch (kind) {
     case 'captured':
     case 'captured_split':
-    case 'cash_collected':
+    case 'historical_legacy':
       return 'text-green-600';
     case 'capture_mismatch':
       return 'text-amber-600';

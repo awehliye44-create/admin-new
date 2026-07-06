@@ -191,7 +191,7 @@ export function MondayPayoutDiagnosticsTable({
             <TableHead>Driver</TableHead>
             {!compact && <TableHead>Paid / activity</TableHead>}
             {!compact && <TableHead>Gross payable</TableHead>}
-            <TableHead>Cash commission recovered</TableHead>
+            <TableHead>Commission debt recovered</TableHead>
             <TableHead>Net payout</TableHead>
             <TableHead>Payout status</TableHead>
             <TableHead>Evidence</TableHead>

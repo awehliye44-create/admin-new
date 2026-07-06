@@ -78,6 +78,7 @@ function matchesPaymentTab(row: TripFinancialAuditRow, tab: PaymentStatusTab): b
   }
   if (tab === 'refunded') return refunded > 0;
   if (tab === 'failed') {
+    if (!digital) return false;
     return provider.includes('failed') || provider.includes('canceled') || provider.includes('cancelled');
   }
   if (tab === 'uncaptured') {
@@ -400,7 +401,7 @@ export function FinancialReconciliationDriverDrawer({
                   <OverviewMetric label="Stripe captured" value={fmt(overview.stripeCaptured)} hint="Customer paid (actual capture)" />
                   <OverviewMetric label="Customer payable" value={fmt(overview.customerPayable)} hint="Expected fare (trip SSOT)" />
                   {overview.shortfall > 0 ? (
-                    <OverviewMetric label="Capture shortfall" value={fmt(overview.shortfall)} hint="Payable − captured" />
+                    <OverviewMetric label="Stripe capture shortfall" value={fmt(overview.shortfall)} hint="Digital trips only · payable − captured" />
                   ) : null}
                   <OverviewMetric label="Refunded" value={fmt(overview.refunded)} />
                   <OverviewMetric label="Driver net earnings" value={fmt(overview.driverNet)} />

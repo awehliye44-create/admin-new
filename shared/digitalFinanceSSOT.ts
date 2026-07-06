@@ -30,6 +30,22 @@ export function historicalLegacyTripPaymentLabel(
   return isHistoricalLegacyCashTrip(paymentMethod) ? HISTORICAL_LEGACY_TRIP_LABEL : null;
 }
 
+/** Digital card/wallet trips only — legacy cash must never show Stripe capture shortfall. */
+export function shouldShowDigitalCaptureShortfall(
+  paymentMethod: string | null | undefined,
+  payablePence: number,
+  capturedPence: number,
+): boolean {
+  if (isHistoricalLegacyCashTrip(paymentMethod)) return false;
+  if (payablePence <= 0) return false;
+  return payablePence > capturedPence;
+}
+
+export function isDigitalPaymentMethod(paymentMethod: string | null | undefined): boolean {
+  const m = normalizePaymentMethod(paymentMethod);
+  return m.length > 0 && m !== "cash";
+}
+
 export function rejectNewCashPayment(): {
   ok: false;
   error: string;
