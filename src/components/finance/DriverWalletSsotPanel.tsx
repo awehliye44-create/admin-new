@@ -109,7 +109,9 @@ export function DriverWalletSsotPanel({
     fmt: (p, ccy) => formatMoneyMinor(p ?? 0, ccy ?? currencyCode ?? 'GBP'),
     currencyCode: currencyCode ?? 'GBP',
     currencySymbol: currencyCode ?? 'GBP',
+    currencyMinorUnit: 2,
     isMixedCurrency: false,
+    fmtPlatformStripe: (p, ccy) => formatMoneyMinor(p ?? 0, ccy ?? currencyCode ?? 'GBP'),
   };
 
   return (
