@@ -68,6 +68,7 @@ export type ConnectBalanceAccount = {
   connect_account_type?: string | null;
   charges_enabled: boolean;
   payouts_enabled: boolean;
+  details_submitted?: boolean | null;
   db_payouts_enabled: boolean | null;
   requirements_due: string[];
   currency: string;
