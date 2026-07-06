@@ -14079,7 +14079,9 @@ export type Database = {
           pricing_version: string | null
           provider_available_on: string | null
           provider_charge_id: string | null
+          provider_checkout_token: string | null
           provider_fee_pence: number | null
+          provider_order_id: string | null
           provider_payment_id: string | null
           provider_payout_id: string | null
           provider_status: string | null
@@ -14350,7 +14352,9 @@ export type Database = {
           pricing_version?: string | null
           provider_available_on?: string | null
           provider_charge_id?: string | null
+          provider_checkout_token?: string | null
           provider_fee_pence?: number | null
+          provider_order_id?: string | null
           provider_payment_id?: string | null
           provider_payout_id?: string | null
           provider_status?: string | null
@@ -14621,7 +14625,9 @@ export type Database = {
           pricing_version?: string | null
           provider_available_on?: string | null
           provider_charge_id?: string | null
+          provider_checkout_token?: string | null
           provider_fee_pence?: number | null
+          provider_order_id?: string | null
           provider_payment_id?: string | null
           provider_payout_id?: string | null
           provider_status?: string | null
