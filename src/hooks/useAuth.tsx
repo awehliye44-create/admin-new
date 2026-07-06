@@ -124,6 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (HARD_SIGNOUT_EVENTS.includes(event)) {
           // Only reset if it was a manual sign-out OR the session is truly gone
           if (manualSignOut.current || !nextSession) {
+            const wasManual = manualSignOut.current;
             setSession(null);
             setUser(null);
             setIsAdmin(false);
@@ -132,7 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             clearSentryUser();
 
             // Show reason if it wasn't manual
-            if (!manualSignOut.current && !nextSession) {
+            if (!wasManual && !nextSession) {
               toast.info('Session expired', {
                 description: 'Your session has expired. Please sign in again.',
                 duration: 8000,
