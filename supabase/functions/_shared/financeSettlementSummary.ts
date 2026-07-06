@@ -558,29 +558,25 @@ export function buildFinanceReconciliationSummary(args: {
   return {
     customer_revenue: {
       card_customer_revenue_pence: split.card_customer_revenue_pence,
-      cash_collected_by_driver_pence: split.cash_collected_by_driver_pence,
       refunded_amount_pence: m.refunded_amount_pence,
       net_card_revenue_pence: split.net_card_revenue_pence,
-      total_customer_revenue_pence: split.card_customer_revenue_pence + split.cash_collected_by_driver_pence,
+      total_customer_revenue_pence: split.card_customer_revenue_pence,
       net_customer_revenue_pence: split.net_card_revenue_pence,
       commissionable_revenue_pence: args.commissionableRevenuePence,
     },
     driver_money: {
       card_driver_payable_pence: split.card_driver_payable_pence,
-      cash_driver_already_received_pence: split.cash_driver_already_received_pence,
       driver_wallet_balance_pence: args.driverWalletBalancePence,
       driver_available_payout_pence: driverAvailablePayout,
       driver_pending_payout_pence: m.driver_pending_payout_pence,
       driver_paid_out_pence: m.driver_paid_out_pence,
       driver_payout_liability_pence: m.driver_remaining_liability_pence,
-      onecab_cash_commission_owed_pence: split.onecab_cash_commission_receivable_pence,
       in_flight_cashout_pence: args.inFlightCashoutPence,
       driver_gross_earnings_pence: m.driver_gross_earnings_pence,
       driver_net_earnings_pence: m.driver_net_earnings_pence,
     },
     onecab_money: {
       onecab_card_commission_pence: split.onecab_card_commission_pence,
-      onecab_cash_commission_receivable_pence: split.onecab_cash_commission_receivable_pence,
       onecab_gross_commission_pence: m.onecab_gross_commission_pence,
       provider_processing_fee_pence: m.provider_processing_fee_pence,
       onecab_card_net_commission_pence: m.onecab_card_net_commission_pence,
@@ -588,6 +584,7 @@ export function buildFinanceReconciliationSummary(args: {
       net_platform_revenue_pence: m.net_platform_revenue_pence,
       onecab_net_commission_pence: m.net_platform_revenue_pence,
       onecab_bank_payout_pence: args.onecabBankPayoutPence ?? 0,
+
       onecab_commission_status: args.settlementStatus,
       onecab_commission_status_label: args.settlementStatusLabel,
     },
