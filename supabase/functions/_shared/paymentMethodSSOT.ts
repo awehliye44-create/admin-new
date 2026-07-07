@@ -160,18 +160,11 @@ export function resolveSavedCardMethodRow(args: {
   environment: "test" | "live" | null;
 }): Pick<DigitalPaymentMethodRow, "enabled" | "readiness" | "message"> {
   const vaultImplemented = isSavedCardVaultImplemented(args.vault);
-  if (isRevolutPreauthProvider(args.provider) && !vaultImplemented) {
+  if (!vaultImplemented && args.vault) {
     return {
-      enabled: false,
+      enabled: args.enabled,
       readiness: "not_implemented",
-      message: "Not implemented for Revolut yet.",
-    };
-  }
-  if (!vaultImplemented && args.vault === "mobile_wallet") {
-    return {
-      enabled: false,
-      readiness: "not_implemented",
-      message: "Not implemented for this provider yet.",
+      message: "Save-card vault pending for this area's payment provider.",
     };
   }
   return {
@@ -182,7 +175,7 @@ export function resolveSavedCardMethodRow(args: {
       configured: args.collectionReady && vaultImplemented,
       environment: args.environment,
     }),
-    message: vaultImplemented ? null : "Saved card vault not configured.",
+    message: vaultImplemented ? null : "Save-card vault not connected.",
   };
 }
 

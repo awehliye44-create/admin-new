@@ -42,11 +42,8 @@ export const PAYMENT_METHOD_TOGGLE_FIELDS: Record<PaymentMethodKind, string> = {
 
 export function readinessBadgeLabel(
   state: MethodReadinessState,
-  message?: string | null,
+  _message?: string | null,
 ): string {
-  if (state === "not_implemented" && message?.includes("Revolut")) {
-    return "Not implemented for Revolut yet";
-  }
   switch (state) {
     case "live":
       return "Live";
@@ -55,7 +52,7 @@ export function readinessBadgeLabel(
     case "configured":
       return "Configured";
     case "not_implemented":
-      return "Not implemented yet";
+      return "Vault pending";
     case "provider_unsupported":
       return "Provider unsupported";
     case "not_configured":
