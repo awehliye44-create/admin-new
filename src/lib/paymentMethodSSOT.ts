@@ -3,6 +3,14 @@
  * Readiness payloads come from admin-service-area-digital-payment-methods edge.
  */
 
+import {
+  ADMIN_DRIVER_PAYOUT_AUTOMATED_DEFAULT_LABEL,
+  ADMIN_DRIVER_PAYOUT_MANUAL_EXCEPTION_LABEL,
+  ADMIN_READINESS_ADAPTER_UNAVAILABLE,
+  ADMIN_READINESS_NOT_CONFIGURED,
+  ADMIN_READINESS_VAULT_PENDING,
+} from "../../shared/onecabPaymentProviderSSOT";
+
 export type PaymentMethodKind =
   | "card"
   | "saved_card"
@@ -52,11 +60,11 @@ export function readinessBadgeLabel(
     case "configured":
       return "Configured";
     case "not_implemented":
-      return "Vault pending";
+      return ADMIN_READINESS_VAULT_PENDING;
     case "provider_unsupported":
-      return "Provider unsupported";
+      return ADMIN_READINESS_ADAPTER_UNAVAILABLE;
     case "not_configured":
-      return "Not configured";
+      return ADMIN_READINESS_NOT_CONFIGURED;
   }
 }
 
@@ -90,10 +98,19 @@ export function payoutAdapterDisplayLabel(
   payoutAdapterStatus: string | null | undefined,
   payoutAutomation: string | null | undefined,
 ): string {
-  if (payoutAutomation === "manual_ready") return "Manual payout ready";
-  if (payoutAutomation === "automated_ready") return "Automated payout ready";
+  if (payoutAutomation === "automated_ready") return ADMIN_DRIVER_PAYOUT_AUTOMATED_DEFAULT_LABEL;
+  if (payoutAutomation === "manual_ready") return "Automated payout pending";
   if (payoutAdapterStatus === "live") return "Live";
-  if (payoutAdapterStatus === "not_implemented") return "Not implemented";
-  if (payoutAdapterStatus === "manual_ready") return "Manual payout ready";
+  if (payoutAdapterStatus === "not_implemented") return ADMIN_READINESS_VAULT_PENDING;
+  if (payoutAdapterStatus === "manual_ready") return "Automated payout pending";
   return payoutAdapterStatus ?? "Unknown";
+}
+
+export function driverPayoutModeDescription(
+  payoutAutomation: string | null | undefined,
+): string {
+  if (payoutAutomation === "automated_ready") {
+    return ADMIN_DRIVER_PAYOUT_AUTOMATED_DEFAULT_LABEL;
+  }
+  return ADMIN_DRIVER_PAYOUT_MANUAL_EXCEPTION_LABEL;
 }

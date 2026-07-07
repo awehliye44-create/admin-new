@@ -10,6 +10,12 @@ import {
   MOBILE_WALLET_METHOD_LABELS,
   type MobileWalletMethodId,
 } from "./customerPaymentWorkflow.ts";
+import {
+  ADMIN_DRIVER_PAYOUT_PENDING_AUTOMATION_MSG,
+  ADMIN_DRIVER_WALLET_MANUAL_INTERIM_MSG,
+  ADMIN_SAVED_CARD_VAULT_PENDING_MSG,
+  ADMIN_PAY_BY_BANK_NOT_ENABLED,
+} from "./onecabPaymentProviderSSOT.ts";
 import type { GatewayStatusSnapshot } from "./paymentGatewayStatus.ts";
 
 /** Phase 2 — Revolut customer tokenisation endpoints. */
@@ -164,7 +170,7 @@ export function resolveSavedCardMethodRow(args: {
     return {
       enabled: args.enabled,
       readiness: "not_implemented",
-      message: "Save-card vault pending for this area's payment provider.",
+      message: ADMIN_SAVED_CARD_VAULT_PENDING_MSG,
     };
   }
   return {
@@ -186,7 +192,7 @@ export function revolutDriverPayoutStatusMessage(
     case "automated_ready":
       return "Automated driver payouts configured (Revolut Business API).";
     case "manual_ready":
-      return "Payout account ready — weekly payouts handled manually by ONECAB until automated payout is enabled.";
+      return ADMIN_DRIVER_WALLET_MANUAL_INTERIM_MSG;
     case "not_configured":
       return "Driver payout gateway not configured.";
   }
@@ -197,7 +203,7 @@ export function revolutAutomatedPayoutStatusMessage(
 ): string | null {
   if (automation === "automated_ready") return null;
   if (automation === "manual_ready") {
-    return "Automated payout not configured — add Source Business Account ID in Payment Providers.";
+    return ADMIN_DRIVER_PAYOUT_PENDING_AUTOMATION_MSG;
   }
   return "Automated payout not configured.";
 }
@@ -303,11 +309,11 @@ export function buildDigitalPaymentMethodsPayload(args: {
     {
       method: "pay_by_bank",
       enabled: args.flags.payByBank,
-      readiness: "provider_unsupported",
+      readiness: "not_configured",
       provider,
       vault_provider: null,
       environment: env,
-      message: "Pay by bank is not enabled for this area yet.",
+      message: ADMIN_PAY_BY_BANK_NOT_ENABLED,
     },
     {
       method: "onecab_wallet",
