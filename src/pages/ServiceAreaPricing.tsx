@@ -422,6 +422,7 @@ export default function ServiceAreaPricing() {
           )}
           {selectedServiceAreaId && (
             <ServiceAreaDriverWalletConfig
+              serviceAreaId={selectedServiceAreaId}
               enabled={selectedServiceArea?.early_cashout_enabled ?? false}
               onChange={updateEarlyCashoutEnabled}
               serviceAreaName={selectedServiceArea?.name}

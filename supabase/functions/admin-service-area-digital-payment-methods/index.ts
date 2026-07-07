@@ -11,6 +11,7 @@ import { buildServiceAreaPaymentMethodFlags } from "../_shared/customerPaymentWo
 import {
   buildDigitalPaymentMethodsPayload,
   parseServiceAreaPaymentMethodFlags,
+  REVOLUT_SAVE_CARD_TOKENIZATION_READY,
 } from "../_shared/paymentMethodSSOT.ts";
 import {
   gatewayStatusToPaymentGatewayPayload,
@@ -147,6 +148,24 @@ serve(async (req) => {
     const patchBody: Record<string, unknown> = { ...updates };
     if (body.mobile_wallet_methods !== undefined) {
       patchBody.mobile_wallet_methods = body.mobile_wallet_methods;
+    }
+
+    if (updates.saved_card_enabled === true && !REVOLUT_SAVE_CARD_TOKENIZATION_READY) {
+      const { data: areaRow } = await supabase
+        .from("service_areas")
+        .select("payment_provider")
+        .eq("id", serviceAreaId)
+        .maybeSingle();
+      if ((areaRow?.payment_provider as string | null) === "revolut") {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "Revolut saved card vault is not implemented yet.",
+            code: "REVOLUT_SAVED_CARD_NOT_IMPLEMENTED",
+          }),
+          { status: 422, headers: { ...adminCorsHeaders, "Content-Type": "application/json" } },
+        );
+      }
     }
 
     const { data: existing } = await supabase

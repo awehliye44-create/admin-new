@@ -16,6 +16,7 @@ export type MethodReadinessState =
   | "configured"
   | "not_configured"
   | "provider_unsupported"
+  | "not_implemented"
   | "test"
   | "live";
 
@@ -39,7 +40,13 @@ export const PAYMENT_METHOD_TOGGLE_FIELDS: Record<PaymentMethodKind, string> = {
   onecab_wallet: "wallet_enabled",
 };
 
-export function readinessBadgeLabel(state: MethodReadinessState): string {
+export function readinessBadgeLabel(
+  state: MethodReadinessState,
+  message?: string | null,
+): string {
+  if (state === "not_implemented" && message?.includes("Revolut")) {
+    return "Not implemented for Revolut yet";
+  }
   switch (state) {
     case "live":
       return "Live";
@@ -47,6 +54,8 @@ export function readinessBadgeLabel(state: MethodReadinessState): string {
       return "Test";
     case "configured":
       return "Configured";
+    case "not_implemented":
+      return "Not implemented yet";
     case "provider_unsupported":
       return "Provider unsupported";
     case "not_configured":
@@ -61,9 +70,33 @@ export function readinessBadgeClass(state: MethodReadinessState): string {
       return "text-green-700 border-green-500/40 bg-green-50";
     case "test":
       return "text-blue-700 border-blue-500/40 bg-blue-50";
+    case "not_implemented":
     case "provider_unsupported":
       return "text-amber-700 border-amber-500/40 bg-amber-50";
     case "not_configured":
       return "text-muted-foreground border-border bg-muted/40";
   }
+}
+
+export function isMethodToggleDisabled(
+  readiness: MethodReadinessState,
+  isSaving: boolean,
+): boolean {
+  return (
+    isSaving
+    || readiness === "provider_unsupported"
+    || readiness === "not_implemented"
+  );
+}
+
+export function payoutAdapterDisplayLabel(
+  payoutAdapterStatus: string | null | undefined,
+  payoutAutomation: string | null | undefined,
+): string {
+  if (payoutAutomation === "manual_ready") return "Manual payout ready";
+  if (payoutAutomation === "automated_ready") return "Automated payout ready";
+  if (payoutAdapterStatus === "live") return "Live";
+  if (payoutAdapterStatus === "not_implemented") return "Not implemented";
+  if (payoutAdapterStatus === "manual_ready") return "Manual payout ready";
+  return payoutAdapterStatus ?? "Unknown";
 }

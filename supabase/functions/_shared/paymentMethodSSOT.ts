@@ -30,6 +30,7 @@ export type MethodReadinessState =
   | "configured"
   | "not_configured"
   | "provider_unsupported"
+  | "not_implemented"
   | "test"
   | "live";
 
@@ -151,6 +152,40 @@ export function resolveRevolutPayoutAutomationStatus(
   return "manual_ready";
 }
 
+export function resolveSavedCardMethodRow(args: {
+  provider: string | null;
+  vault: PaymentVaultProvider | null;
+  enabled: boolean;
+  collectionReady: boolean;
+  environment: "test" | "live" | null;
+}): Pick<DigitalPaymentMethodRow, "enabled" | "readiness" | "message"> {
+  const vaultImplemented = isSavedCardVaultImplemented(args.vault);
+  if (isRevolutPreauthProvider(args.provider) && !vaultImplemented) {
+    return {
+      enabled: false,
+      readiness: "not_implemented",
+      message: "Not implemented for Revolut yet.",
+    };
+  }
+  if (!vaultImplemented && args.vault === "mobile_wallet") {
+    return {
+      enabled: false,
+      readiness: "not_implemented",
+      message: "Not implemented for this provider yet.",
+    };
+  }
+  return {
+    enabled: args.enabled,
+    readiness: resolveMethodReadinessState({
+      enabled: args.enabled,
+      providerSupported: vaultImplemented,
+      configured: args.collectionReady && vaultImplemented,
+      environment: args.environment,
+    }),
+    message: vaultImplemented ? null : "Saved card vault not configured.",
+  };
+}
+
 export function revolutDriverPayoutStatusMessage(
   automation: PayoutAutomationStatus,
 ): string {
@@ -158,10 +193,20 @@ export function revolutDriverPayoutStatusMessage(
     case "automated_ready":
       return "Automated driver payouts configured (Revolut Business API).";
     case "manual_ready":
-      return "Manual payout ready; automated payout not configured (add Source Business account ID).";
+      return "Payout account ready — weekly payouts handled manually by ONECAB until automated payout is enabled.";
     case "not_configured":
       return "Driver payout gateway not configured.";
   }
+}
+
+export function revolutAutomatedPayoutStatusMessage(
+  automation: PayoutAutomationStatus,
+): string | null {
+  if (automation === "automated_ready") return null;
+  if (automation === "manual_ready") {
+    return "Automated payout not configured — add Source Business Account ID in Payment Providers.";
+  }
+  return "Automated payout not configured.";
 }
 
 export function buildDigitalPaymentMethodsPayload(args: {
@@ -191,7 +236,6 @@ export function buildDigitalPaymentMethodsPayload(args: {
   const vault = resolvePaymentVaultProvider(provider);
   const env = args.customerGateway.environment;
   const collectionReady = args.customerGateway.ready_for_production;
-  const vaultImplemented = isSavedCardVaultImplemented(vault);
 
   const methods: DigitalPaymentMethodRow[] = [
     {
@@ -210,19 +254,16 @@ export function buildDigitalPaymentMethodsPayload(args: {
     },
     {
       method: "saved_card",
-      enabled: args.flags.savedCard,
-      readiness: resolveMethodReadinessState({
-        enabled: args.flags.savedCard,
-        providerSupported: vaultImplemented,
-        configured: collectionReady && vaultImplemented,
-        environment: env,
-      }),
       provider,
       vault_provider: vault,
       environment: env,
-      message: vaultImplemented
-        ? null
-        : "Saved card vault not implemented for this provider yet.",
+      ...resolveSavedCardMethodRow({
+        provider,
+        vault,
+        enabled: args.flags.savedCard,
+        collectionReady,
+        environment: env,
+      }),
     },
     {
       method: "apple_pay",
@@ -314,11 +355,20 @@ export function buildDigitalPaymentMethodsPayload(args: {
     driver_payout: {
       provider: args.driverGateway.provider,
       status: args.driverGateway.status,
-      payout_adapter_status: args.driverGateway.payout_adapter_status,
+      payout_adapter_status: payoutAutomation === "manual_ready"
+        ? "manual_ready"
+        : args.driverGateway.payout_adapter_status,
       payout_automation: payoutAutomation,
+      automated_payout_configured: payoutAutomation === "automated_ready",
       message: provider === "revolut"
         ? revolutDriverPayoutStatusMessage(payoutAutomation)
         : (args.driverGateway.message ?? "Driver payout status"),
+      automated_payout_message: provider === "revolut"
+        ? revolutAutomatedPayoutStatusMessage(payoutAutomation)
+        : null,
+      driver_wallet_message: provider === "revolut" && payoutAutomation === "manual_ready"
+        ? revolutDriverPayoutStatusMessage("manual_ready")
+        : null,
     },
   };
 }

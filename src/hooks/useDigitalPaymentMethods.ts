@@ -31,6 +31,9 @@ export type DigitalPaymentMethodsPayload = {
       status: string;
       payout_adapter_status: string;
       payout_automation: PayoutAutomationStatus;
+      automated_payout_configured?: boolean;
+      automated_payout_message?: string | null;
+      driver_wallet_message?: string | null;
       message: string;
     };
   };

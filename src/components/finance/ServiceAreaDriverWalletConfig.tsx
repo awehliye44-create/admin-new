@@ -1,9 +1,12 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Wallet, Zap } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Wallet, Zap, Info } from 'lucide-react';
+import { useDigitalPaymentMethods } from '@/hooks/useDigitalPaymentMethods';
 
 interface ServiceAreaDriverWalletConfigProps {
+  serviceAreaId: string;
   enabled: boolean;
   onChange: (enabled: boolean) => void;
   serviceAreaName?: string;
@@ -11,11 +14,16 @@ interface ServiceAreaDriverWalletConfigProps {
 }
 
 export function ServiceAreaDriverWalletConfig({
+  serviceAreaId,
   enabled,
   onChange,
   serviceAreaName,
   disabled,
 }: ServiceAreaDriverWalletConfigProps) {
+  const { driverPayout, paymentProvider } = useDigitalPaymentMethods(serviceAreaId);
+  const manualRevolutPayout =
+    paymentProvider === 'revolut' && driverPayout?.payout_automation === 'manual_ready';
+
   return (
     <Card>
       <CardHeader>
@@ -27,7 +35,17 @@ export function ServiceAreaDriverWalletConfig({
           Payment / wallet settings for drivers in {serviceAreaName || 'this service area'}.
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        {manualRevolutPayout && (
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              {driverPayout?.driver_wallet_message
+                ?? driverPayout?.message
+                ?? 'Payout account ready — weekly payouts handled manually by ONECAB until automated payout is enabled.'}
+            </AlertDescription>
+          </Alert>
+        )}
         <div className="flex items-center justify-between gap-4 p-3 border rounded-lg">
           <div className="flex items-start gap-3">
             <div className={`p-2 rounded-lg ${enabled ? 'bg-warning/15 text-warning' : 'bg-muted text-muted-foreground'}`}>

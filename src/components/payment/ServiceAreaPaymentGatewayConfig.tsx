@@ -227,7 +227,6 @@ export function ServiceAreaPaymentGatewayConfig({
 
   const providerIncomplete = !paymentProvider;
   const customerConfigError = customerStatus?.configuration_error ?? null;
-  const driverPayoutNote = driverStatus?.configuration_error ?? null;
   const statusMessage = customerStatus?.message ?? null;
   const showCustomerConfigAlert = Boolean(
     customerConfigError && customerConfigError !== 'Automated payout not configured',
@@ -345,13 +344,30 @@ export function ServiceAreaPaymentGatewayConfig({
           <div className="space-y-1 p-3 border rounded-lg bg-muted/30">
             <p className="text-xs text-muted-foreground">Driver payout</p>
             <p className="text-sm font-medium">
-              {payoutLabel(paymentProvider, displayName)}
+              {driverStatus?.payout_adapter_status === 'live'
+                ? payoutLabel(paymentProvider, displayName)
+                : driverStatus?.status === 'CONNECTED'
+                  ? 'Manual payout ready'
+                  : payoutLabel(paymentProvider, displayName)}
             </p>
-            <div className="pt-1">
-              <GatewayStatusBadge snapshot={driverStatus} />
+            <div className="pt-1 flex flex-wrap gap-2">
+              {driverStatus?.status === 'CONNECTED'
+                && driverStatus?.payout_adapter_status !== 'live' ? (
+                  <Badge variant="outline" className="text-amber-700 border-amber-500/40 bg-amber-50">
+                    Manual payout ready
+                  </Badge>
+                ) : (
+                  <GatewayStatusBadge snapshot={driverStatus} />
+                )}
+              {driverStatus?.status === 'CONNECTED'
+                && driverStatus?.payout_adapter_status !== 'live' ? (
+                  <Badge variant="outline" className="text-muted-foreground border-border bg-muted/40">
+                    Automated payout not configured
+                  </Badge>
+                ) : null}
             </div>
-            {driverPayoutNote ? (
-              <p className="text-xs text-muted-foreground pt-1">{driverStatus?.message}</p>
+            {driverStatus?.message ? (
+              <p className="text-xs text-muted-foreground pt-1">{driverStatus.message}</p>
             ) : null}
           </div>
         </div>
