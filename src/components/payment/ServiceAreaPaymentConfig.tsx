@@ -3,9 +3,15 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, CreditCard, Wallet, Apple, Smartphone, Info } from 'lucide-react';
-import { useServiceAreaPaymentMethods, type StripeDigitalPaymentMethodType } from '@/hooks/useServiceAreaPaymentMethods';
-import { isStripePreauthProvider, isMobileWalletCollectProvider } from '@/lib/customerPaymentWorkflow';
+import { Loader2, CreditCard, Wallet, Apple, Smartphone, Landmark, Bookmark, Info } from 'lucide-react';
+import { useDigitalPaymentMethods } from '@/hooks/useDigitalPaymentMethods';
+import {
+  PAYMENT_METHOD_ADMIN_LABELS,
+  PAYMENT_METHOD_TOGGLE_FIELDS,
+  readinessBadgeClass,
+  readinessBadgeLabel,
+  type PaymentMethodKind,
+} from '@/lib/paymentMethodSSOT';
 import { toast } from 'sonner';
 
 interface ServiceAreaPaymentConfigProps {
@@ -13,33 +19,33 @@ interface ServiceAreaPaymentConfigProps {
   serviceAreaName?: string;
 }
 
-const PAYMENT_METHOD_ICONS: Record<string, React.ReactNode> = {
-  'credit-card': <CreditCard className="h-5 w-5" />,
-  wallet: <Wallet className="h-5 w-5" />,
-  apple: <Apple className="h-5 w-5" />,
-  smartphone: <Smartphone className="h-5 w-5" />,
-};
-
-const PLATFORM_LABELS: Record<string, { label: string; color: string }> = {
-  ios: { label: 'iOS', color: 'bg-gray-500' },
-  android: { label: 'Android', color: 'bg-green-600' },
-  all: { label: 'All', color: 'bg-blue-500' },
+const METHOD_ICONS: Partial<Record<PaymentMethodKind, React.ReactNode>> = {
+  card: <CreditCard className="h-5 w-5" />,
+  saved_card: <Bookmark className="h-5 w-5" />,
+  apple_pay: <Apple className="h-5 w-5" />,
+  google_pay: <Smartphone className="h-5 w-5" />,
+  mobile_wallet: <Smartphone className="h-5 w-5" />,
+  pay_by_bank: <Landmark className="h-5 w-5" />,
+  onecab_wallet: <Wallet className="h-5 w-5" />,
 };
 
 export function ServiceAreaPaymentConfig({ serviceAreaId, serviceAreaName }: ServiceAreaPaymentConfigProps) {
   const {
-    paymentConfig,
-    customerPaymentGateway,
+    methods,
+    customerCollection,
+    driverPayout,
+    paymentProvider,
     isLoading,
     isSaving,
-    updatePaymentMethod,
-    stripeDigitalMethods,
-  } = useServiceAreaPaymentMethods(serviceAreaId);
+    error,
+    updateMethodToggle,
+  } = useDigitalPaymentMethods(serviceAreaId);
 
-  const handleToggle = async (method: StripeDigitalPaymentMethodType, enabled: boolean) => {
+  const handleToggle = async (method: PaymentMethodKind, enabled: boolean) => {
+    const field = PAYMENT_METHOD_TOGGLE_FIELDS[method];
     try {
-      await updatePaymentMethod(method, enabled);
-      toast.success(`${enabled ? 'Enabled' : 'Disabled'} ${method.replace('_', ' ')}`);
+      await updateMethodToggle(field, enabled);
+      toast.success(`${enabled ? 'Enabled' : 'Disabled'} ${PAYMENT_METHOD_ADMIN_LABELS[method]}`);
     } catch {
       toast.error('Failed to update payment method');
     }
@@ -55,37 +61,7 @@ export function ServiceAreaPaymentConfig({ serviceAreaId, serviceAreaName }: Ser
     );
   }
 
-  if (!paymentConfig) {
-    return null;
-  }
-
-  if (isMobileWalletCollectProvider(customerPaymentGateway)) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Smartphone className="h-5 w-5 text-primary" />
-            Card / wallet preauth methods
-          </CardTitle>
-          <CardDescription>
-            This service area uses a mobile-wallet collect gateway ({customerPaymentGateway}).
-            Card, Apple Pay, and Google Pay are not offered — configure mobile wallet methods below.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Alert>
-            <Info className="h-4 w-4" />
-            <AlertDescription>
-              ONECAB is fully digital. Cash is not enabled. Provider card preauth toggles do not apply
-              to this gateway.
-            </AlertDescription>
-          </Alert>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (!isStripePreauthProvider(customerPaymentGateway)) {
+  if (error) {
     return (
       <Card>
         <CardHeader>
@@ -96,8 +72,27 @@ export function ServiceAreaPaymentConfig({ serviceAreaId, serviceAreaName }: Ser
         </CardHeader>
         <CardContent>
           <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!paymentProvider) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CreditCard className="h-5 w-5 text-primary" />
+            Digital payment methods
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Alert>
+            <Info className="h-4 w-4" />
             <AlertDescription>
-              Select a customer payment gateway above before enabling digital payment methods.
+              Select a primary payment provider above before configuring digital payment methods.
             </AlertDescription>
           </Alert>
         </CardContent>
@@ -110,55 +105,104 @@ export function ServiceAreaPaymentConfig({ serviceAreaId, serviceAreaName }: Ser
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <CreditCard className="h-5 w-5 text-primary" />
-          Provider digital payment methods
+          Digital payment methods
         </CardTitle>
         <CardDescription>
-          Methods available for customers in {serviceAreaName || 'this service area'} when the gateway
-          is Provider (card pre-authorisation workflow). Cash is disabled — ONECAB is fully digital.
+          Provider-neutral customer payment options for {serviceAreaName || 'this service area'}.
+          Vault implementation follows the selected provider ({paymentProvider}) — saved cards are
+          not Stripe-only.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex items-center gap-2 mb-2">
-          <Badge variant="outline">Gateway: Provider</Badge>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-1 p-3 border rounded-lg bg-muted/30">
+            <p className="text-xs text-muted-foreground">Customer collection</p>
+            <p className="text-sm font-medium capitalize">{paymentProvider.replace(/_/g, ' ')}</p>
+            <Badge variant="outline" className="mt-1">
+              {customerCollection?.booking_adapter_status ?? 'unknown'}
+            </Badge>
+            {customerCollection?.message ? (
+              <p className="text-xs text-muted-foreground pt-1">{customerCollection.message}</p>
+            ) : null}
+          </div>
+          <div className="space-y-1 p-3 border rounded-lg bg-muted/30">
+            <p className="text-xs text-muted-foreground">Driver payout</p>
+            <p className="text-sm font-medium">
+              {driverPayout?.payout_automation === 'automated_ready'
+                ? 'Automated payout ready'
+                : driverPayout?.payout_automation === 'manual_ready'
+                  ? 'Manual payout ready'
+                  : 'Not configured'}
+            </p>
+            <Badge variant="outline" className="mt-1">
+              {driverPayout?.payout_adapter_status ?? 'unknown'}
+            </Badge>
+            {driverPayout?.message ? (
+              <p className="text-xs text-muted-foreground pt-1">{driverPayout.message}</p>
+            ) : null}
+          </div>
         </div>
-        {stripeDigitalMethods.map((method) => {
-          const isEnabled = paymentConfig[`${method.id}_enabled` as keyof typeof paymentConfig] as boolean;
-          const platformInfo = PLATFORM_LABELS[method.platform];
 
-          return (
-            <div
-              key={method.id}
-              className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-lg ${isEnabled ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
-                  {PAYMENT_METHOD_ICONS[method.icon]}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <Label className="font-medium">{method.name}</Label>
-                    {method.platform !== 'all' && (
-                      <Badge variant="secondary" className={`text-xs text-white ${platformInfo.color}`}>
-                        {platformInfo.label}
-                      </Badge>
-                    )}
+        <div className="space-y-3">
+          {methods.map((method) => {
+            const label = PAYMENT_METHOD_ADMIN_LABELS[method.method];
+            const icon = METHOD_ICONS[method.method] ?? <CreditCard className="h-5 w-5" />;
+            const toggleDisabled =
+              isSaving
+              || method.readiness === 'provider_unsupported';
+
+            return (
+              <div
+                key={method.method}
+                className="flex items-center justify-between gap-3 p-3 border rounded-lg hover:bg-muted/50 transition-colors"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className={`p-2 rounded-lg shrink-0 ${
+                      method.enabled ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    {icon}
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {method.id === 'card' && 'Credit/debit cards (preauth → capture)'}
-                    {method.id === 'wallet' && 'ONECAB in-app wallet balance'}
-                    {method.id === 'apple_pay' && 'Apple Pay (iOS native)'}
-                    {method.id === 'google_pay' && 'Google Pay (Android native)'}
-                  </p>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Label className="font-medium">{label}</Label>
+                      <Badge
+                        variant="outline"
+                        className={readinessBadgeClass(method.readiness)}
+                      >
+                        {readinessBadgeLabel(method.readiness)}
+                      </Badge>
+                      {method.environment ? (
+                        <Badge variant="secondary" className="text-xs">
+                          {method.environment}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    {method.message ? (
+                      <p className="text-xs text-muted-foreground mt-0.5">{method.message}</p>
+                    ) : method.vault_provider ? (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Vault: {method.vault_provider}
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
+                <Switch
+                  checked={method.enabled}
+                  onCheckedChange={(checked) => void handleToggle(method.method, checked)}
+                  disabled={toggleDisabled}
+                />
               </div>
-              <Switch
-                checked={isEnabled}
-                onCheckedChange={(checked) => handleToggle(method.id, checked)}
-                disabled={isSaving}
-              />
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Driver payout configuration does not disable customer card payments. Revolut areas use
+          Merchant API for collection; Business API source account is only required for automated
+          driver payouts.
+        </p>
       </CardContent>
     </Card>
   );

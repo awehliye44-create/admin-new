@@ -226,8 +226,14 @@ export function ServiceAreaPaymentGatewayConfig({
   }
 
   const providerIncomplete = !paymentProvider;
-  const hasConfigErrors = Boolean(
-    customerStatus?.configuration_error || driverStatus?.configuration_error,
+  const customerConfigError = customerStatus?.configuration_error ?? null;
+  const driverPayoutNote = driverStatus?.configuration_error ?? null;
+  const statusMessage = customerStatus?.message ?? null;
+  const showCustomerConfigAlert = Boolean(
+    customerConfigError && customerConfigError !== 'Automated payout not configured',
+  );
+  const showStatusSubtitle = Boolean(
+    statusMessage && statusMessage.trim() !== customerConfigError?.trim(),
   );
 
   const customerAdapterStatus =
@@ -267,13 +273,11 @@ export function ServiceAreaPaymentGatewayConfig({
           </Alert>
         )}
 
-        {hasConfigErrors && (
+        {showCustomerConfigAlert && (
           <Alert>
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
-              {customerStatus?.configuration_error
-                ?? driverStatus?.configuration_error
-                ?? 'Provider configuration incomplete.'}
+              {customerConfigError}
             </AlertDescription>
           </Alert>
         )}
@@ -325,8 +329,8 @@ export function ServiceAreaPaymentGatewayConfig({
           <p className="text-xs text-muted-foreground">
             Selected: {displayName}
           </p>
-          {customerStatus?.message ? (
-            <p className="text-xs text-muted-foreground">{customerStatus.message}</p>
+          {showStatusSubtitle && statusMessage ? (
+            <p className="text-xs text-muted-foreground">{statusMessage}</p>
           ) : null}
         </div>
 
@@ -346,6 +350,9 @@ export function ServiceAreaPaymentGatewayConfig({
             <div className="pt-1">
               <GatewayStatusBadge snapshot={driverStatus} />
             </div>
+            {driverPayoutNote ? (
+              <p className="text-xs text-muted-foreground pt-1">{driverStatus?.message}</p>
+            ) : null}
           </div>
         </div>
 

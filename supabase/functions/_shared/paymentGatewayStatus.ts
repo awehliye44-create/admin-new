@@ -332,9 +332,20 @@ function buildSnapshot(
         : "healthy");
 
   const credentialReadiness = args.credentialReadiness;
-  const readyForProduction =
-    bookingPaymentHealth !== "down" &&
-    Boolean(providerId && isLivePaymentAdapter(providerId));
+  const collectionAdapterLive =
+    Boolean(providerId && isLivePaymentAdapter(providerId))
+    && bookingPaymentHealth !== "down"
+    && (credentialReadiness?.booking_adapter_status === "live"
+      || (credentialReadiness?.credentials_ready && args.apiKeysConfigured));
+  const payoutAdapterLive =
+    credentialReadiness?.payout_adapter_status === "live";
+  const readyForProduction = role === "customer"
+    ? collectionAdapterLive
+    : Boolean(
+      providerId
+        && bookingPaymentHealth !== "down"
+        && payoutAdapterLive,
+    );
 
   return {
     status: args.status,
@@ -352,7 +363,7 @@ function buildSnapshot(
     provider_health: providerHealth,
     booking_payment_health: bookingPaymentHealth,
     booking_adapter_status: credentialReadiness?.booking_adapter_status
-      ?? (readyForProduction && isLivePaymentAdapter(providerId) ? "live" : "not_configured"),
+      ?? (collectionAdapterLive ? "live" : "not_configured"),
     payout_adapter_status: credentialReadiness?.payout_adapter_status ?? "not_configured",
     booking_workflow: resolveProviderBookingWorkflow(providerId, readyForProduction),
     credentials_ready: credentialReadiness?.credentials_ready ?? args.apiKeysConfigured,
@@ -503,10 +514,7 @@ export async function resolveProviderGatewayStatus(
     providerId as PaymentProviderId,
     environment,
     config,
-  ).catch((probeErr) => ({
-    ok: false as const,
-    message: `Live provider API probe failed: ${(probeErr as Error)?.message ?? String(probeErr)}`,
-  }));
+  );
   if (!liveAuth.ok) {
     const authMessage = liveAuth.message ?? "Live provider API authentication failed";
     return buildSnapshot(role, providerId, config, withCredentials({
@@ -637,8 +645,14 @@ export async function resolveProviderGatewayStatus(
     bookingPaymentHealth: "healthy",
     providerHealth: "healthy",
     status: "CONNECTED",
-    message: `${config.display_name} is connected and ready`,
-    configurationError: null,
+    message: role === "driver" && providerId === "revolut" && credentialReadiness?.payout_adapter_status !== "live"
+      ? `${config.display_name} customer collection connected; manual payout ready — automated payout not configured (add Source Business account ID).`
+      : role === "driver" && credentialReadiness?.payout_adapter_status !== "live"
+      ? `${config.display_name} connected; manual payout ready — automated payout not configured.`
+      : `${config.display_name} is connected and ready`,
+    configurationError: role === "driver" && credentialReadiness?.payout_adapter_status !== "live"
+      ? "Automated payout not configured"
+      : null,
   }));
 }
 

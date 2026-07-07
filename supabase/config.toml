@@ -186,3 +186,9 @@ verify_jwt = false
 
 [functions.send-campaign-heads-up]
 verify_jwt = false
+
+[functions.admin-mark-manual-payout-paid]
+verify_jwt = false
+
+[functions.admin-service-area-digital-payment-methods]
+verify_jwt = false

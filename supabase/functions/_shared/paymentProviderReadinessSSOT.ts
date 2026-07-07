@@ -14,19 +14,12 @@ import type {
   ProviderEnvironment,
   ProviderSecrets,
 } from "./paymentProviders/types.ts";
+import {
+  isCustomerBookingAdapterLive,
+  isPayoutAdapterLive,
+} from "./customerPaymentWorkflow.ts";
+import { getPaymentProviderAdapter } from "./paymentProviders/index.ts";
 import type { ConnectionTestResult } from "./paymentProviders/types.ts";
-
-/** Leaf registry — do not import customerPaymentWorkflow here (circular via paymentGatewayGuard). */
-const LIVE_CUSTOMER_BOOKING_PROVIDERS = new Set<string>(["stripe", "revolut"]);
-const LIVE_DRIVER_PAYOUT_PROVIDERS = new Set<string>(["stripe", "revolut"]);
-
-function isCustomerBookingAdapterLive(provider: string): boolean {
-  return LIVE_CUSTOMER_BOOKING_PROVIDERS.has(provider);
-}
-
-function isPayoutAdapterLive(provider: string): boolean {
-  return LIVE_DRIVER_PAYOUT_PROVIDERS.has(provider);
-}
 
 /** Re-run live API auth when cached test is missing, failed, or older than this. */
 export const LIVE_PROVIDER_AUTH_TEST_MAX_AGE_MS = 5 * 60 * 1000;
@@ -60,9 +53,14 @@ export async function loadPaymentProviderCredentialReadiness(
 ): Promise<ProviderCredentialReadiness> {
   const secrets = await getProviderSecrets(supabase, provider, environment);
   const statuses = secretStatus(secrets);
-  const credentials_ready = Boolean(secrets.secret_key?.trim());
+  const merchantApiReady = Boolean(secrets.secret_key?.trim());
+  const payoutAccountReady = Boolean(secrets.merchant_id?.trim());
   const booking_adapter_live = isCustomerBookingAdapterLive(provider);
   const payout_adapter_live = isPayoutAdapterLive(provider);
+  const credentials_ready = merchantApiReady;
+  const payout_credentials_ready = provider === "revolut"
+    ? payoutAccountReady
+    : merchantApiReady;
 
   return {
     secrets,
@@ -77,7 +75,7 @@ export async function loadPaymentProviderCredentialReadiness(
     ),
     payout_adapter_status: resolveAdapterReadinessStatus(
       payout_adapter_live,
-      credentials_ready,
+      payout_credentials_ready,
     ),
   };
 }
@@ -148,7 +146,6 @@ export async function verifyLiveProviderApiAuthentication(
     };
   }
 
-  const { getPaymentProviderAdapter } = await import("./paymentProviders/index.ts");
   const adapter = getPaymentProviderAdapter(supabase, provider, environment);
   const result = await adapter.testConnection();
 

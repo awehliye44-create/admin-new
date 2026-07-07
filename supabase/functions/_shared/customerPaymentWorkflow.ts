@@ -5,8 +5,13 @@
 
 import type { GatewayCheckResult } from "./paymentGatewayGuard.ts";
 import { PROVIDER_NOT_IMPLEMENTED } from "./paymentGatewayGuard.ts";
+import { parseServiceAreaPaymentMethodFlags } from "./paymentMethodSSOT.ts";
 
-export type CustomerBookingWorkflow = "stripe_preauth" | "mobile_wallet_collect" | "blocked";
+export type CustomerBookingWorkflow =
+  | "stripe_preauth"
+  | "revolut_preauth"
+  | "mobile_wallet_collect"
+  | "blocked";
 
 export type MobileWalletMethodId =
   | "evc_plus"
@@ -50,6 +55,14 @@ export function isStripePreauthProvider(provider: string | null | undefined): bo
   return provider === "stripe";
 }
 
+export function isRevolutPreauthProvider(provider: string | null | undefined): boolean {
+  return provider === "revolut";
+}
+
+export function isCardPreauthProvider(provider: string | null | undefined): boolean {
+  return isStripePreauthProvider(provider) || isRevolutPreauthProvider(provider);
+}
+
 export function isCustomerBookingAdapterLive(provider: string | null | undefined): boolean {
   return Boolean(provider && LIVE_CUSTOMER_BOOKING_PROVIDERS.has(provider));
 }
@@ -71,6 +84,7 @@ export function resolveCustomerBookingWorkflow(
 ): CustomerBookingWorkflow {
   if (!gatewayCheck.ok) return "blocked";
   if (isStripePreauthProvider(gatewayCheck.provider)) return "stripe_preauth";
+  if (isRevolutPreauthProvider(gatewayCheck.provider)) return "revolut_preauth";
   if (isMobileWalletCollectProvider(gatewayCheck.provider)) return "mobile_wallet_collect";
   return "blocked";
 }
@@ -118,16 +132,24 @@ export function resolveEnabledMobileWalletMethods(
 
 export type EnabledPaymentMethodsSnake = {
   card: boolean;
+  saved_card: boolean;
   apple_pay: boolean;
   google_pay: boolean;
+  cash: boolean;
   wallet: boolean;
+  mobile_wallet: boolean;
+  pay_by_bank: boolean;
 };
 
 export type PaymentMethodsCamel = {
+  cash: boolean;
   card: boolean;
+  savedCard: boolean;
   wallet: boolean;
   applePay: boolean;
   googlePay: boolean;
+  mobileWallet: boolean;
+  payByBank: boolean;
 };
 
 export function buildServiceAreaPaymentMethodFlags(
@@ -150,24 +172,34 @@ export function buildServiceAreaPaymentMethodFlags(
   }
 
   const provider = gatewayCheck.ok ? gatewayCheck.provider : null;
-  const isStripe = gatewayCheck.ok && isStripePreauthProvider(provider);
+  const isCardGateway = gatewayCheck.ok && isCardPreauthProvider(provider);
   const isMobile = gatewayCheck.ok && isMobileWalletCollectProvider(provider);
+  const cash = false;
+  const flags = parseServiceAreaPaymentMethodFlags(pm);
 
   const paymentMethods: PaymentMethodsCamel = {
-    card: isStripe ? Boolean(pm.card_enabled) : false,
-    wallet: isStripe ? Boolean(pm.wallet_enabled) : false,
-    applePay: isStripe ? Boolean(pm.apple_pay_enabled) : false,
-    googlePay: isStripe ? Boolean(pm.google_pay_enabled) : false,
+    cash,
+    card: isCardGateway ? flags.card : false,
+    savedCard: isCardGateway ? flags.savedCard : false,
+    wallet: isCardGateway ? flags.onecabWallet : false,
+    applePay: isCardGateway ? flags.applePay : false,
+    googlePay: isCardGateway ? flags.googlePay : false,
+    mobileWallet: isMobile ? flags.mobileWallet : false,
+    payByBank: flags.payByBank,
   };
 
   const enabled_payment_methods: EnabledPaymentMethodsSnake = {
     card: paymentMethods.card,
+    saved_card: paymentMethods.savedCard,
     apple_pay: paymentMethods.applePay,
     google_pay: paymentMethods.googlePay,
+    cash,
     wallet: paymentMethods.wallet,
+    mobile_wallet: paymentMethods.mobileWallet,
+    pay_by_bank: paymentMethods.payByBank,
   };
 
-  const enabled_mobile_wallet_methods = isMobile
+  const enabled_mobile_wallet_methods = isMobile && flags.mobileWallet
     ? resolveEnabledMobileWalletMethods(provider, pm.mobile_wallet_methods)
     : null;
 
