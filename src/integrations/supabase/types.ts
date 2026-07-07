@@ -10454,6 +10454,42 @@ export type Database = {
           },
         ]
       }
+      processed_revolut_events: {
+        Row: {
+          applied_status: string | null
+          client_action_id: string | null
+          event_id: string
+          event_type: string | null
+          id: string
+          order_id: string | null
+          payload: Json | null
+          processed_at: string
+          trip_id: string | null
+        }
+        Insert: {
+          applied_status?: string | null
+          client_action_id?: string | null
+          event_id: string
+          event_type?: string | null
+          id?: string
+          order_id?: string | null
+          payload?: Json | null
+          processed_at?: string
+          trip_id?: string | null
+        }
+        Update: {
+          applied_status?: string | null
+          client_action_id?: string | null
+          event_id?: string
+          event_type?: string | null
+          id?: string
+          order_id?: string | null
+          payload?: Json | null
+          processed_at?: string
+          trip_id?: string | null
+        }
+        Relationships: []
+      }
       processed_stripe_events: {
         Row: {
           error: string | null
