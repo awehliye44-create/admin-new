@@ -2445,6 +2445,57 @@ export type Database = {
         }
         Relationships: []
       }
+      customer_saved_payment_method_tokens: {
+        Row: {
+          brand: string | null
+          created_at: string
+          exp_month: number | null
+          exp_year: number | null
+          id: string
+          last4: string | null
+          payment_provider: string
+          platform_payment_method_id: string
+          provider_payment_method_id: string
+          revolut_verified: boolean
+          tokenization_status: string
+          updated_at: string
+          user_id: string
+          verified_at: string | null
+        }
+        Insert: {
+          brand?: string | null
+          created_at?: string
+          exp_month?: number | null
+          exp_year?: number | null
+          id?: string
+          last4?: string | null
+          payment_provider: string
+          platform_payment_method_id: string
+          provider_payment_method_id: string
+          revolut_verified?: boolean
+          tokenization_status?: string
+          updated_at?: string
+          user_id: string
+          verified_at?: string | null
+        }
+        Update: {
+          brand?: string | null
+          created_at?: string
+          exp_month?: number | null
+          exp_year?: number | null
+          id?: string
+          last4?: string | null
+          payment_provider?: string
+          platform_payment_method_id?: string
+          provider_payment_method_id?: string
+          revolut_verified?: boolean
+          tokenization_status?: string
+          updated_at?: string
+          user_id?: string
+          verified_at?: string | null
+        }
+        Relationships: []
+      }
       customer_wallet_ledger: {
         Row: {
           amount_pence: number
@@ -2585,6 +2636,7 @@ export type Database = {
           phone: string | null
           phone_verified: boolean
           phone_verified_at: string | null
+          revolut_customer_id: string | null
           rider_status: string
           stripe_customer_id: string | null
           updated_at: string
@@ -2612,6 +2664,7 @@ export type Database = {
           phone?: string | null
           phone_verified?: boolean
           phone_verified_at?: string | null
+          revolut_customer_id?: string | null
           rider_status?: string
           stripe_customer_id?: string | null
           updated_at?: string
@@ -2639,6 +2692,7 @@ export type Database = {
           phone?: string | null
           phone_verified?: boolean
           phone_verified_at?: string | null
+          revolut_customer_id?: string | null
           rider_status?: string
           stripe_customer_id?: string | null
           updated_at?: string
@@ -4856,9 +4910,12 @@ export type Database = {
           driver_id: string
           id: string
           is_active: boolean
+          masked_sort_code: string | null
           provider: string
           service_area_id: string | null
+          sort_code_last2: string | null
           updated_at: string
+          verification_status: string
         }
         Insert: {
           account_holder_name?: string | null
@@ -4873,9 +4930,12 @@ export type Database = {
           driver_id: string
           id?: string
           is_active?: boolean
+          masked_sort_code?: string | null
           provider: string
           service_area_id?: string | null
+          sort_code_last2?: string | null
           updated_at?: string
+          verification_status?: string
         }
         Update: {
           account_holder_name?: string | null
@@ -4890,9 +4950,12 @@ export type Database = {
           driver_id?: string
           id?: string
           is_active?: boolean
+          masked_sort_code?: string | null
           provider?: string
           service_area_id?: string | null
+          sort_code_last2?: string | null
           updated_at?: string
+          verification_status?: string
         }
         Relationships: [
           {
@@ -9038,6 +9101,7 @@ export type Database = {
       orphan_payments: {
         Row: {
           amount_pence: number
+          card_last4: string | null
           client_action_id: string | null
           created_at: string
           currency: string
@@ -9045,7 +9109,9 @@ export type Database = {
           failure_reason: string | null
           id: string
           metadata: Json
+          payment_provider: string
           payment_status: string | null
+          provider_order_id: string | null
           resolved_at: string | null
           reversal_status: string
           service_area_id: string | null
@@ -9056,6 +9122,7 @@ export type Database = {
         }
         Insert: {
           amount_pence: number
+          card_last4?: string | null
           client_action_id?: string | null
           created_at?: string
           currency?: string
@@ -9063,7 +9130,9 @@ export type Database = {
           failure_reason?: string | null
           id?: string
           metadata?: Json
+          payment_provider?: string
           payment_status?: string | null
+          provider_order_id?: string | null
           resolved_at?: string | null
           reversal_status?: string
           service_area_id?: string | null
@@ -9074,6 +9143,7 @@ export type Database = {
         }
         Update: {
           amount_pence?: number
+          card_last4?: string | null
           client_action_id?: string | null
           created_at?: string
           currency?: string
@@ -9081,7 +9151,9 @@ export type Database = {
           failure_reason?: string | null
           id?: string
           metadata?: Json
+          payment_provider?: string
           payment_status?: string | null
+          provider_order_id?: string | null
           resolved_at?: string | null
           reversal_status?: string
           service_area_id?: string | null
@@ -9435,6 +9507,121 @@ export type Database = {
           updated_by?: string | null
         }
         Relationships: []
+      }
+      payment_sessions: {
+        Row: {
+          authorised_amount_pence: number | null
+          booking_snapshot: Json
+          buffer_pence: number | null
+          client_action_id: string
+          created_at: string
+          customer_id: string | null
+          estimated_total_pence: number | null
+          failure_reason: string | null
+          fare_snapshot: Json
+          id: string
+          metadata: Json
+          payment_method: string | null
+          payment_provider: string
+          platform_payment_method_id: string | null
+          provider_order_id: string | null
+          provider_payment_id: string | null
+          service_area_id: string
+          status: Database["public"]["Enums"]["payment_session_status"]
+          trip_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          authorised_amount_pence?: number | null
+          booking_snapshot?: Json
+          buffer_pence?: number | null
+          client_action_id: string
+          created_at?: string
+          customer_id?: string | null
+          estimated_total_pence?: number | null
+          failure_reason?: string | null
+          fare_snapshot?: Json
+          id?: string
+          metadata?: Json
+          payment_method?: string | null
+          payment_provider?: string
+          platform_payment_method_id?: string | null
+          provider_order_id?: string | null
+          provider_payment_id?: string | null
+          service_area_id: string
+          status?: Database["public"]["Enums"]["payment_session_status"]
+          trip_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          authorised_amount_pence?: number | null
+          booking_snapshot?: Json
+          buffer_pence?: number | null
+          client_action_id?: string
+          created_at?: string
+          customer_id?: string | null
+          estimated_total_pence?: number | null
+          failure_reason?: string | null
+          fare_snapshot?: Json
+          id?: string
+          metadata?: Json
+          payment_method?: string | null
+          payment_provider?: string
+          platform_payment_method_id?: string | null
+          provider_order_id?: string | null
+          provider_payment_id?: string | null
+          service_area_id?: string
+          status?: Database["public"]["Enums"]["payment_session_status"]
+          trip_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_sessions_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "admin_customer_code_audit"
+            referencedColumns: ["customer_id"]
+          },
+          {
+            foreignKeyName: "payment_sessions_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "admin_riders_with_trip_stats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_sessions_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_sessions_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_sessions_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_sessions_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       payments: {
         Row: {
@@ -11706,7 +11893,10 @@ export type Database = {
           created_at: string
           google_pay_enabled: boolean
           id: string
+          mobile_wallet_enabled: boolean
           mobile_wallet_methods: Json | null
+          pay_by_bank_enabled: boolean
+          saved_card_enabled: boolean
           service_area_id: string
           updated_at: string
           wallet_enabled: boolean
@@ -11717,7 +11907,10 @@ export type Database = {
           created_at?: string
           google_pay_enabled?: boolean
           id?: string
+          mobile_wallet_enabled?: boolean
           mobile_wallet_methods?: Json | null
+          pay_by_bank_enabled?: boolean
+          saved_card_enabled?: boolean
           service_area_id: string
           updated_at?: string
           wallet_enabled?: boolean
@@ -11728,7 +11921,10 @@ export type Database = {
           created_at?: string
           google_pay_enabled?: boolean
           id?: string
+          mobile_wallet_enabled?: boolean
           mobile_wallet_methods?: Json | null
+          pay_by_bank_enabled?: boolean
+          saved_card_enabled?: boolean
           service_area_id?: string
           updated_at?: string
           wallet_enabled?: boolean
@@ -16702,9 +16898,12 @@ export type Database = {
           driver_id: string | null
           id: string | null
           is_active: boolean | null
+          masked_sort_code: string | null
           provider_key: string | null
           service_area_id: string | null
+          sort_code_last2: string | null
           updated_at: string | null
+          verification_status: string | null
         }
         Insert: {
           account_holder_name?: string | null
@@ -16717,9 +16916,12 @@ export type Database = {
           driver_id?: string | null
           id?: string | null
           is_active?: boolean | null
+          masked_sort_code?: string | null
           provider_key?: string | null
           service_area_id?: string | null
+          sort_code_last2?: string | null
           updated_at?: string | null
+          verification_status?: string | null
         }
         Update: {
           account_holder_name?: string | null
@@ -16732,9 +16934,12 @@ export type Database = {
           driver_id?: string | null
           id?: string | null
           is_active?: boolean | null
+          masked_sort_code?: string | null
           provider_key?: string | null
           service_area_id?: string | null
+          sort_code_last2?: string | null
           updated_at?: string | null
+          verification_status?: string | null
         }
         Relationships: [
           {
@@ -19033,6 +19238,13 @@ export type Database = {
         | "captured"
         | "under_captured"
         | "capture_failed"
+      payment_session_status:
+        | "pending_payment"
+        | "payment_authorised"
+        | "trip_created"
+        | "payment_orphaned"
+        | "failed"
+        | "cancelled"
       staff_role:
         | "super_admin"
         | "admin"
@@ -19220,6 +19432,14 @@ export const Constants = {
         "captured",
         "under_captured",
         "capture_failed",
+      ],
+      payment_session_status: [
+        "pending_payment",
+        "payment_authorised",
+        "trip_created",
+        "payment_orphaned",
+        "failed",
+        "cancelled",
       ],
       staff_role: [
         "super_admin",
