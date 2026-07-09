@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import type { RealtimeChannel } from '@supabase/supabase-js';
 import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
 import { countAdminActiveTrips } from '@/lib/adminActiveTripFilter';
+
 
 export interface SidebarCounts {
   activeTrips: number;
@@ -16,8 +16,9 @@ export interface SidebarCounts {
 }
 
 const CACHE_KEY = 'sidebar-counts-cache';
-const CACHE_TTL_MS = 30000; // 30 seconds
-const REALTIME_REFETCH_DEBOUNCE_MS = 750;
+const CACHE_TTL_MS = 60_000; // 60 seconds
+const POLL_INTERVAL_MS = 90_000; // 90s while tab visible — replaces realtime broadcast
+
 
 interface CachedCounts {
   data: SidebarCounts;
@@ -35,14 +36,13 @@ const defaultCounts: SidebarCounts = {
   pendingVehicleChanges: 0,
 };
 
-/** One realtime channel + one in-flight fetch shared by all hook instances. */
-let sidebarCountsChannel: RealtimeChannel | null = null;
+/** One in-flight fetch shared by all hook instances. Realtime removed — polling only. */
 let sharedCounts: SidebarCounts = defaultCounts;
 let sharedLoading = true;
 let fetchInFlight: Promise<SidebarCounts> | null = null;
-let realtimeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 const countListeners = new Set<(counts: SidebarCounts) => void>();
 const loadingListeners = new Set<(loading: boolean) => void>();
+
 
 function notifyCounts(counts: SidebarCounts) {
   sharedCounts = counts;
@@ -160,49 +160,10 @@ async function fetchSidebarCountsOnce(skipCache = false): Promise<SidebarCounts>
   return fetchInFlight;
 }
 
-function scheduleRealtimeRefetch() {
-  if (realtimeDebounceTimer) return;
-  realtimeDebounceTimer = setTimeout(() => {
-    realtimeDebounceTimer = null;
-    void fetchSidebarCountsOnce(true);
-  }, REALTIME_REFETCH_DEBOUNCE_MS);
-}
+// Realtime broadcast subscriptions removed — they subscribed to every trip/driver/documents
+// row change globally, producing millions of realtime messages per day. Sidebar counts are
+// approximate operational hints, refreshed via polling + focus/visibility events.
 
-function ensureSidebarCountsRealtime() {
-  if (sidebarCountsChannel) return;
-  const channel = supabase.channel(`sidebar-counts-${crypto.randomUUID()}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, scheduleRealtimeRefetch)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'rider_feedback' }, scheduleRealtimeRefetch)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'documents' }, scheduleRealtimeRefetch)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, scheduleRealtimeRefetch)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'promo_codes' }, scheduleRealtimeRefetch)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'admin_settings' }, scheduleRealtimeRefetch)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_change_requests' }, scheduleRealtimeRefetch);
-
-  sidebarCountsChannel = channel;
-  channel.subscribe((status) => {
-    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-      if (sidebarCountsChannel === channel) {
-        sidebarCountsChannel = null;
-      }
-    }
-  });
-}
-
-let realtimeSubscriberCount = 0;
-
-function registerSidebarCountsRealtime(): () => void {
-  realtimeSubscriberCount += 1;
-  ensureSidebarCountsRealtime();
-  return () => {
-    realtimeSubscriberCount -= 1;
-    if (realtimeSubscriberCount <= 0 && sidebarCountsChannel) {
-      supabase.removeChannel(sidebarCountsChannel);
-      sidebarCountsChannel = null;
-      realtimeSubscriberCount = 0;
-    }
-  };
-}
 
 export function useSidebarCounts() {
   const [counts, setCounts] = useState<SidebarCounts>(sharedCounts);
