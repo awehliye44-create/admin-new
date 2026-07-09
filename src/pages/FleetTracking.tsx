@@ -354,9 +354,13 @@ export default function FleetTracking() {
   useEffect(() => {
     fetchData();
     
-    // Background refresh every 60s — driver location patches via realtime subscription.
-    const interval = setInterval(() => fetchData(true), 60_000);
+    // Background refresh every 120s — realtime handles online-driver location patches.
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      fetchData(true);
+    }, 120_000);
     return () => clearInterval(interval);
+
   }, [fetchData]);
 
   // Real-time driver location updates
@@ -369,7 +373,10 @@ export default function FleetTracking() {
           event: 'UPDATE',
           schema: 'public',
           table: 'drivers',
+          filter: 'is_online=eq.true',
         },
+
+
         (payload) => {
           const updatedDriver = payload.new as any;
           

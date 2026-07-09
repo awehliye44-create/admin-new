@@ -133,9 +133,10 @@ export function usePaymentProviders() {
   const query = useQuery({
     queryKey: ["payment-providers"],
     queryFn: () => invokePaymentProviders("GET") as Promise<PaymentProvidersResponse>,
-    refetchInterval: 60_000,
-    refetchIntervalInBackground: false,
+    staleTime: 60_000,
+    // No auto-poll — config rarely changes; mutations invalidate on save.
   });
+
 
   const updateProvider = useMutation({
     mutationFn: (body: Record<string, unknown>) => invokePaymentProviders("PATCH", { body }),
