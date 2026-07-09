@@ -377,9 +377,11 @@ export default function Dashboard() {
 
       return { stats: s, drivers: allDrivers as Driver[], recentTrips: (recentR.data || []) as RecentTrip[], bookingChartData: chartData };
     },
-    staleTime: 30000,
-    refetchInterval: 60000,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+    refetchIntervalInBackground: false,
   });
+
 
   const stats = dashData?.stats || { totalDrivers: 0, onlineDrivers: 0, offlineDrivers: 0, pendingDrivers: 0, inactiveDrivers: 0, totalRiders: 0, totalTrips: 0, activeTrips: 0, inProgressTrips: 0, completedTrips: 0, cancelledTrips: 0 };
   const drivers = dashData?.drivers || [];

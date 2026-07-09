@@ -26,9 +26,10 @@ export function useChatUnreadCount(): number {
       .channel('chat-unread-badge')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'support_messages' },
+        { event: 'INSERT', schema: 'public', table: 'support_messages' },
         () => fetchCount()
       )
+
       .subscribe();
 
     return () => {
