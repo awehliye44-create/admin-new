@@ -192,7 +192,16 @@ export function useSidebarCounts() {
     return () => window.removeEventListener('focus', handleFocus);
   }, []);
 
-  useEffect(() => registerSidebarCountsRealtime(), []);
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const tick = () => {
+      if (document.hidden) return;
+      void fetchSidebarCountsOnce(true);
+    };
+    const id = window.setInterval(tick, POLL_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, []);
+
 
   return { counts, isLoading, refresh };
 }
