@@ -374,6 +374,8 @@ export default function FleetTracking() {
           schema: 'public',
           table: 'drivers',
           filter: 'is_online=eq.true',
+        },
+
 
         (payload) => {
           const updatedDriver = payload.new as any;
