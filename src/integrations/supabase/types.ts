@@ -14336,12 +14336,14 @@ export type Database = {
             | Database["public"]["Enums"]["payment_coverage_status"]
             | null
           payment_deferred: boolean
+          payment_hold_status: string | null
           payment_intent_id: string | null
           payment_intent_version: number | null
           payment_method: string | null
           payment_provider: string | null
           payment_reauth_at: string | null
           payment_reauth_status: string | null
+          payment_session_id: string | null
           payment_state: Database["public"]["Enums"]["trip_payment_state"]
           payment_status: string | null
           payment_type: string | null
@@ -14609,12 +14611,14 @@ export type Database = {
             | Database["public"]["Enums"]["payment_coverage_status"]
             | null
           payment_deferred?: boolean
+          payment_hold_status?: string | null
           payment_intent_id?: string | null
           payment_intent_version?: number | null
           payment_method?: string | null
           payment_provider?: string | null
           payment_reauth_at?: string | null
           payment_reauth_status?: string | null
+          payment_session_id?: string | null
           payment_state?: Database["public"]["Enums"]["trip_payment_state"]
           payment_status?: string | null
           payment_type?: string | null
@@ -14882,12 +14886,14 @@ export type Database = {
             | Database["public"]["Enums"]["payment_coverage_status"]
             | null
           payment_deferred?: boolean
+          payment_hold_status?: string | null
           payment_intent_id?: string | null
           payment_intent_version?: number | null
           payment_method?: string | null
           payment_provider?: string | null
           payment_reauth_at?: string | null
           payment_reauth_status?: string | null
+          payment_session_id?: string | null
           payment_state?: Database["public"]["Enums"]["trip_payment_state"]
           payment_status?: string | null
           payment_type?: string | null
@@ -15236,6 +15242,13 @@ export type Database = {
             columns: ["locked_driver_id"]
             isOneToOne: false
             referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "payment_sessions"
             referencedColumns: ["id"]
           },
           {
@@ -18831,6 +18844,10 @@ export type Database = {
         Args: never
         Returns: number
       }
+      reclaim_stale_onboarding_auth_user: {
+        Args: { p_email: string }
+        Returns: Json
+      }
       reconcile_stale_online_drivers: {
         Args: never
         Returns: {
@@ -19245,6 +19262,14 @@ export type Database = {
         | "payment_orphaned"
         | "failed"
         | "cancelled"
+        | "authorising"
+        | "authorised_hold"
+        | "dispatching"
+        | "completed_pending_capture"
+        | "captured"
+        | "released"
+        | "orphan_authorisation"
+        | "payment_shortfall"
       staff_role:
         | "super_admin"
         | "admin"
@@ -19440,6 +19465,14 @@ export const Constants = {
         "payment_orphaned",
         "failed",
         "cancelled",
+        "authorising",
+        "authorised_hold",
+        "dispatching",
+        "completed_pending_capture",
+        "captured",
+        "released",
+        "orphan_authorisation",
+        "payment_shortfall",
       ],
       staff_role: [
         "super_admin",
