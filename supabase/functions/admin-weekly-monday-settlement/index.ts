@@ -3,6 +3,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import { fetchPerDriverFinancialReconciliation } from "../_shared/perDriverFinancialReconciliation.ts";
 import {
+  isManualBankPayoutProvider,
+  resolveRegionPayoutProvider,
+} from "../_shared/manualProviderPayoutSSOT.ts";
+import {
   isAdminStripePayoutExecutionEnabled,
   isPayoutVerificationMode,
   PAYOUT_EXECUTION_DISABLED_CODE,
@@ -112,8 +116,10 @@ serve(async (req) => {
     }
 
     const regionId = body.region_id as string | undefined;
+    const regionPayoutProvider = await resolveRegionPayoutProvider(supabase, regionId ?? null);
+    const manualProviderPayout = isManualBankPayoutProvider(regionPayoutProvider);
 
-    if (!stripeExecutionEnabled) {
+    if (!stripeExecutionEnabled && !manualProviderPayout) {
       return new Response(JSON.stringify({
         error: PAYOUT_EXECUTION_DISABLED_MESSAGE,
         error_code: PAYOUT_EXECUTION_DISABLED_CODE,
@@ -125,7 +131,7 @@ serve(async (req) => {
 
     let stripeAvailablePence = 0;
     let stripePendingPence = 0;
-    if (!verificationMode && stripeSecretKey) {
+    if (!verificationMode && !manualProviderPayout && stripeSecretKey) {
       const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
       const balance = await stripe.balance.retrieve();
       stripeAvailablePence = balance.available.find((b) => b.currency === "gbp")?.amount ?? 0;
@@ -176,9 +182,10 @@ serve(async (req) => {
       const ssot = await fetchPerDriverFinancialReconciliation(supabase, {
         driverId: driver.id,
         regionId: driver.region_id,
-        providerAvailableBalancePence: stripeAvailablePence,
+        providerAvailableBalancePence: manualProviderPayout ? Number.MAX_SAFE_INTEGER : stripeAvailablePence,
         providerPendingBalancePence: stripePendingPence,
         sourceTier: "LIVE",
+        manualProviderPayout,
       });
 
       const payoutAmount = ssot.driver_available_now_pence;
@@ -226,6 +233,8 @@ serve(async (req) => {
           settlement_status: "READY",
           driver_stripe_account_id: driver.stripe_account_id,
           provider_response: {
+            payout_provider: regionPayoutProvider,
+            manual_provider_payout: manualProviderPayout,
             payout_warning_reasons: ssot.payout_warning_reasons,
             payout_blocked_reasons: ssot.payout_blocked_reasons,
           },
@@ -284,7 +293,9 @@ serve(async (req) => {
       dry_run: verificationMode,
       verification_mode: verificationMode,
       payout_safety_version: '3d.1',
-      stripe_execution_disabled: !stripeExecutionEnabled,
+      payout_provider: regionPayoutProvider,
+      manual_provider_payout: manualProviderPayout,
+      stripe_execution_disabled: !stripeExecutionEnabled && !manualProviderPayout,
       message: verificationMode ? PAYOUT_VERIFICATION_MODE_MESSAGE : undefined,
       batch_id: batchId,
       batch_status: batchStatus,

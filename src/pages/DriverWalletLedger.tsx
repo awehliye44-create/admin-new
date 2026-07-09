@@ -20,6 +20,8 @@ import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
 import { useDriverWalletSsotDetail } from '@/hooks/useDriverWalletSsot';
 import { parseDriverWalletLedgerTab, type DriverWalletLedgerTab } from '@/lib/driverWalletLedgerRoutes';
 import { ServiceAreaGatewayStatusFetcher } from '@/components/finance/ServiceAreaGatewayStatusFetcher';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 
 /** Single-driver Provider truth — reads Provider only; trip money lives on Trip History. */
@@ -42,6 +44,27 @@ export default function DriverWalletLedger() {
   );
 
   const { data: driver, isLoading, isFetching, refetch } = useDriverWalletSsotDetail(driverId);
+  const { data: serviceAreaGateway } = useQuery({
+    queryKey: ['service-area-payout-gateway', serviceFilter.serviceAreaId],
+    queryFn: async () => {
+      if (!serviceFilter.serviceAreaId) return null;
+      const { data, error } = await supabase
+        .from('service_areas')
+        .select('payment_provider, driver_payout_gateway, customer_payment_gateway')
+        .eq('id', serviceFilter.serviceAreaId)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: Boolean(serviceFilter.serviceAreaId),
+    staleTime: 60_000,
+  });
+  const payoutGateway =
+    serviceAreaGateway?.payment_provider
+    ?? serviceAreaGateway?.driver_payout_gateway
+    ?? serviceAreaGateway?.customer_payment_gateway
+    ?? null;
+  const manualPayoutMode = payoutGateway === 'revolut';
 
   useEffect(() => {
     const canonical = parseDriverWalletLedgerTab(rawTab);
@@ -134,6 +157,8 @@ export default function DriverWalletLedger() {
               driver={driver}
               currencyCode={currencyCode}
               isLoading={loadingDetail}
+              regionId={serviceFilter.regionId}
+              manualPayoutMode={manualPayoutMode}
             />
           </TabsContent>
 

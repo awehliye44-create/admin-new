@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import { isAdminPageLiveActive, subscribeAdminPageLiveActive } from '@/lib/adminPageVisibility';
 import { 
   MapPin, Loader2, Search, RefreshCw, Car, Users, Circle, 
   Navigation, Phone, Star, Clock, Wifi, WifiOff
@@ -353,31 +354,51 @@ export default function FleetTracking() {
 
   useEffect(() => {
     fetchData();
-    
-    // Background refresh every 120s — realtime handles online-driver location patches.
-    const interval = setInterval(() => {
-      if (typeof document !== 'undefined' && document.hidden) return;
-      fetchData(true);
-    }, 120_000);
-    return () => clearInterval(interval);
 
+    let interval: ReturnType<typeof setInterval> | null = null;
+    const startPoll = () => {
+      if (interval) clearInterval(interval);
+      if (!isAdminPageLiveActive()) return;
+      interval = setInterval(() => {
+        if (typeof document !== 'undefined' && document.hidden) return;
+        fetchData(true);
+      }, 120_000);
+    };
+    startPoll();
+    const unsub = subscribeAdminPageLiveActive(startPoll);
+    document.addEventListener('visibilitychange', startPoll);
+    return () => {
+      unsub();
+      document.removeEventListener('visibilitychange', startPoll);
+      if (interval) clearInterval(interval);
+    };
   }, [fetchData]);
 
-  // Real-time driver location updates
+  // Real-time driver location updates — leader tab + visible only.
   useEffect(() => {
-    const channel = supabase
-      .channel('driver-location-updates')
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'drivers',
-          filter: 'is_online=eq.true',
-        },
+    let channel: ReturnType<typeof supabase.channel> | null = null;
 
+    const teardown = () => {
+      if (channel) {
+        supabase.removeChannel(channel);
+        channel = null;
+      }
+    };
 
-        (payload) => {
+    const setup = () => {
+      teardown();
+      if (!isAdminPageLiveActive()) return;
+      channel = supabase
+        .channel('driver-location-updates')
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'drivers',
+            filter: 'is_online=eq.true',
+          },
+          (payload) => {
           const updatedDriver = payload.new as any;
           
           setDrivers(prev => prev.map(driver => {
@@ -399,9 +420,15 @@ export default function FleetTracking() {
         }
       )
       .subscribe();
+    };
 
+    setup();
+    const unsub = subscribeAdminPageLiveActive(setup);
+    document.addEventListener('visibilitychange', setup);
     return () => {
-      supabase.removeChannel(channel);
+      unsub();
+      document.removeEventListener('visibilitychange', setup);
+      teardown();
     };
   }, []);
 

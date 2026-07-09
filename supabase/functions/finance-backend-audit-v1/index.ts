@@ -1,7 +1,11 @@
-// v1.0.1 redeploy — nuke legacy financeScopeProvider reference
+// v1.0.2 — resolve finance scope provider before platform balance fetch
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@14.21.0";
+import {
+  fetchProviderPlatformBalance,
+  resolveFinanceScopeProvider,
+} from "../_shared/providerPlatformBalanceSSOT.ts";
 import {
   buildFinanceBackendAuditV1,
   type EarlyCashoutRow,
@@ -294,15 +298,25 @@ serve(async (req) => {
     }> = [];
     let stripeBalanceError: string | null = null;
 
-    if (stripeSecretKey) {
+    const financeScopeProvider = await resolveFinanceScopeProvider(supabase, {
+      regionId: resolvedRegionId,
+      serviceAreaId: serviceAreaId ?? null,
+    });
+
+    const providerBalance = await fetchProviderPlatformBalance(supabase, {
+      provider: financeScopeProvider.provider,
+      environment: financeScopeProvider.environment,
+      currency,
+    });
+    stripeAvailablePence = providerBalance.available_pence;
+    stripePendingPence = providerBalance.pending_pence;
+    stripeBalanceError = providerBalance.error;
+
+    const useStripePlatformPayouts = financeScopeProvider.provider === "stripe";
+
+    if (useStripePlatformPayouts && stripeSecretKey) {
       try {
         const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
-        const balance = await stripe.balance.retrieve();
-        const avail = balance.available.find((b: { currency: string }) => b.currency === currency);
-        const pend = balance.pending.find((b: { currency: string }) => b.currency === currency);
-        stripeAvailablePence = avail?.amount ?? 0;
-        stripePendingPence = pend?.amount ?? 0;
-
         const payouts = await stripe.payouts.list({ limit: 100 });
         stripePlatformPayoutsPence = payouts.data
           .filter((p: { currency: string; status: string }) => p.currency === currency && p.status === "paid")
@@ -346,8 +360,8 @@ serve(async (req) => {
       } catch (e) {
         stripeBalanceError = (e as Error).message;
       }
-    } else {
-      stripeBalanceError = "STRIPE_SECRET_KEY not configured";
+    } else if (useStripePlatformPayouts && !stripeSecretKey) {
+      stripeBalanceError = stripeBalanceError ?? "STRIPE_SECRET_KEY not configured";
     }
 
     const finance_backend_audit_v1 = buildFinanceBackendAuditV1({

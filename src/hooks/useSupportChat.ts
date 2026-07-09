@@ -99,7 +99,10 @@ export function useSupportConversations(statusFilter?: string) {
 
       return (data || []) as SupportConversation[];
     },
-    refetchInterval: 30_000,
+    refetchInterval: () => {
+      if (typeof document !== 'undefined' && document.hidden) return false;
+      return 60_000;
+    },
     refetchIntervalInBackground: false,
   });
 }
@@ -391,6 +394,10 @@ export function useUnreadSupportCount() {
       if (error) throw error;
       return count || 0;
     },
-    refetchInterval: 15000,
+    refetchInterval: () => {
+      if (typeof document !== 'undefined' && document.hidden) return false;
+      return 60_000;
+    },
+    refetchIntervalInBackground: false,
   });
 }

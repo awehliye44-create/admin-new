@@ -16,7 +16,12 @@ export const SUPPORTED_PAYMENT_PROVIDER_IDS: PaymentProviderId[] = [
   "revolut",
 ];
 
-export type ProviderSecretName = "publishable_key" | "secret_key" | "webhook_secret" | "merchant_id";
+export type ProviderSecretName =
+  | "publishable_key"
+  | "secret_key"
+  | "webhook_secret"
+  | "merchant_id"
+  | "business_access_token";
 
 export const PROVIDER_SECRET_FIELDS: Record<PaymentProviderId, ProviderSecretName[]> = {
   stripe: ["publishable_key", "secret_key", "webhook_secret"],
@@ -34,7 +39,7 @@ export const PROVIDER_SECRET_FIELDS: Record<PaymentProviderId, ProviderSecretNam
   hubtel: ["publishable_key", "secret_key", "webhook_secret"],
   dpo_pay: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
   noda: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
-  revolut: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
+  revolut: ["publishable_key", "secret_key", "webhook_secret", "merchant_id", "business_access_token"],
 };
 
 export type ProviderSecretFieldLabels = Partial<Record<ProviderSecretName, string>>;
@@ -121,9 +126,10 @@ export const PROVIDER_SECRET_FIELD_LABELS: Record<PaymentProviderId, ProviderSec
     merchant_id: "Merchant / account ID",
   },
   revolut: {
-    publishable_key: "Merchant API key (customer checkout)",
-    secret_key: "Business API access token",
+    publishable_key: "Production API Public key (pk_…)",
+    secret_key: "Production API Secret key (sk_…) — customer payments",
     webhook_secret: "Webhook signing secret",
-    merchant_id: "Source Business account ID (payouts)",
+    merchant_id: "Source Business account ID (GBP account UUID)",
+    business_access_token: "Business API access token (oa_prod_…) — driver payouts",
   },
 };

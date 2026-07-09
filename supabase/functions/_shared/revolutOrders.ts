@@ -124,19 +124,14 @@ export async function refundRevolutOrder(
 }
 
 /**
- * Read the active Revolut secret key + environment.
- * Prefers REVOLUT_MERCHANT_SECRET_KEY (Phase 2 explicit secret) with
- * REVOLUT_API_KEY kept as a fallback for pre-existing installations that
- * stored the merchant secret under the generic name.
+ * Read the active Revolut secret key + environment from canonical edge env.
  */
 export function getRevolutMerchantConfig(): {
   secretKey: string;
   environment: ProviderEnvironment;
 } {
-  const key =
-    Deno.env.get("REVOLUT_MERCHANT_SECRET_KEY") ??
-    Deno.env.get("REVOLUT_API_KEY");
-  if (!key) throw new Error("Revolut merchant secret key is not configured");
+  const key = Deno.env.get("REVOLUT_MERCHANT_SECRET_KEY");
+  if (!key) throw new Error("Revolut merchant secret key is not configured (REVOLUT_MERCHANT_SECRET_KEY)");
   const environment: ProviderEnvironment = key.startsWith("sk_sandbox") ? "sandbox" : "live";
   return { secretKey: key, environment };
 }

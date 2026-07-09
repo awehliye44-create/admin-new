@@ -48,6 +48,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { supabase } from '@/integrations/supabase/client';
+import { isAdminPageLiveActive, subscribeAdminPageLiveActive } from '@/lib/adminPageVisibility';
 import { 
   Calendar, Loader2, Search, RefreshCw, Clock, MapPin, Phone,
   MoreHorizontal, UserPlus, XCircle, Eye, Play, CalendarClock,
@@ -59,6 +60,12 @@ import { format, formatDistanceToNow, isPast, isToday, isTomorrow, addHours } fr
 import { getCurrencySymbol, getDistanceUnitShort, convertDistance } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { toast } from 'sonner';
+import {
+  CRITICAL_BUTTON_TIMEOUT_MESSAGE,
+  useCriticalButtonTimeout,
+  type CriticalButtonAction,
+} from '@/lib/criticalButtonTimeout';
+import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 
 interface ScheduledTrip {
   id: string;
@@ -127,6 +134,20 @@ export default function ScheduledRides() {
   const [selectedDriverId, setSelectedDriverId] = useState('');
   const [cancelReason, setCancelReason] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [savingAction, setSavingAction] = useState<CriticalButtonAction | null>(null);
+
+  const tripActionTimeout = useCriticalButtonTimeout({
+    action: savingAction ?? 'admin_cancel_trip',
+    isPending: isSaving && savingAction != null,
+    tripId: selectedTrip?.id ?? null,
+    onTimeout: () => {
+      setIsSaving(false);
+      setSavingAction(null);
+      void fetchData();
+      toast.error(CRITICAL_BUTTON_TIMEOUT_MESSAGE);
+    },
+  });
+  const tripActionBusy = tripActionTimeout.showSpinner;
 
   const queryClient = useQueryClient();
 
@@ -192,19 +213,52 @@ export default function ScheduledRides() {
     queryClient.invalidateQueries({ queryKey: ['scheduled-rides'] });
   }, [queryClient]);
 
-  // Subscribe to real-time updates — silently invalidate cache
+  // Subscribe to real-time updates — leader tab + visible only; filter scheduled trips.
   useEffect(() => {
-    const channel = supabase
-      .channel('scheduled-rides-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'trips' },
-        () => queryClient.invalidateQueries({ queryKey: ['scheduled-rides'] })
-      )
-      .subscribe();
-    
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+
+    const teardown = () => {
+      if (debounce) clearTimeout(debounce);
+      if (channel) {
+        supabase.removeChannel(channel);
+        channel = null;
+      }
+    };
+
+    const schedule = () => {
+      if (debounce) return;
+      debounce = setTimeout(() => {
+        debounce = null;
+        queryClient.invalidateQueries({ queryKey: ['scheduled-rides'] });
+      }, 750);
+    };
+
+    const setup = () => {
+      teardown();
+      if (!isAdminPageLiveActive()) return;
+      channel = supabase
+        .channel('scheduled-rides-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'trips',
+            filter: 'is_scheduled=eq.true',
+          },
+          schedule,
+        )
+        .subscribe();
+    };
+
+    setup();
+    const unsub = subscribeAdminPageLiveActive(setup);
+    document.addEventListener('visibilitychange', setup);
     return () => {
-      supabase.removeChannel(channel);
+      unsub();
+      document.removeEventListener('visibilitychange', setup);
+      teardown();
     };
   }, [queryClient]);
 
@@ -214,9 +268,13 @@ export default function ScheduledRides() {
       return;
     }
 
+    setSavingAction('admin_assign_trip');
     setIsSaving(true);
+    const perf = startAdminPerformanceStep({
+      action_name: 'admin_assign_trip',
+      metadata: { trip_id: selectedTrip.id },
+    });
     try {
-      // Lock the driver to the scheduled booking WITHOUT converting to live.
       // The booking stays "scheduled" with scheduled_status = 'driver_assigned'.
       // Only when the driver accepts the live dispatch offer does status become 'accepted'.
       const { error } = await supabase
@@ -230,6 +288,7 @@ export default function ScheduledRides() {
 
       if (error) throw error;
 
+      perf.complete({ success: true, metadata: { trip_id: selectedTrip.id } });
       toast.success('Driver assigned successfully');
       setIsAssignOpen(false);
       setSelectedTrip(null);
@@ -237,9 +296,11 @@ export default function ScheduledRides() {
       fetchData();
     } catch (err: any) {
       console.error('Error assigning driver:', err);
+      perf.complete({ success: false, error_code: 'assign_failed' });
       toast.error(err.message || 'Failed to assign driver');
     } finally {
       setIsSaving(false);
+      setSavingAction(null);
     }
   };
 
@@ -247,7 +308,12 @@ export default function ScheduledRides() {
     e?.preventDefault();
     if (!selectedTrip) return;
 
+    setSavingAction('admin_cancel_trip');
     setIsSaving(true);
+    const perf = startAdminPerformanceStep({
+      action_name: 'admin_cancel_trip',
+      metadata: { trip_id: selectedTrip.id },
+    });
     try {
       const { error } = await supabase
         .from('trips')
@@ -262,6 +328,7 @@ export default function ScheduledRides() {
 
       if (error) throw error;
 
+      perf.complete({ success: true, metadata: { trip_id: selectedTrip.id } });
       toast.success('Scheduled ride cancelled');
       setIsCancelOpen(false);
       setSelectedTrip(null);
@@ -269,9 +336,11 @@ export default function ScheduledRides() {
       fetchData();
     } catch (err: any) {
       console.error('Error cancelling trip:', err);
+      perf.complete({ success: false, error_code: 'cancel_failed' });
       toast.error(err.message || 'Failed to cancel ride');
     } finally {
       setIsSaving(false);
+      setSavingAction(null);
     }
   };
 
@@ -879,8 +948,8 @@ export default function ScheduledRides() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAssignOpen(false)}>Cancel</Button>
-            <Button onClick={handleAssignDriver} disabled={isSaving || !selectedDriverId}>
-              {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            <Button onClick={handleAssignDriver} disabled={tripActionBusy || !selectedDriverId}>
+              {tripActionBusy && savingAction === 'admin_assign_trip' ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Assign Driver
             </Button>
           </DialogFooter>
@@ -906,16 +975,16 @@ export default function ScheduledRides() {
             />
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isSaving}>Keep Ride</AlertDialogCancel>
+            <AlertDialogCancel disabled={tripActionBusy}>Keep Ride</AlertDialogCancel>
             <AlertDialogAction 
               onClick={(e) => {
                 e.preventDefault();
                 handleCancelTrip(e);
               }}
-              disabled={isSaving}
+              disabled={tripActionBusy}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {tripActionBusy && savingAction === 'admin_cancel_trip' ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Cancel Ride
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -21,7 +21,12 @@ import { DigitalFinanceEraPanel } from '@/components/finance/DigitalFinanceEraPa
 import { FinancePanelErrorBoundary } from '@/components/finance/FinancePanelErrorBoundary';
 import { useFinanceReconciliationMoney } from '@/hooks/useFinanceReconciliationMoney';
 import { AlertTriangle, RefreshCw, ShieldCheck } from 'lucide-react';
+import { toast } from 'sonner';
 import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
+import {
+  CRITICAL_BUTTON_TIMEOUT_MESSAGE,
+  useCriticalButtonTimeout,
+} from '@/lib/criticalButtonTimeout';
 
 const FR_TABS = ['overview', 'drivers', 'trips', 'alerts'] as const;
 type FrTab = (typeof FR_TABS)[number];
@@ -114,6 +119,28 @@ function FinancialReconciliationPage() {
     enabled: financeScopeReady,
   });
   const { isLoading, error, refetchFresh, isFetching, readOnly, status: ssotStatus, snapshotSavedAt, lastSyncedAt, badge: ssotBadge } = ssot;
+  const refreshFinanceTimeout = useCriticalButtonTimeout({
+    action: 'admin_refresh_finance',
+    isPending: isFetching,
+    onTimeout: () => {
+      void refetchFresh();
+      toast.error(CRITICAL_BUTTON_TIMEOUT_MESSAGE);
+    },
+  });
+  const isFinanceRefreshing = refreshFinanceTimeout.showSpinner;
+
+  const handleRefreshFinance = useCallback(async () => {
+    const perf = startAdminPerformanceStep({ action_name: 'admin_refresh_finance' });
+    try {
+      await refetchFresh();
+      perf.complete({ success: true });
+    } catch (err) {
+      perf.complete({
+        success: false,
+        error_code: err instanceof Error ? err.message : 'refresh_failed',
+      });
+    }
+  }, [refetchFresh]);
   const data = ssot.response;
 
   const {
@@ -232,8 +259,8 @@ function FinancialReconciliationPage() {
               </p>
             </AlertDescription>
           </Alert>
-          <Button variant="outline" size="sm" onClick={() => void refetchFresh()} disabled={isFetching}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
+          <Button variant="outline" size="sm" onClick={() => void handleRefreshFinance()} disabled={isFinanceRefreshing}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${isFinanceRefreshing ? 'animate-spin' : ''}`} />
             Retry
           </Button>
         </div>
@@ -282,8 +309,8 @@ function FinancialReconciliationPage() {
             <ServiceAreaFinanceFilter value={filter} onChange={setFilter} autoSelectFirstArea={false} />
             <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-[150px]" />
             <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-[150px]" />
-            <Button variant="outline" size="sm" onClick={() => void refetchFresh()} disabled={isFetching}>
-              <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
+            <Button variant="outline" size="sm" onClick={() => void handleRefreshFinance()} disabled={isFinanceRefreshing}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${isFinanceRefreshing ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
           </div>
@@ -331,8 +358,8 @@ function FinancialReconciliationPage() {
                 currencyGroups={data?.currency_groups}
                 serviceAreaGateways={data?.service_area_payment_gateways}
                 readOnly={readOnly}
-                onRefresh={() => void refetchFresh()}
-                isRefreshing={isFetching}
+                onRefresh={() => void handleRefreshFinance()}
+                isRefreshing={isFinanceRefreshing}
               />
             </FinancePanelErrorBoundary>
           </TabsContent>
@@ -369,8 +396,8 @@ function FinancialReconciliationPage() {
                   readOnly={readOnly}
                   ssotBadge={ssotBadge}
                   lastSyncedAt={lastSyncedAt}
-                  isRefreshing={isFetching}
-                  onRefresh={() => void refetchFresh()}
+                  isRefreshing={isFinanceRefreshing}
+                  onRefresh={() => void handleRefreshFinance()}
                   initialTripId={recoverTripId}
                   initialTripCode={recoverTripCode}
                   onInitialTripConsumed={clearRecoverTrip}

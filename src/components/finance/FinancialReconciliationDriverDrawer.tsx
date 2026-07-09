@@ -6,6 +6,12 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
+import { toast } from 'sonner';
+import {
+  CRITICAL_BUTTON_TIMEOUT_MESSAGE,
+  useCriticalButtonTimeout,
+} from '@/lib/criticalButtonTimeout';
+import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 import {
   Dialog,
   DialogContent,
@@ -270,6 +276,34 @@ export function FinancialReconciliationDriverDrawer({
     void refetchTrips();
   };
 
+  const refreshDrawerTimeout = useCriticalButtonTimeout({
+    action: 'admin_refresh_finance',
+    isPending: isRefreshing,
+    onTimeout: () => {
+      refreshAll();
+      toast.error(CRITICAL_BUTTON_TIMEOUT_MESSAGE);
+    },
+  });
+  const showRefreshSpinner = refreshDrawerTimeout.showSpinner;
+
+  const handleRefreshAll = () => {
+    const perf = startAdminPerformanceStep({
+      action_name: 'admin_refresh_finance',
+      metadata: { surface: 'driver_drawer', driver_id: driverId ?? null },
+    });
+    void Promise.all([
+      refetchWallet(),
+      refetchPerDriver(),
+      refetchTrips(),
+    ]).then(
+      () => perf.complete({ success: true }),
+      (err) => perf.complete({
+        success: false,
+        error_code: err instanceof Error ? err.message : 'refresh_failed',
+      }),
+    );
+  };
+
   const setPreset = (preset: DriverDateRangePreset) => {
     setDateRange(resolveDriverDateRange(preset));
   };
@@ -318,8 +352,8 @@ export function FinancialReconciliationDriverDrawer({
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <Button variant="outline" size="sm" onClick={refreshAll} disabled={isRefreshing}>
-                  {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                <Button variant="outline" size="sm" onClick={handleRefreshAll} disabled={showRefreshSpinner}>
+                  {showRefreshSpinner ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   <span className="ml-1.5 hidden sm:inline">Refresh</span>
                 </Button>
                 <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)}>
@@ -334,11 +368,11 @@ export function FinancialReconciliationDriverDrawer({
 
           <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
             <FinancialReconciliationRefreshBar
-              badge={isRefreshing ? 'REFRESHING' : ssotBadge}
+              badge={showRefreshSpinner ? 'REFRESHING' : ssotBadge}
               lastSyncedAt={driver?.last_synced_at ?? lastSyncedAt}
-              isRefreshing={isRefreshing}
+              isRefreshing={showRefreshSpinner}
               readOnly={readOnly}
-              onRefresh={refreshAll}
+              onRefresh={handleRefreshAll}
               label={`Driver payments — ${driverDateRangeLabel(dateRange)} · digital trips only`}
             />
 

@@ -47,6 +47,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  isAdminDocumentVisible,
+  isAdminTabLiveActive,
+  subscribeAdminTabLiveActive,
+} from '@/lib/adminTabLeader';
 import { 
   MapPin, Loader2, Search, RefreshCw, Car, Users, Navigation, 
   MoreHorizontal, UserX, XCircle, CheckCircle2, Clock, Phone,
@@ -59,6 +64,11 @@ import { getTripDisplayId } from '@/lib/tripUtils';
 import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
 import { filterAdminActiveTrips, formatAdminActiveTripTimerLabel } from '@/lib/adminActiveTripFilter';
 import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
+import {
+  CRITICAL_BUTTON_TIMEOUT_MESSAGE,
+  useCriticalButtonTimeout,
+  type CriticalButtonAction,
+} from '@/lib/criticalButtonTimeout';
 import { FinancialReconciliationTripLink } from '@/components/finance/FinancialReconciliationTripLink';
 import { resolvePayableFarePence } from '@/lib/fareDisplaySSOT';
 import { computeLiveTripFarePreview } from '@/lib/liveTripFareSSOT';
@@ -195,6 +205,20 @@ export default function ActiveTrips() {
   const [cancelReason, setCancelReason] = useState('');
   const [forceEndFare, setForceEndFare] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [savingAction, setSavingAction] = useState<CriticalButtonAction | null>(null);
+
+  const tripActionTimeout = useCriticalButtonTimeout({
+    action: savingAction ?? 'admin_cancel_trip',
+    isPending: isSaving && savingAction != null,
+    tripId: selectedTrip?.id ?? null,
+    onTimeout: () => {
+      setIsSaving(false);
+      setSavingAction(null);
+      void fetchData(true);
+      toast.error(CRITICAL_BUTTON_TIMEOUT_MESSAGE);
+    },
+  });
+  const tripActionBusy = tripActionTimeout.showSpinner;
 
   const activeTripsPerfRef = useRef<ReturnType<typeof startAdminPerformanceStep> | null>(null);
   useEffect(() => {
@@ -362,6 +386,11 @@ export default function ActiveTrips() {
       setLastRefresh(new Date());
     } catch (err) {
       console.error('Error fetching trips:', err);
+      activeTripsPerfRef.current?.complete({
+        success: false,
+        error_code: err instanceof Error ? err.message.slice(0, 80) : 'fetch_failed',
+      });
+      activeTripsPerfRef.current = null;
       if (!isBackground) toast.error('Failed to load active trips');
     } finally {
       setIsLoading(false);
@@ -370,35 +399,62 @@ export default function ActiveTrips() {
 
   useEffect(() => {
     fetchData();
-    
-    // Subscribe to real-time updates — no polling needed
-    const channel = supabase
-      .channel('active-trips-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'trips' },
-        () => {
-          fetchData(true); // background refresh, no spinner
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'trip_stops' },
-        () => {
-          fetchData(true);
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'trip_change_requests' },
-        () => {
-          fetchData(true);
-        }
-      )
-      .subscribe();
-    
+
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleRefresh = () => {
+      if (debounceTimer) return;
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        fetchData(true);
+      }, 750);
+    };
+
+    const teardown = () => {
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
+      }
+      if (channel) {
+        supabase.removeChannel(channel);
+        channel = null;
+      }
+    };
+
+    const setup = () => {
+      teardown();
+      if (!isAdminTabLiveActive() || !isAdminDocumentVisible()) return;
+
+      channel = supabase
+        .channel('active-trips-changes')
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'trips' },
+          scheduleRefresh,
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'trip_stops' },
+          scheduleRefresh,
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'trip_change_requests' },
+          scheduleRefresh,
+        )
+        .subscribe();
+    };
+
+    setup();
+    const unsubLeader = subscribeAdminTabLiveActive(setup);
+    const onVisibility = () => setup();
+    document.addEventListener('visibilitychange', onVisibility);
+
     return () => {
-      supabase.removeChannel(channel);
+      unsubLeader();
+      document.removeEventListener('visibilitychange', onVisibility);
+      teardown();
     };
   }, [fetchData]);
 
@@ -408,7 +464,12 @@ export default function ActiveTrips() {
       return;
     }
 
+    setSavingAction('admin_assign_trip');
     setIsSaving(true);
+    const perf = startAdminPerformanceStep({
+      action_name: 'admin_assign_trip',
+      metadata: { trip_id: selectedTrip.id },
+    });
     try {
       const { data, error } = await supabase.functions.invoke('admin-trip-action', {
         body: {
@@ -422,6 +483,7 @@ export default function ActiveTrips() {
         throw new Error(data?.error || 'Failed to reassign trip');
       }
 
+      perf.complete({ success: true, metadata: { trip_id: selectedTrip.id } });
       toast.success('Trip reassigned successfully');
       setIsReassignOpen(false);
       setSelectedTrip(null);
@@ -429,16 +491,23 @@ export default function ActiveTrips() {
       fetchData();
     } catch (err: any) {
       console.error('Error reassigning trip:', err);
+      perf.complete({ success: false, error_code: 'reassign_failed' });
       toast.error(err.message || 'Failed to reassign trip');
     } finally {
       setIsSaving(false);
+      setSavingAction(null);
     }
   };
 
   const handleCancel = async () => {
     if (!selectedTrip) return;
 
+    setSavingAction('admin_cancel_trip');
     setIsSaving(true);
+    const perf = startAdminPerformanceStep({
+      action_name: 'admin_cancel_trip',
+      metadata: { trip_id: selectedTrip.id },
+    });
     try {
       const tripId = selectedTrip.id;
       const reason = cancelReason || 'cancelled_by_admin';
@@ -491,15 +560,18 @@ export default function ActiveTrips() {
       }
 
       toast.success('Trip cancelled successfully');
+      perf.complete({ success: true, metadata: { trip_id: tripId } });
       setIsCancelOpen(false);
       setSelectedTrip(null);
       setCancelReason('');
       fetchData();
     } catch (err: any) {
       console.error('Error cancelling trip:', err);
+      perf.complete({ success: false, error_code: 'cancel_failed' });
       toast.error(err.message || 'Failed to cancel trip');
     } finally {
       setIsSaving(false);
+      setSavingAction(null);
     }
   };
 
@@ -508,6 +580,7 @@ export default function ActiveTrips() {
 
     const fareAmount = parseFloat(forceEndFare) || resolveActiveTripLiveFarePence(selectedTrip) / 100 || 0;
 
+    setSavingAction('admin_cancel_trip');
     setIsSaving(true);
     try {
       const { data, error } = await supabase.functions.invoke('admin-trip-action', {
@@ -533,6 +606,7 @@ export default function ActiveTrips() {
       toast.error(err.message || 'Failed to force end trip');
     } finally {
       setIsSaving(false);
+      setSavingAction(null);
     }
   };
 
@@ -671,7 +745,7 @@ export default function ActiveTrips() {
                 <SelectItem value="ongoing">Ongoing</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" onClick={() => fetchData()} disabled={isLoading}>
+            <Button variant="outline" onClick={() => fetchData(true)} disabled={isLoading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
@@ -869,8 +943,8 @@ export default function ActiveTrips() {
             <Button variant="outline" onClick={() => setIsReassignOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleReassign} disabled={isSaving || !selectedDriverId}>
-              {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            <Button onClick={handleReassign} disabled={tripActionBusy || !selectedDriverId}>
+              {tripActionBusy && savingAction === 'admin_assign_trip' ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Reassign
             </Button>
           </DialogFooter>
@@ -907,9 +981,9 @@ export default function ActiveTrips() {
             <AlertDialogAction
               onClick={handleCancel}
               className="bg-red-600 hover:bg-red-700"
-              disabled={isSaving}
+              disabled={tripActionBusy}
             >
-              {isSaving ? 'Cancelling...' : 'Cancel Trip'}
+              {tripActionBusy && savingAction === 'admin_cancel_trip' ? 'Cancelling...' : 'Cancel Trip'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -959,8 +1033,8 @@ export default function ActiveTrips() {
             <Button variant="outline" onClick={() => setIsForceEndOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleForceEnd} disabled={isSaving}>
-              {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            <Button onClick={handleForceEnd} disabled={tripActionBusy}>
+              {tripActionBusy && savingAction === 'admin_cancel_trip' ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Force End
             </Button>
           </DialogFooter>

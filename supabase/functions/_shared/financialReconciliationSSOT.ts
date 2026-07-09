@@ -318,7 +318,7 @@ export function sumProviderProcessingFeesPence(
   const byTrip = paymentByTrip ?? new Map<string, number>();
   return trips.reduce((s, t) => {
     if (!isTripPaymentCaptureConfirmed(t, byTrip)) return s;
-    return s + Math.max(0, t.stripe_processing_fee_pence ?? 0);
+    return s + tripProviderProcessingFeePence(t);
   }, 0);
 }
 
@@ -592,12 +592,25 @@ export type PaymentMethodLedgerMetrics = {
   onecab_card_commission_pence: number;
   onecab_card_net_commission_pence: number;
   stripe_processing_fees_pence: number;
+  /** Alias — same value as stripe_processing_fees_pence for API compat. */
+  provider_processing_fees_pence: number;
   /** Completed card trips not yet capture-confirmed — not reconciled totals. */
   pending_stripe_confirmation_revenue_pence: number;
   pending_stripe_confirmation_commission_pence: number;
   pending_stripe_confirmation_driver_net_pence: number;
   pending_trip_count: number;
 };
+
+
+/** Provider-neutral processing fee — prefers provider_fee_pence when populated. */
+export function tripProviderProcessingFeePence(trip: {
+  provider_fee_pence?: number | null;
+  stripe_processing_fee_pence?: number | null;
+}): number {
+  const providerFee = trip.provider_fee_pence;
+  if (providerFee != null && providerFee > 0) return providerFee;
+  return Math.max(0, trip.stripe_processing_fee_pence ?? 0);
+}
 
 export function totalCommissionEarnedPence(
   cardCommissionPence: number,
@@ -645,7 +658,7 @@ export function computePaymentMethodLedgerMetrics(args: {
     cardCustomerRevenue += adjusted.net_captured_pence;
     cardDriverPayable += adjusted.driver_net_pence;
     onecabCardCommission += adjusted.commission_pence;
-    cardStripeFees += Math.max(0, trip.stripe_processing_fee_pence ?? 0);
+    cardStripeFees += tripProviderProcessingFeePence(trip);
   }
 
   let pendingRevenue = 0;
@@ -664,6 +677,7 @@ export function computePaymentMethodLedgerMetrics(args: {
     onecab_card_commission_pence: onecabCardCommission,
     onecab_card_net_commission_pence: onecabNetCommissionPence(onecabCardCommission, cardStripeFees),
     stripe_processing_fees_pence: cardStripeFees,
+    provider_processing_fees_pence: cardStripeFees,
     pending_stripe_confirmation_revenue_pence: pendingRevenue,
     pending_stripe_confirmation_commission_pence: pendingCommission,
     pending_stripe_confirmation_driver_net_pence: pendingDriverNet,

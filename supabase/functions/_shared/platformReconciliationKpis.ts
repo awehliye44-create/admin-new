@@ -10,6 +10,8 @@ export type PlatformReconciliationKpis = {
   outstanding_recovery_pence: number;
   failed_payouts_pence: number;
   stripe_only_records: number;
+  /** Provider-side evidence without matching ledger (Stripe Connect or manual bank). */
+  provider_only_records: number;
   ledger_only_records: number;
   todays_captures_pence: number;
   todays_card_trips: number;
@@ -45,7 +47,7 @@ export function aggregatePlatformKpisFromDriverSnapshots(
   for (const d of drivers) {
     const status = String(d.reconciliation_status ?? "").toUpperCase();
     if (status === "BALANCED") balancedDrivers += 1;
-    if (status === "STRIPE_ONLY") stripeOnly += 1;
+    if (status === "STRIPE_ONLY" || status === "PROVIDER_ONLY") stripeOnly += 1;
     if (status === "LOCAL_ONLY") ledgerOnly += 1;
     if ((d.recovery_debt_pence ?? 0) > 0) driversWithRecovery += 1;
     outstandingLiability += Math.max(0, d.wallet_balance_pence ?? 0);
@@ -69,6 +71,7 @@ export function aggregatePlatformKpisFromDriverSnapshots(
     outstanding_recovery_pence: outstandingRecovery,
     failed_payouts_pence: failedPayouts,
     stripe_only_records: stripeOnly,
+    provider_only_records: stripeOnly,
     ledger_only_records: ledgerOnly,
     todays_captures_pence: todaysCaptures,
     todays_card_trips: todaysCardTrips,
@@ -87,7 +90,7 @@ export async function fetchRegionPlatformKpis(
   let driversQuery = supabase
     .from("drivers")
     .select("id")
-    .not("stripe_account_id", "is", null)
+    .eq("approval_status", "approved")
     .order("driver_code", { ascending: true })
     .limit(KPI_MAX_DRIVERS);
 

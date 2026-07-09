@@ -1,0 +1,85 @@
+/**
+ * Manual provider payout SSOT — Revolut Business bank transfer confirmed by admin.
+ * No Merchant/Business API payout retrieve on mark-paid; ledger debit only after reference.
+ */
+
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+/** Providers where admin pays from business account and marks paid with a reference. */
+export const MANUAL_BANK_PAYOUT_PROVIDERS = new Set<string>(["revolut"]);
+
+export function isManualBankPayoutProvider(provider: string | null | undefined): boolean {
+  if (!provider) return false;
+  return MANUAL_BANK_PAYOUT_PROVIDERS.has(provider.trim().toLowerCase());
+}
+
+export function isLiveDriverPayoutProvider(provider: string | null | undefined): boolean {
+  return Boolean(provider && ["stripe", "revolut"].includes(provider.trim().toLowerCase()));
+}
+
+/** Wallet-ledger eligibility for manual provider payouts (no Stripe Connect allocation). */
+export function manualProviderEligiblePence(args: {
+  walletUnpaidPence: number;
+  inFlightPayoutPence?: number;
+  payoutBlocked?: boolean;
+}): number {
+  if (args.payoutBlocked) return 0;
+  const wallet = Math.max(0, args.walletUnpaidPence);
+  const inFlight = Math.max(0, args.inFlightPayoutPence ?? 0);
+  return Math.max(0, wallet - inFlight);
+}
+
+export async function resolveRegionPayoutProvider(
+  supabase: SupabaseClient,
+  regionId: string | null | undefined,
+): Promise<string | null> {
+  if (!regionId) return null;
+
+  const { data: areas } = await supabase
+    .from("service_areas")
+    .select("payment_provider, driver_payout_gateway, customer_payment_gateway")
+    .eq("region_id", regionId)
+    .limit(20);
+
+  for (const area of areas ?? []) {
+    const provider =
+      (area.payment_provider as string | null)
+      ?? (area.driver_payout_gateway as string | null)
+      ?? (area.customer_payment_gateway as string | null);
+    if (provider) return provider;
+  }
+
+  return null;
+}
+
+export async function driverHasActivePayoutDestination(
+  supabase: SupabaseClient,
+  driverId: string,
+  provider: string,
+): Promise<boolean> {
+  const { data } = await supabase
+    .from("driver_payout_destinations")
+    .select("id")
+    .eq("driver_id", driverId)
+    .eq("provider", provider)
+    .eq("is_active", true)
+    .is("archived_at", null)
+    .maybeSingle();
+
+  return Boolean(data?.id);
+}
+
+export const PENDING_PAYOUT_ITEM_STATUSES = new Set([
+  "pending",
+  "processing",
+  "ready",
+  "transfer_created",
+]);
+
+export function normalizeProviderReference(reference: string): string {
+  return reference.trim();
+}
+
+export function isValidProviderReference(reference: string): boolean {
+  const normalized = normalizeProviderReference(reference);
+  return normalized.length >= 3 && normalized.length <= 128;
+}

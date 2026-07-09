@@ -28,6 +28,10 @@ import {
 } from "../_shared/financeCurrencySSOT.ts";
 import { resolveAllServiceAreaGatewayStatuses } from "../_shared/paymentGatewayStatus.ts";
 import {
+  fetchProviderPlatformBalance,
+  resolveFinanceScopeProvider,
+} from "../_shared/providerPlatformBalanceSSOT.ts";
+import {
   applyFinanceReconciliationTripLocationFilter,
   buildFinanceReconciliationTripQuery,
   resolveFinanceReconciliationAuditLimit,
@@ -38,6 +42,7 @@ const TRIP_AUDIT_SELECT = `
         trip_code,
         commission_pence,
         stripe_processing_fee_pence,
+        provider_fee_pence,
         onecab_net_pence,
         driver_net_pence,
         gross_fare_pence,
@@ -438,6 +443,11 @@ serve(async (req) => {
       currency = (region?.currency_code || "gbp").toLowerCase();
     }
 
+    const financeScopeProvider = await resolveFinanceScopeProvider(supabase, {
+      regionId: resolvedRegionId ?? null,
+      serviceAreaId: serviceAreaId ?? null,
+    });
+
     let tripQuery = buildFinanceReconciliationTripQuery(supabase, {
       periodFrom,
       periodTo,
@@ -584,15 +594,21 @@ serve(async (req) => {
     let stripeBalanceError: string | null = null;
     let moneyMovement = undefined;
 
-    if (stripeSecretKey) {
+    const providerBalance = await fetchProviderPlatformBalance(supabase, {
+      provider: financeScopeProvider.provider,
+      environment: financeScopeProvider.environment,
+      currency,
+    });
+    stripeAvailablePence = providerBalance.available_pence;
+    stripePendingPence = providerBalance.pending_pence;
+    stripeBalanceError = providerBalance.error;
+
+    const useStripeConnectEvidence =
+      financeScopeProvider.provider === "stripe" && !financeScopeProvider.manual_provider_payout;
+
+    if (useStripeConnectEvidence && stripeSecretKey) {
       try {
         const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
-        const balance = await stripe.balance.retrieve();
-        const avail = balance.available.find((b: { currency: string }) => b.currency === currency);
-        const pend = balance.pending.find((b: { currency: string }) => b.currency === currency);
-        stripeAvailablePence = avail?.amount ?? 0;
-        stripePendingPence = pend?.amount ?? 0;
-
         if (!summaryOnly && scopeHeavyStripe) {
           const mm = await withTimeout(
             "connect_money_movement",
@@ -608,17 +624,17 @@ serve(async (req) => {
             }),
           );
           if (mm && typeof mm === "object" && "__timeout" in mm) {
-            stripeBalanceError = "connect_money_movement_timeout";
+            stripeBalanceError = stripeBalanceError ?? "connect_money_movement_timeout";
             moneyMovement = undefined;
           } else {
             moneyMovement = mm;
           }
         }
       } catch (e) {
-        stripeBalanceError = (e as Error).message;
+        stripeBalanceError = stripeBalanceError ?? (e as Error).message;
       }
-    } else {
-      stripeBalanceError = "STRIPE_SECRET_KEY not configured";
+    } else if (useStripeConnectEvidence && !stripeSecretKey) {
+      stripeBalanceError = stripeBalanceError ?? "STRIPE_SECRET_KEY not configured";
     }
 
     if (driverId) {
@@ -627,9 +643,12 @@ serve(async (req) => {
         regionId: resolvedRegionId,
         periodFrom,
         periodTo,
-        providerAvailableBalancePence: stripeAvailablePence,
+        providerAvailableBalancePence: financeScopeProvider.manual_provider_payout
+          ? Number.MAX_SAFE_INTEGER
+          : stripeAvailablePence,
         providerPendingBalancePence: stripePendingPence,
         sourceTier: "LIVE",
+        manualProviderPayout: financeScopeProvider.manual_provider_payout,
       });
 
       return new Response(JSON.stringify({
@@ -640,6 +659,8 @@ serve(async (req) => {
           driver_id: driverId,
           ssot_version: "financial_reconciliation_ssot_v1",
           data_source_badge: perDriver.source_tier,
+          payment_provider: financeScopeProvider.provider,
+          provider_balance_error: stripeBalanceError,
           stripe_balance_error: stripeBalanceError,
         },
       }), {
@@ -871,7 +892,7 @@ serve(async (req) => {
         captured_pence: capturedByTrip.get(t.id as string) ?? 0,
       }));
 
-      const stripeClient = stripeSecretKey
+      const stripeClient = useStripeConnectEvidence && stripeSecretKey
         ? new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" })
         : null;
       const kpisResult = await withTimeout(
@@ -949,6 +970,10 @@ serve(async (req) => {
       meta: {
         trip_count: finance.tripCount,
         audit_row_count: trip_financial_audit.length,
+        payment_provider: financeScopeProvider.provider,
+        payment_provider_environment: financeScopeProvider.environment,
+        manual_provider_payout: financeScopeProvider.manual_provider_payout,
+        provider_balance_error: stripeBalanceError,
         stripe_balance_error: stripeBalanceError,
         ssot_version: SSOT_VERSION,
         data_source_badge: "LIVE",
@@ -958,7 +983,7 @@ serve(async (req) => {
           cash_collected_by_driver: "sum(cash trip fare) — not ONECAB Stripe revenue",
           onecab_card_commission: "sum(card trip commission_pence) capture-confirmed only, refund-adjusted",
           onecab_cash_commission_receivable: "sum(cash trip commission_pence) — owed by driver",
-          onecab_card_net_commission: "onecab_card_commission - stripe_processing_fees (card trips only)",
+          onecab_card_net_commission: "onecab_card_commission - provider_processing_fees (card trips only)",
           total_commission_earned: "onecab_card_commission + onecab_cash_commission_receivable",
           net_platform_revenue: "total_commission_earned - stripe_processing_fees (card only; cash fee = 0)",
           cash_stripe_fees: "always 0 — cash trips have no Stripe processing fee",

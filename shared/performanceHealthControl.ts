@@ -94,7 +94,14 @@ export type AdminPerformanceAction =
   | 'admin_payment_providers_refresh'
   | 'admin_service_area_save'
   | 'admin_document_management_load'
-  | 'admin_staff_work_patterns_load';
+  | 'admin_staff_work_patterns_load'
+  | 'admin_save_provider'
+  | 'admin_refresh_finance'
+  | 'admin_pay_driver'
+  | 'admin_run_payouts'
+  | 'admin_assign_trip'
+  | 'admin_cancel_trip'
+  | 'critical_button_timeout';
 
 export type PerformanceActionName =
   | DriverPerformanceAction
@@ -155,6 +162,13 @@ export const P95_TARGET_MS: Record<PerformanceActionName, number> = {
   admin_service_area_save: 2_000,
   admin_document_management_load: 2_000,
   admin_staff_work_patterns_load: 2_500,
+  admin_save_provider: 2_000,
+  admin_refresh_finance: 3_000,
+  admin_pay_driver: 3_000,
+  admin_run_payouts: 3_000,
+  admin_assign_trip: 2_000,
+  admin_cancel_trip: 2_000,
+  critical_button_timeout: 3_000,
 };
 
 /** Timeout safety ceilings (ms) — not performance targets */

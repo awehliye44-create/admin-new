@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import type { ProviderEnvironment } from "./paymentProviders/types.ts";
 
 export type RevolutApiError = {
@@ -5,6 +6,11 @@ export type RevolutApiError = {
   status: number;
   body?: unknown;
 };
+
+export const REVOLUT_MERCHANT_COLLECTION_PROBE = "GET /api/orders?limit=1";
+
+/** Modern Merchant API (2024-09-01+). Legacy /api/1.0/* is deprecated and can 401 valid keys. */
+export const REVOLUT_MERCHANT_API_VERSION = "2024-09-01";
 
 export function revolutHttpStatusLabel(status: number): string {
   switch (status) {
@@ -42,13 +48,57 @@ export function parseRevolutErrorBody(body: unknown): {
     record.error_description,
     record.error,
   ].find((v) => typeof v === "string" && v.trim()) as string | undefined ?? null;
-  const revolut_error_code = [
+  const codeCandidate = [
     record.code,
     record.error_code,
     record.errorCode,
     record.type,
-  ].find((v) => typeof v === "string" && v.trim()) as string | undefined ?? null;
+  ].find((v) => (typeof v === "string" && v.trim()) || typeof v === "number");
+  const revolut_error_code = codeCandidate != null ? String(codeCandidate) : null;
   return { revolut_message, revolut_error_code };
+}
+
+export function normalizeRevolutMerchantSecret(raw: string): string {
+  let key = raw.trim();
+  if (/^bearer\s+/i.test(key)) {
+    key = key.replace(/^bearer\s+/i, "").trim();
+  }
+  return key;
+}
+
+/** Revolut Merchant secrets are server-side `sk_…` keys — never public checkout keys. */
+export function validateRevolutMerchantSecret(
+  secretKey: string | null | undefined,
+  publishableKey?: string | null,
+): { ok: true; normalized: string } | { ok: false; message: string } {
+  const normalized = normalizeRevolutMerchantSecret(secretKey ?? "");
+  if (!normalized) {
+    return {
+      ok: false,
+      message: "Revolut Production API Secret key is missing. Save the `sk_…` key from Merchant API → Secret key (not the Public key).",
+    };
+  }
+  if (/^pk_/i.test(normalized)) {
+    return {
+      ok: false,
+      message: "The Secret key field contains a Public key (`pk_…`). Swap them: Public key → API key field, Secret key (`sk_…`) → Secret key field.",
+    };
+  }
+  if (!/^sk_/i.test(normalized)) {
+    const publishableLooksSecret = publishableKey
+      && /^sk_/i.test(normalizeRevolutMerchantSecret(publishableKey));
+    if (publishableLooksSecret) {
+      return {
+        ok: false,
+        message: "Keys appear swapped: the `sk_…` value is in the Public/API key field. Move Production API Secret key (`sk_…`) to Secret key.",
+      };
+    }
+    return {
+      ok: false,
+      message: "Revolut Secret key must start with `sk_`. Use Production API Secret key from Revolut Business → Merchant API (not the Public key).",
+    };
+  }
+  return { ok: true, normalized };
 }
 
 export function formatRevolutApiFailure(
@@ -67,30 +117,32 @@ export function formatRevolutApiFailure(
   const parsed = parseRevolutErrorBody(err.body);
   const revolut_message = parsed.revolut_message ?? err.message;
   const revolut_error_code = parsed.revolut_error_code;
+
+  if (http_status === 0) {
+    return {
+      message: revolut_message,
+      http_status,
+      http_status_label: "Invalid credentials",
+      revolut_error_code,
+      revolut_message,
+      api_surface: apiSurface,
+    };
+  }
+
   const message = [
     `Revolut ${apiSurface} API: ${http_status} ${http_status_label}`,
     revolut_error_code ? `Code: ${revolut_error_code}` : null,
-    revolut_message,
+    revolut_message && !revolut_message.includes(String(http_status)) ? revolut_message : null,
   ].filter(Boolean).join(" — ");
+
   return {
     message,
     http_status,
     http_status_label,
     revolut_error_code,
     revolut_message,
-    api_surface,
+    api_surface: apiSurface,
   };
-}
-
-export async function testRevolutMerchantConnection(
-  environment: ProviderEnvironment,
-  secretKey: string,
-): Promise<void> {
-  await revolutMerchantRequest<unknown>(
-    environment,
-    secretKey,
-    "/orders?limit=1",
-  );
 }
 
 export function revolutBusinessBaseUrl(environment: ProviderEnvironment): string {
@@ -101,8 +153,8 @@ export function revolutBusinessBaseUrl(environment: ProviderEnvironment): string
 
 export function revolutMerchantBaseUrl(environment: ProviderEnvironment): string {
   return environment === "live"
-    ? "https://merchant.revolut.com/api/1.0"
-    : "https://sandbox-merchant.revolut.com/api/1.0";
+    ? "https://merchant.revolut.com/api"
+    : "https://sandbox-merchant.revolut.com/api";
 }
 
 async function parseJsonSafe(res: Response): Promise<unknown> {
@@ -115,16 +167,172 @@ async function parseJsonSafe(res: Response): Promise<unknown> {
   }
 }
 
+export async function revolutMerchantRequest<T = Record<string, unknown>>(
+  environment: ProviderEnvironment,
+  secretKey: string,
+  path: string,
+  init?: RequestInit,
+  apiVersion = REVOLUT_MERCHANT_API_VERSION,
+): Promise<T> {
+  const normalizedKey = normalizeRevolutMerchantSecret(secretKey);
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const res = await fetch(`${revolutMerchantBaseUrl(environment)}${normalizedPath}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${normalizedKey}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "Revolut-Api-Version": apiVersion,
+      ...(init?.headers ?? {}),
+    },
+  });
+  const body = await parseJsonSafe(res);
+  if (!res.ok) {
+    const parsed = parseRevolutErrorBody(body);
+    const message = parsed.revolut_message
+      ?? (typeof body === "object" && body && "message" in body
+        ? String((body as { message?: string }).message)
+        : `Revolut Merchant API error (${res.status})`);
+    throw { message, status: res.status, body } satisfies RevolutApiError;
+  }
+  return body as T;
+}
+
+export async function testRevolutMerchantConnection(
+  environment: ProviderEnvironment,
+  secretKey: string,
+  publishableKey?: string | null,
+): Promise<{ endpoint_tested: string; api_version: string }> {
+  const validation = validateRevolutMerchantSecret(secretKey, publishableKey);
+  if (!validation.ok) {
+    throw {
+      message: validation.message,
+      status: 0,
+      body: { code: "invalid_secret_format" },
+    } satisfies RevolutApiError;
+  }
+
+  const endpoint = "/orders?limit=1";
+  const apiVersions = [REVOLUT_MERCHANT_API_VERSION, "2026-04-20", "2024-05-01"] as const;
+  let lastErr: RevolutApiError | null = null;
+
+  for (const apiVersion of apiVersions) {
+    try {
+      await revolutMerchantRequest<unknown>(
+        environment,
+        validation.normalized,
+        endpoint,
+        { method: "GET" },
+        apiVersion,
+      );
+      return { endpoint_tested: REVOLUT_MERCHANT_COLLECTION_PROBE, api_version: apiVersion };
+    } catch (err) {
+      lastErr = err as RevolutApiError;
+      if (lastErr.status !== 401 && lastErr.status !== 404) break;
+    }
+  }
+
+  if (lastErr?.status === 401 && environment === "live") {
+    try {
+      await revolutMerchantRequest<unknown>(
+        "test",
+        validation.normalized,
+        endpoint,
+        { method: "GET" },
+        "2024-05-01",
+      );
+      throw {
+        message: "Secret key works on Revolut sandbox but provider is in Live mode. Switch to Test mode or paste the Production API Secret key.",
+        status: 401,
+        body: { code: "environment_mismatch" },
+      } satisfies RevolutApiError;
+    } catch (sandboxErr) {
+      const sandbox = sandboxErr as RevolutApiError;
+      if (sandbox.status === 0 || sandbox.message.includes("Secret key works on Revolut sandbox")) {
+        throw sandbox;
+      }
+    }
+  }
+
+  if (lastErr) throw lastErr;
+
+  throw {
+    message: "Revolut Merchant API probe failed",
+    status: 0,
+    body: null,
+  } satisfies RevolutApiError;
+}
+
+export function normalizeRevolutBusinessAccessToken(raw: string): string {
+  let token = raw.trim();
+  if (/^bearer\s+/i.test(token)) {
+    token = token.replace(/^bearer\s+/i, "").trim();
+  }
+  return token;
+}
+
+export function explainRevolutBusinessAuthFailure(
+  message: string,
+  tokenUsed: string,
+): string {
+  const normalized = message.toLowerCase();
+  if (/^sk_/i.test(tokenUsed) || normalized.includes("invalid api key")) {
+    return "Driver payouts use the Revolut Business API (access token oa_prod_…), not the Merchant secret key (sk_…). In admin → Revolut → Edit secrets, add your Business API access token.";
+  }
+  return message;
+}
+
+/** Business API token for counterparties and /pay — separate from Merchant sk_ key. */
+export async function resolveRevolutBusinessAccessToken(
+  supabase: SupabaseClient,
+  environment: ProviderEnvironment,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("payment_provider_vault")
+    .select("secret_value")
+    .eq("provider", "revolut")
+    .eq("environment", environment)
+    .eq("secret_name", "business_access_token")
+    .maybeSingle();
+
+  const fromVault = (data?.secret_value as string | null)?.trim();
+  if (fromVault && !fromVault.includes("•")) {
+    return normalizeRevolutBusinessAccessToken(fromVault);
+  }
+
+  const envToken = Deno.env.get("REVOLUT_BUSINESS_ACCESS_TOKEN")?.trim();
+  if (envToken) return normalizeRevolutBusinessAccessToken(envToken);
+
+  return null;
+}
+
+export async function testRevolutBusinessConnection(
+  environment: ProviderEnvironment,
+  accessToken: string,
+): Promise<{ endpoint_tested: string }> {
+  const normalized = normalizeRevolutBusinessAccessToken(accessToken);
+  if (/^sk_/i.test(normalized)) {
+    throw {
+      message: "Business API probe received a Merchant secret key (sk_…). Use a Business access token (oa_prod_…).",
+      status: 0,
+      body: { code: "merchant_key_in_business_slot" },
+    } satisfies RevolutApiError;
+  }
+  await revolutBusinessRequest<unknown>(environment, normalized, "/accounts");
+  return { endpoint_tested: "GET /api/1.0/accounts" };
+}
+
 export async function revolutBusinessRequest<T = Record<string, unknown>>(
   environment: ProviderEnvironment,
   accessToken: string,
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  const normalizedToken = normalizeRevolutBusinessAccessToken(accessToken);
   const res = await fetch(`${revolutBusinessBaseUrl(environment)}${path}`, {
     ...init,
     headers: {
-      Authorization: `Bearer ${accessToken}`,
+      Authorization: `Bearer ${normalizedToken}`,
       "Content-Type": "application/json",
       Accept: "application/json",
       ...(init?.headers ?? {}),
@@ -132,35 +340,12 @@ export async function revolutBusinessRequest<T = Record<string, unknown>>(
   });
   const body = await parseJsonSafe(res);
   if (!res.ok) {
-    const message = typeof body === "object" && body && "message" in body
-      ? String((body as { message?: string }).message)
-      : `Revolut Business API error (${res.status})`;
-    throw { message, status: res.status, body } satisfies RevolutApiError;
-  }
-  return body as T;
-}
-
-export async function revolutMerchantRequest<T = Record<string, unknown>>(
-  environment: ProviderEnvironment,
-  secretKey: string,
-  path: string,
-  init?: RequestInit,
-): Promise<T> {
-  const res = await fetch(`${revolutMerchantBaseUrl(environment)}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${secretKey}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      "Revolut-Api-Version": "2024-09-01",
-      ...(init?.headers ?? {}),
-    },
-  });
-  const body = await parseJsonSafe(res);
-  if (!res.ok) {
-    const message = typeof body === "object" && body && "message" in body
-      ? String((body as { message?: string }).message)
-      : `Revolut Merchant API error (${res.status})`;
+    const parsed = parseRevolutErrorBody(body);
+    const rawMessage = parsed.revolut_message
+      ?? (typeof body === "object" && body && "message" in body
+        ? String((body as { message?: string }).message)
+        : `Revolut Business API error (${res.status})`);
+    const message = explainRevolutBusinessAuthFailure(rawMessage, normalizedToken);
     throw { message, status: res.status, body } satisfies RevolutApiError;
   }
   return body as T;
@@ -206,11 +391,7 @@ export async function createRevolutCounterparty(args: {
 
   if (args.destinationType === "revolut_account") {
     const revtag = id.startsWith("@") ? id.slice(1) : id;
-    body = {
-      profile_type: "personal",
-      name,
-      revtag,
-    };
+    body = { profile_type: "personal", name, revtag };
   } else if (args.destinationType === "iban") {
     body = {
       profile_type: "personal",
@@ -221,16 +402,14 @@ export async function createRevolutCounterparty(args: {
     };
   } else if (args.destinationType === "uk_bank_account") {
     const digits = id.replace(/\D/g, "");
-    const sortCode = digits.slice(0, 6);
-    const accountNo = digits.slice(6);
     body = {
       profile_type: "personal",
       name,
       bank_country: "GB",
       currency,
       accounts: [{
-        account_no: accountNo,
-        sort_code: sortCode,
+        account_no: digits.slice(6),
+        sort_code: digits.slice(0, 6),
         currency,
         country: "GB",
       }],
@@ -239,13 +418,9 @@ export async function createRevolutCounterparty(args: {
     body = {
       profile_type: "personal",
       name,
-      bank_country: currency === "GBP" ? "GB" : "GB",
+      bank_country: "GB",
       currency,
-      accounts: [{
-        account_no: id,
-        currency,
-        country: "GB",
-      }],
+      accounts: [{ account_no: id, currency, country: "GB" }],
     };
   }
 
@@ -284,16 +459,10 @@ export async function executeRevolutPay(args: {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Merchant Payouts (settlement to the platform's bank / Revolut Business acc)
-// Endpoint: GET https://merchant.revolut.com/api/payouts
-// Docs: https://developer.revolut.com/docs/merchant/list-payouts
-// Version header pinned to 2026-04-20 per project spec.
-// ---------------------------------------------------------------------------
 export type RevolutMerchantPayout = {
   id: string;
   state: string;
-  amount: number;        // integer minor units
+  amount: number;
   currency: string;
   scheduled_for?: string;
   completed_at?: string;
@@ -302,16 +471,14 @@ export type RevolutMerchantPayout = {
 };
 
 function merchantPayoutsBaseUrl(environment: ProviderEnvironment): string {
-  return environment === "live"
-    ? "https://merchant.revolut.com/api"
-    : "https://sandbox-merchant.revolut.com/api";
+  return revolutMerchantBaseUrl(environment);
 }
 
 export async function listRevolutMerchantPayouts(args: {
   environment: ProviderEnvironment;
   secretKey: string;
   limit?: number;
-  fromCreated?: string;   // ISO-8601
+  fromCreated?: string;
   toCreated?: string;
 }): Promise<RevolutMerchantPayout[]> {
   const params = new URLSearchParams();
@@ -320,10 +487,11 @@ export async function listRevolutMerchantPayouts(args: {
   if (args.toCreated) params.set("to_created", args.toCreated);
   const qs = params.toString();
   const url = `${merchantPayoutsBaseUrl(args.environment)}/payouts${qs ? `?${qs}` : ""}`;
+  const normalizedKey = normalizeRevolutMerchantSecret(args.secretKey);
   const res = await fetch(url, {
     method: "GET",
     headers: {
-      Authorization: `Bearer ${args.secretKey}`,
+      Authorization: `Bearer ${normalizedKey}`,
       Accept: "application/json",
       "Revolut-Api-Version": "2026-04-20",
     },
@@ -348,10 +516,11 @@ export async function getRevolutMerchantPayout(args: {
   payoutId: string;
 }): Promise<RevolutMerchantPayout> {
   const url = `${merchantPayoutsBaseUrl(args.environment)}/payouts/${encodeURIComponent(args.payoutId)}`;
+  const normalizedKey = normalizeRevolutMerchantSecret(args.secretKey);
   const res = await fetch(url, {
     method: "GET",
     headers: {
-      Authorization: `Bearer ${args.secretKey}`,
+      Authorization: `Bearer ${normalizedKey}`,
       Accept: "application/json",
       "Revolut-Api-Version": "2026-04-20",
     },
@@ -366,17 +535,12 @@ export async function getRevolutMerchantPayout(args: {
   return body as RevolutMerchantPayout;
 }
 
-// ---------------------------------------------------------------------------
-// Merchant Payment details
-// GET https://merchant.revolut.com/api/1.0/payments/{payment_id}
-// Version header pinned to 2026-04-20 per project spec.
-// ---------------------------------------------------------------------------
 export type RevolutMerchantPayment = {
   id: string;
   order_id?: string;
   state?: string;
   status?: string;
-  amount?: number;              // integer minor units
+  amount?: number;
   currency?: string;
   fee?: number;
   fees?: unknown;
@@ -407,11 +571,12 @@ export async function getRevolutMerchantPayment(args: {
   secretKey: string;
   paymentId: string;
 }): Promise<RevolutMerchantPayment> {
+  const normalizedKey = normalizeRevolutMerchantSecret(args.secretKey);
   const url = `${revolutMerchantBaseUrl(args.environment)}/payments/${encodeURIComponent(args.paymentId)}`;
   const res = await fetch(url, {
     method: "GET",
     headers: {
-      Authorization: `Bearer ${args.secretKey}`,
+      Authorization: `Bearer ${normalizedKey}`,
       Accept: "application/json",
       "Revolut-Api-Version": "2026-04-20",
     },
@@ -442,5 +607,3 @@ export function mapRevolutPaymentToOnecab(p: RevolutMerchantPayment): OnecabPaym
     raw: p,
   };
 }
-
-

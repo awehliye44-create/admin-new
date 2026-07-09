@@ -11,9 +11,9 @@ import {
   type ProviderEnvironment,
   type ProviderSecrets,
 } from "../_shared/paymentProviders/index.ts";
-import { isCustomerBookingAdapterLive } from "../_shared/customerPaymentWorkflow.ts";
 import { loadPaymentProviderCredentialReadiness } from "../_shared/paymentProviderReadinessSSOT.ts";
-import { resolveProviderGatewayStatus } from "../_shared/paymentGatewayStatus.ts";
+
+const LIVE_CUSTOMER_BOOKING_PROVIDERS = new Set<string>(["stripe", "revolut"]);
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -161,10 +161,24 @@ async function buildProviderCard(
   const adapterLive = credentialReadiness.booking_adapter_live;
   const payoutAdapterLive = credentialReadiness.payout_adapter_live;
   const credentialsReady = credentialReadiness.credentials_ready;
-  const [customerGateway, driverGateway] = await Promise.all([
-    resolveProviderGatewayStatus(supabase, provider, "customer"),
-    resolveProviderGatewayStatus(supabase, provider, "driver"),
-  ]);
+  let customerGateway;
+  let driverGateway;
+  try {
+    const { resolveProviderGatewayStatus } = await import("../_shared/paymentGatewayStatus.ts");
+    [customerGateway, driverGateway] = await Promise.all([
+      resolveProviderGatewayStatus(supabase, provider, "customer"),
+      resolveProviderGatewayStatus(supabase, provider, "driver"),
+    ]);
+  } catch (gatewayErr) {
+    console.error("buildProviderCard gateway status failed", provider, gatewayErr);
+    customerGateway = {
+      ready_for_production: false,
+      status: "CONNECTION_FAILED",
+      configuration_error: (gatewayErr as Error)?.message ?? "Gateway status check failed",
+      booking_workflow: "blocked",
+    };
+    driverGateway = customerGateway;
+  }
 
   const { data: metadataRows } = await supabase
     .from("payment_provider_secret_metadata")
@@ -321,14 +335,28 @@ serve(async (req) => {
         });
       }
 
-      const { resolveServiceAreaGatewayStatuses } = await import(
-        "../_shared/paymentGatewayStatus.ts"
-      );
-      const statuses = await resolveServiceAreaGatewayStatuses(supabase, serviceAreaId);
+      try {
+        const { resolveServiceAreaGatewayStatuses } = await import(
+          "../_shared/paymentGatewayStatus.ts"
+        );
+        const statuses = await resolveServiceAreaGatewayStatuses(supabase, serviceAreaId);
 
-      return new Response(JSON.stringify({ success: true, ...statuses }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+        return new Response(JSON.stringify({ success: true, ...statuses }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (gatewayErr) {
+        console.error("service-area-gateways failed", gatewayErr);
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: (gatewayErr as Error)?.message ?? "service_area_gateway_status_failed",
+          }),
+          {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
     }
 
     if (req.method === "GET") {
@@ -362,10 +390,12 @@ serve(async (req) => {
       const provider = body.provider as PaymentProviderId;
       const environment = (body.environment as ProviderEnvironment) ?? "live";
 
-      const adapter = getPaymentProviderAdapter(supabase, provider, environment);
+      const adapter = getPaymentProviderAdapter(supabase, provider, environment, {
+        updatedBy: auth.user.id,
+      });
       const result = await adapter.testConnection();
 
-      const adapterLive = isCustomerBookingAdapterLive(provider);
+      const adapterLive = LIVE_CUSTOMER_BOOKING_PROVIDERS.has(provider);
       const nextStatus = !result.ok
         ? "error"
         : !adapterLive

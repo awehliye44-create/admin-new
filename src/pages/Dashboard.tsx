@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { supabase } from '@/integrations/supabase/client';
+import { isAdminPageLiveActive } from '@/lib/adminPageVisibility';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { 
   Car, 
@@ -378,7 +379,7 @@ export default function Dashboard() {
       return { stats: s, drivers: allDrivers as Driver[], recentTrips: (recentR.data || []) as RecentTrip[], bookingChartData: chartData };
     },
     staleTime: 60_000,
-    refetchInterval: 120_000,
+    refetchInterval: () => (isAdminPageLiveActive() ? 120_000 : false),
     refetchIntervalInBackground: false,
   });
 

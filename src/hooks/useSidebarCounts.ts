@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
 import { countAdminActiveTrips } from '@/lib/adminActiveTripFilter';
+import { isAdminDocumentVisible, isAdminTabLiveActive, subscribeAdminTabLiveActive } from '@/lib/adminTabLeader';
 
 
 export interface SidebarCounts {
@@ -164,7 +165,6 @@ async function fetchSidebarCountsOnce(skipCache = false): Promise<SidebarCounts>
 // row change globally, producing millions of realtime messages per day. Sidebar counts are
 // approximate operational hints, refreshed via polling + focus/visibility events.
 
-
 export function useSidebarCounts() {
   const [counts, setCounts] = useState<SidebarCounts>(sharedCounts);
   const [isLoading, setIsLoading] = useState(sharedLoading);
@@ -182,6 +182,11 @@ export function useSidebarCounts() {
 
   useEffect(() => {
     void fetchSidebarCountsOnce();
+    const interval = window.setInterval(() => {
+      if (!isAdminTabLiveActive() || !isAdminDocumentVisible()) return;
+      void fetchSidebarCountsOnce(true);
+    }, 120_000);
+    return () => window.clearInterval(interval);
   }, []);
 
   useEffect(() => {

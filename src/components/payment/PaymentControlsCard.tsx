@@ -36,11 +36,15 @@ import {
 
 interface PaymentState {
   trip_id: string;
+  payment_provider?: 'stripe' | 'revolut' | 'unknown';
+  provider_order_id?: string | null;
+  legacy_stripe_trip?: boolean;
   payment_intent_id: string | null;
   charge_id: string | null;
   payment_method: string | null;
   payment_method_brand: string | null;
   last4: string | null;
+  provider_status?: string | null;
   payment_status: string | null;
   stripe_status: string | null;
   stripe_currency: string | null;
@@ -342,13 +346,17 @@ export function PaymentControlsCard({
   const captureContext = captureContextQuery.data;
   const captureStatus = captureContext ? getTripCaptureStatus(captureContext) : null;
   const currency = state?.stripe_currency ?? '';
-  const isUncaptured = state?.actions_allowed?.can_capture ?? state?.stripe_status === 'requires_capture';
-  const isCancelled = state?.stripe_status === 'canceled';
+  const isUncaptured = state?.actions_allowed?.can_capture
+    ?? (state?.payment_provider === 'revolut'
+      ? String(state?.provider_status ?? state?.stripe_status ?? '').toLowerCase() === 'authorised'
+      : state?.stripe_status === 'requires_capture');
+  const canSyncStripe = state?.actions_allowed?.can_sync_stripe
+    ?? (state?.payment_provider === 'stripe' && !!state?.payment_intent_id);
+  const isCancelled = state?.stripe_status === 'canceled' || String(state?.payment_status ?? '').includes('cancel');
   const hasCharge = !!state && (state.actions_allowed?.can_refund || state.actions_allowed?.can_partial_refund || state.captured_pence > 0);
   const refundable = state ? Math.max(0, state.refundable_pence ?? state.captured_pence - state.refunded_pence) : 0;
   const canRefund = state?.actions_allowed?.can_refund ?? (hasCharge && refundable > 0);
   const canPartialRefund = state?.actions_allowed?.can_partial_refund ?? canRefund;
-  const canSyncStripe = state?.actions_allowed?.can_sync_stripe ?? !!state?.payment_intent_id;
   const isFullyRefunded = state ? state.captured_pence > 0 && refundable === 0 : false;
   const settlementWarning = state
     ? settlementWarningSeverity(
@@ -573,7 +581,10 @@ export function PaymentControlsCard({
 
             {/* Status row */}
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <Badge variant="outline">PI: {state.stripe_status || state.payment_status || '—'}</Badge>
+              <Badge variant="outline">
+                {state.payment_provider === 'revolut' ? 'Revolut' : state.legacy_stripe_trip ? 'Legacy Stripe' : 'Provider'}
+              </Badge>
+              <Badge variant="outline">Status: {state.stripe_status || state.provider_status || state.payment_status || '—'}</Badge>
               {state.payment_method && (
                 <Badge variant="secondary">
                   {state.payment_method_brand ? `${state.payment_method_brand} •••• ${state.last4 ?? ''}` : state.payment_method}

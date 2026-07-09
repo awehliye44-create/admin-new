@@ -28,11 +28,29 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import {
+  CRITICAL_BUTTON_TIMEOUT_MESSAGE,
+  useCriticalButtonTimeout,
+} from "@/lib/criticalButtonTimeout";
+import { startAdminPerformanceStep } from "@/lib/recordAdminPerformanceStep";
+import {
   type PaymentProviderCard,
   type PaymentProviderId,
   type ProviderEnvironment,
   usePaymentProviders,
 } from "@/hooks/usePaymentProviders";
+
+function dedupeConnectionToastLines(lines: string[]): string[] {
+  const seen = new Set<string>();
+  return lines.filter((line) => {
+    const normalized = line.toLowerCase().replace(/\s+/g, " ").trim();
+    if (!normalized || seen.has(normalized)) return false;
+    for (const prior of seen) {
+      if (prior.includes(normalized) || normalized.includes(prior)) return false;
+    }
+    seen.add(normalized);
+    return true;
+  });
+}
 import { PROVIDER_SECRET_FIELD_LABELS, PROVIDER_SECRET_FIELDS } from "@/lib/paymentProviderConfig";
 import { PROVIDER_NOT_IMPLEMENTED_CODE } from "@/lib/customerPaymentWorkflow";
 
@@ -497,6 +515,17 @@ export function PaymentProvidersConfigurationReadiness({
 export function PaymentProvidersCardsGrid() {
   const { toast } = useToast();
   const { data, isLoading, refetch, updateProvider, saveSecrets, testConnection } = usePaymentProviders();
+  const saveProviderTimeout = useCriticalButtonTimeout({
+    action: "admin_save_provider",
+    isPending: saveSecrets.isPending,
+    onTimeout: () => {
+      toast({
+        title: "Please try again",
+        description: CRITICAL_BUTTON_TIMEOUT_MESSAGE,
+        variant: "destructive",
+      });
+    },
+  });
   const [secretsProvider, setSecretsProvider] = useState<PaymentProviderCard | null>(null);
   const [testingProvider, setTestingProvider] = useState<PaymentProviderId | null>(null);
 
@@ -569,25 +598,40 @@ export function PaymentProvidersCardsGrid() {
                   onSuccess: (result: {
                     ok: boolean;
                     message: string;
+                    provider?: string;
+                    mode?: string;
                     http_status?: number;
                     http_status_label?: string;
+                    provider_error_code?: string | null;
+                    provider_error_message?: string | null;
                     revolut_error_code?: string | null;
                     revolut_message?: string | null;
                     api_surface?: string;
+                    endpoint_tested?: string;
                     warnings?: string[];
                   }) => {
-                    const lines = [
-                      result.message,
-                      result.http_status
+                    const errorCode = result.provider_error_code ?? result.revolut_error_code;
+                    const errorMessage = result.provider_error_message ?? result.revolut_message;
+                    const primaryMessage = result.message?.trim() ?? "";
+                    const lines = dedupeConnectionToastLines([
+                      primaryMessage,
+                      result.http_status && !primaryMessage.includes(String(result.http_status))
                         ? `HTTP ${result.http_status} ${result.http_status_label ?? ""}`.trim()
                         : null,
-                      result.revolut_error_code ? `Revolut code: ${result.revolut_error_code}` : null,
-                      result.revolut_message && result.revolut_message !== result.message
-                        ? `Revolut message: ${result.revolut_message}`
+                      errorCode && !primaryMessage.includes(String(errorCode))
+                        ? `Code: ${errorCode}`
                         : null,
-                      result.api_surface ? `API: ${result.api_surface}` : null,
+                      errorMessage && errorMessage !== primaryMessage && !primaryMessage.includes(errorMessage)
+                        ? errorMessage
+                        : null,
+                      result.api_surface && !primaryMessage.toLowerCase().includes(result.api_surface)
+                        ? `API: ${result.api_surface}`
+                        : null,
+                      result.endpoint_tested && !primaryMessage.includes(result.endpoint_tested)
+                        ? `Endpoint: ${result.endpoint_tested}`
+                        : null,
                       ...(result.warnings ?? []),
-                    ].filter(Boolean);
+                    ].filter(Boolean) as string[]);
                     toast({
                       title: result.ok ? "Connection successful" : "Connection failed",
                       description: lines.join("\n"),
@@ -610,8 +654,9 @@ export function PaymentProvidersCardsGrid() {
           open={!!secretsProvider}
           onOpenChange={(open) => !open && setSecretsProvider(null)}
           mode={secretsProvider.mode}
-          isSaving={saveSecrets.isPending}
+          isSaving={saveProviderTimeout.showSpinner}
           onSave={(secrets) => {
+            const perf = startAdminPerformanceStep({ action_name: "admin_save_provider" });
             saveSecrets.mutate(
               {
                 provider: secretsProvider.provider,
@@ -619,8 +664,14 @@ export function PaymentProvidersCardsGrid() {
                 secrets,
               },
               {
-                onSuccess: () => toast({ title: "Secrets saved securely" }),
-                onError: (e) => toast({ title: "Save failed", description: e.message, variant: "destructive" }),
+                onSuccess: () => {
+                  perf.complete({ success: true });
+                  toast({ title: "Secrets saved securely" });
+                },
+                onError: (e) => {
+                  perf.complete({ success: false, error_code: "save_failed" });
+                  toast({ title: "Save failed", description: e.message, variant: "destructive" });
+                },
               },
             );
           }}

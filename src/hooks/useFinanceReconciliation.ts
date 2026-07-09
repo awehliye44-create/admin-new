@@ -271,6 +271,7 @@ export interface PlatformReconciliationKpis {
   outstanding_liability_pence: number;
   failed_payouts_pence: number;
   stripe_only_records: number;
+  provider_only_records?: number;
   ledger_only_records: number;
   todays_captures_pence: number;
   todays_card_trips: number;
@@ -518,8 +519,9 @@ export function useFinanceReconciliation(args?: {
     refetchInterval: () => {
       if (tripSearch) return false;
       if (typeof document !== 'undefined' && document.hidden) return false;
-      return 60_000;
+      return 120_000;
     },
+    refetchIntervalInBackground: false,
     retry: 1,
     meta: { suppressErrorToast: true },
   });

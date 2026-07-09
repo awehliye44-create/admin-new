@@ -12,6 +12,15 @@ import {
   getSettlementWarningSeverity,
   isInformationalSettlementWarning,
 } from "../_shared/stripeSettlementWarnings.ts";
+import {
+  retrieveRevolutOrder,
+  getRevolutMerchantConfig,
+} from "../_shared/revolutOrders.ts";
+import {
+  resolveTripPaymentProvider,
+  tripProviderOrderId,
+  tripStripePaymentIntentId,
+} from "../_shared/tripPaymentProviderSSOT.ts";
 
 const InputSchema = z.object({ trip_id: z.string().uuid() });
 
@@ -41,6 +50,8 @@ const TRIP_AUDIT_SELECT = `
   financial_outcome,
   stripe_payment_intent_id,
   stripe_charge_id,
+  provider_order_id,
+  payment_provider,
   provider_status,
   driver_id,
   passenger_id,
@@ -81,6 +92,10 @@ serve(async (req) => {
       .single();
 
     if (tripErr || !trip) return jsonResponse({ error: 'Trip not found' }, 404);
+
+    const paymentProvider = resolveTripPaymentProvider(trip);
+    const providerOrderId = tripProviderOrderId(trip);
+    const legacyStripePi = tripStripePaymentIntentId(trip);
 
     const [paymentsRes, payoutItemsRes, ledgerRes] = await Promise.all([
       gate.supabase
@@ -141,12 +156,36 @@ serve(async (req) => {
     let stripe_transfer_amount_pence: number | null = trip.stripe_transfer_amount_pence ?? null;
     let stripe_settlement_verified: boolean = trip.stripe_settlement_verified ?? false;
     let stripe_settlement_warning: string | null = trip.stripe_settlement_warning ?? null;
+    let provider_status: string | null = trip.provider_status ?? null;
+    let provider_currency: string | null = null;
+
+    if (paymentProvider === 'revolut' && providerOrderId) {
+      try {
+        const { secretKey, environment } = getRevolutMerchantConfig();
+        const order = await retrieveRevolutOrder(environment, secretKey, providerOrderId);
+        provider_status = order.state ?? provider_status;
+        provider_currency = (order.currency ?? trip.currency_code ?? 'GBP').toUpperCase();
+        authorized_pence = Number(order.amount ?? authorized_pence);
+        const state = String(order.state ?? '').toUpperCase();
+        if (state === 'COMPLETED' || state === 'REFUNDED') {
+          captured_pence = Math.max(captured_pence, Number(trip.capture_amount_pence ?? order.amount ?? 0));
+        }
+        stripe_status = state.toLowerCase() || null;
+        stripe_currency = provider_currency;
+        amount_capturable = state === 'AUTHORISED'
+          ? Math.max(0, authorized_pence - captured_pence)
+          : 0;
+      } catch (e) {
+        console.error('[admin-get-trip-payment-state] Revolut fetch failed:', (e as Error).message);
+        stripe_currency = (trip.currency_code ?? 'GBP').toUpperCase();
+      }
+    }
 
     const stripeKey = Deno.env.get('STRIPE_SECRET_KEY');
-    if (stripeKey && trip.stripe_payment_intent_id) {
+    if (paymentProvider === 'stripe' && stripeKey && legacyStripePi) {
       try {
         const stripe = new Stripe(stripeKey, { apiVersion: '2023-10-16' });
-        const pi = await stripe.paymentIntents.retrieve(trip.stripe_payment_intent_id, {
+        const pi = await stripe.paymentIntents.retrieve(legacyStripePi, {
           expand: ['latest_charge', 'latest_charge.balance_transaction', 'latest_charge.payment_method_details', 'latest_charge.application_fee', 'latest_charge.transfer'],
         });
         stripe_status = pi.status;
@@ -227,24 +266,31 @@ serve(async (req) => {
           : 'none';
 
     const can_capture =
-      isDigital
-      && !!trip.stripe_payment_intent_id
-      && stripe_status === 'requires_capture'
+      paymentProvider !== 'unknown'
+      && isDigital
+      && (
+        (paymentProvider === 'stripe' && !!legacyStripePi && stripe_status === 'requires_capture')
+        || (paymentProvider === 'revolut' && providerOrderId && String(stripe_status ?? '').toUpperCase() === 'authorised')
+      )
       && (amount_capturable ?? 0) > 0
       && !tripCancelled
       && refundStatus !== 'full';
 
     const can_refund =
-      isDigital
+      paymentProvider !== 'unknown'
+      && isDigital
       && captured_pence > 0
       && refundableAmount > 0
       && refundStatus !== 'full'
       && !tripCancelled;
 
     const can_cancel_authorisation =
-      isDigital
-      && !!trip.stripe_payment_intent_id
-      && stripe_status === 'requires_capture'
+      paymentProvider !== 'unknown'
+      && isDigital
+      && (
+        (paymentProvider === 'stripe' && !!legacyStripePi && stripe_status === 'requires_capture')
+        || (paymentProvider === 'revolut' && providerOrderId && ['pending', 'processing', 'authorised'].includes(String(stripe_status ?? '').toLowerCase()))
+      )
       && (amount_capturable ?? 0) > 0
       && !tripCancelled;
 
@@ -253,7 +299,7 @@ serve(async (req) => {
       can_refund,
       can_partial_refund: can_refund && refundableAmount > 0,
       can_cancel_authorisation,
-      can_sync_stripe: isDigital && !!trip.stripe_payment_intent_id,
+      can_sync_stripe: paymentProvider === 'stripe' && isDigital && !!legacyStripePi,
       can_add_note: true,
     };
 
@@ -262,13 +308,17 @@ serve(async (req) => {
       trip_code: trip.trip_code ?? null,
       driver_id: trip.driver_id ?? null,
       passenger_id: trip.passenger_id ?? null,
+      payment_provider: paymentProvider,
+      provider_order_id: providerOrderId,
+      legacy_stripe_trip: paymentProvider === 'stripe',
       ssot_source: 'trip_financial_audit',
-      payment_intent_id: trip.stripe_payment_intent_id,
+      payment_intent_id: legacyStripePi ?? providerOrderId,
       charge_id,
       payment_method: charge_payment_method ?? trip.payment_method,
       payment_method_brand,
       last4,
       payment_status: trip.payment_status,
+      provider_status,
       stripe_status,
       stripe_currency,
       amount_authorized_pence: authorized_pence,

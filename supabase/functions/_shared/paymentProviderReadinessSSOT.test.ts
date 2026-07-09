@@ -1,4 +1,4 @@
-import { formatRevolutApiFailure, revolutHttpStatusLabel } from "./revolutApi.ts";
+import { formatRevolutApiFailure, revolutHttpStatusLabel, revolutMerchantBaseUrl, validateRevolutMerchantSecret } from "./revolutApi.ts";
 import { assertEquals } from "https://deno.land/std@0.168.0/testing/asserts.ts";
 import {
   resolveAdapterReadinessStatus,
@@ -10,6 +10,19 @@ Deno.test("revolutHttpStatusLabel maps common HTTP statuses", () => {
   assertEquals(revolutHttpStatusLabel(403), "Forbidden");
   assertEquals(revolutHttpStatusLabel(404), "Endpoint not found");
   assertEquals(revolutHttpStatusLabel(429), "Rate limited");
+});
+
+Deno.test("revolutMerchantBaseUrl uses modern Merchant API path", () => {
+  assertEquals(revolutMerchantBaseUrl("live"), "https://merchant.revolut.com/api");
+  assertEquals(revolutMerchantBaseUrl("test"), "https://sandbox-merchant.revolut.com/api");
+});
+
+Deno.test("validateRevolutMerchantSecret rejects public key in secret field", () => {
+  const result = validateRevolutMerchantSecret("pk_test_abc", null);
+  assertEquals(result.ok, false);
+  if (!result.ok) {
+    assertEquals(result.message.includes("Public key"), true);
+  }
 });
 
 Deno.test("formatRevolutApiFailure surfaces HTTP status and Revolut message", () => {
@@ -24,6 +37,7 @@ Deno.test("formatRevolutApiFailure surfaces HTTP status and Revolut message", ()
   assertEquals(formatted.http_status, 401);
   assertEquals(formatted.http_status_label, "Unauthorized");
   assertEquals(formatted.revolut_error_code, "unauthorized");
+  assertEquals(formatted.api_surface, "merchant");
   assertEquals(formatted.message.includes("401 Unauthorized"), true);
 });
 

@@ -8,6 +8,11 @@ import {
   PROVIDER_SECRET_FIELDS,
 } from "./types.ts";
 
+function vaultValueIncludesMask(value: string): boolean {
+  const v = value.trim();
+  return v.includes("•") || v.includes("****") || v === "—";
+}
+
 export function maskSecretValue(value: string): string {
   const trimmed = value.trim();
   if (trimmed.length <= 8) return "••••••••";
@@ -38,7 +43,7 @@ export async function getProviderSecrets(
 
   for (const name of names) {
     const vaultValue = vaultByName.get(name);
-    if (vaultValue) {
+    if (vaultValue && !vaultValueIncludesMask(vaultValue)) {
       result[name] = vaultValue;
       continue;
     }
@@ -64,6 +69,14 @@ export async function getProviderSecrets(
   if (provider === "waafi_pay" && !result.merchant_id) {
     const legacy = vaultByName.get("publishable_key");
     if (legacy) result.merchant_id = legacy;
+  }
+
+  // Revolut: admin sometimes saves Production Secret key under publishable_key by mistake.
+  if (provider === "revolut" && !result.secret_key?.trim()) {
+    const publishable = result.publishable_key?.trim();
+    if (publishable?.startsWith("sk_")) {
+      result.secret_key = publishable;
+    }
   }
 
   return result;

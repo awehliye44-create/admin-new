@@ -29,6 +29,20 @@ const authSchema = z.object({
 
 const APP_VERSION = '1.0.0';
 
+function formatAuthErrorMessage(message: string): string {
+  const lower = message.toLowerCase();
+  if (
+    lower.includes('load failed')
+    || lower.includes('failed to fetch')
+    || lower.includes('networkerror')
+    || lower.includes('522')
+    || lower.includes('connection timed out')
+  ) {
+    return 'ONECAB backend is temporarily unreachable (Supabase auth/database timeout). Wait 1–2 minutes and retry, or restart the project in Supabase Dashboard → Settings → General.';
+  }
+  return message;
+}
+
 function BrandPanel() {
   return (
     <aside
@@ -190,7 +204,7 @@ export default function Auth() {
       } else if (error.message.includes('Email not confirmed')) {
         setError('Please confirm your email address before signing in');
       } else {
-        setError(error.message);
+        setError(formatAuthErrorMessage(error.message));
       }
     }
   };
@@ -218,7 +232,7 @@ export default function Auth() {
     });
     setIsSubmitting(false);
 
-    if (error) setError(error.message);
+    if (error) setError(formatAuthErrorMessage(error.message));
     else setResetEmailSent(true);
   };
 

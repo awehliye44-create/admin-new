@@ -16,6 +16,12 @@ import {
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { ledgerAuditTypeLabel } from '@/lib/driverWalletLedgerRoutes';
 import { RefreshCw, Search } from 'lucide-react';
+import { toast } from 'sonner';
+import {
+  CRITICAL_BUTTON_TIMEOUT_MESSAGE,
+  useCriticalButtonTimeout,
+} from '@/lib/criticalButtonTimeout';
+import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 
 const DRIVER_FILTER_TABS = Object.entries(DRIVER_WALLET_LEDGER_FILTER_LABELS) as [DriverWalletLedgerFilter, string][];
@@ -73,6 +79,30 @@ export function FinanceLedgerPanel({
     });
   }, [rows, search]);
 
+  const refreshLedgerTimeout = useCriticalButtonTimeout({
+    action: 'admin_refresh_finance',
+    isPending: isFetching,
+    onTimeout: () => {
+      void refetch();
+      toast.error(CRITICAL_BUTTON_TIMEOUT_MESSAGE);
+    },
+  });
+  const showRefreshSpinner = refreshLedgerTimeout.showSpinner;
+
+  const handleRefresh = () => {
+    const perf = startAdminPerformanceStep({
+      action_name: 'admin_refresh_finance',
+      metadata: { surface: 'finance_ledger', driver_id: driverId },
+    });
+    void refetch().then(
+      () => perf.complete({ success: true }),
+      (err) => perf.complete({
+        success: false,
+        error_code: err instanceof Error ? err.message : 'refresh_failed',
+      }),
+    );
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -85,8 +115,8 @@ export function FinanceLedgerPanel({
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
+        <Button variant="outline" size="sm" onClick={handleRefresh} disabled={showRefreshSpinner}>
+          <RefreshCw className={`h-4 w-4 mr-2 ${showRefreshSpinner ? 'animate-spin' : ''}`} />
           Refresh
         </Button>
       </div>

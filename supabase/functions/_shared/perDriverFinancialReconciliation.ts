@@ -117,6 +117,8 @@ export function buildPayoutGateReasons(args: {
   ledgerSyncMissing: boolean;
   availableNowPence: number;
   walletBalancePence: number;
+  /** Revolut/manual bank payout — skip Stripe platform allocation gate. */
+  manualProviderPayout?: boolean;
 }): {
   payout_blocked_reasons: string[];
   payout_warning_reasons: string[];
@@ -148,7 +150,7 @@ export function buildPayoutGateReasons(args: {
   if (args.ledgerSyncMissing) {
     hard.push("Ledger sync missing after previous payout — resolve before paying out");
   }
-  if (args.providerAllocatedPence <= 0) {
+  if (!args.manualProviderPayout && args.providerAllocatedPence <= 0) {
     hard.push("No provider balance allocated — funds awaiting settlement");
   }
   if (args.availableNowPence <= 0 && args.walletBalancePence >= 0) {
@@ -197,6 +199,8 @@ export function computePerDriverSSOT(args: {
   settlements?: SettlementRow[];
   activePayoutItems?: Array<{ status: string; net_driver_payout_pence?: number | null; amount_pence?: number | null }>;
   stripeConnectPayouts?: Array<{ amount_pence?: number | null; status?: string | null }>;
+  /** Wallet-ledger payout path (Revolut manual bank transfer). */
+  manualProviderPayout?: boolean;
 }): PerDriverSSOT {
   const sourceTier = args.sourceTier ?? "LIVE";
   const driverGross = sumDriverGrossEarningsPence(args.trips);
@@ -217,16 +221,19 @@ export function computePerDriverSSOT(args: {
   const driverDebt = driverDebtPence(walletBalance);
   const pendingPayout = 0;
 
+  const stripeSettledForEligibility = args.manualProviderPayout ? remaining : allocated;
   const eligibility = computePayoutEligibility({
     walletUnpaidPence: remaining,
-    stripeSettledUnpaidPence: allocated,
+    stripeSettledUnpaidPence: stripeSettledForEligibility,
     payoutBlocked: walletBalance < 0,
     inFlightPayoutPence: inFlight,
   });
   const eligiblePayout =
-    financeCleared > 0
-      ? Math.min(eligibility.eligible_payout_pence, financeCleared)
-      : eligibility.eligible_payout_pence;
+    args.manualProviderPayout
+      ? eligibility.eligible_payout_pence
+      : financeCleared > 0
+        ? Math.min(eligibility.eligible_payout_pence, financeCleared)
+        : eligibility.eligible_payout_pence;
 
   const digitalTrips = filterDigitalTrips(args.trips);
   const digitalNetCustomer = sumDigitalNetCustomerRevenuePence({
@@ -257,6 +264,7 @@ export function computePerDriverSSOT(args: {
     ledgerSyncMissing: args.ledgerSyncMissing,
     availableNowPence: eligiblePayout,
     walletBalancePence: walletBalance,
+    manualProviderPayout: args.manualProviderPayout,
   });
   const payoutBlockedReasons = payoutGate.payout_blocked_reasons;
 
@@ -306,6 +314,7 @@ export async function fetchPerDriverFinancialReconciliation(
     providerAvailableBalancePence: number;
     providerPendingBalancePence: number;
     sourceTier?: FinanceDataSourceBadge;
+    manualProviderPayout?: boolean;
   },
 ): Promise<PerDriverSSOT> {
   const { driverId } = args;
@@ -442,5 +451,6 @@ export async function fetchPerDriverFinancialReconciliation(
     settlements: (settlementsResult.data ?? []) as SettlementRow[],
     activePayoutItems: activePayoutResult.data ?? [],
     stripeConnectPayouts: stripePayoutsResult.data ?? [],
+    manualProviderPayout: args.manualProviderPayout,
   });
 }

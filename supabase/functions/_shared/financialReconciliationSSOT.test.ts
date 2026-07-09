@@ -9,6 +9,7 @@ import {
   netPlatformRevenuePence,
   sumCustomerRevenuePence,
   totalCommissionEarnedPence,
+  tripProviderProcessingFeePence,
 } from "./financialReconciliationSSOT.ts";
 
 Deno.test("customer revenue prefers payments over trips", () => {
@@ -211,4 +212,10 @@ Deno.test("completed card trip without capture does not increase reconciled comm
   assertEquals(m.total_customer_revenue_pence, 0);
   assertEquals(m.pending_trip_count, 1);
   assertEquals(m.pending_stripe_confirmation_commission_pence, 500);
+});
+
+
+Deno.test("tripProviderProcessingFeePence prefers provider_fee_pence", () => {
+  assertEquals(tripProviderProcessingFeePence({ provider_fee_pence: 99, stripe_processing_fee_pence: 10 }), 99);
+  assertEquals(tripProviderProcessingFeePence({ provider_fee_pence: 0, stripe_processing_fee_pence: 10 }), 10);
 });

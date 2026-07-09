@@ -1,6 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import Stripe from "https://esm.sh/stripe@14.21.0";
+import {
+  fetchProviderPlatformBalance,
+  resolveFinanceScopeProvider,
+} from "../_shared/providerPlatformBalanceSSOT.ts";
 import {
   buildInsufficientFundsDiagnosis,
   classifyOnecabSettlementStatus,
@@ -40,7 +43,6 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const authHeader = req.headers.get("Authorization");
@@ -212,20 +214,18 @@ serve(async (req) => {
     let stripePendingPence = 0;
     let stripeBalanceError: string | null = null;
 
-    if (stripeSecretKey) {
-      try {
-        const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
-        const balance = await stripe.balance.retrieve();
-        const avail = balance.available.find((b) => b.currency === currency);
-        const pend = balance.pending.find((b) => b.currency === currency);
-        stripeAvailablePence = avail?.amount ?? 0;
-        stripePendingPence = pend?.amount ?? 0;
-      } catch (e) {
-        stripeBalanceError = (e as Error).message;
-      }
-    } else {
-      stripeBalanceError = "STRIPE_SECRET_KEY not configured";
-    }
+    const financeScope = await resolveFinanceScopeProvider(supabase, {
+      regionId: resolvedRegionId,
+      serviceAreaId: serviceAreaId ?? null,
+    });
+    const providerBalance = await fetchProviderPlatformBalance(supabase, {
+      provider: financeScope.provider,
+      environment: financeScope.environment,
+      currency,
+    });
+    stripeAvailablePence = providerBalance.available_pence;
+    stripePendingPence = providerBalance.pending_pence;
+    stripeBalanceError = providerBalance.error;
 
     const stripeCash = partitionStripePlatformCash({
       stripeAvailablePence,

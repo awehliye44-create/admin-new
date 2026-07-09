@@ -1,9 +1,11 @@
 import { Navigate, useLocation } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useStaffProfile } from '@/hooks/useStaffProfile';
 import { ShieldAlert, Loader2, Lock } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { CRITICAL_BUTTON_MAX_SPINNER_MS } from '@/lib/criticalButtonTimeout';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -13,9 +15,21 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { user, isAdmin, isAuthReady, signOut } = useAuth();
   const { canAccessPage, isStaffLoading } = useStaffProfile();
   const location = useLocation();
+  const [authGateTimedOut, setAuthGateTimedOut] = useState(false);
 
-  // Still initializing auth - show loading
-  if (!isAuthReady || isStaffLoading) {
+  useEffect(() => {
+    if (isAuthReady && !isStaffLoading) {
+      setAuthGateTimedOut(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setAuthGateTimedOut(true);
+    }, CRITICAL_BUTTON_MAX_SPINNER_MS);
+    return () => window.clearTimeout(timer);
+  }, [isAuthReady, isStaffLoading]);
+
+  // Still initializing auth - show loading (max 3s before unblock)
+  if ((!isAuthReady || isStaffLoading) && !authGateTimedOut) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-sidebar">
         <div className="flex flex-col items-center gap-4">

@@ -1,4 +1,4 @@
-// Admin: refund a captured Revolut order (full or partial).
+// Admin: refund trip payment — routes Revolut vs legacy Stripe by trip provider.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
 import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
@@ -8,6 +8,8 @@ import {
   getRevolutMerchantConfig,
 } from "../_shared/revolutOrders.ts";
 import { applyProviderRefundToOnecab } from "../_shared/applyProviderRefund.ts";
+import { adminLegacyStripeRefund } from "../_shared/adminLegacyStripeTripPayment.ts";
+import { resolveTripPaymentProvider, tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
 
 const InputSchema = z.object({
   trip_id: z.string().uuid(),
@@ -16,95 +18,96 @@ const InputSchema = z.object({
 });
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
     const gate = await requireAdmin(req);
     if (!gate.ok) return gate.response;
 
     let body: unknown;
-    try { body = await req.json(); } catch { return jsonResponse({ error: 'Invalid JSON body' }, 400); }
+    try { body = await req.json(); } catch { return jsonResponse({ error: "Invalid JSON body" }, 400); }
     const parsed = InputSchema.safeParse(body);
-    if (!parsed.success) return jsonResponse({ error: 'Invalid input', details: parsed.error.flatten() }, 400);
+    if (!parsed.success) return jsonResponse({ error: "Invalid input", details: parsed.error.flatten() }, 400);
     const { trip_id, amount_pence, reason } = parsed.data;
 
-    const { secretKey, environment } = getRevolutMerchantConfig();
-
     const { data: trip, error: tripErr } = await gate.supabase
-      .from('trips')
-      .select('id, provider_order_id, capture_amount_pence, refund_amount_pence, payment_status')
-      .eq('id', trip_id)
+      .from("trips")
+      .select("id, payment_provider, provider_order_id, stripe_payment_intent_id, stripe_charge_id, capture_amount_pence, refund_amount_pence, payment_status")
+      .eq("id", trip_id)
       .single();
-    if (tripErr || !trip) return jsonResponse({ error: 'Trip not found' }, 404);
-    if (!trip.provider_order_id) return jsonResponse({ error: 'Trip has no Revolut order' }, 400);
+    if (tripErr || !trip) return jsonResponse({ error: "Trip not found" }, 404);
 
-    const orderBefore = await retrieveRevolutOrder(environment, secretKey, trip.provider_order_id);
-    const state = (orderBefore.state ?? '').toUpperCase();
-    if (state !== 'COMPLETED' && state !== 'REFUNDED') {
+    const provider = resolveTripPaymentProvider(trip);
+
+    if (provider === "stripe") {
+      const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
+      if (!stripeKey) return jsonResponse({ error: "STRIPE_SECRET_KEY not configured" }, 500);
+      const result = await adminLegacyStripeRefund({
+        supabase: gate.supabase,
+        userId: gate.userId,
+        trip,
+        amountPence: amount_pence,
+        reason,
+        stripeKey,
+      });
+      return jsonResponse(result);
+    }
+
+    const orderId = tripProviderOrderId(trip);
+    if (!orderId) return jsonResponse({ error: "Trip has no Revolut order" }, 400);
+
+    const { secretKey, environment } = getRevolutMerchantConfig();
+    const orderBefore = await retrieveRevolutOrder(environment, secretKey, orderId);
+    const state = (orderBefore.state ?? "").toUpperCase();
+    if (state !== "COMPLETED" && state !== "REFUNDED") {
       return jsonResponse({ error: `Cannot refund — Revolut order state is "${state}" (must be COMPLETED)` }, 400);
     }
 
     const captured = Math.max(0, trip.capture_amount_pence ?? Number(orderBefore.amount ?? 0));
     const alreadyRefunded = Math.max(0, trip.refund_amount_pence ?? 0);
     const refundable = Math.max(0, captured - alreadyRefunded);
-    if (refundable <= 0) return jsonResponse({ error: 'Nothing left to refund' }, 400);
+    if (refundable <= 0) return jsonResponse({ error: "Nothing left to refund" }, 400);
 
     const refundAmount = amount_pence ?? refundable;
-    if (refundAmount <= 0) return jsonResponse({ error: 'amount_pence must be > 0' }, 400);
+    if (refundAmount <= 0) return jsonResponse({ error: "amount_pence must be > 0" }, 400);
     if (refundAmount > refundable) {
       return jsonResponse({ error: `amount_pence (${refundAmount}) exceeds refundable (${refundable})` }, 400);
     }
 
-    const refund = await refundRevolutOrder(
-      environment,
-      secretKey,
-      trip.provider_order_id,
-      refundAmount,
-      reason,
-    );
+    const refund = await refundRevolutOrder(environment, secretKey, orderId, refundAmount, reason);
 
-    const applyResult = await applyProviderRefundToOnecab(gate.supabase, {
+    await applyProviderRefundToOnecab(gate.supabase, {
       tripId: trip_id,
       amountRefundedPence: alreadyRefunded + refundAmount,
-      provider: 'revolut',
+      provider: "revolut",
       providerRefundId: refund.id ?? null,
-      providerOrderId: trip.provider_order_id,
-      source: 'admin_refund',
+      providerOrderId: orderId,
+      source: "admin_refund",
       refundReason: reason,
     });
 
-    await gate.supabase.from('admin_payment_audit').insert({
+    await gate.supabase.from("admin_payment_audit").insert({
       trip_id,
       admin_user_id: gate.userId,
-      action: 'refund',
+      action: "refund",
       reason,
       amount_pence_before: alreadyRefunded,
       amount_pence_after: alreadyRefunded + refundAmount,
       delta_pence: refundAmount,
-      provider: 'revolut',
-      provider_payment_id: trip.provider_order_id,
-      metadata: {
-        captured_total: captured,
-        refundable_before: refundable,
-        revolut_refund_id: refund.id ?? null,
-        revolut_state: refund.state ?? null,
-      },
+      provider: "revolut",
+      provider_payment_id: orderId,
+      metadata: { captured_total: captured, refundable_before: refundable, revolut_refund_id: refund.id },
     });
 
     return jsonResponse({
       success: true,
-      provider: 'revolut',
-      provider_order_id: trip.provider_order_id,
-      revolut_refund_id: refund.id ?? null,
+      provider: "revolut",
+      provider_order_id: orderId,
       refunded_pence: refundAmount,
       total_refunded_pence: alreadyRefunded + refundAmount,
-      payment_status: applyResult.payment_status,
-      refund_status: applyResult.refund_status,
-      net_paid_pence: applyResult.net_paid_pence,
-      driver_reversal_pence: applyResult.driver_reversal_pence,
       message: `Refunded ${(refundAmount / 100).toFixed(2)} successfully`,
     });
   } catch (e) {
-    console.error('[admin-refund-trip-payment] Error:', e);
+    console.error("[admin-refund-trip-payment] Error:", e);
     return jsonResponse({ error: (e as Error).message ?? String(e) }, 500);
   }
 });

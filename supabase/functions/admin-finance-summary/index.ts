@@ -1,7 +1,7 @@
 // Canonical admin finance summary — single source of truth for:
 //   1. Total customer revenue (payments.captured_amount_pence)
 //   2. ONECAB gross commission (driver_wallet_ledger PLATFORM_COMMISSION)
-//   3. Stripe processing fees (trips.stripe_processing_fee_pence)
+//   3. Provider processing fees (trips.provider_fee_pence / legacy stripe_processing_fee_pence)
 //   4. ONECAB net commission (#2 - #3)
 //   5. Driver net earnings (ledger TRIP_EARNING_NET + DRIVER_TIP_CREDIT + ADJUSTMENT)
 //   6. Stripe platform balance (live, never used as commission)
@@ -14,7 +14,11 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import Stripe from "https://esm.sh/stripe@18.5.0";
+import {
+  fetchProviderPlatformBalance,
+  resolveFinanceScopeProvider,
+} from "../_shared/providerPlatformBalanceSSOT.ts";
+import { tripProviderProcessingFeePence } from "../_shared/financialReconciliationSSOT.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -89,7 +93,7 @@ serve(async (req) => {
     // ── 2. Trips: stripe fees + commissionable fares (for tier-cap validation) ──
     let tripsQuery = supabase
       .from('trips')
-      .select('stripe_processing_fee_pence, commissionable_fare_pence, commission_pence, currency_code, region_id, status')
+      .select('stripe_processing_fee_pence, provider_fee_pence, commissionable_fare_pence, commission_pence, currency_code, region_id, status')
       .in('status', ['completed', 'no_show']);
     if (regionFilter) tripsQuery = tripsQuery.eq('region_id', regionFilter);
     const { data: tripRows, error: tripErr } = await tripsQuery;
@@ -124,28 +128,27 @@ serve(async (req) => {
       ...(tierRows || []).map((r) => Number(r.commission_pct || 0)),
     );
 
-    // ── 7. Stripe platform balance (live) — never used as commission ──
-    let stripeBalance: { available_pence: number; pending_pence: number; source: 'stripe_api' | 'unavailable' } = {
-      available_pence: 0,
-      pending_pence: 0,
-      source: 'unavailable',
+    // ── 7. Provider platform balance (live) — never used as commission ──
+    const financeScope = await resolveFinanceScopeProvider(supabase, { regionId: regionFilter });
+    const primaryCurrency = (tripRows?.[0]?.currency_code as string | undefined)?.toLowerCase() || "gbp";
+    const providerBalanceResult = await fetchProviderPlatformBalance(supabase, {
+      provider: financeScope.provider,
+      environment: financeScope.environment,
+      currency: primaryCurrency,
+    });
+    const stripeBalance: {
+      available_pence: number;
+      pending_pence: number;
+      source: "provider_api" | "unavailable";
+      provider?: string;
+      error?: string | null;
+    } = {
+      available_pence: providerBalanceResult.available_pence,
+      pending_pence: providerBalanceResult.pending_pence,
+      source: providerBalanceResult.error ? "unavailable" : "provider_api",
+      provider: providerBalanceResult.provider,
+      error: providerBalanceResult.error,
     };
-    const stripeKey = Deno.env.get('STRIPE_SECRET_KEY');
-    if (stripeKey) {
-      try {
-        const stripe = new Stripe(stripeKey, { apiVersion: '2024-11-20.acacia' });
-        const bal = await stripe.balance.retrieve();
-        const sum = (arr: { amount: number }[] | undefined) =>
-          (arr || []).reduce((s, b) => s + Number(b.amount || 0), 0);
-        stripeBalance = {
-          available_pence: sum(bal.available),
-          pending_pence: sum(bal.pending),
-          source: 'stripe_api',
-        };
-      } catch (e) {
-        console.warn('Stripe balance unavailable:', (e as Error).message);
-      }
-    }
 
     // ── Group by currency_code (mixed-currency safe) ──
     const buckets = new Map<string, CurrencyGroup>();
@@ -179,7 +182,7 @@ serve(async (req) => {
     }
     for (const t of tripRows || []) {
       const g = ensure(t.currency_code);
-      g.totals.stripe_fees_pence += Number(t.stripe_processing_fee_pence || 0);
+      g.totals.stripe_fees_pence += tripProviderProcessingFeePence(t);
       g.totals.commissionable_revenue_pence += Number(t.commissionable_fare_pence || 0);
     }
     for (const l of ledgerRows || []) {

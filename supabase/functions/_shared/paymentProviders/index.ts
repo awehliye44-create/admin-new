@@ -12,12 +12,13 @@ export function getPaymentProviderAdapter(
   supabase: SupabaseClient,
   provider: PaymentProviderId,
   environment: ProviderEnvironment,
+  options?: { updatedBy?: string },
 ): PaymentProviderAdapter {
   switch (provider) {
     case "stripe":
       return createStripeAdapter(supabase, environment);
     case "revolut":
-      return createRevolutAdapter(supabase, environment);
+      return createRevolutAdapter(supabase, environment, options);
     default:
       return createPlaceholderAdapter(provider, () =>
         getProviderSecrets(supabase, provider, environment)
