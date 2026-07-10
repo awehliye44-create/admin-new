@@ -601,9 +601,9 @@ export default function PaymentSessions() {
                         <TableHead>Fee status</TableHead>
                         <TableHead>Provider state</TableHead>
                         <TableHead>Session status</TableHead>
-                        <TableHead>Evidence</TableHead>
+                        <TableHead>Evidence status</TableHead>
                         <TableHead>Age</TableHead>
-                        <TableHead>Reconciliation</TableHead>
+                        <TableHead>Reconciliation status</TableHead>
                         <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
