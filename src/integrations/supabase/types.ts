@@ -9511,21 +9511,31 @@ export type Database = {
       payment_sessions: {
         Row: {
           authorised_amount_pence: number | null
+          authorised_at: string | null
           booking_snapshot: Json
           buffer_pence: number | null
+          captured_at: string | null
           client_action_id: string
           created_at: string
           customer_id: string | null
           estimated_total_pence: number | null
           failure_reason: string | null
           fare_snapshot: Json
+          hold_terminal_reason: string | null
           id: string
+          last_recovery_attempt_at: string | null
+          last_release_attempt_at: string | null
           metadata: Json
           payment_method: string | null
           payment_provider: string
           platform_payment_method_id: string | null
           provider_order_id: string | null
           provider_payment_id: string | null
+          provider_release_reference: string | null
+          recovery_attempt_count: number
+          release_attempt_count: number
+          release_failure_reason: string | null
+          released_at: string | null
           service_area_id: string
           status: Database["public"]["Enums"]["payment_session_status"]
           trip_id: string | null
@@ -9534,21 +9544,31 @@ export type Database = {
         }
         Insert: {
           authorised_amount_pence?: number | null
+          authorised_at?: string | null
           booking_snapshot?: Json
           buffer_pence?: number | null
+          captured_at?: string | null
           client_action_id: string
           created_at?: string
           customer_id?: string | null
           estimated_total_pence?: number | null
           failure_reason?: string | null
           fare_snapshot?: Json
+          hold_terminal_reason?: string | null
           id?: string
+          last_recovery_attempt_at?: string | null
+          last_release_attempt_at?: string | null
           metadata?: Json
           payment_method?: string | null
           payment_provider?: string
           platform_payment_method_id?: string | null
           provider_order_id?: string | null
           provider_payment_id?: string | null
+          provider_release_reference?: string | null
+          recovery_attempt_count?: number
+          release_attempt_count?: number
+          release_failure_reason?: string | null
+          released_at?: string | null
           service_area_id: string
           status?: Database["public"]["Enums"]["payment_session_status"]
           trip_id?: string | null
@@ -9557,21 +9577,31 @@ export type Database = {
         }
         Update: {
           authorised_amount_pence?: number | null
+          authorised_at?: string | null
           booking_snapshot?: Json
           buffer_pence?: number | null
+          captured_at?: string | null
           client_action_id?: string
           created_at?: string
           customer_id?: string | null
           estimated_total_pence?: number | null
           failure_reason?: string | null
           fare_snapshot?: Json
+          hold_terminal_reason?: string | null
           id?: string
+          last_recovery_attempt_at?: string | null
+          last_release_attempt_at?: string | null
           metadata?: Json
           payment_method?: string | null
           payment_provider?: string
           platform_payment_method_id?: string | null
           provider_order_id?: string | null
           provider_payment_id?: string | null
+          provider_release_reference?: string | null
+          recovery_attempt_count?: number
+          release_attempt_count?: number
+          release_failure_reason?: string | null
+          released_at?: string | null
           service_area_id?: string
           status?: Database["public"]["Enums"]["payment_session_status"]
           trip_id?: string | null
@@ -18062,6 +18092,8 @@ export type Database = {
       }
       expire_stale_modification_requests: { Args: never; Returns: number }
       expire_stale_negotiations: { Args: never; Returns: Json }
+      expire_stale_negotiations_guarded: { Args: never; Returns: Json }
+      expire_stale_negotiations_has_work: { Args: never; Returns: boolean }
       expire_stale_offers: { Args: never; Returns: Json }
       expire_trip_when_search_exhausted: {
         Args: { p_trip_id: string }
@@ -18391,6 +18423,7 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: string[]
       }
+      get_user_id_by_email: { Args: { p_email: string }; Returns: string }
       has_corporate_access: {
         Args: { p_corporate_account_id: string; p_user_id: string }
         Returns: boolean
@@ -19081,6 +19114,7 @@ export type Database = {
         Args: { p_request_id: string; p_reviewed_by?: string }
         Returns: undefined
       }
+      sweep_revolut_stale_holds: { Args: never; Returns: undefined }
       sweep_stale_searching_trips: { Args: never; Returns: Json }
       sync_customer_phone_verification: {
         Args: { _user_id: string }
