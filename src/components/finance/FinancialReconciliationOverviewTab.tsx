@@ -25,6 +25,8 @@ function KpiCard({ label, value, subtitle }: { label: string; value: string | nu
   );
 }
 
+import { PaymentHoldsAttentionPanel } from '@/components/finance/PaymentHoldsAttentionPanel';
+
 export function FinancialReconciliationOverviewTab({
   ssot,
   platformKpis,
@@ -57,6 +59,8 @@ export function FinancialReconciliationOverviewTab({
 
   return (
     <div className="space-y-4">
+      <PaymentHoldsAttentionPanel readOnly={readOnly} />
+
       <FinancialReconciliationRefreshBar
         badge={isRefreshing ? 'REFRESHING' : ssot.badge}
         lastSyncedAt={ssot.lastSyncedAt}

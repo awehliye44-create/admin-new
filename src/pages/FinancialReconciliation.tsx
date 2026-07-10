@@ -413,6 +413,7 @@ function FinancialReconciliationPage() {
                   ssot={ssot}
                   backendAudit={backendAudit}
                   money={money}
+                  readOnly={readOnly}
                 />
 
               </FinancePanelErrorBoundary>

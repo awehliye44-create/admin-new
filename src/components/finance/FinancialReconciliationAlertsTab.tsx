@@ -7,6 +7,7 @@ import { AlertTriangle } from 'lucide-react';
 import { DriverWalletLedgerLink } from '@/components/finance/DriverWalletLedgerLink';
 import { safeReconciliationCheck } from '@/lib/financialReconciliationGuards';
 import { classifyFinanceMismatch } from '@/lib/financeAlertClassification';
+import { PaymentHoldsAttentionPanel } from '@/components/finance/PaymentHoldsAttentionPanel';
 
 export function FinancialReconciliationAlertsTab({
   ssot,
@@ -90,6 +91,8 @@ export function FinancialReconciliationAlertsTab({
 
   return (
     <div className="space-y-4">
+      <PaymentHoldsAttentionPanel readOnly={_readOnly} />
+
       {uniqueAlerts.length === 0 ? (
         <Alert>
           <AlertTitle>No active finance alerts</AlertTitle>

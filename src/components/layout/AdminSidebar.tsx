@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useStaffProfile } from '@/hooks/useStaffProfile';
 import { useSidebarCounts } from '@/hooks/useSidebarCounts';
+import { usePaymentHoldsReconciliation } from '@/hooks/usePaymentHoldsReconciliation';
 import { useLostPropertyUnreadCount } from '@/hooks/useLostProperty';
 import { useChatUnreadCount } from '@/hooks/useChatUnreadCount';
 import {
@@ -166,6 +167,8 @@ export function AdminSidebar() {
   const { signOut, user } = useAuth();
   const { canAccessPage, staffProfile } = useStaffProfile();
   const { counts } = useSidebarCounts();
+  const { data: holdsData } = usePaymentHoldsReconciliation(true);
+  const paymentHoldsRed = holdsData?.summary?.red ?? 0;
   const lpUnread = useLostPropertyUnreadCount();
   const chatUnread = useChatUnreadCount();
   const currentPath = location.pathname;
@@ -330,7 +333,7 @@ export function AdminSidebar() {
           {/* PAYMENTS & TRANSACTIONS (SSOT) */}
           <Section label="Payments & Transactions" slugs={['driver-wallet-ledger','financial-reconciliation']}>
             <P pageSlug="driver-wallet-ledger" to="/driver-wallet-ledger" icon={<Wallet className="h-4 w-4" />} label="Driver Wallet Ledger (SSOT)" active={currentPath === '/driver-wallet-ledger'} collapsed={isCollapsed} />
-            <P pageSlug="financial-reconciliation" to="/financial-reconciliation" icon={<Calculator className="h-4 w-4" />} label="Financial Reconciliation (SSOT)" active={currentPath === '/financial-reconciliation'} collapsed={isCollapsed} />
+            <P pageSlug="financial-reconciliation" to="/financial-reconciliation" icon={<Calculator className="h-4 w-4" />} label="Financial Reconciliation (SSOT)" active={currentPath === '/financial-reconciliation'} badge={paymentHoldsRed > 0 ? paymentHoldsRed : undefined} badgeColor="destructive" collapsed={isCollapsed} />
           </Section>
 
           {/* REPORTS */}
