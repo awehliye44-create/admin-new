@@ -27,7 +27,7 @@ export function PaymentHoldsDashboardAlert() {
           Revolut pre-auth holds need release or recovery. Review in Financial Reconciliation immediately.
         </span>
         <Button asChild size="sm" variant={red > 0 ? 'secondary' : 'outline'}>
-          <Link to="/financial-reconciliation?tab=overview">Review holds</Link>
+          <Link to="/payment-sessions?tab=active_holds">Review holds</Link>
         </Button>
       </AlertDescription>
     </Alert>

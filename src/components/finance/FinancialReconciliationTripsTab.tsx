@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Dialog,
   DialogContent,
@@ -16,6 +17,10 @@ import { TripFinanceNoteDialog } from '@/components/payment/TripFinanceNoteDialo
 import { SyncTripPaymentFromStripeButton } from '@/components/payment/SyncTripPaymentFromStripeButton';
 import { DriverWalletLedgerLink } from '@/components/finance/DriverWalletLedgerLink';
 import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
+import { formatNullablePence } from '@/lib/formatNullablePence';
+import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
+import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
+import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
 import type { FinanceMoneyFormat } from '@/hooks/useFinanceReconciliationMoney';
 import { useFinanceActionPermission } from '@/hooks/useFinanceActionPermission';
 import type { TripFinancialAuditRow } from '@/hooks/useFinanceReconciliation';
@@ -183,6 +188,8 @@ export function FinancialReconciliationTripsTab({
               <TableHead>Capture status</TableHead>
               <TableHead className="text-right">Customer payable</TableHead>
               <TableHead className="text-right">Customer captured</TableHead>
+              <TableHead className="text-right">Refunded</TableHead>
+              <TableHead className="text-right">Provider Fee</TableHead>
               <TableHead className="text-right">Driver net</TableHead>
               <TableHead className="text-right">Commission</TableHead>
               <TableHead>Settlement</TableHead>
@@ -224,6 +231,18 @@ export function FinancialReconciliationTripsTab({
                   <TableCell className="text-right text-xs whitespace-nowrap">
                     {digital ? fmt(row.captured_pence, row.currency_code) : '—'}
                   </TableCell>
+                  <TableCell className="text-right text-xs whitespace-nowrap">
+                    {digital
+                      ? formatNullablePence(row.refunded_pence, row.currency_code ?? 'GBP')
+                      : '—'}
+                  </TableCell>
+                  <TableCell className="text-right text-xs whitespace-nowrap">
+                    {formatNullablePence(
+                      row.processing_fee_pence,
+                      row.currency_code ?? 'GBP',
+                      'Pending provider fee',
+                    )}
+                  </TableCell>
                   <TableCell className="text-right text-xs whitespace-nowrap">{fmt(row.driver_net_pence, row.currency_code)}</TableCell>
                   <TableCell className="text-right text-xs whitespace-nowrap">
                     {fmt(row.onecab_gross_commission_pence, row.currency_code)}
@@ -251,6 +270,19 @@ export function FinancialReconciliationTripsTab({
                       >
                         View
                       </Button>
+                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" asChild>
+                        <Link to={paymentSessionsUrl({ tripId: row.trip_id })}>
+                          Open Payment Session
+                        </Link>
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" asChild>
+                        <Link to={payoutLedgerUrl()}>Open Payout Ledger</Link>
+                      </Button>
+                      {row.driver_id ? (
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" asChild>
+                          <Link to={driverWalletLedgerUrl(row.driver_id)}>Open Wallet</Link>
+                        </Button>
+                      ) : null}
                       {digital && (
                         <SyncTripPaymentFromStripeButton
                           tripId={row.trip_id}

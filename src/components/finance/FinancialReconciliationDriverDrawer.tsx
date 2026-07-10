@@ -41,6 +41,7 @@ import { usePerDriverFinancialReconciliation } from '@/hooks/usePerDriverFinanci
 import { useDriverTripFinancialAudit } from '@/hooks/useDriverTripFinancialAudit';
 import { useFinanceActionPermission } from '@/hooks/useFinanceActionPermission';
 import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
+import { formatNullablePence } from '@/lib/formatNullablePence';
 import {
   defaultDriverDateRange,
   driverDateRangeLabel,
@@ -71,21 +72,21 @@ function providerLabel(row: TripFinancialAuditRow): string {
 function matchesPaymentTab(row: TripFinancialAuditRow, tab: PaymentStatusTab): boolean {
   if (tab === 'all') return true;
   const digital = isDigitalPayment(row.payment_method);
-  const captured = row.captured_pence ?? 0;
-  const refunded = row.refunded_pence ?? 0;
+  const captured = row.captured_pence;
+  const refunded = row.refunded_pence;
   const provider = providerLabel(row).toLowerCase();
   const payoutLabel = (row.driver_payout?.label ?? '').toLowerCase();
 
   if (tab === 'succeeded') {
-    return digital && captured > 0 && refunded < captured;
+    return digital && captured != null && captured > 0 && (refunded == null || refunded < captured);
   }
-  if (tab === 'refunded') return refunded > 0;
+  if (tab === 'refunded') return refunded != null && refunded > 0;
   if (tab === 'failed') {
     if (!digital) return false;
     return provider.includes('failed') || provider.includes('canceled') || provider.includes('cancelled');
   }
   if (tab === 'uncaptured') {
-    return digital && captured <= 0 && (
+    return digital && (captured == null || captured <= 0) && (
       provider.includes('requires_capture') || provider.includes('authorized') || provider.includes('pending')
     );
   }
@@ -126,12 +127,12 @@ function CompareRow({
   fmt,
 }: {
   label: string;
-  left: number;
-  right: number;
-  diff: number;
-  fmt: (p: number) => string;
+  left: number | null;
+  right: number | null;
+  diff: number | null;
+  fmt: (p: number | null | undefined) => string;
 }) {
-  const matched = Math.abs(diff) <= 1;
+  const matched = diff != null && Math.abs(diff) <= 1;
   return (
     <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 text-xs py-1 border-b border-border/40 last:border-0">
       <span className="text-muted-foreground">{label}</span>
@@ -171,7 +172,7 @@ export function FinancialReconciliationDriverDrawer({
 }) {
   const driverId = driverRow?.driver_id ?? null;
   const currencyCode = money.currencyCode ?? filter.currencyCode ?? 'GBP';
-  const fmt = (p: number | null | undefined) => money.fmt(p, currencyCode);
+  const fmt = (p: number | null | undefined) => formatNullablePence(p, currencyCode);
 
   const [dateRange, setDateRange] = useState<DriverDateRange>(() => {
     if (pageFrom && pageTo) {
@@ -229,16 +230,20 @@ export function FinancialReconciliationDriverDrawer({
     let refunded = 0;
     let driverNet = 0;
     let commission = 0;
-    let shortfall = 0;
+    let shortfall: number | null = 0;
     for (const row of digitalTrips) {
-      const payable = row.settlement_total_pence ?? row.customer_paid_pence ?? row.final_fare_pence ?? 0;
-      const captured = row.captured_pence ?? 0;
-      customerPayable += payable;
-      stripeCaptured += captured;
-      refunded += row.refunded_pence ?? 0;
-      driverNet += row.driver_net_pence ?? 0;
-      commission += row.onecab_gross_commission_pence ?? 0;
-      if (payable > captured) shortfall += payable - captured;
+      const payable = row.settlement_total_pence ?? row.customer_paid_pence ?? row.final_fare_pence;
+      const captured = row.captured_pence;
+      if (payable != null) customerPayable += payable;
+      if (captured != null) stripeCaptured += captured;
+      if (row.refunded_pence != null) refunded += row.refunded_pence;
+      if (row.driver_net_pence != null) driverNet += row.driver_net_pence;
+      if (row.onecab_gross_commission_pence != null) commission += row.onecab_gross_commission_pence;
+      if (payable == null || captured == null) {
+        shortfall = null;
+      } else if (shortfall != null && payable > captured) {
+        shortfall += payable - captured;
+      }
     }
     return { customerPayable, stripeCaptured, refunded, driverNet, commission, shortfall };
   }, [digitalTrips]);
@@ -251,15 +256,15 @@ export function FinancialReconciliationDriverDrawer({
   const walletCredited = perDriver?.driver_net_earnings_pence ?? overview.driverNet;
   const stripeCapturedTotal = overview.stripeCaptured;
   const customerPayableTotal = overview.customerPayable;
-  const paidOut = perDriver?.stripe_paid_out_total_pence ?? driver?.stripe_paid_out_total_pence ?? 0;
-  const eligiblePayout = perDriver?.eligible_payout_pence ?? perDriver?.driver_available_now_pence ?? 0;
-  const pendingBatch = perDriver?.included_in_payout_batch_pence ?? driver?.included_in_payout_batch_amount_pence ?? 0;
-  const walletBalance = perDriver?.driver_wallet_balance_pence ?? driver?.wallet_balance_pence ?? 0;
+  const paidOut = perDriver?.stripe_paid_out_total_pence ?? driver?.stripe_paid_out_total_pence ?? null;
+  const eligiblePayout = perDriver?.eligible_payout_pence ?? perDriver?.driver_available_now_pence ?? null;
+  const pendingBatch = perDriver?.included_in_payout_batch_pence ?? driver?.included_in_payout_batch_amount_pence ?? null;
+  const walletBalance = perDriver?.driver_wallet_balance_pence ?? driver?.wallet_balance_pence ?? null;
 
   const compareBalanced =
     Math.abs(customerPayableTotal - stripeCapturedTotal) <= 1
     && Math.abs((perDriver?.driver_net_earnings_pence ?? overview.driverNet) - walletCredited) <= 1
-    && Math.abs(pendingBatch) <= 1
+    && Math.abs(pendingBatch ?? 0) <= 1
     && (perDriver?.reconciliation_status ?? driver?.reconciliation_status) === 'BALANCED';
 
   const payoutReasons = [
@@ -419,7 +424,9 @@ export function FinancialReconciliationDriverDrawer({
                 <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                   <OverviewMetric label="Provider captured" value={fmt(overview.stripeCaptured)} hint="Customer paid (actual capture)" />
                   <OverviewMetric label="Customer payable" value={fmt(overview.customerPayable)} hint="Expected fare (trip SSOT)" />
-                  {overview.shortfall > 0 ? (
+                  {overview.shortfall == null ? (
+                    <OverviewMetric label="Provider capture shortfall" value="—" hint="Incomplete payable/captured data" />
+                  ) : overview.shortfall > 0 ? (
                     <OverviewMetric label="Provider capture shortfall" value={fmt(overview.shortfall)} hint="Digital trips only · payable − captured" />
                   ) : null}
                   <OverviewMetric label="Refunded" value={fmt(overview.refunded)} />
@@ -468,7 +475,7 @@ export function FinancialReconciliationDriverDrawer({
                 />
                 <CompareRow
                   label="Payout item vs Provider transfer/payout"
-                  left={pendingBatch + paidOut}
+                  left={pendingBatch == null && paidOut == null ? null : (pendingBatch ?? 0) + (paidOut ?? 0)}
                   right={paidOut}
                   diff={pendingBatch}
                   fmt={(p) => fmt(p)}
@@ -480,21 +487,21 @@ export function FinancialReconciliationDriverDrawer({
             </Card>
 
             {/* Pending / settlement explanation */}
-            {(eligiblePayout <= 0 || payoutReasons.length > 0) && (
+            {((eligiblePayout == null || eligiblePayout <= 0) || payoutReasons.length > 0) && (
               <Card className="border-amber-500/30 bg-amber-500/5">
                 <CardContent className="pt-4 pb-4">
                   <p className="text-sm font-medium">Why payout may not be scheduled</p>
                   <ul className="mt-2 space-y-1 text-xs text-muted-foreground list-disc pl-4">
-                    {eligiblePayout <= 0 && driver?.stripe_connect_available_pence === 0 ? (
+                    {(eligiblePayout == null || eligiblePayout <= 0) && driver?.stripe_connect_available_pence === 0 ? (
                       <li>Platform Provider available is {fmt(0)} — awaiting Provider settlement</li>
                     ) : null}
-                    {pendingBatch <= 0 && eligiblePayout > 0 ? (
+                    {(pendingBatch == null || pendingBatch <= 0) && eligiblePayout != null && eligiblePayout > 0 ? (
                       <li>Payout batch not yet created for cleared earnings</li>
                     ) : null}
                     {payoutReasons.map((r) => (
                       <li key={r}>{r}</li>
                     ))}
-                    {!payoutReasons.length && eligiblePayout <= 0 ? (
+                    {!payoutReasons.length && (eligiblePayout == null || eligiblePayout <= 0) ? (
                       <li>No finance-cleared balance payable in this period</li>
                     ) : null}
                   </ul>
@@ -559,7 +566,9 @@ export function FinancialReconciliationDriverDrawer({
                           {row.payment_method ?? '—'}
                         </TableCell>
                         <TableCell>
-                          {(row.refunded_pence ?? 0) > 0 ? fmt(row.refunded_pence) : '—'}
+                          {row.refunded_pence != null && row.refunded_pence > 0
+                            ? fmt(row.refunded_pence)
+                            : '—'}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">{fmt(row.driver_net_pence)}</TableCell>
                         <TableCell className="text-right tabular-nums">{fmt(row.onecab_gross_commission_pence)}</TableCell>
@@ -624,7 +633,15 @@ export function FinancialReconciliationDriverDrawer({
                 <div><span className="text-muted-foreground">Provider captured:</span> {fmt(selectedTrip.captured_pence)}</div>
                 <div><span className="text-muted-foreground">Customer payable:</span> {fmt(selectedTrip.settlement_total_pence ?? selectedTrip.customer_paid_pence)}</div>
                 <div><span className="text-muted-foreground">Refunded:</span> {fmt(selectedTrip.refunded_pence)}</div>
-                <div><span className="text-muted-foreground">Shortfall:</span> {fmt(Math.max(0, (selectedTrip.settlement_total_pence ?? selectedTrip.customer_paid_pence ?? 0) - (selectedTrip.captured_pence ?? 0)))}</div>
+                <div>
+                  <span className="text-muted-foreground">Shortfall:</span>{' '}
+                  {(() => {
+                    const payable = selectedTrip.settlement_total_pence ?? selectedTrip.customer_paid_pence;
+                    const captured = selectedTrip.captured_pence;
+                    if (payable == null || captured == null) return '—';
+                    return fmt(Math.max(0, payable - captured));
+                  })()}
+                </div>
                 <div><span className="text-muted-foreground">Driver net:</span> {fmt(selectedTrip.driver_net_pence)}</div>
                 <div><span className="text-muted-foreground">Commission:</span> {fmt(selectedTrip.onecab_gross_commission_pence)}</div>
                 <div><span className="text-muted-foreground">Provider:</span> {providerLabel(selectedTrip)}</div>

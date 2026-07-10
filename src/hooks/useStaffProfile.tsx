@@ -55,15 +55,17 @@ export { ROLE_LABELS, ROLE_PREFIXES };
 
 /** Route/sidebar slugs that differ from role_page_permissions slugs */
 const ROUTE_PERMISSION_ALIASES: Record<string, string[]> = {
-  payments: ['payments', 'financial-reconciliation'],
+  'payment-sessions': [
+    'payment-sessions',
+    'payments',
+    'admin-payments',
+  ],
+  payments: ['payments', 'payment-sessions'],
   'payment-providers': ['payment-providers', 'integrations'],
   'financial-reconciliation': [
     'financial-reconciliation',
     'drivers-and-payouts',
     'admin-settlements',
-    'payments',
-    'payout-batches',
-    'admin-payments',
   ],
   'annual-taxi-report': [
     'annual-taxi-report',
@@ -77,18 +79,21 @@ const ROUTE_PERMISSION_ALIASES: Record<string, string[]> = {
   ],
   'payout-batches': [
     'payout-batches',
+    'payout-ledger',
     'connect-payout-lockdown',
     'drivers-and-payouts',
-    'driver-wallet',
     'admin-settlements',
     'finance-ledger-transactions',
+  ],
+  'payout-ledger': [
+    'payout-ledger',
+    'payout-batches',
+    'connect-payout-lockdown',
   ],
   'driver-wallet-ledger': [
     'driver-wallet-ledger',
     'finance-ledger-transactions',
-    'payout-batches',
-    'drivers-and-payouts',
-    'admin-settlements',
+    'driver-wallet',
   ],
 };
 

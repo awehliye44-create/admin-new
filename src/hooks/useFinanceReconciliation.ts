@@ -520,7 +520,7 @@ export function useFinanceReconciliation(args?: {
     refetchInterval: () => {
       if (tripSearch) return false;
       if (!isAdminPageLiveActive()) return false;
-      return 120_000;
+      return 300_000;
     },
     refetchIntervalInBackground: false,
     retry: 1,

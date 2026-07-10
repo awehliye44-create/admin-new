@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -46,13 +46,21 @@ export function FinanceLedgerPanel({
   periodFrom,
   periodTo,
   driverId,
+  initialFilter = 'driver_earnings',
+  hideFilterTabs = false,
 }: {
   serviceFilter: ServiceAreaFinanceSelection;
   periodFrom?: string;
   periodTo?: string;
   driverId: string;
+  initialFilter?: DriverWalletLedgerFilter;
+  hideFilterTabs?: boolean;
 }) {
-  const [filter, setFilter] = useState<DriverWalletLedgerFilter>('driver_earnings');
+  const [filter, setFilter] = useState<DriverWalletLedgerFilter>(initialFilter);
+
+  useEffect(() => {
+    setFilter(initialFilter);
+  }, [initialFilter]);
   const [search, setSearch] = useState('');
 
   const { data: rows = [], isLoading, refetch, isFetching } = useFinanceLedgerTransactions({
@@ -121,15 +129,17 @@ export function FinanceLedgerPanel({
         </Button>
       </div>
 
-      <Tabs value={filter} onValueChange={(v) => setFilter(v as DriverWalletLedgerFilter)}>
-        <TabsList className="flex flex-wrap h-auto gap-1">
-          {DRIVER_FILTER_TABS.map(([key, label]) => (
-            <TabsTrigger key={key} value={key} className="text-xs">
-              {label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+      {!hideFilterTabs && (
+        <Tabs value={filter} onValueChange={(v) => setFilter(v as DriverWalletLedgerFilter)}>
+          <TabsList className="flex flex-wrap h-auto gap-1">
+            {DRIVER_FILTER_TABS.map(([key, label]) => (
+              <TabsTrigger key={key} value={key} className="text-xs">
+                {label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      )}
 
       <Card>
         <CardHeader className="pb-2">

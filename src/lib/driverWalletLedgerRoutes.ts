@@ -1,22 +1,43 @@
-export type DriverWalletLedgerTab = 'overview' | 'payouts' | 'ledger';
+export type DriverWalletLedgerTab =
+  | 'overview'
+  | 'drivers'
+  | 'ledger'
+  | 'debt'
+  | 'adjustments'
+  | 'payout_allocations'
+  | 'history'
+  /** @deprecated use payout_allocations */
+  | 'payouts';
 
 /** @deprecated Legacy tab slugs */
 export type DriverWalletLedgerLegacyTab =
   | 'accounting'
-  | 'history'
   | 'connect-balance'
   | 'stripe';
 
 const LEGACY_TAB_ALIASES: Record<string, DriverWalletLedgerTab> = {
   accounting: 'overview',
-  history: 'ledger',
+  history: 'history',
   'connect-balance': 'overview',
   stripe: 'overview',
+  payouts: 'payout_allocations',
+  ledger: 'ledger',
 };
 
 export function parseDriverWalletLedgerTab(value: string | null): DriverWalletLedgerTab {
-  if (value === 'overview' || value === 'payouts' || value === 'ledger') {
-    return value;
+  const allowed: DriverWalletLedgerTab[] = [
+    'overview',
+    'drivers',
+    'ledger',
+    'debt',
+    'adjustments',
+    'payout_allocations',
+    'history',
+    'payouts',
+  ];
+  if (value && (allowed as string[]).includes(value)) {
+    if (value === 'payouts') return 'payout_allocations';
+    return value as DriverWalletLedgerTab;
   }
   if (value && LEGACY_TAB_ALIASES[value]) {
     return LEGACY_TAB_ALIASES[value];

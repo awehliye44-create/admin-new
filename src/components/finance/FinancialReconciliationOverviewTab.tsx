@@ -12,6 +12,8 @@ import {
   ServiceAreaGatewayStatusPanel,
   type ServiceAreaGatewayStatusRow,
 } from '@/components/finance/ServiceAreaGatewayStatusPanel';
+import { PaymentHoldsFinanceAlertSummary } from '@/components/finance/PaymentHoldsFinanceAlertSummary';
+import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
 
 function KpiCard({ label, value, subtitle }: { label: string; value: string | number; subtitle?: string }) {
   return (
@@ -24,8 +26,6 @@ function KpiCard({ label, value, subtitle }: { label: string; value: string | nu
     </Card>
   );
 }
-
-import { PaymentHoldsAttentionPanel } from '@/components/finance/PaymentHoldsAttentionPanel';
 
 export function FinancialReconciliationOverviewTab({
   ssot,
@@ -59,7 +59,13 @@ export function FinancialReconciliationOverviewTab({
 
   return (
     <div className="space-y-4">
-      <PaymentHoldsAttentionPanel readOnly={readOnly} />
+      <PaymentHoldsFinanceAlertSummary />
+      <p className="text-xs text-muted-foreground">
+        Bank transfer lifecycle:{' '}
+        <Link to={payoutLedgerUrl()} className="underline">
+          Open Payout Ledger
+        </Link>
+      </p>
 
       <FinancialReconciliationRefreshBar
         badge={isRefreshing ? 'REFRESHING' : ssot.badge}
@@ -127,6 +133,8 @@ export function FinancialReconciliationOverviewTab({
         <Link to="/trip-history" className="underline">Trip History (Trip Settlement SSOT)</Link>
         {' · '}
         <Link to="/financial-reconciliation?tab=drivers" className="underline">Drivers</Link>
+        {' · '}
+        <Link to={payoutLedgerUrl()} className="underline">Payout Ledger</Link>
       </p>
     </div>
   );

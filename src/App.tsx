@@ -49,6 +49,8 @@ import ComplaintsDashboard from "./pages/ComplaintsDashboard";
 import Tickets from "./pages/Tickets";
 import SupportCategories from "./pages/SupportCategories";
 import FinancialReconciliation from "./pages/FinancialReconciliation";
+import PaymentSessions from "./pages/PaymentSessions";
+import PayoutLedger from "./pages/PayoutLedger";
 import LegacyDriversPayoutsRedirect from "./pages/LegacyDriversPayoutsRedirect";
 import DriverWalletLedger from "./pages/DriverWalletLedger";
 import AnnualTaxiReport from "./pages/AnnualTaxiReport";
@@ -172,15 +174,17 @@ const App = () => (
               <Route path="lost-property/:caseId" element={<LostPropertyDetail />} />
               
               {/* Payments & Transactions (SSOT) */}
-              <Route path="payments" element={<Navigate to="/financial-reconciliation" replace />} />
+              <Route path="payments" element={<Navigate to="/payment-sessions" replace />} />
+              <Route path="payment-sessions" element={<PaymentSessions />} />
               <Route path="financial-reconciliation" element={<FinancialReconciliation />} />
               <Route path="drivers-and-payouts" element={<LegacyDriversPayoutsRedirect />} />
               <Route path="driver-wallet" element={<Navigate to="/driver-wallet-ledger" replace />} />
               <Route path="admin-settlements" element={<Navigate to="/financial-reconciliation" replace />} />
               <Route path="finance-ledger-transactions" element={<Navigate to="/driver-wallet-ledger?tab=ledger" replace />} />
               <Route path="driver-wallet-ledger" element={<DriverWalletLedger />} />
-              <Route path="payout-batches" element={<Navigate to="/financial-reconciliation?tab=stripe" replace />} />
-              <Route path="connect-payout-lockdown" element={<Navigate to="/driver-wallet-ledger?tab=stripe" replace />} />
+              <Route path="payout-ledger" element={<PayoutLedger />} />
+              <Route path="payout-batches" element={<Navigate to="/payout-ledger?tab=batches" replace />} />
+              <Route path="connect-payout-lockdown" element={<Navigate to="/payout-ledger?tab=processing" replace />} />
               <Route path="disputes" element={<Disputes />} />
               <Route path="dispute-settings" element={<DisputeSettings />} />
               <Route path="invoices" element={<Invoices />} />

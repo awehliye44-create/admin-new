@@ -38,6 +38,7 @@ export type PaymentHoldReconciliationRow = {
   trip_id: string | null;
   trip_code: string | null;
   trip_status: string | null;
+  driver_id?: string | null;
   payment_hold_status: string | null;
   session_status: string | null;
   release_attempt_count: number;

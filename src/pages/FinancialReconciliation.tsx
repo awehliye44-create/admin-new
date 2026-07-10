@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Navigate, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { format, subDays } from 'date-fns';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
@@ -27,8 +27,9 @@ import {
   CRITICAL_BUTTON_TIMEOUT_MESSAGE,
   useCriticalButtonTimeout,
 } from '@/lib/criticalButtonTimeout';
+import { paymentSessionsUrl } from '../../shared/adminPaymentSessionsSSOT';
 
-const FR_TABS = ['overview', 'drivers', 'trips', 'alerts'] as const;
+const FR_TABS = ['overview', 'drivers', 'trips', 'alerts', 'mismatches', 'history'] as const;
 type FrTab = (typeof FR_TABS)[number];
 
 function parseFrTab(value: string | null): FrTab {
@@ -347,6 +348,8 @@ function FinancialReconciliationPage() {
             <TabsTrigger value="drivers">Drivers</TabsTrigger>
             <TabsTrigger value="trips">Trips ({tripAuditRows.length})</TabsTrigger>
             <TabsTrigger value="alerts">Alerts</TabsTrigger>
+            <TabsTrigger value="mismatches">Mismatches</TabsTrigger>
+            <TabsTrigger value="history">Resolved History</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="mt-4">
@@ -415,7 +418,62 @@ function FinancialReconciliationPage() {
                   money={money}
                   readOnly={readOnly}
                 />
+              </FinancePanelErrorBoundary>
+            )}
+          </TabsContent>
 
+          <TabsContent value="mismatches" className="mt-4">
+            {frTab === 'mismatches' && (
+              <FinancePanelErrorBoundary panelName="Mismatches">
+                <FinancialReconciliationAlertsTab
+                  ssot={ssot}
+                  money={money}
+                  readOnly={readOnly}
+                  mode="mismatches"
+                />
+              </FinancePanelErrorBoundary>
+            )}
+          </TabsContent>
+
+          <TabsContent value="history" className="mt-4">
+            {frTab === 'history' && (
+              <FinancePanelErrorBoundary panelName="Resolved History">
+                <div className="space-y-4">
+                  <Alert>
+                    <AlertTitle>Resolved History</AlertTitle>
+                    <AlertDescription className="space-y-2">
+                      <p>
+                        Use Payment Sessions History for hold resolutions. Trip reconciliation
+                        history for this period is summarised below when available.
+                      </p>
+                      <p>
+                        <Link
+                          to={paymentSessionsUrl({ tab: 'history' })}
+                          className="underline font-medium"
+                        >
+                          Open Payment Sessions History
+                        </Link>
+                      </p>
+                      {summary?.reconciliation_check?.status ? (
+                        <p className="text-xs text-muted-foreground">
+                          SSOT reconciliation status: {summary.reconciliation_check.status}
+                          {lastSyncedLabel ? ` · last synced ${lastSyncedLabel}` : null}
+                        </p>
+                      ) : null}
+                    </AlertDescription>
+                  </Alert>
+                  {tripAuditRows.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-8 text-center">
+                      No completed trips require reconciliation in this period.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      {tripAuditRows.length} completed trip
+                      {tripAuditRows.length === 1 ? '' : 's'} in scope — open the Trips tab for
+                      the full audit, or Payment Sessions History for hold resolutions.
+                    </p>
+                  )}
+                </div>
               </FinancePanelErrorBoundary>
             )}
           </TabsContent>

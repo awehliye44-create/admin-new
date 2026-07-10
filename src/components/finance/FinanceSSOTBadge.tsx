@@ -34,9 +34,13 @@ export function FinanceSsotOperationalNotice() {
       <AlertTitle>Finance SSOT</AlertTitle>
       <AlertDescription>
         Driver wallets, trip audit, platform KPIs, and reconciliation alerts live only in{' '}
+        <Link to="/payment-sessions" className="underline">Payment Sessions (SSOT)</Link>
+        {', '}
+        <Link to="/financial-reconciliation" className="underline">Financial Reconciliation (SSOT)</Link>
+        {', '}
         <Link to="/driver-wallet-ledger" className="underline">Driver Wallet Ledger (SSOT)</Link>
         {' '}and{' '}
-        <Link to="/financial-reconciliation" className="underline">Financial Reconciliation (SSOT)</Link>.
+        <Link to="/payout-ledger" className="underline">Payout Ledger (SSOT)</Link>.
         This page does not duplicate those calculations.
       </AlertDescription>
     </Alert>
