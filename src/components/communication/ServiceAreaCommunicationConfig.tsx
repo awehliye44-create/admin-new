@@ -41,6 +41,11 @@ import {
   validateCommunicationSettings,
   VOIP_PROVIDER_LABEL,
 } from '@/lib/serviceAreaCommunicationModel';
+import {
+  COMMUNICATION_LOG_EVENTS,
+  normalizeOutboundCallerIdE164,
+  suggestOutboundCallerId,
+} from '@/lib/communicationSsot';
 
 interface Props {
   serviceAreaId: string;
@@ -78,6 +83,7 @@ export function ServiceAreaCommunicationConfig({
   const [maskingConfig, setMaskingConfig] = useState<ServiceAreaCallMaskingConfig | null>(null);
   const [providerCatalog, setProviderCatalog] = useState<CallMaskingProviderConfig[]>([]);
   const [selectedProviderConfigId, setSelectedProviderConfigId] = useState<string>(UNSET_PROVIDER);
+  const [outboundCallerId, setOutboundCallerId] = useState('');
   const [callLogs, setCallLogs] = useState<UnifiedCommunicationCallLog[]>([]);
   const [metrics, setMetrics] = useState(
     buildUsageMetrics([], [], 0, 0),
@@ -124,30 +130,15 @@ export function ServiceAreaCommunicationConfig({
       const loadedMasking = maskingRes.data as ServiceAreaCallMaskingConfig | null;
       setMaskingConfig(loadedMasking);
       setSelectedProviderConfigId(loadedMasking?.provider_config_id ?? UNSET_PROVIDER);
+      setOutboundCallerId(
+        suggestOutboundCallerId(
+          loadedSettings.outbound_caller_id,
+          loadedMasking?.outbound_caller_id,
+        ),
+      );
 
       const catalog = (catalogRes.data ?? []) as CallMaskingProviderConfig[];
       setProviderCatalog(catalog);
-
-      // Auto-assign when masking is on but no saved assignment yet.
-      if (
-        loadedSettings.call_masking_enabled
-        && !loadedMasking?.provider_config_id
-        && catalog.length >= 1
-      ) {
-        const preferred =
-          catalog.find((entry) => entry.label.toLowerCase().includes('milton keynes'))
-          ?? catalog[0];
-        setSelectedProviderConfigId(preferred.id);
-        setMaskingConfig({
-          service_area_id: serviceAreaId,
-          provider_config_id: preferred.id,
-          provider: preferred.provider,
-          country_code: preferred.country_code,
-          number_pool_id: preferred.number_pool_id,
-          outbound_caller_id: preferred.outbound_caller_id,
-          is_active: true,
-        });
-      }
 
       // Call logs are optional — never block settings UI if history queries fail.
       let voipLogs: Record<string, unknown>[] = [];
@@ -307,13 +298,17 @@ export function ServiceAreaCommunicationConfig({
     setSelectedProviderConfigId(configId);
     const selected = providerCatalog.find((entry) => entry.id === configId);
     if (!selected) return;
+    if (!outboundCallerId.trim()) {
+      const suggested = suggestOutboundCallerId(selected.outbound_caller_id);
+      if (suggested) setOutboundCallerId(suggested);
+    }
     setMaskingConfig({
       service_area_id: serviceAreaId,
       provider_config_id: selected.id,
       provider: selected.provider,
       country_code: selected.country_code,
       number_pool_id: selected.number_pool_id,
-      outbound_caller_id: selected.outbound_caller_id,
+      outbound_caller_id: outboundCallerId || selected.outbound_caller_id,
       is_active: true,
     });
   };
@@ -334,11 +329,24 @@ export function ServiceAreaCommunicationConfig({
       return;
     }
 
+    const normalizedOutbound = settings.call_masking_enabled
+      ? normalizeOutboundCallerIdE164(outboundCallerId)
+      : null;
+    if (settings.call_masking_enabled && !normalizedOutbound) {
+      toast.error('Enter a valid outbound caller ID in E.164 format (example: +441908831211).');
+      console.info(COMMUNICATION_LOG_EVENTS.OUTBOUND_CALLER_ID_INVALID, {
+        service_area_id: serviceAreaId,
+        raw: outboundCallerId,
+      });
+      return;
+    }
+
     setIsSaving(true);
     try {
       const payload = {
         ...settings,
         service_area_id: serviceAreaId,
+        outbound_caller_id: normalizedOutbound,
         default_method: resolveDefaultMethod(
           settings.voip_enabled,
           settings.call_masking_enabled,
@@ -360,6 +368,7 @@ export function ServiceAreaCommunicationConfig({
             {
               ...maskingConfig,
               service_area_id: serviceAreaId,
+              outbound_caller_id: normalizedOutbound!,
               is_active: true,
               updated_at: new Date().toISOString(),
             },
@@ -369,6 +378,13 @@ export function ServiceAreaCommunicationConfig({
       } else {
         await supabase.from('service_area_call_masking_config').delete().eq('service_area_id', serviceAreaId);
       }
+
+      console.info(COMMUNICATION_LOG_EVENTS.CONFIG_SAVED, {
+        service_area_id: serviceAreaId,
+        voip_enabled: settings.voip_enabled,
+        call_masking_enabled: settings.call_masking_enabled,
+        outbound_caller_id: normalizedOutbound,
+      });
 
       toast.success(`Communication settings saved for ${serviceAreaName ?? 'service area'}`);
       await loadData();
@@ -629,9 +645,19 @@ export function ServiceAreaCommunicationConfig({
                       <span className="text-muted-foreground">Number pool</span>
                       <p className="font-medium">{maskingConfig.number_pool_id}</p>
                     </div>
-                    <div>
-                      <span className="text-muted-foreground">Outbound caller ID</span>
-                      <p className="font-medium">{maskingConfig.outbound_caller_id}</p>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label htmlFor="outbound-caller-id">Outbound caller ID</Label>
+                      <Input
+                        id="outbound-caller-id"
+                        placeholder="+441908831211"
+                        value={outboundCallerId}
+                        onChange={(event) => setOutboundCallerId(event.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        E.164 format required. Provider catalog suggests{' '}
+                        {providerCatalog.find((entry) => entry.id === maskingConfig.provider_config_id)
+                          ?.outbound_caller_id ?? 'none'} — manual value takes priority.
+                      </p>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-muted-foreground">Active</span>

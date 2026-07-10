@@ -13,6 +13,8 @@ export interface ServiceAreaCommunicationSettings {
   currency: string;
   is_enabled: boolean;
   voip_provider: string;
+  outbound_caller_id?: string | null;
+  config_version?: number;
 }
 
 export interface CallMaskingProviderConfig {
