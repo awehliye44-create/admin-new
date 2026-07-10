@@ -89,6 +89,17 @@ export type AdminPaymentSessionsListRow = {
   captured_at: string | null;
   released_at: string | null;
   refunded_at: string | null;
+  evidence_warnings: string[];
+  webhook_timeline: Array<{
+    event_type: string;
+    processed_at: string | null;
+    applied_status: string | null;
+  }>;
+  admin_refresh_timeline: Array<{
+    verified_at: string;
+    verified_by: string;
+    provider_state: string | null;
+  }>;
   age_minutes: number;
   reconciliation_status: string | null;
   attention_class: PaymentHoldAttentionClass | null;

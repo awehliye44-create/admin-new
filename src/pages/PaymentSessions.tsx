@@ -738,13 +738,38 @@ export default function PaymentSessions() {
                                             refunded_at: row.refunded_at,
                                             evidence_status: row.evidence_status,
                                             evidence_label: row.evidence_label,
+                                            evidence_warnings: row.evidence_warnings,
                                             reconciliation_status: row.reconciliation_status,
                                             attention_class: row.attention_class,
+                                            webhook_timeline: row.webhook_timeline,
+                                            admin_refresh_timeline: row.admin_refresh_timeline,
                                             action_policy: row.action_policy,
                                           },
                                           null,
                                           2,
                                         )}
+                                      </pre>
+                                    </div>
+                                    {(row.evidence_warnings?.length ?? 0) > 0 && (
+                                      <div>
+                                        <div className="mb-1 font-medium">Evidence warnings</div>
+                                        <ul className="list-disc pl-4 text-amber-800">
+                                          {row.evidence_warnings.map((w) => (
+                                            <li key={w}>{w}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    <div>
+                                      <div className="mb-1 font-medium">Webhook timeline</div>
+                                      <pre className="whitespace-pre-wrap">
+                                        {JSON.stringify(row.webhook_timeline ?? [], null, 2)}
+                                      </pre>
+                                    </div>
+                                    <div>
+                                      <div className="mb-1 font-medium">Admin refresh timeline</div>
+                                      <pre className="whitespace-pre-wrap">
+                                        {JSON.stringify(row.admin_refresh_timeline ?? [], null, 2)}
                                       </pre>
                                     </div>
                                     <div>

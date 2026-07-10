@@ -22,6 +22,7 @@ export function extractConfirmedReleaseAmountPence(
 /**
  * Capture amount from provider payload when state is CAPTURED/COMPLETED.
  * Prefer explicit capture fields; fall back to order amount only for terminal capture states.
+ * Supports Revolut Merchant API shapes: flat minor units or `{ value, currency }`.
  */
 export function extractConfirmedCaptureAmountPence(
   providerPayload: Record<string, unknown> | null | undefined,
@@ -29,18 +30,45 @@ export function extractConfirmedCaptureAmountPence(
 ): number | null {
   if (!providerPayload) return null;
   const state = String(providerState ?? providerPayload.state ?? "").trim().toUpperCase();
+
+  const asPence = (raw: unknown): number | null => {
+    if (raw == null) return null;
+    if (typeof raw === "object" && raw !== null && "value" in (raw as object)) {
+      const n = Number((raw as { value?: unknown }).value);
+      if (Number.isFinite(n) && n > 0) return Math.round(n);
+      return null;
+    }
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) return Math.round(n);
+    return null;
+  };
+
   const explicit = [
     providerPayload.captured_amount,
     providerPayload.completed_amount,
     providerPayload.capture_amount,
   ];
   for (const c of explicit) {
-    const n = Number(c);
-    if (Number.isFinite(n) && n > 0) return Math.round(n);
+    const n = asPence(c);
+    if (n != null) return n;
   }
+
   if (state === "CAPTURED" || state === "COMPLETED") {
-    const n = Number(providerPayload.amount);
-    if (Number.isFinite(n) && n > 0) return Math.round(n);
+    const fromPayments = Array.isArray(providerPayload.payments)
+      ? providerPayload.payments
+      : [];
+    for (const p of fromPayments) {
+      if (!p || typeof p !== "object") continue;
+      const payment = p as Record<string, unknown>;
+      const paymentState = String(payment.state ?? "").toUpperCase();
+      if (paymentState && paymentState !== "COMPLETED" && paymentState !== "CAPTURED") continue;
+      const n = asPence(payment.amount);
+      if (n != null) return n;
+    }
+    for (const key of ["order_amount", "amount", "completed_amount"]) {
+      const n = asPence(providerPayload[key]);
+      if (n != null) return n;
+    }
   }
   return null;
 }
