@@ -601,6 +601,7 @@ export default function PaymentSessions() {
                         <TableHead>Fee status</TableHead>
                         <TableHead>Provider state</TableHead>
                         <TableHead>Session status</TableHead>
+                        <TableHead>Evidence</TableHead>
                         <TableHead>Age</TableHead>
                         <TableHead>Reconciliation</TableHead>
                         <TableHead>Actions</TableHead>
@@ -629,24 +630,59 @@ export default function PaymentSessions() {
                               <TableCell className="text-xs">{row.payment_method ?? '—'}</TableCell>
                               <TableCell className="text-xs">{row.purpose ?? '—'}</TableCell>
                               <TableCell className="text-xs">
-                                {row.amount_display === 'AMOUNT_UNCONFIRMED'
+                                {row.amount_display === 'AMOUNT_UNCONFIRMED' && row.captured_amount_pence == null && !row.captured_at
                                   ? 'AMOUNT_UNCONFIRMED'
                                   : formatNullablePence(row.authorised_amount_pence)}
                               </TableCell>
-                              <TableCell className="text-xs">{formatNullablePence(row.captured_amount_pence)}</TableCell>
-                              <TableCell className="text-xs">{formatNullablePence(row.released_amount_pence)}</TableCell>
+                              <TableCell className="text-xs">
+                                {formatNullablePence(row.captured_amount_pence)}
+                                {row.evidence_status === 'CAPTURE_AMOUNT_MISSING' && (
+                                  <div className="mt-1 text-[10px] text-amber-700">Captured amount not yet recorded</div>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                {row.released_at && row.released_amount_pence == null
+                                  ? 'AMOUNT_UNCONFIRMED'
+                                  : formatNullablePence(row.released_amount_pence)}
+                              </TableCell>
                               <TableCell className="text-xs">{formatNullablePence(row.refunded_amount_pence)}</TableCell>
                               <TableCell className="text-xs">
-                                {row.provider_processing_fee_pence == null
-                                  ? 'Pending provider fee'
+                                {row.fee_display_badge === 'UNAVAILABLE'
+                                  ? (row.fee_display_label ?? 'Fee unavailable')
+                                  : row.fee_display_badge === 'PENDING'
+                                    || row.provider_processing_fee_pence == null
+                                  ? (row.fee_display_label ?? 'Pending provider fee')
                                   : formatNullablePence(row.provider_processing_fee_pence)}
                               </TableCell>
-                              <TableCell className="text-xs">{row.fee_status ?? '—'}</TableCell>
                               <TableCell className="text-xs">
-                                <div>{row.provider_state ?? 'UNKNOWN'}</div>
-                                <Badge variant="outline" className="mt-1">{row.provider_verification_status}</Badge>
+                                {row.fee_display_badge ? (
+                                  <Badge variant="outline">{row.fee_display_badge}</Badge>
+                                ) : (
+                                  row.fee_status ?? '—'
+                                )}
                               </TableCell>
-                              <TableCell className="text-xs">{row.session_status ?? '—'}</TableCell>
+                              <TableCell className="text-xs">
+                                <div>{row.provider_state_label ?? row.provider_state ?? 'UNKNOWN'}</div>
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                <div>{row.session_status_label ?? row.session_status ?? '—'}</div>
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                <Badge
+                                  variant={
+                                    row.evidence_status === 'COMPLETE'
+                                      ? 'default'
+                                      : row.evidence_status === 'CAPTURE_AMOUNT_MISSING'
+                                      ? 'secondary'
+                                      : 'outline'
+                                  }
+                                >
+                                  {row.evidence_status ?? '—'}
+                                </Badge>
+                                {row.evidence_label && row.evidence_status !== 'COMPLETE' && (
+                                  <div className="mt-1 text-[10px] text-muted-foreground">{row.evidence_label}</div>
+                                )}
+                              </TableCell>
                               <TableCell className="text-xs">{formatAgeMinutes(row.age_minutes)}</TableCell>
                               <TableCell className="text-xs">
                                 <Badge variant={row.classification === 'RED' ? 'destructive' : row.classification === 'AMBER' ? 'secondary' : 'default'}>
@@ -675,7 +711,7 @@ export default function PaymentSessions() {
                             </TableRow>
                             {expandedId === key && (
                               <TableRow>
-                                <TableCell colSpan={18} className="bg-muted/40 text-xs">
+                                <TableCell colSpan={19} className="bg-muted/40 text-xs">
                                   <div className="space-y-3">
                                     <div>
                                       <div className="mb-1 font-medium">Session evidence</div>
@@ -683,11 +719,26 @@ export default function PaymentSessions() {
                                         {JSON.stringify(
                                           {
                                             payment_session_id: row.payment_session_id,
-                                            orphan_payment_id: row.orphan_payment_id,
-                                            client_action_id: row.client_action_id,
+                                            trip_id: row.trip_id,
                                             provider_order_id: row.provider_order_id,
+                                            provider_payment_id: row.provider_payment_id,
+                                            provider_capture_id: row.provider_capture_id,
+                                            authorised_amount_pence: row.authorised_amount_pence,
+                                            captured_amount_pence: row.captured_amount_pence,
+                                            released_amount_pence: row.released_amount_pence,
+                                            refunded_amount_pence: row.refunded_amount_pence,
+                                            provider_processing_fee_pence: row.provider_processing_fee_pence,
+                                            fee_status: row.fee_status,
                                             provider_state: row.provider_state,
                                             provider_state_verified_at: row.provider_state_verified_at,
+                                            session_status_canonical: row.session_status_display,
+                                            technical_status: row.technical_status,
+                                            captured_at: row.captured_at,
+                                            released_at: row.released_at,
+                                            refunded_at: row.refunded_at,
+                                            evidence_status: row.evidence_status,
+                                            evidence_label: row.evidence_label,
+                                            reconciliation_status: row.reconciliation_status,
                                             attention_class: row.attention_class,
                                             action_policy: row.action_policy,
                                           },
