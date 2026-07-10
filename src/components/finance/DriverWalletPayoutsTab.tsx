@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { DriverWalletSsotRow } from '@/hooks/useDriverWalletSsot';
 import { formatNullablePence } from '@/lib/formatNullablePence';
-import { payoutLedgerUrl } from '../../shared/adminPayoutLedgerSSOT';
+import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
 import { Loader2 } from 'lucide-react';
 
 const ACTIVE_BATCH_STATUSES = new Set(['pending', 'processing', 'ready', 'transfer_created']);
