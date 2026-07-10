@@ -501,10 +501,17 @@ serve(async (req) => {
         .from("driver_financial_summary")
         .select("driver_id, wallet_balance, available_for_payout, net_available_for_payout, total_payouts_sent, reserved_cashout_pence, region_id");
 
-    const financialResult = await financialPromise;
-    if (financialResult.error) throw financialResult.error;
+    let walletDownstream: "OK" | "UNAVAILABLE" = "OK";
+    let payoutsDownstream: "OK" | "UNAVAILABLE" = "OK";
+    let paymentSessionsDownstream: "OK" | "UNAVAILABLE" = "OK";
 
-    const financialRows = financialResult.data ?? [];
+    const financialResult = await financialPromise;
+    if (financialResult.error) {
+      console.warn("[admin-finance-reconciliation] wallet summary unavailable:", financialResult.error.message);
+      walletDownstream = "UNAVAILABLE";
+    }
+
+    const financialRows = financialResult.error ? [] : (financialResult.data ?? []);
     const driverIds = financialRows.map((d) => d.driver_id);
 
     const [
@@ -533,6 +540,15 @@ serve(async (req) => {
     ]);
 
     if (tripResult.error) throw tripResult.error;
+    if (pendingPayoutsResult.error) {
+      console.warn("[admin-finance-reconciliation] payouts unavailable:", pendingPayoutsResult.error.message);
+      payoutsDownstream = "UNAVAILABLE";
+    }
+    if (pendingCashoutsResult.error) {
+      console.warn("[admin-finance-reconciliation] cashouts unavailable:", pendingCashoutsResult.error.message);
+      // Cashouts feed wallet liability evidence — treat as wallet degradation.
+      walletDownstream = "UNAVAILABLE";
+    }
 
     const tripRows = (tripResult.data || []) as TripAuditSourceRow[];
     const finance = sumTripFinanceMetrics(tripRows);
@@ -577,25 +593,45 @@ serve(async (req) => {
           .select("related_trip_id, type, amount_pence, stripe_payout_id, stripe_transfer_id")
           .in("related_trip_id", tripIds),
       ]);
-      if (paymentsRes.error) throw paymentsRes.error;
-      if (payoutItemsRes.error) throw payoutItemsRes.error;
-      if (tripLedgerRes.error) throw tripLedgerRes.error;
-      paymentRows = paymentsRes.data || [];
-      auditPayoutItems = payoutItemsRes.data || [];
-      auditLedgerRows = (tripLedgerRes.data || []).map((row) => ({
-        related_trip_id: row.related_trip_id ?? null,
-        type: row.type,
-        amount_pence: row.amount_pence,
-        stripe_payout_id: row.stripe_payout_id ?? null,
-        stripe_transfer_id: row.stripe_transfer_id ?? null,
-      }));
+      if (paymentsRes.error) {
+        console.warn("[admin-finance-reconciliation] payment evidence unavailable:", paymentsRes.error.message);
+        paymentSessionsDownstream = "UNAVAILABLE";
+        paymentRows = [];
+      } else {
+        paymentRows = paymentsRes.data || [];
+      }
+      if (payoutItemsRes.error) {
+        console.warn("[admin-finance-reconciliation] trip payout evidence unavailable:", payoutItemsRes.error.message);
+        payoutsDownstream = "UNAVAILABLE";
+        auditPayoutItems = [];
+      } else {
+        auditPayoutItems = payoutItemsRes.data || [];
+      }
+      if (tripLedgerRes.error) {
+        console.warn("[admin-finance-reconciliation] wallet ledger evidence unavailable:", tripLedgerRes.error.message);
+        walletDownstream = "UNAVAILABLE";
+        auditLedgerRows = [];
+      } else {
+        auditLedgerRows = (tripLedgerRes.data || []).map((row) => ({
+          related_trip_id: row.related_trip_id ?? null,
+          type: row.type,
+          amount_pence: row.amount_pence,
+          stripe_payout_id: row.stripe_payout_id ?? null,
+          stripe_transfer_id: row.stripe_transfer_id ?? null,
+        }));
+      }
     } else if (tripIds.length > 0 && summaryOnly) {
       const paymentsRes = await supabase
         .from("payments")
         .select("captured_amount_pence, status, trip_id, provider_status, stripe_payment_intent_id, provider_available_on")
         .in("trip_id", tripIds);
-      if (paymentsRes.error) throw paymentsRes.error;
-      paymentRows = paymentsRes.data || [];
+      if (paymentsRes.error) {
+        console.warn("[admin-finance-reconciliation] payment evidence unavailable:", paymentsRes.error.message);
+        paymentSessionsDownstream = "UNAVAILABLE";
+        paymentRows = [];
+      } else {
+        paymentRows = paymentsRes.data || [];
+      }
     }
 
     const currencyCodeByServiceAreaId = await buildServiceAreaCurrencyMap(supabase, tripRows);
@@ -831,20 +867,31 @@ serve(async (req) => {
             .select("related_trip_id, type, amount_pence, stripe_payout_id, stripe_transfer_id")
             .in("related_trip_id", auditTripIds),
         ]);
-        if (paymentsRes.error) throw paymentsRes.error;
-        if (payoutItemsRes.error) throw payoutItemsRes.error;
-        if (tripLedgerRes.error) throw tripLedgerRes.error;
+        if (paymentsRes.error) {
+          console.warn("[admin-finance-reconciliation] search payment evidence unavailable:", paymentsRes.error.message);
+          paymentSessionsDownstream = "UNAVAILABLE";
+        }
+        if (payoutItemsRes.error) {
+          console.warn("[admin-finance-reconciliation] search payout evidence unavailable:", payoutItemsRes.error.message);
+          payoutsDownstream = "UNAVAILABLE";
+        }
+        if (tripLedgerRes.error) {
+          console.warn("[admin-finance-reconciliation] search wallet ledger unavailable:", tripLedgerRes.error.message);
+          walletDownstream = "UNAVAILABLE";
+        }
 
         const searchAuditContext = buildTripFinancialAuditContext({
-          payments: paymentsRes.data || [],
-          payoutItems: payoutItemsRes.data || [],
-          ledgerRows: (tripLedgerRes.data || []).map((row) => ({
-            related_trip_id: row.related_trip_id ?? null,
-            type: row.type,
-            amount_pence: row.amount_pence,
-            stripe_payout_id: row.stripe_payout_id ?? null,
-            stripe_transfer_id: row.stripe_transfer_id ?? null,
-          })),
+          payments: paymentsRes.error ? [] : (paymentsRes.data || []),
+          payoutItems: payoutItemsRes.error ? [] : (payoutItemsRes.data || []),
+          ledgerRows: tripLedgerRes.error
+            ? []
+            : (tripLedgerRes.data || []).map((row) => ({
+              related_trip_id: row.related_trip_id ?? null,
+              type: row.type,
+              amount_pence: row.amount_pence,
+              stripe_payout_id: row.stripe_payout_id ?? null,
+              stripe_transfer_id: row.stripe_transfer_id ?? null,
+            })),
           currencyCodeByServiceAreaId,
           defaultCurrencyCode: currency.toUpperCase(),
         });
@@ -986,7 +1033,13 @@ serve(async (req) => {
     const providerDownstream = stripeBalanceError
       ? "UNAVAILABLE"
       : "OK";
-    const pageStatus = stripeBalanceError ? "PARTIAL" : "LIVE";
+    const anyDownstreamUnavailable = [
+      paymentSessionsDownstream,
+      providerDownstream,
+      walletDownstream,
+      payoutsDownstream,
+    ].some((s) => s === "UNAVAILABLE");
+    const pageStatus = anyDownstreamUnavailable ? "PARTIAL" : "LIVE";
 
     return new Response(JSON.stringify({
       success: true,
@@ -1016,10 +1069,10 @@ serve(async (req) => {
         && String(r.reconciliation_status?.label ?? "").toLowerCase().includes("balanced")
       ),
       downstream_status: {
-        payment_sessions: "OK",
+        payment_sessions: paymentSessionsDownstream,
         provider: providerDownstream,
-        wallet: "OK",
-        payouts: "OK",
+        wallet: walletDownstream,
+        payouts: payoutsDownstream,
       },
       stripe_payment_intents,
       legacy_manual_review_items: legacyManualReviewItems,

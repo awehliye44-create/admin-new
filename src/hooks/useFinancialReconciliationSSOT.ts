@@ -122,6 +122,9 @@ export function useFinancialReconciliationSSOT({
   const livePartial = liveOk && (
     live.data?.status === 'PARTIAL'
     || String(live.data?.downstream_status?.provider ?? '').toUpperCase() === 'UNAVAILABLE'
+    || String(live.data?.downstream_status?.payment_sessions ?? '').toUpperCase() === 'UNAVAILABLE'
+    || String(live.data?.downstream_status?.wallet ?? '').toUpperCase() === 'UNAVAILABLE'
+    || String(live.data?.downstream_status?.payouts ?? '').toUpperCase() === 'UNAVAILABLE'
   );
 
   useEffect(() => {

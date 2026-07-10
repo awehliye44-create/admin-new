@@ -365,6 +365,34 @@ function FinancialReconciliationPage() {
             </AlertDescription>
           </Alert>
         )}
+        {ssot.response?.downstream_status?.payment_sessions === 'UNAVAILABLE' && ssotStatus !== 'DEGRADED_SNAPSHOT' && (
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>PAYMENT_EVIDENCE_UNAVAILABLE</AlertTitle>
+            <AlertDescription className="space-y-2">
+              <p>Payment Sessions evidence could not load. Trip and wallet audit rows are still shown where available.</p>
+              <Link to={paymentSessionsUrl()} className="underline font-medium">Open Payment Sessions</Link>
+            </AlertDescription>
+          </Alert>
+        )}
+        {ssot.response?.downstream_status?.wallet === 'UNAVAILABLE' && ssotStatus !== 'DEGRADED_SNAPSHOT' && (
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>WALLET_EVIDENCE_UNAVAILABLE</AlertTitle>
+            <AlertDescription>
+              Driver wallet evidence could not load. Trip and payment audit rows are preserved.
+            </AlertDescription>
+          </Alert>
+        )}
+        {ssot.response?.downstream_status?.payouts === 'UNAVAILABLE' && ssotStatus !== 'DEGRADED_SNAPSHOT' && (
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>PAYOUT_EVIDENCE_UNAVAILABLE</AlertTitle>
+            <AlertDescription>
+              Payout Ledger evidence could not load. All other audit data is preserved.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {money.isMixedCurrency && (
           <Alert>

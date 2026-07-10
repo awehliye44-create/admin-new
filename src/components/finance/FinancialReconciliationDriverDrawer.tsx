@@ -24,12 +24,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { FinanceRecoveryPanel } from '@/components/payment/FinanceRecoveryPanel';
-import type { InitialPaymentAction } from '@/components/payment/PaymentControlsCard';
-import {
-  DriverDrawerTripRowActions,
-  type DriverDrawerTripAction,
-} from '@/components/finance/DriverDrawerTripRowActions';
+import { DriverDrawerTripRowActions } from '@/components/finance/DriverDrawerTripRowActions';
 import { FinancialReconciliationRefreshBar } from '@/components/finance/FinancialReconciliationRefreshBar';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import type { FinanceMoneyFormat } from '@/hooks/useFinanceReconciliationMoney';
@@ -39,7 +34,6 @@ import type { FinanceDataSourceBadge } from '@/hooks/useFinancialReconciliationS
 import { useDriverWalletSsotDetail } from '@/hooks/useDriverWalletSsot';
 import { usePerDriverFinancialReconciliation } from '@/hooks/usePerDriverFinancialReconciliation';
 import { useDriverTripFinancialAudit } from '@/hooks/useDriverTripFinancialAudit';
-import { useFinanceActionPermission } from '@/hooks/useFinanceActionPermission';
 import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 import {
@@ -50,6 +44,8 @@ import {
   type DriverDateRangePreset,
 } from '@/lib/financialReconciliationDriverDateRange';
 import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
+import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
+import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
 import { reconciliationBadgeVariant } from '@/lib/financeTripReconciliationBadge';
 
 type PaymentStatusTab =
@@ -182,9 +178,6 @@ export function FinancialReconciliationDriverDrawer({
   });
   const [paymentTab, setPaymentTab] = useState<PaymentStatusTab>('all');
   const [selectedTrip, setSelectedTrip] = useState<TripFinancialAuditRow | null>(null);
-  const [selectedTripPaymentAction, setSelectedTripPaymentAction] = useState<InitialPaymentAction | null>(null);
-  const { canUseFinanceActions } = useFinanceActionPermission();
-  const actionsDisabled = readOnly || ssotBadge !== 'LIVE' || !canUseFinanceActions;
 
   useEffect(() => {
     if (!open) return;
@@ -213,59 +206,29 @@ export function FinancialReconciliationDriverDrawer({
       enabled: open && !!driverId,
     });
 
-
   const driver = walletDetail ?? driverRow;
   const perDriver = perDriverData?.finance_reconciliation_driver_ssot;
-
-
-
-  const digitalTrips = useMemo(
-    () => tripRows.filter((r) => isDigitalPayment(r.payment_method)),
-    [tripRows],
-  );
-
-  const overview = useMemo(() => {
-    let customerPayable = 0;
-    let stripeCaptured = 0;
-    let refunded = 0;
-    let driverNet = 0;
-    let commission = 0;
-    let shortfall: number | null = 0;
-    for (const row of digitalTrips) {
-      const payable = row.settlement_total_pence ?? row.customer_paid_pence ?? row.final_fare_pence;
-      const captured = row.captured_pence;
-      if (payable != null) customerPayable += payable;
-      if (captured != null) stripeCaptured += captured;
-      if (row.refunded_pence != null) refunded += row.refunded_pence;
-      if (row.driver_net_pence != null) driverNet += row.driver_net_pence;
-      if (row.onecab_gross_commission_pence != null) commission += row.onecab_gross_commission_pence;
-      if (payable == null || captured == null) {
-        shortfall = null;
-      } else if (shortfall != null && payable > captured) {
-        shortfall += payable - captured;
-      }
-    }
-    return { customerPayable, stripeCaptured, refunded, driverNet, commission, shortfall };
-  }, [digitalTrips]);
 
   const filteredTrips = useMemo(
     () => tripRows.filter((row) => matchesPaymentTab(row, paymentTab)),
     [tripRows, paymentTab],
   );
 
-  const walletCredited = perDriver?.driver_net_earnings_pence ?? overview.driverNet;
-  const stripeCapturedTotal = overview.stripeCaptured;
-  const customerPayableTotal = overview.customerPayable;
+  // Display-only backend SSOT fields — no client-side settlement formulas.
+  const customerRevenue = perDriver?.digital_net_customer_revenue_pence ?? null;
+  const driverNet = perDriver?.driver_net_earnings_pence ?? null;
+  const commissionNet = perDriver?.digital_onecab_net_commission_pence ?? null;
+  const providerFee = perDriver?.digital_provider_processing_fee_pence ?? null;
+  const variance = perDriver?.reconciliation_variance_pence ?? null;
   const paidOut = perDriver?.stripe_paid_out_total_pence ?? driver?.stripe_paid_out_total_pence ?? null;
   const eligiblePayout = perDriver?.eligible_payout_pence ?? perDriver?.driver_available_now_pence ?? null;
   const pendingBatch = perDriver?.included_in_payout_batch_pence ?? driver?.included_in_payout_batch_amount_pence ?? null;
   const walletBalance = perDriver?.driver_wallet_balance_pence ?? driver?.wallet_balance_pence ?? null;
+  const remainingLiability = perDriver?.driver_remaining_liability_pence ?? null;
 
   const compareBalanced =
-    Math.abs(customerPayableTotal - stripeCapturedTotal) <= 1
-    && Math.abs((perDriver?.driver_net_earnings_pence ?? overview.driverNet) - walletCredited) <= 1
-    && Math.abs(pendingBatch ?? 0) <= 1
-    && (perDriver?.reconciliation_status ?? driver?.reconciliation_status) === 'BALANCED';
+    (perDriver?.reconciliation_status ?? driver?.reconciliation_status) === 'BALANCED'
+    && (variance == null || Math.abs(variance) <= 1);
 
   const payoutReasons = [
     ...(perDriver?.payout_blocked_reasons ?? []),
@@ -313,20 +276,6 @@ export function FinancialReconciliationDriverDrawer({
     setDateRange(resolveDriverDateRange(preset));
   };
 
-  const handleTripAction = (row: TripFinancialAuditRow, action: DriverDrawerTripAction) => {
-    setSelectedTrip(row);
-    if (action === 'refund') setSelectedTripPaymentAction('refund');
-    else if (action === 'partial_refund') setSelectedTripPaymentAction('partial_refund');
-    else setSelectedTripPaymentAction(null);
-  };
-
-  const closeTripDialog = () => {
-    setSelectedTrip(null);
-    setSelectedTripPaymentAction(null);
-  };
-
-
-
   if (!driverRow) return null;
 
   return (
@@ -335,7 +284,6 @@ export function FinancialReconciliationDriverDrawer({
         <DialogContent
           className="fixed inset-y-0 right-0 left-auto h-full w-full max-w-5xl translate-x-0 translate-y-0 rounded-none border-l p-0 gap-0 overflow-hidden flex flex-col data-[state=open]:slide-in-from-right [&>button.absolute]:hidden"
         >
-          {/* Header */}
           <div className="border-b px-6 py-4 shrink-0 bg-background">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
@@ -368,6 +316,8 @@ export function FinancialReconciliationDriverDrawer({
             </div>
             <p className="text-[11px] text-muted-foreground mt-2">
               Last synced {formatFinanceDateSafe(driver?.last_synced_at ?? lastSyncedAt, 'dd MMM yyyy HH:mm:ss')}
+              {' · '}
+              Read-only audit — capture, refund, and payout actions live on their SSOT pages.
             </p>
           </div>
 
@@ -378,19 +328,18 @@ export function FinancialReconciliationDriverDrawer({
               isRefreshing={showRefreshSpinner}
               readOnly={readOnly}
               onRefresh={handleRefreshAll}
-              label={`Driver payments — ${driverDateRangeLabel(dateRange)} · digital trips only`}
             />
 
-            {/* Date range */}
             <div className="flex flex-wrap items-center gap-2">
-              {(['today', 'current_week', 'last_week', 'current_month'] as const).map((preset) => (
+              {(['today', '7d', '30d', 'custom'] as DriverDateRangePreset[]).map((preset) => (
                 <Button
                   key={preset}
-                  size="sm"
                   variant={dateRange.preset === preset ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-8 text-xs"
                   onClick={() => setPreset(preset)}
                 >
-                  {preset === 'today' ? 'Today' : preset === 'current_week' ? 'Current week' : preset === 'last_week' ? 'Last week' : 'Current month'}
+                  {preset === 'today' ? 'Today' : preset === '7d' ? '7 days' : preset === '30d' ? '30 days' : 'Custom'}
                 </Button>
               ))}
               <Input
@@ -408,7 +357,6 @@ export function FinancialReconciliationDriverDrawer({
               />
             </div>
 
-            {/* Overview cards */}
             {(walletLoading || perDriverLoading || tripsLoading) && !tripRows.length ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground py-6">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -419,23 +367,24 @@ export function FinancialReconciliationDriverDrawer({
                 <p className="text-xs text-muted-foreground">
                   Overview for <span className="font-medium text-foreground">{driverDateRangeLabel(dateRange)}</span>
                   {' · '}
-                  {digitalTrips.length} digital trip{digitalTrips.length === 1 ? '' : 's'}
+                  {tripRows.length} trip{tripRows.length === 1 ? '' : 's'}
+                  {' · '}
+                  backend SSOT totals
                 </p>
                 <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-                  <OverviewMetric label="Provider captured" value={fmt(overview.stripeCaptured)} hint="Customer paid (actual capture)" />
-                  <OverviewMetric label="Customer payable" value={fmt(overview.customerPayable)} hint="Expected fare (trip SSOT)" />
-                  {overview.shortfall == null ? (
-                    <OverviewMetric label="Provider capture shortfall" value="—" hint="Incomplete payable/captured data" />
-                  ) : overview.shortfall > 0 ? (
-                    <OverviewMetric label="Provider capture shortfall" value={fmt(overview.shortfall)} hint="Digital trips only · payable − captured" />
-                  ) : null}
-                  <OverviewMetric label="Refunded" value={fmt(overview.refunded)} />
-                  <OverviewMetric label="Driver net earnings" value={fmt(overview.driverNet)} />
-                  <OverviewMetric label="ONECAB commission" value={fmt(overview.commission)} />
+                  <OverviewMetric label="Customer revenue (digital)" value={fmt(customerRevenue)} hint="Backend digital_net_customer_revenue" />
+                  <OverviewMetric label="Driver net earnings" value={fmt(driverNet)} />
+                  <OverviewMetric label="ONECAB net commission" value={fmt(commissionNet)} />
+                  <OverviewMetric
+                    label="Provider fee"
+                    value={providerFee == null ? 'Pending provider fee' : fmt(providerFee)}
+                  />
+                  <OverviewMetric label="Reconciliation variance" value={fmt(variance)} />
                   <OverviewMetric label="Pending settlement" value={fmt(pendingBatch)} hint="In payout batch" />
                   <OverviewMetric label="Available for payout" value={fmt(eligiblePayout)} hint="Finance-cleared payable" />
                   <OverviewMetric label="Paid out" value={fmt(paidOut)} hint="Provider transfers" />
                   <OverviewMetric label="Wallet balance" value={fmt(walletBalance)} />
+                  <OverviewMetric label="Remaining liability" value={fmt(remainingLiability)} />
                   <OverviewMetric
                     label="Reconciliation"
                     value={perDriver?.reconciliation_status ?? driver?.reconciliation_status ?? '—'}
@@ -444,7 +393,6 @@ export function FinancialReconciliationDriverDrawer({
               </>
             )}
 
-            {/* Compare with Provider */}
             <Card>
               <CardContent className="pt-4 pb-4">
                 <div className="flex items-center justify-between mb-3">
@@ -456,28 +404,36 @@ export function FinancialReconciliationDriverDrawer({
                 <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 text-[10px] uppercase text-muted-foreground mb-1 px-0">
                   <span />
                   <span className="text-right">ONECAB</span>
-                  <span className="text-right">Provider / Ledger</span>
-                  <span className="text-right">Diff</span>
+                  <span className="text-right">Compare</span>
+                  <span className="text-right">Variance</span>
                 </div>
                 <CompareRow
-                  label="ONECAB customer paid vs Provider captured"
-                  left={stripeCapturedTotal}
-                  right={perDriver?.digital_net_customer_revenue_pence ?? stripeCapturedTotal}
-                  diff={stripeCapturedTotal - (perDriver?.digital_net_customer_revenue_pence ?? stripeCapturedTotal)}
+                  label="Driver net vs remaining liability"
+                  left={driverNet}
+                  right={remainingLiability}
+                  diff={
+                    driverNet == null || remainingLiability == null
+                      ? null
+                      : driverNet - remainingLiability
+                  }
                   fmt={(p) => fmt(p)}
                 />
                 <CompareRow
-                  label="ONECAB driver net vs wallet credited"
-                  left={perDriver?.driver_net_earnings_pence ?? overview.driverNet}
-                  right={walletCredited}
-                  diff={(perDriver?.driver_net_earnings_pence ?? overview.driverNet) - walletCredited}
+                  label="Backend reconciliation variance"
+                  left={variance}
+                  right={0}
+                  diff={variance}
                   fmt={(p) => fmt(p)}
                 />
                 <CompareRow
-                  label="Payout item vs Provider transfer/payout"
-                  left={pendingBatch == null && paidOut == null ? null : (pendingBatch ?? 0) + (paidOut ?? 0)}
+                  label="Payout batch vs paid out"
+                  left={pendingBatch}
                   right={paidOut}
-                  diff={pendingBatch}
+                  diff={
+                    pendingBatch == null && paidOut == null
+                      ? null
+                      : (pendingBatch ?? 0) - (paidOut ?? 0)
+                  }
                   fmt={(p) => fmt(p)}
                 />
                 {!compareBalanced && payoutReasons.length > 0 ? (
@@ -486,7 +442,6 @@ export function FinancialReconciliationDriverDrawer({
               </CardContent>
             </Card>
 
-            {/* Pending / settlement explanation */}
             {((eligiblePayout == null || eligiblePayout <= 0) || payoutReasons.length > 0) && (
               <Card className="border-amber-500/30 bg-amber-500/5">
                 <CardContent className="pt-4 pb-4">
@@ -509,7 +464,6 @@ export function FinancialReconciliationDriverDrawer({
               </Card>
             )}
 
-            {/* Payment status tabs */}
             <Tabs value={paymentTab} onValueChange={(v) => setPaymentTab(v as PaymentStatusTab)}>
               <TabsList className="flex flex-wrap h-auto gap-1">
                 <TabsTrigger value="all">All ({tripRows.length})</TabsTrigger>
@@ -522,7 +476,6 @@ export function FinancialReconciliationDriverDrawer({
               </TabsList>
             </Tabs>
 
-            {/* Payments table */}
             <div className="rounded-md border overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -584,9 +537,7 @@ export function FinancialReconciliationDriverDrawer({
                           <DriverDrawerTripRowActions
                             row={row}
                             driverId={driverId!}
-                            actionsDisabled={actionsDisabled}
-                            onTripAction={handleTripAction}
-                            onSynced={refreshAll}
+                            onViewTrip={setSelectedTrip}
                           />
                         </TableCell>
                       </TableRow>
@@ -604,6 +555,18 @@ export function FinancialReconciliationDriverDrawer({
                 </Link>
               </Button>
               <Button variant="outline" size="sm" asChild>
+                <Link to={payoutLedgerUrl({ driverId: driverId! })}>
+                  Payout Ledger
+                  <ExternalLink className="h-3 w-3 ml-1" />
+                </Link>
+              </Button>
+              <Button variant="outline" size="sm" asChild>
+                <Link to={paymentSessionsUrl()}>
+                  Payment Sessions
+                  <ExternalLink className="h-3 w-3 ml-1" />
+                </Link>
+              </Button>
+              <Button variant="outline" size="sm" asChild>
                 <Link to={`/trip-history?driverId=${driverId}`}>
                   Trip history
                   <ExternalLink className="h-3 w-3 ml-1" />
@@ -614,8 +577,7 @@ export function FinancialReconciliationDriverDrawer({
         </DialogContent>
       </Dialog>
 
-      {/* Trip detail nested dialog */}
-      <Dialog open={!!selectedTrip} onOpenChange={(o) => !o && closeTripDialog()}>
+      <Dialog open={!!selectedTrip} onOpenChange={(o) => !o && setSelectedTrip(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           {selectedTrip ? (
             <>
@@ -633,33 +595,32 @@ export function FinancialReconciliationDriverDrawer({
                 <div><span className="text-muted-foreground">Provider captured:</span> {fmt(selectedTrip.captured_pence)}</div>
                 <div><span className="text-muted-foreground">Customer payable:</span> {fmt(selectedTrip.settlement_total_pence ?? selectedTrip.customer_paid_pence)}</div>
                 <div><span className="text-muted-foreground">Refunded:</span> {fmt(selectedTrip.refunded_pence)}</div>
-                <div>
-                  <span className="text-muted-foreground">Shortfall:</span>{' '}
-                  {(() => {
-                    const payable = selectedTrip.settlement_total_pence ?? selectedTrip.customer_paid_pence;
-                    const captured = selectedTrip.captured_pence;
-                    if (payable == null || captured == null) return '—';
-                    return fmt(Math.max(0, payable - captured));
-                  })()}
-                </div>
+                <div><span className="text-muted-foreground">Variance:</span> {fmt(selectedTrip.variance_pence)}</div>
                 <div><span className="text-muted-foreground">Driver net:</span> {fmt(selectedTrip.driver_net_pence)}</div>
                 <div><span className="text-muted-foreground">Commission:</span> {fmt(selectedTrip.onecab_gross_commission_pence)}</div>
                 <div><span className="text-muted-foreground">Provider:</span> {providerLabel(selectedTrip)}</div>
                 <div><span className="text-muted-foreground">Payout:</span> {selectedTrip.driver_payout?.label ?? '—'}</div>
               </div>
-              <FinanceRecoveryPanel
-                  tripId={selectedTrip.trip_id}
-                  tripCode={selectedTrip.trip_code}
-                  source="financial-reconciliation"
-                  variant="finance"
-                  readOnly={actionsDisabled}
-                  initialPaymentAction={selectedTripPaymentAction}
-                  onInitialActionConsumed={() => setSelectedTripPaymentAction(null)}
-                  onActionComplete={() => {
-                    refreshAll();
-                    closeTripDialog();
-                  }}
-                />
+              <p className="text-xs text-muted-foreground">
+                Read-only comparison. Capture, release, and refund run on Payment Sessions.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" asChild>
+                  <Link to={paymentSessionsUrl({ tripId: selectedTrip.trip_id })}>
+                    Open Payment Sessions
+                  </Link>
+                </Button>
+                <Button variant="outline" size="sm" asChild>
+                  <Link to={driverWalletLedgerUrl(driverId!, 'ledger')}>
+                    Open Driver Wallet
+                  </Link>
+                </Button>
+                <Button variant="outline" size="sm" asChild>
+                  <Link to={payoutLedgerUrl({ driverId: driverId! })}>
+                    Open Payout Ledger
+                  </Link>
+                </Button>
+              </div>
             </>
           ) : null}
         </DialogContent>
