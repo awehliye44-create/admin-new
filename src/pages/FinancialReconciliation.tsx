@@ -20,7 +20,7 @@ import { FinancialReconciliationTripsTab } from '@/components/finance/FinancialR
 import { DigitalFinanceEraPanel } from '@/components/finance/DigitalFinanceEraPanel';
 import { FinancePanelErrorBoundary } from '@/components/finance/FinancePanelErrorBoundary';
 import { useFinanceReconciliationMoney } from '@/hooks/useFinanceReconciliationMoney';
-import { AlertTriangle, RefreshCw, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 import {
@@ -28,6 +28,12 @@ import {
   useCriticalButtonTimeout,
 } from '@/lib/criticalButtonTimeout';
 import { paymentSessionsUrl } from '../../shared/adminPaymentSessionsSSOT';
+import { classifyFinanceReconciliationError } from '@/lib/financeReconciliationErrors';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 
 const FR_TABS = ['overview', 'drivers', 'trips', 'alerts', 'mismatches', 'history'] as const;
 type FrTab = (typeof FR_TABS)[number];
@@ -62,7 +68,7 @@ class FinancialReconciliationErrorBoundary extends React.Component<
   render() {
     if (this.state.error) {
       return (
-        <AdminLayout title="Financial Reconciliation">
+        <AdminLayout title="Financial Reconciliation (SSOT)">
           <Alert variant="destructive">
             <AlertTitle>Financial Reconciliation failed to render</AlertTitle>
             <AlertDescription className="space-y-2">
@@ -230,7 +236,7 @@ function FinancialReconciliationPage() {
 
   if (!financeScopeReady || (isLoading && !summary)) {
     return (
-      <AdminLayout title="Financial Reconciliation">
+      <AdminLayout title="Financial Reconciliation (SSOT)">
         <div className="py-12 text-center text-muted-foreground">
           {!financeScopeReady ? 'Preparing finance scope…' : 'Loading finance reconciliation…'}
         </div>
@@ -239,31 +245,56 @@ function FinancialReconciliationPage() {
   }
 
   if (ssotStatus === 'UNAVAILABLE') {
+    const failure = classifyFinanceReconciliationError(error);
     return (
-      <AdminLayout title="Financial Reconciliation">
+      <AdminLayout
+        title="Financial Reconciliation (SSOT)"
+        description="Audit and comparison only — holds, wallet writes, and payouts live on their own pages."
+      >
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <FinanceSSOTBadge badge="UNAVAILABLE" />
+            <ServiceAreaFinanceFilter value={filter} onChange={setFilter} autoSelectFirstArea={false} />
+            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-[150px]" />
+            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-[150px]" />
           </div>
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Financial Reconciliation unavailable</AlertTitle>
             <AlertDescription className="space-y-2">
-              <p>
-                {(error as Error | null)?.message ??
-                  'Live SSOT failed and no cached snapshot exists. Refresh after connectivity is restored.'}
-              </p>
+              <p>{failure.userMessage}</p>
+              {failure.kind === 'forbidden' && (
+                <p className="text-xs">Required permission: <code>financial-reconciliation</code></p>
+              )}
               <p className="text-xs text-muted-foreground">
-                Source: <code className="text-xs">admin-finance-reconciliation</code>
-                {filter.regionId ? ` (region ${filter.regionId.slice(0, 8)}…)` : filter.serviceAreaId ? ' (service area)' : ' (all services)'}
-                . Sign in as admin if you see 401/403.
+                Hold operations:{' '}
+                <Link className="underline" to={paymentSessionsUrl({ tab: 'active_holds' })}>
+                  Open Payment Sessions
+                </Link>
               </p>
             </AlertDescription>
           </Alert>
-          <Button variant="outline" size="sm" onClick={() => void handleRefreshFinance()} disabled={isFinanceRefreshing}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${isFinanceRefreshing ? 'animate-spin' : ''}`} />
-            Retry
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => void handleRefreshFinance()} disabled={isFinanceRefreshing}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${isFinanceRefreshing ? 'animate-spin' : ''}`} />
+              Retry
+            </Button>
+            <Button asChild variant="secondary" size="sm">
+              <Link to={paymentSessionsUrl()}>Payment Sessions</Link>
+            </Button>
+          </div>
+          <Collapsible>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="text-xs text-muted-foreground">
+                View diagnostics
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <pre className="mt-2 max-h-48 overflow-auto rounded-md border bg-muted/40 p-3 text-[11px] whitespace-pre-wrap">
+                {`function: admin-finance-reconciliation\nstatus: ${failure.httpStatus ?? 'n/a'}\nkind: ${failure.kind}\n${failure.diagnostics}`}
+              </pre>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
       </AdminLayout>
     );
@@ -271,7 +302,7 @@ function FinancialReconciliationPage() {
 
   if (!summary) {
     return (
-      <AdminLayout title="Financial Reconciliation">
+      <AdminLayout title="Financial Reconciliation (SSOT)">
         <Alert variant="destructive">
           <AlertTitle>Reconciliation unavailable</AlertTitle>
           <AlertDescription>No reconciliation data is available.</AlertDescription>
@@ -281,18 +312,14 @@ function FinancialReconciliationPage() {
   }
 
   return (
-    <AdminLayout title="Financial Reconciliation (SSOT)">
+    <AdminLayout
+      title="Financial Reconciliation (SSOT)"
+      description="Audits provider vs ONECAB integrity. Hold release, wallet credits, and payout execution live on their own pages."
+    >
       <div className="space-y-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="h-6 w-6 text-primary" />
-              <h1 className="text-2xl font-bold">Financial Reconciliation (SSOT)</h1>
-            </div>
-            <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
-              Audits payment provider integrity — does the provider match ONECAB? Trip earnings are calculated on Trip History only.
-            </p>
-            <div className="flex flex-wrap items-center gap-2 mt-2">
+            <div className="flex flex-wrap items-center gap-2">
               <FinanceSSOTBadge badge={ssotBadge} />
               {reconciliationChip && (
                 <Badge variant={statusChipVariant(reconciliationChip)}>
@@ -324,7 +351,17 @@ function FinancialReconciliationPage() {
             <AlertDescription>
               Exports, payouts, retries, approvals, adjustments, and reconciliation actions are disabled until live SSOT
               recovers.
-              {snapshotSavedAt ? ` Snapshot saved ${snapshotSavedAt}.` : null}
+              {snapshotSavedAt ? ` Last updated ${snapshotSavedAt}.` : null}
+            </AlertDescription>
+          </Alert>
+        )}
+        {(ssotBadge === 'PARTIAL' || ssot.response?.downstream_status?.provider === 'UNAVAILABLE') && ssotStatus !== 'DEGRADED_SNAPSHOT' && (
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Partial evidence</AlertTitle>
+            <AlertDescription>
+              Provider balance/API evidence is unavailable. ONECAB trip and wallet audit rows still load.
+              Downstream: provider={ssot.response?.downstream_status?.provider ?? 'unknown'}.
             </AlertDescription>
           </Alert>
         )}
@@ -425,12 +462,25 @@ function FinancialReconciliationPage() {
           <TabsContent value="mismatches" className="mt-4">
             {frTab === 'mismatches' && (
               <FinancePanelErrorBoundary panelName="Mismatches">
-                <FinancialReconciliationAlertsTab
-                  ssot={ssot}
-                  money={money}
-                  readOnly={readOnly}
-                  mode="mismatches"
-                />
+                <div className="space-y-4">
+                  <Alert>
+                    <AlertTitle>Trip mismatches</AlertTitle>
+                    <AlertDescription>
+                      Capture / reconciliation mismatches for this period. Money-movement alerts remain on the Alerts tab.
+                      Hold actions run on Payment Sessions.
+                    </AlertDescription>
+                  </Alert>
+                  <FinancialReconciliationTripsTab
+                    rows={tripAuditRows}
+                    money={money}
+                    readOnly={readOnly}
+                    ssotBadge={ssotBadge}
+                    lastSyncedAt={lastSyncedAt}
+                    isRefreshing={isFinanceRefreshing}
+                    onRefresh={() => void handleRefreshFinance()}
+                    mode="mismatches"
+                  />
+                </div>
               </FinancePanelErrorBoundary>
             )}
           </TabsContent>
@@ -443,36 +493,27 @@ function FinancialReconciliationPage() {
                     <AlertTitle>Resolved History</AlertTitle>
                     <AlertDescription className="space-y-2">
                       <p>
-                        Use Payment Sessions History for hold resolutions. Trip reconciliation
-                        history for this period is summarised below when available.
-                      </p>
-                      <p>
+                        Balanced trip reconciliations for this period. Hold release history lives on{' '}
                         <Link
                           to={paymentSessionsUrl({ tab: 'history' })}
                           className="underline font-medium"
                         >
-                          Open Payment Sessions History
+                          Payment Sessions History
                         </Link>
+                        .
                       </p>
-                      {summary?.reconciliation_check?.status ? (
-                        <p className="text-xs text-muted-foreground">
-                          SSOT reconciliation status: {summary.reconciliation_check.status}
-                          {lastSyncedLabel ? ` · last synced ${lastSyncedLabel}` : null}
-                        </p>
-                      ) : null}
                     </AlertDescription>
                   </Alert>
-                  {tripAuditRows.length === 0 ? (
-                    <p className="text-sm text-muted-foreground py-8 text-center">
-                      No completed trips require reconciliation in this period.
-                    </p>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      {tripAuditRows.length} completed trip
-                      {tripAuditRows.length === 1 ? '' : 's'} in scope — open the Trips tab for
-                      the full audit, or Payment Sessions History for hold resolutions.
-                    </p>
-                  )}
+                  <FinancialReconciliationTripsTab
+                    rows={tripAuditRows}
+                    money={money}
+                    readOnly={readOnly}
+                    ssotBadge={ssotBadge}
+                    lastSyncedAt={lastSyncedAt}
+                    isRefreshing={isFinanceRefreshing}
+                    onRefresh={() => void handleRefreshFinance()}
+                    mode="resolved"
+                  />
                 </div>
               </FinancePanelErrorBoundary>
             )}

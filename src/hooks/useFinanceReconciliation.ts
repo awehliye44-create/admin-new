@@ -320,6 +320,14 @@ export interface TripFinancialAuditRow {
   payment_status?: string | null;
   capture_status?: string | null;
   reconciliation_status?: TripAuditStatusBadge;
+  ride_fare_pence?: number | null;
+  airport_charge_pence?: number | null;
+  tip_pence?: number | null;
+  authorised_pence?: number | null;
+  released_pence?: number | null;
+  fee_status?: 'PENDING_PROVIDER_FEE' | 'CONFIRMED' | null;
+  wallet_credit_pence?: number | null;
+  variance_pence?: number | null;
 }
 
 export interface LegacyManualReviewItem {
@@ -359,6 +367,9 @@ export interface DriverStatementPeriodTotal {
 }
 
 export interface FinanceReconciliationResponse {
+  success?: boolean;
+  generated_at?: string;
+  status?: 'LIVE' | 'PARTIAL' | 'DEGRADED';
   period: { from: string; to: string };
   currency_code: string;
   currency_symbol?: string;
@@ -378,6 +389,15 @@ export interface FinanceReconciliationResponse {
   finance_reconciliation_summary?: FinanceReconciliationSummary;
   platform_kpis?: PlatformReconciliationKpis | null;
   trip_financial_audit?: TripFinancialAuditRow[];
+  trips?: TripFinancialAuditRow[];
+  mismatches?: TripFinancialAuditRow[];
+  resolved_history?: TripFinancialAuditRow[];
+  downstream_status?: {
+    payment_sessions?: string;
+    provider?: string;
+    wallet?: string;
+    payouts?: string;
+  };
   driver_statement_totals?: DriverStatementPeriodTotal[];
   stripe_payment_intents?: StripePaymentIntentAuditRow[];
   legacy_manual_review_items?: LegacyManualReviewItem[];

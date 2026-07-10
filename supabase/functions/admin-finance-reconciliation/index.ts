@@ -132,6 +132,7 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-region-id, x-service-area-id",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
 };
 
 function startOfTodayUtc(): string {
@@ -379,32 +380,62 @@ serve(async (req) => {
       .maybeSingle();
 
     let isAuthorized = !!roleData;
+    let staffRole: string | null = null;
     if (!isAuthorized) {
       const { data: staffRow } = await supabase
         .from("staff_profiles")
-        .select("id")
+        .select("id, role")
         .eq("user_id", userId)
         .eq("is_active", true)
         .maybeSingle();
       isAuthorized = !!staffRow;
+      staffRole = (staffRow?.role as string | null) ?? null;
     }
 
     if (!isAuthorized) {
-      return new Response(JSON.stringify({ error: "Admin access required" }), {
+      return new Response(JSON.stringify({
+        success: false,
+        error: "You do not have Financial Reconciliation permission",
+        required_permission: "financial-reconciliation",
+      }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
+    // Super admin / platform admin always allowed; other staff need page slug.
+    const elevated = staffRole === "super_admin"
+      || staffRole === "admin"
+      || staffRole === "finance_manager"
+      || !!roleData;
+    if (!elevated) {
+      const { data: pagePerm } = await supabase
+        .from("role_page_permissions")
+        .select("can_access")
+        .eq("role", staffRole)
+        .eq("page_slug", "financial-reconciliation")
+        .eq("can_access", true)
+        .maybeSingle();
+      if (!pagePerm) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: "You do not have Financial Reconciliation permission",
+          required_permission: "financial-reconciliation",
+        }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     const url = new URL(req.url);
     const regionId = url.searchParams.get("region_id") || req.headers.get("x-region-id");
     const serviceAreaId = url.searchParams.get("service_area_id") || req.headers.get("x-service-area-id");
     const periodFrom =
-      normalizeFinancePeriodParam(url.searchParams.get("from"), "start")
+      normalizeFinancePeriodParam(url.searchParams.get("from") ?? url.searchParams.get("date_from"), "start")
       || startOfTodayUtc();
     const periodTo =
-      normalizeFinancePeriodParam(url.searchParams.get("to"), "end")
+      normalizeFinancePeriodParam(url.searchParams.get("to") ?? url.searchParams.get("date_to"), "end")
       || endOfTodayUtc();
     const driverId = url.searchParams.get("driver_id");
     const search = url.searchParams.get("search");
@@ -951,7 +982,16 @@ serve(async (req) => {
       serviceAreaId: serviceAreaId ?? null,
     });
 
+    const generated_at = new Date().toISOString();
+    const providerDownstream = stripeBalanceError
+      ? "UNAVAILABLE"
+      : "OK";
+    const pageStatus = stripeBalanceError ? "PARTIAL" : "LIVE";
+
     return new Response(JSON.stringify({
+      success: true,
+      generated_at,
+      status: pageStatus,
       period: { from: periodFrom, to: periodTo },
       currency_code: currencyMeta.currency_code,
       currency_symbol: currencyMeta.currency_symbol,
@@ -963,6 +1003,24 @@ serve(async (req) => {
       finance_reconciliation_summary,
       platform_kpis,
       trip_financial_audit,
+      trips: trip_financial_audit,
+      drivers: undefined,
+      mismatches: trip_financial_audit.filter((r) =>
+        r.capture_mismatch
+        || String(r.reconciliation_status?.tone ?? "").toLowerCase() === "error"
+        || String(r.reconciliation_status?.label ?? "").toLowerCase().includes("mismatch")
+      ),
+      alerts: undefined,
+      resolved_history: trip_financial_audit.filter((r) =>
+        !r.capture_mismatch
+        && String(r.reconciliation_status?.label ?? "").toLowerCase().includes("balanced")
+      ),
+      downstream_status: {
+        payment_sessions: "OK",
+        provider: providerDownstream,
+        wallet: "OK",
+        payouts: "OK",
+      },
       stripe_payment_intents,
       legacy_manual_review_items: legacyManualReviewItems,
       money_movement: moneyMovement,
@@ -976,7 +1034,7 @@ serve(async (req) => {
         provider_balance_error: stripeBalanceError,
         stripe_balance_error: stripeBalanceError,
         ssot_version: SSOT_VERSION,
-        data_source_badge: "LIVE",
+        data_source_badge: pageStatus,
         accounting_rules: {
           card_customer_revenue: "sum(captured_amount_pence) where payments.status in captured|paid|succeeded — card only",
           pending_stripe_confirmation: "completed card trips without capture confirmation — excluded from reconciled totals",

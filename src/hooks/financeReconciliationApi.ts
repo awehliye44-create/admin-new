@@ -5,6 +5,7 @@ import type {
 } from '@/hooks/useFinanceReconciliation';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchEdgeFunctionGet } from '@/lib/fetchEdgeFunctionGet';
+import { assertFinanceReconciliationSsotResponse } from '@/lib/financeReconciliationErrors';
 import { normalizeFinanceReconciliationPeriod } from '@/lib/financeReconciliationPeriod';
 
 /** Build query params for admin-finance-reconciliation (Financial Reconciliation SSOT). */
@@ -18,8 +19,14 @@ export function buildFinanceReconciliationParams(
   if (filter?.regionId) params.region_id = filter.regionId;
   else if (filter?.serviceAreaId) params.service_area_id = filter.serviceAreaId;
   const period = normalizeFinanceReconciliationPeriod(from, to);
-  if (period.from) params.from = period.from;
-  if (period.to) params.to = period.to;
+  if (period.from) {
+    params.from = period.from;
+    params.date_from = period.from;
+  }
+  if (period.to) {
+    params.to = period.to;
+    params.date_to = period.to;
+  }
   if (extra) Object.assign(params, extra);
   return params;
 }
@@ -46,13 +53,15 @@ export async function invokeFinanceReconciliation(
   to?: string,
   extra?: Record<string, string>,
 ): Promise<FinanceReconciliationResponse> {
-  return fetchEdgeFunctionGet<FinanceReconciliationResponse>(
+  const data = await fetchEdgeFunctionGet<FinanceReconciliationResponse>(
     'admin-finance-reconciliation',
     buildFinanceReconciliationParams(filter, from, to, {
       audit_limit: FINANCE_RECONCILIATION_AUDIT_LIMIT,
       ...extra,
     }),
   );
+  assertFinanceReconciliationSsotResponse(data);
+  return data;
 }
 
 /** Read ONECAB net commission for a period — never compute locally. Returns null when SSOT field missing. */

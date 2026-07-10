@@ -50,6 +50,7 @@ export type OnecabSettlementStatus =
 export type TripFinanceRow = {
   commission_pence: number | null;
   stripe_processing_fee_pence: number | null;
+  provider_fee_pence?: number | null;
   onecab_net_pence: number | null;
   driver_net_pence: number | null;
   gross_fare_pence: number | null;
@@ -449,7 +450,7 @@ export type TripFinancialAuditRow = {
   /** driver_net − debt_recovered — amount added to available payout liability. */
   available_payout_created_pence: number | null;
   onecab_gross_commission_pence: number;
-  processing_fee_pence: number;
+  processing_fee_pence: number | null;
   onecab_net_pence: number;
   driver_payout: TripAuditStatusBadge;
   onecab_commission: TripAuditStatusBadge;
@@ -467,6 +468,19 @@ export type TripFinancialAuditRow = {
   payment_status?: string | null;
   capture_status?: string | null;
   reconciliation_status?: TripAuditStatusBadge;
+  /** Ride fare (commissionable base) — backend SSOT. */
+  ride_fare_pence?: number | null;
+  airport_charge_pence?: number | null;
+  tip_pence?: number | null;
+  /** Pre-capture authorisation / hold amount when known. */
+  authorised_pence?: number | null;
+  /** Released hold amount when known (null = unconfirmed). */
+  released_pence?: number | null;
+  fee_status?: "PENDING_PROVIDER_FEE" | "CONFIRMED" | null;
+  /** Alias of available_payout_created_pence for wallet-credit comparison. */
+  wallet_credit_pence?: number | null;
+  /** Customer payable − captured (null when either side unknown). */
+  variance_pence?: number | null;
 };
 
 export type TripAuditSourceRow = TripFinanceRow & {
@@ -756,6 +770,25 @@ export function mapTripToFinancialAuditRow(
 
   const capture_status = deriveTripCaptureStatusLabel(statusInput, captureMismatch);
 
+  const tipPence = Math.max(0, Number(row.tip_pence ?? row.tip_amount_pence ?? 0));
+  const airportPence = Math.max(0, Number(row.airport_charge_pence ?? 0));
+  const rideFarePence = Math.max(
+    0,
+    Number(row.commissionable_fare_pence ?? row.gross_fare_pence ?? 0),
+  );
+  const feeRaw = row.provider_fee_pence ?? row.stripe_processing_fee_pence;
+  const processingFeePence = feeRaw == null ? null : Math.max(0, Number(feeRaw));
+  const fee_status = processingFeePence == null
+    ? "PENDING_PROVIDER_FEE" as const
+    : "CONFIRMED" as const;
+  const authorisedPence = row.capture_amount_pence == null
+    ? null
+    : Math.max(0, Number(row.capture_amount_pence));
+  const variancePence = settlementTotal == null || captured == null
+    ? null
+    : settlementTotal - captured;
+  const walletCredit = availablePayoutCreated;
+
   return {
     trip_id: row.id,
     trip_code: row.trip_code ?? null,
@@ -780,7 +813,7 @@ export function mapTripToFinancialAuditRow(
     debt_recovered_pence: debtRecovered,
     available_payout_created_pence: availablePayoutCreated,
     onecab_gross_commission_pence: tripGrossCommissionPence(row),
-    processing_fee_pence: tripStripeFeePence(row),
+    processing_fee_pence: processingFeePence,
     onecab_net_pence: tripOnecabNetPence(row),
     driver_payout: statuses.driver_payout,
     onecab_commission: statuses.onecab_commission,
@@ -794,6 +827,14 @@ export function mapTripToFinancialAuditRow(
     payment_status: row.payment_status ?? null,
     capture_status,
     reconciliation_status,
+    ride_fare_pence: rideFarePence,
+    airport_charge_pence: airportPence,
+    tip_pence: tipPence,
+    authorised_pence: authorisedPence,
+    released_pence: null,
+    fee_status,
+    wallet_credit_pence: walletCredit,
+    variance_pence: variancePence,
     currency_code: row.service_area_id && context.currencyCodeByServiceAreaId
       ? (context.currencyCodeByServiceAreaId.get(row.service_area_id) ?? context.defaultCurrencyCode ?? null)
       : (context.defaultCurrencyCode ?? null),

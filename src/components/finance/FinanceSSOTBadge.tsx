@@ -4,21 +4,27 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Info } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-const BADGE_STYLES: Record<FinanceDataSourceBadge, string> = {
+const BADGE_STYLES: Record<string, string> = {
   LIVE: 'bg-emerald-600/15 text-emerald-800 border-emerald-600/30',
+  PARTIAL: 'bg-amber-600/15 text-amber-900 border-amber-600/30',
   REFRESHING: 'bg-blue-600/15 text-blue-800 border-blue-600/30',
-  DEGRADED_SNAPSHOT: 'bg-red-600/15 text-red-800 border-red-600/30',
+  DEGRADED: 'bg-amber-700/15 text-amber-950 border-amber-700/30',
+  DEGRADED_SNAPSHOT: 'bg-amber-700/15 text-amber-950 border-amber-700/30',
+  READ_ONLY: 'bg-slate-600/15 text-slate-800 border-slate-600/30',
   UNAVAILABLE: 'bg-red-600/15 text-red-800 border-red-600/30',
 };
 
-const BADGE_LABELS: Record<FinanceDataSourceBadge, string> = {
+const BADGE_LABELS: Record<string, string> = {
   LIVE: 'LIVE',
+  PARTIAL: 'PARTIAL',
   REFRESHING: 'REFRESHING',
-  DEGRADED_SNAPSHOT: 'DEGRADED_SNAPSHOT',
+  DEGRADED: 'DEGRADED',
+  DEGRADED_SNAPSHOT: 'DEGRADED',
+  READ_ONLY: 'READ-ONLY',
   UNAVAILABLE: 'UNAVAILABLE',
 };
 
-export function FinanceSSOTBadge({ badge }: { badge: FinanceDataSourceBadge }) {
+export function FinanceSSOTBadge({ badge }: { badge: FinanceDataSourceBadge | string }) {
   return (
     <Badge variant="outline" className={BADGE_STYLES[badge] ?? ''}>
       {BADGE_LABELS[badge] ?? badge}

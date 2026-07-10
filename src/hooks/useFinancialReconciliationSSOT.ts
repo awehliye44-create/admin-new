@@ -15,7 +15,14 @@ import {
   snapshotScopeKey,
 } from '@/lib/financialReconciliationSnapshot';
 
-export type FinanceSsotStatus = 'LIVE' | 'REFRESHING' | 'DEGRADED_SNAPSHOT' | 'UNAVAILABLE';
+export type FinanceSsotStatus =
+  | 'LIVE'
+  | 'PARTIAL'
+  | 'REFRESHING'
+  | 'DEGRADED'
+  | 'DEGRADED_SNAPSHOT'
+  | 'READ_ONLY'
+  | 'UNAVAILABLE';
 export type FinanceDataSourceBadge = FinanceSsotStatus;
 
 export type FinancialReconciliationSSOTResult = {
@@ -91,7 +98,7 @@ export function useFinancialReconciliationSSOT({
   enabled = true,
 }: UseFinancialReconciliationSSOTArgs): FinancialReconciliationSSOTResult {
   const queryClient = useQueryClient();
-  const scopeKey = snapshotScopeKey(filter.regionId, filter.serviceAreaId);
+  const scopeKey = snapshotScopeKey(filter.regionId, filter.serviceAreaId, from, to);
   const queryKey = financeReconciliationQueryKey({ filter, from, to, tripSearch, tripSearchType });
 
   const searchExtra = tripSearch
@@ -112,6 +119,10 @@ export function useFinancialReconciliationSSOT({
 
   const liveSummary = pickSummary(live.data);
   const liveOk = !!liveSummary && !live.error;
+  const livePartial = liveOk && (
+    live.data?.status === 'PARTIAL'
+    || String(live.data?.downstream_status?.provider ?? '').toUpperCase() === 'UNAVAILABLE'
+  );
 
   useEffect(() => {
     if (liveOk && live.data) {
@@ -125,11 +136,6 @@ export function useFinancialReconciliationSSOT({
   }, [liveOk, live.dataUpdatedAt, live.errorUpdatedAt, scopeKey]);
 
   const refetchFresh = useCallback(async () => {
-    // Do NOT clear the cached snapshot up-front — if the live fetch fails
-    // (which is the whole reason the snapshot was showing), we'd flip the
-    // page from DEGRADED_SNAPSHOT straight to UNAVAILABLE and lose all
-    // visibility. Attempt the live fetch first; only clear the snapshot
-    // once we have fresh live data (the save happens in the effect above).
     await queryClient.invalidateQueries({ queryKey });
     const fresh = await queryClient.fetchQuery({
       queryKey,
@@ -140,8 +146,6 @@ export function useFinancialReconciliationSSOT({
         }),
       staleTime: 0,
     });
-    // Live fetch succeeded — safe to drop the stale cached snapshot so the
-    // effect above rewrites it from the fresh response.
     clearFinanceReconciliationSnapshot();
     return fresh;
   }, [queryClient, queryKey, filter, from, to, searchExtra]);
@@ -159,21 +163,21 @@ export function useFinancialReconciliationSSOT({
   }, [queryClient, queryKey, live.refetch]);
 
   const status: FinanceSsotStatus = liveOk
-    ? 'LIVE'
+    ? (livePartial ? 'PARTIAL' : 'LIVE')
     : snapshot
-      ? 'DEGRADED_SNAPSHOT'
+      ? 'READ_ONLY'
       : 'UNAVAILABLE';
 
   const response =
-    status === 'LIVE'
+    status === 'LIVE' || status === 'PARTIAL'
       ? live.data ?? null
-      : status === 'DEGRADED_SNAPSHOT'
+      : status === 'READ_ONLY' || status === 'DEGRADED_SNAPSHOT' || status === 'DEGRADED'
         ? snapshot!.response
         : null;
 
   const rawSummary = pickSummary(response);
   const summary =
-    rawSummary && status === 'DEGRADED_SNAPSHOT'
+    rawSummary && (status === 'READ_ONLY' || status === 'DEGRADED_SNAPSHOT' || status === 'DEGRADED')
       ? applyDegradedReconciliationSummary(rawSummary)
       : rawSummary;
 
@@ -187,21 +191,23 @@ export function useFinancialReconciliationSSOT({
           : new Error('Financial Reconciliation SSOT unavailable and no cached snapshot exists.')
       : null;
 
-  const lastSyncedAt = pickLastSyncedAt(response);
+  const lastSyncedAt = pickLastSyncedAt(response) ?? response?.generated_at ?? null;
 
   const displayStatus: FinanceSsotStatus =
-    live.isFetching && status === 'LIVE'
+    live.isFetching && (status === 'LIVE' || status === 'PARTIAL')
       ? 'REFRESHING'
-      : status;
+      : status === 'READ_ONLY'
+        ? 'DEGRADED'
+        : status;
 
   return {
     summary,
     response,
-    status,
-    badge: displayStatus,
-    isLive: status === 'LIVE',
-    readOnly: status !== 'LIVE',
-    snapshotSavedAt: status === 'DEGRADED_SNAPSHOT' ? snapshot!.savedAt : null,
+    status: displayStatus === 'DEGRADED' ? 'DEGRADED_SNAPSHOT' : status,
+    badge: displayStatus === 'DEGRADED' ? 'DEGRADED' : displayStatus,
+    isLive: status === 'LIVE' || status === 'PARTIAL',
+    readOnly: status !== 'LIVE' && status !== 'PARTIAL',
+    snapshotSavedAt: status === 'READ_ONLY' ? snapshot!.savedAt : null,
     lastSyncedAt,
     isLoading,
     isFetching: live.isFetching,
