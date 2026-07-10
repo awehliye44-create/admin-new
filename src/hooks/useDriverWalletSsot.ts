@@ -1,6 +1,21 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
+export type DriverWalletPeriodKpis = {
+  today_earnings_pence: number;
+  week_earnings_pence: number;
+  month_earnings_pence: number;
+  year_earnings_pence: number;
+  lifetime_earnings_pence: number;
+  pending_earnings_pence: number;
+  total_bonuses_pence: number;
+  total_adjustments_pence: number;
+  outstanding_debt_pence: number;
+  trips_paid_count: number;
+  average_earnings_per_trip_pence: number | null;
+  timezone: 'Europe/London';
+};
+
 export type DriverWalletSsotRow = {
   driver_id: string;
   user_id: string | null;
@@ -25,6 +40,7 @@ export type DriverWalletSsotRow = {
   last_payout_at: string | null;
   last_payout_amount_pence: number | null;
   last_synced_at: string | null;
+  period_kpis?: DriverWalletPeriodKpis;
   payout_items?: Array<Record<string, unknown>>;
   stripe_connect_payouts?: Array<Record<string, unknown>>;
   settlements?: Array<Record<string, unknown>>;

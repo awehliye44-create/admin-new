@@ -7,20 +7,21 @@ export type DriverWalletLedgerFilter =
   | 'debt_recovery'
   | 'bonus'
   | 'adjustments'
+  | 'refunds'
   | 'payouts';
 
 export const DRIVER_WALLET_LEDGER_FILTER_LABELS: Record<DriverWalletLedgerFilter, string> = {
-  driver_earnings: 'Earnings',
+  driver_earnings: 'Trip Credit',
   onecab_commission: 'Commission',
   debt_recovery: 'Debt Recovery',
-  bonus: 'Bonus',
-  adjustments: 'Adjustment',
-  payouts: 'Weekly Payout',
+  bonus: 'Bonus / Promotion',
+  adjustments: 'Adjustments',
+  refunds: 'Refund / Chargeback',
+  payouts: 'Payout',
 };
 
 export function driverWalletFilterToAdminFilter(
   filter: DriverWalletLedgerFilter,
 ): AdminFinanceLedgerFilter {
-  if (filter === 'bonus') return 'adjustments';
   return filter;
 }

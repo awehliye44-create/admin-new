@@ -116,6 +116,14 @@ export type OnecabProfitSsot = {
   platform_net_revenue_pence: number | null;
   expenses_pence: number;
   profit_before_tax_pence: number | null;
+  /** Annual / period control-centre lines from FR summary (display-only). */
+  gross_customer_revenue_pence?: number | null;
+  gross_commission_pence?: number | null;
+  net_commission_pence?: number | null;
+  provider_fees_pence?: number | null;
+  refunds_pence?: number | null;
+  chargebacks_pence?: number | null;
+  driver_payouts_pence?: number | null;
 };
 
 /** Platform profit before tax — backend SSOT (net revenue − expenses). */
@@ -128,9 +136,16 @@ export async function fetchOnecabProfitSsot(
     profit_ssot: '1',
     summary_only: '1',
   }) as FinanceReconciliationResponse & { profit_ssot?: OnecabProfitSsot };
-  return data.profit_ssot ?? {
-    platform_net_revenue_pence: null,
-    expenses_pence: 0,
-    profit_before_tax_pence: null,
-  };
+      return data.profit_ssot ?? {
+        platform_net_revenue_pence: null,
+        expenses_pence: 0,
+        profit_before_tax_pence: null,
+        gross_customer_revenue_pence: null,
+        gross_commission_pence: null,
+        net_commission_pence: null,
+        provider_fees_pence: null,
+        refunds_pence: null,
+        chargebacks_pence: null,
+        driver_payouts_pence: null,
+      };
 }

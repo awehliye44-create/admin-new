@@ -1,11 +1,21 @@
-import { format } from 'date-fns';
+import { format, subDays, startOfQuarter, endOfQuarter } from 'date-fns';
 import {
   FINANCE_LONDON_TZ,
   getLondonDayBounds,
   getLondonWeekStart,
+  getLondonMonthStart,
 } from '@/lib/financeLondonDay';
 
-export type FinancePeriod = 'today' | 'week' | 'custom';
+export type FinancePeriod =
+  | 'today'
+  | 'yesterday'
+  | 'week'
+  | 'last_week'
+  | 'month'
+  | 'last_month'
+  | 'quarter'
+  | 'year'
+  | 'custom';
 
 export type FinancePeriodBounds = {
   from: string;
@@ -13,6 +23,31 @@ export type FinancePeriodBounds = {
   label: string;
   period: FinancePeriod;
 };
+
+function getLondonYearStart(date: Date = new Date()): Date {
+  const { y } = getLondonCalendarPartsSafe(date);
+  const probe = new Date(Date.UTC(y, 0, 1, 12, 0, 0));
+  const londonHour = Number(
+    new Intl.DateTimeFormat('en-GB', { timeZone: FINANCE_LONDON_TZ, hour: 'numeric', hour12: false }).format(probe),
+  );
+  const offsetMs = (londonHour - 12) * 60 * 60 * 1000;
+  return new Date(Date.UTC(y, 0, 1, 0, 0, 0) - offsetMs);
+}
+
+function getLondonCalendarPartsSafe(date: Date): { y: number; m: number; d: number } {
+  const fmt = new Intl.DateTimeFormat('en-GB', {
+    timeZone: FINANCE_LONDON_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = fmt.formatToParts(date);
+  return {
+    y: Number(parts.find((p) => p.type === 'year')?.value ?? '1970'),
+    m: Number(parts.find((p) => p.type === 'month')?.value ?? '1'),
+    d: Number(parts.find((p) => p.type === 'day')?.value ?? '1'),
+  };
+}
 
 export function resolveFinancePeriodBounds(
   period: FinancePeriod,
@@ -30,6 +65,17 @@ export function resolveFinancePeriodBounds(
     };
   }
 
+  if (period === 'yesterday') {
+    const yday = subDays(now, 1);
+    const { start, end } = getLondonDayBounds(yday);
+    return {
+      period,
+      from: start.toISOString(),
+      to: end.toISOString(),
+      label: formatLondonDateLabel(start, end, 'Yesterday'),
+    };
+  }
+
   if (period === 'week') {
     const { end } = getLondonDayBounds(now);
     const start = getLondonWeekStart(now);
@@ -38,6 +84,65 @@ export function resolveFinancePeriodBounds(
       from: start.toISOString(),
       to: end.toISOString(),
       label: formatLondonDateLabel(start, end, 'This week'),
+    };
+  }
+
+  if (period === 'last_week') {
+    const thisWeekStart = getLondonWeekStart(now);
+    const lastWeekEnd = new Date(thisWeekStart.getTime() - 1);
+    const lastWeekStart = getLondonWeekStart(lastWeekEnd);
+    return {
+      period,
+      from: lastWeekStart.toISOString(),
+      to: lastWeekEnd.toISOString(),
+      label: formatLondonDateLabel(lastWeekStart, lastWeekEnd, 'Last week'),
+    };
+  }
+
+  if (period === 'month') {
+    const { end } = getLondonDayBounds(now);
+    const start = getLondonMonthStart(now);
+    return {
+      period,
+      from: start.toISOString(),
+      to: end.toISOString(),
+      label: formatLondonDateLabel(start, end, 'This month'),
+    };
+  }
+
+  if (period === 'last_month') {
+    const thisMonthStart = getLondonMonthStart(now);
+    const lastMonthEnd = new Date(thisMonthStart.getTime() - 1);
+    const lastMonthStart = getLondonMonthStart(lastMonthEnd);
+    return {
+      period,
+      from: lastMonthStart.toISOString(),
+      to: lastMonthEnd.toISOString(),
+      label: formatLondonDateLabel(lastMonthStart, lastMonthEnd, 'Last month'),
+    };
+  }
+
+  if (period === 'quarter') {
+    const start = startOfQuarter(now);
+    const end = endOfQuarter(now);
+    const { start: qStart } = getLondonDayBounds(start);
+    const { end: qEnd } = getLondonDayBounds(end > now ? now : end);
+    return {
+      period,
+      from: qStart.toISOString(),
+      to: qEnd.toISOString(),
+      label: formatLondonDateLabel(qStart, qEnd, 'Quarter'),
+    };
+  }
+
+  if (period === 'year') {
+    const { end } = getLondonDayBounds(now);
+    const start = getLondonYearStart(now);
+    return {
+      period,
+      from: start.toISOString(),
+      to: end.toISOString(),
+      label: formatLondonDateLabel(start, end, 'This year'),
     };
   }
 

@@ -34,9 +34,15 @@ export function FinancePeriodFilter({
           }
         }}
       >
-        <TabsList>
+        <TabsList className="flex flex-wrap h-auto gap-1">
           <TabsTrigger value="today">Today</TabsTrigger>
+          <TabsTrigger value="yesterday">Yesterday</TabsTrigger>
           <TabsTrigger value="week">This week</TabsTrigger>
+          <TabsTrigger value="last_week">Last week</TabsTrigger>
+          <TabsTrigger value="month">This month</TabsTrigger>
+          <TabsTrigger value="last_month">Last month</TabsTrigger>
+          <TabsTrigger value="quarter">Quarter</TabsTrigger>
+          <TabsTrigger value="year">Year</TabsTrigger>
           <TabsTrigger value="custom">Custom</TabsTrigger>
         </TabsList>
       </Tabs>

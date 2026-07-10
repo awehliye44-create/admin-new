@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { FinanceLedgerPanel } from '@/components/finance/FinanceLedgerPanel';
 import { DriverWalletOverviewCards } from '@/components/finance/DriverWalletOverviewCards';
@@ -20,12 +21,13 @@ import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
 import { useDriverWalletSsotDetail } from '@/hooks/useDriverWalletSsot';
 import { parseDriverWalletLedgerTab, type DriverWalletLedgerTab } from '@/lib/driverWalletLedgerRoutes';
 import { ServiceAreaGatewayStatusFetcher } from '@/components/finance/ServiceAreaGatewayStatusFetcher';
-import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 import { paymentSessionsUrl } from '../../shared/adminPaymentSessionsSSOT';
 import { payoutLedgerUrl } from '../../shared/adminPayoutLedgerSSOT';
 import type { DriverWalletLedgerFilter } from '@/lib/driverWalletLedgerFilters';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 
 function ledgerFilterForTab(tab: DriverWalletLedgerTab): DriverWalletLedgerFilter {
   if (tab === 'debt') return 'debt_recovery';
@@ -52,10 +54,16 @@ export default function DriverWalletLedger() {
     [period, customDateFrom, customDateTo],
   );
 
-  const { data: driver, isLoading, isFetching, refetch } = useDriverWalletSsotDetail(driverId);
+  const { data: driver, isLoading, isFetching, refetch, isError, error } = useDriverWalletSsotDetail(driverId);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (!driverId) return;
+    const invalidate = () => {
+      void refetch();
+      void queryClient.invalidateQueries({ queryKey: ['finance-ledger-transactions'] });
+      void queryClient.invalidateQueries({ queryKey: ['driver-wallet-ssot'] });
+    };
     const channel = supabase
       .channel(`driver-wallet-ledger-${driverId}`)
       .on(
@@ -66,15 +74,33 @@ export default function DriverWalletLedger() {
           table: 'driver_wallet_ledger',
           filter: `driver_id=eq.${driverId}`,
         },
-        () => {
-          void refetch();
+        invalidate,
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'payout_items',
+          filter: `driver_id=eq.${driverId}`,
         },
+        invalidate,
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'driver_early_cashouts',
+          filter: `driver_id=eq.${driverId}`,
+        },
+        invalidate,
       )
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [driverId, refetch]);
+  }, [driverId, refetch, queryClient]);
 
   useQuery({
     queryKey: ['service-area-payout-gateway', serviceFilter.serviceAreaId],
@@ -254,12 +280,22 @@ export default function DriverWalletLedger() {
           </TabsContent>
         </Tabs>
 
-        {driverId && (
+        {isError && (
+          <Alert variant="destructive">
+            <AlertTitle>Wallet SSOT sync failed</AlertTitle>
+            <AlertDescription className="flex flex-wrap items-center gap-2">
+              <span>{error instanceof Error ? error.message : 'Unable to load wallet'}</span>
+              <Button size="sm" variant="outline" onClick={() => void refetch()}>Retry sync</Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {driverId && !isError && (
           <p className="text-xs text-muted-foreground">
-            SSOT snapshot
+            Live SSOT — auto-refreshes on ledger, payout, and cashout changes
             {driver?.last_synced_at ? ` · last synced ${driver.last_synced_at}` : ''}
             {' · '}
-            <button type="button" className="underline" onClick={() => refetch()}>Refresh</button>
+            <Link className="underline" to="/annual-taxi-report">Annual driver report</Link>
           </p>
         )}
       </div>

@@ -13,6 +13,7 @@ import {
   type AdminFinanceLedgerFilter,
   type AdminFinanceParty,
 } from '@/lib/adminFinanceLedgerDisplay';
+import { attachRunningBalancesNewestFirst } from '@/lib/driverWalletRunningBalanceSSOT';
 
 export type FinanceLedgerTransactionRow = {
   id: string;
@@ -33,6 +34,9 @@ export type FinanceLedgerTransactionRow = {
   status: string | null;
   ledger_reference: string | null;
   description: string | null;
+  notes: string | null;
+  evidence: string | null;
+  running_balance_pence?: number | null;
 };
 
 type LedgerDbRow = {
@@ -107,6 +111,7 @@ function formatName(first: string | null | undefined, last: string | null | unde
 function mapLedgerRow(row: LedgerDbRow): FinanceLedgerTransactionRow {
   const meta = adminFinanceLedgerTypeMeta(row.type);
   const trip = row.trips;
+  const evidenceParts = [row.stripe_payout_id, row.stripe_transfer_id].filter(Boolean);
   return {
     id: row.id,
     created_at: row.created_at,
@@ -120,12 +125,14 @@ function mapLedgerRow(row: LedgerDbRow): FinanceLedgerTransactionRow {
     party: meta.party,
     direction: adminFinanceLedgerDirection(row.amount_pence),
     amount_pence: row.amount_pence,
-    currency: row.currency ?? 'gbp',
+    currency: (row.currency ?? 'GBP').toUpperCase(),
     payment_method: trip?.payment_method ?? null,
     source: row.stripe_transfer_id || row.stripe_payout_id ? 'Provider' : 'ledger',
-    status: null,
+    status: 'posted',
     ledger_reference: row.id,
     description: row.description,
+    notes: row.description,
+    evidence: evidenceParts.length ? evidenceParts.join(' · ') : null,
   };
 }
 
@@ -154,6 +161,8 @@ function mapPaymentRow(row: PaymentDbRow): FinanceLedgerTransactionRow {
     description: row.stripe_fee_pence
       ? `Provider fee ${formatPence(row.stripe_fee_pence, row.currency ?? 'gbp')}`
       : null,
+    notes: null,
+    evidence: row.provider_webhook_event_id ?? row.id,
   };
 }
 
@@ -179,6 +188,8 @@ function mapDiscountRow(row: DiscountTripRow): FinanceLedgerTransactionRow {
     status: null,
     ledger_reference: row.id,
     description: row.discount_source ?? null,
+    notes: row.discount_source ?? null,
+    evidence: row.id,
   };
 }
 
@@ -202,46 +213,76 @@ async function fetchLedgerRows(args: {
   from?: string;
   to?: string;
 }): Promise<FinanceLedgerTransactionRow[]> {
+  // For a selected driver: load unfiltered chronological series so running balance
+  // is SSOT over the full wallet account (not a filtered subset from £0).
+  const balanceScoped = Boolean(args.driverId);
+
   let query = supabase
     .from('driver_wallet_ledger')
     .select(LEDGER_SELECT)
     .order('created_at', { ascending: false })
-    .limit(args.limit);
+    .limit(balanceScoped ? Math.max(args.limit, 2000) : args.limit);
 
   if (args.driverId) query = query.eq('driver_id', args.driverId);
-  if (args.from) query = query.gte('created_at', args.from);
   if (args.to) query = query.lte('created_at', args.to);
+  // When computing running balance for a driver, include history before `from`
+  // so opening balance is correct; period filter applied after attach.
 
-  if (args.filter === 'debt_recovery') {
-    query = query.in('type', [...ADMIN_DEBT_RECOVERY_LEDGER_TYPES]);
-  } else if (args.filter === 'driver_earnings') {
-    query = query.in('type', ['TRIP_EARNING_NET', 'DRIVER_TIP_CREDIT']);
-  } else if (args.filter === 'onecab_commission') {
-    query = query.in('type', ['PLATFORM_COMMISSION', 'COMMISSION_RECOVERED']);
-  } else if (args.filter === 'payouts') {
-    query = query.in('type', [
-      'WEEKLY_PAYOUT', 'EARLY_CASHOUT', 'MANUAL_PAYOUT', 'PAYOUT', 'PAYOUT_CREATED', 'CASHOUT_FEE', 'PAYOUT_FAILED_RETURN',
-    ]);
-  } else if (args.filter === 'refunds') {
-    query = query.in('type', ['REFUND_DEBIT']);
-  } else if (args.filter === 'adjustments') {
-    query = query.in('type', ['ADJUSTMENT', 'MANUAL_ADJUSTMENT', 'CHARGEBACK_DEBIT', 'LEDGER_REVERSAL']);
-  } else if (args.filter === 'bonus') {
-    query = query.in('type', ['BONUS']);
+  if (!balanceScoped) {
+    if (args.from) query = query.gte('created_at', args.from);
+    if (args.filter === 'debt_recovery') {
+      query = query.in('type', [...ADMIN_DEBT_RECOVERY_LEDGER_TYPES]);
+    } else if (args.filter === 'driver_earnings') {
+      query = query.in('type', ['TRIP_EARNING_NET', 'DRIVER_TIP_CREDIT', 'CASH_TRIP_EARNING', 'PROMOTION', 'TRIP_CREDIT']);
+    } else if (args.filter === 'onecab_commission') {
+      query = query.in('type', ['PLATFORM_COMMISSION', 'COMMISSION_RECOVERED']);
+    } else if (args.filter === 'payouts') {
+      query = query.in('type', [
+        'WEEKLY_PAYOUT', 'EARLY_CASHOUT', 'MANUAL_PAYOUT', 'PAYOUT', 'PAYOUT_CREATED',
+        'CASHOUT_FEE', 'PAYOUT_FAILED_RETURN', 'PAYOUT_REVERSAL',
+      ]);
+    } else if (args.filter === 'refunds') {
+      query = query.in('type', ['REFUND_DEBIT', 'CHARGEBACK_DEBIT']);
+    } else if (args.filter === 'adjustments') {
+      query = query.in('type', [
+        'ADJUSTMENT', 'MANUAL_ADJUSTMENT', 'MANUAL_CREDIT', 'MANUAL_DEBIT',
+        'LEDGER_REVERSAL', 'CORRECTION',
+      ]);
+    } else if (args.filter === 'bonus') {
+      query = query.in('type', ['BONUS', 'PROMOTION']);
+    }
   }
 
   const { data, error } = await query;
   if (error) throw error;
 
-  const rows: FinanceLedgerTransactionRow[] = [];
+  let mapped: FinanceLedgerTransactionRow[] = [];
   for (const row of (data ?? []) as LedgerDbRow[]) {
     if (!regionMatches(args.regionId, row.drivers?.region_id)) continue;
-    const mapped = mapLedgerRow(row);
-    if (rowMatchesFilter(mapped, args.filter)) {
-      rows.push(mapped);
+    mapped.push(mapLedgerRow(row));
+  }
+
+  if (balanceScoped && mapped.length > 0) {
+    let opening = 0;
+    if (args.from) {
+      const { data: prior, error: priorErr } = await supabase
+        .from('driver_wallet_ledger')
+        .select('amount_pence')
+        .eq('driver_id', args.driverId!)
+        .lt('created_at', args.from)
+        .limit(10000);
+      if (priorErr) throw priorErr;
+      opening = (prior ?? []).reduce((s, r) => s + Number(r.amount_pence ?? 0), 0);
+    }
+    mapped = attachRunningBalancesNewestFirst(mapped, opening);
+    if (args.from) {
+      mapped = mapped.filter((r) => r.created_at >= args.from!);
     }
   }
-  return rows;
+
+  return mapped
+    .filter((row) => rowMatchesFilter(row, args.filter))
+    .slice(0, args.limit);
 }
 
 export function useFinanceLedgerTransactions(args: {

@@ -20,6 +20,7 @@ import { useStaffProfile } from '@/hooks/useStaffProfile';
 import { fetchOnecabProfitSsot } from '@/hooks/financeReconciliationApi';
 import { Link } from 'react-router-dom';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
+import { downloadCsv, downloadExcel, printFinanceReport } from '@/lib/financeExport';
 
 type PeriodMode = 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'custom';
 type ExpenseCategory = 'technology' | 'marketing' | 'operations' | 'staff' | 'other';
@@ -153,10 +154,15 @@ export default function OnecabRevenueProfitReport() {
     const profitSsot = profitSsotQuery.data;
     const netRevenue = profitSsot?.platform_net_revenue_pence ?? null;
     return {
-      totalBooking: null as number | null,
-      commission: null as number | null,
+      totalBooking: profitSsot?.gross_customer_revenue_pence ?? null,
+      commission: profitSsot?.gross_commission_pence ?? null,
+      netCommission: profitSsot?.net_commission_pence ?? null,
+      providerFees: profitSsot?.provider_fees_pence ?? null,
+      refunds: profitSsot?.refunds_pence ?? null,
+      chargebacks: profitSsot?.chargebacks_pence ?? null,
+      driverPayouts: profitSsot?.driver_payouts_pence ?? null,
       cashCommission: null as number | null,
-      stripeFees: null as number | null,
+      stripeFees: profitSsot?.provider_fees_pence ?? null,
       netRevenue,
       currency,
       ssotUnavailable: profitSsotQuery.isError || (profitSsotQuery.isSuccess && netRevenue == null),
@@ -280,48 +286,74 @@ export default function OnecabRevenueProfitReport() {
 
   const handleCsvExport = () => {
     const c = revenue.currency;
-    const rows: string[][] = [
-      ['ONECAB Revenue & Profit Report'],
-      ['Period', periodLabel],
-      ['Region', regionId === '__all__' ? 'All Regions' : (regions.find(r => r.id === regionId)?.name ?? '')],
-      [],
-      ['Revenue (see Financial Reconciliation → Overview)', ''],
-      ['Platform net revenue used for profit (SSOT)', revenue.netRevenue != null ? (revenue.netRevenue / 100).toFixed(2) : ''],
-      [],
-      ['Expenses by Category', 'Amount'],
-      ['Technology', (expenseTotals.byCat.technology / 100).toFixed(2)],
-      ['Marketing', (expenseTotals.byCat.marketing / 100).toFixed(2)],
-      ['Operations', (expenseTotals.byCat.operations / 100).toFixed(2)],
-      ['Staff', (expenseTotals.byCat.staff / 100).toFixed(2)],
-      ['Other', (expenseTotals.byCat.other / 100).toFixed(2)],
-      ['Total Expenses', (expenseTotals.total / 100).toFixed(2)],
-      [],
-      ['Profit', 'Amount'],
-      ['Profit Before Tax', profit ? (profit.profitBeforeTax / 100).toFixed(2) : ''],
-      [`Corporation Tax Rate (%)`, String(corpTaxPct)],
-      [`Estimated Corporation Tax (${corpTaxPct}%)`, profit ? (profit.corpTax / 100).toFixed(2) : ''],
-      ['Profit After Tax', profit ? (profit.profitAfterTax / 100).toFixed(2) : ''],
-      ['Currency', c],
-      [],
-      ['Expense Detail'],
-      ['Date', 'Category', 'Subcategory', 'Description', 'Amount', 'Currency'],
-      ...(expensesQuery.data ?? []).map(e => [
-        e.expense_date,
-        e.category,
-        e.subcategory,
-        e.description ?? '',
-        (e.amount_pence / 100).toFixed(2),
-        e.currency_code,
-      ]),
-    ];
-    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `onecab-profit-report-${format(range.start, 'yyyyMMdd')}-${format(range.end, 'yyyyMMdd')}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const money = (p: number | null) => (p == null ? '' : (p / 100).toFixed(2));
+    downloadCsv(
+      `onecab-profit-report-${format(range.start, 'yyyyMMdd')}-${format(range.end, 'yyyyMMdd')}.csv`,
+      [
+        { line: 'Period', value: periodLabel },
+        { line: 'Gross customer revenue', value: money(revenue.totalBooking) },
+        { line: 'Gross commission', value: money(revenue.commission) },
+        { line: 'Net commission', value: money(revenue.netCommission) },
+        { line: 'Provider fees', value: money(revenue.providerFees) },
+        { line: 'Refunds', value: money(revenue.refunds) },
+        { line: 'Chargebacks', value: money(revenue.chargebacks) },
+        { line: 'Driver payouts', value: money(revenue.driverPayouts) },
+        { line: 'Platform net revenue (SSOT)', value: money(revenue.netRevenue) },
+        { line: 'Technology expenses', value: money(expenseTotals.byCat.technology) },
+        { line: 'Marketing expenses', value: money(expenseTotals.byCat.marketing) },
+        { line: 'Operations expenses', value: money(expenseTotals.byCat.operations) },
+        { line: 'Staff expenses', value: money(expenseTotals.byCat.staff) },
+        { line: 'Other expenses', value: money(expenseTotals.byCat.other) },
+        { line: 'Total expenses', value: money(expenseTotals.total) },
+        { line: 'Profit before tax', value: profit ? money(profit.profitBeforeTax) : '' },
+        { line: 'Corporation tax rate %', value: String(corpTaxPct) },
+        { line: 'Estimated corporation tax', value: profit ? money(profit.corpTax) : '' },
+        { line: 'Profit after tax', value: profit ? money(profit.profitAfterTax) : '' },
+        { line: 'Currency', value: c },
+      ],
+    );
+  };
+
+  const handleExcelExport = () => {
+    const money = (p: number | null) => (p == null ? '—' : (p / 100).toFixed(2));
+    downloadExcel(
+      `onecab-profit-report-${format(range.start, 'yyyyMMdd')}-${format(range.end, 'yyyyMMdd')}`,
+      [
+        {
+          name: 'Summary',
+          rows: [
+            ['Line', 'Amount'],
+            ['Period', periodLabel],
+            ['Gross customer revenue', money(revenue.totalBooking)],
+            ['Gross commission', money(revenue.commission)],
+            ['Net commission', money(revenue.netCommission)],
+            ['Provider fees', money(revenue.providerFees)],
+            ['Refunds', money(revenue.refunds)],
+            ['Chargebacks', money(revenue.chargebacks)],
+            ['Driver payouts', money(revenue.driverPayouts)],
+            ['Platform net revenue', money(revenue.netRevenue)],
+            ['Total expenses', money(expenseTotals.total)],
+            ['Profit before tax', profit ? money(profit.profitBeforeTax) : '—'],
+            ['Profit after tax', profit ? money(profit.profitAfterTax) : '—'],
+            ['Currency', revenue.currency],
+          ],
+        },
+        {
+          name: 'Expenses',
+          rows: [
+            ['Date', 'Category', 'Subcategory', 'Description', 'Amount', 'Currency'],
+            ...(expensesQuery.data ?? []).map((e) => [
+              e.expense_date,
+              e.category,
+              e.subcategory,
+              e.description ?? '',
+              (e.amount_pence / 100).toFixed(2),
+              e.currency_code,
+            ]),
+          ],
+        },
+      ],
+    );
   };
 
   return (
@@ -396,7 +428,10 @@ export default function OnecabRevenueProfitReport() {
               <Button variant="outline" onClick={handleCsvExport}>
                 <Download className="h-4 w-4 mr-2" />Export CSV
               </Button>
-              <Button variant="outline" onClick={() => window.print()}>
+              <Button variant="outline" onClick={handleExcelExport}>
+                <Download className="h-4 w-4 mr-2" />Export Excel
+              </Button>
+              <Button variant="outline" onClick={() => printFinanceReport()}>
                 <Printer className="h-4 w-4 mr-2" />Print / PDF
               </Button>
             </div>
@@ -420,19 +455,53 @@ export default function OnecabRevenueProfitReport() {
           </Alert>
         )}
 
-        {/* Platform revenue — view in Financial Reconciliation only */}
+        {/* Platform revenue — SSOT lines from Financial Reconciliation */}
         <Card className="border-primary/30 bg-primary/5">
           <CardHeader>
             <CardTitle>Platform Revenue (SSOT)</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Booking value, ONECAB commission, Provider fees, and net platform revenue are displayed only in
-              Financial Reconciliation → Overview. Profit below uses SSOT net revenue when available.
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="rounded-md border bg-background p-3">
+                <div className="text-xs text-muted-foreground">Gross customer revenue</div>
+                <div className="font-semibold">{fmtRev(revenue.totalBooking)}</div>
+              </div>
+              <div className="rounded-md border bg-background p-3">
+                <div className="text-xs text-muted-foreground">Gross commission</div>
+                <div className="font-semibold">{fmtRev(revenue.commission)}</div>
+              </div>
+              <div className="rounded-md border bg-background p-3">
+                <div className="text-xs text-muted-foreground">Net commission</div>
+                <div className="font-semibold">{fmtRev(revenue.netCommission)}</div>
+              </div>
+              <div className="rounded-md border bg-background p-3">
+                <div className="text-xs text-muted-foreground">Provider fees</div>
+                <div className="font-semibold">{fmtRev(revenue.providerFees)}</div>
+              </div>
+              <div className="rounded-md border bg-background p-3">
+                <div className="text-xs text-muted-foreground">Refunds</div>
+                <div className="font-semibold">{fmtRev(revenue.refunds)}</div>
+              </div>
+              <div className="rounded-md border bg-background p-3">
+                <div className="text-xs text-muted-foreground">Chargebacks</div>
+                <div className="font-semibold">{fmtRev(revenue.chargebacks)}</div>
+              </div>
+              <div className="rounded-md border bg-background p-3">
+                <div className="text-xs text-muted-foreground">Driver payouts</div>
+                <div className="font-semibold">{fmtRev(revenue.driverPayouts)}</div>
+              </div>
+              <div className="rounded-md border bg-background p-3">
+                <div className="text-xs text-muted-foreground">Platform net revenue</div>
+                <div className="font-semibold">{fmtRev(revenue.netRevenue)}</div>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Display-only from Financial Reconciliation SSOT (chargebacks = abs sum of CHARGEBACK_DEBIT ledger in period).
+              {' '}
+              <Link to="/financial-reconciliation?tab=overview" className="underline">Open FR Overview</Link>
+              {' · '}
+              <Link to="/payout-ledger" className="underline">Payout Ledger</Link>
             </p>
-            <Button asChild variant="outline" size="sm">
-              <Link to="/financial-reconciliation?tab=overview">Open Financial Reconciliation → Overview</Link>
-            </Button>
           </CardContent>
         </Card>
 

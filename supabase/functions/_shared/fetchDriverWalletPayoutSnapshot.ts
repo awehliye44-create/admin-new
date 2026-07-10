@@ -12,6 +12,10 @@ import {
 } from "./driverWalletPayoutSSOT.ts";
 import { sumClearedSettlementBatchPence, type EarningSettlementInput } from "./payoutEligibilitySSOT.ts";
 import { readConnectPayoutSnapshot, listInFlightConnectPayouts } from "./connectPayoutLockdown.ts";
+import {
+  buildDriverWalletPeriodKpis,
+  type DriverWalletPeriodKpis,
+} from "./driverWalletPeriodKpisSSOT.ts";
 
 const TERMINAL_FAILED = new Set(["failed", "ledger_sync_failed", "failed_duplicate"]);
 const STUCK_SETTLEMENT = new Set(["PROCESSING", "READY", "PENDING", "AVAILABLE"]);
@@ -30,6 +34,7 @@ export type DriverWalletPayoutDetail = DriverWalletPayoutSnapshot & {
   ledger_rows: Array<Record<string, unknown>>;
   transfer_ledger_rows: Array<Record<string, unknown>>;
   last_synced_at: string | null;
+  period_kpis: DriverWalletPeriodKpis;
 };
 
 export async function fetchDriverWalletPayoutSnapshot(
@@ -58,9 +63,9 @@ export async function fetchDriverWalletPayoutSnapshot(
     stripePayoutsRes,
     earlyCashoutsRes,
   ] = await Promise.all([
-    supabase.from("driver_wallet_ledger").select("type, amount_pence, stripe_payout_id")
+    supabase.from("driver_wallet_ledger").select("type, amount_pence, stripe_payout_id, created_at, related_trip_id")
       .eq("driver_id", args.driverId),
-    supabase.from("driver_wallet_ledger").select("id, type, amount_pence, related_trip_id, stripe_payout_id, stripe_transfer_id, created_at")
+    supabase.from("driver_wallet_ledger").select("id, type, amount_pence, related_trip_id, stripe_payout_id, stripe_transfer_id, created_at, description")
       .eq("driver_id", args.driverId)
       .order("created_at", { ascending: false })
       .limit(100),
@@ -224,6 +229,20 @@ export async function fetchDriverWalletPayoutSnapshot(
       return bTs - aTs;
     })[0] ?? null;
 
+  const period_kpis = buildDriverWalletPeriodKpis(
+    ledger.map((r) => ({
+      type: String(r.type ?? ""),
+      amount_pence: Number(r.amount_pence ?? 0),
+      created_at: (r as { created_at?: string | null }).created_at ?? null,
+      related_trip_id: (r as { related_trip_id?: string | null }).related_trip_id ?? null,
+    })),
+    {
+      recoveryDebtPence: recoveryDebt,
+      // Pending = finance-cleared not yet in a payout batch (backend SSOT fields).
+      pendingEarningsPence: Math.max(0, financeCleared - includedBatch),
+    },
+  );
+
   return {
     ...snapshot,
     driver_id: args.driverId,
@@ -237,6 +256,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     last_payout_amount_pence: lastPaidPayout
       ? Math.max(0, Number(lastPaidPayout.amount_pence ?? 0))
       : null,
+    period_kpis,
     payout_items: payoutItems,
     stripe_connect_payouts: stripePayouts,
     settlements,

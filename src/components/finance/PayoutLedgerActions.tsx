@@ -188,3 +188,78 @@ export function PayoutLedgerMarkPaidButton({
     </>
   );
 }
+
+export function PayoutLedgerRetryButton({
+  payoutItemId,
+  disabled = false,
+}: {
+  payoutItemId: string;
+  disabled?: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [pending, setPending] = useState(false);
+
+  const handleRetry = async () => {
+    setPending(true);
+    try {
+      const { data, error } = await supabase.rpc('ops_retry_failed_payout_item', {
+        p_payout_item_id: payoutItemId,
+      });
+      if (error) throw error;
+      if (data && typeof data === 'object' && 'error' in (data as object)) {
+        throw new Error(String((data as { error?: string }).error));
+      }
+      toast.success('Payout retry queued');
+      void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Retry failed');
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <Button size="sm" variant="secondary" disabled={disabled || pending} onClick={() => void handleRetry()}>
+      {pending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+      Retry
+    </Button>
+  );
+}
+
+export function PayoutLedgerCancelButton({
+  payoutItemId,
+  disabled = false,
+}: {
+  payoutItemId: string;
+  disabled?: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [pending, setPending] = useState(false);
+
+  const handleCancel = async () => {
+    setPending(true);
+    try {
+      const { data, error } = await supabase.rpc('return_failed_payout_to_wallet', {
+        p_payout_item_id: payoutItemId,
+      });
+      if (error) throw error;
+      if (data && typeof data === 'object' && 'error' in (data as object)) {
+        throw new Error(String((data as { error?: string }).error));
+      }
+      toast.success('Payout cancelled — returned to wallet');
+      void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
+      void queryClient.invalidateQueries({ queryKey: ['driver-wallet-ssot'] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Cancel failed');
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <Button size="sm" variant="outline" disabled={disabled || pending} onClick={() => void handleCancel()}>
+      {pending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+      Cancel
+    </Button>
+  );
+}

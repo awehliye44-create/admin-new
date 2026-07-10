@@ -50,38 +50,46 @@ const LEDGER_TYPE_META: Record<string, {
   party: AdminFinanceParty;
   filter: AdminFinanceLedgerFilter;
 }> = {
-  TRIP_EARNING_NET: { label: 'Driver net earning', party: 'driver', filter: 'driver_earnings' },
+  TRIP_EARNING_NET: { label: 'Trip Credit', party: 'driver', filter: 'driver_earnings' },
+  TRIP_CREDIT: { label: 'Trip Credit', party: 'driver', filter: 'driver_earnings' },
   DRIVER_TIP_CREDIT: { label: 'Tip', party: 'driver', filter: 'driver_earnings' },
-  CASH_TRIP_EARNING: { label: 'Cash trip (pass-through)', party: 'driver', filter: 'driver_earnings' },
+  TIP_CREDIT: { label: 'Tip', party: 'driver', filter: 'driver_earnings' },
+  CASH_TRIP_EARNING: { label: 'Trip Credit', party: 'driver', filter: 'driver_earnings' },
+  PROMOTION: { label: 'Promotion', party: 'driver', filter: 'bonus' },
   CASH_COMMISSION_DEBT: {
-    label: 'Cash trip commission debit',
+    label: 'Commission',
     party: 'driver',
     filter: 'debt_recovery',
   },
-  PLATFORM_COMMISSION: { label: 'ONECAB commission', party: 'ONECAB', filter: 'onecab_commission' },
+  PLATFORM_COMMISSION: { label: 'Commission', party: 'ONECAB', filter: 'onecab_commission' },
+  COMPANY_COMMISSION: { label: 'Commission', party: 'ONECAB', filter: 'onecab_commission' },
   DEBT_RECOVERY: {
-    label: 'Debt recovery debit',
+    label: 'Debt Recovery',
     party: 'driver',
     filter: 'debt_recovery',
   },
   COMMISSION_RECOVERED: {
-    label: 'Debt recovery credit (ONECAB)',
+    label: 'Debt Recovery',
     party: 'ONECAB',
     filter: 'debt_recovery',
   },
-  WEEKLY_PAYOUT: { label: 'Weekly payout', party: 'driver', filter: 'payouts' },
-  EARLY_CASHOUT: { label: 'Instant cash out', party: 'driver', filter: 'payouts' },
-  MANUAL_PAYOUT: { label: 'Manual payout', party: 'driver', filter: 'payouts' },
+  WEEKLY_PAYOUT: { label: 'Payout', party: 'driver', filter: 'payouts' },
+  EARLY_CASHOUT: { label: 'Payout', party: 'driver', filter: 'payouts' },
+  MANUAL_PAYOUT: { label: 'Payout', party: 'driver', filter: 'payouts' },
   PAYOUT: { label: 'Payout', party: 'driver', filter: 'payouts' },
-  PAYOUT_CREATED: { label: 'Payout created', party: 'system', filter: 'payouts' },
-  CASHOUT_FEE: { label: 'Payout fee', party: 'ONECAB', filter: 'payouts' },
+  PAYOUT_CREATED: { label: 'Payout', party: 'system', filter: 'payouts' },
+  CASHOUT_FEE: { label: 'Payout', party: 'ONECAB', filter: 'payouts' },
   ADJUSTMENT: { label: 'Adjustment', party: 'driver', filter: 'adjustments' },
-  MANUAL_ADJUSTMENT: { label: 'Manual adjustment', party: 'driver', filter: 'adjustments' },
-  CHARGEBACK_DEBIT: { label: 'Chargeback adjustment', party: 'driver', filter: 'adjustments' },
-  BONUS: { label: 'Bonus', party: 'driver', filter: 'adjustments' },
+  MANUAL_ADJUSTMENT: { label: 'Adjustment', party: 'driver', filter: 'adjustments' },
+  MANUAL_CREDIT: { label: 'Manual Credit', party: 'driver', filter: 'adjustments' },
+  MANUAL_DEBIT: { label: 'Manual Debit', party: 'driver', filter: 'adjustments' },
+  CORRECTION: { label: 'Correction', party: 'driver', filter: 'adjustments' },
+  CHARGEBACK_DEBIT: { label: 'Chargeback', party: 'driver', filter: 'refunds' },
+  BONUS: { label: 'Bonus', party: 'driver', filter: 'bonus' },
   REFUND_DEBIT: { label: 'Refund', party: 'customer', filter: 'refunds' },
-  LEDGER_REVERSAL: { label: 'Ledger reversal', party: 'system', filter: 'adjustments' },
-  PAYOUT_FAILED_RETURN: { label: 'Payout reversal', party: 'driver', filter: 'payouts' },
+  LEDGER_REVERSAL: { label: 'Correction', party: 'system', filter: 'adjustments' },
+  PAYOUT_FAILED_RETURN: { label: 'Payout Reversal', party: 'driver', filter: 'payouts' },
+  PAYOUT_REVERSAL: { label: 'Payout Reversal', party: 'driver', filter: 'payouts' },
 };
 
 export function adminFinanceLedgerTypeMeta(type: string): {
@@ -108,7 +116,10 @@ export function adminFinanceLedgerMatchesFilter(
     return (ADMIN_ONECAB_COMMISSION_LEDGER_TYPES as readonly string[]).includes(type);
   }
   if (filter === 'bonus') {
-    return type === 'BONUS';
+    return type === 'BONUS' || type === 'PROMOTION';
+  }
+  if (filter === 'refunds') {
+    return type === 'REFUND_DEBIT' || type === 'CHARGEBACK_DEBIT';
   }
   const meta = adminFinanceLedgerTypeMeta(type);
   return meta.filter === filter;

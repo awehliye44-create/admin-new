@@ -13,7 +13,8 @@ export type AdminPayoutLedgerTab =
   | "failed"
   | "returned_cancelled"
   | "batches"
-  | "history";
+  | "history"
+  | "settings";
 
 export type AdminPayoutLedgerPageStatus =
   | "LIVE"
@@ -93,8 +94,15 @@ export type AdminPayoutLedgerListResponse = {
     completed_count: number;
     failed_count: number;
     returned_cancelled_count: number;
+    pending_count: number;
+    scheduled_today_count: number;
+    paid_today_count: number;
+    paid_today_pence: number | null;
     total_paid_pence: number | null;
     total_failed_pence: number | null;
+    total_paid_week_pence: number | null;
+    total_paid_month_pence: number | null;
+    total_paid_year_pence: number | null;
   };
   error?: string;
 };

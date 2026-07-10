@@ -18,6 +18,7 @@ import { useToast } from '@/hooks/use-toast';
 import { formatPence } from '@/hooks/useDriverWallet';
 import { fetchDriverStatementPeriodTotals } from '@/hooks/financeReconciliationApi';
 import { getTripDisplayId } from '@/lib/tripUtils';
+import { downloadCsv, downloadExcel, printFinanceReport } from '@/lib/financeExport';
 
 type PeriodMode = 'tax_year' | 'calendar_year' | 'custom';
 
@@ -172,14 +173,23 @@ export default function AnnualTaxiReport() {
       else if (pm === 'CASH') cash += 1;
       else if (pm === 'CARD' || pm === 'APPLE_PAY' || pm === 'GOOGLE_PAY' || pm === 'WALLET') card += 1;
     }
-    const payoutsTotal = statementTotalsQuery.data?.payouts_received_pence ?? null;
+    const st = statementTotalsQuery.data;
     const currency = trips.find((t) => t.currency_code)?.currency_code ?? 'GBP';
     return {
       totalTrips: trips.length,
       tips,
       cash, card, corporate,
-      payoutsTotal,
       currency,
+      grossEarnings: st?.gross_earnings_pence ?? null,
+      commission: st?.commission_pence ?? null,
+      driverNet: st?.driver_net_pence ?? null,
+      bonuses: st?.bonuses_pence ?? null,
+      adjustments: st?.adjustments_pence ?? null,
+      debtRecovery: st?.debt_recovery_pence ?? null,
+      penalties: st?.penalties_pence ?? null,
+      netEarnings: st?.net_earnings_pence ?? null,
+      payoutsTotal: st?.payouts_received_pence ?? null,
+      completedTrips: st?.completed_trips ?? null,
     };
   }, [reportQuery.data, statementTotalsQuery.data]);
 
@@ -197,39 +207,79 @@ export default function AnnualTaxiReport() {
   }, [generated]);
 
   const handleCsv = () => {
-    if (!reportQuery.data) return;
-    const headers = ['Date', 'Trip ID', 'Payment Type', 'Financial Reconciliation', 'Status'];
-    const rows = reportQuery.data.trips.map((t) => [
-      t.completed_at ? format(new Date(t.completed_at), 'yyyy-MM-dd HH:mm') : '',
-      getTripDisplayId(t as any) || t.id,
-      t.corporate_account_id ? 'CORPORATE' : (t.payment_method ?? ''),
-      'See Financial Reconciliation → Trips (SSOT)',
-      t.status ?? '',
-    ]);
-    const csv = [headers, ...rows]
-      .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
-      .join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `annual-taxi-report-${driver?.driver_code ?? driver?.id ?? 'driver'}-${generated?.from}-${generated?.to}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    if (!reportQuery.data || !generated) return;
+    const money = (p: number | null) => (p == null ? '' : (p / 100).toFixed(2));
+    downloadCsv(
+      `annual-taxi-report-summary-${driver?.driver_code ?? driver?.id ?? 'driver'}-${generated.from}-${generated.to}.csv`,
+      [
+        {
+          gross_earnings: money(summary.grossEarnings),
+          commission: money(summary.commission),
+          driver_net: money(summary.driverNet),
+          bonuses: money(summary.bonuses),
+          adjustments: money(summary.adjustments),
+          debt_recovery: money(summary.debtRecovery),
+          penalties: money(summary.penalties),
+          net_earnings: money(summary.netEarnings),
+          payouts_received: money(summary.payoutsTotal),
+          tips: money(summary.tips),
+          total_trips: summary.totalTrips,
+        },
+      ],
+    );
   };
 
-  const handlePrint = () => window.print();
+  const handleExcel = () => {
+    if (!reportQuery.data || !generated) return;
+    const fmt = (p: number | null) => (p == null ? '—' : (p / 100).toFixed(2));
+    downloadExcel(
+      `annual-taxi-report-${driver?.driver_code ?? driver?.id ?? 'driver'}-${generated.from}-${generated.to}`,
+      [
+        {
+          name: 'Summary',
+          rows: [
+            ['Line', 'Amount'],
+            ['Gross earnings', fmt(summary.grossEarnings)],
+            ['ONECAB commission', fmt(summary.commission)],
+            ['Driver net', fmt(summary.driverNet)],
+            ['Bonuses', fmt(summary.bonuses)],
+            ['Adjustments', fmt(summary.adjustments)],
+            ['Debt recovery', fmt(summary.debtRecovery)],
+            ['Penalties', fmt(summary.penalties)],
+            ['Net earnings', fmt(summary.netEarnings)],
+            ['Payouts received', fmt(summary.payoutsTotal)],
+            ['Tips', fmt(summary.tips)],
+            ['Total trips', summary.totalTrips],
+          ],
+        },
+        {
+          name: 'Trips',
+          rows: [
+            ['Date', 'Trip ID', 'Payment Type', 'Status'],
+            ...reportQuery.data.trips.map((t) => [
+              t.completed_at ? format(new Date(t.completed_at), 'yyyy-MM-dd HH:mm') : '',
+              getTripDisplayId(t as any) || t.id,
+              t.corporate_account_id ? 'CORPORATE' : (t.payment_method ?? ''),
+              t.status ?? '',
+            ]),
+          ],
+        },
+      ],
+    );
+  };
+
+  const handlePrint = () => printFinanceReport();
 
   const handleEmail = () => {
     if (!generated || !driver) return;
     const subject = encodeURIComponent(`Annual Taxi Report — ${driverName(driver)} — ${periodLabel}`);
+    const money = (p: number | null) => (p == null ? '—' : formatPence(p, summary.currency));
     const body = encodeURIComponent(
       `Annual Taxi Report\n\nDriver: ${driverName(driver)} (${driver.driver_code ?? driver.id})\nPeriod: ${periodLabel}\n\n` +
-      `Total Trips: ${summary.totalTrips}\nCash Trips: ${summary.cash}\nCard Trips: ${summary.card}\nCorporate Trips: ${summary.corporate}\n` +
-      `Tips: ${formatPence(summary.tips, summary.currency)}\nPayouts Received: ${summary.payoutsTotal == null ? '—' : formatPence(summary.payoutsTotal, summary.currency)}\n\n` +
-      `Trip fare, commission, and driver net values: Financial Reconciliation → Trips (SSOT)\n` +
-      `https://adminonecab.net/trip-history\n\n` +
-      `This report is provided for record keeping purposes only. Drivers are self-employed and responsible for their own tax, National Insurance, expenses, and HMRC obligations.`
+      `Gross earnings: ${money(summary.grossEarnings)}\nCommission: ${money(summary.commission)}\nDriver net: ${money(summary.driverNet)}\n` +
+      `Bonuses: ${money(summary.bonuses)}\nAdjustments: ${money(summary.adjustments)}\nDebt recovery: ${money(summary.debtRecovery)}\n` +
+      `Payouts received: ${money(summary.payoutsTotal)}\nTips: ${money(summary.tips)}\nTotal trips: ${summary.totalTrips}\n\n` +
+      `Values from Driver Statement / Wallet SSOT. This report is for record keeping only.`,
     );
     window.location.href = `mailto:?subject=${subject}&body=${body}`;
   };
@@ -350,6 +400,9 @@ export default function AnnualTaxiReport() {
                   <Button variant="outline" onClick={handleCsv} disabled={!reportQuery.data}>
                     <Download className="h-4 w-4" />Export CSV
                   </Button>
+                  <Button variant="outline" onClick={handleExcel} disabled={!reportQuery.data}>
+                    <Download className="h-4 w-4" />Export Excel
+                  </Button>
                   <Button variant="outline" onClick={handlePrint} disabled={!reportQuery.data}>
                     <Printer className="h-4 w-4" />Print / PDF
                   </Button>
@@ -388,14 +441,20 @@ export default function AnnualTaxiReport() {
                   <SummaryStat label="Cash Trips" value={String(summary.cash)} />
                   <SummaryStat label="Card Trips" value={String(summary.card)} />
                   <SummaryStat label="Corporate Trips" value={String(summary.corporate)} />
+                  <SummaryStat label="Gross earnings" value={summary.grossEarnings == null ? '—' : formatPence(summary.grossEarnings, summary.currency)} />
+                  <SummaryStat label="ONECAB commission" value={summary.commission == null ? '—' : formatPence(summary.commission, summary.currency)} />
+                  <SummaryStat label="Driver net" value={summary.driverNet == null ? '—' : formatPence(summary.driverNet, summary.currency)} />
+                  <SummaryStat label="Bonuses" value={summary.bonuses == null ? '—' : formatPence(summary.bonuses, summary.currency)} />
+                  <SummaryStat label="Adjustments" value={summary.adjustments == null ? '—' : formatPence(summary.adjustments, summary.currency)} />
+                  <SummaryStat label="Debt recovery" value={summary.debtRecovery == null ? '—' : formatPence(summary.debtRecovery, summary.currency)} />
                   <SummaryStat label="Tips" value={formatPence(summary.tips, summary.currency)} />
                   <SummaryStat label="Payouts Received" value={summary.payoutsTotal == null ? '—' : formatPence(summary.payoutsTotal, summary.currency)} />
                 </div>
                 <p className="text-xs text-muted-foreground mt-4">
-                  Trip fare, commission, and driver net values live in{' '}
-                  <Link to="/trip-history" className="underline">
-                    Financial Reconciliation → Trips (SSOT)
-                  </Link>
+                  Rollups from Driver Statement SSOT (Wallet ledger + FR audit). Linked from{' '}
+                  <Link to="/driver-wallet-ledger" className="underline">Driver Wallet</Link>
+                  {' · '}
+                  <Link to="/payout-ledger" className="underline">Payout Ledger</Link>
                   .
                 </p>
               </CardContent>

@@ -362,6 +362,7 @@ export interface DriverStatementPeriodTotal {
   bonuses_pence: number;
   penalties_pence: number;
   adjustments_pence: number;
+  debt_recovery_pence?: number;
   net_earnings_pence: number;
   payouts_received_pence: number;
 }

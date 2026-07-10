@@ -1007,6 +1007,35 @@ serve(async (req) => {
         0,
       );
       const profit_before_tax_pence = net == null ? null : net - expenses_pence;
+      const om = finance_reconciliation_summary.onecab_money;
+      const cr = finance_reconciliation_summary.customer_revenue;
+      const dm = finance_reconciliation_summary.driver_money;
+
+      let chargebacks_pence: number | null = null;
+      {
+        let cbQuery = supabase
+          .from("driver_wallet_ledger")
+          .select("amount_pence")
+          .eq("type", "CHARGEBACK_DEBIT")
+          .gte("created_at", periodFrom)
+          .lte("created_at", periodTo);
+        if (resolvedRegionId) {
+          const { data: regionDrivers } = await supabase
+            .from("drivers")
+            .select("id")
+            .eq("region_id", resolvedRegionId);
+          const ids = (regionDrivers ?? []).map((d) => d.id);
+          if (ids.length > 0) cbQuery = cbQuery.in("driver_id", ids);
+        }
+        const { data: cbRows, error: cbErr } = await cbQuery;
+        if (!cbErr) {
+          chargebacks_pence = (cbRows ?? []).reduce(
+            (s, row) => s + Math.abs(Number(row.amount_pence ?? 0)),
+            0,
+          );
+        }
+      }
+
       return new Response(JSON.stringify({
         period: { from: periodFrom, to: periodTo },
         currency_code: currency.toUpperCase(),
@@ -1014,6 +1043,15 @@ serve(async (req) => {
           platform_net_revenue_pence: net,
           expenses_pence,
           profit_before_tax_pence,
+          gross_customer_revenue_pence: cr.total_customer_revenue_pence ?? null,
+          gross_commission_pence: om.total_commission_earned_pence
+            ?? om.onecab_gross_commission_pence
+            ?? null,
+          net_commission_pence: om.onecab_net_commission_pence ?? null,
+          provider_fees_pence: om.provider_processing_fee_pence ?? null,
+          refunds_pence: cr.refunded_amount_pence ?? null,
+          chargebacks_pence,
+          driver_payouts_pence: dm.driver_paid_out_pence ?? null,
         },
         meta: {
           ssot_version: SSOT_VERSION,

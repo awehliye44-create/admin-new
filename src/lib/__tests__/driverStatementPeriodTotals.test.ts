@@ -27,11 +27,26 @@ describe('buildDriverStatementPeriodTotals', () => {
     expect(totals).toHaveLength(1);
     expect(totals[0].bonuses_pence).toBe(200);
     expect(totals[0].penalties_pence).toBe(80);
-    expect(totals[0].cash_collected_pence).toBe(20);
+    expect(totals[0].debt_recovery_pence).toBe(0);
+    expect(totals[0].cash_collected_pence).toBe(0);
     expect(totals[0].completed_trips).toBe(1);
     expect(totals[0].no_show_trips).toBe(0);
     expect(totals[0].late_cancel_trips).toBe(0);
-    expect(totals[0].net_earnings_pence).toBe(850 + 200 - 80 - 20);
+    expect(totals[0].net_earnings_pence).toBe(850 + 200 - 80);
+  });
+
+  it('sums DEBT_RECOVERY into debt_recovery_pence', () => {
+    const totals = buildDriverStatementPeriodTotals(
+      [],
+      [
+        { driver_id: 'd1', type: 'DEBT_RECOVERY', amount_pence: -414 },
+        { driver_id: 'd1', type: 'DEBT_RECOVERY', amount_pence: -86 },
+      ],
+      new Set(['d1']),
+    );
+
+    expect(totals).toHaveLength(1);
+    expect(totals[0].debt_recovery_pence).toBe(500);
   });
 
   it('counts no_show and late_cancel trips separately from completed', () => {

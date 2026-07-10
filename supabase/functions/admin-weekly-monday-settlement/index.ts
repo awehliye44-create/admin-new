@@ -13,6 +13,10 @@ import {
   PAYOUT_EXECUTION_DISABLED_MESSAGE,
   PAYOUT_VERIFICATION_MODE_MESSAGE,
 } from "../_shared/payoutExecutionGate.ts";
+import {
+  applyPayoutControlCentrePolicy,
+  loadPayoutControlCentreSettings,
+} from "../_shared/payoutControlCentreSettingsSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -118,6 +122,32 @@ serve(async (req) => {
     const regionId = body.region_id as string | undefined;
     const regionPayoutProvider = await resolveRegionPayoutProvider(supabase, regionId ?? null);
     const manualProviderPayout = isManualBankPayoutProvider(regionPayoutProvider);
+    const controlCentre = await loadPayoutControlCentreSettings(supabase);
+
+    if (!controlCentre.payouts_enabled) {
+      return new Response(JSON.stringify({
+        error: "Automatic payouts are disabled in Payout Ledger settings",
+        error_code: "PAYOUTS_DISABLED",
+        settings: {
+          payout_frequency: controlCentre.payout_frequency,
+          weekly_payout_day: controlCentre.weekly_payout_day,
+          payout_processing_time: controlCentre.payout_processing_time,
+        },
+      }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (controlCentre.payout_frequency === "manual_only") {
+      return new Response(JSON.stringify({
+        error: "Payout frequency is Manual Only — create batches from Payout Ledger actions",
+        error_code: "MANUAL_ONLY_SCHEDULE",
+      }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     if (!stripeExecutionEnabled && !manualProviderPayout) {
       return new Response(JSON.stringify({
@@ -140,7 +170,7 @@ serve(async (req) => {
 
     let driverQuery = supabase
       .from("drivers")
-      .select("id, region_id, stripe_account_id, payouts_enabled, onboarding_complete, first_name, last_name")
+      .select("id, region_id, stripe_account_id, payouts_enabled, onboarding_complete, first_name, last_name, approval_status, driver_status, documents_approved")
       .eq("approval_status", "approved");
 
     if (regionId) driverQuery = driverQuery.eq("region_id", regionId);
@@ -188,19 +218,39 @@ serve(async (req) => {
         manualProviderPayout,
       });
 
-      const payoutAmount = ssot.driver_available_now_pence;
-      const hasWarnings = ssot.payout_warning_reasons.length > 0;
+      const payoutAmountRaw = ssot.driver_available_now_pence;
+      const driverStatus = String((driver as { driver_status?: string }).driver_status ?? "").toLowerCase();
+      const documentsApproved = (driver as { documents_approved?: boolean }).documents_approved;
+      const policy = applyPayoutControlCentrePolicy(payoutAmountRaw, controlCentre, {
+        wallet_balance_pence: ssot.driver_wallet_balance_pence,
+        is_suspended: driverStatus === "suspended" || driverStatus === "blocked" || driverStatus === "banned",
+        has_expired_documents: documentsApproved === false,
+        manual_review_required: ssot.payout_blocked_reasons.some((r) =>
+          String(r).toUpperCase().includes("MANUAL") || String(r).toUpperCase().includes("REVIEW")
+        ),
+        has_pending_disputes: ssot.payout_blocked_reasons.some((r) =>
+          String(r).toUpperCase().includes("DISPUTE")
+        ),
+        has_pending_chargebacks: ssot.payout_blocked_reasons.some((r) =>
+          String(r).toUpperCase().includes("CHARGEBACK")
+        ),
+      });
+      const payoutAmount = policy.amount_pence;
+      const hasWarnings = ssot.payout_warning_reasons.length > 0 || policy.hold;
 
-      if (ssot.payout_blocked || payoutAmount <= 0) {
+      if (ssot.payout_blocked || !policy.allowed || payoutAmount <= 0) {
         blockedCount += 1;
         results.push({
           driver_id: driver.id,
           driver_name: driverName,
           status: "BLOCKED",
-          failure_reason: ssot.payout_blocked_reasons.join("; ")
-            || (payoutAmount <= 0 ? "No payable balance" : "Hard payout block"),
+          failure_reason: [
+            ...ssot.payout_blocked_reasons,
+            ...policy.reasons,
+            ...(payoutAmount <= 0 && policy.allowed ? ["No payable balance"] : []),
+          ].filter(Boolean).join("; ") || "Hard payout block",
           net_payable_pence: payoutAmount,
-          payout_blocked_reasons: ssot.payout_blocked_reasons,
+          payout_blocked_reasons: [...ssot.payout_blocked_reasons, ...policy.reasons],
           payout_warning_reasons: ssot.payout_warning_reasons,
         });
         continue;

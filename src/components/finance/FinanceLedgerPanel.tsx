@@ -11,18 +11,15 @@ import { useFinanceLedgerTransactions } from '@/hooks/useFinanceLedgerTransactio
 import { isAdminDebtRecoveryDebit } from '@/lib/adminFinanceLedgerDisplay';
 import {
   DRIVER_WALLET_LEDGER_FILTER_LABELS,
+  driverWalletFilterToAdminFilter,
   type DriverWalletLedgerFilter,
 } from '@/lib/driverWalletLedgerFilters';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { ledgerAuditTypeLabel } from '@/lib/driverWalletLedgerRoutes';
-import { RefreshCw, Search } from 'lucide-react';
-import { toast } from 'sonner';
-import {
-  CRITICAL_BUTTON_TIMEOUT_MESSAGE,
-  useCriticalButtonTimeout,
-} from '@/lib/criticalButtonTimeout';
-import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
+import { Download, Printer, Search } from 'lucide-react';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
+import { formatNullablePence } from '@/lib/formatNullablePence';
+import { downloadCsv, downloadRecordsAsExcel, printFinanceReport } from '@/lib/financeExport';
 
 const DRIVER_FILTER_TABS = Object.entries(DRIVER_WALLET_LEDGER_FILTER_LABELS) as [DriverWalletLedgerFilter, string][];
 
@@ -63,8 +60,8 @@ export function FinanceLedgerPanel({
   }, [initialFilter]);
   const [search, setSearch] = useState('');
 
-  const { data: rows = [], isLoading, refetch, isFetching } = useFinanceLedgerTransactions({
-    filter,
+  const { data: rows = [], isLoading } = useFinanceLedgerTransactions({
+    filter: driverWalletFilterToAdminFilter(filter),
     regionId: serviceFilter.regionId,
     driverId,
     limit: 300,
@@ -74,40 +71,58 @@ export function FinanceLedgerPanel({
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((row) => {
-      const tripRef = row.trip_code ?? row.trip_id ?? '';
-      return (
-        row.type_label.toLowerCase().includes(q)
-        || row.customer_name?.toLowerCase().includes(q)
-        || tripRef.toLowerCase().includes(q)
-        || row.type.toLowerCase().includes(q)
-        || (row.description?.toLowerCase().includes(q) ?? false)
-      );
-    });
+    const base = !q
+      ? rows
+      : rows.filter((row) => {
+        const tripRef = row.trip_code ?? row.trip_id ?? '';
+        return (
+          row.type_label.toLowerCase().includes(q)
+          || row.customer_name?.toLowerCase().includes(q)
+          || row.driver_name?.toLowerCase().includes(q)
+          || tripRef.toLowerCase().includes(q)
+          || row.type.toLowerCase().includes(q)
+          || (row.description?.toLowerCase().includes(q) ?? false)
+          || (row.evidence?.toLowerCase().includes(q) ?? false)
+        );
+      });
+    // Running balance comes from driverWalletRunningBalanceSSOT in the fetch hook.
+    return base;
   }, [rows, search]);
 
-  const refreshLedgerTimeout = useCriticalButtonTimeout({
-    action: 'admin_refresh_finance',
-    isPending: isFetching,
-    onTimeout: () => {
-      void refetch();
-      toast.error(CRITICAL_BUTTON_TIMEOUT_MESSAGE);
-    },
-  });
-  const showRefreshSpinner = refreshLedgerTimeout.showSpinner;
+  const exportRows = () => {
+    const records = filteredRows.map((r) => ({
+      date: r.created_at,
+      trip_id: r.trip_code ?? r.trip_id,
+      customer: r.customer_name,
+      driver: r.driver_name,
+      reference: r.ledger_reference,
+      type: r.type_label,
+      amount_pence: r.amount_pence,
+      running_balance_pence: r.running_balance_pence ?? null,
+      status: r.status,
+      evidence: r.evidence,
+      notes: r.notes,
+    }));
+    downloadCsv(`driver-wallet-statement-${driverId.slice(0, 8)}.csv`, records);
+  };
 
-  const handleRefresh = () => {
-    const perf = startAdminPerformanceStep({
-      action_name: 'admin_refresh_finance',
-      metadata: { surface: 'finance_ledger', driver_id: driverId },
-    });
-    void refetch().then(
-      () => perf.complete({ success: true }),
-      (err) => perf.complete({
-        success: false,
-        error_code: err instanceof Error ? err.message : 'refresh_failed',
-      }),
+  const exportExcel = () => {
+    downloadRecordsAsExcel(
+      `driver-wallet-statement-${driverId.slice(0, 8)}`,
+      filteredRows.map((r) => ({
+        date: r.created_at,
+        trip_id: r.trip_code ?? r.trip_id,
+        customer: r.customer_name,
+        driver: r.driver_name,
+        reference: r.ledger_reference,
+        type: r.type_label,
+        amount_pence: r.amount_pence,
+        running_balance_pence: r.running_balance_pence ?? null,
+        status: r.status,
+        evidence: r.evidence,
+        notes: r.notes,
+      })),
+      'Driver Statement',
     );
   };
 
@@ -118,14 +133,22 @@ export function FinanceLedgerPanel({
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             className="pl-9"
-            placeholder="Search trip, type, details…"
+            placeholder="Search trip, type, evidence…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <Button variant="outline" size="sm" onClick={handleRefresh} disabled={showRefreshSpinner}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${showRefreshSpinner ? 'animate-spin' : ''}`} />
-          Refresh
+        <Button variant="outline" size="sm" onClick={exportRows} disabled={filteredRows.length === 0}>
+          <Download className="h-4 w-4 mr-2" />
+          Statement CSV
+        </Button>
+        <Button variant="outline" size="sm" onClick={exportExcel} disabled={filteredRows.length === 0}>
+          <Download className="h-4 w-4 mr-2" />
+          Statement Excel
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => printFinanceReport()} disabled={filteredRows.length === 0}>
+          <Printer className="h-4 w-4 mr-2" />
+          Statement PDF
         </Button>
       </div>
 
@@ -149,13 +172,12 @@ export function FinanceLedgerPanel({
             <span className="text-muted-foreground font-normal">({filteredRows.length} rows)</span>
           </CardTitle>
           <p className="text-xs text-muted-foreground mt-1">
-            Audit log — trip settlements, Provider transfers/payouts, adjustments, refunds, and admin corrections.
+            Append-only audit log. Corrections create new entries — records are never deleted.
           </p>
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="flex items-center justify-center h-48 text-muted-foreground">
-              <RefreshCw className="h-6 w-6 animate-spin mr-2" />
+            <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
               Loading ledger…
             </div>
           ) : (
@@ -163,24 +185,23 @@ export function FinanceLedgerPanel({
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Date/time</TableHead>
-                    <TableHead>Trip</TableHead>
-                    <TableHead>Party</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Trip ID</TableHead>
                     <TableHead>Customer</TableHead>
+                    <TableHead>Driver</TableHead>
+                    <TableHead>Reference</TableHead>
                     <TableHead>Type</TableHead>
-                    <TableHead>Direction</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
-                    <TableHead>Details</TableHead>
-                    <TableHead>Method</TableHead>
-                    <TableHead>Source</TableHead>
+                    <TableHead className="text-right">Running Balance</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Ledger ref</TableHead>
+                    <TableHead>Evidence</TableHead>
+                    <TableHead>Notes</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredRows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={12} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
                         No ledger rows found for this filter.
                       </TableCell>
                     </TableRow>
@@ -197,29 +218,31 @@ export function FinanceLedgerPanel({
                               ? getTripDisplayId({ trip_code: row.trip_code, id: row.trip_id })
                               : '—'}
                           </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className={`text-[10px] ${partyBadgeClass(row.party)}`}>
-                              {row.party}
-                            </Badge>
-                          </TableCell>
                           <TableCell className="text-xs">{row.customer_name ?? '—'}</TableCell>
+                          <TableCell className="text-xs">{row.driver_name ?? '—'}</TableCell>
+                          <TableCell className="text-xs font-mono" title={row.ledger_reference ?? undefined}>
+                            {row.ledger_reference?.slice(0, 8) ?? '—'}
+                          </TableCell>
                           <TableCell className="text-xs">
                             <span className={isRecoveryDebit ? 'text-red-400 font-medium' : undefined}>
                               {ledgerAuditTypeLabel(row.type ?? row.type_label)}
                             </span>
+                            <Badge variant="outline" className={`ml-1 text-[10px] ${partyBadgeClass(row.party)}`}>
+                              {row.party}
+                            </Badge>
                           </TableCell>
-                          <TableCell className="text-xs capitalize">{row.direction}</TableCell>
                           <TableCell className={`text-xs text-right font-medium ${row.amount_pence >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                             {formatPence(row.amount_pence, row.currency)}
                           </TableCell>
-                          <TableCell className="text-xs text-muted-foreground max-w-[220px] truncate" title={row.description ?? undefined}>
-                            {row.description ?? '—'}
+                          <TableCell className="text-xs text-right tabular-nums">
+                            {formatNullablePence(row.running_balance_pence, row.currency)}
                           </TableCell>
-                          <TableCell className="text-xs capitalize">{row.payment_method ?? '—'}</TableCell>
-                          <TableCell className="text-xs">{row.source}</TableCell>
                           <TableCell className="text-xs">{row.status ?? '—'}</TableCell>
-                          <TableCell className="text-xs font-mono truncate max-w-[100px]" title={row.ledger_reference ?? undefined}>
-                            {row.ledger_reference?.slice(0, 8) ?? '—'}
+                          <TableCell className="text-xs font-mono max-w-[140px] truncate" title={row.evidence ?? undefined}>
+                            {row.evidence ?? '—'}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground max-w-[180px] truncate" title={row.notes ?? undefined}>
+                            {row.notes ?? '—'}
                           </TableCell>
                         </TableRow>
                       );
