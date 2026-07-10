@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { isAdminPageLiveActive } from '@/lib/adminPageVisibility';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { invokeFinanceReconciliation } from '@/hooks/financeReconciliationApi';
 
@@ -518,7 +519,7 @@ export function useFinanceReconciliation(args?: {
     staleTime: 30_000,
     refetchInterval: () => {
       if (tripSearch) return false;
-      if (typeof document !== 'undefined' && document.hidden) return false;
+      if (!isAdminPageLiveActive()) return false;
       return 120_000;
     },
     refetchIntervalInBackground: false,

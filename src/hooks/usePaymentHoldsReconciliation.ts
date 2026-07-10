@@ -8,6 +8,7 @@ import {
   ADMIN_HOLD_ACTION_FN,
   ADMIN_PAYMENT_HOLDS_RECONCILIATION_FN,
 } from '../../shared/paymentHoldReconciliation';
+import { isAdminPageLiveActive } from '@/lib/adminPageVisibility';
 
 export function usePaymentHoldsReconciliation(enabled = true) {
   return useQuery({
@@ -26,7 +27,7 @@ export function usePaymentHoldsReconciliation(enabled = true) {
     enabled,
     staleTime: 60_000,
     refetchInterval: (query) => {
-      if (typeof document !== 'undefined' && document.hidden) return false;
+      if (!isAdminPageLiveActive()) return false;
       const red = query.state.data?.summary?.red ?? 0;
       const amber = query.state.data?.summary?.amber ?? 0;
       return red > 0 ? 60_000 : amber > 0 ? 120_000 : false;

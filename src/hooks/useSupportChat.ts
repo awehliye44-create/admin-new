@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useEffect } from "react";
+import { isAdminPageLiveActive } from "@/lib/adminPageVisibility";
 
 export interface SupportConversation {
   id: string;
@@ -100,7 +101,7 @@ export function useSupportConversations(statusFilter?: string) {
       return (data || []) as SupportConversation[];
     },
     refetchInterval: () => {
-      if (typeof document !== 'undefined' && document.hidden) return false;
+      if (!isAdminPageLiveActive()) return false;
       return 60_000;
     },
     refetchIntervalInBackground: false,
@@ -395,7 +396,7 @@ export function useUnreadSupportCount() {
       return count || 0;
     },
     refetchInterval: () => {
-      if (typeof document !== 'undefined' && document.hidden) return false;
+      if (!isAdminPageLiveActive()) return false;
       return 60_000;
     },
     refetchIntervalInBackground: false,

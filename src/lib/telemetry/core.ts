@@ -80,8 +80,8 @@ const DEFAULT_THRESHOLDS: Partial<Record<MetricName, number>> = {
   network_request_time: 500,
 };
 
-const DEFAULT_BATCH_SIZE = 10;
-const DEFAULT_FLUSH_MS = 10_000;
+const DEFAULT_BATCH_SIZE = 40;
+const DEFAULT_FLUSH_MS = 60_000;
 const DEFAULT_MAX_VALUE = 30_000;
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -233,6 +233,7 @@ export class OnecabTelemetry {
     metadata?: Record<string, unknown>,
   ) {
     if (this.config.disabled) return;
+    if (!this.shouldSample(metric, metadata)) return;
 
     const rounded = Math.round(value);
 
@@ -262,5 +263,15 @@ export class OnecabTelemetry {
     } else if (!this.timer) {
       this.timer = setTimeout(() => this.flush(), this.flushMs);
     }
+  }
+
+  private shouldSample(metric: MetricName, metadata?: Record<string, unknown>): boolean {
+    const status = String(metadata?.performance_status ?? '');
+    if (status === 'error' || status === 'timeout' || status === 'failed') return true;
+    if (/error|fail|payment|hold|dispatch|invariant/i.test(metric)) return true;
+    if (typeof import.meta !== 'undefined' && (import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
+      return true;
+    }
+    return Math.random() < 0.15;
   }
 }

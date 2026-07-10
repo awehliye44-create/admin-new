@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
 import { countAdminActiveTrips } from '@/lib/adminActiveTripFilter';
-import { isAdminDocumentVisible, isAdminTabLiveActive, subscribeAdminTabLiveActive } from '@/lib/adminTabLeader';
+import { isAdminPageLiveActive, subscribeAdminPageLiveActive } from '@/lib/adminPageVisibility';
 
 
 export interface SidebarCounts {
@@ -182,29 +182,34 @@ export function useSidebarCounts() {
 
   useEffect(() => {
     void fetchSidebarCountsOnce();
-    const interval = window.setInterval(() => {
-      if (!isAdminTabLiveActive() || !isAdminDocumentVisible()) return;
+
+    const refreshIfLive = () => {
+      if (!isAdminPageLiveActive()) return;
       void fetchSidebarCountsOnce(true);
-    }, 120_000);
-    return () => window.clearInterval(interval);
+    };
+
+    const interval = window.setInterval(refreshIfLive, POLL_INTERVAL_MS);
+
+    const onVisible = () => {
+      if (isAdminPageLiveActive()) {
+        void fetchSidebarCountsOnce(true);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   useEffect(() => {
     const handleFocus = () => {
+      if (!isAdminPageLiveActive()) return;
       void fetchSidebarCountsOnce(true);
     };
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
-  }, []);
-
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    const tick = () => {
-      if (document.hidden) return;
-      void fetchSidebarCountsOnce(true);
-    };
-    const id = window.setInterval(tick, POLL_INTERVAL_MS);
-    return () => window.clearInterval(id);
   }, []);
 
 
