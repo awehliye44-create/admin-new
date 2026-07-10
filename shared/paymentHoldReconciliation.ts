@@ -4,6 +4,20 @@
 
 export type PaymentHoldClassification = "GREEN" | "AMBER" | "RED";
 
+export type PaymentHoldAttentionClass =
+  | "ACTIVE_AUTHORISED_HOLD"
+  | "RECOVERY_PENDING"
+  | "RELEASE_PENDING"
+  | "RELEASE_FAILED"
+  | "RESOLVED_PROVIDER_CANCELLED"
+  | "RESOLVED_PROVIDER_REVERTED"
+  | "RESOLVED_COMPANION_SESSION"
+  | "CAPTURED"
+  | "REFUNDED"
+  | "LEGACY_EVIDENCE"
+  | "UNKNOWN_PROVIDER_STATE"
+  | "OK_ACTIVE_TRIP";
+
 export type PaymentHoldReconciliationRow = {
   id: string;
   payment_session_id: string;
@@ -42,21 +56,36 @@ export type PaymentHoldReconciliationRow = {
     | "BLOCKED_EXPIRED_NOT_RELEASED"
     | "BLOCKED_RELEASE_FAILED"
     | "BLOCKED_UNKNOWN_STATE";
+  attention_class?: PaymentHoldAttentionClass;
+  in_active_queue?: boolean;
   can_release: boolean;
   can_retry_release: boolean;
   can_retry_recovery: boolean;
+  can_refund?: boolean;
   can_open_trip: boolean;
+  released_amount_pence?: number | null;
+  amount_display?: "AMOUNT_UNCONFIRMED" | null;
+  resolution_source?: string | null;
+  provider_state_verified_at?: string | null;
+  orphan_evidence_id?: string | null;
 };
 
 export type AdminPaymentHoldsReconciliationResponse = {
   success: boolean;
   payment_holds_requiring_attention: PaymentHoldReconciliationRow[];
+  payment_holds_history?: PaymentHoldReconciliationRow[];
   summary: {
     total: number;
     green: number;
     amber: number;
     red: number;
+    resolved?: number;
     total_hold_pence: number;
+    active_hold_count?: number;
+    active_hold_amount_pence?: number;
+    resolved_count?: number;
+    resolved_amount_pence?: number;
+    unknown_count?: number;
   };
   error?: string;
 };
