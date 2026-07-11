@@ -29,6 +29,8 @@ export type PaymentTripMatchInput = {
   provider_verification_status?: "VERIFIED" | "STALE" | "UNKNOWN" | "UNAVAILABLE" | null;
   /** True when provider state is still authorised / pending (not terminal capture). */
   provider_state_pending?: boolean;
+  /** Raw provider state — used to distinguish CAPTURE_MISSING vs CAPTURE_EVIDENCE_PENDING. */
+  provider_state?: string | null;
   /** Authorised hold amount — used only for release-buffer checks after capture matches. */
   authorised_amount_pence?: number | null;
   /** Provider-confirmed released amount. Null ≠ £0. */
@@ -81,9 +83,6 @@ export function classifyPaymentTripMatch(input: PaymentTripMatchInput): PaymentT
   }
 
   const verification = String(input.provider_verification_status ?? "").toUpperCase();
-  if (verification === "UNAVAILABLE") {
-    return emptyResult("PROVIDER_VERIFICATION_PENDING");
-  }
 
   const expected = confirmedPence(input.expected_capture_pence);
   if (expected == null) {
@@ -95,11 +94,19 @@ export function classifyPaymentTripMatch(input: PaymentTripMatchInput): PaymentT
     if (input.provider_state_pending) {
       return emptyResult("PROVIDER_STATE_PENDING");
     }
-    // Verified provider evidence with no capture amount = missing capture (not pending).
-    if (verification === "VERIFIED") {
+    // Spec fallback: provider API unavailable / stale verification → pending verification.
+    if (verification === "UNAVAILABLE" || verification === "STALE") {
+      return emptyResult("PROVIDER_VERIFICATION_PENDING");
+    }
+    // Provider terminal CAPTURED/COMPLETED verified but amount still null = missing capture evidence.
+    const providerState = String(input.provider_state ?? "").toUpperCase();
+    if (
+      verification === "VERIFIED"
+      && (providerState === "CAPTURED" || providerState === "COMPLETED")
+    ) {
       return emptyResult("CAPTURE_MISSING");
     }
-    // STALE / UNKNOWN / unset — still waiting on evidence.
+    // Spec fallback: null capture → CAPTURE_EVIDENCE_PENDING (never treat auth as capture).
     return emptyResult("CAPTURE_EVIDENCE_PENDING");
   }
 

@@ -833,6 +833,7 @@ export default function PaymentSessions() {
                       <TableRow>
                         <TableHead>Created</TableHead>
                         <TableHead>Payment Session ID</TableHead>
+                        <TableHead>Provider Refs</TableHead>
                         <TableHead>Trip ID</TableHead>
                         <TableHead>Customer</TableHead>
                         <TableHead>Service Area</TableHead>
@@ -841,7 +842,7 @@ export default function PaymentSessions() {
                         <TableHead>Purpose</TableHead>
                         <TableHead>Customer Payable</TableHead>
                         <TableHead>Pre-auth Buffer</TableHead>
-                        <TableHead>Total Authorised</TableHead>
+                        <TableHead>Authorised</TableHead>
                         <TableHead>Captured</TableHead>
                         <TableHead>Released</TableHead>
                         <TableHead>Reason</TableHead>
@@ -874,6 +875,14 @@ export default function PaymentSessions() {
                                   : row.orphan_payment_id
                                   ? `orphan:${row.orphan_payment_id.slice(0, 8)}`
                                   : '—'}
+                              </TableCell>
+                              <TableCell className="font-mono text-[10px] text-muted-foreground max-w-[160px]">
+                                <div>order: {row.provider_order_id ? row.provider_order_id.slice(0, 10) : '—'}</div>
+                                <div>pay: {row.provider_payment_id ? row.provider_payment_id.slice(0, 10) : '—'}</div>
+                                <div>cap: {row.provider_capture_id ? row.provider_capture_id.slice(0, 10) : '—'}</div>
+                                {row.refunded_amount_pence != null && (
+                                  <div>refund: {formatNullablePence(row.refunded_amount_pence)}</div>
+                                )}
                               </TableCell>
                               <TableCell className="text-xs">
                                 {row.trip_id ? (
@@ -1037,7 +1046,7 @@ export default function PaymentSessions() {
                             </TableRow>
                             {expandedId === key && (
                               <TableRow>
-                                <TableCell colSpan={23} className="bg-muted/40 text-xs">
+                                <TableCell colSpan={24} className="bg-muted/40 text-xs">
                                   <div className="space-y-3">
                                     <div>
                                       <div className="mb-1 font-medium">Session evidence</div>
