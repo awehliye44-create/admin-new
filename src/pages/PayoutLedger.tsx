@@ -37,6 +37,7 @@ import {
   PayoutLedgerRetryButton,
 } from '@/components/finance/PayoutLedgerActions';
 import { PayoutLedgerSettingsPanel } from '@/components/finance/PayoutLedgerSettingsPanel';
+import { PayoutLedgerCompanyTransfersPanel } from '@/components/finance/PayoutLedgerCompanyTransfersPanel';
 import { useAdminPayoutLedger } from '@/hooks/useAdminPayoutLedger';
 import { supabase } from '@/integrations/supabase/client';
 import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
@@ -45,12 +46,23 @@ import { formatNullablePence } from '@/lib/formatNullablePence';
 import { paymentSessionsUrl } from '../../shared/adminPaymentSessionsSSOT';
 import { payoutLedgerUrl } from '../../shared/adminPayoutLedgerSSOT';
 import type {
+  AdminPayoutLedgerDriverTab,
   AdminPayoutLedgerItemRow,
-  AdminPayoutLedgerTab,
+  AdminPayoutLedgerTopTab,
   DriverPayoutAccountRow,
 } from '../../shared/adminPayoutLedgerSSOT';
 
-const DRIVER_TABS: Array<{ id: AdminPayoutLedgerTab; label: string }> = [
+const TOP_TABS: Array<{ id: AdminPayoutLedgerTopTab; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'driver_payouts', label: 'Driver Payouts' },
+  { id: 'company_transfers', label: 'Company Transfers' },
+  { id: 'batch_history', label: 'Batch History' },
+  { id: 'failed_transfers', label: 'Failed Transfers' },
+  { id: 'settings', label: 'Settings' },
+  { id: 'audit_history', label: 'Audit History' },
+];
+
+const DRIVER_TABS: Array<{ id: AdminPayoutLedgerDriverTab; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'scheduled', label: 'Scheduled' },
   { id: 'history', label: 'Payout History' },
@@ -62,8 +74,30 @@ const DRIVER_TABS: Array<{ id: AdminPayoutLedgerTab; label: string }> = [
   { id: 'settings', label: 'Settings' },
 ];
 
-function parseTab(raw: string | null): AdminPayoutLedgerTab {
-  if (raw && DRIVER_TABS.some((t) => t.id === raw)) return raw as AdminPayoutLedgerTab;
+const LEGACY_DRIVER_TOP: Record<string, AdminPayoutLedgerTopTab> = {
+  scheduled: 'driver_payouts',
+  processing: 'driver_payouts',
+  completed: 'driver_payouts',
+  failed: 'failed_transfers',
+  failures: 'failed_transfers',
+  batches: 'batch_history',
+  history: 'driver_payouts',
+  transfers: 'driver_payouts',
+  connected_account: 'driver_payouts',
+  statements: 'driver_payouts',
+  audit_log: 'audit_history',
+};
+
+function parseTopTab(raw: string | null, hasDriver: boolean): AdminPayoutLedgerTopTab {
+  if (hasDriver) return 'driver_payouts';
+  if (raw && TOP_TABS.some((t) => t.id === raw)) return raw as AdminPayoutLedgerTopTab;
+  if (raw && LEGACY_DRIVER_TOP[raw]) return LEGACY_DRIVER_TOP[raw];
+  return 'overview';
+}
+
+function parseDriverTab(raw: string | null, topTab: string | null): AdminPayoutLedgerDriverTab {
+  if (raw && DRIVER_TABS.some((t) => t.id === raw)) return raw as AdminPayoutLedgerDriverTab;
+  if (topTab && DRIVER_TABS.some((t) => t.id === topTab)) return topTab as AdminPayoutLedgerDriverTab;
   return 'overview';
 }
 
@@ -91,29 +125,69 @@ function statementRecords(items: AdminPayoutLedgerItemRow[]) {
 
 export default function PayoutLedger() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = parseTab(searchParams.get('tab'));
   const driverId = searchParams.get('driverId');
   const batchId = searchParams.get('batchId');
+  const topTab = parseTopTab(searchParams.get('tab'), Boolean(driverId));
+  const driverTab = parseDriverTab(searchParams.get('driverTab'), searchParams.get('tab'));
   const queryClient = useQueryClient();
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(
     DEFAULT_SERVICE_AREA_SELECTION,
   );
 
-  const listRequest = useMemo(
-    () => ({
+  const listRequest = useMemo(() => {
+    if (topTab === 'overview') {
+      return {
+        mode: 'ledger_overview' as const,
+        tab: 'overview' as const,
+        service_area_id: serviceFilter.serviceAreaId,
+        limit: 100,
+      };
+    }
+    if (topTab === 'company_transfers') {
+      return {
+        mode: 'company_list' as const,
+        tab: 'company_transfers' as const,
+        service_area_id: serviceFilter.serviceAreaId,
+        limit: 100,
+      };
+    }
+    if (topTab === 'failed_transfers') {
+      return {
+        mode: 'company_failed' as const,
+        tab: 'failed_transfers' as const,
+        service_area_id: serviceFilter.serviceAreaId,
+        limit: 100,
+      };
+    }
+    if (topTab === 'batch_history') {
+      return {
+        mode: 'company_batches' as const,
+        tab: 'batch_history' as const,
+        service_area_id: serviceFilter.serviceAreaId,
+        limit: 100,
+      };
+    }
+    if (topTab === 'audit_history') {
+      return {
+        mode: 'company_audit' as const,
+        tab: 'audit_history' as const,
+        limit: 100,
+      };
+    }
+    return {
       mode: driverId ? 'list' as const : 'accounts_overview' as const,
-      tab: driverId ? tab : 'overview' as AdminPayoutLedgerTab,
+      tab: driverId ? driverTab : 'driver_payouts' as const,
       driver_id: driverId,
       batch_id: batchId,
       service_area_id: serviceFilter.serviceAreaId,
       limit: 100,
-    }),
-    [tab, driverId, batchId, serviceFilter.serviceAreaId],
-  );
+    };
+  }, [topTab, driverTab, driverId, batchId, serviceFilter.serviceAreaId]);
+
   const accountRequest = useMemo(
     () => ({
       mode: 'accounts_overview' as const,
-      tab: 'overview' as AdminPayoutLedgerTab,
+      tab: 'driver_payouts' as const,
       driver_id: driverId,
       service_area_id: serviceFilter.serviceAreaId,
       limit: 1,
@@ -121,7 +195,7 @@ export default function PayoutLedger() {
     [driverId, serviceFilter.serviceAreaId],
   );
 
-  const listEnabled = tab !== 'settings';
+  const listEnabled = topTab !== 'settings';
   const { data, isLoading, isFetching, error, refetch, isError } = useAdminPayoutLedger(
     listRequest,
     listEnabled,
@@ -131,12 +205,16 @@ export default function PayoutLedger() {
   const batches = data?.batches ?? [];
   const accounts = data?.accounts ?? [];
   const auditRows = data?.audit_rows ?? [];
+  const companyTransfers = data?.company_transfers ?? [];
+  const companyBatches = data?.company_batches ?? [];
+  const companyAuditRows = data?.company_audit_rows ?? [];
+  const overview = data?.overview_summary;
   const account = accountData?.accounts?.[0] ?? accounts.find((row) => row.driver_id === driverId) ?? null;
   const summary = data?.summary;
   const fleet = data?.fleet_summary;
 
   useEffect(() => {
-    if (tab === 'settings') return;
+    if (topTab === 'settings') return;
     const channel = supabase
       .channel('payout-ledger-live')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'payout_items' }, () => {
@@ -145,29 +223,43 @@ export default function PayoutLedger() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'payout_batches' }, () => {
         void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'company_outgoing_transfers' }, () => {
+        void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
+      })
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [tab, queryClient]);
+  }, [topTab, queryClient]);
 
-  const setTab = (next: string) => {
+  const setTopTab = (next: string) => {
     const params = new URLSearchParams(searchParams);
     params.set('tab', next);
+    params.delete('driverId');
+    params.delete('driverTab');
     setSearchParams(params, { replace: true });
   };
 
-  const openAccount = (row: DriverPayoutAccountRow, nextTab: AdminPayoutLedgerTab = 'overview') => {
+  const setDriverTab = (next: string) => {
     const params = new URLSearchParams(searchParams);
+    params.set('tab', 'driver_payouts');
+    params.set('driverTab', next);
+    setSearchParams(params, { replace: true });
+  };
+
+  const openAccount = (row: DriverPayoutAccountRow, nextTab: AdminPayoutLedgerDriverTab = 'overview') => {
+    const params = new URLSearchParams(searchParams);
+    params.set('tab', 'driver_payouts');
     params.set('driverId', row.driver_id);
-    params.set('tab', nextTab);
+    params.set('driverTab', nextTab);
     setSearchParams(params, { replace: true });
   };
 
   const backToFleet = () => {
     const params = new URLSearchParams(searchParams);
     params.delete('driverId');
-    params.set('tab', 'overview');
+    params.delete('driverTab');
+    params.set('tab', 'driver_payouts');
     setSearchParams(params, { replace: true });
   };
 
@@ -187,7 +279,16 @@ export default function PayoutLedger() {
   };
 
   const exportAccountStatement = (row: DriverPayoutAccountRow) => {
-    downloadCsv(`payout-account-${row.driver_id.slice(0, 8)}.csv`, [row]);
+    downloadCsv(`payout-account-${row.driver_id.slice(0, 8)}.csv`, [{
+      driver_id: row.driver_id,
+      name: row.name,
+      code: row.code,
+      available_balance_pence: row.available_balance_pence,
+      pending_balance_pence: row.pending_balance_pence,
+      debt_pence: row.debt_pence,
+      payout_status: row.payout_status,
+      verification: row.verification,
+    }]);
   };
 
   const exportRow = (row: AdminPayoutLedgerItemRow) => {
@@ -200,11 +301,11 @@ export default function PayoutLedger() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="space-y-1">
             <p className="text-sm text-muted-foreground">
-              Consumes Driver Wallet Ledger available balance only. Payment Sessions and Financial Reconciliation stay read-only references.
+              ALL outgoing money SSOT: driver payouts (from Driver Wallet available) and company transfers (from Company Balance / payables). Never customer payments or FR execution.
             </p>
             <div className="flex flex-wrap gap-2">
-              <Badge variant={data?.page_status === 'LIVE' || tab === 'settings' ? 'default' : 'secondary'}>
-                {data?.page_status ?? (tab === 'settings' ? 'LIVE' : 'PARTIAL')}
+              <Badge variant={data?.page_status === 'LIVE' || topTab === 'settings' ? 'default' : 'secondary'}>
+                {data?.page_status ?? (topTab === 'settings' ? 'LIVE' : 'PARTIAL')}
               </Badge>
               {summary && (
                 <>
@@ -226,17 +327,14 @@ export default function PayoutLedger() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <ServiceAreaFinanceFilter value={serviceFilter} onChange={setServiceFilter} />
-            <PayoutLedgerCreateWeeklyBatchButton
-              regionId={serviceFilter.regionId}
-              serviceAreaId={serviceFilter.serviceAreaId}
-              currencyCode={serviceFilter.currencyCode ?? 'GBP'}
-            />
-            {!driverId && (
-              <Button variant="outline" size="sm" onClick={() => setTab(tab === 'settings' ? 'overview' : 'settings')}>
-                {tab === 'settings' ? 'Fleet overview' : 'Settings'}
-              </Button>
+            {topTab === 'driver_payouts' && (
+              <PayoutLedgerCreateWeeklyBatchButton
+                regionId={serviceFilter.regionId}
+                serviceAreaId={serviceFilter.serviceAreaId}
+                currencyCode={serviceFilter.currencyCode ?? 'GBP'}
+              />
             )}
-            {tab !== 'settings' && isError && (
+            {topTab !== 'settings' && isError && (
               <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
                 {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                 <span className="ml-2">Retry</span>
@@ -245,18 +343,168 @@ export default function PayoutLedger() {
           </div>
         </div>
 
-        {error && tab !== 'settings' && (
+        {error && topTab !== 'settings' && (
           <Alert variant="destructive">
             <AlertTitle>Payout Ledger failed to load</AlertTitle>
             <AlertDescription>{error instanceof Error ? error.message : String(error)}</AlertDescription>
           </Alert>
         )}
 
-        {!driverId && tab === 'settings' && (
-          <PayoutLedgerSettingsPanel serviceFilter={serviceFilter} />
-        )}
+        <Tabs value={topTab} onValueChange={setTopTab}>
+          <TabsList className="flex h-auto flex-wrap">
+            {TOP_TABS.map((t) => (
+              <TabsTrigger key={t.id} value={t.id}>{t.label}</TabsTrigger>
+            ))}
+          </TabsList>
 
-        {!driverId && tab !== 'settings' && (
+          <TabsContent value="overview" className="mt-4 space-y-4">
+            {isLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading overview...
+              </div>
+            ) : overview ? (
+              <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Driver Payouts Pending</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(overview.driver_payouts_pending_pence)}</CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Driver Payouts Scheduled</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(overview.driver_payouts_scheduled_pence)}</CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Driver Payouts Completed Today</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(overview.driver_payouts_completed_today_pence)}</CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Company Transfers Pending</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(overview.company_transfers_pending_pence)}</CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Company Transfers Completed Today</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(overview.company_transfers_completed_today_pence)}</CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Failed Transfers</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{overview.failed_transfers_count}</CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Awaiting Approval</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{overview.awaiting_approval_count}</CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Next Scheduled Weekly Driver Payout</CardTitle></CardHeader><CardContent className="text-sm font-semibold">{shortDate(overview.next_scheduled_weekly_driver_payout_at)}</CardContent></Card>
+              </div>
+            ) : (
+              <Alert><AlertTitle>Overview unavailable</AlertTitle></Alert>
+            )}
+          </TabsContent>
+
+          <TabsContent value="company_transfers" className="mt-4">
+            <PayoutLedgerCompanyTransfersPanel transfers={companyTransfers} isLoading={isLoading} />
+          </TabsContent>
+
+          <TabsContent value="failed_transfers" className="mt-4 space-y-4">
+            <PayoutLedgerCompanyTransfersPanel transfers={companyTransfers} isLoading={isLoading} failedOnly />
+            {items.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium">Failed driver payouts</h3>
+                <PayoutItemsTable items={items} exportRow={exportRow} />
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="batch_history" className="mt-4 space-y-4">
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium">Company batches</h3>
+              {companyBatches.length === 0 ? (
+                <Alert><AlertTitle>No company batches yet</AlertTitle></Alert>
+              ) : (
+                <div className="overflow-x-auto rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Batch ID</TableHead>
+                        <TableHead>Execution</TableHead>
+                        <TableHead>Count</TableHead>
+                        <TableHead>Success</TableHead>
+                        <TableHead>Failed</TableHead>
+                        <TableHead>Provider</TableHead>
+                        <TableHead>Duration</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {companyBatches.map((b) => (
+                        <TableRow key={b.id}>
+                          <TableCell className="text-xs font-mono">{b.batch_ref}</TableCell>
+                          <TableCell className="text-xs">{shortDate(b.started_at ?? b.created_at)}</TableCell>
+                          <TableCell className="text-xs">{b.transfer_count}</TableCell>
+                          <TableCell className="text-xs">{b.success_count}</TableCell>
+                          <TableCell className="text-xs">{b.failed_count}</TableCell>
+                          <TableCell className="text-xs">{b.provider ?? '—'}</TableCell>
+                          <TableCell className="text-xs">{b.duration_ms == null ? '—' : `${b.duration_ms} ms`}</TableCell>
+                          <TableCell className="text-xs"><Badge variant="outline">{b.status}</Badge></TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium">Driver payout batches</h3>
+              <div className="overflow-x-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Created</TableHead>
+                      <TableHead>Run date</TableHead>
+                      <TableHead>Kind</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Drivers</TableHead>
+                      <TableHead>Total</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {batches.map((b) => (
+                      <TableRow key={b.id}>
+                        <TableCell className="text-xs">{shortDate(b.created_at)}</TableCell>
+                        <TableCell className="text-xs">{b.run_date}</TableCell>
+                        <TableCell className="text-xs">{b.kind}</TableCell>
+                        <TableCell className="text-xs"><Badge variant="outline">{b.status}</Badge></TableCell>
+                        <TableCell className="text-xs">{b.total_drivers ?? '—'}</TableCell>
+                        <TableCell className="text-xs">{formatNullablePence(b.total_amount_pence)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="audit_history" className="mt-4 space-y-3">
+            {companyAuditRows.length === 0 ? (
+              <Alert>
+                <AlertTitle>No company transfer audit events yet</AlertTitle>
+                <AlertDescription>Append-only audit rows appear after create/approve/pay actions.</AlertDescription>
+              </Alert>
+            ) : (
+              <div className="overflow-x-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>When</TableHead>
+                      <TableHead>Transfer</TableHead>
+                      <TableHead>Event</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Provider ref</TableHead>
+                      <TableHead>Reason</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {companyAuditRows.map((row) => (
+                      <TableRow key={row.id}>
+                        <TableCell className="text-xs">{shortDate(row.created_at)}</TableCell>
+                        <TableCell className="text-xs font-mono">{row.transfer_id.slice(0, 8)}</TableCell>
+                        <TableCell className="text-xs"><Badge variant="outline">{row.event_type}</Badge></TableCell>
+                        <TableCell className="text-xs">{row.old_status ?? '—'} → {row.new_status ?? '—'}</TableCell>
+                        <TableCell className="text-xs tabular-nums">{formatNullablePence(row.amount_pence)}</TableCell>
+                        <TableCell className="text-xs font-mono">{row.provider_reference ?? '—'}</TableCell>
+                        <TableCell className="text-xs max-w-[220px] truncate">{row.reason ?? '—'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="settings" className="mt-4">
+            <PayoutLedgerSettingsPanel serviceFilter={serviceFilter} />
+          </TabsContent>
+
+          <TabsContent value="driver_payouts" className="mt-4 space-y-4">
+        {!driverId && (
           <div className="space-y-4">
             {fleet && (
               <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -446,7 +694,7 @@ export default function PayoutLedger() {
               </div>
             </div>
 
-            <Tabs value={tab} onValueChange={setTab}>
+            <Tabs value={driverTab} onValueChange={setDriverTab}>
               <TabsList className="flex h-auto flex-wrap">
                 {DRIVER_TABS.map((t) => (
                   <TabsTrigger key={t.id} value={t.id}>{t.label}</TabsTrigger>
@@ -581,6 +829,8 @@ export default function PayoutLedger() {
             </Tabs>
           </div>
         )}
+          </TabsContent>
+        </Tabs>
       </div>
     </AdminLayout>
   );

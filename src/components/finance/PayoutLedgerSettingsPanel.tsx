@@ -39,6 +39,10 @@ const SETTING_KEYS = [
   'early_cashout_max_pence',
   'early_cashout_max_per_day',
   'stripe_instant_payouts_enabled',
+  'company_transfer_approval_single_max_pence',
+  'company_transfer_approval_dual_max_pence',
+  'company_transfer_default_account',
+  'company_transfer_retry_max',
 ] as const;
 
 type RuleMode = 'allow' | 'hold' | 'block';
@@ -492,6 +496,44 @@ export function PayoutLedgerSettingsPanel({
             <Switch
               checked={get('stripe_instant_payouts_enabled', 'false') === 'true'}
               onCheckedChange={(v) => set('stripe_instant_payouts_enabled', v ? 'true' : 'false')}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Company transfer approvals</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label>Single approval max (pence)</Label>
+            <Input
+              value={get('company_transfer_approval_single_max_pence', '25000')}
+              onChange={(e) => set('company_transfer_approval_single_max_pence', e.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground">Default £250 = 25000. Requester cannot self-approve.</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Dual approval max (pence)</Label>
+            <Input
+              value={get('company_transfer_approval_dual_max_pence', '250000')}
+              onChange={(e) => set('company_transfer_approval_dual_max_pence', e.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground">Above this requires owner approval. Default £2,500 = 250000.</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Default company account</Label>
+            <Input
+              value={get('company_transfer_default_account', '')}
+              onChange={(e) => set('company_transfer_default_account', e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Retry max</Label>
+            <Input
+              value={get('company_transfer_retry_max', '3')}
+              onChange={(e) => set('company_transfer_retry_max', e.target.value)}
             />
           </div>
         </CardContent>
