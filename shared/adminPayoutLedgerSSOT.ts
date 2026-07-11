@@ -199,6 +199,8 @@ export type CompanyOutgoingAuditRow = {
   created_at: string;
   transfer_id: string;
   actor_id: string | null;
+  requester_id: string | null;
+  approver_id: string | null;
   event_type: string;
   old_status: string | null;
   new_status: string | null;

@@ -72,6 +72,27 @@ export function resolveDefaultMoneySourceForCategory(
   return "COMPANY_BALANCE";
 }
 
+/**
+ * Enforce money source by category.
+ * Staff salary/reimbursement must always be COMPANY_BALANCE (never payables / wallet).
+ */
+export function resolveEnforcedCompanyTransferMoneySource(args: {
+  category: string | null | undefined;
+  money_source?: string | null;
+}): CompanyTransferMoneySource {
+  const category = String(args.category ?? "").toUpperCase();
+  const requested = args.money_source == null || String(args.money_source).trim() === ""
+    ? resolveDefaultMoneySourceForCategory(category)
+    : assertCompanyTransferMoneySource(args.money_source);
+  if (category === "STAFF_REIMBURSEMENT" || category === "STAFF_SALARY") {
+    if (requested !== "COMPANY_BALANCE") {
+      throw new Error("STAFF_MUST_USE_COMPANY_BALANCE");
+    }
+    return "COMPANY_BALANCE";
+  }
+  return requested;
+}
+
 export function isCompanyTransferCategory(raw: string | null | undefined): boolean {
   return (COMPANY_TRANSFER_CATEGORIES as readonly string[]).includes(String(raw ?? "").toUpperCase());
 }

@@ -41,7 +41,7 @@ import { PayoutLedgerCompanyTransfersPanel } from '@/components/finance/PayoutLe
 import { useAdminPayoutLedger } from '@/hooks/useAdminPayoutLedger';
 import { supabase } from '@/integrations/supabase/client';
 import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
-import { downloadCsv, downloadRecordsAsExcel, printFinanceReport } from '@/lib/financeExport';
+import { downloadCsv, downloadRecordsAsExcel, printFinanceReport, printFinanceRecords } from '@/lib/financeExport';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 import { paymentSessionsUrl } from '../../shared/adminPaymentSessionsSSOT';
 import { payoutLedgerUrl } from '../../shared/adminPayoutLedgerSSOT';
@@ -363,6 +363,61 @@ export default function PayoutLedger() {
                 <Loader2 className="h-4 w-4 animate-spin" /> Loading overview...
               </div>
             ) : overview ? (
+              <>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => printFinanceRecords('ONECAB weekly payout report', [{
+                    report: 'weekly',
+                    driver_pending_pence: overview.driver_payouts_pending_pence,
+                    driver_scheduled_pence: overview.driver_payouts_scheduled_pence,
+                    driver_completed_today_pence: overview.driver_payouts_completed_today_pence,
+                    company_pending_pence: overview.company_transfers_pending_pence,
+                    company_completed_today_pence: overview.company_transfers_completed_today_pence,
+                    failed_transfers: overview.failed_transfers_count,
+                    awaiting_approval: overview.awaiting_approval_count,
+                    next_weekly_driver_payout_at: overview.next_scheduled_weekly_driver_payout_at,
+                    generated_at: new Date().toISOString(),
+                  }])}
+                >
+                  <Printer className="h-4 w-4 mr-2" /> Weekly report PDF
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => printFinanceRecords('ONECAB monthly payout report', [{
+                    report: 'monthly',
+                    driver_pending_pence: overview.driver_payouts_pending_pence,
+                    driver_scheduled_pence: overview.driver_payouts_scheduled_pence,
+                    driver_completed_today_pence: overview.driver_payouts_completed_today_pence,
+                    company_pending_pence: overview.company_transfers_pending_pence,
+                    company_completed_today_pence: overview.company_transfers_completed_today_pence,
+                    failed_transfers: overview.failed_transfers_count,
+                    awaiting_approval: overview.awaiting_approval_count,
+                    generated_at: new Date().toISOString(),
+                  }])}
+                >
+                  <Printer className="h-4 w-4 mr-2" /> Monthly report PDF
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => printFinanceRecords('ONECAB annual payout report', [{
+                    report: 'annual',
+                    driver_pending_pence: overview.driver_payouts_pending_pence,
+                    driver_scheduled_pence: overview.driver_payouts_scheduled_pence,
+                    driver_completed_today_pence: overview.driver_payouts_completed_today_pence,
+                    company_pending_pence: overview.company_transfers_pending_pence,
+                    company_completed_today_pence: overview.company_transfers_completed_today_pence,
+                    failed_transfers: overview.failed_transfers_count,
+                    awaiting_approval: overview.awaiting_approval_count,
+                    generated_at: new Date().toISOString(),
+                  }])}
+                >
+                  <Printer className="h-4 w-4 mr-2" /> Annual report PDF
+                </Button>
+              </div>
               <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Driver Payouts Pending</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(overview.driver_payouts_pending_pence)}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Driver Payouts Scheduled</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(overview.driver_payouts_scheduled_pence)}</CardContent></Card>
@@ -373,6 +428,7 @@ export default function PayoutLedger() {
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Awaiting Approval</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{overview.awaiting_approval_count}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Next Scheduled Weekly Driver Payout</CardTitle></CardHeader><CardContent className="text-sm font-semibold">{shortDate(overview.next_scheduled_weekly_driver_payout_at)}</CardContent></Card>
               </div>
+              </>
             ) : (
               <Alert><AlertTitle>Overview unavailable</AlertTitle></Alert>
             )}
@@ -520,36 +576,38 @@ export default function PayoutLedger() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Timestamp</TableHead>
-                      <TableHead>Transfer ID</TableHead>
-                      <TableHead>Actor</TableHead>
-                      <TableHead>Event</TableHead>
-                      <TableHead>Old → New</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Currency</TableHead>
-                      <TableHead>Provider</TableHead>
-                      <TableHead>Provider Reference</TableHead>
-                      <TableHead>Reason</TableHead>
-                      <TableHead>Attachment</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {companyAuditRows.map((row) => (
-                      <TableRow key={row.id}>
-                        <TableCell className="text-xs">{shortDate(row.created_at)}</TableCell>
-                        <TableCell className="text-xs font-mono">{row.transfer_id.slice(0, 8)}</TableCell>
-                        <TableCell className="text-xs font-mono">{row.actor_id?.slice(0, 8) ?? '—'}</TableCell>
-                        <TableCell className="text-xs"><Badge variant="outline">{row.event_type}</Badge></TableCell>
-                        <TableCell className="text-xs">{row.old_status ?? '—'} → {row.new_status ?? '—'}</TableCell>
-                        <TableCell className="text-xs tabular-nums">{formatNullablePence(row.amount_pence)}</TableCell>
-                        <TableCell className="text-xs">{row.currency ?? '—'}</TableCell>
-                        <TableCell className="text-xs">{row.provider ?? '—'}</TableCell>
-                        <TableCell className="text-xs font-mono">{row.provider_reference ?? '—'}</TableCell>
-                        <TableCell className="text-xs max-w-[180px] truncate">{row.reason ?? '—'}</TableCell>
-                        <TableCell className="text-xs max-w-[120px] truncate">{row.attachment_url ?? '—'}</TableCell>
+                        <TableHead>Timestamp</TableHead>
+                        <TableHead>Transfer ID</TableHead>
+                        <TableHead>Requester</TableHead>
+                        <TableHead>Approver</TableHead>
+                        <TableHead>Event</TableHead>
+                        <TableHead>Old → New</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Currency</TableHead>
+                        <TableHead>Provider</TableHead>
+                        <TableHead>Provider Reference</TableHead>
+                        <TableHead>Reason</TableHead>
+                        <TableHead>Attachment</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
+                    </TableHeader>
+                    <TableBody>
+                      {companyAuditRows.map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell className="text-xs">{shortDate(row.created_at)}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.transfer_id.slice(0, 8)}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.requester_id?.slice(0, 8) ?? '—'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.approver_id?.slice(0, 8) ?? '—'}</TableCell>
+                          <TableCell className="text-xs"><Badge variant="outline">{row.event_type}</Badge></TableCell>
+                          <TableCell className="text-xs">{row.old_status ?? '—'} → {row.new_status ?? '—'}</TableCell>
+                          <TableCell className="text-xs tabular-nums">{formatNullablePence(row.amount_pence)}</TableCell>
+                          <TableCell className="text-xs">{row.currency ?? '—'}</TableCell>
+                          <TableCell className="text-xs">{row.provider ?? '—'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.provider_reference ?? '—'}</TableCell>
+                          <TableCell className="text-xs max-w-[180px] truncate">{row.reason ?? '—'}</TableCell>
+                          <TableCell className="text-xs max-w-[120px] truncate">{row.attachment_url ?? '—'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
                 </Table>
               </div>
             )}

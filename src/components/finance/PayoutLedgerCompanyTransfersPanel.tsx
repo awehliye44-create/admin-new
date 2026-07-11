@@ -126,7 +126,10 @@ export function PayoutLedgerCompanyTransfersPanel({
           recipient_name: form.recipient_name,
           recipient_type: form.recipient_type,
           category: form.category,
-          money_source: form.money_source,
+          money_source:
+            form.category === 'STAFF_REIMBURSEMENT' || form.category === 'STAFF_SALARY'
+              ? 'COMPANY_BALANCE'
+              : form.money_source,
           source_account: form.source_account || null,
           destination_account: form.destination_account || null,
           amount_pence: amountPence,
@@ -274,8 +277,13 @@ export function PayoutLedgerCompanyTransfersPanel({
             <div className="space-y-1">
               <Label>Money source</Label>
               <Select
-                value={form.money_source}
+                value={
+                  form.category === 'STAFF_REIMBURSEMENT' || form.category === 'STAFF_SALARY'
+                    ? 'COMPANY_BALANCE'
+                    : form.money_source
+                }
                 onValueChange={(v) => setForm((f) => ({ ...f, money_source: v }))}
+                disabled={form.category === 'STAFF_REIMBURSEMENT' || form.category === 'STAFF_SALARY'}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -284,6 +292,9 @@ export function PayoutLedgerCompanyTransfersPanel({
                   ))}
                 </SelectContent>
               </Select>
+              {(form.category === 'STAFF_REIMBURSEMENT' || form.category === 'STAFF_SALARY') && (
+                <p className="text-[10px] text-muted-foreground">Staff salary/reimbursement must use COMPANY_BALANCE.</p>
+              )}
             </div>
             <div className="space-y-1">
               <Label>Source account</Label>
