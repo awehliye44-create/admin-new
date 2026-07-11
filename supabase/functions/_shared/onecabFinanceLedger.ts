@@ -11,6 +11,11 @@ export const CAPTURED_PAYMENT_STATUSES = new Set(["captured", "paid", "succeeded
 /** Ledger types excluded from wallet balance (reporting-only). */
 export const BALANCE_EXCLUDED_LEDGER_TYPES = [
   "PLATFORM_COMMISSION",
+  "PLATFORM_COMMISSION_GROSS",
+  "PLATFORM_COMMISSION_NET",
+  "PAYMENT_PROVIDER_FEE",
+  "PAYMENT_PROVIDER_FEE_ADJUSTMENT",
+  "PROVIDER_FEE_REVERSAL",
   "CASH_TRIP_EARNING",
 ] as const;
 

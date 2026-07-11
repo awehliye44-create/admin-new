@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import { fetchPerDriverFinancialReconciliation } from "../_shared/perDriverFinancialReconciliation.ts";
+import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
 import {
   isManualBankPayoutProvider,
   resolveRegionPayoutProvider,
@@ -17,6 +18,12 @@ import {
   applyPayoutControlCentrePolicy,
   loadPayoutControlCentreSettings,
 } from "../_shared/payoutControlCentreSettingsSSOT.ts";
+import {
+  assertAllocationEqualsAmount,
+  evaluatePayoutEligibilityGate,
+} from "../_shared/payoutAllocationEligibilitySSOT.ts";
+import { resolvePayoutTransferAmountPence } from "../_shared/payoutLedgerConsumeDwlSSOT.ts";
+import { toDbBatchStatus, toDbItemStatus } from "../_shared/payoutCanonicalStatusSSOT.ts";
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 const corsHeaders = {
@@ -36,6 +43,73 @@ type DriverResult = {
   payout_blocked_reasons?: string[];
   payout_item_id?: string;
 };
+
+type AllocationLine = {
+  ledger_entry_id: string;
+  amount_pence: number;
+};
+
+async function allocateTripEarningCredits(args: {
+  supabase: ReturnType<typeof createClient>;
+  driverId: string;
+  payoutItemId: string;
+  amountPence: number;
+}): Promise<{ allocations_written: number }> {
+  const { data: credits, error: creditsError } = await args.supabase
+    .from("driver_wallet_ledger")
+    .select("id, amount_pence, created_at")
+    .eq("driver_id", args.driverId)
+    .eq("type", "TRIP_EARNING_NET")
+    .gt("amount_pence", 0)
+    .order("created_at", { ascending: true })
+    .limit(500);
+
+  if (creditsError) throw creditsError;
+  const creditRows = credits ?? [];
+  const creditIds = creditRows.map((row) => String(row.id));
+  const allocatedByLedger = new Map<string, number>();
+
+  if (creditIds.length > 0) {
+    const { data: existing, error: existingError } = await args.supabase
+      .from("payout_item_ledger_allocations")
+      .select("ledger_entry_id, amount_pence")
+      .in("ledger_entry_id", creditIds);
+    if (existingError) throw existingError;
+    for (const row of existing ?? []) {
+      const ledgerId = String(row.ledger_entry_id ?? "");
+      if (!ledgerId) continue;
+      allocatedByLedger.set(
+        ledgerId,
+        (allocatedByLedger.get(ledgerId) ?? 0) + Math.max(0, Number(row.amount_pence ?? 0)),
+      );
+    }
+  }
+
+  let remaining = Math.max(0, Math.round(args.amountPence));
+  const lines: AllocationLine[] = [];
+  for (const row of creditRows) {
+    if (remaining <= 0) break;
+    const ledgerId = String(row.id);
+    const available = Math.max(0, Number(row.amount_pence ?? 0) - (allocatedByLedger.get(ledgerId) ?? 0));
+    const slice = Math.min(available, remaining);
+    if (slice <= 0) continue;
+    lines.push({ ledger_entry_id: ledgerId, amount_pence: slice });
+    remaining -= slice;
+  }
+
+  assertAllocationEqualsAmount(lines, args.amountPence);
+
+  const { error: insertError } = await args.supabase
+    .from("payout_item_ledger_allocations")
+    .insert(lines.map((line) => ({
+      payout_item_id: args.payoutItemId,
+      ledger_entry_id: line.ledger_entry_id,
+      amount_pence: line.amount_pence,
+    })));
+
+  if (insertError) throw insertError;
+  return { allocations_written: lines.length };
+}
 
 /**
  * WEEKLY_MONDAY settlement — creates batch + payout_items per eligible driver.
@@ -300,7 +374,7 @@ serve(async (req) => {
         .insert({
           kind: "WEEKLY_MONDAY",
           run_date: runDate,
-          status: "CREATED",
+          status: toDbBatchStatus("DRAFT"),
           total_drivers: 0,
           total_amount_pence: 0,
           created_by: actorUserId,
@@ -337,49 +411,79 @@ serve(async (req) => {
         continue;
       }
 
-      const ssot = await fetchPerDriverFinancialReconciliation(supabase, {
+      const idempotencyKey = `weekly:${serviceAreaId ?? regionId ?? driver.service_area_id ?? driver.region_id ?? "global"}:${runDate}:${driver.id}`;
+      const walletSnap = await fetchDriverWalletPayoutSnapshot(supabase, {
         driverId: driver.id,
-        regionId: driver.region_id,
-        providerAvailableBalancePence: manualProviderPayout ? Number.MAX_SAFE_INTEGER : stripeAvailablePence,
-        providerPendingBalancePence: stripePendingPence,
-        sourceTier: "LIVE",
-        manualProviderPayout,
+        currency: "gbp",
       });
+      let ssot: Awaited<ReturnType<typeof fetchPerDriverFinancialReconciliation>> | null = null;
+      try {
+        ssot = await fetchPerDriverFinancialReconciliation(supabase, {
+          driverId: driver.id,
+          regionId: driver.region_id,
+          providerAvailableBalancePence: manualProviderPayout ? Number.MAX_SAFE_INTEGER : stripeAvailablePence,
+          providerPendingBalancePence: stripePendingPence,
+          sourceTier: "LIVE",
+          manualProviderPayout,
+        });
+      } catch (frError) {
+        console.warn("[admin-weekly-monday-settlement] FR metadata read failed", {
+          driver_id: driver.id,
+          error: frError instanceof Error ? frError.message : String(frError),
+        });
+      }
 
-      const payoutAmountRaw = ssot.driver_available_now_pence;
+      const availableBalancePence = Math.max(0, Number(walletSnap.cashout_limit_pence ?? 0));
+      const payoutAmountRaw = resolvePayoutTransferAmountPence({
+        available_balance_pence: availableBalancePence,
+        min_payout_pence: controlCentre.payout_min_pence,
+        max_automatic_pence: controlCentre.payout_max_pence,
+      });
       const driverStatus = String((driver as { driver_status?: string }).driver_status ?? "").toLowerCase();
       const documentsApproved = (driver as { documents_approved?: boolean }).documents_approved;
       const policy = applyPayoutControlCentrePolicy(payoutAmountRaw, controlCentre, {
-        wallet_balance_pence: ssot.driver_wallet_balance_pence,
+        wallet_balance_pence: walletSnap.wallet_balance_pence,
         is_suspended: driverStatus === "suspended" || driverStatus === "blocked" || driverStatus === "banned",
         has_expired_documents: documentsApproved === false,
-        manual_review_required: ssot.payout_blocked_reasons.some((r) =>
+        manual_review_required: (ssot?.payout_blocked_reasons ?? []).some((r) =>
           String(r).toUpperCase().includes("MANUAL") || String(r).toUpperCase().includes("REVIEW")
         ),
-        has_pending_disputes: ssot.payout_blocked_reasons.some((r) =>
+        has_pending_disputes: (ssot?.payout_blocked_reasons ?? []).some((r) =>
           String(r).toUpperCase().includes("DISPUTE")
         ),
-        has_pending_chargebacks: ssot.payout_blocked_reasons.some((r) =>
+        has_pending_chargebacks: (ssot?.payout_blocked_reasons ?? []).some((r) =>
           String(r).toUpperCase().includes("CHARGEBACK")
         ),
       });
       const payoutAmount = policy.amount_pence;
-      const hasWarnings = ssot.payout_warning_reasons.length > 0 || policy.hold;
+      const eligibility = evaluatePayoutEligibilityGate({
+        amount_pence: payoutAmount,
+        available_balance_pence: availableBalancePence,
+        connected_account: manualProviderPayout || Boolean(walletSnap.connected_account_id),
+        payouts_paused: driver.payouts_enabled === false,
+        min_threshold_pence: controlCentre.payout_min_pence,
+        currency: "GBP",
+        expected_currency: "GBP",
+        idempotency_key: idempotencyKey,
+      });
+      const frWarningReasons = ssot?.payout_warning_reasons ?? [];
+      const frBlockedReasons = ssot?.payout_blocked_reasons ?? [];
+      const hasWarnings = frWarningReasons.length > 0 || frBlockedReasons.length > 0 || policy.hold;
 
-      if (ssot.payout_blocked || !policy.allowed || payoutAmount <= 0) {
+      if (!policy.allowed || !eligibility.ok || payoutAmount <= 0) {
         blockedCount += 1;
         results.push({
           driver_id: driver.id,
           driver_name: driverName,
           status: "BLOCKED",
           failure_reason: [
-            ...ssot.payout_blocked_reasons,
             ...policy.reasons,
+            ...eligibility.reasons,
             ...(payoutAmount <= 0 && policy.allowed ? ["No payable balance"] : []),
           ].filter(Boolean).join("; ") || "Hard payout block",
           net_payable_pence: payoutAmount,
-          payout_blocked_reasons: [...ssot.payout_blocked_reasons, ...policy.reasons],
-          payout_warning_reasons: ssot.payout_warning_reasons,
+          payout_blocked_reasons: [...policy.reasons, ...eligibility.reasons],
+          payout_warning_reasons: [...frWarningReasons, ...frBlockedReasons],
         });
         continue;
       }
@@ -394,8 +498,8 @@ serve(async (req) => {
           driver_name: driverName,
           status: "READY",
           net_payable_pence: payoutAmount,
-          payout_warning_reasons: ssot.payout_warning_reasons,
-          payout_blocked_reasons: ssot.payout_blocked_reasons,
+          payout_warning_reasons: frWarningReasons,
+          payout_blocked_reasons: frBlockedReasons,
         });
         continue;
       }
@@ -407,14 +511,21 @@ serve(async (req) => {
           driver_id: driver.id,
           amount_pence: payoutAmount,
           net_driver_payout_pence: payoutAmount,
-          status: "pending",
+          status: toDbItemStatus("PENDING"),
           settlement_status: "READY",
           driver_stripe_account_id: driver.stripe_account_id,
           provider_response: {
             payout_provider: regionPayoutProvider,
             manual_provider_payout: manualProviderPayout,
-            payout_warning_reasons: ssot.payout_warning_reasons,
-            payout_blocked_reasons: ssot.payout_blocked_reasons,
+            idempotency_key: idempotencyKey,
+            available_balance_source: "driver_wallet_ledger.cashout_limit_pence",
+            available_balance_pence: availableBalancePence,
+            dwl_wallet_balance_pence: walletSnap.wallet_balance_pence,
+            payout_warning_reasons: frWarningReasons,
+            payout_blocked_reasons: frBlockedReasons,
+            fr_metadata_only: true,
+            wallet_reconciliation_status: walletSnap.reconciliation_status,
+            wallet_reconciliation_reasons: walletSnap.reconciliation_reasons,
           },
         })
         .select()
@@ -428,9 +539,35 @@ serve(async (req) => {
           status: "FAILED",
           failure_code: "PAYOUT_ITEM_CREATE_FAILED",
           failure_reason: itemError?.message ?? "payout_item insert failed",
-          payout_warning_reasons: ssot.payout_warning_reasons,
+          payout_warning_reasons: frWarningReasons,
         });
         continue;
+      }
+
+      try {
+        await allocateTripEarningCredits({
+          supabase,
+          driverId: driver.id,
+          payoutItemId: item.id,
+          amountPence: payoutAmount,
+        });
+      } catch (allocationError) {
+        await supabase
+          .from("payout_items")
+          .update({
+            status: toDbItemStatus("ELIGIBILITY_HOLD"),
+            failure_reason: allocationError instanceof Error
+              ? allocationError.message
+              : "Payout allocation failed",
+            provider_response: {
+              ...(item.provider_response ?? {}),
+              allocation_status: "ELIGIBILITY_HOLD",
+              allocation_error: allocationError instanceof Error
+                ? allocationError.message
+                : String(allocationError),
+            },
+          })
+          .eq("id", item.id);
       }
 
       totalAmount += payoutAmount;
@@ -441,14 +578,14 @@ serve(async (req) => {
         payout_item_id: item.id,
         status: "READY",
         net_payable_pence: payoutAmount,
-        payout_warning_reasons: ssot.payout_warning_reasons,
-        payout_blocked_reasons: ssot.payout_blocked_reasons,
+        payout_warning_reasons: frWarningReasons,
+        payout_blocked_reasons: frBlockedReasons,
       });
     }
 
-    let batchStatus = successCount > 0 ? "READY" : "BLOCKED";
+    let batchStatus = successCount > 0 ? toDbBatchStatus("SCHEDULED") : toDbBatchStatus("FAILED");
     if (totalAmount > 0 && successCount === 0 && !verificationMode) {
-      batchStatus = "INVALID_ORPHANED";
+      batchStatus = toDbBatchStatus("FAILED");
     }
 
     if (!verificationMode && batchId) {
@@ -458,10 +595,8 @@ serve(async (req) => {
         total_amount_pence: totalAmount,
         successful_payouts: 0,
         failed_payouts: failedCount,
-        failure_reason: batchStatus === "INVALID_ORPHANED"
-          ? "Batch has amount but no payout items"
-          : (successCount === 0 ? "No eligible drivers for Monday settlement" : null),
-        failure_code: batchStatus === "INVALID_ORPHANED" ? "ORPHANED_NO_ITEMS" : null,
+        failure_reason: successCount === 0 ? "No eligible drivers for Monday settlement" : null,
+        failure_code: null,
         updated_at: new Date().toISOString(),
       }).eq("id", batchId);
     }

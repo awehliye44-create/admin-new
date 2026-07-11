@@ -11,9 +11,14 @@ export type AdminPayoutLedgerTab =
   | "processing"
   | "completed"
   | "failed"
+  | "failures"
   | "returned_cancelled"
   | "batches"
   | "history"
+  | "transfers"
+  | "connected_account"
+  | "statements"
+  | "audit_log"
   | "settings";
 
 export type AdminPayoutLedgerPageStatus =
@@ -24,6 +29,7 @@ export type AdminPayoutLedgerPageStatus =
   | "PROVIDER_UNAVAILABLE";
 
 export type AdminPayoutLedgerListRequest = {
+  mode?: "accounts_overview" | "list";
   tab?: AdminPayoutLedgerTab;
   driver_id?: string | null;
   service_area_id?: string | null;
@@ -72,6 +78,42 @@ export type AdminPayoutLedgerItemRow = {
   };
 };
 
+export type DriverPayoutAccountRow = {
+  driver_id: string;
+  name: string | null;
+  code: string | null;
+  service_area_id: string | null;
+  service_area: string | null;
+  tier: string | null;
+  provider: string | null;
+  connected_account: string | null;
+  verification: string | null;
+  available_balance_pence: number;
+  pending_balance_pence: number;
+  debt_pence: number;
+  next_scheduled_at: string | null;
+  last_payout_at: string | null;
+  last_payout_amount_pence: number | null;
+  schedule_label: string | null;
+  payout_status: string;
+  paused: boolean;
+};
+
+export type AdminPayoutLedgerFleetSummary = {
+  total_available_pence: number;
+  total_scheduled_pence: number;
+  total_processing_pence: number;
+  paid_today_pence: number;
+  paid_week_pence: number;
+  paid_month_pence: number;
+  paid_year_pence: number;
+  failed_count: number;
+  paused_accounts: number;
+  unverified_accounts: number;
+  next_batch_amount_pence: number;
+  next_batch_driver_count: number;
+};
+
 export type AdminPayoutLedgerBatchRow = {
   id: string;
   created_at: string;
@@ -86,12 +128,28 @@ export type AdminPayoutLedgerBatchRow = {
   failure_reason: string | null;
 };
 
+/** Append-only payout_audit_log rows for the Audit Log tab. */
+export type AdminPayoutLedgerAuditRow = {
+  id: string;
+  created_at: string;
+  driver_id: string | null;
+  payout_type: string | null;
+  event_type: string;
+  requested_amount_pence: number | null;
+  provider_error_code: string | null;
+  provider_error_message: string | null;
+  metadata: Record<string, unknown> | null;
+};
+
 export type AdminPayoutLedgerListResponse = {
   success: boolean;
   page_status: AdminPayoutLedgerPageStatus;
   tab: AdminPayoutLedgerTab;
   items: AdminPayoutLedgerItemRow[];
   batches: AdminPayoutLedgerBatchRow[];
+  accounts?: DriverPayoutAccountRow[];
+  fleet_summary?: AdminPayoutLedgerFleetSummary;
+  audit_rows?: AdminPayoutLedgerAuditRow[];
   summary: {
     total_items: number;
     scheduled_count: number;
@@ -108,6 +166,16 @@ export type AdminPayoutLedgerListResponse = {
     total_paid_week_pence: number | null;
     total_paid_month_pence: number | null;
     total_paid_year_pence: number | null;
+    total_available_pence?: number;
+    total_scheduled_pence?: number;
+    total_processing_pence?: number;
+    paid_week_pence?: number;
+    paid_month_pence?: number;
+    paid_year_pence?: number;
+    paused_accounts?: number;
+    unverified_accounts?: number;
+    next_batch_amount_pence?: number;
+    next_batch_driver_count?: number;
   };
   error?: string;
 };
