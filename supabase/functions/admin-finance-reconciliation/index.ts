@@ -42,7 +42,7 @@ import {
 } from "../_shared/financeReconciliationTripQuery.ts";
 
 const PAYMENT_SESSION_MONEY_SELECT =
-  "id, trip_id, status, payment_method, captured_amount_pence, authorised_amount_pence, total_authorised_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_state, provider_state_verified_at";
+  "id, trip_id, status, payment_method, captured_amount_pence, authorised_amount_pence, total_authorised_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_state, provider_state_verified_at, metadata";
 
 const TRIP_AUDIT_SELECT = `
         id,

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildCaptureBreakdownForCompletedTrip,
   buildPaymentSessionCaptureBreakdown,
   captureClassificationToMatchStatus,
+  readPersistedCaptureBreakdown,
 } from "../paymentSessionsCaptureBreakdownSSOT";
 
 describe("paymentSessionsCaptureBreakdownSSOT", () => {
@@ -95,5 +97,38 @@ describe("paymentSessionsCaptureBreakdownSSOT", () => {
     });
     expect(b.capture_classification).toBe("CAPTURE_AMOUNT_UNKNOWN");
     expect(b.variance_pence).toBeNull();
+  });
+
+  it("buildCaptureBreakdownForCompletedTrip maps trip evidence via PS-owned entry", () => {
+    const b = buildCaptureBreakdownForCompletedTrip({
+      trip: {
+        final_customer_fare_pence: 680,
+        pickup_waiting_charge_pence: 18,
+        final_fare_pence: 698,
+      },
+      provider_captured_pence: 698,
+      canonical_expected_capture_pence: 698,
+    });
+    expect(b.capture_classification).toBe("CAPTURED_WITH_WAITING_TIME");
+    expect(b.variance_pence).toBe(0);
+  });
+
+  it("readPersistedCaptureBreakdown returns PS metadata without FR re-derivation", () => {
+    const persisted = readPersistedCaptureBreakdown({
+      capture_breakdown: {
+        ride_fare_pence: 680,
+        pickup_waiting_charge_pence: 18,
+        stop_waiting_charge_pence: 0,
+        tip_pence: 0,
+        expected_capture_pence: 698,
+        provider_captured_pence: 698,
+        variance_pence: 0,
+        variance_reason: "Pickup waiting time",
+        capture_classification: "CAPTURED_WITH_WAITING_TIME",
+      },
+    });
+    expect(persisted?.capture_classification).toBe("CAPTURED_WITH_WAITING_TIME");
+    expect(persisted?.expected_capture_pence).toBe(698);
+    expect(persisted?.variance_reason).toBe("Pickup waiting time");
   });
 });

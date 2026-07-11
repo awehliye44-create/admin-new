@@ -112,6 +112,8 @@ export type PaymentSessionMoneyRow = {
   provider_state?: string | null;
   provider_state_verified_at?: string | null;
   payment_method?: string | null;
+  /** May include capture_breakdown owned by Payment Sessions. */
+  metadata?: Record<string, unknown> | null;
 };
 
 export type PaymentSessionMoneyByTrip = {
@@ -126,6 +128,7 @@ export type PaymentSessionMoneyByTrip = {
   provider_state_verified_at: string | null;
   payment_method: string | null;
   status: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 /** Confirmed capture only — never invent £0; never treat 0 as confirmed. */
@@ -163,6 +166,9 @@ export function buildPaymentSessionMoneyByTrip(
     const providerState = s.provider_state ?? null;
     const providerVerifiedAt = s.provider_state_verified_at ?? null;
     const paymentMethod = s.payment_method ?? null;
+    const metadata = (s.metadata && typeof s.metadata === "object")
+      ? s.metadata as Record<string, unknown>
+      : null;
     if (!existing) {
       byTrip.set(s.trip_id, {
         payment_session_id: sessionId,
@@ -176,6 +182,7 @@ export function buildPaymentSessionMoneyByTrip(
         provider_state_verified_at: providerVerifiedAt,
         payment_method: paymentMethod,
         status: s.status ?? null,
+        metadata,
       });
       continue;
     }
@@ -212,6 +219,7 @@ export function buildPaymentSessionMoneyByTrip(
         : (existing.provider_state_verified_at ?? providerVerifiedAt),
       payment_method: existing.payment_method ?? paymentMethod,
       status: s.status ?? existing.status,
+      metadata: preferNewId ? metadata : (existing.metadata ?? metadata),
     });
   }
   return byTrip;

@@ -59,6 +59,26 @@ export type PaymentSessionCaptureBreakdownInput = {
   provider_captured_pence?: number | null;
 };
 
+/** Trip evidence fields Payment Sessions may read to build the capture breakdown. */
+export type PaymentSessionCaptureTripEvidence = {
+  final_customer_fare_pence?: number | null;
+  commissionable_fare_pence?: number | null;
+  locked_base_fare_pence?: number | null;
+  gross_fare_pence?: number | null;
+  final_fare_pence?: number | null;
+  pickup_waiting_charge_pence?: number | null;
+  stop_waiting_charge_pence?: number | null;
+  stop_charge_total_pence?: number | null;
+  no_show_charge_pence?: number | null;
+  airport_charge_pence?: number | null;
+  tip_pence?: number | null;
+  tip_amount_pence?: number | null;
+  extras_pence?: number | null;
+  customer_modification_charge_pence?: number | null;
+  destination_change_adjustment_pence?: number | null;
+  other_pass_through_charges_pence?: number | null;
+};
+
 const TOLERANCE_PENCE = 1;
 
 /** Confirmed money: null stays null; never invent £0 from unknown. Non-negative only. */
@@ -69,13 +89,11 @@ export function nullableComponentPence(v: number | null | undefined): number | n
   return Math.round(n);
 }
 
-/** Treat null components as 0 only when summing known rows that are explicitly present as 0. */
 function componentOrZero(v: number | null): number {
   return v == null ? 0 : v;
 }
 
 function sumKnownComponents(parts: Array<number | null>): number | null {
-  // If every component is null, expected is unknown.
   if (parts.every((p) => p == null)) return null;
   return parts.reduce<number>((s, p) => s + componentOrZero(p), 0);
 }
@@ -129,7 +147,7 @@ export function classifyPaymentSessionCaptureVariance(args: {
       + (noShow > 0 ? 1 : 0)
       + (extras > 0 ? 1 : 0);
 
-    if (positiveKinds > 1 || (extras > 1)) {
+    if (positiveKinds > 1 || extras > 1) {
       return {
         capture_classification: "CAPTURED_WITH_ADDITIONAL_CHARGES",
         variance_pence: 0,
@@ -179,10 +197,6 @@ export function classifyPaymentSessionCaptureVariance(args: {
   };
 }
 
-/**
- * Build Payment Sessions capture breakdown from canonical trip components + provider capture.
- * Does not invent component amounts — null stays null.
- */
 export function buildPaymentSessionCaptureBreakdown(
   input: PaymentSessionCaptureBreakdownInput,
 ): PaymentSessionCaptureBreakdown {
@@ -237,7 +251,6 @@ export function buildPaymentSessionCaptureBreakdown(
     additional_legitimate_count: additionalLegitimate,
   });
 
-  // Prefer CAPTURE_SHORTFALL label when short and unexplained (match status alias).
   let classification = classified.capture_classification;
   if (classification === "UNEXPLAINED_SHORTFALL") {
     classification = "CAPTURE_SHORTFALL";
@@ -264,7 +277,87 @@ export function buildPaymentSessionCaptureBreakdown(
   };
 }
 
-/** Map breakdown classification → Payment Matching status (reconcile status). */
+/**
+ * Payment Sessions–owned entry point for completed-trip capture explanation.
+ * FR must call this or readPersistedCaptureBreakdown — never invent reasons locally.
+ */
+export function buildCaptureBreakdownForCompletedTrip(args: {
+  trip: PaymentSessionCaptureTripEvidence;
+  provider_captured_pence: number | null;
+  canonical_expected_capture_pence?: number | null;
+}): PaymentSessionCaptureBreakdown {
+  const trip = args.trip;
+  const ride = nullableComponentPence(
+    trip.final_customer_fare_pence
+      ?? trip.commissionable_fare_pence
+      ?? trip.locked_base_fare_pence
+      ?? trip.gross_fare_pence,
+  );
+  const pickup = nullableComponentPence(trip.pickup_waiting_charge_pence);
+  const stop = nullableComponentPence(
+    trip.stop_waiting_charge_pence ?? trip.stop_charge_total_pence,
+  );
+  const noShow = nullableComponentPence(trip.no_show_charge_pence);
+  const airport = nullableComponentPence(trip.airport_charge_pence);
+  const tip = nullableComponentPence(trip.tip_pence ?? trip.tip_amount_pence);
+  const extras = nullableComponentPence(trip.extras_pence);
+  const manual = nullableComponentPence(trip.customer_modification_charge_pence);
+  const destination = nullableComponentPence(trip.destination_change_adjustment_pence);
+  const other = nullableComponentPence(trip.other_pass_through_charges_pence);
+
+  const persistedFinal = nullableComponentPence(trip.final_fare_pence);
+  const canonical = nullableComponentPence(args.canonical_expected_capture_pence)
+    ?? persistedFinal;
+
+  return buildPaymentSessionCaptureBreakdown({
+    ride_fare_pence: ride,
+    pickup_waiting_charge_pence: pickup,
+    stop_waiting_charge_pence: stop,
+    no_show_charge_pence: noShow,
+    airport_charge_pence: airport,
+    toll_charge_pence: null,
+    parking_charge_pence: null,
+    extra_stop_charge_pence: extras,
+    manual_adjustment_pence: manual,
+    destination_change_pence: destination,
+    tip_pence: tip,
+    other_payment_component_pence: other,
+    canonical_expected_capture_pence: canonical,
+    provider_captured_pence: args.provider_captured_pence,
+  });
+}
+
+/** Read a previously persisted Payment Sessions capture breakdown from session metadata. */
+export function readPersistedCaptureBreakdown(
+  metadata: unknown,
+): PaymentSessionCaptureBreakdown | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const raw = (metadata as Record<string, unknown>).capture_breakdown;
+  if (!raw || typeof raw !== "object") return null;
+  const b = raw as Record<string, unknown>;
+  const classification = b.capture_classification;
+  if (typeof classification !== "string" || !classification) return null;
+  return {
+    ride_fare_pence: nullableComponentPence(b.ride_fare_pence as number | null),
+    pickup_waiting_charge_pence: nullableComponentPence(b.pickup_waiting_charge_pence as number | null),
+    stop_waiting_charge_pence: nullableComponentPence(b.stop_waiting_charge_pence as number | null),
+    no_show_charge_pence: nullableComponentPence(b.no_show_charge_pence as number | null),
+    airport_charge_pence: nullableComponentPence(b.airport_charge_pence as number | null),
+    toll_charge_pence: nullableComponentPence(b.toll_charge_pence as number | null),
+    parking_charge_pence: nullableComponentPence(b.parking_charge_pence as number | null),
+    extra_stop_charge_pence: nullableComponentPence(b.extra_stop_charge_pence as number | null),
+    manual_adjustment_pence: nullableComponentPence(b.manual_adjustment_pence as number | null),
+    destination_change_pence: nullableComponentPence(b.destination_change_pence as number | null),
+    tip_pence: nullableComponentPence(b.tip_pence as number | null),
+    other_payment_component_pence: nullableComponentPence(b.other_payment_component_pence as number | null),
+    expected_capture_pence: nullableComponentPence(b.expected_capture_pence as number | null),
+    provider_captured_pence: nullableComponentPence(b.provider_captured_pence as number | null),
+    variance_pence: b.variance_pence == null ? null : Number(b.variance_pence),
+    variance_reason: typeof b.variance_reason === "string" ? b.variance_reason : null,
+    capture_classification: classification as PaymentSessionCaptureClassification,
+  };
+}
+
 export function captureClassificationToMatchStatus(
   classification: PaymentSessionCaptureClassification,
 ):

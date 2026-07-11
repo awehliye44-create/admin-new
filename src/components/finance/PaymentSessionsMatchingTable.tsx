@@ -43,6 +43,8 @@ export function PaymentSessionsMatchingTable({
             <TableHead>Authorised</TableHead>
             <TableHead>Released</TableHead>
             <TableHead>Variance</TableHead>
+            <TableHead>Reason</TableHead>
+            <TableHead>Classification</TableHead>
             <TableHead>Match Status</TableHead>
             <TableHead>Provider State</TableHead>
             <TableHead>Verification</TableHead>
@@ -75,6 +77,12 @@ export function PaymentSessionsMatchingTable({
                     over {formatNullablePence(row.overcapture_pence, currencyCode)}
                   </div>
                 )}
+              </TableCell>
+              <TableCell className="text-xs max-w-[140px] truncate" title={row.variance_reason ?? undefined}>
+                {row.variance_reason ?? '—'}
+              </TableCell>
+              <TableCell className="text-[10px] text-muted-foreground">
+                {row.capture_classification ?? '—'}
               </TableCell>
               <TableCell>
                 <Badge variant={row.match_status === 'MATCHED' ? 'default' : 'destructive'}>

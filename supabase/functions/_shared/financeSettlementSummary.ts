@@ -30,8 +30,9 @@ import {
   sumTripWalletEarningCreditPence,
 } from "./frTripAuditComparisonSSOT.ts";
 import {
-  buildPaymentSessionCaptureBreakdown,
+  buildCaptureBreakdownForCompletedTrip,
   captureClassificationToMatchStatus,
+  readPersistedCaptureBreakdown,
 } from "../../../shared/paymentSessionsCaptureBreakdownSSOT.ts";
 import {
   deriveTripFinancialAuditStatuses,
@@ -906,54 +907,25 @@ export function mapTripToFinancialAuditRow(
     sessionsMapPresent,
   });
 
-  // Payment Sessions owns expected capture + reason — FR consumes breakdown SSOT only.
-  const rideFareForCapture = nullablePenceLike(
-    row.final_customer_fare_pence ?? row.commissionable_fare_pence ?? row.gross_fare_pence,
-  );
-  const pickupWaiting = nullablePenceLike(row.pickup_waiting_charge_pence);
-  const stopWaiting = nullablePenceLike(row.stop_waiting_charge_pence ?? row.stop_charge_total_pence);
-  const noShow = nullablePenceLike(row.no_show_charge_pence);
-  const destinationChange = nullablePenceLike(
-    (row as { destination_change_adjustment_pence?: number | null }).destination_change_adjustment_pence,
-  );
-  const manualAdj = nullablePenceLike(row.customer_modification_charge_pence);
-  const extrasPence = nullablePenceLike(row.extras_pence);
-  const passThrough = nullablePenceLike(row.other_pass_through_charges_pence);
-  const tipForCapture = nullablePenceLike(row.tip_pence ?? row.tip_amount_pence);
-  const airportForCapture = nullablePenceLike(row.airport_charge_pence);
-
-  // Prefer persisted final_fare (capture SSOT result) when present; else component sum.
-  const persistedFinal = nullablePenceLike(row.final_fare_pence);
-  const componentSum =
-    (rideFareForCapture ?? 0)
-    + (pickupWaiting ?? 0)
-    + (stopWaiting ?? 0)
-    + (noShow ?? 0)
-    + (airportForCapture ?? 0)
-    + (extrasPence ?? 0)
-    + (manualAdj ?? 0)
-    + (destinationChange ?? 0)
-    + (tipForCapture ?? 0)
-    + (passThrough ?? 0);
-  const psCaptureBreakdown = buildPaymentSessionCaptureBreakdown({
-    ride_fare_pence: rideFareForCapture,
-    pickup_waiting_charge_pence: pickupWaiting,
-    stop_waiting_charge_pence: stopWaiting,
-    no_show_charge_pence: noShow,
-    airport_charge_pence: airportForCapture,
-    toll_charge_pence: null,
-    parking_charge_pence: null,
-    extra_stop_charge_pence: extrasPence,
-    manual_adjustment_pence: manualAdj,
-    destination_change_pence: destinationChange,
-    tip_pence: tipForCapture,
-    other_payment_component_pence: passThrough,
-    canonical_expected_capture_pence: persistedFinal ?? (rideFareForCapture != null ? componentSum : null),
+  // Payment Sessions owns expected capture + reason.
+  // Prefer persisted PS metadata breakdown; else PS-owned builder (never invent reason in FR).
+  const persistedBreakdown = readPersistedCaptureBreakdown(session?.metadata ?? null);
+  const fareCaptureCanonical = nullablePenceLike(row.final_fare_pence);
+  const noShowForCanonical = nullablePenceLike(row.no_show_charge_pence) ?? 0;
+  const psCaptureBreakdown = persistedBreakdown ?? buildCaptureBreakdownForCompletedTrip({
+    trip: row,
     provider_captured_pence: captured,
+    canonical_expected_capture_pence: fareCaptureCanonical != null
+      ? fareCaptureCanonical + noShowForCanonical
+      : null,
   });
 
   const expectedCapturePence = psCaptureBreakdown.expected_capture_pence;
   const captureVariance = psCaptureBreakdown.variance_pence;
+  const rideFareForCapture = psCaptureBreakdown.ride_fare_pence
+    ?? nullablePenceLike(
+      row.final_customer_fare_pence ?? row.commissionable_fare_pence ?? row.gross_fare_pence,
+    );
   const variancePence = settlementTotal == null || captured == null
     ? null
     : settlementTotal - captured;
