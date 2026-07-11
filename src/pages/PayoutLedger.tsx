@@ -184,8 +184,20 @@ export default function PayoutLedger() {
             <ServiceAreaFinanceFilter value={serviceFilter} onChange={setServiceFilter} />
             <PayoutLedgerCreateWeeklyBatchButton
               regionId={serviceFilter.regionId}
+              serviceAreaId={serviceFilter.serviceAreaId}
               currencyCode={serviceFilter.currencyCode ?? 'GBP'}
             />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const next = new URLSearchParams(searchParams);
+                next.set('tab', 'scheduled');
+                setSearchParams(next, { replace: true });
+              }}
+            >
+              Manual payouts
+            </Button>
             {(tab === 'history' || tab === 'completed') && (
               <>
                 <Button variant="outline" size="sm" onClick={exportHistory} disabled={items.length === 0}>
@@ -296,6 +308,8 @@ export default function PayoutLedger() {
                           <TableHead>Batch ID</TableHead>
                           <TableHead>Created</TableHead>
                           <TableHead>Driver</TableHead>
+                          <TableHead>Verification</TableHead>
+                          <TableHead>Bank</TableHead>
                           <TableHead>Amount</TableHead>
                           <TableHead>Processed</TableHead>
                           <TableHead>Completed</TableHead>
@@ -315,6 +329,10 @@ export default function PayoutLedger() {
                               {format(new Date(row.created_at), 'dd MMM HH:mm')}
                             </TableCell>
                             <TableCell className="text-xs">{row.driver_name ?? row.driver_id.slice(0, 8)}</TableCell>
+                            <TableCell className="text-xs">{row.verification_status ?? '—'}</TableCell>
+                            <TableCell className="text-xs">
+                              {row.bank_account_last4 ? `•••• ${row.bank_account_last4}` : '—'}
+                            </TableCell>
                             <TableCell className="text-xs">{formatNullablePence(row.net_bank_transfer_pence, row.currency)}</TableCell>
                             <TableCell className="text-xs whitespace-nowrap">
                               {row.processing_started_at

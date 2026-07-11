@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Info, Download, Printer, Mail, FileText, Loader2 } from 'lucide-react';
 import { FinancialReconciliationTripLink } from '@/components/finance/FinancialReconciliationTripLink';
 import { useToast } from '@/hooks/use-toast';
@@ -19,8 +19,13 @@ import { formatPence } from '@/hooks/useDriverWallet';
 import { fetchDriverStatementPeriodTotals } from '@/hooks/financeReconciliationApi';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { downloadCsv, downloadExcel, printFinanceReport } from '@/lib/financeExport';
+import { FinancePeriodFilter } from '@/components/finance/FinancePeriodFilter';
+import {
+  resolveFinancePeriodBounds,
+  type FinancePeriod,
+} from '@/lib/financePeriodFilter';
 
-type PeriodMode = 'tax_year' | 'calendar_year' | 'custom';
+type PeriodMode = FinancePeriod | 'tax_year' | 'calendar_year';
 
 interface DriverRow {
   id: string;
@@ -75,15 +80,23 @@ function tripTip(t: TripRow): number {
 export default function AnnualTaxiReport() {
   const { toast } = useToast();
   const currentYear = new Date().getFullYear();
+  const [searchParams] = useSearchParams();
 
-  const [driverId, setDriverId] = useState<string>('');
+  const [driverId, setDriverId] = useState<string>(() => searchParams.get('driverId') ?? '');
   const [regionId, setRegionId] = useState<string>('__all__');
-  const [periodMode, setPeriodMode] = useState<PeriodMode>('tax_year');
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('month');
   const [taxYearStart, setTaxYearStart] = useState<string>(String(currentYear - 1));
   const [calendarYear, setCalendarYear] = useState<string>(String(currentYear - 1));
   const [customFrom, setCustomFrom] = useState<string>('');
   const [customTo, setCustomTo] = useState<string>('');
+  const [customDateFrom, setCustomDateFrom] = useState<Date | undefined>(undefined);
+  const [customDateTo, setCustomDateTo] = useState<Date | undefined>(undefined);
   const [generated, setGenerated] = useState<{ driverId: string; from: string; to: string } | null>(null);
+
+  useEffect(() => {
+    const fromUrl = searchParams.get('driverId');
+    if (fromUrl) setDriverId(fromUrl);
+  }, [searchParams]);
 
   const { data: regions = [] } = useQuery({
     queryKey: ['atr-regions'],
@@ -108,8 +121,19 @@ export default function AnnualTaxiReport() {
   const dateRange = useMemo(() => {
     if (periodMode === 'tax_year') return ukTaxYearRange(Number(taxYearStart));
     if (periodMode === 'calendar_year') return calendarYearRange(Number(calendarYear));
-    return { start: customFrom, end: customTo };
-  }, [periodMode, taxYearStart, calendarYear, customFrom, customTo]);
+    if (periodMode === 'custom' && customFrom && customTo) {
+      return { start: customFrom, end: customTo };
+    }
+    const bounds = resolveFinancePeriodBounds(
+      periodMode === 'custom' ? 'custom' : periodMode,
+      customDateFrom,
+      customDateTo,
+    );
+    return {
+      start: format(new Date(bounds.from), 'yyyy-MM-dd'),
+      end: format(new Date(bounds.to), 'yyyy-MM-dd'),
+    };
+  }, [periodMode, taxYearStart, calendarYear, customFrom, customTo, customDateFrom, customDateTo]);
 
   const canGenerate = !!driverId && !!dateRange.start && !!dateRange.end;
 
@@ -333,21 +357,52 @@ export default function AnnualTaxiReport() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Period</Label>
-                <Select value={periodMode} onValueChange={(v) => setPeriodMode(v as PeriodMode)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="tax_year">UK Tax Year (6 Apr – 5 Apr)</SelectItem>
-                    <SelectItem value="calendar_year">Calendar Year</SelectItem>
-                    <SelectItem value="custom">Custom Date Range</SelectItem>
-                  </SelectContent>
-                </Select>
+            <div className="space-y-3">
+              <Label>Period</Label>
+              <FinancePeriodFilter
+                period={
+                  periodMode === 'tax_year' || periodMode === 'calendar_year'
+                    ? 'custom'
+                    : periodMode
+                }
+                onPeriodChange={(p) => {
+                  setPeriodMode(p);
+                  if (p !== 'custom') {
+                    setCustomFrom('');
+                    setCustomTo('');
+                  }
+                }}
+                customFrom={customDateFrom}
+                customTo={customDateTo}
+                onCustomFromChange={(d) => {
+                  setCustomDateFrom(d);
+                  setCustomFrom(d ? format(d, 'yyyy-MM-dd') : '');
+                }}
+                onCustomToChange={(d) => {
+                  setCustomDateTo(d);
+                  setCustomTo(d ? format(d, 'yyyy-MM-dd') : '');
+                }}
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={periodMode === 'tax_year' ? 'default' : 'outline'}
+                  onClick={() => setPeriodMode('tax_year')}
+                >
+                  UK Tax Year
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={periodMode === 'calendar_year' ? 'default' : 'outline'}
+                  onClick={() => setPeriodMode('calendar_year')}
+                >
+                  Calendar Year
+                </Button>
               </div>
-
               {periodMode === 'tax_year' && (
-                <div className="space-y-2">
+                <div className="space-y-2 max-w-xs">
                   <Label>Tax Year Start</Label>
                   <Select value={taxYearStart} onValueChange={setTaxYearStart}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
@@ -360,9 +415,8 @@ export default function AnnualTaxiReport() {
                   </Select>
                 </div>
               )}
-
               {periodMode === 'calendar_year' && (
-                <div className="space-y-2">
+                <div className="space-y-2 max-w-xs">
                   <Label>Year</Label>
                   <Select value={calendarYear} onValueChange={setCalendarYear}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
@@ -374,19 +428,6 @@ export default function AnnualTaxiReport() {
                     </SelectContent>
                   </Select>
                 </div>
-              )}
-
-              {periodMode === 'custom' && (
-                <>
-                  <div className="space-y-2">
-                    <Label>From</Label>
-                    <Input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>To</Label>
-                    <Input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
-                  </div>
-                </>
               )}
             </div>
 

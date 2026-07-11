@@ -51,6 +51,11 @@ export type AdminPayoutLedgerItemRow = {
   provider: string | null;
   provider_payout_id: string | null;
   bank_reference: string | null;
+  /** Connect / KYC verification from drivers SSOT */
+  verification_status: string | null;
+  /** Masked bank last4 from latest Connect payout evidence */
+  bank_account_last4: string | null;
+  connected_account_id: string | null;
   status: string;
   processing_started_at: string | null;
   paid_at: string | null;

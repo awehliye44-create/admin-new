@@ -70,16 +70,18 @@ export function DriverWalletPayoutsTab({
   }
 
   const items = (driver.payout_items ?? []) as Array<Record<string, unknown>>;
+  const earlyCashouts = (driver.early_cashouts ?? []) as Array<Record<string, unknown>>;
   const ccy = currencyCode ?? 'GBP';
   const currentBatchItems = items.filter(isActiveBatchItem);
   const previousBatchItems = items.filter((pi) => {
     const s = String(pi.status ?? '').toLowerCase();
-    return s === 'completed' && !isActiveBatchItem(pi);
+    return (s === 'completed' || s === 'paid' || s === 'succeeded') && !isActiveBatchItem(pi);
   });
   const failedPayouts = items.filter((pi) => {
     const s = String(pi.status ?? '').toLowerCase();
-    return s === 'failed' || s === 'ledger_sync_failed';
+    return s === 'failed' || s === 'ledger_sync_failed' || s === 'error';
   });
+  const retryableCount = failedPayouts.length;
 
   const renderItemTable = (rows: Array<Record<string, unknown>>, empty: string) => (
     <Table>
@@ -123,19 +125,139 @@ export function DriverWalletPayoutsTab({
             </Link>
           </Button>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Create weekly batch, mark paid, retry, and cancel are owned by Payout Ledger (SSOT).
-          This tab shows this driver’s payout items only — amounts are backend values, not client totals.
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <p>
+            Create weekly batch, mark paid, retry, and cancel are owned by Payout Ledger (SSOT).
+            This tab shows this driver’s payout items only — amounts are backend values, not client totals.
+          </p>
+          <div className="grid gap-2 grid-cols-2 lg:grid-cols-3 text-foreground text-xs">
+            <div>
+              <p className="text-muted-foreground">Connected account</p>
+              <p className="font-mono">{driver.connected_account_id ?? '—'}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Verification</p>
+              <p className="font-semibold">{driver.verification_status ?? '—'}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Bank account</p>
+              <p className="font-semibold">
+                {driver.bank_account_last4 ? `•••• ${driver.bank_account_last4}` : '—'}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Provider</p>
+              <p className="font-semibold">{driver.connected_account_id ? 'stripe' : '—'}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Last payout</p>
+              <p className="font-semibold">
+                {driver.last_payout_at
+                  ? `${formatDate(driver.last_payout_at)} · ${formatNullablePence(driver.last_payout_amount_pence, ccy)}`
+                  : '—'}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Next / scheduled</p>
+              <p className="font-semibold">{formatNullablePence(driver.scheduled_payout_display_pence, ccy)}</p>
+            </div>
+          </div>
+          <div className="grid gap-2 grid-cols-2 lg:grid-cols-6 text-foreground">
+            <div>
+              <p className="text-xs text-muted-foreground">Available</p>
+              <p className="font-semibold tabular-nums">{formatNullablePence(driver.cashout_limit_pence, ccy)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Pending</p>
+              <p className="font-semibold tabular-nums">{formatNullablePence(driver.period_kpis?.pending_earnings_pence, ccy)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Processing</p>
+              <p className="font-semibold tabular-nums">{formatNullablePence(driver.included_in_payout_batch_amount_pence, ccy)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Paid</p>
+              <p className="font-semibold tabular-nums">{formatNullablePence(driver.stripe_paid_out_total_pence, ccy)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Failed</p>
+              <p className="font-semibold tabular-nums">{formatNullablePence(driver.local_only_failed_payout_pence, ccy)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Retry</p>
+              <p className="font-semibold tabular-nums">{retryableCount}</p>
+            </div>
+          </div>
+          <Button asChild size="sm" variant="outline">
+            <Link to={payoutLedgerUrl({ driverId: driver.driver_id, tab: 'failed' })}>
+              Retry failed on Payout Ledger
+            </Link>
+          </Button>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-base">Current / active</CardTitle></CardHeader>
+        <CardHeader className="pb-2"><CardTitle className="text-base">Early cash-outs</CardTitle></CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Created</TableHead>
+                <TableHead className="text-right">Requested</TableHead>
+                <TableHead className="text-right">Fee</TableHead>
+                <TableHead className="text-right">Driver receives</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Provider ref</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {earlyCashouts.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
+                    No early cash-outs
+                  </TableCell>
+                </TableRow>
+              ) : (
+                earlyCashouts.map((row) => (
+                  <TableRow key={String(row.id)}>
+                    <TableCell className="text-xs">{formatDate(row.created_at as string)}</TableCell>
+                    <TableCell className="text-right">
+                      {formatNullablePence(
+                        row.requested_cashout_pence == null ? null : Number(row.requested_cashout_pence),
+                        ccy,
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {formatNullablePence(
+                        row.early_cashout_fee_pence == null ? null : Number(row.early_cashout_fee_pence),
+                        ccy,
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {formatNullablePence(
+                        row.driver_receives_pence == null ? null : Number(row.driver_receives_pence),
+                        ccy,
+                      )}
+                    </TableCell>
+                    <TableCell><Badge variant="outline">{String(row.status ?? '—')}</Badge></TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {row.stripe_payout_id ? String(row.stripe_payout_id).slice(0, 14) : '—'}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2"><CardTitle className="text-base">Current / processing</CardTitle></CardHeader>
         <CardContent>{renderItemTable(currentBatchItems, 'No active payout items')}</CardContent>
       </Card>
 
       <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-base">Completed</CardTitle></CardHeader>
+        <CardHeader className="pb-2"><CardTitle className="text-base">Weekly payout history</CardTitle></CardHeader>
         <CardContent>{renderItemTable(previousBatchItems, 'No completed payout items')}</CardContent>
       </Card>
 

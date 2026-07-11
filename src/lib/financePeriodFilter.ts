@@ -15,6 +15,8 @@ export type FinancePeriod =
   | 'last_month'
   | 'quarter'
   | 'year'
+  | 'last_year'
+  | 'lifetime'
   | 'custom';
 
 export type FinancePeriodBounds = {
@@ -143,6 +145,29 @@ export function resolveFinancePeriodBounds(
       from: start.toISOString(),
       to: end.toISOString(),
       label: formatLondonDateLabel(start, end, 'This year'),
+    };
+  }
+
+  if (period === 'last_year') {
+    const thisYearStart = getLondonYearStart(now);
+    const lastYearEnd = new Date(thisYearStart.getTime() - 1);
+    const lastYearStart = getLondonYearStart(lastYearEnd);
+    return {
+      period,
+      from: lastYearStart.toISOString(),
+      to: lastYearEnd.toISOString(),
+      label: formatLondonDateLabel(lastYearStart, lastYearEnd, 'Last year'),
+    };
+  }
+
+  if (period === 'lifetime') {
+    const { end } = getLondonDayBounds(now);
+    const start = new Date(Date.UTC(2020, 0, 1, 0, 0, 0));
+    return {
+      period,
+      from: start.toISOString(),
+      to: end.toISOString(),
+      label: formatLondonDateLabel(start, end, 'Lifetime'),
     };
   }
 

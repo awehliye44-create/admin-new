@@ -17,10 +17,12 @@ import {
   applyPayoutControlCentrePolicy,
   loadPayoutControlCentreSettings,
 } from "../_shared/payoutControlCentreSettingsSSOT.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-onecab-cron-secret",
 };
 
 type DriverResult = {
@@ -39,6 +41,7 @@ type DriverResult = {
  * WEEKLY_MONDAY settlement — creates batch + payout_items per eligible driver.
  * Skips hard-blocked drivers only; soft warnings are included.
  * dry_run: simulate without DB writes. Never executes Stripe transfers.
+ * scheduled=true (pg_cron): service-role/cron auth; soft-skips wrong day/time; idempotent per run_date.
  */
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -51,38 +54,47 @@ serve(async (req) => {
     const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const { data: roleData } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .eq("role", "admin")
-      .maybeSingle();
-
-    if (!roleData) {
-      return new Response(JSON.stringify({ error: "Admin access required" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
+    const scheduledRun = body.scheduled === true || body.source === "pg_cron";
+    let actorUserId: string | null = null;
+
+    if (scheduledRun) {
+      const cronAuth = await assertCronOrServiceRoleAuth(req, body as Record<string, unknown>);
+      if (!cronAuth.ok) return cronAuth.response;
+    } else {
+      const authHeader = req.headers.get("Authorization");
+      if (!authHeader) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const token = authHeader.replace("Bearer ", "");
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: roleData } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id)
+        .eq("role", "admin")
+        .maybeSingle();
+
+      if (!roleData) {
+        return new Response(JSON.stringify({ error: "Admin access required" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      actorUserId = user.id;
+    }
+
     const verificationMode = isPayoutVerificationMode(body as Record<string, unknown>);
     const stripeExecutionEnabled = isAdminStripePayoutExecutionEnabled();
 
@@ -122,9 +134,19 @@ serve(async (req) => {
     const regionId = body.region_id as string | undefined;
     const regionPayoutProvider = await resolveRegionPayoutProvider(supabase, regionId ?? null);
     const manualProviderPayout = isManualBankPayoutProvider(regionPayoutProvider);
-    const controlCentre = await loadPayoutControlCentreSettings(supabase);
+    const controlCentre = await loadPayoutControlCentreSettings(supabase, {
+      serviceAreaId: (body.service_area_id as string | undefined) ?? null,
+    });
 
     if (!controlCentre.payouts_enabled) {
+      if (scheduledRun) {
+        return new Response(JSON.stringify({
+          success: true,
+          skipped: true,
+          error_code: "PAYOUTS_DISABLED",
+          message: "Automatic payouts paused — scheduler idle",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       return new Response(JSON.stringify({
         error: "Automatic payouts are disabled in Payout Ledger settings",
         error_code: "PAYOUTS_DISABLED",
@@ -140,6 +162,14 @@ serve(async (req) => {
     }
 
     if (controlCentre.payout_frequency === "manual_only") {
+      if (scheduledRun) {
+        return new Response(JSON.stringify({
+          success: true,
+          skipped: true,
+          error_code: "MANUAL_ONLY_SCHEDULE",
+          message: "Frequency is manual_only — scheduler idle",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       return new Response(JSON.stringify({
         error: "Payout frequency is Manual Only — create batches from Payout Ledger actions",
         error_code: "MANUAL_ONLY_SCHEDULE",
@@ -149,7 +179,85 @@ serve(async (req) => {
       });
     }
 
+    // Enforce configured weekly payout day + processing time in Europe/London (automatic batches only).
+    // Manual Mark paid on Payout Ledger is unaffected. body.force=true bypasses for ops.
+    if (controlCentre.payout_frequency === "weekly" && body.force !== true) {
+      const now = new Date();
+      const londonWeekday = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/London",
+        weekday: "long",
+      }).format(now).toLowerCase();
+      const configuredDay = String(controlCentre.weekly_payout_day ?? "monday").toLowerCase();
+      if (londonWeekday !== configuredDay) {
+        if (scheduledRun) {
+          return new Response(JSON.stringify({
+            success: true,
+            skipped: true,
+            error_code: "WRONG_PAYOUT_DAY",
+            message: `Scheduler idle — payout day is ${configuredDay}, today is ${londonWeekday}`,
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        return new Response(JSON.stringify({
+          error: `Automatic weekly payouts run on ${configuredDay} (Europe/London). Today is ${londonWeekday}.`,
+          error_code: "WRONG_PAYOUT_DAY",
+          settings: {
+            weekly_payout_day: controlCentre.weekly_payout_day,
+            payout_processing_time: controlCentre.payout_processing_time,
+            timezone: "Europe/London",
+          },
+        }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const configuredTime = String(controlCentre.payout_processing_time ?? "10:00").trim();
+      const timeMatch = /^(\d{1,2}):(\d{2})$/.exec(configuredTime);
+      if (timeMatch) {
+        const configuredMinutes = Number(timeMatch[1]) * 60 + Number(timeMatch[2]);
+        const londonParts = new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Europe/London",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        }).formatToParts(now);
+        const hour = Number(londonParts.find((p) => p.type === "hour")?.value ?? "0");
+        const minute = Number(londonParts.find((p) => p.type === "minute")?.value ?? "0");
+        const nowMinutes = hour * 60 + minute;
+        if (nowMinutes < configuredMinutes) {
+          if (scheduledRun) {
+            return new Response(JSON.stringify({
+              success: true,
+              skipped: true,
+              error_code: "WRONG_PAYOUT_TIME",
+              message: `Scheduler idle until ${configuredTime} Europe/London`,
+            }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+          return new Response(JSON.stringify({
+            error: `Automatic weekly payouts run at ${configuredTime} Europe/London. Current London time is ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}.`,
+            error_code: "WRONG_PAYOUT_TIME",
+            settings: {
+              weekly_payout_day: controlCentre.weekly_payout_day,
+              payout_processing_time: controlCentre.payout_processing_time,
+              timezone: "Europe/London",
+            },
+          }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+    }
+
     if (!stripeExecutionEnabled && !manualProviderPayout) {
+      if (scheduledRun) {
+        return new Response(JSON.stringify({
+          success: true,
+          skipped: true,
+          error_code: PAYOUT_EXECUTION_DISABLED_CODE,
+          message: PAYOUT_EXECUTION_DISABLED_MESSAGE,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       return new Response(JSON.stringify({
         error: PAYOUT_EXECUTION_DISABLED_MESSAGE,
         error_code: PAYOUT_EXECUTION_DISABLED_CODE,
@@ -170,10 +278,12 @@ serve(async (req) => {
 
     let driverQuery = supabase
       .from("drivers")
-      .select("id, region_id, stripe_account_id, payouts_enabled, onboarding_complete, first_name, last_name, approval_status, driver_status, documents_approved")
+      .select("id, region_id, service_area_id, stripe_account_id, payouts_enabled, onboarding_complete, first_name, last_name, approval_status, driver_status, documents_approved")
       .eq("approval_status", "approved");
 
     if (regionId) driverQuery = driverQuery.eq("region_id", regionId);
+    const serviceAreaId = (body.service_area_id as string | undefined) ?? null;
+    if (serviceAreaId) driverQuery = driverQuery.eq("service_area_id", serviceAreaId);
 
     const { data: drivers, error: driversError } = await driverQuery;
     if (driversError) throw driversError;
@@ -181,7 +291,29 @@ serve(async (req) => {
     const runDate = new Date().toISOString().slice(0, 10);
     let batchId: string | null = null;
 
+    // Idempotent scheduler: one WEEKLY_MONDAY batch per London calendar day.
     if (!verificationMode) {
+      const { data: existingBatch } = await supabase
+        .from("payout_batches")
+        .select("id, status, total_amount_pence, total_drivers")
+        .eq("kind", "WEEKLY_MONDAY")
+        .eq("run_date", runDate)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (existingBatch?.id) {
+        return new Response(JSON.stringify({
+          success: true,
+          skipped: true,
+          error_code: "BATCH_ALREADY_EXISTS",
+          message: "Weekly batch already exists for this run_date",
+          batch_id: existingBatch.id,
+          batch_status: existingBatch.status,
+          total_amount_pence: existingBatch.total_amount_pence ?? 0,
+          ready_count: existingBatch.total_drivers ?? 0,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       const { data: batch, error: batchError } = await supabase
         .from("payout_batches")
         .insert({
@@ -190,7 +322,8 @@ serve(async (req) => {
           status: "CREATED",
           total_drivers: 0,
           total_amount_pence: 0,
-          created_by: user.id,
+          created_by: actorUserId,
+          notes: scheduledRun ? "created_by=pg_cron_scheduler" : null,
         })
         .select()
         .single();
@@ -208,6 +341,20 @@ serve(async (req) => {
 
     for (const driver of drivers ?? []) {
       const driverName = `${driver.first_name ?? ""} ${driver.last_name ?? ""}`.trim() || null;
+
+      if (driver.payouts_enabled === false) {
+        blockedCount += 1;
+        results.push({
+          driver_id: driver.id,
+          driver_name: driverName,
+          status: "BLOCKED",
+          failure_reason: "DRIVER_PAYOUTS_DISABLED",
+          net_payable_pence: 0,
+          payout_blocked_reasons: ["DRIVER_PAYOUTS_DISABLED"],
+          payout_warning_reasons: [],
+        });
+        continue;
+      }
 
       const ssot = await fetchPerDriverFinancialReconciliation(supabase, {
         driverId: driver.id,

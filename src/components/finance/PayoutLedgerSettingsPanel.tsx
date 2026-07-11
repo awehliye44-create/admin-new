@@ -1,6 +1,6 @@
 /**
- * Payout Ledger settings — schedule, eligibility, instant cash-out.
- * Persists to admin_settings + service_areas. No earnings math.
+ * Payout Ledger settings — schedule, eligibility, instant cash-out, per-driver override.
+ * Persists to admin_settings + service_areas + drivers.payouts_enabled. No earnings math.
  */
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
+import { DriverSelector } from '@/components/finance/DriverSelector';
 
 const SETTING_KEYS = [
   'payouts_enabled',
@@ -85,6 +86,8 @@ export function PayoutLedgerSettingsPanel({
   serviceFilter: ServiceAreaFinanceSelection;
 }) {
   const queryClient = useQueryClient();
+  const [overrideDriverId, setOverrideDriverId] = useState<string | null>(null);
+
   const { data: settings, isLoading } = useQuery({
     queryKey: ['payout-ledger-settings'],
     queryFn: loadSettings,
@@ -99,6 +102,50 @@ export function PayoutLedgerSettingsPanel({
         .from('service_areas')
         .select('id, name, early_cashout_enabled, timezone')
         .eq('id', serviceFilter.serviceAreaId!)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const saOverrideKey = serviceFilter.serviceAreaId
+    ? `payout_sa_override:${serviceFilter.serviceAreaId}`
+    : null;
+
+  const { data: saOverride } = useQuery({
+    queryKey: ['payout-sa-override', serviceFilter.serviceAreaId],
+    enabled: Boolean(saOverrideKey),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('admin_settings')
+        .select('setting_key, setting_value')
+        .eq('setting_key', saOverrideKey!)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.setting_value) return {} as Record<string, string>;
+      try {
+        const raw = data.setting_value;
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        return (parsed ?? {}) as Record<string, string>;
+      } catch {
+        return {} as Record<string, string>;
+      }
+    },
+  });
+
+  const [saDraft, setSaDraft] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (saOverride) setSaDraft(saOverride);
+  }, [saOverride]);
+
+  const { data: overrideDriver, isLoading: overrideLoading } = useQuery({
+    queryKey: ['payout-driver-override', overrideDriverId],
+    enabled: Boolean(overrideDriverId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('drivers')
+        .select('id, first_name, last_name, driver_code, payouts_enabled, stripe_account_id, charges_enabled')
+        .eq('id', overrideDriverId!)
         .maybeSingle();
       if (error) throw error;
       return data;
@@ -141,6 +188,49 @@ export function PayoutLedgerSettingsPanel({
     onError: (err: Error) => toast.error(err.message),
   });
 
+  const saOverrideMutation = useMutation({
+    mutationFn: async () => {
+      if (!saOverrideKey) throw new Error('Select a service area');
+      const payload = {
+        weekly_payout_day: saDraft.weekly_payout_day || undefined,
+        payout_processing_time: saDraft.payout_processing_time || undefined,
+        payout_min_pence: saDraft.payout_min_pence || undefined,
+        payout_max_pence: saDraft.payout_max_pence || undefined,
+      };
+      const { error } = await supabase.from('admin_settings').upsert(
+        {
+          setting_key: saOverrideKey,
+          setting_value: JSON.stringify(payload) as unknown as string,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'setting_key' },
+      );
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success('Service-area payout override saved');
+      void queryClient.invalidateQueries({ queryKey: ['payout-sa-override', serviceFilter.serviceAreaId] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const driverOverrideMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      if (!overrideDriverId) throw new Error('Select a driver');
+      const { error } = await supabase
+        .from('drivers')
+        .update({ payouts_enabled: enabled })
+        .eq('id', overrideDriverId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success('Per-driver payout override saved');
+      void queryClient.invalidateQueries({ queryKey: ['payout-driver-override', overrideDriverId] });
+      void queryClient.invalidateQueries({ queryKey: ['driver-wallet-ssot'] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
   const get = (key: string, fallback = '') => draft[key] ?? settings?.[key] ?? fallback;
   const set = (key: string, value: string) => setDraft((d) => ({ ...d, [key]: value }));
 
@@ -159,8 +249,15 @@ export function PayoutLedgerSettingsPanel({
         <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="flex items-center justify-between gap-3 rounded-md border p-3">
             <div>
-              <Label>Automatic payouts</Label>
-              <p className="text-xs text-muted-foreground">Uses Available Payout from Wallet SSOT</p>
+              <Label>
+                {get('payouts_enabled', 'true') !== 'false'
+                  ? 'Automatic payouts — On (switch off to Pause)'
+                  : 'Automatic payouts — Paused (switch on to Resume)'}
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Pause freezes the weekly scheduler. Resume restores automatic payouts using Available from Wallet SSOT.
+                Manual Mark paid remains available on the ledger.
+              </p>
             </div>
             <Switch
               checked={get('payouts_enabled', 'true') !== 'false'}
@@ -209,6 +306,116 @@ export function PayoutLedgerSettingsPanel({
             <Label>Maximum payout (pence)</Label>
             <Input value={get('payout_max_pence', '')} onChange={(e) => set('payout_max_pence', e.target.value)} placeholder="Unlimited" />
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Per-driver payout override</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <DriverSelector
+            value={overrideDriverId}
+            onChange={setOverrideDriverId}
+            regionId={serviceFilter.regionId}
+            serviceAreaId={serviceFilter.serviceAreaId}
+            stripeConnectOnly
+          />
+          {overrideDriverId && (
+            <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+              <div>
+                <Label>Allow automatic payouts for this driver</Label>
+                <p className="text-xs text-muted-foreground">
+                  {overrideDriver?.driver_code
+                    ?? [overrideDriver?.first_name, overrideDriver?.last_name].filter(Boolean).join(' ')
+                    ?? overrideDriverId}
+                  {overrideDriver?.stripe_account_id
+                    ? ` · ${String(overrideDriver.stripe_account_id).slice(0, 14)}…`
+                    : ' · no connected account'}
+                  {overrideLoading ? ' · loading…' : ''}
+                </p>
+              </div>
+              <Switch
+                checked={overrideDriver?.payouts_enabled !== false}
+                disabled={!overrideDriver || driverOverrideMutation.isPending}
+                onCheckedChange={(v) => driverOverrideMutation.mutate(v)}
+              />
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Per-driver override writes drivers.payouts_enabled only. Platform pause/resume remains above.
+            Service-area instant cash-out is a separate override below.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Per-service-area schedule override</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {!serviceFilter.serviceAreaId ? (
+            <p className="text-sm text-muted-foreground sm:col-span-3">
+              Select a service area to override weekly day, time, min, and max for that area.
+            </p>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <Label>Weekly payout day</Label>
+                <Select
+                  value={saDraft.weekly_payout_day || get('weekly_payout_day', 'monday')}
+                  onValueChange={(v) => setSaDraft((d) => ({ ...d, weekly_payout_day: v }))}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {DAYS.map((d) => (
+                      <SelectItem key={d} value={d}>{d}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Processing time ({tz})</Label>
+                <Select
+                  value={saDraft.payout_processing_time || get('payout_processing_time', '10:00')}
+                  onValueChange={(v) => setSaDraft((d) => ({ ...d, payout_processing_time: v }))}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {TIMES.map((t) => (
+                      <SelectItem key={t} value={t}>{t}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Minimum payout (pence)</Label>
+                <Input
+                  value={saDraft.payout_min_pence ?? ''}
+                  onChange={(e) => setSaDraft((d) => ({ ...d, payout_min_pence: e.target.value }))}
+                  placeholder={get('payout_min_pence', '0')}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Maximum payout (pence)</Label>
+                <Input
+                  value={saDraft.payout_max_pence ?? ''}
+                  onChange={(e) => setSaDraft((d) => ({ ...d, payout_max_pence: e.target.value }))}
+                  placeholder={get('payout_max_pence', 'Unlimited')}
+                />
+              </div>
+              <div className="sm:col-span-2 lg:col-span-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => saOverrideMutation.mutate()}
+                  disabled={saOverrideMutation.isPending}
+                >
+                  Save service-area override
+                </Button>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 

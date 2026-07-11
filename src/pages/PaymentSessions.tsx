@@ -528,8 +528,12 @@ export default function PaymentSessions() {
 
         {data?.provider_verification_message && (
           <Alert variant="destructive">
-            <AlertTitle>Provider verification unavailable</AlertTitle>
-            <AlertDescription>{data.provider_verification_message}</AlertDescription>
+            <AlertTitle>Provider Sync Pending</AlertTitle>
+            <AlertDescription>
+              {data.provider_verification_message}
+              {' '}
+              Automatic retry will run while this page stays open.
+            </AlertDescription>
           </Alert>
         )}
 

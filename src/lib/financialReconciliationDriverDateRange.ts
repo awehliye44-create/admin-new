@@ -1,16 +1,17 @@
 import {
-  endOfDay,
   endOfMonth,
   endOfWeek,
   format,
-  startOfDay,
   startOfMonth,
   startOfWeek,
+  subDays,
   subWeeks,
 } from 'date-fns';
 
 export type DriverDateRangePreset =
   | 'today'
+  | '7d'
+  | '30d'
   | 'current_week'
   | 'last_week'
   | 'current_month'
@@ -29,6 +30,20 @@ export function resolveDriverDateRange(preset: DriverDateRangePreset, custom?: {
   if (preset === 'today') {
     const d = format(now, ISO);
     return { preset, from: d, to: d };
+  }
+  if (preset === '7d') {
+    return {
+      preset,
+      from: format(subDays(now, 6), ISO),
+      to: format(now, ISO),
+    };
+  }
+  if (preset === '30d') {
+    return {
+      preset,
+      from: format(subDays(now, 29), ISO),
+      to: format(now, ISO),
+    };
   }
   if (preset === 'current_week') {
     const start = startOfWeek(now, { weekStartsOn: 1 });
@@ -73,6 +88,8 @@ export function tripDateInRange(iso: string | null | undefined, from: string, to
 
 export function driverDateRangeLabel(range: DriverDateRange): string {
   if (range.preset === 'today') return 'Today';
+  if (range.preset === '7d') return '7 days';
+  if (range.preset === '30d') return '30 days';
   if (range.preset === 'current_week') return 'Current week';
   if (range.preset === 'last_week') return 'Last week';
   if (range.preset === 'current_month') return 'Current month';

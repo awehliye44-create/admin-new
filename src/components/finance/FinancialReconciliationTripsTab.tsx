@@ -39,8 +39,8 @@ type FinancialReconciliationTripsTabProps = {
   initialTripId?: string | null;
   initialTripCode?: string | null;
   onInitialTripConsumed?: () => void;
-  /** When true, only show mismatch / non-balanced rows. */
-  mode?: 'all' | 'mismatches' | 'resolved';
+  /** When set, only show matching audit rows (display filter — no money math). */
+  mode?: 'all' | 'mismatches' | 'resolved' | 'shortfall' | 'missing_captures' | 'missing_releases' | 'recovery';
 };
 
 export function FinancialReconciliationTripsTab({
@@ -75,6 +75,35 @@ export function FinancialReconciliationTripsTab({
         !r.capture_mismatch
         && String(r.reconciliation_status?.label ?? '').toLowerCase().includes('balanced'),
       );
+    }
+    if (mode === 'shortfall') {
+      return rows.filter((r) => Number(r.outstanding_pence ?? 0) > 0);
+    }
+    if (mode === 'missing_captures') {
+      return rows.filter((r) => {
+        const label = `${r.reconciliation_status?.label ?? ''} ${r.provider?.label ?? ''} ${r.capture_status ?? ''}`.toLowerCase();
+        return r.capture_mismatch
+          || (r.captured_pence == null && Number(r.customer_paid_pence ?? r.authorised_pence ?? 0) > 0)
+          || label.includes('missing capture')
+          || label.includes('pending capture')
+          || label.includes('uncaptured');
+      });
+    }
+    if (mode === 'missing_releases') {
+      return rows.filter((r) => {
+        const label = `${r.reconciliation_status?.label ?? ''} ${r.provider?.label ?? ''}`.toLowerCase();
+        return (Number(r.authorised_pence ?? 0) > 0 && r.released_pence == null && r.captured_pence == null)
+          || label.includes('missing release')
+          || label.includes('unreleased');
+      });
+    }
+    if (mode === 'recovery') {
+      return rows.filter((r) => {
+        const label = `${r.reconciliation_status?.label ?? ''} ${r.financial_outcome ?? ''}`.toLowerCase();
+        return Number(r.debt_recovered_pence ?? 0) > 0
+          || Number(r.outstanding_pence ?? 0) > 0
+          || label.includes('recovery');
+      });
     }
     return rows;
   }, [rows, mode]);

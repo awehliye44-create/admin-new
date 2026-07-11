@@ -5,6 +5,7 @@ import { AdminLayout } from '@/components/layout/AdminLayout';
 import { FinanceLedgerPanel } from '@/components/finance/FinanceLedgerPanel';
 import { DriverWalletOverviewCards } from '@/components/finance/DriverWalletOverviewCards';
 import { DriverWalletPayoutsTab } from '@/components/finance/DriverWalletPayoutsTab';
+import { DriverWalletStatementsPanel } from '@/components/finance/DriverWalletStatementsPanel';
 import { DriverSelector } from '@/components/finance/DriverSelector';
 import {
   DEFAULT_SERVICE_AREA_SELECTION,
@@ -28,12 +29,6 @@ import { payoutLedgerUrl } from '../../shared/adminPayoutLedgerSSOT';
 import type { DriverWalletLedgerFilter } from '@/lib/driverWalletLedgerFilters';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-
-function ledgerFilterForTab(tab: DriverWalletLedgerTab): DriverWalletLedgerFilter {
-  if (tab === 'debt') return 'debt_recovery';
-  if (tab === 'adjustments') return 'adjustments';
-  return 'driver_earnings';
-}
 
 /** Balance-affecting wallet movements. Bank transfers owned by Payout Ledger. */
 export default function DriverWalletLedger() {
@@ -129,7 +124,7 @@ export default function DriverWalletLedger() {
 
   const setTab = (nextTab: DriverWalletLedgerTab) => {
     const next = new URLSearchParams(searchParams);
-    next.set('tab', nextTab);
+    next.set('tab', parseDriverWalletLedgerTab(nextTab));
     setSearchParams(next, { replace: true });
   };
 
@@ -225,12 +220,11 @@ export default function DriverWalletLedger() {
         <Tabs value={tab} onValueChange={(v) => setTab(v as DriverWalletLedgerTab)}>
           <TabsList className="flex flex-wrap h-auto gap-1">
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="drivers">Drivers</TabsTrigger>
-            <TabsTrigger value="ledger">Ledger Entries</TabsTrigger>
-            <TabsTrigger value="debt">Debt</TabsTrigger>
-            <TabsTrigger value="adjustments">Adjustments</TabsTrigger>
-            <TabsTrigger value="payout_allocations">Payout Allocations</TabsTrigger>
-            <TabsTrigger value="history">History</TabsTrigger>
+            <TabsTrigger value="transactions">Transactions</TabsTrigger>
+            <TabsTrigger value="payouts">Payouts</TabsTrigger>
+            <TabsTrigger value="debt_recovery">Debt Recovery</TabsTrigger>
+            <TabsTrigger value="statements">Statements</TabsTrigger>
+            <TabsTrigger value="downloads">Downloads</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="mt-4">
@@ -242,32 +236,11 @@ export default function DriverWalletLedger() {
             />
           </TabsContent>
 
-          <TabsContent value="drivers" className="mt-4 space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Select a driver above to load wallet balance, debt, and ledger history for that driver.
-            </p>
-            <DriverSelector
-              value={driverId}
-              onChange={(id) => setDriver(id)}
-              regionId={serviceFilter.regionId}
-              serviceAreaId={serviceFilter.serviceAreaId}
-              stripeConnectOnly
-            />
-          </TabsContent>
-
-          <TabsContent value="ledger" className="mt-4">
+          <TabsContent value="transactions" className="mt-4">
             {renderLedger('driver_earnings', false)}
           </TabsContent>
 
-          <TabsContent value="debt" className="mt-4">
-            {renderLedger('debt_recovery')}
-          </TabsContent>
-
-          <TabsContent value="adjustments" className="mt-4">
-            {renderLedger('adjustments')}
-          </TabsContent>
-
-          <TabsContent value="payout_allocations" className="mt-4">
+          <TabsContent value="payouts" className="mt-4">
             <DriverWalletPayoutsTab
               driver={driver}
               currencyCode={currencyCode}
@@ -275,8 +248,26 @@ export default function DriverWalletLedger() {
             />
           </TabsContent>
 
-          <TabsContent value="history" className="mt-4">
-            {renderLedger(ledgerFilterForTab('history'), false)}
+          <TabsContent value="debt_recovery" className="mt-4">
+            {renderLedger('debt_recovery')}
+          </TabsContent>
+
+          <TabsContent value="statements" className="mt-4">
+            <DriverWalletStatementsPanel
+              driver={driver}
+              currencyCode={currencyCode}
+              isLoading={loadingDetail}
+              mode="statements"
+            />
+          </TabsContent>
+
+          <TabsContent value="downloads" className="mt-4">
+            <DriverWalletStatementsPanel
+              driver={driver}
+              currencyCode={currencyCode}
+              isLoading={loadingDetail}
+              mode="downloads"
+            />
           </TabsContent>
         </Tabs>
 

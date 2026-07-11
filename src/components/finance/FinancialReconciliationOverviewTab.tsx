@@ -83,8 +83,35 @@ export function FinancialReconciliationOverviewTab({
         </span>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-2">
-        <KpiCard label="Reconciliation" value={ssot.summary?.reconciliation_check?.status ?? '—'} />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <KpiCard
+          label="Reconciliation status"
+          value={ssot.summary?.reconciliation_check?.status ?? '—'}
+        />
+        <KpiCard
+          label="Customer payable"
+          value={fmt(ssot.summary?.customer_revenue?.total_customer_revenue_pence)}
+          subtitle="Gross customer revenue (period)"
+        />
+        <KpiCard
+          label="Customer captured"
+          value={fmt(ssot.summary?.customer_revenue?.card_customer_revenue_pence)}
+          subtitle="Card captured"
+        />
+        <KpiCard
+          label="Provider fees"
+          value={fmt(ssot.summary?.onecab_money?.provider_processing_fee_pence)}
+        />
+        <KpiCard
+          label="Commission"
+          value={fmt(ssot.summary?.onecab_money?.onecab_gross_commission_pence)}
+          subtitle={ssot.summary?.onecab_money?.onecab_commission_status_label}
+        />
+        <KpiCard
+          label="Driver payable"
+          value={fmt(ssot.summary?.driver_money?.card_driver_payable_pence)}
+          subtitle={`Wallet ${fmt(ssot.summary?.driver_money?.driver_wallet_balance_pence)}`}
+        />
       </div>
 
       {money.isMixedCurrency && currencyGroups && currencyGroups.length > 0 ? (
@@ -109,6 +136,7 @@ export function FinancialReconciliationOverviewTab({
         <ServiceAreaGatewayStatusPanel rows={serviceAreaGateways} />
       ) : null}
 
+      <p className="text-sm font-medium">Sync integrity</p>
       {kpisUnavailable ? (
         <Alert variant="destructive">
           <AlertTitle>Sync KPIs unavailable</AlertTitle>

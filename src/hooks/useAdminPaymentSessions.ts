@@ -40,6 +40,8 @@ export function useAdminPaymentSessions(
     staleTime: 60_000,
     refetchInterval: (query) => {
       if (!isAdminPageLiveActive()) return false;
+      // Auto-retry when provider sync is pending — never overwrite verified values server-side.
+      if (query.state.data?.provider_verification_message) return 45_000;
       if (tab !== 'active_holds' && tab !== 'failed_recovery') return false;
       const red = query.state.data?.summary?.red ?? 0;
       const unresolved = query.state.data?.summary?.active_hold_count ?? 0;

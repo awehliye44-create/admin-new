@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { format, startOfWeek, startOfMonth, startOfQuarter, startOfYear, endOfDay, startOfDay } from 'date-fns';
+import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,8 +21,12 @@ import { fetchOnecabProfitSsot } from '@/hooks/financeReconciliationApi';
 import { Link } from 'react-router-dom';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { downloadCsv, downloadExcel, printFinanceReport } from '@/lib/financeExport';
+import { FinancePeriodFilter } from '@/components/finance/FinancePeriodFilter';
+import {
+  resolveFinancePeriodBounds,
+  type FinancePeriod,
+} from '@/lib/financePeriodFilter';
 
-type PeriodMode = 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'custom';
 type ExpenseCategory = 'technology' | 'marketing' | 'operations' | 'staff' | 'other';
 
 const SUBCATEGORIES: Record<ExpenseCategory, string[]> = {
@@ -52,22 +56,6 @@ interface ExpenseRow {
   created_at: string;
 }
 
-function periodRange(mode: PeriodMode, customFrom?: string, customTo?: string): { start: Date; end: Date } {
-  const now = new Date();
-  const end = endOfDay(now);
-  switch (mode) {
-    case 'weekly': return { start: startOfWeek(now, { weekStartsOn: 1 }), end };
-    case 'monthly': return { start: startOfMonth(now), end };
-    case 'quarterly': return { start: startOfQuarter(now), end };
-    case 'yearly': return { start: startOfYear(now), end };
-    case 'custom':
-      return {
-        start: customFrom ? startOfDay(new Date(customFrom)) : startOfMonth(now),
-        end: customTo ? endOfDay(new Date(customTo)) : end,
-      };
-  }
-}
-
 export default function OnecabRevenueProfitReport() {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -77,15 +65,22 @@ export default function OnecabRevenueProfitReport() {
   const canEditTaxRate = !staffProfile
     || ['super_admin', 'admin', 'finance_manager'].includes(staffProfile.role);
 
-  const [periodMode, setPeriodMode] = useState<PeriodMode>('monthly');
-  const [customFrom, setCustomFrom] = useState('');
-  const [customTo, setCustomTo] = useState('');
+  const [period, setPeriod] = useState<FinancePeriod>('month');
+  const [customDateFrom, setCustomDateFrom] = useState<Date | undefined>(undefined);
+  const [customDateTo, setCustomDateTo] = useState<Date | undefined>(undefined);
   const [regionId, setRegionId] = useState<string>('__all__');
   const [serviceAreaId, setServiceAreaId] = useState<string>('__all__');
   const [taxRateInput, setTaxRateInput] = useState<string>(String(DEFAULT_CORP_TAX_PCT));
 
-  const range = useMemo(() => periodRange(periodMode, customFrom, customTo), [periodMode, customFrom, customTo]);
-  const periodLabel = `${format(range.start, 'd MMM yyyy')} – ${format(range.end, 'd MMM yyyy')}`;
+  const periodBounds = useMemo(
+    () => resolveFinancePeriodBounds(period, customDateFrom, customDateTo),
+    [period, customDateFrom, customDateTo],
+  );
+  const range = useMemo(
+    () => ({ start: new Date(periodBounds.from), end: new Date(periodBounds.to) }),
+    [periodBounds],
+  );
+  const periodLabel = periodBounds.label;
 
   const { data: regions = [] } = useQuery({
     queryKey: ['orp-regions'],
@@ -375,20 +370,19 @@ export default function OnecabRevenueProfitReport() {
         <Card className="print:hidden">
           <CardHeader><CardTitle>Filters</CardTitle></CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="space-y-4">
               <div className="space-y-2">
                 <Label>Period</Label>
-                <Select value={periodMode} onValueChange={(v) => setPeriodMode(v as PeriodMode)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="weekly">Weekly</SelectItem>
-                    <SelectItem value="monthly">Monthly</SelectItem>
-                    <SelectItem value="quarterly">Quarterly</SelectItem>
-                    <SelectItem value="yearly">Yearly</SelectItem>
-                    <SelectItem value="custom">Custom</SelectItem>
-                  </SelectContent>
-                </Select>
+                <FinancePeriodFilter
+                  period={period}
+                  onPeriodChange={setPeriod}
+                  customFrom={customDateFrom}
+                  customTo={customDateTo}
+                  onCustomFromChange={setCustomDateFrom}
+                  onCustomToChange={setCustomDateTo}
+                />
               </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Region</Label>
                 <Select value={regionId} onValueChange={(v) => { setRegionId(v); setServiceAreaId('__all__'); }}>
@@ -409,20 +403,7 @@ export default function OnecabRevenueProfitReport() {
                   </SelectContent>
                 </Select>
               </div>
-              {periodMode === 'custom' && (
-                <div className="space-y-2 md:col-span-1">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <Label>From</Label>
-                      <Input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
-                    </div>
-                    <div>
-                      <Label>To</Label>
-                      <Input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
-                    </div>
-                  </div>
-                </div>
-              )}
+              </div>
             </div>
             <div className="flex gap-2 mt-4">
               <Button variant="outline" onClick={handleCsvExport}>

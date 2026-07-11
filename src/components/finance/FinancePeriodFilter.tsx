@@ -42,7 +42,9 @@ export function FinancePeriodFilter({
           <TabsTrigger value="month">This month</TabsTrigger>
           <TabsTrigger value="last_month">Last month</TabsTrigger>
           <TabsTrigger value="quarter">Quarter</TabsTrigger>
-          <TabsTrigger value="year">Year</TabsTrigger>
+          <TabsTrigger value="year">This year</TabsTrigger>
+          <TabsTrigger value="last_year">Last year</TabsTrigger>
+          <TabsTrigger value="lifetime">Lifetime</TabsTrigger>
           <TabsTrigger value="custom">Custom</TabsTrigger>
         </TabsList>
       </Tabs>

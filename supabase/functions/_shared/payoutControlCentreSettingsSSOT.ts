@@ -239,6 +239,7 @@ export function applyInstantCashoutPolicy(
 export async function loadPayoutControlCentreSettings(
   // deno-lint-ignore no-explicit-any
   supabase: { from: (t: string) => any },
+  args?: { serviceAreaId?: string | null },
 ): Promise<PayoutControlCentreSettings> {
   const keys = [
     "payouts_enabled",
@@ -258,14 +259,26 @@ export async function loadPayoutControlCentreSettings(
     "early_cashout_max_pence",
     "early_cashout_max_per_day",
   ];
+  const saKey = args?.serviceAreaId ? `payout_sa_override:${args.serviceAreaId}` : null;
   const { data, error } = await supabase
     .from("admin_settings")
     .select("setting_key, setting_value")
-    .in("setting_key", keys);
+    .in("setting_key", saKey ? [...keys, saKey] : keys);
   if (error) throw error;
   const map: Record<string, unknown> = {};
   for (const row of data ?? []) {
     map[row.setting_key] = row.setting_value;
   }
-  return parsePayoutControlCentreSettings(map);
+  const base = parsePayoutControlCentreSettings(map);
+  if (!saKey || map[saKey] == null) return base;
+  let override: Record<string, unknown> = {};
+  try {
+    const raw = map[saKey];
+    override = typeof raw === "string"
+      ? JSON.parse(raw.replace(/^"|"$/g, ""))
+      : (raw as Record<string, unknown>);
+  } catch {
+    return base;
+  }
+  return parsePayoutControlCentreSettings({ ...map, ...override });
 }

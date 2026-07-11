@@ -10,13 +10,23 @@ import {
 export type DriverWalletPeriodKpis = {
   today_earnings_pence: number;
   week_earnings_pence: number;
+  last_week_earnings_pence: number;
   month_earnings_pence: number;
+  last_month_earnings_pence: number;
   year_earnings_pence: number;
+  last_year_earnings_pence: number;
   lifetime_earnings_pence: number;
   pending_earnings_pence: number;
   total_bonuses_pence: number;
   total_adjustments_pence: number;
   outstanding_debt_pence: number;
+  /** Absolute sum of platform commission ledger debits (driver money SSOT). */
+  platform_commission_pence: number;
+  /**
+   * Provider processing fees are owned by Payment Sessions / FR.
+   * Always null here — reference-only pointer for the wallet UI.
+   */
+  provider_fees_reference_pence: number | null;
   trips_paid_count: number;
   average_earnings_per_trip_pence: number | null;
   timezone: "Europe/London";
@@ -45,9 +55,14 @@ const ADJUSTMENT_TYPES = new Set([
   "CORRECTION",
   "ADMIN_CORRECTION",
 ]);
-const DEBT_TYPES = new Set(["CASH_COMMISSION_DEBT", "DEBT_RECOVERY", "COMMISSION_RECOVERED"]);
+const COMMISSION_TYPES = new Set([
+  "PLATFORM_COMMISSION",
+  "COMPANY_COMMISSION",
+  "CASH_COMMISSION_DEBT",
+]);
 const EXCLUDE_FROM_EARNINGS = new Set([
   "PLATFORM_COMMISSION",
+  "COMPANY_COMMISSION",
   "WEEKLY_PAYOUT",
   "EARLY_CASHOUT",
   "MANUAL_PAYOUT",
@@ -105,16 +120,26 @@ export function buildDriverWalletPeriodKpis(
   const now = args?.now ?? new Date();
   const { start: todayStart } = getLondonDayBounds(now);
   const weekStart = getLondonWeekStart(now);
+  const lastWeekEnd = new Date(weekStart.getTime() - 1);
+  const lastWeekStart = getLondonWeekStart(lastWeekEnd);
   const monthStart = getLondonMonthStart(now);
+  const lastMonthEnd = new Date(monthStart.getTime() - 1);
+  const lastMonthStart = getLondonMonthStart(lastMonthEnd);
   const yearStart = getLondonYearStart(now);
+  const lastYearEnd = new Date(yearStart.getTime() - 1);
+  const lastYearStart = getLondonYearStart(lastYearEnd);
 
   let today = 0;
   let week = 0;
+  let lastWeek = 0;
   let month = 0;
+  let lastMonth = 0;
   let year = 0;
+  let lastYear = 0;
   let lifetime = 0;
   let bonuses = 0;
   let adjustments = 0;
+  let platformCommission = 0;
   const tripIds = new Set<string>();
 
   for (const row of ledger) {
@@ -124,6 +149,7 @@ export function buildDriverWalletPeriodKpis(
 
     if (BONUS_TYPES.has(type) && amount > 0) bonuses += amount;
     if (ADJUSTMENT_TYPES.has(type)) adjustments += amount;
+    if (COMMISSION_TYPES.has(type)) platformCommission += Math.abs(amount);
 
     if (isEarningCredit(type, amount)) {
       lifetime += amount;
@@ -131,8 +157,11 @@ export function buildDriverWalletPeriodKpis(
       if (!Number.isNaN(created)) {
         if (created >= todayStart.getTime()) today += amount;
         if (created >= weekStart.getTime()) week += amount;
+        if (created >= lastWeekStart.getTime() && created <= lastWeekEnd.getTime()) lastWeek += amount;
         if (created >= monthStart.getTime()) month += amount;
+        if (created >= lastMonthStart.getTime() && created <= lastMonthEnd.getTime()) lastMonth += amount;
         if (created >= yearStart.getTime()) year += amount;
+        if (created >= lastYearStart.getTime() && created <= lastYearEnd.getTime()) lastYear += amount;
       }
     }
   }
@@ -141,13 +170,18 @@ export function buildDriverWalletPeriodKpis(
   return {
     today_earnings_pence: today,
     week_earnings_pence: week,
+    last_week_earnings_pence: lastWeek,
     month_earnings_pence: month,
+    last_month_earnings_pence: lastMonth,
     year_earnings_pence: year,
+    last_year_earnings_pence: lastYear,
     lifetime_earnings_pence: lifetime,
     pending_earnings_pence: Math.max(0, Number(args?.pendingEarningsPence ?? 0)),
     total_bonuses_pence: bonuses,
     total_adjustments_pence: adjustments,
     outstanding_debt_pence: Math.max(0, Number(args?.recoveryDebtPence ?? 0)),
+    platform_commission_pence: platformCommission,
+    provider_fees_reference_pence: null,
     trips_paid_count: tripsPaid,
     average_earnings_per_trip_pence: tripsPaid > 0 ? Math.round(lifetime / tripsPaid) : null,
     timezone: "Europe/London",

@@ -35,7 +35,18 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 
-const FR_TABS = ['overview', 'drivers', 'trips', 'alerts', 'mismatches', 'history'] as const;
+const FR_TABS = [
+  'overview',
+  'drivers',
+  'trips',
+  'alerts',
+  'mismatches',
+  'shortfall',
+  'missing_captures',
+  'missing_releases',
+  'recovery',
+  'history',
+] as const;
 type FrTab = (typeof FR_TABS)[number];
 
 function parseFrTab(value: string | null): FrTab {
@@ -347,10 +358,10 @@ function FinancialReconciliationPage() {
         {ssotStatus === 'DEGRADED_SNAPSHOT' && (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>Financial Reconciliation SSOT unavailable — displaying read-only cached snapshot.</AlertTitle>
+            <AlertTitle>Awaiting Provider Sync</AlertTitle>
             <AlertDescription>
-              Exports, payouts, retries, approvals, adjustments, and reconciliation actions are disabled until live SSOT
-              recovers.
+              Financial Reconciliation is read-only and showing the last verified snapshot. Money is never edited here.
+              Exports, payouts, retries, approvals, adjustments, and reconciliation actions stay disabled until live SSOT recovers.
               {snapshotSavedAt ? ` Last updated ${snapshotSavedAt}.` : null}
             </AlertDescription>
           </Alert>
@@ -358,9 +369,9 @@ function FinancialReconciliationPage() {
         {(ssotBadge === 'PARTIAL' || ssot.response?.downstream_status?.provider === 'UNAVAILABLE') && ssotStatus !== 'DEGRADED_SNAPSHOT' && (
           <Alert>
             <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>Partial evidence</AlertTitle>
+            <AlertTitle>Awaiting Provider Sync</AlertTitle>
             <AlertDescription>
-              Provider balance/API evidence is unavailable. ONECAB trip and wallet audit rows still load.
+              Provider balance/API evidence is unavailable. Showing last verified ONECAB trip and wallet audit rows.
               Downstream: provider={ssot.response?.downstream_status?.provider ?? 'unknown'}.
             </AlertDescription>
           </Alert>
@@ -414,6 +425,10 @@ function FinancialReconciliationPage() {
             <TabsTrigger value="trips">Trips ({tripAuditRows.length})</TabsTrigger>
             <TabsTrigger value="alerts">Alerts</TabsTrigger>
             <TabsTrigger value="mismatches">Mismatches</TabsTrigger>
+            <TabsTrigger value="shortfall">Shortfall</TabsTrigger>
+            <TabsTrigger value="missing_captures">Missing Captures</TabsTrigger>
+            <TabsTrigger value="missing_releases">Missing Releases</TabsTrigger>
+            <TabsTrigger value="recovery">Recovery Queue</TabsTrigger>
             <TabsTrigger value="history">Resolved History</TabsTrigger>
           </TabsList>
 
@@ -495,7 +510,7 @@ function FinancialReconciliationPage() {
                     <AlertTitle>Trip mismatches</AlertTitle>
                     <AlertDescription>
                       Capture / reconciliation mismatches for this period. Money-movement alerts remain on the Alerts tab.
-                      Hold actions run on Payment Sessions.
+                      Hold actions run on Payment Sessions. Financial Reconciliation never edits money.
                     </AlertDescription>
                   </Alert>
                   <FinancialReconciliationTripsTab
@@ -507,6 +522,106 @@ function FinancialReconciliationPage() {
                     isRefreshing={isFinanceRefreshing}
                     onRefresh={() => void handleRefreshFinance()}
                     mode="mismatches"
+                  />
+                </div>
+              </FinancePanelErrorBoundary>
+            )}
+          </TabsContent>
+
+          <TabsContent value="shortfall" className="mt-4">
+            {frTab === 'shortfall' && (
+              <FinancePanelErrorBoundary panelName="Shortfall">
+                <div className="space-y-4">
+                  <Alert>
+                    <AlertTitle>Shortfall (read-only)</AlertTitle>
+                    <AlertDescription>
+                      Trips with outstanding customer payable. Recovery actions live on Payment Sessions.
+                    </AlertDescription>
+                  </Alert>
+                  <FinancialReconciliationTripsTab
+                    rows={tripAuditRows}
+                    money={money}
+                    readOnly={readOnly}
+                    ssotBadge={ssotBadge}
+                    lastSyncedAt={lastSyncedAt}
+                    isRefreshing={isFinanceRefreshing}
+                    onRefresh={() => void handleRefreshFinance()}
+                    mode="shortfall"
+                  />
+                </div>
+              </FinancePanelErrorBoundary>
+            )}
+          </TabsContent>
+
+          <TabsContent value="missing_captures" className="mt-4">
+            {frTab === 'missing_captures' && (
+              <FinancePanelErrorBoundary panelName="Missing Captures">
+                <div className="space-y-4">
+                  <Alert>
+                    <AlertTitle>Missing captures (read-only)</AlertTitle>
+                    <AlertDescription>
+                      Authorised or payable trips without confirmed capture evidence. Capture lifecycle is owned by Payment Sessions.
+                    </AlertDescription>
+                  </Alert>
+                  <FinancialReconciliationTripsTab
+                    rows={tripAuditRows}
+                    money={money}
+                    readOnly={readOnly}
+                    ssotBadge={ssotBadge}
+                    lastSyncedAt={lastSyncedAt}
+                    isRefreshing={isFinanceRefreshing}
+                    onRefresh={() => void handleRefreshFinance()}
+                    mode="missing_captures"
+                  />
+                </div>
+              </FinancePanelErrorBoundary>
+            )}
+          </TabsContent>
+
+          <TabsContent value="missing_releases" className="mt-4">
+            {frTab === 'missing_releases' && (
+              <FinancePanelErrorBoundary panelName="Missing Releases">
+                <div className="space-y-4">
+                  <Alert>
+                    <AlertTitle>Missing releases (read-only)</AlertTitle>
+                    <AlertDescription>
+                      Authorised holds without release or capture. Release / retry lives on Payment Sessions.
+                    </AlertDescription>
+                  </Alert>
+                  <FinancialReconciliationTripsTab
+                    rows={tripAuditRows}
+                    money={money}
+                    readOnly={readOnly}
+                    ssotBadge={ssotBadge}
+                    lastSyncedAt={lastSyncedAt}
+                    isRefreshing={isFinanceRefreshing}
+                    onRefresh={() => void handleRefreshFinance()}
+                    mode="missing_releases"
+                  />
+                </div>
+              </FinancePanelErrorBoundary>
+            )}
+          </TabsContent>
+
+          <TabsContent value="recovery" className="mt-4">
+            {frTab === 'recovery' && (
+              <FinancePanelErrorBoundary panelName="Recovery Queue">
+                <div className="space-y-4">
+                  <Alert>
+                    <AlertTitle>Recovery queue (read-only)</AlertTitle>
+                    <AlertDescription>
+                      Outstanding / recovery-flagged trip audits. Execute recovery on Payment Sessions — this page never edits money.
+                    </AlertDescription>
+                  </Alert>
+                  <FinancialReconciliationTripsTab
+                    rows={tripAuditRows}
+                    money={money}
+                    readOnly={readOnly}
+                    ssotBadge={ssotBadge}
+                    lastSyncedAt={lastSyncedAt}
+                    isRefreshing={isFinanceRefreshing}
+                    onRefresh={() => void handleRefreshFinance()}
+                    mode="recovery"
                   />
                 </div>
               </FinancePanelErrorBoundary>

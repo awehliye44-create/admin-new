@@ -26,9 +26,13 @@ export type DriverWalletPayoutDetail = DriverWalletPayoutSnapshot & {
   driver_code: string | null;
   driver_name: string | null;
   connected_account_id: string | null;
+  verification_status: string | null;
+  bank_account_last4: string | null;
+  payouts_enabled: boolean | null;
   last_payout_at: string | null;
   last_payout_amount_pence: number | null;
   payout_items: Array<Record<string, unknown>>;
+  early_cashouts: Array<Record<string, unknown>>;
   stripe_connect_payouts: Array<Record<string, unknown>>;
   settlements: Array<Record<string, unknown>>;
   ledger_rows: Array<Record<string, unknown>>;
@@ -50,7 +54,7 @@ export async function fetchDriverWalletPayoutSnapshot(
 
   const { data: driver } = await supabase
     .from("drivers")
-    .select("id, user_id, driver_code, first_name, last_name, stripe_account_id, payouts_enabled, charges_enabled, region_id")
+    .select("id, user_id, driver_code, first_name, last_name, stripe_account_id, payouts_enabled, charges_enabled, onboarding_complete, region_id")
     .eq("id", args.driverId)
     .maybeSingle();
 
@@ -88,9 +92,10 @@ export async function fetchDriverWalletPayoutSnapshot(
       .order("initiated_at", { ascending: false })
       .limit(50),
     supabase.from("driver_early_cashouts")
-      .select("status, requested_cashout_pence")
+      .select("id, status, requested_cashout_pence, early_cashout_fee_pence, driver_receives_pence, created_at, updated_at, paid_at, stripe_payout_id, failure_reason")
       .eq("driver_id", args.driverId)
-      .in("status", ["pending", "processing", "transfer_created"]),
+      .order("created_at", { ascending: false })
+      .limit(50),
   ]);
 
   const ledger = fullLedgerRes.data ?? [];
@@ -124,10 +129,10 @@ export async function fetchDriverWalletPayoutSnapshot(
   const stripePayouts = stripePayoutsRes.data ?? [];
   const stripePaidOut = sumStripePaidOutFromConnectPayouts(stripePayouts);
 
-  const inFlight = (earlyCashoutsRes.data ?? []).reduce(
-    (s, r) => s + Math.max(0, Number(r.requested_cashout_pence ?? 0)),
-    0,
-  );
+  const earlyCashouts = earlyCashoutsRes.data ?? [];
+  const inFlight = earlyCashouts
+    .filter((r) => ["pending", "processing", "transfer_created"].includes(String(r.status ?? "").toLowerCase()))
+    .reduce((s, r) => s + Math.max(0, Number(r.requested_cashout_pence ?? 0)), 0);
 
   let connectAvailable: number | null = null;
   let connectPending: number | null = null;
@@ -229,6 +234,16 @@ export async function fetchDriverWalletPayoutSnapshot(
       return bTs - aTs;
     })[0] ?? null;
 
+  const bankLast4 = [...stripePayouts]
+    .map((r) => (r.bank_last4 == null ? null : String(r.bank_last4)))
+    .find((v) => v && v.length > 0) ?? null;
+
+  let verificationStatus: string | null = null;
+  if (!driver?.stripe_account_id) verificationStatus = "not_connected";
+  else if (driver.payouts_enabled && driver.onboarding_complete) verificationStatus = "verified";
+  else if (driver.onboarding_complete || driver.charges_enabled) verificationStatus = "restricted";
+  else verificationStatus = "pending";
+
   const period_kpis = buildDriverWalletPeriodKpis(
     ledger.map((r) => ({
       type: String(r.type ?? ""),
@@ -250,6 +265,9 @@ export async function fetchDriverWalletPayoutSnapshot(
     driver_code: (driver?.driver_code as string) ?? null,
     driver_name: driverName,
     connected_account_id: (driver?.stripe_account_id as string) ?? null,
+    verification_status: verificationStatus,
+    bank_account_last4: bankLast4,
+    payouts_enabled: driver?.payouts_enabled ?? null,
     last_payout_at: lastPaidPayout
       ? String(lastPaidPayout.initiated_at ?? lastPaidPayout.arrival_date ?? null)
       : null,
@@ -258,6 +276,7 @@ export async function fetchDriverWalletPayoutSnapshot(
       : null,
     period_kpis,
     payout_items: payoutItems,
+    early_cashouts: earlyCashouts,
     stripe_connect_payouts: stripePayouts,
     settlements,
     ledger_rows: recentLedger,

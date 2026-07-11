@@ -24,9 +24,11 @@ import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 /** Payout Ledger–owned writers only. Do not mount on Driver Wallet. */
 export function PayoutLedgerCreateWeeklyBatchButton({
   regionId,
+  serviceAreaId,
   currencyCode = 'GBP',
 }: {
   regionId?: string | null;
+  serviceAreaId?: string | null;
   currencyCode?: string;
 }) {
   const queryClient = useQueryClient();
@@ -49,7 +51,10 @@ export function PayoutLedgerCreateWeeklyBatchButton({
     const perf = startAdminPerformanceStep({ action_name: 'admin_run_payouts' });
     try {
       const { data, error } = await supabase.functions.invoke('admin-weekly-monday-settlement', {
-        body: { region_id: regionId },
+        body: {
+          region_id: regionId,
+          ...(serviceAreaId ? { service_area_id: serviceAreaId } : {}),
+        },
       });
       if (error) throw error;
       if (data?.error) throw new Error(String(data.error));

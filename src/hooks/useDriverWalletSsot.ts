@@ -4,13 +4,18 @@ import { supabase } from '@/integrations/supabase/client';
 export type DriverWalletPeriodKpis = {
   today_earnings_pence: number;
   week_earnings_pence: number;
+  last_week_earnings_pence: number;
   month_earnings_pence: number;
+  last_month_earnings_pence: number;
   year_earnings_pence: number;
+  last_year_earnings_pence: number;
   lifetime_earnings_pence: number;
   pending_earnings_pence: number;
   total_bonuses_pence: number;
   total_adjustments_pence: number;
   outstanding_debt_pence: number;
+  platform_commission_pence: number;
+  provider_fees_reference_pence: number | null;
   trips_paid_count: number;
   average_earnings_per_trip_pence: number | null;
   timezone: 'Europe/London';
@@ -22,6 +27,9 @@ export type DriverWalletSsotRow = {
   driver_code: string | null;
   driver_name: string | null;
   connected_account_id: string | null;
+  verification_status?: string | null;
+  bank_account_last4?: string | null;
+  payouts_enabled?: boolean | null;
   current_onecab_wallet_owed_pence: number;
   finance_cleared_amount_pence: number;
   included_in_payout_batch_amount_pence: number;
@@ -42,6 +50,7 @@ export type DriverWalletSsotRow = {
   last_synced_at: string | null;
   period_kpis?: DriverWalletPeriodKpis;
   payout_items?: Array<Record<string, unknown>>;
+  early_cashouts?: Array<Record<string, unknown>>;
   stripe_connect_payouts?: Array<Record<string, unknown>>;
   settlements?: Array<Record<string, unknown>>;
   ledger_rows?: Array<Record<string, unknown>>;
