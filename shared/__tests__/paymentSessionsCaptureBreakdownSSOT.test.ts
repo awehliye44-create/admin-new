@@ -25,6 +25,23 @@ describe("paymentSessionsCaptureBreakdownSSOT", () => {
     expect(captureClassificationToMatchStatus(b.capture_classification)).toBe("MATCHED");
   });
 
+  it("stale canonical 680 + pickup 18 + capture 698 → waiting match, not OVERCAPTURE", () => {
+    const b = buildPaymentSessionCaptureBreakdown({
+      ride_fare_pence: 680,
+      pickup_waiting_charge_pence: 18,
+      stop_waiting_charge_pence: 0,
+      tip_pence: 0,
+      airport_charge_pence: 0,
+      // Stale final_fare that omitted waiting — component sum owns expected.
+      canonical_expected_capture_pence: 680,
+      provider_captured_pence: 698,
+    });
+    expect(b.expected_capture_pence).toBe(698);
+    expect(b.variance_pence).toBe(0);
+    expect(b.capture_classification).toBe("CAPTURED_WITH_WAITING_TIME");
+    expect(captureClassificationToMatchStatus(b.capture_classification)).toBe("MATCHED");
+  });
+
   it("base 680 + no waiting + capture 698 → UNEXPLAINED_OVERCAPTURE +18", () => {
     const b = buildPaymentSessionCaptureBreakdown({
       ride_fare_pence: 680,

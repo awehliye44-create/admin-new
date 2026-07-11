@@ -349,6 +349,18 @@ export interface TripFinancialAuditRow {
   variance_reason?: string | null;
   capture_classification?: string | null;
   ps_expected_capture_pence?: number | null;
+  pickup_waiting_charge_pence?: number | null;
+  stop_waiting_charge_pence?: number | null;
+  capture_breakdown?: {
+    ride_fare_pence: number | null;
+    pickup_waiting_charge_pence: number | null;
+    stop_waiting_charge_pence: number | null;
+    expected_capture_pence: number | null;
+    provider_captured_pence: number | null;
+    variance_pence: number | null;
+    variance_reason: string | null;
+    capture_classification: string;
+  } | null;
   payment_evidence_status?:
     | 'PAYMENT_SESSIONS'
     | 'NO_PAYMENT_SESSION'
@@ -420,6 +432,7 @@ export interface FinanceReconciliationResponse {
     completed_trip_fare_total_pence: number;
     confirmed_provider_captured_total_pence: number;
     refunded_total_pence: number;
+    released_total_pence?: number;
     provider_fee_total_pence: number;
     onecab_gross_commission_pence: number;
     onecab_net_commission_pence: number | null;
@@ -428,6 +441,8 @@ export interface FinanceReconciliationResponse {
     payouts_completed_pence: number;
     capture_shortfall_pence: number;
     overcapture_pence: number;
+    missing_captures_count?: number;
+    missing_releases_count?: number;
     missing_wallet_credits_count: number;
     payout_mismatches_count: number;
     balanced_trips_count: number;

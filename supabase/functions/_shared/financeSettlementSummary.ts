@@ -19,8 +19,6 @@ import {
   SSOT_VERSION,
 } from "./financialReconciliationSSOT.ts";
 import {
-  captureVariancePence,
-  classifyCaptureReconciliation,
   classifyPayoutReconciliation,
   classifyProviderVerificationStatus,
   classifyRefundReconciliation,
@@ -30,9 +28,9 @@ import {
   sumTripWalletEarningCreditPence,
 } from "./frTripAuditComparisonSSOT.ts";
 import {
-  buildCaptureBreakdownForCompletedTrip,
   captureClassificationToMatchStatus,
   readPersistedCaptureBreakdown,
+  type PaymentSessionCaptureBreakdown,
 } from "../../../shared/paymentSessionsCaptureBreakdownSSOT.ts";
 import {
   deriveTripFinancialAuditStatuses,
@@ -543,6 +541,19 @@ export type TripFinancialAuditRow = {
   variance_reason?: string | null;
   capture_classification?: string | null;
   ps_expected_capture_pence?: number | null;
+  /** PS capture component — never FR-invented. */
+  pickup_waiting_charge_pence?: number | null;
+  stop_waiting_charge_pence?: number | null;
+  capture_breakdown?: {
+    ride_fare_pence: number | null;
+    pickup_waiting_charge_pence: number | null;
+    stop_waiting_charge_pence: number | null;
+    expected_capture_pence: number | null;
+    provider_captured_pence: number | null;
+    variance_pence: number | null;
+    variance_reason: string | null;
+    capture_classification: string;
+  } | null;
 };
 
 export type TripAuditSourceRow = TripFinanceRow & {
@@ -770,13 +781,6 @@ export function mapTripToFinancialAuditRow(
     ledgerByTripId: new Map(),
   },
 ): TripFinancialAuditRow {
-  const nullablePenceLike = (v: unknown): number | null => {
-    if (v == null) return null;
-    const n = Number(v);
-    if (!Number.isFinite(n) || n < 0) return null;
-    return Math.round(n);
-  };
-
   const payment = context.paymentByTripId.get(row.id) ?? null;
   const tripPayments = context.paymentsByTripId.get(row.id) ?? [];
   const ledger = context.ledgerByTripId.get(row.id) ?? [];
@@ -846,17 +850,6 @@ export function mapTripToFinancialAuditRow(
       captured_pence: captured,
       outstanding_balance_pence: row.outstanding_balance_pence,
     });
-  const captureMismatch = isCash
-    ? false
-    : (captured == null
-      ? true
-      : computeAuditCaptureMismatch({
-        payment_method: row.payment_method ?? null,
-        settlement_pence: settlementTotal,
-        captured_pence: captured,
-        outstanding_balance_pence: row.outstanding_balance_pence,
-        payment_coverage_status: row.payment_coverage_status ?? null,
-      }));
 
   // Expected driver net = trip settlement snapshot. Actual wallet = ledger TRIP_EARNING_NET.
   const expectedDriverNet = tripDriverNetPence(row);
@@ -876,10 +869,6 @@ export function mapTripToFinancialAuditRow(
 
   const tipPence = Math.max(0, Number(row.tip_pence ?? row.tip_amount_pence ?? 0));
   const airportPence = Math.max(0, Number(row.airport_charge_pence ?? 0));
-  const rideFarePence = Math.max(
-    0,
-    Number(row.commissionable_fare_pence ?? row.gross_fare_pence ?? 0),
-  );
   // Provider fee: Payment Sessions only — never trip fee invent.
   const sessionFee = session?.provider_processing_fee_pence;
   const processingFeePence = sessionsMapPresent
@@ -907,28 +896,15 @@ export function mapTripToFinancialAuditRow(
     sessionsMapPresent,
   });
 
-  // Payment Sessions owns expected capture + reason.
-  // Prefer persisted PS metadata breakdown; else PS-owned builder (never invent reason in FR).
+  // Payment Sessions owns expected capture / variance / classification.
+  // FR consume-only: read persisted metadata.capture_breakdown — never rebuild from trip fare.
   const persistedBreakdown = readPersistedCaptureBreakdown(session?.metadata ?? null);
-  const fareCaptureCanonical = nullablePenceLike(row.final_fare_pence);
-  const noShowForCanonical = nullablePenceLike(row.no_show_charge_pence) ?? 0;
-  const psCaptureBreakdown = persistedBreakdown ?? buildCaptureBreakdownForCompletedTrip({
-    trip: row,
-    provider_captured_pence: captured,
-    canonical_expected_capture_pence: fareCaptureCanonical != null
-      ? fareCaptureCanonical + noShowForCanonical
-      : null,
-  });
-
-  const expectedCapturePence = psCaptureBreakdown.expected_capture_pence;
-  const captureVariance = psCaptureBreakdown.variance_pence;
-  const rideFareForCapture = psCaptureBreakdown.ride_fare_pence
-    ?? nullablePenceLike(
-      row.final_customer_fare_pence ?? row.commissionable_fare_pence ?? row.gross_fare_pence,
-    );
-  const variancePence = settlementTotal == null || captured == null
-    ? null
-    : settlementTotal - captured;
+  const psCaptureBreakdown: PaymentSessionCaptureBreakdown | null = persistedBreakdown;
+  const expectedCapturePence = psCaptureBreakdown?.expected_capture_pence ?? null;
+  const captureVariance = psCaptureBreakdown?.variance_pence ?? null;
+  const rideFareForCapture = psCaptureBreakdown?.ride_fare_pence ?? null;
+  // Customer capture variance is PS-owned only — never settlement_total − captured.
+  const variancePence = captureVariance;
   const walletVariancePence = expectedDriverNet == null || walletCredit == null
     ? null
     : walletCredit - expectedDriverNet;
@@ -942,7 +918,9 @@ export function mapTripToFinancialAuditRow(
     })
     : null;
 
-  const psMatch = captureClassificationToMatchStatus(psCaptureBreakdown.capture_classification);
+  const psMatch = psCaptureBreakdown
+    ? captureClassificationToMatchStatus(psCaptureBreakdown.capture_classification)
+    : null;
   const capture_reconciliation_status = isCash
     ? "MATCHED"
     : payment_evidence_status === "PAYMENT_EVIDENCE_UNAVAILABLE"
@@ -951,21 +929,17 @@ export function mapTripToFinancialAuditRow(
     ? "NO_PAYMENT_SESSION"
     : provider_verification_status === "STALE"
     ? "PROVIDER_VERIFICATION_PENDING"
+    : captured == null || captured <= 0
+    ? "PAYMENT_SESSION_CAPTURE_MISMATCH"
+    : psMatch == null
+    ? "CAPTURE_AMOUNT_UNKNOWN" // PS breakdown not persisted yet — never invent OVERCAPTURE from trip fare
     : psMatch === "MATCHED"
     ? "MATCHED"
     : psMatch === "UNEXPLAINED_OVERCAPTURE"
     ? "OVERCAPTURE"
     : psMatch === "CAPTURE_SHORTFALL"
     ? "CAPTURE_SHORTFALL"
-    : classifyCaptureReconciliation({
-      isCash,
-      paymentEvidenceStatus: payment_evidence_status,
-      captured_pence: captured,
-      final_customer_fare_pence: expectedCapturePence,
-      authorised_pence: authorisedPence,
-      provider_verification_status,
-      tripCompleted: true,
-    });
+    : "CAPTURE_AMOUNT_UNKNOWN";
   const release_reconciliation_status = classifyReleaseReconciliation({
     authorised_pence: authorisedPence,
     captured_pence: captured,
@@ -1010,8 +984,18 @@ export function mapTripToFinancialAuditRow(
   if (!walletEvidenceAvailable) warnings.push("WALLET_EVIDENCE_UNAVAILABLE");
   if (!payoutEvidenceAvailable) warnings.push("PAYOUT_EVIDENCE_UNAVAILABLE");
   if (fee_status === "PENDING_PROVIDER_FEE") warnings.push("PROVIDER_FEE_PENDING");
+  if (psCaptureBreakdown == null && !isCash && payment_evidence_status === "PAYMENT_SESSIONS") {
+    warnings.push("PAYMENT_SESSION_CAPTURE_BREAKDOWN_PENDING");
+  }
 
-  const captureMismatchResolved = capture_reconciliation_status === "MATCHED" ? false : captureMismatch;
+  // Capture mismatch is PS classification only — never trip settlement vs capture.
+  const captureMismatchResolved = isCash
+    ? false
+    : capture_reconciliation_status === "OVERCAPTURE"
+      || capture_reconciliation_status === "CAPTURE_SHORTFALL"
+      || capture_reconciliation_status === "PAYMENT_SESSION_CAPTURE_MISMATCH"
+      || capture_reconciliation_status === "NO_PAYMENT_SESSION"
+      || (captured == null && payment_evidence_status === "PAYMENT_SESSIONS");
 
   const reconciliation_status = deriveTripReconciliationBadge({
     capture_mismatch: captureMismatchResolved,
@@ -1047,7 +1031,7 @@ export function mapTripToFinancialAuditRow(
     gross_fare_pence: grossFarePence,
     discount_pence: discountPence,
     final_fare_pence: finalFarePence,
-    final_customer_fare_pence: rideFareForCapture ?? finalFarePence,
+    final_customer_fare_pence: rideFareForCapture,
     settlement_total_pence: settlementTotal,
     captured_pence: captured,
     refunded_pence: refunded,
@@ -1074,7 +1058,7 @@ export function mapTripToFinancialAuditRow(
     payment_status: row.payment_status ?? null,
     capture_status,
     reconciliation_status,
-    ride_fare_pence: rideFarePence,
+    ride_fare_pence: rideFareForCapture,
     airport_charge_pence: airportPence,
     tip_pence: tipPence,
     authorised_pence: authorisedPence,
@@ -1096,10 +1080,24 @@ export function mapTripToFinancialAuditRow(
     provider_state,
     provider_verified_at,
     provider_verification_status,
-    variance_reason: psCaptureBreakdown.variance_reason,
-    capture_classification: psCaptureBreakdown.capture_classification,
+    variance_reason: psCaptureBreakdown?.variance_reason ?? null,
+    capture_classification: psCaptureBreakdown?.capture_classification ?? null,
     ps_expected_capture_pence: expectedCapturePence,
-    warnings: psCaptureBreakdown.variance_reason
+    pickup_waiting_charge_pence: psCaptureBreakdown?.pickup_waiting_charge_pence ?? null,
+    stop_waiting_charge_pence: psCaptureBreakdown?.stop_waiting_charge_pence ?? null,
+    capture_breakdown: psCaptureBreakdown
+      ? {
+        ride_fare_pence: psCaptureBreakdown.ride_fare_pence,
+        pickup_waiting_charge_pence: psCaptureBreakdown.pickup_waiting_charge_pence,
+        stop_waiting_charge_pence: psCaptureBreakdown.stop_waiting_charge_pence,
+        expected_capture_pence: psCaptureBreakdown.expected_capture_pence,
+        provider_captured_pence: psCaptureBreakdown.provider_captured_pence,
+        variance_pence: psCaptureBreakdown.variance_pence,
+        variance_reason: psCaptureBreakdown.variance_reason,
+        capture_classification: psCaptureBreakdown.capture_classification,
+      }
+      : null,
+    warnings: psCaptureBreakdown?.variance_reason
       ? [...warnings, psCaptureBreakdown.variance_reason]
       : warnings,
     settlement_formula_version: "fr_trip_audit_v1",

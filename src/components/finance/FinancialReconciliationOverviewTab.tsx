@@ -44,6 +44,7 @@ export function FinancialReconciliationOverviewTab({
     completed_trip_fare_total_pence: number;
     confirmed_provider_captured_total_pence: number;
     refunded_total_pence: number;
+    released_total_pence?: number;
     provider_fee_total_pence: number;
     onecab_gross_commission_pence: number;
     onecab_net_commission_pence: number | null;
@@ -52,6 +53,8 @@ export function FinancialReconciliationOverviewTab({
     payouts_completed_pence: number;
     capture_shortfall_pence: number;
     overcapture_pence: number;
+    missing_captures_count?: number;
+    missing_releases_count?: number;
     missing_wallet_credits_count: number;
     payout_mismatches_count: number;
     balanced_trips_count: number;
@@ -105,10 +108,23 @@ export function FinancialReconciliationOverviewTab({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        <KpiCard label="Completed trip fare total" value={o ? fmt(o.completed_trip_fare_total_pence) : '—'} />
-        <KpiCard label="Confirmed provider captured" value={o ? fmt(o.confirmed_provider_captured_total_pence) : '—'} />
-        <KpiCard label="Refunded total" value={o ? fmt(o.refunded_total_pence) : '—'} />
-        <KpiCard label="Provider fee total" value={o ? fmt(o.provider_fee_total_pence) : '—'} />
+        <KpiCard
+          label="Completed trips paid total"
+          value={o ? fmt(o.completed_trip_fare_total_pence) : '—'}
+          subtitle="Payment Sessions expected capture"
+        />
+        <KpiCard
+          label="Confirmed provider captured"
+          value={o ? fmt(o.confirmed_provider_captured_total_pence) : '—'}
+          subtitle="Payment Sessions"
+        />
+        <KpiCard label="Refunded total" value={o ? fmt(o.refunded_total_pence) : '—'} subtitle="Payment Sessions" />
+        <KpiCard
+          label="Released total"
+          value={o?.released_total_pence == null ? '—' : fmt(o.released_total_pence)}
+          subtitle="Payment Sessions"
+        />
+        <KpiCard label="Provider fee total" value={o ? fmt(o.provider_fee_total_pence) : '—'} subtitle="Payment Sessions" />
         <KpiCard label="ONECAB gross commission" value={o ? fmt(o.onecab_gross_commission_pence) : '—'} />
         <KpiCard
           label="ONECAB net commission"
@@ -117,8 +133,18 @@ export function FinancialReconciliationOverviewTab({
         <KpiCard label="Driver net total" value={o ? fmt(o.driver_net_total_pence) : '—'} />
         <KpiCard label="Wallet credits total" value={o ? fmt(o.wallet_credits_total_pence) : '—'} />
         <KpiCard label="Payouts completed" value={o ? fmt(o.payouts_completed_pence) : '—'} />
-        <KpiCard label="Capture shortfall" value={o ? fmt(o.capture_shortfall_pence) : '—'} />
-        <KpiCard label="Overcapture" value={o ? fmt(o.overcapture_pence) : '—'} />
+        <KpiCard
+          label="Capture shortfall"
+          value={o ? fmt(o.capture_shortfall_pence) : '—'}
+          subtitle="Payment Sessions classification"
+        />
+        <KpiCard
+          label="Overcapture"
+          value={o ? fmt(o.overcapture_pence) : '—'}
+          subtitle="Payment Sessions classification"
+        />
+        <KpiCard label="Missing captures" value={o?.missing_captures_count ?? '—'} subtitle="Payment Sessions" />
+        <KpiCard label="Missing releases" value={o?.missing_releases_count ?? '—'} subtitle="Payment Sessions" />
         <KpiCard label="Missing wallet credits" value={o?.missing_wallet_credits_count ?? '—'} />
         <KpiCard label="Payout mismatches" value={o?.payout_mismatches_count ?? '—'} />
         <KpiCard label="Balanced trips" value={o?.balanced_trips_count ?? '—'} />

@@ -183,6 +183,43 @@ export function classifyPaymentSessionCaptureVariance(args: {
   }
 
   if (variance > 0) {
+    const pickup = args.pickup_waiting_charge_pence ?? 0;
+    const stop = args.stop_waiting_charge_pence ?? 0;
+    const noShow = args.no_show_charge_pence ?? 0;
+    // Safety net: positive delta fully explained by a legitimate component
+    // even when expected omitted that component (stale final_fare).
+    if (pickup > 0 && Math.abs(variance - pickup) <= TOLERANCE_PENCE) {
+      return {
+        capture_classification: "CAPTURED_WITH_WAITING_TIME",
+        variance_pence: 0,
+        variance_reason: "Pickup waiting time",
+      };
+    }
+    if (stop > 0 && Math.abs(variance - stop) <= TOLERANCE_PENCE) {
+      return {
+        capture_classification: "CAPTURED_WITH_STOP_WAITING",
+        variance_pence: 0,
+        variance_reason: "Stop waiting time",
+      };
+    }
+    if (noShow > 0 && Math.abs(variance - noShow) <= TOLERANCE_PENCE) {
+      return {
+        capture_classification: "CAPTURED_WITH_NO_SHOW_CHARGE",
+        variance_pence: 0,
+        variance_reason: "No-show charge",
+      };
+    }
+    const waitingTotal = pickup + stop;
+    if (
+      waitingTotal > 0
+      && Math.abs(variance - waitingTotal) <= TOLERANCE_PENCE
+    ) {
+      return {
+        capture_classification: "CAPTURED_WITH_ADDITIONAL_CHARGES",
+        variance_pence: 0,
+        variance_reason: "Multiple legitimate payment components",
+      };
+    }
     return {
       capture_classification: "UNEXPLAINED_OVERCAPTURE",
       variance_pence: variance,
@@ -229,7 +266,12 @@ export function buildPaymentSessionCaptureBreakdown(
     tip,
     other,
   ]);
-  const expected = canonical ?? summed;
+  // Prefer the fuller of canonical vs component sum. Stale final_fare that omits
+  // waiting/no-show must never become expected and invent UNEXPLAINED_OVERCAPTURE.
+  const expected =
+    canonical != null && summed != null
+      ? Math.max(canonical, summed)
+      : (canonical ?? summed);
 
   const additionalLegitimate = countPositive([
     airport,

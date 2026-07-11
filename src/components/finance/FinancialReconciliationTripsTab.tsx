@@ -108,6 +108,7 @@ export function FinancialReconciliationTripsTab({
       return rows.filter((r) => {
         const method = String(r.payment_method ?? '').toLowerCase();
         if (method === 'cash' || method.includes('cash')) return false;
+        if (r.capture_reconciliation_status === 'CAPTURE_AMOUNT_UNKNOWN') return false;
         return r.capture_reconciliation_status === 'CAPTURE_MISSING'
           || r.capture_reconciliation_status === 'CAPTURE_PENDING'
           || r.capture_reconciliation_status === 'PAYMENT_SESSION_CAPTURE_MISMATCH'
@@ -312,7 +313,7 @@ export function FinancialReconciliationTripsTab({
                     </TableCell>
                     <TableCell className="text-xs">{row.payment_method ?? '—'}</TableCell>
                     <TableCell className="text-right text-xs whitespace-nowrap">
-                      {formatNullablePence(row.ps_expected_capture_pence ?? row.final_customer_fare_pence ?? row.final_fare_pence, ccy)}
+                      {formatNullablePence(row.ps_expected_capture_pence, ccy)}
                     </TableCell>
                     <TableCell className="text-right text-xs whitespace-nowrap">
                       {formatNullablePence(row.authorised_pence, ccy)}
@@ -381,6 +382,21 @@ export function FinancialReconciliationTripsTab({
                       ) : null}
                       {row.capture_classification ? (
                         <p className="text-[10px] text-muted-foreground">{row.capture_classification}</p>
+                      ) : null}
+                      {(row.capture_breakdown?.pickup_waiting_charge_pence
+                        ?? row.pickup_waiting_charge_pence
+                        ?? 0) > 0 ? (
+                        <p className="text-[10px] text-muted-foreground mt-0.5 max-w-[160px]">
+                          Ride {formatNullablePence(row.capture_breakdown?.ride_fare_pence ?? row.ride_fare_pence, ccy)}
+                          {' + Waiting '}
+                          {formatNullablePence(
+                            row.capture_breakdown?.pickup_waiting_charge_pence
+                              ?? row.pickup_waiting_charge_pence,
+                            ccy,
+                          )}
+                          {' = '}
+                          {formatNullablePence(row.captured_pence, ccy)}
+                        </p>
                       ) : null}
                     </TableCell>
                     <TableCell>

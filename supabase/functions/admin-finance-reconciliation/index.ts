@@ -34,6 +34,7 @@ import {
 import { computeLedgerWalletBalancePence } from "../_shared/onecabFinanceLedger.ts";
 import {
   buildFrAuditOverviewKpis,
+  buildFrCustomerMoneyKpisFromPaymentSessions,
 } from "../_shared/frTripAuditComparisonSSOT.ts";
 import {
   applyFinanceReconciliationTripLocationFilter,
@@ -1148,7 +1149,21 @@ serve(async (req) => {
       payoutsDownstream,
     ].some((s) => s === "UNAVAILABLE");
     const pageStatus = anyDownstreamUnavailable ? "PARTIAL" : "LIVE";
-    const audit_overview_kpis = buildFrAuditOverviewKpis(trip_financial_audit);
+    const auditRowOverview = buildFrAuditOverviewKpis(trip_financial_audit);
+    const psCustomerMoney = buildFrCustomerMoneyKpisFromPaymentSessions(paymentSessionRows);
+    // Customer money widgets = Payment Sessions only (never FR trip-fare rollup).
+    const audit_overview_kpis = {
+      ...auditRowOverview,
+      completed_trip_fare_total_pence: psCustomerMoney.completed_trip_fare_total_pence,
+      confirmed_provider_captured_total_pence: psCustomerMoney.confirmed_provider_captured_total_pence,
+      refunded_total_pence: psCustomerMoney.refunded_total_pence,
+      released_total_pence: psCustomerMoney.released_total_pence,
+      provider_fee_total_pence: psCustomerMoney.provider_fee_total_pence,
+      capture_shortfall_pence: psCustomerMoney.capture_shortfall_pence,
+      overcapture_pence: psCustomerMoney.overcapture_pence,
+      missing_captures_count: psCustomerMoney.missing_captures_count,
+      missing_releases_count: psCustomerMoney.missing_releases_count,
+    };
 
     return new Response(JSON.stringify({
       success: true,
