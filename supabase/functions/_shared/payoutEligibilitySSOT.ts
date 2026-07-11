@@ -41,6 +41,10 @@ export type EarningSettlementInput = {
   allocated_amount_pence?: number;
   trip_completed?: boolean;
   payment_captured?: boolean;
+  /** Confirmed customer capture amount (pence). Required > 0 for digital payout eligibility. */
+  captured_amount_pence?: number | null;
+  required_customer_fare_pence?: number | null;
+  capture_mismatch_unresolved?: boolean;
 };
 
 export function remainingPayablePence(earning: EarningSettlementInput): number {
@@ -61,7 +65,12 @@ export function isCardPaymentMethod(method: string | null | undefined): boolean 
 export function isCardPaymentCaptured(args: {
   tripPaymentStatus?: string | null;
   paymentStatus?: string | null;
+  capturedAmountPence?: number | null;
+  captureMismatchUnresolved?: boolean;
 }): boolean {
+  if (args.captureMismatchUnresolved) return false;
+  const amt = args.capturedAmountPence == null ? null : Number(args.capturedAmountPence);
+  if (amt == null || !Number.isFinite(amt) || amt <= 0) return false;
   const pay = String(args.paymentStatus ?? "").toLowerCase();
   if (CAPTURED_PAYMENT_STATUSES.has(pay)) return true;
   const trip = String(args.tripPaymentStatus ?? "").toLowerCase();
@@ -139,8 +148,19 @@ export function isEarningEligibleForPayout(
   if (!isEarningPayableForPayout(earning)) return false;
   if (earning.trip_completed === false) return false;
   if (earning.payment_captured === false) return false;
+  if (earning.capture_mismatch_unresolved) return false;
 
   if (requiresStripeSettlement(earning.payment_method)) {
+    const captured = earning.captured_amount_pence == null
+      ? null
+      : Number(earning.captured_amount_pence);
+    if (captured == null || !Number.isFinite(captured) || captured <= 0) return false;
+    const required = earning.required_customer_fare_pence == null
+      ? null
+      : Number(earning.required_customer_fare_pence);
+    if (required != null && Number.isFinite(required) && required > 0 && captured < required) {
+      return false;
+    }
     return earning.settlement_status === "settled";
   }
 
@@ -153,6 +173,15 @@ export function deriveIneligibleReason(earning: EarningSettlementInput): string 
   if (earning.allocated_to_payout) return "already_allocated";
   if (earning.trip_completed === false) return "trip_not_completed";
   if (earning.payment_captured === false) return "payment_not_captured";
+  if (earning.capture_mismatch_unresolved) return "capture_mismatch_unresolved";
+  if (requiresStripeSettlement(earning.payment_method)) {
+    const captured = earning.captured_amount_pence == null
+      ? null
+      : Number(earning.captured_amount_pence);
+    if (captured == null || !Number.isFinite(captured) || captured <= 0) {
+      return "capture_amount_missing_or_zero";
+    }
+  }
   if (
     requiresStripeSettlement(earning.payment_method)
     && earning.settlement_status !== "settled"

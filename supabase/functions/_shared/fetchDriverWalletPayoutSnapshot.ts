@@ -105,11 +105,40 @@ export async function fetchDriverWalletPayoutSnapshot(
   const recoveryDebt = computeCashCommissionOutstanding(ledger);
 
   const settlements = settlementsRes.data ?? [];
+  const settlementTripIds = [...new Set(
+    settlements.map((s) => String(s.trip_id ?? "")).filter(Boolean),
+  )];
+  const tripCaptureById = new Map<string, {
+    capture_amount_pence: number | null;
+    payment_status: string | null;
+    final_customer_fare_pence: number | null;
+    payment_method: string | null;
+  }>();
+  if (settlementTripIds.length > 0) {
+    const { data: tripRows } = await supabase
+      .from("trips")
+      .select("id, capture_amount_pence, payment_status, final_customer_fare_pence, payment_method")
+      .in("id", settlementTripIds);
+    for (const t of tripRows ?? []) {
+      tripCaptureById.set(String(t.id), {
+        capture_amount_pence: t.capture_amount_pence == null ? null : Number(t.capture_amount_pence),
+        payment_status: (t.payment_status as string | null) ?? null,
+        final_customer_fare_pence: t.final_customer_fare_pence == null
+          ? null
+          : Number(t.final_customer_fare_pence),
+        payment_method: (t.payment_method as string | null) ?? null,
+      });
+    }
+  }
+
   const earningInputs: EarningSettlementInput[] = settlements.map((s) => {
     const ledgerJoin = s.driver_wallet_ledger as { amount_pence?: number } | { amount_pence?: number }[] | null;
     const ledgerAmt = Array.isArray(ledgerJoin)
       ? Number(ledgerJoin[0]?.amount_pence ?? 0)
       : Number(ledgerJoin?.amount_pence ?? 0);
+    const trip = tripCaptureById.get(String(s.trip_id ?? ""));
+    const capturedAmt = trip?.capture_amount_pence ?? null;
+    const captureOk = capturedAmt != null && Number.isFinite(capturedAmt) && capturedAmt > 0;
     return {
       amount_pence: Math.max(0, ledgerAmt),
       settlement_status: s.settlement_status === "settled" ? "settled" : s.settlement_status === "failed" ? "failed" : "pending",
@@ -117,8 +146,11 @@ export async function fetchDriverWalletPayoutSnapshot(
       allocated_to_payout: s.allocated_to_payout === true,
       allocated_amount_pence: Number(s.allocated_amount_pence ?? 0),
       trip_completed: true,
-      payment_captured: true,
-      payment_method: "card",
+      payment_captured: captureOk,
+      captured_amount_pence: capturedAmt,
+      required_customer_fare_pence: trip?.final_customer_fare_pence ?? null,
+      capture_mismatch_unresolved: !captureOk,
+      payment_method: trip?.payment_method ?? "card",
     };
   });
   const financeCleared = sumClearedSettlementBatchPence(earningInputs);

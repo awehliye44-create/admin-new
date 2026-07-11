@@ -97,11 +97,11 @@ export type PaymentCaptureRow = {
   trip_id?: string | null;
 };
 
-/** Confirmed capture only — never invent £0 from null (Payment Sessions SSOT rule). */
+/** Confirmed capture only — never invent £0; never treat 0 as confirmed. */
 export function confirmedCapturePence(amount: number | null | undefined): number | null {
   if (amount == null) return null;
   const n = Number(amount);
-  if (!Number.isFinite(n) || n < 0) return null;
+  if (!Number.isFinite(n) || n <= 0) return null;
   return Math.round(n);
 }
 
@@ -169,10 +169,13 @@ export function isTripPaymentCaptureConfirmed(
   trip: TripSSOTRow,
   paymentByTrip: Map<string, number>,
 ): boolean {
-  const tripStatus = String(trip.payment_status ?? "").toLowerCase();
-  if (CAPTURE_CONFIRMED_TRIP_PAYMENT_STATUSES.has(tripStatus)) return true;
   const tripId = trip.id ?? "";
-  return tripId !== "" && (paymentByTrip.get(tripId) ?? 0) > 0;
+  const fromPayments = tripId !== "" ? (paymentByTrip.get(tripId) ?? 0) : 0;
+  if (fromPayments > 0) return true;
+  const tripCap = confirmedCapturePence(trip.capture_amount_pence);
+  if (tripCap != null && tripCap > 0) return true;
+  // Status alone is insufficient when capture amount is missing/zero.
+  return false;
 }
 
 export function partitionTripsForReconciliation(args: {

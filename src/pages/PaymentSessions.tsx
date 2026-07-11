@@ -924,13 +924,28 @@ export default function PaymentSessions() {
                                   : formatNullablePence(row.authorised_amount_pence)}
                               </TableCell>
                               <TableCell className="text-xs">
-                                {formatNullablePence(row.captured_amount_pence)}
-                                {row.captured_at && (
-                                  <div className="mt-1 text-[10px] text-muted-foreground">
-                                    {format(new Date(row.captured_at), 'dd MMM HH:mm')}
-                                  </div>
-                                )}
-                                {row.evidence_status === 'CAPTURE_AMOUNT_MISSING' && (
+                                {row.captured_amount_pence == null
+                                  || !Number.isFinite(Number(row.captured_amount_pence))
+                                  || Number(row.captured_amount_pence) <= 0
+                                  ? (
+                                    <>
+                                      <span className="text-amber-800">Not recorded locally</span>
+                                      {row.evidence_status === 'CAPTURE_ZERO_INVALID' || row.evidence_status === 'CAPTURE_AMOUNT_MISSING' ? (
+                                        <div className="mt-1 text-[10px] text-amber-700">{row.evidence_status}</div>
+                                      ) : null}
+                                    </>
+                                  )
+                                  : (
+                                    <>
+                                      {formatNullablePence(row.captured_amount_pence)}
+                                      {row.captured_at && (
+                                        <div className="mt-1 text-[10px] text-muted-foreground">
+                                          {format(new Date(row.captured_at), 'dd MMM HH:mm')}
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+                                {row.evidence_status === 'CAPTURE_AMOUNT_MISSING' && Number(row.captured_amount_pence) > 0 && (
                                   <div className="mt-1 text-[10px] text-amber-700">Captured amount not yet recorded</div>
                                 )}
                               </TableCell>
