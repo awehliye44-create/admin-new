@@ -268,7 +268,7 @@ export function FinancialReconciliationTripsTab({
                 <TableHead>Payment Session</TableHead>
                 <TableHead>Provider</TableHead>
                 <TableHead>Payment Method</TableHead>
-                <TableHead className="text-right">Final Customer Fare</TableHead>
+                <TableHead className="text-right">Expected Capture</TableHead>
                 <TableHead className="text-right">Authorised</TableHead>
                 <TableHead className="text-right">Captured</TableHead>
                 <TableHead className="text-right">Released</TableHead>
@@ -312,7 +312,7 @@ export function FinancialReconciliationTripsTab({
                     </TableCell>
                     <TableCell className="text-xs">{row.payment_method ?? '—'}</TableCell>
                     <TableCell className="text-right text-xs whitespace-nowrap">
-                      {formatNullablePence(row.final_customer_fare_pence ?? row.final_fare_pence, ccy)}
+                      {formatNullablePence(row.ps_expected_capture_pence ?? row.final_customer_fare_pence ?? row.final_fare_pence, ccy)}
                     </TableCell>
                     <TableCell className="text-right text-xs whitespace-nowrap">
                       {formatNullablePence(row.authorised_pence, ccy)}
@@ -374,6 +374,14 @@ export function FinancialReconciliationTripsTab({
                           ?? row.capture_reconciliation_status
                           ?? (row.capture_mismatch ? 'Mismatch' : 'Review Required')}
                       </Badge>
+                      {row.variance_reason ? (
+                        <p className="text-[10px] text-muted-foreground mt-0.5 max-w-[140px]">
+                          {row.variance_reason}
+                        </p>
+                      ) : null}
+                      {row.capture_classification ? (
+                        <p className="text-[10px] text-muted-foreground">{row.capture_classification}</p>
+                      ) : null}
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">

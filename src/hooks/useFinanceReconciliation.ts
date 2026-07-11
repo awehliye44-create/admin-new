@@ -346,6 +346,9 @@ export interface TripFinancialAuditRow {
   provider_verification_status?: 'VERIFIED' | 'STALE' | 'UNKNOWN' | null;
   warnings?: string[];
   settlement_formula_version?: string | null;
+  variance_reason?: string | null;
+  capture_classification?: string | null;
+  ps_expected_capture_pence?: number | null;
   payment_evidence_status?:
     | 'PAYMENT_SESSIONS'
     | 'NO_PAYMENT_SESSION'

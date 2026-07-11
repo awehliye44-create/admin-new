@@ -393,6 +393,50 @@ Deno.test("FR audit: Payment Sessions capture wins over trips.capture_amount_pen
   assertEquals(row.reconciliation_status?.tone, "green");
 });
 
+Deno.test("FR audit: MK-260708-008 waiting £0.18 is MATCHED via PS capture breakdown", () => {
+  const trip = {
+    ...MK_260615_006,
+    id: "7c9f1a43",
+    trip_code: "MK-260708-008",
+    final_customer_fare_pence: 680,
+    final_fare_pence: 698,
+    commissionable_fare_pence: 680,
+    gross_fare_pence: 680,
+    pickup_waiting_charge_pence: 18,
+    stop_waiting_charge_pence: 0,
+    tip_pence: 0,
+    airport_charge_pence: 0,
+    commission_pence: 102,
+    driver_net_pence: 578,
+  };
+  const context = buildTripFinancialAuditContext({
+    payments: [],
+    payoutItems: [],
+    ledgerRows: [
+      { related_trip_id: "7c9f1a43", type: "TRIP_EARNING_NET", amount_pence: 578 },
+    ],
+    paymentSessions: [{
+      id: "ps-mk-008",
+      trip_id: "7c9f1a43",
+      captured_amount_pence: 698,
+      authorised_amount_pence: 780,
+      provider_processing_fee_pence: 27,
+      fee_status: "ACTUAL",
+      provider_state: "CAPTURED",
+      provider_state_verified_at: new Date().toISOString(),
+      status: "captured",
+    }],
+  });
+  const row = mapTripToFinancialAuditRow(trip, context);
+  assertEquals(row.ps_expected_capture_pence, 698);
+  assertEquals(row.captured_pence, 698);
+  assertEquals(row.capture_variance_pence, 0);
+  assertEquals(row.capture_reconciliation_status, "MATCHED");
+  assertEquals(row.capture_classification, "CAPTURED_WITH_WAITING_TIME");
+  assertEquals(row.variance_reason, "Pickup waiting time");
+  assertEquals(row.capture_mismatch, false);
+});
+
 Deno.test("FR audit: PS captured £0 stays RED PAYMENT_SESSION_CAPTURE_MISMATCH", () => {
   const trip = {
     ...MK_260615_006,

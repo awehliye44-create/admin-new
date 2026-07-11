@@ -30,6 +30,10 @@ import {
   sumTripWalletEarningCreditPence,
 } from "./frTripAuditComparisonSSOT.ts";
 import {
+  buildPaymentSessionCaptureBreakdown,
+  captureClassificationToMatchStatus,
+} from "../../../shared/paymentSessionsCaptureBreakdownSSOT.ts";
+import {
   deriveTripFinancialAuditStatuses,
   deriveTripReconciliationBadge,
   deriveTripCaptureStatusLabel,
@@ -534,6 +538,10 @@ export type TripFinancialAuditRow = {
     | "CASH"
     | null;
   settlement_formula_version?: string | null;
+  /** From Payment Sessions capture breakdown SSOT — FR consume-only. */
+  variance_reason?: string | null;
+  capture_classification?: string | null;
+  ps_expected_capture_pence?: number | null;
 };
 
 export type TripAuditSourceRow = TripFinanceRow & {
@@ -545,6 +553,14 @@ export type TripAuditSourceRow = TripFinanceRow & {
   payment_coverage_status?: string | null;
   airport_charge_pence?: number | null;
   other_pass_through_charges_pence?: number | null;
+  pickup_waiting_charge_pence?: number | null;
+  stop_waiting_charge_pence?: number | null;
+  stop_charge_total_pence?: number | null;
+  no_show_charge_pence?: number | null;
+  customer_modification_charge_pence?: number | null;
+  destination_change_adjustment_pence?: number | null;
+  extras_pence?: number | null;
+  final_customer_fare_pence?: number | null;
   payment_status?: string | null;
   financial_outcome?: string | null;
   stripe_payment_intent_id?: string | null;
@@ -753,6 +769,13 @@ export function mapTripToFinancialAuditRow(
     ledgerByTripId: new Map(),
   },
 ): TripFinancialAuditRow {
+  const nullablePenceLike = (v: unknown): number | null => {
+    if (v == null) return null;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) return null;
+    return Math.round(n);
+  };
+
   const payment = context.paymentByTripId.get(row.id) ?? null;
   const tripPayments = context.paymentsByTripId.get(row.id) ?? [];
   const ledger = context.ledgerByTripId.get(row.id) ?? [];
@@ -883,12 +906,54 @@ export function mapTripToFinancialAuditRow(
     sessionsMapPresent,
   });
 
-  const finalFarePenceForVariance = Math.max(0, Number(row.final_fare_pence ?? 0));
-  const finalCustomerFarePence = finalFarePenceForVariance > 0 ? finalFarePenceForVariance : null;
-  const captureVariance = captureVariancePence({
-    captured_pence: captured,
-    final_customer_fare_pence: finalCustomerFarePence,
+  // Payment Sessions owns expected capture + reason — FR consumes breakdown SSOT only.
+  const rideFareForCapture = nullablePenceLike(
+    row.final_customer_fare_pence ?? row.commissionable_fare_pence ?? row.gross_fare_pence,
+  );
+  const pickupWaiting = nullablePenceLike(row.pickup_waiting_charge_pence);
+  const stopWaiting = nullablePenceLike(row.stop_waiting_charge_pence ?? row.stop_charge_total_pence);
+  const noShow = nullablePenceLike(row.no_show_charge_pence);
+  const destinationChange = nullablePenceLike(
+    (row as { destination_change_adjustment_pence?: number | null }).destination_change_adjustment_pence,
+  );
+  const manualAdj = nullablePenceLike(row.customer_modification_charge_pence);
+  const extrasPence = nullablePenceLike(row.extras_pence);
+  const passThrough = nullablePenceLike(row.other_pass_through_charges_pence);
+  const tipForCapture = nullablePenceLike(row.tip_pence ?? row.tip_amount_pence);
+  const airportForCapture = nullablePenceLike(row.airport_charge_pence);
+
+  // Prefer persisted final_fare (capture SSOT result) when present; else component sum.
+  const persistedFinal = nullablePenceLike(row.final_fare_pence);
+  const componentSum =
+    (rideFareForCapture ?? 0)
+    + (pickupWaiting ?? 0)
+    + (stopWaiting ?? 0)
+    + (noShow ?? 0)
+    + (airportForCapture ?? 0)
+    + (extrasPence ?? 0)
+    + (manualAdj ?? 0)
+    + (destinationChange ?? 0)
+    + (tipForCapture ?? 0)
+    + (passThrough ?? 0);
+  const psCaptureBreakdown = buildPaymentSessionCaptureBreakdown({
+    ride_fare_pence: rideFareForCapture,
+    pickup_waiting_charge_pence: pickupWaiting,
+    stop_waiting_charge_pence: stopWaiting,
+    no_show_charge_pence: noShow,
+    airport_charge_pence: airportForCapture,
+    toll_charge_pence: null,
+    parking_charge_pence: null,
+    extra_stop_charge_pence: extrasPence,
+    manual_adjustment_pence: manualAdj,
+    destination_change_pence: destinationChange,
+    tip_pence: tipForCapture,
+    other_payment_component_pence: passThrough,
+    canonical_expected_capture_pence: persistedFinal ?? (rideFareForCapture != null ? componentSum : null),
+    provider_captured_pence: captured,
   });
+
+  const expectedCapturePence = psCaptureBreakdown.expected_capture_pence;
+  const captureVariance = psCaptureBreakdown.variance_pence;
   const variancePence = settlementTotal == null || captured == null
     ? null
     : settlementTotal - captured;
@@ -905,15 +970,30 @@ export function mapTripToFinancialAuditRow(
     })
     : null;
 
-  const capture_reconciliation_status = classifyCaptureReconciliation({
-    isCash,
-    paymentEvidenceStatus: payment_evidence_status,
-    captured_pence: captured,
-    final_customer_fare_pence: finalCustomerFarePence,
-    authorised_pence: authorisedPence,
-    provider_verification_status,
-    tripCompleted: true,
-  });
+  const psMatch = captureClassificationToMatchStatus(psCaptureBreakdown.capture_classification);
+  const capture_reconciliation_status = isCash
+    ? "MATCHED"
+    : payment_evidence_status === "PAYMENT_EVIDENCE_UNAVAILABLE"
+    ? "PAYMENT_EVIDENCE_UNAVAILABLE"
+    : payment_evidence_status === "NO_PAYMENT_SESSION"
+    ? "NO_PAYMENT_SESSION"
+    : provider_verification_status === "STALE"
+    ? "PROVIDER_VERIFICATION_PENDING"
+    : psMatch === "MATCHED"
+    ? "MATCHED"
+    : psMatch === "UNEXPLAINED_OVERCAPTURE"
+    ? "OVERCAPTURE"
+    : psMatch === "CAPTURE_SHORTFALL"
+    ? "CAPTURE_SHORTFALL"
+    : classifyCaptureReconciliation({
+      isCash,
+      paymentEvidenceStatus: payment_evidence_status,
+      captured_pence: captured,
+      final_customer_fare_pence: expectedCapturePence,
+      authorised_pence: authorisedPence,
+      provider_verification_status,
+      tripCompleted: true,
+    });
   const release_reconciliation_status = classifyReleaseReconciliation({
     authorised_pence: authorisedPence,
     captured_pence: captured,
@@ -959,8 +1039,10 @@ export function mapTripToFinancialAuditRow(
   if (!payoutEvidenceAvailable) warnings.push("PAYOUT_EVIDENCE_UNAVAILABLE");
   if (fee_status === "PENDING_PROVIDER_FEE") warnings.push("PROVIDER_FEE_PENDING");
 
+  const captureMismatchResolved = capture_reconciliation_status === "MATCHED" ? false : captureMismatch;
+
   const reconciliation_status = deriveTripReconciliationBadge({
-    capture_mismatch: captureMismatch,
+    capture_mismatch: captureMismatchResolved,
     captured_pence: captured,
     refunded_pence: refunded,
     settlement_total_pence: settlementTotal,
@@ -974,7 +1056,7 @@ export function mapTripToFinancialAuditRow(
     fee_status,
   });
 
-  const capture_status = deriveTripCaptureStatusLabel(statusInput, captureMismatch);
+  const capture_status = deriveTripCaptureStatusLabel(statusInput, captureMismatchResolved);
   const paymentMethod = session?.payment_method ?? row.payment_method ?? null;
 
   return {
@@ -993,7 +1075,7 @@ export function mapTripToFinancialAuditRow(
     gross_fare_pence: grossFarePence,
     discount_pence: discountPence,
     final_fare_pence: finalFarePence,
-    final_customer_fare_pence: finalCustomerFarePence,
+    final_customer_fare_pence: rideFareForCapture ?? finalFarePence,
     settlement_total_pence: settlementTotal,
     captured_pence: captured,
     refunded_pence: refunded,
@@ -1001,7 +1083,7 @@ export function mapTripToFinancialAuditRow(
       ? null
       : Math.max(0, customerPaid - refunded),
     outstanding_pence: outstanding,
-    capture_mismatch: captureMismatch,
+    capture_mismatch: captureMismatchResolved,
     driver_net_pence: expectedDriverNet,
     debt_recovered_pence: debtRecovered,
     available_payout_created_pence: availablePayoutCreated,
@@ -1042,7 +1124,12 @@ export function mapTripToFinancialAuditRow(
     provider_state,
     provider_verified_at,
     provider_verification_status,
-    warnings,
+    variance_reason: psCaptureBreakdown.variance_reason,
+    capture_classification: psCaptureBreakdown.capture_classification,
+    ps_expected_capture_pence: expectedCapturePence,
+    warnings: psCaptureBreakdown.variance_reason
+      ? [...warnings, psCaptureBreakdown.variance_reason]
+      : warnings,
     settlement_formula_version: "fr_trip_audit_v1",
     currency_code: row.service_area_id && context.currencyCodeByServiceAreaId
       ? (context.currencyCodeByServiceAreaId.get(row.service_area_id) ?? context.defaultCurrencyCode ?? null)

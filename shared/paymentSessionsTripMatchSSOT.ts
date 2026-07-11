@@ -8,6 +8,7 @@ export type PaymentTripMatchStatus =
   | "CAPTURE_MISSING"
   | "CAPTURE_SHORTFALL"
   | "OVERCAPTURE"
+  | "UNEXPLAINED_OVERCAPTURE"
   | "NO_PAYMENT_SESSION"
   | "NO_TRIP_LINK"
   | "PROVIDER_STATE_PENDING"
@@ -129,7 +130,7 @@ export function classifyPaymentTripMatch(input: PaymentTripMatchInput): PaymentT
       };
     }
     return {
-      status: "OVERCAPTURE",
+      status: "UNEXPLAINED_OVERCAPTURE",
       variance_pence: variance,
       shortfall_pence: null,
       overcapture_pence: variance,

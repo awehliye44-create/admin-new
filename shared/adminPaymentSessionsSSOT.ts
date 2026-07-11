@@ -149,19 +149,30 @@ export type AdminPaymentSessionsCompletedTripRow = {
   driver_name: string | null;
   service_area_id: string | null;
   service_area_name: string | null;
-  /** Canonical trip final customer fare — never invent in UI. */
+  /** Canonical trip final customer fare (ride) — waiting shown separately. */
   final_customer_fare_pence: number | null;
   ride_fare_pence: number | null;
   airport_charge_pence: number | null;
   tips_pence: number | null;
-  /** Same as final customer fare when present (expected capture). */
+  /** Waiting + other legitimate components (backend breakdown). */
+  pickup_waiting_charge_pence?: number | null;
+  stop_waiting_charge_pence?: number | null;
+  waiting_charges_pence?: number | null;
+  other_payment_components_pence?: number | null;
+  no_show_charge_pence?: number | null;
+  /** Canonical expected capture (tripFareSSOT capture path + legitimate components). */
   expected_capture_pence: number | null;
   payment_session_id: string | null;
   payment_provider: string | null;
   provider_captured_pence: number | null;
   provider_released_pence: number | null;
   shortfall_overcapture_pence: number | null;
+  variance_pence?: number | null;
+  variance_reason?: string | null;
+  capture_classification?: string | null;
   match_status: PaymentTripMatchStatus;
+  /** Full Payment Sessions capture breakdown DTO (backend-owned). */
+  capture_breakdown?: import("./paymentSessionsCaptureBreakdownSSOT.ts").PaymentSessionCaptureBreakdown | null;
 };
 
 /** Payment Matching — comparison-only rows. */
@@ -178,6 +189,8 @@ export type AdminPaymentSessionsMatchingRow = {
   variance_pence: number | null;
   shortfall_pence: number | null;
   overcapture_pence: number | null;
+  variance_reason?: string | null;
+  capture_classification?: string | null;
   match_status: PaymentTripMatchStatus;
   provider_state: string | null;
   provider_verification_status: "VERIFIED" | "STALE" | "UNKNOWN" | "UNAVAILABLE" | null;
