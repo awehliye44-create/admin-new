@@ -9,6 +9,7 @@ export type PaymentSessionsKpiDrill = {
   capture_failed?: boolean;
   recovery_pending?: boolean;
   release_failed?: boolean;
+  money_at_risk?: boolean;
 };
 
 type WidgetDef = {
@@ -102,7 +103,7 @@ export function PaymentSessionsKpiStrip({
       id: 'risk',
       label: 'Money At Risk',
       value: formatNullablePence(summary.money_at_risk_pence, currencyCode),
-      drill: { tab: 'active_holds' },
+      drill: { tab: 'active_holds', money_at_risk: true },
       hint: 'Non-green active authorisations',
     },
   ];

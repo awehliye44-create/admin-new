@@ -87,9 +87,21 @@ export function commissionableRevenuePence(row: TripFinanceRow): number {
 
 export function customerRevenuePence(row: TripFinanceRow): number {
   const tip = Math.max(0, row.tip_pence ?? row.tip_amount_pence ?? 0);
-  const captured = row.capture_amount_pence ?? 0;
-  if (captured > 0) return captured;
-  return commissionableRevenuePence(row) + tip;
+  const method = String(row.payment_method ?? "").toLowerCase();
+  const isCash = method === "cash" || method.includes("cash");
+  const capturedRaw = row.capture_amount_pence;
+  const captured = capturedRaw == null ? null : Number(capturedRaw);
+
+  // Confirmed capture wins for all methods — never invent £0 from null.
+  if (captured != null && Number.isFinite(captured) && captured > 0) {
+    return Math.round(captured);
+  }
+
+  // Cash: customer paid the fare (no Payment Session capture).
+  if (isCash) return commissionableRevenuePence(row) + tip;
+
+  // Digital/card: Payment Sessions owns capture — do not invent from final_fare.
+  return 0;
 }
 
 export function tripGrossCommissionPence(row: TripFinanceRow): number {
@@ -709,7 +721,12 @@ export function mapTripToFinancialAuditRow(
     });
   const refunded = Math.max(0, row.refund_amount_pence ?? 0);
   const settlementTotal = computeSettlementTotalPence(row);
-  const customerPaid = settlementTotal;
+  const method = String(row.payment_method ?? "").toLowerCase();
+  const isCash = method === "cash" || method.includes("cash");
+  // Digital customer paid = confirmed capture only (Payment Sessions / payments). Never invent from fare.
+  const customerPaid = isCash
+    ? settlementTotal
+    : (captured != null && Number.isFinite(captured) && captured > 0 ? captured : 0);
   const grossFarePence = Math.max(0, Number(row.gross_fare_pence ?? row.commissionable_fare_pence ?? 0));
   const finalFarePence = Math.max(0, Number(row.final_fare_pence ?? 0));
   const discountPence = Math.max(0, grossFarePence - finalFarePence);

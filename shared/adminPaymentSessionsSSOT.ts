@@ -42,10 +42,14 @@ export type AdminPaymentSessionsListRequest = {
   provider_fees_pending?: boolean | null;
   /** Widget drill: capture failed / capture evidence missing without confirmed amount. */
   capture_failed?: boolean | null;
+  /** Widget drill: active holds that are not GREEN (Money At Risk). */
+  money_at_risk?: boolean | null;
   customer_id?: string | null;
   date_from?: string | null;
   date_to?: string | null;
   limit?: number;
+  /** History pagination offset (0-based into filtered tab rows). */
+  offset?: number;
   payment_session_id?: string | null;
   provider_order_id?: string | null;
   trip_id?: string | null;
@@ -156,6 +160,11 @@ export type AdminPaymentSessionsListResponse = {
   tab: AdminPaymentSessionsTab;
   rows: AdminPaymentSessionsListRow[];
   summary: AdminPaymentSessionsSummary;
+  /** Total filtered rows for the active tab before limit/offset slice. */
+  filtered_total?: number;
+  /** True when more filtered rows exist beyond this page. */
+  has_more?: boolean;
+  offset?: number;
   error?: string;
   provider_verification_message?: string | null;
 };
@@ -170,6 +179,7 @@ export function paymentSessionsUrl(args?: {
   captureFailed?: boolean;
   recoveryPending?: boolean;
   releaseFailed?: boolean;
+  moneyAtRisk?: boolean;
 }): string {
   const params = new URLSearchParams();
   if (args?.tab) params.set("tab", args.tab);
@@ -181,6 +191,7 @@ export function paymentSessionsUrl(args?: {
   if (args?.captureFailed) params.set("captureFailed", "1");
   if (args?.recoveryPending) params.set("recoveryPending", "1");
   if (args?.releaseFailed) params.set("releaseFailed", "1");
+  if (args?.moneyAtRisk) params.set("moneyAtRisk", "1");
   const qs = params.toString();
   return qs ? `/payment-sessions?${qs}` : "/payment-sessions";
 }

@@ -198,8 +198,10 @@ export default function PaymentSessions() {
     searchParams.get('providerFeesPending') === '1',
   );
   const [captureFailed, setCaptureFailed] = useState(searchParams.get('captureFailed') === '1');
+  const [moneyAtRisk, setMoneyAtRisk] = useState(searchParams.get('moneyAtRisk') === '1');
   const [legacyEvidence, setLegacyEvidence] = useState(false);
   const [refreshProviderState, setRefreshProviderState] = useState(false);
+  const [listOffset, setListOffset] = useState(0);
 
   const [actingId, setActingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -214,6 +216,34 @@ export default function PaymentSessions() {
     if (tripIdParam) setTripIdFilter(tripIdParam);
   }, [tripIdParam]);
 
+  useEffect(() => {
+    setListOffset(0);
+  }, [
+    tab,
+    paymentSessionId,
+    providerOrderId,
+    tripIdFilter,
+    customerId,
+    dateFrom,
+    dateTo,
+    serviceFilter.serviceAreaId,
+    provider,
+    paymentMethod,
+    purpose,
+    sessionStatus,
+    providerState,
+    hasTrip,
+    activeHold,
+    releaseFailed,
+    recoveryPending,
+    providerFeesPending,
+    captureFailed,
+    moneyAtRisk,
+    legacyEvidence,
+  ]);
+
+  const pageLimit = tab === 'history' || tab === 'overview' ? 100 : 100;
+
   const request = useMemo(
     () => ({
       tab,
@@ -221,7 +251,8 @@ export default function PaymentSessions() {
       provider_order_id: providerOrderId,
       trip_id: tripIdFilter.trim() || null,
       customer_id: customerId.trim() || null,
-      limit: tab === 'history' || tab === 'overview' ? 500 : 100,
+      limit: pageLimit,
+      offset: listOffset,
       date_from: dateFrom || null,
       date_to: dateTo || null,
       service_area_id: serviceFilter.serviceAreaId,
@@ -236,6 +267,7 @@ export default function PaymentSessions() {
       recovery_pending: recoveryPending ? true : null,
       provider_fees_pending: providerFeesPending ? true : null,
       capture_failed: captureFailed ? true : null,
+      money_at_risk: moneyAtRisk ? true : null,
       legacy_evidence: legacyEvidence ? true : null,
       ...(refreshProviderState ? { refresh_provider_state: true as const } : {}),
     }),
@@ -245,6 +277,8 @@ export default function PaymentSessions() {
       providerOrderId,
       tripIdFilter,
       customerId,
+      pageLimit,
+      listOffset,
       dateFrom,
       dateTo,
       serviceFilter.serviceAreaId,
@@ -259,6 +293,7 @@ export default function PaymentSessions() {
       recoveryPending,
       providerFeesPending,
       captureFailed,
+      moneyAtRisk,
       legacyEvidence,
       refreshProviderState,
     ],
@@ -286,6 +321,8 @@ export default function PaymentSessions() {
     setCaptureFailed(Boolean(drill.capture_failed));
     setRecoveryPending(Boolean(drill.recovery_pending));
     setReleaseFailed(Boolean(drill.release_failed));
+    setMoneyAtRisk(Boolean(drill.money_at_risk));
+    setListOffset(0);
     const params = new URLSearchParams(searchParams);
     params.set('tab', drill.tab);
     if (drill.provider_fees_pending) params.set('providerFeesPending', '1');
@@ -296,6 +333,8 @@ export default function PaymentSessions() {
     else params.delete('recoveryPending');
     if (drill.release_failed) params.set('releaseFailed', '1');
     else params.delete('releaseFailed');
+    if (drill.money_at_risk) params.set('moneyAtRisk', '1');
+    else params.delete('moneyAtRisk');
     setSearchParams(params, { replace: true });
   };
 
@@ -316,7 +355,9 @@ export default function PaymentSessions() {
     setRecoveryPending(false);
     setProviderFeesPending(false);
     setCaptureFailed(false);
+    setMoneyAtRisk(false);
     setLegacyEvidence(false);
+    setListOffset(0);
     const params = new URLSearchParams(searchParams);
     params.delete('customerId');
     params.delete('tripId');
@@ -324,6 +365,7 @@ export default function PaymentSessions() {
     params.delete('captureFailed');
     params.delete('recoveryPending');
     params.delete('releaseFailed');
+    params.delete('moneyAtRisk');
     setSearchParams(params, { replace: true });
   };
 
@@ -344,6 +386,7 @@ export default function PaymentSessions() {
     || recoveryPending
     || providerFeesPending
     || captureFailed
+    || moneyAtRisk
     || legacyEvidence;
 
   const runAction = useCallback(
@@ -421,6 +464,10 @@ export default function PaymentSessions() {
 
   const rows = data?.rows ?? [];
   const summary = data?.summary;
+  const filteredTotal = data?.filtered_total ?? rows.length;
+  const hasMore = Boolean(data?.has_more);
+  const pageStart = filteredTotal === 0 ? 0 : listOffset + 1;
+  const pageEnd = listOffset + rows.length;
 
   return (
     <AdminLayout title="Payment Sessions (SSOT)">
@@ -602,6 +649,10 @@ export default function PaymentSessions() {
             <label className="flex items-center gap-2 text-xs">
               <Checkbox checked={captureFailed} onCheckedChange={(v) => setCaptureFailed(v === true)} />
               capture_failed
+            </label>
+            <label className="flex items-center gap-2 text-xs">
+              <Checkbox checked={moneyAtRisk} onCheckedChange={(v) => setMoneyAtRisk(v === true)} />
+              money_at_risk
             </label>
             <label className="flex items-center gap-2 text-xs">
               <Checkbox checked={legacyEvidence} onCheckedChange={(v) => setLegacyEvidence(v === true)} />
@@ -985,6 +1036,32 @@ export default function PaymentSessions() {
                       })}
                     </TableBody>
                   </Table>
+                </div>
+              )}
+              {rows.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span>
+                    Showing {pageStart}–{pageEnd} of {filteredTotal}
+                    {filteredTotal >= 1000 ? ' (window capped at 1000 — narrow with date/customer/trip filters)' : ''}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={listOffset <= 0 || isFetching}
+                      onClick={() => setListOffset((o) => Math.max(0, o - pageLimit))}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!hasMore || isFetching}
+                      onClick={() => setListOffset((o) => o + pageLimit)}
+                    >
+                      Next
+                    </Button>
+                  </div>
                 </div>
               )}
             </TabsContent>
