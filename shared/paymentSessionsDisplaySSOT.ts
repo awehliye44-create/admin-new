@@ -319,7 +319,7 @@ export function buildPaymentSessionsDisplay(
   };
 }
 
-/** Tab membership — Captured includes provider-verified capture even when amount is null. */
+/** Tab membership — Captured = confirmed captures only (amount present). Stripe Payments style. */
 export function rowBelongsInCapturedTab(row: {
   captured_at?: string | null;
   captured_amount_pence?: number | null;
@@ -327,6 +327,10 @@ export function rowBelongsInCapturedTab(row: {
   provider_verification_status?: string | null;
   attention_class?: string | null;
 }): boolean {
+  if (row.captured_amount_pence == null || !Number.isFinite(Number(row.captured_amount_pence))) {
+    return false;
+  }
+  if (Number(row.captured_amount_pence) < 0) return false;
   if (row.captured_at) return true;
   if (isProviderCapturedState(row.provider_state)) return true;
   return row.attention_class === "CAPTURED";
@@ -362,6 +366,7 @@ export function rowBelongsInRefundedTab(row: {
   return row.attention_class === "REFUNDED";
 }
 
+/** Active Holds = live authorisations only — never captured / released / refunded / cancelled. */
 export function rowBelongsInActiveHoldsTab(row: {
   in_active_queue?: boolean;
   classification?: string | null;
@@ -370,8 +375,10 @@ export function rowBelongsInActiveHoldsTab(row: {
   released_at?: string | null;
   refunded_at?: string | null;
   attention_class?: string | null;
+  captured_amount_pence?: number | null;
 }): boolean {
   if (row.captured_at || isProviderCapturedState(row.provider_state)) return false;
+  if (row.captured_amount_pence != null) return false;
   if (row.released_at || isProviderReleasedState(row.provider_state)) return false;
   if (row.refunded_at || isProviderRefundedState(row.provider_state)) return false;
   if (
@@ -384,3 +391,14 @@ export function rowBelongsInActiveHoldsTab(row: {
   }
   return Boolean(row.in_active_queue && row.classification !== "GREEN");
 }
+
+/** Confirmed capture amount for revenue KPIs — never invent £0 from null. */
+export function confirmedCapturedRevenuePence(row: {
+  captured_amount_pence?: number | null;
+}): number | null {
+  if (row.captured_amount_pence == null) return null;
+  const n = Number(row.captured_amount_pence);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n);
+}
+

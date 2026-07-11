@@ -6,7 +6,6 @@ import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -50,6 +49,7 @@ import {
   ServiceAreaFinanceFilter,
   type ServiceAreaFinanceSelection,
 } from '@/components/finance/ServiceAreaFinanceFilter';
+import { PaymentSessionsKpiStrip, type PaymentSessionsKpiDrill } from '@/components/finance/PaymentSessionsKpiStrip';
 import { toast } from 'sonner';
 
 const TABS: Array<{ id: AdminPaymentSessionsTab; label: string }> = [
@@ -57,8 +57,8 @@ const TABS: Array<{ id: AdminPaymentSessionsTab; label: string }> = [
   { id: 'active_holds', label: 'Active Holds' },
   { id: 'captured', label: 'Captured' },
   { id: 'released', label: 'Released' },
-  { id: 'refunded', label: 'Refunded' },
-  { id: 'failed_recovery', label: 'Failed / Recovery' },
+  { id: 'refunded', label: 'Refunds' },
+  { id: 'failed_recovery', label: 'Recovery' },
   { id: 'history', label: 'History' },
 ];
 
@@ -111,25 +111,32 @@ function SessionActions({
   const policy = row.action_policy;
   return (
     <div className="flex flex-wrap gap-1">
+      {row.customer_id && (
+        <Button asChild size="sm" variant="outline">
+          <Link to={`/riders?customerId=${encodeURIComponent(row.customer_id)}`}>
+            Customer
+          </Link>
+        </Button>
+      )}
       {row.trip_id && policy.can_open_trip !== false && (
         <Button asChild size="sm" variant="outline">
-          <Link to={tripSettlementRecoverUrl(row.trip_id, row.trip_code)}>Open trip</Link>
+          <Link to={tripSettlementRecoverUrl(row.trip_id, row.trip_code)}>Trip History</Link>
         </Button>
       )}
       {policy.can_open_reconciliation && row.trip_id && (
         <Button asChild size="sm" variant="outline">
           <Link to={financeReconciliationTripUrl(row.trip_id, row.trip_code)}>
-            Open Financial Reconciliation
+            Financial Reconciliation
           </Link>
         </Button>
       )}
       {row.driver_id && (
         <Button asChild size="sm" variant="outline">
-          <Link to={driverWalletLedgerUrl(row.driver_id, 'ledger')}>Open Wallet</Link>
+          <Link to={driverWalletLedgerUrl(row.driver_id, 'overview')}>Driver Wallet</Link>
         </Button>
       )}
       <Button asChild size="sm" variant="outline">
-        <Link to={payoutLedgerUrl()}>Payout ledger</Link>
+        <Link to={payoutLedgerUrl({ driverId: row.driver_id })}>Payout Ledger</Link>
       </Button>
       {policy.can_release && (
         <Button size="sm" disabled={busy} onClick={() => onAction(row, 'release')}>
@@ -153,7 +160,7 @@ function SessionActions({
       )}
       {row.provider_order_id && (
         <Button size="sm" variant="ghost" disabled={inspecting} onClick={() => onInspect(row)}>
-          {inspecting ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Inspect'}
+          {inspecting ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Provider evidence'}
         </Button>
       )}
       {row.provider_verification_status === 'UNAVAILABLE' && (
@@ -169,6 +176,7 @@ export default function PaymentSessions() {
   const paymentSessionId = searchParams.get('paymentSessionId');
   const providerOrderId = searchParams.get('providerOrderId');
   const tripId = searchParams.get('tripId');
+  const customerIdParam = searchParams.get('customerId');
 
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(
     DEFAULT_SERVICE_AREA_SELECTION,
@@ -180,10 +188,15 @@ export default function PaymentSessions() {
   const [purpose, setPurpose] = useState<string>('all');
   const [sessionStatus, setSessionStatus] = useState('');
   const [providerState, setProviderState] = useState('');
+  const [customerId, setCustomerId] = useState(customerIdParam ?? '');
   const [hasTrip, setHasTrip] = useState<TriState>('all');
   const [activeHold, setActiveHold] = useState(false);
-  const [releaseFailed, setReleaseFailed] = useState(false);
-  const [recoveryPending, setRecoveryPending] = useState(false);
+  const [releaseFailed, setReleaseFailed] = useState(searchParams.get('releaseFailed') === '1');
+  const [recoveryPending, setRecoveryPending] = useState(searchParams.get('recoveryPending') === '1');
+  const [providerFeesPending, setProviderFeesPending] = useState(
+    searchParams.get('providerFeesPending') === '1',
+  );
+  const [captureFailed, setCaptureFailed] = useState(searchParams.get('captureFailed') === '1');
   const [legacyEvidence, setLegacyEvidence] = useState(false);
   const [refreshProviderState, setRefreshProviderState] = useState(false);
 
@@ -192,12 +205,17 @@ export default function PaymentSessions() {
   const [inspectSnapshots, setInspectSnapshots] = useState<Record<string, Record<string, unknown>>>({});
   const [inspectingId, setInspectingId] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (customerIdParam) setCustomerId(customerIdParam);
+  }, [customerIdParam]);
+
   const request = useMemo(
     () => ({
       tab,
       payment_session_id: paymentSessionId,
       provider_order_id: providerOrderId,
       trip_id: tripId,
+      customer_id: customerId.trim() || null,
       limit: 100,
       date_from: dateFrom || null,
       date_to: dateTo || null,
@@ -211,6 +229,8 @@ export default function PaymentSessions() {
       active_hold: activeHold ? true : null,
       release_failed: releaseFailed ? true : null,
       recovery_pending: recoveryPending ? true : null,
+      provider_fees_pending: providerFeesPending ? true : null,
+      capture_failed: captureFailed ? true : null,
       legacy_evidence: legacyEvidence ? true : null,
       ...(refreshProviderState ? { refresh_provider_state: true as const } : {}),
     }),
@@ -219,6 +239,7 @@ export default function PaymentSessions() {
       paymentSessionId,
       providerOrderId,
       tripId,
+      customerId,
       dateFrom,
       dateTo,
       serviceFilter.serviceAreaId,
@@ -231,6 +252,8 @@ export default function PaymentSessions() {
       activeHold,
       releaseFailed,
       recoveryPending,
+      providerFeesPending,
+      captureFailed,
       legacyEvidence,
       refreshProviderState,
     ],
@@ -253,6 +276,24 @@ export default function PaymentSessions() {
     setSearchParams(params, { replace: true });
   };
 
+  const applyKpiDrill = (drill: PaymentSessionsKpiDrill) => {
+    setProviderFeesPending(Boolean(drill.provider_fees_pending));
+    setCaptureFailed(Boolean(drill.capture_failed));
+    setRecoveryPending(Boolean(drill.recovery_pending));
+    setReleaseFailed(Boolean(drill.release_failed));
+    const params = new URLSearchParams(searchParams);
+    params.set('tab', drill.tab);
+    if (drill.provider_fees_pending) params.set('providerFeesPending', '1');
+    else params.delete('providerFeesPending');
+    if (drill.capture_failed) params.set('captureFailed', '1');
+    else params.delete('captureFailed');
+    if (drill.recovery_pending) params.set('recoveryPending', '1');
+    else params.delete('recoveryPending');
+    if (drill.release_failed) params.set('releaseFailed', '1');
+    else params.delete('releaseFailed');
+    setSearchParams(params, { replace: true });
+  };
+
   const clearLocalFilters = () => {
     setServiceFilter(DEFAULT_SERVICE_AREA_SELECTION);
     setDateFrom('');
@@ -262,11 +303,21 @@ export default function PaymentSessions() {
     setPurpose('all');
     setSessionStatus('');
     setProviderState('');
+    setCustomerId('');
     setHasTrip('all');
     setActiveHold(false);
     setReleaseFailed(false);
     setRecoveryPending(false);
+    setProviderFeesPending(false);
+    setCaptureFailed(false);
     setLegacyEvidence(false);
+    const params = new URLSearchParams(searchParams);
+    params.delete('customerId');
+    params.delete('providerFeesPending');
+    params.delete('captureFailed');
+    params.delete('recoveryPending');
+    params.delete('releaseFailed');
+    setSearchParams(params, { replace: true });
   };
 
   const hasLocalFilters =
@@ -278,10 +329,13 @@ export default function PaymentSessions() {
     || purpose !== 'all'
     || !!sessionStatus.trim()
     || !!providerState.trim()
+    || !!customerId.trim()
     || hasTrip !== 'all'
     || activeHold
     || releaseFailed
     || recoveryPending
+    || providerFeesPending
+    || captureFailed
     || legacyEvidence;
 
   const runAction = useCallback(
@@ -366,7 +420,8 @@ export default function PaymentSessions() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="space-y-1">
             <p className="text-sm text-muted-foreground">
-              Provider lifecycle for every customer payment attempt. Release / refund / recovery live here only.
+              ONECAB Payments — canonical source for every customer payment lifecycle.
+              Financial Reconciliation audits these values; it never invents them.
             </p>
             <div className="flex flex-wrap gap-2">
               <Badge variant={pageStatusVariant(data?.page_status ?? 'PARTIAL')}>
@@ -489,6 +544,15 @@ export default function PaymentSessions() {
             />
           </div>
           <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Customer ID</Label>
+            <Input
+              value={customerId}
+              onChange={(e) => setCustomerId(e.target.value)}
+              placeholder="customer uuid"
+              className="w-[220px] font-mono text-xs"
+            />
+          </div>
+          <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Has trip</Label>
             <Select value={hasTrip} onValueChange={(v) => setHasTrip(v as TriState)}>
               <SelectTrigger className="w-[120px]">
@@ -513,6 +577,14 @@ export default function PaymentSessions() {
             <label className="flex items-center gap-2 text-xs">
               <Checkbox checked={recoveryPending} onCheckedChange={(v) => setRecoveryPending(v === true)} />
               recovery_pending
+            </label>
+            <label className="flex items-center gap-2 text-xs">
+              <Checkbox checked={providerFeesPending} onCheckedChange={(v) => setProviderFeesPending(v === true)} />
+              provider_fees_pending
+            </label>
+            <label className="flex items-center gap-2 text-xs">
+              <Checkbox checked={captureFailed} onCheckedChange={(v) => setCaptureFailed(v === true)} />
+              capture_failed
             </label>
             <label className="flex items-center gap-2 text-xs">
               <Checkbox checked={legacyEvidence} onCheckedChange={(v) => setLegacyEvidence(v === true)} />
@@ -544,6 +616,12 @@ export default function PaymentSessions() {
           </Alert>
         )}
 
+        <PaymentSessionsKpiStrip
+          summary={summary}
+          currencyCode={serviceFilter.currencyCode ?? 'GBP'}
+          onDrill={applyKpiDrill}
+        />
+
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList className="flex h-auto flex-wrap">
             {TABS.map((t) => (
@@ -553,13 +631,39 @@ export default function PaymentSessions() {
 
           {TABS.map((t) => (
             <TabsContent key={t.id} value={t.id} className="space-y-3">
-              {t.id === 'overview' && summary && (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Active holds</CardTitle></CardHeader><CardContent className="text-xl font-semibold">{summary.active_hold_count}</CardContent></Card>
-                  <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Captured</CardTitle></CardHeader><CardContent className="text-xl font-semibold">{summary.captured_count}</CardContent></Card>
-                  <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Released</CardTitle></CardHeader><CardContent className="text-xl font-semibold">{summary.released_count}</CardContent></Card>
-                  <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Failed / recovery</CardTitle></CardHeader><CardContent className="text-xl font-semibold">{summary.failed_recovery_count}</CardContent></Card>
-                </div>
+              {t.id === 'overview' && (
+                <p className="text-sm text-muted-foreground">
+                  Stripe-like payment source of truth. Widgets above drill into filtered tabs.
+                  Financial Reconciliation audits these values — it never invents payment amounts.
+                </p>
+              )}
+              {t.id === 'captured' && (
+                <p className="text-sm text-muted-foreground">
+                  Confirmed captured payments only (amount present). Authorisations are excluded.
+                </p>
+              )}
+              {t.id === 'active_holds' && (
+                <p className="text-sm text-muted-foreground">
+                  Live authorisations only — never captured, released, refunded, or cancelled.
+                </p>
+              )}
+              {t.id === 'released' && (
+                <p className="text-sm text-muted-foreground">
+                  Released holds with amount, time, and provider verification.
+                </p>
+              )}
+              {t.id === 'refunded' && (
+                <p className="text-sm text-muted-foreground">Refunded payments only.</p>
+              )}
+              {t.id === 'failed_recovery' && (
+                <p className="text-sm text-muted-foreground">
+                  Payments needing operator intervention (release failed / recovery pending).
+                </p>
+              )}
+              {t.id === 'history' && (
+                <p className="text-sm text-muted-foreground">
+                  Full immutable history. Supports date, trip, customer, provider, and status filters.
+                </p>
               )}
 
               {isLoading ? (
@@ -591,23 +695,26 @@ export default function PaymentSessions() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Created</TableHead>
+                        <TableHead>Payment Session ID</TableHead>
+                        <TableHead>Trip ID</TableHead>
                         <TableHead>Customer</TableHead>
-                        <TableHead>Trip</TableHead>
-                        <TableHead>Service area</TableHead>
+                        <TableHead>Service Area</TableHead>
                         <TableHead>Provider</TableHead>
-                        <TableHead>Method</TableHead>
+                        <TableHead>Payment Method</TableHead>
                         <TableHead>Purpose</TableHead>
-                        <TableHead>Authorised</TableHead>
+                        <TableHead>Customer Payable</TableHead>
+                        <TableHead>Pre-auth Buffer</TableHead>
+                        <TableHead>Total Authorised</TableHead>
                         <TableHead>Captured</TableHead>
                         <TableHead>Released</TableHead>
+                        <TableHead>Reason</TableHead>
                         <TableHead>Refunded</TableHead>
-                        <TableHead>Provider fee</TableHead>
-                        <TableHead>Fee status</TableHead>
-                        <TableHead>Provider state</TableHead>
-                        <TableHead>Session status</TableHead>
-                        <TableHead>Evidence status</TableHead>
+                        <TableHead>Provider Fee</TableHead>
+                        <TableHead>Fee Status</TableHead>
+                        <TableHead>Provider State</TableHead>
+                        <TableHead>Session Status</TableHead>
+                        <TableHead>Evidence Status</TableHead>
                         <TableHead>Age</TableHead>
-                        <TableHead>Reconciliation status</TableHead>
                         <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -623,16 +730,47 @@ export default function PaymentSessions() {
                                   <Badge className="ml-1" variant="outline">ORPHAN_EVIDENCE</Badge>
                                 )}
                               </TableCell>
-                              <TableCell className="text-xs">
-                                {row.customer_name ?? row.customer_email ?? '—'}
+                              <TableCell className="font-mono text-[11px]">
+                                {row.payment_session_id
+                                  ? row.payment_session_id.slice(0, 8)
+                                  : row.orphan_payment_id
+                                  ? `orphan:${row.orphan_payment_id.slice(0, 8)}`
+                                  : '—'}
                               </TableCell>
                               <TableCell className="text-xs">
-                                {row.trip_code ?? (row.trip_id ? row.trip_id.slice(0, 8) : 'No trip')}
+                                {row.trip_id ? (
+                                  <Link
+                                    className="underline"
+                                    to={tripSettlementRecoverUrl(row.trip_id, row.trip_code)}
+                                  >
+                                    {row.trip_code ?? row.trip_id.slice(0, 8)}
+                                  </Link>
+                                ) : (
+                                  'No trip'
+                                )}
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                {row.customer_id ? (
+                                  <Link
+                                    className="underline"
+                                    to={`/riders?customerId=${encodeURIComponent(row.customer_id)}`}
+                                  >
+                                    {row.customer_name ?? row.customer_email ?? row.customer_id.slice(0, 8)}
+                                  </Link>
+                                ) : (
+                                  row.customer_name ?? row.customer_email ?? '—'
+                                )}
                               </TableCell>
                               <TableCell className="text-xs">{row.service_area_name ?? '—'}</TableCell>
                               <TableCell className="text-xs">{row.payment_provider}</TableCell>
                               <TableCell className="text-xs">{row.payment_method ?? '—'}</TableCell>
                               <TableCell className="text-xs">{row.purpose ?? '—'}</TableCell>
+                              <TableCell className="text-xs">
+                                {formatNullablePence(row.customer_payable_pence)}
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                {formatNullablePence(row.buffer_pence)}
+                              </TableCell>
                               <TableCell className="text-xs">
                                 {row.amount_display === 'AMOUNT_UNCONFIRMED' && row.captured_amount_pence == null && !row.captured_at
                                   ? 'AMOUNT_UNCONFIRMED'
@@ -640,6 +778,11 @@ export default function PaymentSessions() {
                               </TableCell>
                               <TableCell className="text-xs">
                                 {formatNullablePence(row.captured_amount_pence)}
+                                {row.captured_at && (
+                                  <div className="mt-1 text-[10px] text-muted-foreground">
+                                    {format(new Date(row.captured_at), 'dd MMM HH:mm')}
+                                  </div>
+                                )}
                                 {row.evidence_status === 'CAPTURE_AMOUNT_MISSING' && (
                                   <div className="mt-1 text-[10px] text-amber-700">Captured amount not yet recorded</div>
                                 )}
@@ -648,8 +791,31 @@ export default function PaymentSessions() {
                                 {row.released_at && row.released_amount_pence == null
                                   ? 'AMOUNT_UNCONFIRMED'
                                   : formatNullablePence(row.released_amount_pence)}
+                                {row.released_at && (
+                                  <div className="mt-1 text-[10px] text-muted-foreground">
+                                    {format(new Date(row.released_at), 'dd MMM HH:mm')}
+                                  </div>
+                                )}
+                                {row.provider_verification_status && (row.released_at || tab === 'released') && (
+                                  <div className="mt-1 text-[10px] text-muted-foreground">
+                                    Provider: {row.provider_verification_status}
+                                  </div>
+                                )}
                               </TableCell>
-                              <TableCell className="text-xs">{formatNullablePence(row.refunded_amount_pence)}</TableCell>
+                              <TableCell className="text-xs max-w-[160px] break-words">
+                                {row.release_reason
+                                  ?? row.hold_terminal_reason
+                                  ?? row.release_failure_reason
+                                  ?? '—'}
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                {formatNullablePence(row.refunded_amount_pence)}
+                                {row.refunded_at && (
+                                  <div className="mt-1 text-[10px] text-muted-foreground">
+                                    {format(new Date(row.refunded_at), 'dd MMM HH:mm')}
+                                  </div>
+                                )}
+                              </TableCell>
                               <TableCell className="text-xs">
                                 {row.fee_display_badge === 'UNAVAILABLE'
                                   ? (row.fee_display_label ?? 'Fee unavailable')
@@ -666,10 +832,19 @@ export default function PaymentSessions() {
                                 )}
                               </TableCell>
                               <TableCell className="text-xs">
-                                <div>{row.provider_state_label ?? row.provider_state ?? 'UNKNOWN'}</div>
+                                <div className="font-medium">{row.provider_state ?? 'UNKNOWN'}</div>
+                                <div className="text-[10px] text-muted-foreground">
+                                  {row.provider_verification_status}
+                                  {row.provider_state_verified_at
+                                    ? ` · ${format(new Date(row.provider_state_verified_at), 'dd MMM HH:mm')}`
+                                    : ''}
+                                </div>
                               </TableCell>
                               <TableCell className="text-xs">
-                                <div>{row.session_status_label ?? row.session_status ?? '—'}</div>
+                                <div className="font-medium">{row.session_status_label ?? row.session_status ?? '—'}</div>
+                                {row.technical_status && row.technical_status !== row.session_status_display && (
+                                  <div className="text-[10px] text-muted-foreground">tech: {row.technical_status}</div>
+                                )}
                               </TableCell>
                               <TableCell className="text-xs">
                                 <Badge
@@ -688,12 +863,6 @@ export default function PaymentSessions() {
                                 )}
                               </TableCell>
                               <TableCell className="text-xs">{formatAgeMinutes(row.age_minutes)}</TableCell>
-                              <TableCell className="text-xs">
-                                <Badge variant={row.classification === 'RED' ? 'destructive' : row.classification === 'AMBER' ? 'secondary' : 'default'}>
-                                  {row.classification ?? '—'}
-                                </Badge>
-                                <div className="mt-1 text-[10px] text-muted-foreground">{row.reconciliation_status}</div>
-                              </TableCell>
                               <TableCell>
                                 <SessionActions
                                   row={row}
@@ -715,7 +884,7 @@ export default function PaymentSessions() {
                             </TableRow>
                             {expandedId === key && (
                               <TableRow>
-                                <TableCell colSpan={19} className="bg-muted/40 text-xs">
+                                <TableCell colSpan={22} className="bg-muted/40 text-xs">
                                   <div className="space-y-3">
                                     <div>
                                       <div className="mb-1 font-medium">Session evidence</div>
@@ -724,6 +893,8 @@ export default function PaymentSessions() {
                                           {
                                             payment_session_id: row.payment_session_id,
                                             trip_id: row.trip_id,
+                                            customer_payable_pence: row.customer_payable_pence,
+                                            buffer_pence: row.buffer_pence,
                                             provider_order_id: row.provider_order_id,
                                             provider_payment_id: row.provider_payment_id,
                                             provider_capture_id: row.provider_capture_id,
@@ -784,7 +955,7 @@ export default function PaymentSessions() {
                                         </pre>
                                       ) : (
                                         <p className="text-muted-foreground">
-                                          Use Inspect to load a sanitised provider snapshot (no raw secrets).
+                                          Use Provider evidence to load a sanitised provider snapshot (no raw secrets).
                                         </p>
                                       )}
                                     </div>

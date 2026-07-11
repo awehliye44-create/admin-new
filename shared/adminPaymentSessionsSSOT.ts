@@ -38,6 +38,11 @@ export type AdminPaymentSessionsListRequest = {
   release_failed?: boolean | null;
   recovery_pending?: boolean | null;
   legacy_evidence?: boolean | null;
+  /** Widget drill: fee_status PENDING / PENDING_PROVIDER_FEE evidence. */
+  provider_fees_pending?: boolean | null;
+  /** Widget drill: capture failed / capture evidence missing without confirmed amount. */
+  capture_failed?: boolean | null;
+  customer_id?: string | null;
   date_from?: string | null;
   date_to?: string | null;
   limit?: number;
@@ -65,6 +70,10 @@ export type AdminPaymentSessionsListRow = {
   payment_provider: string;
   payment_method: string | null;
   purpose: PaymentSessionPurpose | string | null;
+  /** Customer payable / estimated fare at session open — never invent £0. */
+  customer_payable_pence: number | null;
+  /** Pre-authorisation buffer above customer payable. */
+  buffer_pence: number | null;
   authorised_amount_pence: number | null;
   captured_amount_pence: number | null;
   released_amount_pence: number | null;
@@ -89,6 +98,10 @@ export type AdminPaymentSessionsListRow = {
   captured_at: string | null;
   released_at: string | null;
   refunded_at: string | null;
+  /** Release / cancel reason for Released tab (hold_terminal_reason or release_failure_reason). */
+  release_reason: string | null;
+  hold_terminal_reason: string | null;
+  release_failure_reason: string | null;
   evidence_warnings?: string[];
   webhook_timeline?: Array<{
     event_type: string;
@@ -114,25 +127,35 @@ export type AdminPaymentSessionsListRow = {
   page_status_hint?: AdminPaymentSessionsPageStatus | null;
 };
 
+/** Stripe-like KPI strip — all values owned by Payment Sessions edge (never client-summed). */
+export type AdminPaymentSessionsSummary = {
+  total: number;
+  active_hold_count: number;
+  active_hold_amount_pence: number | null;
+  captured_count: number;
+  released_count: number;
+  refunded_count: number;
+  failed_recovery_count: number;
+  recovery_pending_count: number;
+  provider_fees_pending_count: number;
+  /** SUM(confirmed captured_amount_pence) only — never authorisations or trip fares. */
+  total_customer_revenue_captured_pence: number | null;
+  total_authorised_pence: number | null;
+  /** captured_count / (captured_count + capture_failed_count) × 100, or null if no attempts. */
+  capture_success_rate_pct: number | null;
+  money_at_risk_pence: number | null;
+  red: number;
+  amber: number;
+  green: number;
+  unknown_count: number;
+};
+
 export type AdminPaymentSessionsListResponse = {
   success: boolean;
   page_status: AdminPaymentSessionsPageStatus;
   tab: AdminPaymentSessionsTab;
   rows: AdminPaymentSessionsListRow[];
-  summary: {
-    total: number;
-    active_hold_count: number;
-    active_hold_amount_pence: number | null;
-    captured_count: number;
-    released_count: number;
-    refunded_count: number;
-    failed_recovery_count: number;
-    red: number;
-    amber: number;
-    green: number;
-    unknown_count: number;
-    money_at_risk_pence: number | null;
-  };
+  summary: AdminPaymentSessionsSummary;
   error?: string;
   provider_verification_message?: string | null;
 };
@@ -142,12 +165,22 @@ export function paymentSessionsUrl(args?: {
   paymentSessionId?: string | null;
   providerOrderId?: string | null;
   tripId?: string | null;
+  customerId?: string | null;
+  providerFeesPending?: boolean;
+  captureFailed?: boolean;
+  recoveryPending?: boolean;
+  releaseFailed?: boolean;
 }): string {
   const params = new URLSearchParams();
   if (args?.tab) params.set("tab", args.tab);
   if (args?.paymentSessionId) params.set("paymentSessionId", args.paymentSessionId);
   if (args?.providerOrderId) params.set("providerOrderId", args.providerOrderId);
   if (args?.tripId) params.set("tripId", args.tripId);
+  if (args?.customerId) params.set("customerId", args.customerId);
+  if (args?.providerFeesPending) params.set("providerFeesPending", "1");
+  if (args?.captureFailed) params.set("captureFailed", "1");
+  if (args?.recoveryPending) params.set("recoveryPending", "1");
+  if (args?.releaseFailed) params.set("releaseFailed", "1");
   const qs = params.toString();
   return qs ? `/payment-sessions?${qs}` : "/payment-sessions";
 }

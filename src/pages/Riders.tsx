@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
@@ -53,6 +53,8 @@ type ActionType = 'disable' | 'suspend' | 'enable' | 'delete';
 export default function Riders() {
   usePageLoadTelemetry('RidersPage');
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepLinkCustomerId = searchParams.get('customerId');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [selectedRider, setSelectedRider] = useState<Rider | null>(null);
@@ -84,6 +86,23 @@ export default function Riders() {
     },
     staleTime: 30_000,
   });
+
+  // Payment Sessions (and other finance pages) deep-link: /riders?customerId=<uuid>
+  useEffect(() => {
+    if (!deepLinkCustomerId || isLoading || riders.length === 0) return;
+    const match = riders.find((r) => r.id === deepLinkCustomerId);
+    if (!match) return;
+    setSelectedRider(match);
+    setIsViewDialogOpen(true);
+    setSearchQuery(
+      [match.first_name, match.last_name, match.customer_code, match.phone]
+        .filter(Boolean)
+        .join(' '),
+    );
+    const next = new URLSearchParams(searchParams);
+    next.delete('customerId');
+    setSearchParams(next, { replace: true });
+  }, [deepLinkCustomerId, isLoading, riders, searchParams, setSearchParams]);
 
   const refreshData = () => queryClient.invalidateQueries({ queryKey: ['riders'] });
 
