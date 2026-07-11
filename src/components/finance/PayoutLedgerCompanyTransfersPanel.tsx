@@ -4,7 +4,7 @@
  */
 import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Download, Loader2, Plus } from 'lucide-react';
+import { Download, Loader2, Plus, Printer } from 'lucide-react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -28,8 +28,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { supabase } from '@/integrations/supabase/client';
-import { downloadCsv, printFinanceReport } from '@/lib/financeExport';
+import { downloadCsv, printPayoutReceipt } from '@/lib/financeExport';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 import {
   ADMIN_COMPANY_TRANSFER_FN,
@@ -47,16 +48,53 @@ function shortDate(value: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('en-GB');
 }
 
+function receiptTitleFor(row: CompanyOutgoingTransferRow): string {
+  if (row.category === 'STAFF_REIMBURSEMENT') return 'Staff reimbursement receipt';
+  if (row.category === 'SUPPLIER_PAYMENT') return 'Supplier payment receipt';
+  return 'Company transfer receipt';
+}
+
+function openTransferReceipt(row: CompanyOutgoingTransferRow) {
+  printPayoutReceipt({
+    title: receiptTitleFor(row),
+    fields: [
+      { label: 'Transfer ID', value: row.transfer_ref },
+      { label: 'Recipient', value: row.recipient_name },
+      { label: 'Recipient type', value: row.recipient_type },
+      { label: 'Category', value: row.category },
+      { label: 'Money source', value: row.money_source },
+      { label: 'Source account', value: row.source_account },
+      { label: 'Destination account', value: row.destination_account },
+      { label: 'Amount (pence)', value: row.amount_pence },
+      { label: 'Currency', value: row.currency },
+      { label: 'Purpose', value: row.purpose },
+      { label: 'Cost centre', value: row.cost_centre },
+      { label: 'Requested by', value: row.requested_by },
+      { label: 'Approved by', value: row.approved_by },
+      { label: 'Provider', value: row.provider },
+      { label: 'Provider reference', value: row.provider_reference },
+      { label: 'Status', value: row.status },
+      { label: 'Execution time', value: row.execution_at },
+      { label: 'Notes', value: row.notes },
+      { label: 'Attachment', value: row.attachment_url },
+      { label: 'Generated at', value: new Date().toISOString() },
+    ],
+  });
+}
+
 export function PayoutLedgerCompanyTransfersPanel({
   transfers,
   isLoading,
   failedOnly = false,
+  serviceAreaId = null,
 }: {
   transfers: CompanyOutgoingTransferRow[];
   isLoading: boolean;
   failedOnly?: boolean;
+  serviceAreaId?: string | null;
 }) {
   const queryClient = useQueryClient();
+  const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: true });
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
     recipient_name: '',
@@ -65,17 +103,22 @@ export function PayoutLedgerCompanyTransfersPanel({
     money_source: 'COMPANY_BALANCE',
     source_account: '',
     destination_account: '',
-    amount_gbp: '',
+    amount_pence: '',
+    currency: 'GBP',
     purpose: '',
+    service_area_id: serviceAreaId ?? '',
     cost_centre: '',
     provider: 'manual',
     notes: '',
+    attachment_url: '',
   });
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const amountPence = Math.round(Number(form.amount_gbp) * 100);
-      if (!Number.isFinite(amountPence) || amountPence <= 0) throw new Error('Enter a valid amount');
+      const amountPence = Math.round(Number(form.amount_pence));
+      if (!Number.isFinite(amountPence) || amountPence <= 0) {
+        throw new Error('Enter amount in pence (backend SSOT units)');
+      }
       const idempotencyKey = `manual:${crypto.randomUUID()}`;
       const { data, error } = await supabase.functions.invoke(ADMIN_COMPANY_TRANSFER_FN, {
         body: {
@@ -87,11 +130,13 @@ export function PayoutLedgerCompanyTransfersPanel({
           source_account: form.source_account || null,
           destination_account: form.destination_account || null,
           amount_pence: amountPence,
-          currency: 'GBP',
+          currency: form.currency || 'GBP',
           purpose: form.purpose,
+          service_area_id: form.service_area_id || serviceAreaId || null,
           cost_centre: form.cost_centre || null,
           provider: form.provider || null,
           notes: form.notes || null,
+          attachment_url: form.attachment_url || null,
           idempotency_key: idempotencyKey,
         },
       });
@@ -99,8 +144,9 @@ export function PayoutLedgerCompanyTransfersPanel({
       if (!data?.success) throw new Error(data?.error ?? 'Create failed');
       return data;
     },
-    onSuccess: () => {
-      toast.success('Company transfer submitted for approval');
+    onSuccess: (data) => {
+      const ref = data?.transfer?.transfer_ref ?? 'created';
+      toast.success(`Company transfer ${ref} submitted for approval`);
       setShowForm(false);
       void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
     },
@@ -126,14 +172,27 @@ export function PayoutLedgerCompanyTransfersPanel({
       transfers.map((t) => ({
         transfer_id: t.transfer_ref,
         recipient: t.recipient_name,
+        recipient_type: t.recipient_type,
         category: t.category,
         money_source: t.money_source,
+        source_account: t.source_account,
+        destination_account: t.destination_account,
         amount_pence: t.amount_pence,
         currency: t.currency,
-        status: t.status,
+        purpose: t.purpose,
+        cost_centre: t.cost_centre,
+        requested_by: t.requested_by,
+        approved_by: t.approved_by,
         provider: t.provider,
         provider_reference: t.provider_reference,
-        purpose: t.purpose,
+        status: t.status,
+        execution_at: t.execution_at,
+        failure_reason: t.failure_reason,
+        provider_error: t.provider_error,
+        retry_count: t.retry_count,
+        last_attempt_at: t.last_attempt_at,
+        notes: t.notes,
+        attachment_url: t.attachment_url,
       })),
     [transfers],
   );
@@ -158,12 +217,12 @@ export function PayoutLedgerCompanyTransfersPanel({
           variant="outline"
           size="sm"
           disabled={transfers.length === 0}
-          onClick={() => downloadCsv('company-transfers.csv', exportRows)}
+          onClick={() => downloadCsv(
+            failedOnly ? 'failed-company-transfers.csv' : 'company-transfers.csv',
+            exportRows,
+          )}
         >
-          <Download className="h-4 w-4 mr-2" /> CSV / receipt export
-        </Button>
-        <Button variant="outline" size="sm" disabled={transfers.length === 0} onClick={() => printFinanceReport()}>
-          Print receipt
+          <Download className="h-4 w-4 mr-2" /> CSV export
         </Button>
       </div>
 
@@ -173,6 +232,10 @@ export function PayoutLedgerCompanyTransfersPanel({
             <CardTitle className="text-base">Create company transfer</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1 sm:col-span-2 text-xs text-muted-foreground">
+              Transfer ID is assigned by the backend on submit. Requested By is the signed-in admin.
+              Approved By / Provider Reference / Status / Execution Time are set by the approval and pay workflow.
+            </div>
             <div className="space-y-1">
               <Label>Recipient</Label>
               <Input
@@ -237,18 +300,59 @@ export function PayoutLedgerCompanyTransfersPanel({
               />
             </div>
             <div className="space-y-1">
-              <Label>Amount (GBP)</Label>
+              <Label>Amount (pence)</Label>
               <Input
-                inputMode="decimal"
-                value={form.amount_gbp}
-                onChange={(e) => setForm((f) => ({ ...f, amount_gbp: e.target.value }))}
+                inputMode="numeric"
+                value={form.amount_pence}
+                onChange={(e) => setForm((f) => ({ ...f, amount_pence: e.target.value }))}
+                placeholder="e.g. 25000 for £250"
               />
+            </div>
+            <div className="space-y-1">
+              <Label>Currency</Label>
+              <Input
+                value={form.currency}
+                onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value.toUpperCase() }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Service area</Label>
+              <Select
+                value={form.service_area_id || serviceAreaId || '__none__'}
+                onValueChange={(v) => setForm((f) => ({
+                  ...f,
+                  service_area_id: v === '__none__' ? '' : v,
+                }))}
+              >
+                <SelectTrigger><SelectValue placeholder="Select service area" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">None</SelectItem>
+                  {serviceAreas.map((sa) => (
+                    <SelectItem key={sa.id} value={sa.id}>{sa.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1">
               <Label>Cost centre</Label>
               <Input
                 value={form.cost_centre}
                 onChange={(e) => setForm((f) => ({ ...f, cost_centre: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Provider</Label>
+              <Input
+                value={form.provider}
+                onChange={(e) => setForm((f) => ({ ...f, provider: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Attachment URL</Label>
+              <Input
+                value={form.attachment_url}
+                onChange={(e) => setForm((f) => ({ ...f, attachment_url: e.target.value }))}
+                placeholder="https://..."
               />
             </div>
             <div className="space-y-1 sm:col-span-2">
@@ -267,7 +371,13 @@ export function PayoutLedgerCompanyTransfersPanel({
             </div>
             <div className="sm:col-span-2">
               <Button
-                disabled={createMutation.isPending || !form.recipient_name || !form.purpose}
+                disabled={
+                  createMutation.isPending
+                  || !form.recipient_name
+                  || !form.purpose
+                  || !form.source_account
+                  || !form.destination_account
+                }
                 onClick={() => {
                   if (!window.confirm('Submit company transfer for approval? Requester cannot self-approve.')) return;
                   createMutation.mutate();
@@ -292,17 +402,64 @@ export function PayoutLedgerCompanyTransfersPanel({
             Create a transfer above. Driver payouts stay on the Driver Payouts tab.
           </AlertDescription>
         </Alert>
+      ) : failedOnly ? (
+        <div className="overflow-x-auto rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Transfer ID</TableHead>
+                <TableHead>Recipient</TableHead>
+                <TableHead>Reason</TableHead>
+                <TableHead>Provider Error</TableHead>
+                <TableHead>Retry Available</TableHead>
+                <TableHead>Retry Count</TableHead>
+                <TableHead>Last Attempt</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {transfers.map((t) => (
+                <TableRow key={t.id}>
+                  <TableCell className="text-xs font-mono">{t.transfer_ref}</TableCell>
+                  <TableCell className="text-xs">{t.recipient_name}</TableCell>
+                  <TableCell className="text-xs max-w-[200px] truncate">{t.failure_reason ?? '—'}</TableCell>
+                  <TableCell className="text-xs max-w-[200px] truncate">{t.provider_error ?? '—'}</TableCell>
+                  <TableCell className="text-xs">{t.status === 'FAILED' ? 'Yes' : 'No'}</TableCell>
+                  <TableCell className="text-xs">{t.retry_count}</TableCell>
+                  <TableCell className="text-xs">{shortDate(t.last_attempt_at)}</TableCell>
+                  <TableCell className="text-xs space-x-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={actionMutation.isPending}
+                      onClick={() => {
+                        if (!window.confirm(`Retry ${t.transfer_ref}?`)) return;
+                        actionMutation.mutate({ action: 'retry', transfer_id: t.id });
+                      }}
+                    >
+                      Retry
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => openTransferReceipt(t)}>
+                      <Printer className="h-3.5 w-3.5" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       ) : (
         <div className="overflow-x-auto rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Transfer</TableHead>
+                <TableHead>Transfer ID</TableHead>
                 <TableHead>Recipient</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead>Source</TableHead>
                 <TableHead>Amount</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Requested / Approved</TableHead>
                 <TableHead>Provider ref</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
@@ -322,6 +479,10 @@ export function PayoutLedgerCompanyTransfersPanel({
                   <TableCell className="text-xs"><Badge variant="outline">{t.money_source}</Badge></TableCell>
                   <TableCell className="text-xs tabular-nums">{formatNullablePence(t.amount_pence)}</TableCell>
                   <TableCell className="text-xs"><Badge variant="secondary">{t.status}</Badge></TableCell>
+                  <TableCell className="text-xs font-mono">
+                    <div>{t.requested_by?.slice(0, 8) ?? '—'}</div>
+                    <div className="text-muted-foreground">{t.approved_by?.slice(0, 8) ?? '—'}</div>
+                  </TableCell>
                   <TableCell className="text-xs font-mono">{t.provider_reference ?? '—'}</TableCell>
                   <TableCell className="text-xs space-x-1">
                     {t.status === 'AWAITING_APPROVAL' && (
@@ -371,24 +532,9 @@ export function PayoutLedgerCompanyTransfersPanel({
                         Mark paid
                       </Button>
                     )}
-                    {t.status === 'FAILED' && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={actionMutation.isPending}
-                        onClick={() => {
-                          if (!window.confirm(`Retry ${t.transfer_ref}?`)) return;
-                          actionMutation.mutate({ action: 'retry', transfer_id: t.id });
-                        }}
-                      >
-                        Retry
-                      </Button>
-                    )}
-                    {(t.failure_reason || t.provider_error) && (
-                      <div className="text-destructive max-w-[180px] truncate">
-                        {t.failure_reason || t.provider_error}
-                      </div>
-                    )}
+                    <Button size="sm" variant="ghost" onClick={() => openTransferReceipt(t)}>
+                      <Printer className="h-3.5 w-3.5 mr-1" /> PDF
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}

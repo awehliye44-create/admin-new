@@ -43,6 +43,11 @@ const SETTING_KEYS = [
   'company_transfer_approval_dual_max_pence',
   'company_transfer_default_account',
   'company_transfer_retry_max',
+  'company_transfer_batch_size',
+  'company_transfer_supported_providers',
+  'company_transfer_pdf_template',
+  'company_transfer_notifications_enabled',
+  'manual_payouts_enabled',
 ] as const;
 
 type RuleMode = 'allow' | 'hold' | 'block';
@@ -534,6 +539,47 @@ export function PayoutLedgerSettingsPanel({
             <Input
               value={get('company_transfer_retry_max', '3')}
               onChange={(e) => set('company_transfer_retry_max', e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Batch size</Label>
+            <Input
+              value={get('company_transfer_batch_size', '50')}
+              onChange={(e) => set('company_transfer_batch_size', e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Supported providers</Label>
+            <Input
+              value={get('company_transfer_supported_providers', 'manual,revolut,stripe')}
+              onChange={(e) => set('company_transfer_supported_providers', e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>PDF template</Label>
+            <Input
+              value={get('company_transfer_pdf_template', 'onecab_default')}
+              onChange={(e) => set('company_transfer_pdf_template', e.target.value)}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+            <div>
+              <Label>Notification settings</Label>
+              <p className="text-xs text-muted-foreground">Notify admins on company transfer status changes</p>
+            </div>
+            <Switch
+              checked={get('company_transfer_notifications_enabled', 'true') === 'true'}
+              onCheckedChange={(v) => set('company_transfer_notifications_enabled', v ? 'true' : 'false')}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-md border p-3 sm:col-span-2">
+            <div>
+              <Label>Manual payouts enabled</Label>
+              <p className="text-xs text-muted-foreground">Allows manual company and driver payout actions</p>
+            </div>
+            <Switch
+              checked={get('manual_payouts_enabled', 'true') === 'true'}
+              onCheckedChange={(v) => set('manual_payouts_enabled', v ? 'true' : 'false')}
             />
           </div>
         </CardContent>

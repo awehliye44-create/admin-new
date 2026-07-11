@@ -379,11 +379,20 @@ export default function PayoutLedger() {
           </TabsContent>
 
           <TabsContent value="company_transfers" className="mt-4">
-            <PayoutLedgerCompanyTransfersPanel transfers={companyTransfers} isLoading={isLoading} />
+            <PayoutLedgerCompanyTransfersPanel
+              transfers={companyTransfers}
+              isLoading={isLoading}
+              serviceAreaId={serviceFilter.serviceAreaId}
+            />
           </TabsContent>
 
           <TabsContent value="failed_transfers" className="mt-4 space-y-4">
-            <PayoutLedgerCompanyTransfersPanel transfers={companyTransfers} isLoading={isLoading} failedOnly />
+            <PayoutLedgerCompanyTransfersPanel
+              transfers={companyTransfers}
+              isLoading={isLoading}
+              failedOnly
+              serviceAreaId={serviceFilter.serviceAreaId}
+            />
             {items.length > 0 && (
               <div className="space-y-2">
                 <h3 className="text-sm font-medium">Failed driver payouts</h3>
@@ -393,6 +402,41 @@ export default function PayoutLedger() {
           </TabsContent>
 
           <TabsContent value="batch_history" className="mt-4 space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={companyBatches.length === 0 && batches.length === 0}
+                onClick={() => {
+                  downloadCsv('payout-batch-history.csv', [
+                    ...companyBatches.map((b) => ({
+                      scope: 'company',
+                      batch_id: b.batch_ref,
+                      execution_time: b.started_at ?? b.created_at,
+                      transfer_count: b.transfer_count,
+                      success_count: b.success_count,
+                      failed_count: b.failed_count,
+                      provider: b.provider,
+                      duration_ms: b.duration_ms,
+                      status: b.status,
+                    })),
+                    ...batches.map((b) => ({
+                      scope: 'driver',
+                      batch_id: b.id,
+                      execution_time: b.created_at,
+                      transfer_count: b.total_drivers,
+                      success_count: b.successful_payouts,
+                      failed_count: b.failed_payouts,
+                      provider: b.kind,
+                      duration_ms: null,
+                      status: b.status,
+                    })),
+                  ]);
+                }}
+              >
+                <Download className="h-4 w-4 mr-2" /> Download report
+              </Button>
+            </div>
             <div className="space-y-2">
               <h3 className="text-sm font-medium">Company batches</h3>
               {companyBatches.length === 0 ? (
@@ -403,10 +447,10 @@ export default function PayoutLedger() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Batch ID</TableHead>
-                        <TableHead>Execution</TableHead>
-                        <TableHead>Count</TableHead>
-                        <TableHead>Success</TableHead>
-                        <TableHead>Failed</TableHead>
+                        <TableHead>Execution Time</TableHead>
+                        <TableHead>Transfer Count</TableHead>
+                        <TableHead>Success Count</TableHead>
+                        <TableHead>Failed Count</TableHead>
                         <TableHead>Provider</TableHead>
                         <TableHead>Duration</TableHead>
                         <TableHead>Status</TableHead>
@@ -436,23 +480,27 @@ export default function PayoutLedger() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Created</TableHead>
-                      <TableHead>Run date</TableHead>
-                      <TableHead>Kind</TableHead>
+                      <TableHead>Batch ID</TableHead>
+                      <TableHead>Execution Time</TableHead>
+                      <TableHead>Transfer Count</TableHead>
+                      <TableHead>Success Count</TableHead>
+                      <TableHead>Failed Count</TableHead>
+                      <TableHead>Provider</TableHead>
+                      <TableHead>Duration</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Drivers</TableHead>
-                      <TableHead>Total</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {batches.map((b) => (
                       <TableRow key={b.id}>
+                        <TableCell className="text-xs font-mono">{b.id.slice(0, 8)}</TableCell>
                         <TableCell className="text-xs">{shortDate(b.created_at)}</TableCell>
-                        <TableCell className="text-xs">{b.run_date}</TableCell>
-                        <TableCell className="text-xs">{b.kind}</TableCell>
-                        <TableCell className="text-xs"><Badge variant="outline">{b.status}</Badge></TableCell>
                         <TableCell className="text-xs">{b.total_drivers ?? '—'}</TableCell>
-                        <TableCell className="text-xs">{formatNullablePence(b.total_amount_pence)}</TableCell>
+                        <TableCell className="text-xs">{b.successful_payouts ?? '—'}</TableCell>
+                        <TableCell className="text-xs">{b.failed_payouts ?? '—'}</TableCell>
+                        <TableCell className="text-xs">{b.kind}</TableCell>
+                        <TableCell className="text-xs">—</TableCell>
+                        <TableCell className="text-xs"><Badge variant="outline">{b.status}</Badge></TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -465,20 +513,24 @@ export default function PayoutLedger() {
             {companyAuditRows.length === 0 ? (
               <Alert>
                 <AlertTitle>No company transfer audit events yet</AlertTitle>
-                <AlertDescription>Append-only audit rows appear after create/approve/pay actions.</AlertDescription>
+                <AlertDescription>Append-only audit rows appear after create/approve/pay actions. Never deleted.</AlertDescription>
               </Alert>
             ) : (
               <div className="overflow-x-auto rounded-md border">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>When</TableHead>
-                      <TableHead>Transfer</TableHead>
+                      <TableHead>Timestamp</TableHead>
+                      <TableHead>Transfer ID</TableHead>
+                      <TableHead>Actor</TableHead>
                       <TableHead>Event</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead>Old → New</TableHead>
                       <TableHead>Amount</TableHead>
-                      <TableHead>Provider ref</TableHead>
+                      <TableHead>Currency</TableHead>
+                      <TableHead>Provider</TableHead>
+                      <TableHead>Provider Reference</TableHead>
                       <TableHead>Reason</TableHead>
+                      <TableHead>Attachment</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -486,11 +538,15 @@ export default function PayoutLedger() {
                       <TableRow key={row.id}>
                         <TableCell className="text-xs">{shortDate(row.created_at)}</TableCell>
                         <TableCell className="text-xs font-mono">{row.transfer_id.slice(0, 8)}</TableCell>
+                        <TableCell className="text-xs font-mono">{row.actor_id?.slice(0, 8) ?? '—'}</TableCell>
                         <TableCell className="text-xs"><Badge variant="outline">{row.event_type}</Badge></TableCell>
                         <TableCell className="text-xs">{row.old_status ?? '—'} → {row.new_status ?? '—'}</TableCell>
                         <TableCell className="text-xs tabular-nums">{formatNullablePence(row.amount_pence)}</TableCell>
+                        <TableCell className="text-xs">{row.currency ?? '—'}</TableCell>
+                        <TableCell className="text-xs">{row.provider ?? '—'}</TableCell>
                         <TableCell className="text-xs font-mono">{row.provider_reference ?? '—'}</TableCell>
-                        <TableCell className="text-xs max-w-[220px] truncate">{row.reason ?? '—'}</TableCell>
+                        <TableCell className="text-xs max-w-[180px] truncate">{row.reason ?? '—'}</TableCell>
+                        <TableCell className="text-xs max-w-[120px] truncate">{row.attachment_url ?? '—'}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

@@ -78,6 +78,42 @@ export function printFinanceReport(): void {
   window.print();
 }
 
+/** Print-to-PDF receipt for a single outgoing payout/transfer (display-only; no money math). */
+export function printPayoutReceipt(args: {
+  title: string;
+  fields: Array<{ label: string; value: ExportCell }>;
+}): void {
+  if (typeof window === 'undefined') return;
+  const escapeHtml = (v: ExportCell) =>
+    String(v ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  const rows = args.fields
+    .map((f) => `<tr><th>${escapeHtml(f.label)}</th><td>${escapeHtml(f.value)}</td></tr>`)
+    .join('');
+  const html = `<!DOCTYPE html><html><head><title>${escapeHtml(args.title)}</title>
+<style>
+  body { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 12px; color: #111; margin: 32px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: #555; margin-bottom: 20px; }
+  table { border-collapse: collapse; width: 100%; max-width: 640px; }
+  th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { width: 40%; background: #f7f7f7; font-weight: 600; }
+  @media print { body { margin: 0; } }
+</style></head><body>
+<h1>ONECAB</h1>
+<div class="sub">${escapeHtml(args.title)}</div>
+<table>${rows}</table>
+<script>window.onload=function(){window.print();}</script>
+</body></html>`;
+  const w = window.open('', '_blank', 'noopener,noreferrer,width=720,height=900');
+  if (!w) return;
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
+
 /** Open a print-ready PDF view of period-scoped ledger rows (no money math). */
 export function printFinanceRecords(
   title: string,
