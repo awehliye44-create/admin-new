@@ -732,7 +732,7 @@ export default function PaymentSessions() {
                                             provider_state: row.provider_state,
                                             provider_state_verified_at: row.provider_state_verified_at,
                                             session_status_canonical: row.session_status_display,
-                                            technical_status: row.technical_status,
+                                            'Technical status': row.technical_status,
                                             captured_at: row.captured_at,
                                             released_at: row.released_at,
                                             refunded_at: row.refunded_at,

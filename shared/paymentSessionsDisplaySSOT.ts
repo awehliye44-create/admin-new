@@ -314,7 +314,7 @@ export function buildPaymentSessionsDisplay(
     reconciliation_status: recon.reconciliation_status,
     classification: recon.classification,
     fee_display: fee,
-    provider_state_label: `${providerState} · ${verified}`,
+    provider_state_label: `${providerState} — ${verified}`,
     technical_status: input.raw_session_status,
   };
 }
