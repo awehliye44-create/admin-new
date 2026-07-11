@@ -212,10 +212,11 @@ async function fetchLedgerRows(args: {
   limit: number;
   from?: string;
   to?: string;
+  skipRunningBalance?: boolean;
 }): Promise<FinanceLedgerTransactionRow[]> {
-  // For a selected driver: load unfiltered chronological series so running balance
-  // is SSOT over the full wallet account (not a filtered subset from £0).
-  const balanceScoped = Boolean(args.driverId);
+  // Running-balance attach needs full prior history for a driver. Wallet UI no longer
+  // shows Running Balance — skip that path so we do not sum in React for display.
+  const balanceScoped = Boolean(args.driverId) && !args.skipRunningBalance;
 
   let query = supabase
     .from('driver_wallet_ledger')
@@ -225,8 +226,6 @@ async function fetchLedgerRows(args: {
 
   if (args.driverId) query = query.eq('driver_id', args.driverId);
   if (args.to) query = query.lte('created_at', args.to);
-  // When computing running balance for a driver, include history before `from`
-  // so opening balance is correct; period filter applied after attach.
 
   if (!balanceScoped) {
     if (args.from) query = query.gte('created_at', args.from);
@@ -292,12 +291,23 @@ export function useFinanceLedgerTransactions(args: {
   limit?: number;
   from?: string;
   to?: string;
+  /** When true (Driver Wallet Ledger), do not attach React running balances. */
+  skipRunningBalance?: boolean;
 }) {
   const limit = args.limit ?? 300;
   const ledgerLimit = args.filter === 'all' ? limit : limit;
 
   return useQuery({
-    queryKey: ['finance-ledger-transactions', args.filter, args.regionId, args.driverId, limit, args.from, args.to],
+    queryKey: [
+      'finance-ledger-transactions',
+      args.filter,
+      args.regionId,
+      args.driverId,
+      limit,
+      args.from,
+      args.to,
+      args.skipRunningBalance ?? false,
+    ],
     queryFn: async (): Promise<FinanceLedgerTransactionRow[]> => {
       const includePayments = !args.driverId && (args.filter === 'all' || args.filter === 'customer_payments');
       const includeDiscounts = !args.driverId && (args.filter === 'all' || args.filter === 'discounts');
@@ -314,6 +324,7 @@ export function useFinanceLedgerTransactions(args: {
           limit: ledgerLimit,
           from: args.from,
           to: args.to,
+          skipRunningBalance: args.skipRunningBalance,
         }));
       }
 

@@ -2,6 +2,7 @@ export type DriverWalletLedgerTab =
   | 'drivers'
   | 'overview'
   | 'settlement'
+  | 'commission'
   | 'transactions'
   | 'debt_recovery'
   | 'statements'
@@ -37,12 +38,14 @@ const LEGACY_TAB_ALIASES: Record<string, DriverWalletLedgerTab> = {
   payout_allocations: 'overview',
   payouts: 'overview',
   downloads: 'statements',
+  onecab_commission: 'commission',
 };
 
 const CANONICAL_TABS: DriverWalletLedgerTab[] = [
   'drivers',
   'overview',
   'settlement',
+  'commission',
   'transactions',
   'debt_recovery',
   'statements',
@@ -74,9 +77,9 @@ export function ledgerAuditTypeLabel(rawType: string): string {
     TRIP_EARNING_NET: 'Trip Credit',
     TRIP_CREDIT: 'Trip Credit',
     CASH_TRIP_EARNING: 'Trip Credit',
+    CASH_COMMISSION_DEBT: 'Debt Recovery',
     PLATFORM_COMMISSION: 'Commission',
     COMPANY_COMMISSION: 'Commission',
-    CASH_COMMISSION_DEBT: 'Commission',
     BONUS: 'Bonus',
     PROMOTION: 'Promotion',
     ADJUSTMENT: 'Adjustment',

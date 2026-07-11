@@ -24,7 +24,7 @@ export type PaymentHoldReconciliationRow = {
   source: "payment_sessions" | "orphan_payments";
   payment_provider: string;
   provider_order_id: string;
-  amount_pence: number | null;
+  amount_pence: number;
   currency: string;
   created_at: string;
   authorised_at: string | null;

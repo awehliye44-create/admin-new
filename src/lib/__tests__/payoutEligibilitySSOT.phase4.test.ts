@@ -10,6 +10,8 @@ describe('sumClearedSettlementBatchPence', () => {
         settlement_status: 'settled',
         trip_completed: true,
         payment_captured: true,
+        captured_amount_pence: 500,
+        capture_mismatch_unresolved: false,
       },
       {
         amount_pence: 300,
@@ -17,6 +19,8 @@ describe('sumClearedSettlementBatchPence', () => {
         settlement_status: 'pending',
         trip_completed: true,
         payment_captured: true,
+        captured_amount_pence: 300,
+        capture_mismatch_unresolved: false,
       },
       {
         amount_pence: 200,

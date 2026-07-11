@@ -145,8 +145,15 @@ export function DriverWalletOverviewCards({
         <Metric label="Today's Earnings" value={fmt(kpis?.today_earnings_pence)} />
         <Metric
           label="Commission Paid"
-          value={fmt(kpis?.platform_commission_pence)}
-          hint="From wallet ledger commission entries"
+          value={fmt(
+            driver.commission_fee_summary?.net_onecab_commission_pence
+              ?? kpis?.platform_commission_pence,
+          )}
+          hint={
+            driver.commission_fee_summary
+              ? `Net after provider fees · Gross ${fmt(driver.commission_fee_summary.gross_onecab_commission_pence)} · Fees ${fmt(driver.commission_fee_summary.payment_provider_fees_pence)}`
+              : 'Net ONECAB after provider fees when available'
+          }
         />
         <Metric
           label="Wallet Adjustments"

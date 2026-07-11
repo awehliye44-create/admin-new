@@ -1,12 +1,18 @@
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
-import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, MoreHorizontal } from 'lucide-react';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 import {
   useDriverWalletSsot,
@@ -21,13 +27,36 @@ function driverLabel(row: Pick<DriverWalletSsotRow, 'driver_code' | 'driver_name
 
 function walletStatusVariant(status: string | null | undefined): 'default' | 'secondary' | 'destructive' | 'outline' {
   if (status === 'ACTIVE') return 'default';
-  if (status === 'RESTRICTED' || status === 'NOT_CONNECTED') return 'secondary';
+  if (status === 'RESTRICTED' || status === 'NOT_CONNECTED' || status === 'FROZEN') return 'secondary';
   return 'destructive';
+}
+
+function outstandingDebt(row: DriverWalletSsotRow): number | null {
+  const v = row.debt_recovery?.remaining_debt_pence
+    ?? row.debt_recovery?.outstanding_debt_pence
+    ?? row.recovery_debt_pence
+    ?? row.period_kpis?.outstanding_debt_pence;
+  return v == null ? null : Number(v);
+}
+
+function connectedAccountStatus(row: DriverWalletSsotRow): string {
+  if (row.verification_status) return row.verification_status;
+  if (row.connected_account_id) return 'connected';
+  return 'not_connected';
+}
+
+function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  try {
+    return format(new Date(iso), 'dd MMM yyyy HH:mm');
+  } catch {
+    return iso;
+  }
 }
 
 function formatNextPayout(row: DriverWalletSsotRow, currencyCode: string): string {
   const amount = formatNullablePence(row.scheduled_payout_display_pence, currencyCode);
-  if (!row.next_scheduled_payout_at) return amount;
+  if (!row.next_scheduled_payout_at) return amount === '—' ? '—' : amount;
   try {
     return `${amount} · ${format(new Date(row.next_scheduled_payout_at), 'dd MMM')}`;
   } catch {
@@ -35,8 +64,16 @@ function formatNextPayout(row: DriverWalletSsotRow, currencyCode: string): strin
   }
 }
 
+function formatLastPayout(row: DriverWalletSsotRow, currencyCode: string): string {
+  if (!row.last_payout_at && row.last_payout_amount_pence == null) return '—';
+  const amount = formatNullablePence(row.last_payout_amount_pence, currencyCode);
+  if (!row.last_payout_at) return amount;
+  return `${amount} · ${formatDateTime(row.last_payout_at)}`;
+}
+
 /**
- * Driver Wallet Ledger left-side Driver List — opens a driver's financial account.
+ * Level 1 — Driver Wallet Ledger overview list (Stripe Connected Accounts style).
+ * Opens Level 2 individual driver wallet account on row / action click.
  */
 export function DriverWalletDriverList({
   regionId = null,
@@ -69,7 +106,7 @@ export function DriverWalletDriverList({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Drivers</CardTitle>
+        <CardTitle className="text-base">Driver financial accounts</CardTitle>
         <p className="text-sm text-muted-foreground mt-1">
           Select a driver to open their wallet account. Balances are Driver Wallet Ledger SSOT only.
         </p>
@@ -87,20 +124,26 @@ export function DriverWalletDriverList({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Driver</TableHead>
-                <TableHead>Tier</TableHead>
+                <TableHead>Driver Name</TableHead>
+                <TableHead>Driver Code / ID</TableHead>
+                <TableHead>Service Area</TableHead>
+                <TableHead>Driver Tier</TableHead>
                 <TableHead className="text-right">Commission %</TableHead>
                 <TableHead className="text-right">Live Wallet Balance</TableHead>
                 <TableHead className="text-right">Available Balance</TableHead>
                 <TableHead className="text-right">Pending Balance</TableHead>
-                <TableHead>Next Payout</TableHead>
+                <TableHead className="text-right">Outstanding Debt</TableHead>
+                <TableHead>Next Scheduled Payout</TableHead>
+                <TableHead>Last Payout</TableHead>
+                <TableHead>Connected Account Status</TableHead>
                 <TableHead>Wallet Status</TableHead>
+                <TableHead className="w-[52px]">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.length === 0 && !isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={14} className="text-center text-muted-foreground py-8">
                     No drivers with connected payout accounts in this region.
                   </TableCell>
                 </TableRow>
@@ -113,12 +156,14 @@ export function DriverWalletDriverList({
                   }`}
                   onClick={() => onSelectDriver(row.driver_id)}
                 >
-                  <TableCell>
-                    <div className="font-medium">{driverLabel(row)}</div>
-                    <div className="text-xs text-muted-foreground font-mono">
-                      {row.driver_code ?? row.driver_id.slice(0, 8)}
+                  <TableCell className="font-medium">{driverLabel(row)}</TableCell>
+                  <TableCell className="text-xs font-mono text-muted-foreground">
+                    <div>{row.driver_code ?? '—'}</div>
+                    <div className="truncate max-w-[120px]" title={row.driver_id}>
+                      {row.driver_id.slice(0, 8)}…
                     </div>
                   </TableCell>
+                  <TableCell className="text-xs">{row.service_area_name ?? '—'}</TableCell>
                   <TableCell>{row.driver_tier_name ?? '—'}</TableCell>
                   <TableCell className="text-right tabular-nums">
                     {row.commission_percent != null ? `${row.commission_percent}%` : '—'}
@@ -132,13 +177,34 @@ export function DriverWalletDriverList({
                   <TableCell className="text-right tabular-nums">
                     {formatNullablePence(row.period_kpis?.pending_earnings_pence, currencyCode)}
                   </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {formatNullablePence(outstandingDebt(row), currencyCode)}
+                  </TableCell>
                   <TableCell className="text-xs whitespace-nowrap">
                     {formatNextPayout(row, currencyCode)}
                   </TableCell>
+                  <TableCell className="text-xs whitespace-nowrap">
+                    {formatLastPayout(row, currencyCode)}
+                  </TableCell>
+                  <TableCell className="text-xs">{connectedAccountStatus(row)}</TableCell>
                   <TableCell>
                     <Badge variant={walletStatusVariant(row.wallet_status)}>
                       {row.wallet_status ?? '—'}
                     </Badge>
+                  </TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Driver actions">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-52">
+                        <DropdownMenuItem onClick={() => onSelectDriver(row.driver_id)}>
+                          Open wallet account
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))}

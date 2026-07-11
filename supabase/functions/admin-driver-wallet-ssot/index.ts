@@ -4,6 +4,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
+import { fetchDriverWalletSummary } from "../_shared/fetchDriverWalletSummary.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,9 +41,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Admin-only: this endpoint returns cross-driver wallet/payout data
-    // (ledger, Stripe account IDs, payout items). Must not be reachable
-    // by regular authenticated users (drivers/customers).
     const { data: adminRole } = await supabase
       .from("user_roles")
       .select("role")
@@ -67,6 +65,11 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const driverId = body.driver_id ?? url.searchParams.get("driver_id");
     const regionId = body.region_id ?? url.searchParams.get("region_id");
+    const mode = String(body.mode ?? url.searchParams.get("mode") ?? "");
+    const periodKey = String(body.period ?? url.searchParams.get("period") ?? "week");
+    const periodFrom = body.from ?? url.searchParams.get("from");
+    const periodTo = body.to ?? url.searchParams.get("to");
+    const serviceAreaId = body.service_area_id ?? url.searchParams.get("service_area_id");
     const limit = Math.min(
       MAX_PAGE_SIZE,
       Math.max(1, Number(body.limit ?? url.searchParams.get("limit") ?? DEFAULT_PAGE_SIZE)),
@@ -74,6 +77,25 @@ Deno.serve(async (req) => {
     const offset = Math.max(0, Number(body.offset ?? url.searchParams.get("offset") ?? 0));
 
     const stripe = stripeKey ? new Stripe(stripeKey, { apiVersion: "2023-10-16" }) : null;
+
+    if (driverId && mode === "wallet_summary") {
+      if (!periodFrom || !periodTo) {
+        return new Response(JSON.stringify({ error: "from and to required for wallet_summary" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const wallet_summary = await fetchDriverWalletSummary(supabase, {
+        driverId: String(driverId),
+        periodKey,
+        periodFrom: String(periodFrom),
+        periodTo: String(periodTo),
+        serviceAreaId: serviceAreaId ? String(serviceAreaId) : null,
+        stripe,
+      });
+      return new Response(JSON.stringify({ success: true, wallet_summary }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     if (driverId) {
       const detail = await fetchDriverWalletPayoutSnapshot(supabase, {

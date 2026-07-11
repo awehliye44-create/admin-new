@@ -127,15 +127,16 @@ export function getTripAvailablePayoutCreatedPence(args: {
   return Math.max(0, args.driverNetPence - args.debtRecoveredPence);
 }
 
-/** Captured amount for audit — payments.captured_amount_pence primary, trips.capture_amount_pence fallback. */
+/** Captured amount for audit — Payment Sessions / payments only. Never invent from trips. */
 export function getTripCapturedPenceForAudit(args: {
   paymentCapturedPence?: number | null;
+  /** Ignored — trips must never invent customer capture for FR. */
   tripCaptureAmountPence?: number | null;
-}): number {
+}): number | null {
   if (args.paymentCapturedPence != null && args.paymentCapturedPence > 0) {
     return args.paymentCapturedPence;
   }
-  return Math.max(0, args.tripCaptureAmountPence ?? 0);
+  return null;
 }
 
 export function customerPaidLabel(_trip: { payment_method?: string | null }): "Customer Paid" {

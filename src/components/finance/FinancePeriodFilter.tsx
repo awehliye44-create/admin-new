@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { CalendarIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -49,6 +50,13 @@ export function FinancePeriodFilter({
   variant?: 'default' | 'statement';
 }) {
   const periods = variant === 'statement' ? STATEMENT_PERIODS : DEFAULT_PERIODS;
+  const [draftFrom, setDraftFrom] = useState<Date | undefined>(customFrom);
+  const [draftTo, setDraftTo] = useState<Date | undefined>(customTo);
+
+  useEffect(() => {
+    setDraftFrom(customFrom);
+    setDraftTo(customTo);
+  }, [customFrom, customTo]);
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -59,6 +67,8 @@ export function FinancePeriodFilter({
           if (v !== 'custom') {
             onCustomFromChange(undefined);
             onCustomToChange(undefined);
+            setDraftFrom(undefined);
+            setDraftTo(undefined);
           }
         }}
       >
@@ -70,7 +80,7 @@ export function FinancePeriodFilter({
       </Tabs>
 
       {period === 'custom' && (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -78,18 +88,18 @@ export function FinancePeriodFilter({
                 size="sm"
                 className={cn(
                   'w-[130px] justify-start text-left font-normal',
-                  !customFrom && 'text-muted-foreground',
+                  !draftFrom && 'text-muted-foreground',
                 )}
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {customFrom ? format(customFrom, 'MMM d, yyyy') : 'From'}
+                {draftFrom ? format(draftFrom, 'MMM d, yyyy') : 'From'}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0 z-[9999]" align="start">
               <Calendar
                 mode="single"
-                selected={customFrom}
-                onSelect={onCustomFromChange}
+                selected={draftFrom}
+                onSelect={setDraftFrom}
                 disabled={(date) => date > new Date()}
                 initialFocus
                 captionLayout="dropdown-buttons"
@@ -107,19 +117,19 @@ export function FinancePeriodFilter({
                 size="sm"
                 className={cn(
                   'w-[130px] justify-start text-left font-normal',
-                  !customTo && 'text-muted-foreground',
+                  !draftTo && 'text-muted-foreground',
                 )}
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {customTo ? format(customTo, 'MMM d, yyyy') : 'To'}
+                {draftTo ? format(draftTo, 'MMM d, yyyy') : 'To'}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0 z-[9999]" align="start">
               <Calendar
                 mode="single"
-                selected={customTo}
-                onSelect={onCustomToChange}
-                disabled={(date) => date > new Date() || (customFrom ? date < customFrom : false)}
+                selected={draftTo}
+                onSelect={setDraftTo}
+                disabled={(date) => date > new Date() || (draftFrom ? date < draftFrom : false)}
                 initialFocus
                 captionLayout="dropdown-buttons"
                 fromYear={2020}
@@ -128,6 +138,30 @@ export function FinancePeriodFilter({
               />
             </PopoverContent>
           </Popover>
+          <Button
+            type="button"
+            size="sm"
+            disabled={!draftFrom || !draftTo}
+            onClick={() => {
+              onCustomFromChange(draftFrom);
+              onCustomToChange(draftTo);
+            }}
+          >
+            Apply
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setDraftFrom(undefined);
+              setDraftTo(undefined);
+              onCustomFromChange(undefined);
+              onCustomToChange(undefined);
+            }}
+          >
+            Clear
+          </Button>
         </div>
       )}
     </div>

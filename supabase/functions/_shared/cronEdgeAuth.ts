@@ -1,7 +1,7 @@
 /**
  * Auth for pg_cron / internal edge sweeps — never accept anon or unverified JWT payloads.
  */
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const JSON_HEADERS = {
   "Content-Type": "application/json",

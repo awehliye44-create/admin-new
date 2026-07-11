@@ -24,6 +24,11 @@ import { buildDriverWalletSettlementHistory } from "./driverWalletSettlementHist
 import { buildDriverWalletDebtRecoveryKpis } from "./driverWalletDebtRecoverySSOT.ts";
 import { nextWeeklyPayoutDateIso } from "./payoutScheduleSSOT.ts";
 import { loadPayoutControlCentreSettings } from "./payoutControlCentreSettingsSSOT.ts";
+import {
+  attachRunningNetOnecabBalanceNewestFirst,
+  buildCommissionFeeBreakdownRow,
+  summarizeCommissionFeeRows,
+} from "./driverWalletCommissionFeeSSOT.ts";
 
 const TERMINAL_FAILED = new Set(["failed", "ledger_sync_failed", "failed_duplicate"]);
 const STUCK_SETTLEMENT = new Set(["PROCESSING", "READY", "PENDING", "AVAILABLE"]);
@@ -59,6 +64,15 @@ export type DriverWalletPayoutDetail = DriverWalletPayoutSnapshot & {
     remaining_debt_pence: number;
     recovery_percent: number | null;
   };
+  /** Gross / provider fee / net — provider fee is never ONECAB revenue. */
+  commission_fee_breakdown: Array<Record<string, unknown>>;
+  commission_fee_summary: {
+    gross_onecab_commission_pence: number;
+    payment_provider_fees_pence: number;
+    net_onecab_commission_pence: number;
+    transaction_count: number;
+  };
+  active_provider_fee_config: Record<string, unknown> | null;
   ledger_rows: Array<Record<string, unknown>>;
   transfer_ledger_rows: Array<Record<string, unknown>>;
   last_synced_at: string | null;
@@ -150,12 +164,14 @@ export async function fetchDriverWalletPayoutSnapshot(
       supabase
         .from("trips")
         .select(
-          "id, trip_code, completed_at, passenger_name, payment_status, final_customer_fare_pence, payment_method, payment_provider, provider_fee_pence, platform_commission_amount, driver_tier_commission_percent, driver_net_pence, payment_session_id",
+          "id, trip_code, completed_at, passenger_name, payment_status, final_customer_fare_pence, payment_method, payment_provider, provider_fee_pence, commission_pence, platform_commission_amount, driver_tier_commission_percent, driver_net_pence, payment_session_id, provider_payment_id, service_area_id",
         )
         .in("id", settlementTripIds),
       supabase
         .from("payment_sessions")
-        .select("id, trip_id, captured_amount_pence, payment_provider, payment_method, provider_processing_fee_pence")
+        .select(
+          "id, trip_id, captured_amount_pence, payment_provider, payment_method, provider_processing_fee_pence, fee_status, provider_order_id, provider_payment_id, provider_fee_percentage_snapshot_pence, provider_fixed_fee_snapshot_pence, provider_fee_total_snapshot_pence, provider_fee_currency_snapshot, provider_fee_version_snapshot, provider_fee_source, provider_fee_confirmed_at, provider_name_snapshot",
+        )
         .in("trip_id", settlementTripIds),
     ]);
     for (const t of tripRowsRes.data ?? []) {
@@ -394,9 +410,9 @@ export async function fetchDriverWalletPayoutSnapshot(
             payment_provider: (trip.payment_provider as string | null) ?? null,
             payment_method: (trip.payment_method as string | null) ?? null,
             provider_fee_pence: trip.provider_fee_pence == null ? null : Number(trip.provider_fee_pence),
-            platform_commission_amount: trip.platform_commission_amount == null
-              ? null
-              : Number(trip.platform_commission_amount),
+            platform_commission_amount: trip.commission_pence == null
+              ? (trip.platform_commission_amount == null ? null : Number(trip.platform_commission_amount))
+              : Number(trip.commission_pence),
             driver_tier_commission_percent: trip.driver_tier_commission_percent == null
               ? null
               : Number(trip.driver_tier_commission_percent),
@@ -420,6 +436,97 @@ export async function fetchDriverWalletPayoutSnapshot(
       };
     }),
   );
+
+  // Active provider fee config for this driver's service area (estimate + admin display).
+  let activeFeeConfig: Record<string, unknown> | null = null;
+  if (serviceAreaId) {
+    const { data: feeCfg } = await supabase
+      .from("provider_fee_configurations")
+      .select("*")
+      .eq("service_area_id", serviceAreaId)
+      .eq("is_active", true)
+      .lte("effective_from", new Date().toISOString())
+      .or("effective_to.is.null,effective_to.gt." + new Date().toISOString())
+      .order("effective_from", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    activeFeeConfig = (feeCfg as Record<string, unknown> | null) ?? null;
+  }
+
+  const commissionRowsRaw = settlements.map((s) => {
+    const tripId = s.trip_id == null ? null : String(s.trip_id);
+    const trip = tripId ? tripDetailById.get(tripId) : null;
+    const session = tripId ? sessionByTripId.get(tripId) : null;
+    if (!tripId || !trip) return null;
+    const gross = trip.commission_pence != null
+      ? Number(trip.commission_pence)
+      : (trip.platform_commission_amount != null ? Number(trip.platform_commission_amount) : null);
+    return buildCommissionFeeBreakdownRow({
+      trip: {
+        trip_id: tripId,
+        trip_code: (trip.trip_code as string | null) ?? null,
+        completed_at: (trip.completed_at as string | null) ?? null,
+        payment_provider: (trip.payment_provider as string | null) ?? null,
+        payment_method: (trip.payment_method as string | null) ?? null,
+        commissionable_fare_pence: trip.final_customer_fare_pence == null
+          ? null
+          : Number(trip.final_customer_fare_pence),
+        commission_rate_percent: trip.driver_tier_commission_percent == null
+          ? null
+          : Number(trip.driver_tier_commission_percent),
+        gross_commission_pence: gross,
+        provider_transaction_id: (trip.provider_payment_id as string | null) ?? null,
+      },
+      session: session
+        ? {
+          payment_session_id: (session.id as string | null) ?? null,
+          payment_provider: (session.payment_provider as string | null) ?? null,
+          payment_method: (session.payment_method as string | null) ?? null,
+          provider_processing_fee_pence: session.provider_processing_fee_pence == null
+            ? null
+            : Number(session.provider_processing_fee_pence),
+          fee_status: (session.fee_status as string | null) ?? null,
+          provider_fee_percentage_snapshot: session.provider_fee_percentage_snapshot_pence == null
+            ? null
+            : Number(session.provider_fee_percentage_snapshot_pence),
+          provider_fixed_fee_snapshot: session.provider_fixed_fee_snapshot_pence == null
+            ? null
+            : Number(session.provider_fixed_fee_snapshot_pence),
+          provider_fee_total_snapshot: session.provider_fee_total_snapshot_pence == null
+            ? null
+            : Number(session.provider_fee_total_snapshot_pence),
+          provider_fee_version_snapshot: (session.provider_fee_version_snapshot as string | null) ?? null,
+          provider_fee_currency_snapshot: (session.provider_fee_currency_snapshot as string | null) ?? null,
+          provider_transaction_id: (session.provider_payment_id as string | null)
+            ?? (session.provider_order_id as string | null)
+            ?? null,
+          provider_fee_source: (session.provider_fee_source as string | null) ?? null,
+          provider_fee_confirmed_at: (session.provider_fee_confirmed_at as string | null) ?? null,
+        }
+        : null,
+      feeConfig: activeFeeConfig
+        ? {
+          provider_name: String(activeFeeConfig.collection_provider ?? ""),
+          fee_type: (activeFeeConfig.fee_type as string | null) ?? null,
+          percentage_fee_bps: activeFeeConfig.percentage_fee_bps == null
+            ? null
+            : Number(activeFeeConfig.percentage_fee_bps),
+          fixed_fee_pence: activeFeeConfig.fixed_fee_pence == null
+            ? null
+            : Number(activeFeeConfig.fixed_fee_pence),
+          currency_code: (activeFeeConfig.currency_code as string | null) ?? null,
+          version: (activeFeeConfig.version as string | null) ?? null,
+          effective_from: (activeFeeConfig.effective_from as string | null) ?? null,
+          payment_method: (activeFeeConfig.payment_method as string | null) ?? null,
+        }
+        : null,
+    });
+  }).filter(Boolean);
+
+  const commission_fee_breakdown = attachRunningNetOnecabBalanceNewestFirst(
+    commissionRowsRaw as ReturnType<typeof buildCommissionFeeBreakdownRow>[],
+  );
+  const commission_fee_summary = summarizeCommissionFeeRows(commission_fee_breakdown);
 
   const debt_recovery = buildDriverWalletDebtRecoveryKpis(ledger, recoveryDebt);
 
@@ -473,6 +580,9 @@ export async function fetchDriverWalletPayoutSnapshot(
     settlements,
     settlement_history,
     debt_recovery,
+    commission_fee_breakdown,
+    commission_fee_summary,
+    active_provider_fee_config: activeFeeConfig,
     ledger_rows: recentLedger,
     transfer_ledger_rows: transferLedger,
     last_synced_at: syncedAt,

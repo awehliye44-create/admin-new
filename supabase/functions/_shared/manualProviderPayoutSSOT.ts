@@ -28,11 +28,37 @@ export function manualProviderEligiblePence(args: {
   return Math.max(0, wallet - inFlight);
 }
 
+function providerFromServiceArea(area: {
+  payment_provider?: string | null;
+  driver_payout_gateway?: string | null;
+  customer_payment_gateway?: string | null;
+}): string | null {
+  return (
+    (area.payment_provider as string | null)
+    ?? (area.driver_payout_gateway as string | null)
+    ?? (area.customer_payment_gateway as string | null)
+  );
+}
+
 export async function resolveRegionPayoutProvider(
   supabase: SupabaseClient,
   regionId: string | null | undefined,
 ): Promise<string | null> {
-  if (!regionId) return null;
+  if (!regionId) {
+    // Multi-region scheduler: prefer manual bank (Revolut) when any SA uses it.
+    const { data: areas } = await supabase
+      .from("service_areas")
+      .select("payment_provider, driver_payout_gateway, customer_payment_gateway")
+      .limit(50);
+    let fallback: string | null = null;
+    for (const area of areas ?? []) {
+      const provider = providerFromServiceArea(area);
+      if (!provider) continue;
+      if (isManualBankPayoutProvider(provider)) return provider;
+      if (!fallback) fallback = provider;
+    }
+    return fallback;
+  }
 
   const { data: areas } = await supabase
     .from("service_areas")
@@ -41,10 +67,7 @@ export async function resolveRegionPayoutProvider(
     .limit(20);
 
   for (const area of areas ?? []) {
-    const provider =
-      (area.payment_provider as string | null)
-      ?? (area.driver_payout_gateway as string | null)
-      ?? (area.customer_payment_gateway as string | null);
+    const provider = providerFromServiceArea(area);
     if (provider) return provider;
   }
 

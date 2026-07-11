@@ -36,6 +36,17 @@ Deno.test("getTripCapturedPenceForAudit: payments primary", () => {
   );
 });
 
+Deno.test("getTripCapturedPenceForAudit: never invents from trip capture", () => {
+  assertEquals(
+    getTripCapturedPenceForAudit({ paymentCapturedPence: null, tripCaptureAmountPence: 480 }),
+    null,
+  );
+  assertEquals(
+    getTripCapturedPenceForAudit({ paymentCapturedPence: 0, tripCaptureAmountPence: 480 }),
+    null,
+  );
+});
+
 Deno.test("getTripDebtRecoveredPence: sums DEBT_RECOVERY abs amounts", () => {
   assertEquals(
     getTripDebtRecoveredPence([

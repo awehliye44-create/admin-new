@@ -173,8 +173,14 @@ export async function resolveFinanceCurrencyScope(
   };
 }
 
+/**
+ * Currency group totals for FR Overview.
+ * Customer revenue must come from Payment Sessions confirmed captures when provided —
+ * never invent from trips.final_fare_pence / trips.capture_amount_pence.
+ */
 export function buildCurrencyGroupsFromTrips(
   tripRows: Array<{
+    id?: string | null;
     service_area_id?: string | null;
     commission_pence?: number | null;
     driver_net_pence?: number | null;
@@ -182,6 +188,8 @@ export function buildCurrencyGroupsFromTrips(
     capture_amount_pence?: number | null;
   }>,
   serviceAreaCurrency: Map<string, string>,
+  /** Payment Sessions confirmed capture by trip id — required for customer revenue. */
+  captureByTripId?: Map<string, number>,
 ): FinanceCurrencyGroupTotals[] {
   const buckets = new Map<string, FinanceCurrencyGroupTotals>();
 
@@ -197,10 +205,12 @@ export function buildCurrencyGroupsFromTrips(
       commission_pence: 0,
       trip_count: 0,
     };
-    existing.customer_revenue_pence += Math.max(
-      0,
-      Number(trip.final_fare_pence ?? trip.capture_amount_pence ?? 0),
-    );
+    const tripId = trip.id ? String(trip.id) : "";
+    const sessionCapture = tripId && captureByTripId
+      ? captureByTripId.get(tripId)
+      : undefined;
+    // Only count confirmed Payment Sessions captures — never fare/trip invent.
+    existing.customer_revenue_pence += Math.max(0, Number(sessionCapture ?? 0));
     existing.driver_net_pence += Math.max(0, Number(trip.driver_net_pence ?? 0));
     existing.commission_pence += Math.max(0, Number(trip.commission_pence ?? 0));
     existing.trip_count += 1;

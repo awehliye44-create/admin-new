@@ -179,36 +179,28 @@ serve(async (req) => {
       });
     }
 
-    // Enforce configured weekly payout day + processing time in Europe/London (automatic batches only).
-    // Manual Mark paid on Payout Ledger is unaffected. body.force=true bypasses for ops.
-    if (controlCentre.payout_frequency === "weekly" && body.force !== true) {
+    // Enforce configured weekly payout day + processing time for scheduler only.
+    // Manual "Create weekly batch" from Payout Ledger is not day/time gated.
+    // body.force=true also bypasses for ops.
+    if (
+      scheduledRun &&
+      controlCentre.payout_frequency === "weekly" &&
+      body.force !== true
+    ) {
+      const payoutTz = String(controlCentre.payout_timezone ?? "Europe/London").trim() || "Europe/London";
       const now = new Date();
       const londonWeekday = new Intl.DateTimeFormat("en-GB", {
-        timeZone: "Europe/London",
+        timeZone: payoutTz,
         weekday: "long",
       }).format(now).toLowerCase();
       const configuredDay = String(controlCentre.weekly_payout_day ?? "monday").toLowerCase();
       if (londonWeekday !== configuredDay) {
-        if (scheduledRun) {
-          return new Response(JSON.stringify({
-            success: true,
-            skipped: true,
-            error_code: "WRONG_PAYOUT_DAY",
-            message: `Scheduler idle — payout day is ${configuredDay}, today is ${londonWeekday}`,
-          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        }
         return new Response(JSON.stringify({
-          error: `Automatic weekly payouts run on ${configuredDay} (Europe/London). Today is ${londonWeekday}.`,
+          success: true,
+          skipped: true,
           error_code: "WRONG_PAYOUT_DAY",
-          settings: {
-            weekly_payout_day: controlCentre.weekly_payout_day,
-            payout_processing_time: controlCentre.payout_processing_time,
-            timezone: "Europe/London",
-          },
-        }), {
-          status: 403,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+          message: `Scheduler idle — payout day is ${configuredDay}, today is ${londonWeekday} (${payoutTz})`,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       const configuredTime = String(controlCentre.payout_processing_time ?? "10:00").trim();
@@ -216,7 +208,7 @@ serve(async (req) => {
       if (timeMatch) {
         const configuredMinutes = Number(timeMatch[1]) * 60 + Number(timeMatch[2]);
         const londonParts = new Intl.DateTimeFormat("en-GB", {
-          timeZone: "Europe/London",
+          timeZone: payoutTz,
           hour: "2-digit",
           minute: "2-digit",
           hour12: false,
@@ -225,26 +217,12 @@ serve(async (req) => {
         const minute = Number(londonParts.find((p) => p.type === "minute")?.value ?? "0");
         const nowMinutes = hour * 60 + minute;
         if (nowMinutes < configuredMinutes) {
-          if (scheduledRun) {
-            return new Response(JSON.stringify({
-              success: true,
-              skipped: true,
-              error_code: "WRONG_PAYOUT_TIME",
-              message: `Scheduler idle until ${configuredTime} Europe/London`,
-            }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-          }
           return new Response(JSON.stringify({
-            error: `Automatic weekly payouts run at ${configuredTime} Europe/London. Current London time is ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}.`,
+            success: true,
+            skipped: true,
             error_code: "WRONG_PAYOUT_TIME",
-            settings: {
-              weekly_payout_day: controlCentre.weekly_payout_day,
-              payout_processing_time: controlCentre.payout_processing_time,
-              timezone: "Europe/London",
-            },
-          }), {
-            status: 403,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+            message: `Scheduler idle until ${configuredTime} ${payoutTz}`,
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       }
     }
@@ -272,8 +250,8 @@ serve(async (req) => {
     if (!verificationMode && !manualProviderPayout && stripeSecretKey) {
       const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
       const balance = await stripe.balance.retrieve();
-      stripeAvailablePence = balance.available.find((b) => b.currency === "gbp")?.amount ?? 0;
-      stripePendingPence = balance.pending.find((b) => b.currency === "gbp")?.amount ?? 0;
+      stripeAvailablePence = balance.available.find((b: { currency: string; amount: number }) => b.currency === "gbp")?.amount ?? 0;
+      stripePendingPence = balance.pending.find((b: { currency: string; amount: number }) => b.currency === "gbp")?.amount ?? 0;
     }
 
     let driverQuery = supabase
@@ -292,7 +270,8 @@ serve(async (req) => {
     let batchId: string | null = null;
 
     // Idempotent scheduler: one WEEKLY_MONDAY batch per London calendar day.
-    if (!verificationMode) {
+    // Manual Create weekly batch is allowed to create additional batches.
+    if (!verificationMode && scheduledRun) {
       const { data: existingBatch } = await supabase
         .from("payout_batches")
         .select("id, status, total_amount_pence, total_drivers")
@@ -313,7 +292,9 @@ serve(async (req) => {
           ready_count: existingBatch.total_drivers ?? 0,
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+    }
 
+    if (!verificationMode) {
       const { data: batch, error: batchError } = await supabase
         .from("payout_batches")
         .insert({

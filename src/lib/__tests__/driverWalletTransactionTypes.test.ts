@@ -2,10 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { canonicalDriverWalletTxType } from '@/lib/driverWalletTransactionTypes';
 
 describe('canonicalDriverWalletTxType', () => {
-  it('maps ledger types to wallet SSOT enums', () => {
+  it('maps ledger types to wallet SSOT enums (no PLATFORM_COMMISSION display type)', () => {
     expect(canonicalDriverWalletTxType('TRIP_EARNING_NET')).toBe('TRIP_EARNING');
-    expect(canonicalDriverWalletTxType('PLATFORM_COMMISSION')).toBe('PLATFORM_COMMISSION');
-    expect(canonicalDriverWalletTxType('CASH_COMMISSION_DEBT')).toBe('PLATFORM_COMMISSION');
+    expect(canonicalDriverWalletTxType('CASH_COMMISSION_DEBT')).toBe('DEBT_RECOVERY');
     expect(canonicalDriverWalletTxType('BONUS')).toBe('BONUS');
     expect(canonicalDriverWalletTxType('MANUAL_CREDIT')).toBe('MANUAL_CREDIT');
     expect(canonicalDriverWalletTxType('MANUAL_DEBIT')).toBe('MANUAL_DEBIT');

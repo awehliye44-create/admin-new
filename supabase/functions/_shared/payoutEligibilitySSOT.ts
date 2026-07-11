@@ -211,12 +211,19 @@ export function sumEligibleEarningPence(earnings: EarningSettlementInput[]): num
   }, 0);
 }
 
-/** Finance Cleared — SUM(cleared settlement batches): settled, payable, not allocated. */
+/** Finance Cleared — SUM(cleared settlement batches): settled, payable, capture-confirmed. */
 export function sumClearedSettlementBatchPence(earnings: EarningSettlementInput[]): number {
   return earnings.reduce((sum, row) => {
     if (!isEarningPayableForPayout(row)) return sum;
     if (requiresStripeSettlement(row.payment_method)) {
       if (row.settlement_status !== "settled") return sum;
+      // Payment Sessions confirmed capture only — never invent from trip/auth.
+      if (row.payment_captured === false) return sum;
+      if (row.capture_mismatch_unresolved) return sum;
+      const captured = row.captured_amount_pence == null
+        ? null
+        : Number(row.captured_amount_pence);
+      if (captured == null || !Number.isFinite(captured) || captured <= 0) return sum;
     } else if (row.trip_completed === false || row.payment_captured === false) {
       return sum;
     }

@@ -87,6 +87,33 @@ export type DriverWalletSsotRow = {
   stripe_connect_payouts?: Array<Record<string, unknown>>;
   settlements?: Array<Record<string, unknown>>;
   settlement_history?: DriverWalletSettlementHistoryRow[];
+  commission_fee_breakdown?: Array<{
+    trip_id: string;
+    trip_code: string | null;
+    completed_at: string | null;
+    payment_provider: string | null;
+    payment_method: string | null;
+    commissionable_fare_pence: number | null;
+    commission_rate_percent: number | null;
+    gross_onecab_commission_pence: number;
+    provider_percentage_fee_pence: number | null;
+    provider_fixed_fee_pence: number | null;
+    total_provider_fee_pence: number;
+    net_onecab_commission_pence: number;
+    provider_transaction_id: string | null;
+    fee_configuration_version: string | null;
+    provider_fee_status: string;
+    provider_fee_source: string | null;
+    payment_session_id: string | null;
+    running_net_onecab_balance_pence?: number;
+  }>;
+  commission_fee_summary?: {
+    gross_onecab_commission_pence: number;
+    payment_provider_fees_pence: number;
+    net_onecab_commission_pence: number;
+    transaction_count: number;
+  };
+  active_provider_fee_config?: Record<string, unknown> | null;
   ledger_rows?: Array<Record<string, unknown>>;
   transfer_ledger_rows?: Array<Record<string, unknown>>;
 };

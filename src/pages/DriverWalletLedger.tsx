@@ -6,8 +6,11 @@ import { FinanceLedgerPanel } from '@/components/finance/FinanceLedgerPanel';
 import { DriverWalletOverviewCards } from '@/components/finance/DriverWalletOverviewCards';
 import { DriverWalletStatementsPanel } from '@/components/finance/DriverWalletStatementsPanel';
 import { DriverWalletDriverList } from '@/components/finance/DriverWalletDriverList';
+import { DriverWalletFleetOverviewCards } from '@/components/finance/DriverWalletFleetOverviewCards';
 import { DriverWalletAccountHeader } from '@/components/finance/DriverWalletAccountHeader';
+import { DriverWalletPeriodWidgetCards } from '@/components/finance/DriverWalletPeriodWidgetCards';
 import { DriverWalletSettlementTab } from '@/components/finance/DriverWalletSettlementTab';
+import { DriverWalletCommissionTab } from '@/components/finance/DriverWalletCommissionTab';
 import { DriverWalletDebtRecoveryPanel } from '@/components/finance/DriverWalletDebtRecoveryPanel';
 import {
   DEFAULT_SERVICE_AREA_SELECTION,
@@ -46,10 +49,18 @@ export default function DriverWalletLedger() {
   const rawTab = searchParams.get('tab');
   const tab = parseDriverWalletLedgerTab(rawTab);
 
-  const periodBounds = useMemo(
-    () => resolveFinancePeriodBounds(period, customDateFrom, customDateTo),
-    [period, customDateFrom, customDateTo],
-  );
+  const customRangeApplied = period !== 'custom' || Boolean(customDateFrom && customDateTo);
+  const periodBounds = useMemo(() => {
+    if (period === 'custom' && (!customDateFrom || !customDateTo)) {
+      return {
+        period,
+        from: '',
+        to: '',
+        label: 'Custom — select From / To and Apply',
+      } as const;
+    }
+    return resolveFinancePeriodBounds(period, customDateFrom, customDateTo);
+  }, [period, customDateFrom, customDateTo]);
 
   const { data: driver, isLoading, isFetching, refetch, isError, error } = useDriverWalletSsotDetail(driverId);
   const queryClient = useQueryClient();
@@ -61,6 +72,7 @@ export default function DriverWalletLedger() {
       void queryClient.invalidateQueries({ queryKey: ['finance-ledger-transactions'] });
       void queryClient.invalidateQueries({ queryKey: ['driver-wallet-ssot'] });
       void queryClient.invalidateQueries({ queryKey: ['driver-wallet-ssot-detail', driverId] });
+      void queryClient.invalidateQueries({ queryKey: ['driver-wallet-summary'] });
     };
     const channel = supabase
       .channel(`driver-wallet-ledger-${driverId}`)
@@ -115,6 +127,7 @@ export default function DriverWalletLedger() {
     if (driverId) return;
     const invalidateList = () => {
       void queryClient.invalidateQueries({ queryKey: ['driver-wallet-ssot'] });
+      void queryClient.invalidateQueries({ queryKey: ['driver-wallet-ssot-all'] });
     };
     const channel = supabase
       .channel('driver-wallet-ledger-list')
@@ -199,7 +212,8 @@ export default function DriverWalletLedger() {
 
   const currencyCode = serviceFilter.currencyCode ?? 'GBP';
   const loadingDetail = (isLoading || isFetching) && !!driverId;
-  const showDriverList = !driverId || tab === 'drivers';
+  /** Level 1 = fleet list; Level 2 = individual driver account. Never mix. */
+  const showDriverList = !driverId;
 
   const walletPerfRef = useRef<ReturnType<typeof startAdminPerformanceStep> | null>(null);
   useEffect(() => {
@@ -220,24 +234,22 @@ export default function DriverWalletLedger() {
 
   const renderLedger = (filter: DriverWalletLedgerFilter, hideTabs = true) => (
     <div className="space-y-4">
-      <FinancePeriodFilter
-        period={period}
-        onPeriodChange={setPeriod}
-        customFrom={customDateFrom}
-        customTo={customDateTo}
-        onCustomFromChange={setCustomDateFrom}
-        onCustomToChange={setCustomDateTo}
-      />
       {driverId ? (
-        <FinanceLedgerPanel
-          serviceFilter={serviceFilter}
-          periodFrom={periodBounds.from}
-          periodTo={periodBounds.to}
-          driverId={driverId}
-          initialFilter={filter}
-          hideFilterTabs={hideTabs}
-          variant="driver_wallet"
-        />
+        customRangeApplied ? (
+          <FinanceLedgerPanel
+            serviceFilter={serviceFilter}
+            periodFrom={periodBounds.from}
+            periodTo={periodBounds.to}
+            driverId={driverId}
+            initialFilter={filter}
+            hideFilterTabs={hideTabs}
+            variant="driver_wallet"
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground py-8">
+            Select a custom From / To range and press Apply to load transactions.
+          </p>
+        )
       ) : (
         <p className="text-sm text-muted-foreground py-8">Select a driver to view wallet transactions.</p>
       )}
@@ -276,20 +288,48 @@ export default function DriverWalletLedger() {
         <ServiceAreaGatewayStatusFetcher serviceAreaId={serviceFilter.serviceAreaId} />
 
         {showDriverList ? (
-          <DriverWalletDriverList
-            regionId={serviceFilter.regionId}
-            currencyCode={currencyCode}
-            selectedDriverId={driverId}
-            onSelectDriver={(id) => setDriver(id)}
-          />
+          <div className="space-y-6">
+            <DriverWalletFleetOverviewCards
+              regionId={serviceFilter.regionId}
+              currencyCode={currencyCode}
+            />
+            <DriverWalletDriverList
+              regionId={serviceFilter.regionId}
+              currencyCode={currencyCode}
+              selectedDriverId={null}
+              onSelectDriver={(id) => setDriver(id)}
+            />
+          </div>
         ) : (
           <>
             {driver ? <DriverWalletAccountHeader driver={driver} currencyCode={currencyCode} /> : null}
+
+            <div className="space-y-3">
+              <FinancePeriodFilter
+                period={period}
+                onPeriodChange={setPeriod}
+                customFrom={customDateFrom}
+                customTo={customDateTo}
+                onCustomFromChange={setCustomDateFrom}
+                onCustomToChange={setCustomDateTo}
+              />
+              <DriverWalletPeriodWidgetCards
+                driverId={driverId}
+                serviceAreaId={serviceFilter.serviceAreaId ?? driver?.service_area_id ?? null}
+                currencyCode={currencyCode}
+                period={period}
+                periodFrom={periodBounds.from}
+                periodTo={periodBounds.to}
+                periodLabel={periodBounds.label}
+                enabled={customRangeApplied}
+              />
+            </div>
 
             <Tabs value={tab === 'drivers' || tab === 'payouts' ? 'overview' : tab} onValueChange={(v) => setTab(v as DriverWalletLedgerTab)}>
               <TabsList className="flex flex-wrap h-auto gap-1">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="settlement">Settlement</TabsTrigger>
+                <TabsTrigger value="commission">Commission</TabsTrigger>
                 <TabsTrigger value="transactions">Transactions</TabsTrigger>
                 <TabsTrigger value="debt_recovery">Debt Recovery</TabsTrigger>
                 <TabsTrigger value="statements">Statements</TabsTrigger>
@@ -306,6 +346,14 @@ export default function DriverWalletLedger() {
 
               <TabsContent value="settlement" className="mt-4">
                 <DriverWalletSettlementTab
+                  driver={driver}
+                  currencyCode={currencyCode}
+                  isLoading={loadingDetail}
+                />
+              </TabsContent>
+
+              <TabsContent value="commission" className="mt-4">
+                <DriverWalletCommissionTab
                   driver={driver}
                   currencyCode={currencyCode}
                   isLoading={loadingDetail}

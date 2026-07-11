@@ -21,6 +21,7 @@ import { Download, Printer, Search } from 'lucide-react';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 import { downloadCsv, downloadRecordsAsExcel, printFinanceReport } from '@/lib/financeExport';
+import { filterDriverWalletMovementRows } from '@/lib/driverWalletMovementDisplaySSOT';
 
 const DRIVER_FILTER_TABS = Object.entries(DRIVER_WALLET_LEDGER_FILTER_LABELS) as [DriverWalletLedgerFilter, string][];
 
@@ -64,6 +65,8 @@ export function FinanceLedgerPanel({
   }, [initialFilter]);
   const [search, setSearch] = useState('');
 
+  const isWallet = variant === 'driver_wallet';
+
   const { data: rows = [], isLoading } = useFinanceLedgerTransactions({
     filter: driverWalletFilterToAdminFilter(filter),
     regionId: serviceFilter.regionId,
@@ -71,27 +74,27 @@ export function FinanceLedgerPanel({
     limit: 300,
     from: periodFrom,
     to: periodTo,
+    /** Driver Wallet: skip React running-balance attach; filter commissions client-side too. */
+    skipRunningBalance: isWallet,
   });
 
   const filteredRows = useMemo(() => {
+    const movementRows = isWallet ? filterDriverWalletMovementRows(rows) : rows;
     const q = search.trim().toLowerCase();
-    const base = !q
-      ? rows
-      : rows.filter((row) => {
-        const tripRef = row.trip_code ?? row.trip_id ?? '';
-        return (
-          row.type_label.toLowerCase().includes(q)
-          || row.customer_name?.toLowerCase().includes(q)
-          || row.driver_name?.toLowerCase().includes(q)
-          || tripRef.toLowerCase().includes(q)
-          || row.type.toLowerCase().includes(q)
-          || (row.description?.toLowerCase().includes(q) ?? false)
-          || (row.evidence?.toLowerCase().includes(q) ?? false)
-        );
-      });
-    // Running balance comes from driverWalletRunningBalanceSSOT in the fetch hook.
-    return base;
-  }, [rows, search]);
+    if (!q) return movementRows;
+    return movementRows.filter((row) => {
+      const tripRef = row.trip_code ?? row.trip_id ?? '';
+      return (
+        row.type_label.toLowerCase().includes(q)
+        || row.customer_name?.toLowerCase().includes(q)
+        || row.driver_name?.toLowerCase().includes(q)
+        || tripRef.toLowerCase().includes(q)
+        || row.type.toLowerCase().includes(q)
+        || (row.description?.toLowerCase().includes(q) ?? false)
+        || (row.evidence?.toLowerCase().includes(q) ?? false)
+      );
+    });
+  }, [rows, search, isWallet]);
 
   const exportRows = () => {
     const records = filteredRows.map((r) => {
@@ -105,8 +108,10 @@ export function FinanceLedgerPanel({
           description: r.description ?? r.notes,
           credit_pence: credit,
           debit_pence: debit,
-          running_balance_pence: r.running_balance_pence ?? null,
           type: canonicalDriverWalletTxType(r.type),
+          status: r.status,
+          evidence: r.evidence,
+          notes: r.notes,
         };
       }
       return {
@@ -136,8 +141,10 @@ export function FinanceLedgerPanel({
           description: r.description ?? r.notes,
           credit_pence: r.amount_pence > 0 ? r.amount_pence : null,
           debit_pence: r.amount_pence < 0 ? Math.abs(r.amount_pence) : null,
-          running_balance_pence: r.running_balance_pence ?? null,
           type: canonicalDriverWalletTxType(r.type),
+          status: r.status,
+          evidence: r.evidence,
+          notes: r.notes,
         };
       }
       return {
@@ -160,8 +167,6 @@ export function FinanceLedgerPanel({
       'Driver Statement',
     );
   };
-
-  const isWallet = variant === 'driver_wallet';
 
   return (
     <div className="space-y-4">
@@ -240,22 +245,20 @@ export function FinanceLedgerPanel({
                     ) : (
                       <TableHead className="text-right">Amount</TableHead>
                     )}
-                    <TableHead className="text-right">Running Balance</TableHead>
-                    {isWallet ? <TableHead>Type</TableHead> : null}
                     {!isWallet ? (
-                      <>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Evidence</TableHead>
-                        <TableHead>Notes</TableHead>
-                      </>
+                      <TableHead className="text-right">Running Balance</TableHead>
                     ) : null}
+                    {isWallet ? <TableHead>Type</TableHead> : null}
+                    <TableHead>Status</TableHead>
+                    <TableHead>Evidence</TableHead>
+                    <TableHead>Notes</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredRows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={isWallet ? 8 : 11} className="text-center text-muted-foreground py-8">
-                        No ledger rows found for this filter.
+                      <TableCell colSpan={isWallet ? 10 : 11} className="text-center text-muted-foreground py-8">
+                        {isWallet ? 'No wallet movements in this period' : 'No ledger rows found for this filter.'}
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -310,9 +313,11 @@ export function FinanceLedgerPanel({
                               {formatPence(row.amount_pence, row.currency)}
                             </TableCell>
                           )}
-                          <TableCell className="text-xs text-right tabular-nums">
-                            {formatNullablePence(row.running_balance_pence, row.currency)}
-                          </TableCell>
+                          {!isWallet ? (
+                            <TableCell className="text-xs text-right tabular-nums">
+                              {formatNullablePence(row.running_balance_pence, row.currency)}
+                            </TableCell>
+                          ) : null}
                           {isWallet ? (
                             <TableCell className="text-xs">
                               <span className={isRecoveryDebit ? 'text-red-400 font-medium' : undefined}>
@@ -320,17 +325,13 @@ export function FinanceLedgerPanel({
                               </span>
                             </TableCell>
                           ) : null}
-                          {!isWallet ? (
-                            <>
-                              <TableCell className="text-xs">{row.status ?? '—'}</TableCell>
-                              <TableCell className="text-xs font-mono max-w-[140px] truncate" title={row.evidence ?? undefined}>
-                                {row.evidence ?? '—'}
-                              </TableCell>
-                              <TableCell className="text-xs text-muted-foreground max-w-[180px] truncate" title={row.notes ?? undefined}>
-                                {row.notes ?? '—'}
-                              </TableCell>
-                            </>
-                          ) : null}
+                          <TableCell className="text-xs">{row.status ?? '—'}</TableCell>
+                          <TableCell className="text-xs font-mono max-w-[140px] truncate" title={row.evidence ?? undefined}>
+                            {row.evidence ?? '—'}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground max-w-[180px] truncate" title={row.notes ?? undefined}>
+                            {row.notes ?? '—'}
+                          </TableCell>
                         </TableRow>
                       );
                     })

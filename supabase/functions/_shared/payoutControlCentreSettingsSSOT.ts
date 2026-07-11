@@ -11,6 +11,8 @@ export type PayoutControlCentreSettings = {
   payout_frequency: "daily" | "weekly" | "fortnightly" | "monthly" | "manual_only";
   weekly_payout_day: string;
   payout_processing_time: string;
+  /** IANA timezone for day/time gates (service-area timezone when scoped). */
+  payout_timezone: string;
   payout_min_pence: number;
   payout_max_pence: number | null;
   payout_rule_negative_wallet: PayoutRuleMode;
@@ -46,6 +48,7 @@ const DEFAULTS: PayoutControlCentreSettings = {
   payout_frequency: "weekly",
   weekly_payout_day: "monday",
   payout_processing_time: "10:00",
+  payout_timezone: "Europe/London",
   payout_min_pence: 0,
   payout_max_pence: null,
   payout_rule_negative_wallet: "block",
@@ -107,6 +110,9 @@ export function parsePayoutControlCentreSettings(
       .toLowerCase() || DEFAULTS.weekly_payout_day,
     payout_processing_time: String(map.payout_processing_time ?? DEFAULTS.payout_processing_time)
       .replace(/^"|"$/g, "") || DEFAULTS.payout_processing_time,
+    payout_timezone: String(map.payout_timezone ?? DEFAULTS.payout_timezone)
+      .replace(/^"|"$/g, "")
+      .trim() || DEFAULTS.payout_timezone,
     payout_min_pence: Math.max(0, parseIntOr(map.payout_min_pence, DEFAULTS.payout_min_pence)),
     payout_max_pence: parseNullableInt(map.payout_max_pence),
     payout_rule_negative_wallet: parseMode(map.payout_rule_negative_wallet, DEFAULTS.payout_rule_negative_wallet),
@@ -270,6 +276,15 @@ export async function loadPayoutControlCentreSettings(
     map[row.setting_key] = row.setting_value;
   }
   const base = parsePayoutControlCentreSettings(map);
+  if (args?.serviceAreaId) {
+    const { data: area } = await supabase
+      .from("service_areas")
+      .select("timezone")
+      .eq("id", args.serviceAreaId)
+      .maybeSingle();
+    const tz = String(area?.timezone ?? "").trim();
+    if (tz) base.payout_timezone = tz;
+  }
   if (!saKey || map[saKey] == null) return base;
   let override: Record<string, unknown> = {};
   try {
@@ -280,5 +295,7 @@ export async function loadPayoutControlCentreSettings(
   } catch {
     return base;
   }
-  return parsePayoutControlCentreSettings({ ...map, ...override });
+  const merged = parsePayoutControlCentreSettings({ ...map, ...override });
+  if (!override.payout_timezone) merged.payout_timezone = base.payout_timezone;
+  return merged;
 }

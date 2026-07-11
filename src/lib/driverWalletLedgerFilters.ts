@@ -1,10 +1,9 @@
 import type { AdminFinanceLedgerFilter } from '@/lib/adminFinanceLedgerDisplay';
 
-/** Driver Wallet Ledger tab filters — SSOT labels only on this page. */
+/** Driver Wallet Ledger tab filters — driver money only (no ONECAB commission). */
 export type DriverWalletLedgerFilter =
   | 'all'
   | 'driver_earnings'
-  | 'onecab_commission'
   | 'debt_recovery'
   | 'bonus'
   | 'adjustments'
@@ -13,11 +12,10 @@ export type DriverWalletLedgerFilter =
 
 export const DRIVER_WALLET_LEDGER_FILTER_LABELS: Record<DriverWalletLedgerFilter, string> = {
   all: 'All',
-  driver_earnings: 'Trip Credit',
-  onecab_commission: 'Commission',
+  driver_earnings: 'Trip Earnings',
   debt_recovery: 'Debt Recovery',
   bonus: 'Bonus / Promotion',
-  adjustments: 'Adjustments',
+  adjustments: 'Wallet Adjustment',
   refunds: 'Refund / Chargeback',
   payouts: 'Payout',
 };
