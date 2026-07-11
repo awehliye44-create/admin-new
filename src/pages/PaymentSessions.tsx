@@ -42,6 +42,7 @@ import {
   tripSettlementRecoverUrl,
 } from '@/lib/financialReconciliationRoutes';
 import { formatAgeMinutes, formatNullablePence } from '@/lib/formatNullablePence';
+import { formatCapturedAmountDisplay } from '../../shared/paymentSessionsDisplaySSOT';
 import {
   DEFAULT_SERVICE_AREA_SELECTION,
   ServiceAreaFinanceFilter,
@@ -919,34 +920,33 @@ export default function PaymentSessions() {
                                 {formatNullablePence(row.buffer_pence)}
                               </TableCell>
                               <TableCell className="text-xs">
-                                {row.amount_display === 'AMOUNT_UNCONFIRMED' && row.captured_amount_pence == null && !row.captured_at
-                                  ? 'AMOUNT_UNCONFIRMED'
-                                  : formatNullablePence(row.authorised_amount_pence)}
+                                {formatNullablePence(row.authorised_amount_pence)}
                               </TableCell>
                               <TableCell className="text-xs">
-                                {row.captured_amount_pence == null
-                                  || !Number.isFinite(Number(row.captured_amount_pence))
-                                  || Number(row.captured_amount_pence) <= 0
-                                  ? (
-                                    <>
-                                      <span className="text-amber-800">Not recorded locally</span>
-                                      {row.evidence_status === 'CAPTURE_ZERO_INVALID' || row.evidence_status === 'CAPTURE_AMOUNT_MISSING' ? (
-                                        <div className="mt-1 text-[10px] text-amber-700">{row.evidence_status}</div>
-                                      ) : null}
-                                    </>
-                                  )
-                                  : (
-                                    <>
-                                      {formatNullablePence(row.captured_amount_pence)}
-                                      {row.captured_at && (
-                                        <div className="mt-1 text-[10px] text-muted-foreground">
-                                          {format(new Date(row.captured_at), 'dd MMM HH:mm')}
-                                        </div>
-                                      )}
-                                    </>
-                                  )}
-                                {row.evidence_status === 'CAPTURE_AMOUNT_MISSING' && Number(row.captured_amount_pence) > 0 && (
-                                  <div className="mt-1 text-[10px] text-amber-700">Captured amount not yet recorded</div>
+                                <span
+                                  className={
+                                    formatCapturedAmountDisplay({
+                                      captured_amount_pence: row.captured_amount_pence,
+                                      currencyFormatter: () => '',
+                                    }) === 'Not recorded locally'
+                                      ? 'text-amber-800'
+                                      : undefined
+                                  }
+                                >
+                                  {formatCapturedAmountDisplay({
+                                    captured_amount_pence: row.captured_amount_pence,
+                                    currencyFormatter: (p) => formatNullablePence(p),
+                                  })}
+                                </span>
+                                {row.captured_at && Number(row.captured_amount_pence) > 0 && (
+                                  <div className="mt-1 text-[10px] text-muted-foreground">
+                                    {format(new Date(row.captured_at), 'dd MMM HH:mm')}
+                                  </div>
+                                )}
+                                {(row.evidence_status === 'CAPTURE_ZERO_INVALID'
+                                  || row.evidence_status === 'CAPTURE_AMOUNT_MISSING'
+                                  || row.evidence_status === 'CAPTURE_AMOUNT_MISMATCH') && (
+                                  <div className="mt-1 text-[10px] text-amber-700">{row.evidence_label ?? row.evidence_status}</div>
                                 )}
                               </TableCell>
                               <TableCell className="text-xs">
@@ -1028,6 +1028,10 @@ export default function PaymentSessions() {
                                   variant={
                                     row.evidence_status === 'COMPLETE'
                                       ? 'default'
+                                      : row.evidence_status === 'CAPTURE_ZERO_INVALID'
+                                      || row.evidence_status === 'CAPTURE_AMOUNT_MISMATCH'
+                                      || row.session_status_display === 'CAPTURE_EVIDENCE_MISMATCH'
+                                      ? 'destructive'
                                       : row.evidence_status === 'CAPTURE_AMOUNT_MISSING'
                                       ? 'secondary'
                                       : 'outline'

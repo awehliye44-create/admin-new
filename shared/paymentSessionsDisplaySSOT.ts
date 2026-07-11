@@ -522,3 +522,27 @@ export function formatCapturedAmountDisplay(args: {
   return args.currencyFormatter(Math.round(Number(args.captured_amount_pence)));
 }
 
+/** Released Buffer Total — post-capture buffer releases only (never full uncaptured hold cancels). */
+export function sumReleasedBufferTotalPence(
+  providerRows: Array<{
+    authorised_amount_pence?: number | null;
+    captured_amount_pence?: number | null;
+    released_amount_pence?: number | null;
+  }>,
+): number | null {
+  let releasedBuffer: number | null = null;
+  for (const row of providerRows) {
+    const cap = confirmedCapturedRevenuePence(row);
+    const authRaw = row.authorised_amount_pence == null ? null : Number(row.authorised_amount_pence);
+    const auth = authRaw != null && Number.isFinite(authRaw) && authRaw > 0
+      ? Math.round(authRaw)
+      : null;
+    if (cap == null || auth == null || auth <= cap) continue;
+    const releasedRaw = row.released_amount_pence == null ? null : Number(row.released_amount_pence);
+    if (releasedRaw == null || !Number.isFinite(releasedRaw) || releasedRaw <= 0) continue;
+    releasedBuffer = (releasedBuffer ?? 0) + Math.round(releasedRaw);
+  }
+  return releasedBuffer;
+}
+
+

@@ -83,6 +83,7 @@ export function PaymentSessionsKpiStrip({
       label: 'Released Buffer Total',
       value: formatNullablePence(summary.released_buffer_total_pence, currencyCode),
       drill: { tab: 'released' },
+      hint: 'Post-capture buffer releases only',
     },
     {
       id: 'refunded_total',
