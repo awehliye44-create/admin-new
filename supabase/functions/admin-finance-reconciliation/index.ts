@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@14.21.0";
-import { computeSSOTMetrics, mergePaymentSessionsIntoCaptureRows, SSOT_VERSION } from "../_shared/financialReconciliationSSOT.ts";
+import { computeSSOTMetrics, mergePaymentSessionsIntoCaptureRows, sumCapturedPaymentsByTripId, SSOT_VERSION, type PaymentSessionMoneyRow } from "../_shared/financialReconciliationSSOT.ts";
 import { fetchConnectMoneyMovementBundle } from "../_shared/connectMoneyMovementSSOT.ts";
 import { fetchPerDriverFinancialReconciliation } from "../_shared/perDriverFinancialReconciliation.ts";
 import {
@@ -31,11 +31,18 @@ import {
   fetchProviderPlatformBalance,
   resolveFinanceScopeProvider,
 } from "../_shared/providerPlatformBalanceSSOT.ts";
+import { computeLedgerWalletBalancePence } from "../_shared/onecabFinanceLedger.ts";
+import {
+  buildFrAuditOverviewKpis,
+} from "../_shared/frTripAuditComparisonSSOT.ts";
 import {
   applyFinanceReconciliationTripLocationFilter,
   buildFinanceReconciliationTripQuery,
   resolveFinanceReconciliationAuditLimit,
 } from "../_shared/financeReconciliationTripQuery.ts";
+
+const PAYMENT_SESSION_MONEY_SELECT =
+  "id, trip_id, status, payment_method, captured_amount_pence, authorised_amount_pence, total_authorised_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_state, provider_state_verified_at";
 
 const TRIP_AUDIT_SELECT = `
         id,
@@ -551,15 +558,21 @@ serve(async (req) => {
     }
 
     const tripRows = (tripResult.data || []) as TripAuditSourceRow[];
-    const finance = sumTripFinanceMetrics(tripRows);
-    const commissionableRevenue = sumCommissionableFromTrips(tripRows);
-
     const tripIds = tripRows.map((t) => t.id);
     let paymentRows: Array<{
       captured_amount_pence: number | null;
       status: string | null;
       trip_id: string | null;
       provider_status: string | null;
+      stripe_payment_intent_id: string | null;
+      provider_available_on: string | null;
+    }> = [];
+    let paymentSessionRows: PaymentSessionMoneyRow[] = [];
+    let auditPaymentBadgeRows: Array<{
+      trip_id: string | null;
+      status: string | null;
+      provider_status: string | null;
+      captured_amount_pence: number | null;
       stripe_payment_intent_id: string | null;
       provider_available_on: string | null;
     }> = [];
@@ -586,9 +599,8 @@ serve(async (req) => {
           .in("trip_id", tripIds),
         supabase
           .from("payment_sessions")
-          .select("trip_id, captured_amount_pence, status")
-          .in("trip_id", tripIds)
-          .not("captured_amount_pence", "is", null),
+          .select(PAYMENT_SESSION_MONEY_SELECT)
+          .in("trip_id", tripIds),
         supabase
           .from("payout_items")
           .select("trip_id, status, driver_amount_pence, amount_pence, batch_id")
@@ -598,22 +610,29 @@ serve(async (req) => {
           .select("related_trip_id, type, amount_pence, stripe_payout_id, stripe_transfer_id")
           .in("related_trip_id", tripIds),
       ]);
-      if (paymentsRes.error && paymentSessionsRes.error) {
-        console.warn("[admin-finance-reconciliation] payment evidence unavailable:", paymentsRes.error.message);
+      if (paymentSessionsRes.error) {
+        console.warn("[admin-finance-reconciliation] payment_sessions evidence unavailable:", paymentSessionsRes.error.message);
         paymentSessionsDownstream = "UNAVAILABLE";
+        paymentSessionRows = [];
         paymentRows = [];
       } else {
-        if (paymentSessionsRes.error) {
-          console.warn("[admin-finance-reconciliation] payment_sessions evidence unavailable:", paymentSessionsRes.error.message);
-          paymentSessionsDownstream = "UNAVAILABLE";
-        } else {
-          paymentSessionsDownstream = "OK";
-        }
-        const merged = mergePaymentSessionsIntoCaptureRows({
-          paymentSessions: paymentSessionsRes.data ?? [],
-          legacyPayments: paymentsRes.error ? [] : (paymentsRes.data || []),
-        });
-        paymentRows = merged.rows;
+        paymentSessionsDownstream = "OK";
+        paymentSessionRows = (paymentSessionsRes.data ?? []) as PaymentSessionMoneyRow[];
+        paymentRows = mergePaymentSessionsIntoCaptureRows({
+          paymentSessions: paymentSessionRows,
+        }).rows;
+      }
+      // Legacy payments: PI / provider status for badges only — amounts come from paymentSessions.
+      auditPaymentBadgeRows = (paymentsRes.error ? [] : (paymentsRes.data || [])).map((p) => ({
+        trip_id: p.trip_id ?? null,
+        status: p.status,
+        provider_status: p.provider_status,
+        captured_amount_pence: null,
+        stripe_payment_intent_id: p.stripe_payment_intent_id ?? null,
+        provider_available_on: p.provider_available_on ?? null,
+      }));
+      if (paymentsRes.error) {
+        console.warn("[admin-finance-reconciliation] legacy payments badge evidence unavailable:", paymentsRes.error.message);
       }
       if (payoutItemsRes.error) {
         console.warn("[admin-finance-reconciliation] trip payout evidence unavailable:", payoutItemsRes.error.message);
@@ -636,45 +655,41 @@ serve(async (req) => {
         }));
       }
     } else if (tripIds.length > 0 && summaryOnly) {
-      const [paymentsRes, paymentSessionsRes] = await Promise.all([
-        supabase
-          .from("payments")
-          .select("captured_amount_pence, status, trip_id, provider_status, stripe_payment_intent_id, provider_available_on")
-          .in("trip_id", tripIds),
-        supabase
-          .from("payment_sessions")
-          .select("trip_id, captured_amount_pence, status")
-          .in("trip_id", tripIds)
-          .not("captured_amount_pence", "is", null),
-      ]);
-      if (paymentsRes.error && paymentSessionsRes.error) {
-        console.warn("[admin-finance-reconciliation] payment evidence unavailable:", paymentsRes.error.message);
+      const paymentSessionsRes = await supabase
+        .from("payment_sessions")
+        .select(PAYMENT_SESSION_MONEY_SELECT)
+        .in("trip_id", tripIds);
+      if (paymentSessionsRes.error) {
+        console.warn("[admin-finance-reconciliation] payment_sessions evidence unavailable:", paymentSessionsRes.error.message);
         paymentSessionsDownstream = "UNAVAILABLE";
+        paymentSessionRows = [];
         paymentRows = [];
       } else {
-        if (paymentSessionsRes.error) {
-          paymentSessionsDownstream = "UNAVAILABLE";
-        } else {
-          paymentSessionsDownstream = "OK";
-        }
-        const merged = mergePaymentSessionsIntoCaptureRows({
-          paymentSessions: paymentSessionsRes.data ?? [],
-          legacyPayments: paymentsRes.error ? [] : (paymentsRes.data || []),
-        });
-        paymentRows = merged.rows;
+        paymentSessionsDownstream = "OK";
+        paymentSessionRows = (paymentSessionsRes.data ?? []) as PaymentSessionMoneyRow[];
+        paymentRows = mergePaymentSessionsIntoCaptureRows({
+          paymentSessions: paymentSessionRows,
+        }).rows;
       }
     }
 
+    const finance = sumTripFinanceMetrics(tripRows);
+    const commissionableRevenue = sumCommissionableFromTrips(
+      tripRows,
+      sumCapturedPaymentsByTripId(paymentRows),
+    );
+
     const currencyCodeByServiceAreaId = await buildServiceAreaCurrencyMap(supabase, tripRows);
     const auditContext = buildTripFinancialAuditContext({
-      payments: paymentRows,
+      payments: auditPaymentBadgeRows,
       payoutItems: auditPayoutItems,
       ledgerRows: auditLedgerRows,
+      paymentSessions: paymentSessionRows,
       currencyCodeByServiceAreaId,
       defaultCurrencyCode: currency.toUpperCase(),
     });
 
-    const walletBalance = financialRows.reduce((s, d) => s + Number(d.wallet_balance || 0), 0);
+    const walletBalance = computeLedgerWalletBalancePence(ledgerRows);
     const reservedCashout = financialRows.reduce((s, d) => s + Number(d.reserved_cashout_pence || 0), 0);
 
     const pendingPayout = (pendingPayoutsResult.data || []).reduce((s, p) => s + Number(p.amount_pence || 0), 0);
@@ -687,22 +702,14 @@ serve(async (req) => {
 
     const scopeHeavyStripe = Boolean(resolvedRegionId || serviceAreaId);
 
+    // FR must not call Revolut/Stripe balance APIs to create a second payment truth.
+    // Provider balance refresh belongs to Payment Sessions / Payout Ledger.
     let stripeAvailablePence = 0;
     let stripePendingPence = 0;
-    let stripeBalanceError: string | null = null;
+    let stripeBalanceError: string | null = "PROVIDER_BALANCE_NOT_QUERIED_BY_FR";
     let moneyMovement = undefined;
 
-    const providerBalance = await fetchProviderPlatformBalance(supabase, {
-      provider: financeScopeProvider.provider,
-      environment: financeScopeProvider.environment,
-      currency,
-    });
-    stripeAvailablePence = providerBalance.available_pence;
-    stripePendingPence = providerBalance.pending_pence;
-    stripeBalanceError = providerBalance.error;
-
-    const useStripeConnectEvidence =
-      financeScopeProvider.provider === "stripe" && !financeScopeProvider.manual_provider_payout;
+    const useStripeConnectEvidence = false;
 
     if (useStripeConnectEvidence && stripeSecretKey) {
       try {
@@ -781,6 +788,7 @@ serve(async (req) => {
       ledger: ledgerRows,
       providerAvailableBalancePence: stripeAvailablePence,
       providerPendingBalancePence: stripePendingPence,
+      paymentSessions: paymentSessionRows,
     });
 
     const settlementStatus = classifyOnecabSettlementStatus({
@@ -843,7 +851,11 @@ serve(async (req) => {
             regionToCurrency.get(sa.region_id) ?? "GBP",
           ]),
         );
-        currency_groups = buildCurrencyGroupsFromTrips(tripRows, saToCurrency);
+        currency_groups = buildCurrencyGroupsFromTrips(
+          tripRows,
+          saToCurrency,
+          sumCapturedPaymentsByTripId(paymentRows),
+        );
       }
     }
 
@@ -884,10 +896,14 @@ serve(async (req) => {
         const auditTripIds = auditSourceRows.map((t) => t.id);
         if (auditTripIds.length === 0) return [];
 
-        const [paymentsRes, payoutItemsRes, tripLedgerRes] = await Promise.all([
+        const [paymentsRes, paymentSessionsRes, payoutItemsRes, tripLedgerRes] = await Promise.all([
           supabase
             .from("payments")
             .select("captured_amount_pence, status, trip_id, provider_status, stripe_payment_intent_id, provider_available_on")
+            .in("trip_id", auditTripIds),
+          supabase
+            .from("payment_sessions")
+            .select(PAYMENT_SESSION_MONEY_SELECT)
             .in("trip_id", auditTripIds),
           supabase
             .from("payout_items")
@@ -898,9 +914,12 @@ serve(async (req) => {
             .select("related_trip_id, type, amount_pence, stripe_payout_id, stripe_transfer_id")
             .in("related_trip_id", auditTripIds),
         ]);
-        if (paymentsRes.error) {
-          console.warn("[admin-finance-reconciliation] search payment evidence unavailable:", paymentsRes.error.message);
+        if (paymentSessionsRes.error) {
+          console.warn("[admin-finance-reconciliation] search payment_sessions unavailable:", paymentSessionsRes.error.message);
           paymentSessionsDownstream = "UNAVAILABLE";
+        }
+        if (paymentsRes.error) {
+          console.warn("[admin-finance-reconciliation] search payment badge evidence unavailable:", paymentsRes.error.message);
         }
         if (payoutItemsRes.error) {
           console.warn("[admin-finance-reconciliation] search payout evidence unavailable:", payoutItemsRes.error.message);
@@ -911,8 +930,18 @@ serve(async (req) => {
           walletDownstream = "UNAVAILABLE";
         }
 
+        const searchSessions = paymentSessionsRes.error
+          ? []
+          : ((paymentSessionsRes.data ?? []) as PaymentSessionMoneyRow[]);
         const searchAuditContext = buildTripFinancialAuditContext({
-          payments: paymentsRes.error ? [] : (paymentsRes.data || []),
+          payments: (paymentsRes.error ? [] : (paymentsRes.data || [])).map((p) => ({
+            trip_id: p.trip_id ?? null,
+            status: p.status,
+            provider_status: p.provider_status,
+            captured_amount_pence: null,
+            stripe_payment_intent_id: p.stripe_payment_intent_id ?? null,
+            provider_available_on: p.provider_available_on ?? null,
+          })),
           payoutItems: payoutItemsRes.error ? [] : (payoutItemsRes.data || []),
           ledgerRows: tripLedgerRes.error
             ? []
@@ -923,6 +952,7 @@ serve(async (req) => {
               stripe_payout_id: row.stripe_payout_id ?? null,
               stripe_transfer_id: row.stripe_transfer_id ?? null,
             })),
+          paymentSessions: searchSessions,
           currencyCodeByServiceAreaId,
           defaultCurrencyCode: currency.toUpperCase(),
         });
@@ -982,20 +1012,12 @@ serve(async (req) => {
       const todayTripIds = (todayTrips ?? []).map((t) => t.id as string);
       let todayPayments: Array<{ trip_id: string | null; captured_amount_pence: number | null; status: string | null }> = [];
       if (todayTripIds.length > 0) {
-        const [payData, sessionData] = await Promise.all([
-          supabase
-            .from("payments")
-            .select("trip_id, captured_amount_pence, status")
-            .in("trip_id", todayTripIds),
-          supabase
-            .from("payment_sessions")
-            .select("trip_id, captured_amount_pence, status")
-            .in("trip_id", todayTripIds)
-            .not("captured_amount_pence", "is", null),
-        ]);
+        const sessionData = await supabase
+          .from("payment_sessions")
+          .select("trip_id, captured_amount_pence, status")
+          .in("trip_id", todayTripIds);
         todayPayments = mergePaymentSessionsIntoCaptureRows({
           paymentSessions: sessionData.data ?? [],
-          legacyPayments: payData.data ?? [],
         }).rows;
       }
       const capturedByTrip = new Map<string, number>();
@@ -1111,16 +1133,15 @@ serve(async (req) => {
     });
 
     const generated_at = new Date().toISOString();
-    const providerDownstream = stripeBalanceError
-      ? "UNAVAILABLE"
-      : "OK";
+    // Provider balance is intentionally not queried by FR (not payment truth).
+    const providerDownstream = "SKIPPED_BY_FR_AUDIT";
     const anyDownstreamUnavailable = [
       paymentSessionsDownstream,
-      providerDownstream,
       walletDownstream,
       payoutsDownstream,
     ].some((s) => s === "UNAVAILABLE");
     const pageStatus = anyDownstreamUnavailable ? "PARTIAL" : "LIVE";
+    const audit_overview_kpis = buildFrAuditOverviewKpis(trip_financial_audit);
 
     return new Response(JSON.stringify({
       success: true,
@@ -1136,6 +1157,7 @@ serve(async (req) => {
       currency_groups: currency_groups ?? undefined,
       finance_reconciliation_summary,
       platform_kpis,
+      audit_overview_kpis,
       trip_financial_audit,
       trips: trip_financial_audit,
       drivers: undefined,
@@ -1167,6 +1189,7 @@ serve(async (req) => {
         manual_provider_payout: financeScopeProvider.manual_provider_payout,
         provider_balance_error: stripeBalanceError,
         stripe_balance_error: stripeBalanceError,
+        provider_balance_is_not_payment_truth: true,
         ssot_version: SSOT_VERSION,
         data_source_badge: pageStatus,
         accounting_rules: {

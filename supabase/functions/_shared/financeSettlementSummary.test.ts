@@ -32,7 +32,8 @@ const TRIP_5783 = {
 
 Deno.test("£57.83 revenue → ONECAB gross commission max £8.67 at 15%", () => {
   const m = sumTripFinanceMetrics([TRIP_5783]);
-  assertEquals(m.total_customer_revenue_pence, 5783);
+  // Digital customer revenue is owned by Payment Sessions — never invent from trip capture.
+  assertEquals(m.total_customer_revenue_pence, 0);
   assertEquals(m.max_commission_at_15_percent_pence, 867);
   assertEquals(m.onecab_gross_commission_pence, 867);
   assertEquals(m.onecab_net_pence, 747);
@@ -139,54 +140,53 @@ const MK_260615_006 = {
   completed_at: "2026-06-15T12:00:00Z",
 };
 
-Deno.test("Financial Reconciliation audit: card captured uses payments.captured_amount_pence not legacy fare", () => {
+Deno.test("Financial Reconciliation audit: card captured uses Payment Sessions only, not legacy fare", () => {
   const context = buildTripFinancialAuditContext({
-    payments: [{
-      trip_id: "trip-006",
-      status: "captured",
-      provider_status: "available",
-      captured_amount_pence: 512,
-    }],
+    payments: [],
     payoutItems: [],
     ledgerRows: [],
+    paymentSessions: [{
+      id: "ps-006",
+      trip_id: "trip-006",
+      status: "captured",
+      captured_amount_pence: 512,
+    }],
   });
   const row = mapTripToFinancialAuditRow(MK_260615_006, context);
   assertEquals(row.customer_paid_pence, 512);
   assertEquals(row.captured_pence, 512);
+  assertEquals(row.payment_session_id, "ps-006");
+  assertEquals(row.payment_evidence_status, "PAYMENT_SESSIONS");
 });
 
 Deno.test("Financial Reconciliation audit: driver net from trips.driver_net_pence, not captured − commission", () => {
   const context = buildTripFinancialAuditContext({
-    payments: [{
-      trip_id: "trip-006",
-      status: "captured",
-      provider_status: "available",
-      captured_amount_pence: 512,
-    }],
+    payments: [],
     payoutItems: [],
     ledgerRows: [],
+    paymentSessions: [{ id: "ps-006", trip_id: "trip-006", status: "captured", captured_amount_pence: 512 }],
   });
   const row = mapTripToFinancialAuditRow(MK_260615_006, context);
   assertEquals(row.driver_net_pence, 435);
 });
 
-Deno.test("Financial Reconciliation audit: prefers ledger TRIP_EARNING_NET over trips.driver_net_pence", () => {
+Deno.test("Financial Reconciliation audit: driver_net from trip settlement; wallet_credit from ledger", () => {
   const context = buildTripFinancialAuditContext({
-    payments: [{
-      trip_id: "trip-006",
-      status: "captured",
-      provider_status: "available",
-      captured_amount_pence: 512,
-    }],
+    payments: [],
     payoutItems: [],
     ledgerRows: [{
       related_trip_id: "trip-006",
       type: "TRIP_EARNING_NET",
-      amount_pence: 435,
+      amount_pence: 999,
     }],
+    paymentSessions: [{ id: "ps-006", trip_id: "trip-006", status: "captured", captured_amount_pence: 512 }],
   });
   const row = mapTripToFinancialAuditRow(MK_260615_006, context);
   assertEquals(row.driver_net_pence, 435);
+  assertEquals(row.wallet_credit_pence, 999);
+  assertEquals(row.wallet_variance_pence, 999 - 435);
+  assertEquals(row.wallet_reconciliation_status, "WALLET_OVER_CREDIT");
+  assertEquals(row.capture_reconciliation_status, "MATCHED");
 });
 
 Deno.test("Financial Reconciliation audit: missing driver net is null, not fare − commission", () => {
@@ -195,14 +195,10 @@ Deno.test("Financial Reconciliation audit: missing driver net is null, not fare 
     driver_net_pence: null,
   };
   const context = buildTripFinancialAuditContext({
-    payments: [{
-      trip_id: "trip-006",
-      status: "captured",
-      provider_status: "available",
-      captured_amount_pence: 512,
-    }],
+    payments: [],
     payoutItems: [],
     ledgerRows: [],
+    paymentSessions: [{ id: "ps-006", trip_id: "trip-006", status: "captured", captured_amount_pence: 512 }],
   });
   const row = mapTripToFinancialAuditRow(trip, context);
   assertEquals(row.driver_net_pence, null);
@@ -246,14 +242,10 @@ Deno.test("Financial Reconciliation audit: capture mismatch + outstanding from s
     outstanding_balance_pence: 449,
   };
   const context = buildTripFinancialAuditContext({
-    payments: [{
-      trip_id: "trip-006",
-      status: "captured",
-      provider_status: "available",
-      captured_amount_pence: 400,
-    }],
+    payments: [],
     payoutItems: [],
     ledgerRows: [],
+    paymentSessions: [{ id: "ps-006", trip_id: "trip-006", status: "captured", captured_amount_pence: 400 }],
   });
   const row = mapTripToFinancialAuditRow(trip, context);
   assertEquals(row.settlement_total_pence, 849);
@@ -272,22 +264,13 @@ Deno.test("MK-260624-001 recovered: sum all payment PIs — no mismatch when £4
     payment_coverage_status: "captured",
   };
   const context = buildTripFinancialAuditContext({
-    payments: [
-      {
-        trip_id: "trip-mk-624",
-        status: "captured",
-        provider_status: "available",
-        captured_amount_pence: 400,
-      },
-      {
-        trip_id: "trip-mk-624",
-        status: "captured",
-        provider_status: "available",
-        captured_amount_pence: 449,
-      },
-    ],
+    payments: [],
     payoutItems: [],
     ledgerRows: [],
+    paymentSessions: [
+      { id: "ps-a", trip_id: "trip-mk-624", status: "captured", captured_amount_pence: 400 },
+      { id: "ps-b", trip_id: "trip-mk-624", status: "captured", captured_amount_pence: 449 },
+    ],
   });
   const row = mapTripToFinancialAuditRow(trip, context);
   assertEquals(row.settlement_total_pence, 849);
@@ -306,18 +289,14 @@ Deno.test("Financial Reconciliation audit: debt recovery from ledger, not captur
     commission_pence: 203,
   };
   const context = buildTripFinancialAuditContext({
-    payments: [{
-      trip_id: "trip-mk-624-003",
-      status: "captured",
-      provider_status: "available",
-      captured_amount_pence: 1353,
-    }],
+    payments: [],
     payoutItems: [],
     ledgerRows: [
       { related_trip_id: "trip-mk-624-003", type: "TRIP_EARNING_NET", amount_pence: 1150 },
       { related_trip_id: "trip-mk-624-003", type: "DEBT_RECOVERY", amount_pence: -75 },
       { related_trip_id: "trip-mk-624-003", type: "COMMISSION_RECOVERED", amount_pence: 75 },
     ],
+    paymentSessions: [{ id: "ps-624-003", trip_id: "trip-mk-624-003", status: "captured", captured_amount_pence: 1353 }],
   });
   const row = mapTripToFinancialAuditRow(trip, context);
   assertEquals(row.driver_net_pence, 1150);
@@ -328,16 +307,12 @@ Deno.test("Financial Reconciliation audit: debt recovery from ledger, not captur
 
 Deno.test("Financial Reconciliation audit: no debt recovery shows zero, not blank", () => {
   const context = buildTripFinancialAuditContext({
-    payments: [{
-      trip_id: "trip-006",
-      status: "captured",
-      provider_status: "available",
-      captured_amount_pence: 512,
-    }],
+    payments: [],
     payoutItems: [],
     ledgerRows: [
       { related_trip_id: "trip-006", type: "TRIP_EARNING_NET", amount_pence: 435 },
     ],
+    paymentSessions: [{ id: "ps-006", trip_id: "trip-006", status: "captured", captured_amount_pence: 512 }],
   });
   const row = mapTripToFinancialAuditRow(MK_260615_006, context);
   assertEquals(row.debt_recovered_pence, 0);
@@ -351,19 +326,157 @@ Deno.test("Financial Reconciliation audit: full debt recovery — available payo
     driver_net_pence: 500,
   };
   const context = buildTripFinancialAuditContext({
-    payments: [{
-      trip_id: "trip-full-debt",
-      status: "captured",
-      provider_status: "available",
-      captured_amount_pence: 600,
-    }],
+    payments: [],
     payoutItems: [],
     ledgerRows: [
       { related_trip_id: "trip-full-debt", type: "TRIP_EARNING_NET", amount_pence: 500 },
       { related_trip_id: "trip-full-debt", type: "DEBT_RECOVERY", amount_pence: -500 },
     ],
+    paymentSessions: [{ id: "ps-full", trip_id: "trip-full-debt", status: "captured", captured_amount_pence: 600 }],
   });
   const row = mapTripToFinancialAuditRow(trip, context);
   assertEquals(row.debt_recovered_pence, 500);
   assertEquals(row.available_payout_created_pence, 0);
+});
+
+Deno.test("FR audit: Payment Sessions capture wins over trips.capture_amount_pence=0", () => {
+  const trip = {
+    ...MK_260615_006,
+    id: "ff155f09",
+    trip_code: "MK-260709-010",
+    capture_amount_pence: 0,
+    final_fare_pence: 480,
+    gross_fare_pence: 480,
+    commission_pence: 72,
+    driver_net_pence: 408,
+  };
+  const context = buildTripFinancialAuditContext({
+    payments: [],
+    payoutItems: [],
+    ledgerRows: [
+      { related_trip_id: "ff155f09", type: "TRIP_EARNING_NET", amount_pence: 408 },
+    ],
+    paymentSessions: [{
+      id: "ps-mk-010",
+      trip_id: "ff155f09",
+      captured_amount_pence: 480,
+      authorised_amount_pence: 780,
+      total_authorised_amount_pence: 780,
+      released_amount_pence: 300,
+      refunded_amount_pence: 0,
+      provider_processing_fee_pence: 25,
+      fee_status: "ACTUAL",
+      provider_state: "CAPTURED",
+      provider_state_verified_at: new Date().toISOString(),
+      status: "captured",
+    }],
+  });
+  const row = mapTripToFinancialAuditRow(trip, context);
+  assertEquals(row.captured_pence, 480);
+  assertEquals(row.customer_paid_pence, 480);
+  assertEquals(row.authorised_pence, 780);
+  assertEquals(row.released_pence, 300);
+  assertEquals(row.processing_fee_pence, 25);
+  assertEquals(row.fee_status, "CONFIRMED");
+  assertEquals(row.payment_session_id, "ps-mk-010");
+  assertEquals(row.payment_evidence_status, "PAYMENT_SESSIONS");
+  assertEquals(row.final_customer_fare_pence, 480);
+  assertEquals(row.capture_variance_pence, 0);
+  assertEquals(row.capture_reconciliation_status, "MATCHED");
+  assertEquals(row.wallet_credit_pence, 408);
+  assertEquals(row.wallet_variance_pence, 0);
+  assertEquals(row.wallet_reconciliation_status, "WALLET_MATCHED");
+  assertEquals(row.provider_state, "CAPTURED");
+  assertEquals(row.provider_verification_status, "VERIFIED");
+  assertEquals(row.onecab_net_pence, 47); // 72 gross - 25 fee
+  assertEquals(row.reconciliation_status?.label, "Balanced");
+  assertEquals(row.reconciliation_status?.tone, "green");
+});
+
+Deno.test("FR audit: PS captured £0 stays RED PAYMENT_SESSION_CAPTURE_MISMATCH", () => {
+  const trip = {
+    ...MK_260615_006,
+    id: "ff155f09-bad",
+    trip_code: "MK-260709-010",
+    capture_amount_pence: 480,
+    final_fare_pence: 480,
+    commission_pence: 72,
+    driver_net_pence: 408,
+  };
+  const context = buildTripFinancialAuditContext({
+    payments: [],
+    payoutItems: [],
+    ledgerRows: [],
+    paymentSessions: [{
+      id: "ps-mk-010-bad",
+      trip_id: "ff155f09-bad",
+      captured_amount_pence: 0,
+      authorised_amount_pence: 780,
+      provider_processing_fee_pence: 25,
+      status: "authorised",
+    }],
+  });
+  const row = mapTripToFinancialAuditRow(trip, context);
+  assertEquals(row.captured_pence, null);
+  assertEquals(row.capture_reconciliation_status, "PAYMENT_SESSION_CAPTURE_MISMATCH");
+  assertEquals(row.reconciliation_status?.tone, "red");
+  assertEquals(row.reconciliation_status?.label, "PAYMENT_SESSION_CAPTURE_MISMATCH");
+});
+
+Deno.test("FR audit: never invents capture from trips.capture_amount_pence", () => {
+  const trip = {
+    ...MK_260615_006,
+    capture_amount_pence: 780,
+  };
+  const context = buildTripFinancialAuditContext({
+    payments: [],
+    payoutItems: [],
+    ledgerRows: [],
+    paymentSessions: [],
+  });
+  const row = mapTripToFinancialAuditRow(trip, context);
+  assertEquals(row.captured_pence, null);
+  assertEquals(row.customer_paid_pence, null);
+  assertEquals(row.authorised_pence, null);
+  assertEquals(row.payment_evidence_status, "NO_PAYMENT_SESSION");
+  assertEquals(row.capture_mismatch, true);
+});
+
+Deno.test("FR audit: legacy payments amounts never invent capture", () => {
+  const context = buildTripFinancialAuditContext({
+    payments: [{
+      trip_id: "trip-006",
+      status: "captured",
+      provider_status: "available",
+      captured_amount_pence: 9999,
+    }],
+    payoutItems: [],
+    ledgerRows: [],
+    paymentSessions: [],
+  });
+  const row = mapTripToFinancialAuditRow(MK_260615_006, context);
+  assertEquals(row.captured_pence, null);
+  assertEquals(row.customer_paid_pence, null);
+});
+
+Deno.test("FR audit: sessions map present with missing fee stays PENDING not zero", () => {
+  const context = buildTripFinancialAuditContext({
+    payments: [],
+    payoutItems: [],
+    ledgerRows: [],
+    paymentSessions: [{
+      id: "ps-fee",
+      trip_id: "trip-006",
+      status: "captured",
+      captured_amount_pence: 512,
+      provider_processing_fee_pence: null,
+    }],
+  });
+  const row = mapTripToFinancialAuditRow({
+    ...MK_260615_006,
+    stripe_processing_fee_pence: 99,
+    provider_fee_pence: 99,
+  }, context);
+  assertEquals(row.processing_fee_pence, null);
+  assertEquals(row.fee_status, "PENDING_PROVIDER_FEE");
 });

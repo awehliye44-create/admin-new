@@ -9,12 +9,26 @@
  */
 
 import {
+  buildPaymentSessionMoneyByTrip,
   buildReconciliationCheck,
   buildSplitReconciliationCheck,
+  confirmedCapturePence,
   type FinanceDataSourceBadge,
+  type PaymentSessionMoneyRow,
   type SSOTComputedMetrics,
   SSOT_VERSION,
 } from "./financialReconciliationSSOT.ts";
+import {
+  captureVariancePence,
+  classifyCaptureReconciliation,
+  classifyPayoutReconciliation,
+  classifyProviderVerificationStatus,
+  classifyRefundReconciliation,
+  classifyReleaseReconciliation,
+  classifyWalletReconciliation,
+  onecabNetFromSessionFee,
+  sumTripWalletEarningCreditPence,
+} from "./frTripAuditComparisonSSOT.ts";
 import {
   deriveTripFinancialAuditStatuses,
   deriveTripReconciliationBadge,
@@ -29,13 +43,10 @@ import {
   EXTRA_PAYMENT_TOLERANCE_PENCE,
 } from "./extraPaymentRecoverySSOT.ts";
 import {
-  getPaymentRowCapturedPence,
-  getTripCapturedPenceForAudit,
   getTripAvailablePayoutCreatedPence,
   getTripDebtRecoveredPence,
   getTripDriverNetPence,
   getTripSettlementFarePence,
-  sumPaymentsCapturedPence,
 } from "./tripSettlementFinanceSSOT.ts";
 
 export { SSOT_VERSION, type FinanceDataSourceBadge };
@@ -89,18 +100,11 @@ export function customerRevenuePence(row: TripFinanceRow): number {
   const tip = Math.max(0, row.tip_pence ?? row.tip_amount_pence ?? 0);
   const method = String(row.payment_method ?? "").toLowerCase();
   const isCash = method === "cash" || method.includes("cash");
-  const capturedRaw = row.capture_amount_pence;
-  const captured = capturedRaw == null ? null : Number(capturedRaw);
-
-  // Confirmed capture wins for all methods — never invent £0 from null.
-  if (captured != null && Number.isFinite(captured) && captured > 0) {
-    return Math.round(captured);
-  }
 
   // Cash: customer paid the fare (no Payment Session capture).
   if (isCash) return commissionableRevenuePence(row) + tip;
 
-  // Digital/card: Payment Sessions owns capture — do not invent from final_fare.
+  // Digital/card: Payment Sessions owns capture — never invent from trips.capture_amount_pence.
   return 0;
 }
 
@@ -441,18 +445,36 @@ export type TripFinancialAuditRow = {
   driver_name: string | null;
   payment_method: string | null;
   stripe_payment_intent_id?: string | null;
-  customer_paid_pence: number;
+  /** Payment Sessions SSOT id when linked — navigation only. */
+  payment_session_id?: string | null;
+  /**
+   * Digital: confirmed Payment Sessions capture only (null when unknown — never invent £0).
+   * Cash: settlement total from trip snapshot.
+   */
+  customer_paid_pence: number | null;
   /** Pre-discount gross fare from trip record (SSOT). */
   gross_fare_pence: number;
   /** max(0, gross_fare − final_fare) — backend only. */
   discount_pence: number;
   /** Fare after discount, before tip/extras. */
   final_fare_pence: number;
+  /** Canonical final customer fare (alias of final_fare_pence for FR DTO contract). */
+  final_customer_fare_pence?: number | null;
   /** Settlement total (fare + tip + fees) — same as customer_paid_pence for audit rows. */
   settlement_total_pence: number;
-  captured_pence: number;
-  refunded_pence: number;
-  net_customer_payment_pence: number;
+  /** Confirmed capture from Payment Sessions — null when unconfirmed (never invent £0). */
+  captured_pence: number | null;
+  /** Cumulative refund from Payment Sessions — null when evidence unavailable. */
+  refunded_pence: number | null;
+  /** Capture − refund; null when capture unknown (never invent £0). */
+  net_customer_payment_pence: number | null;
+  service_area_id?: string | null;
+  provider_state?: string | null;
+  provider_verified_at?: string | null;
+  provider_verification_status?: "VERIFIED" | "STALE" | "UNKNOWN" | null;
+  release_reconciliation_status?: string | null;
+  refund_reconciliation_status?: string | null;
+  warnings?: string[];
   /** Amount still owed when captured < settlement. */
   outstanding_pence: number;
   capture_mismatch: boolean;
@@ -463,7 +485,8 @@ export type TripFinancialAuditRow = {
   available_payout_created_pence: number | null;
   onecab_gross_commission_pence: number;
   processing_fee_pence: number | null;
-  onecab_net_pence: number;
+  /** Gross commission − PS provider fee; null when fee pending under sessions map. */
+  onecab_net_pence: number | null;
   driver_payout: TripAuditStatusBadge;
   onecab_commission: TripAuditStatusBadge;
   provider: TripAuditStatusBadge;
@@ -493,6 +516,24 @@ export type TripFinancialAuditRow = {
   wallet_credit_pence?: number | null;
   /** Customer payable − captured (null when either side unknown). */
   variance_pence?: number | null;
+  /** Capture variance = captured − final_customer_fare (null when unknown). */
+  capture_variance_pence?: number | null;
+  /** Wallet credit − driver net (null when either side unknown). */
+  wallet_variance_pence?: number | null;
+  payout_variance_pence?: number | null;
+  payout_amount_pence?: number | null;
+  capture_reconciliation_status?: string | null;
+  wallet_reconciliation_status?: string | null;
+  payout_reconciliation_status?: string | null;
+  wallet_status?: string | null;
+  /** Payment evidence availability for digital trips. */
+  payment_evidence_status?:
+    | "PAYMENT_SESSIONS"
+    | "NO_PAYMENT_SESSION"
+    | "PAYMENT_EVIDENCE_UNAVAILABLE"
+    | "CASH"
+    | null;
+  settlement_formula_version?: string | null;
 };
 
 export type TripAuditSourceRow = TripFinanceRow & {
@@ -521,6 +562,8 @@ export type TripFinancialAuditContext = {
   paymentsByTripId: Map<string, TripAuditPaymentRecord[]>;
   payoutsByTripId: Map<string, TripAuditPayoutRecord[]>;
   ledgerByTripId: Map<string, TripAuditLedgerRecord[]>;
+  /** Payment Sessions money SSOT — preferred for customer capture/auth/release/refund/fee. */
+  paymentSessionByTripId?: Map<string, import("./financialReconciliationSSOT.ts").PaymentSessionMoneyByTrip>;
   currencyCodeByServiceAreaId?: Map<string, string>;
   defaultCurrencyCode?: string | null;
 };
@@ -646,6 +689,8 @@ function formatCustomerRevenueSourceLabel(
   source: import("./financialReconciliationSSOT.ts").CustomerRevenueSourceLabel,
 ): string {
   switch (source) {
+    case "payment_sessions_captured":
+      return "Reconciled — Payment Sessions captures only";
     case "payments_captured":
       return "Reconciled — captured payments only";
     case "expected_pending_stripe_confirmation":
@@ -711,22 +756,34 @@ export function mapTripToFinancialAuditRow(
   const payment = context.paymentByTripId.get(row.id) ?? null;
   const tripPayments = context.paymentsByTripId.get(row.id) ?? [];
   const ledger = context.ledgerByTripId.get(row.id) ?? [];
-  const paymentCaptured = payment ? getPaymentRowCapturedPence(payment) : 0;
-  const capturedFromAllPayments = sumPaymentsCapturedPence(tripPayments);
-  const captured = capturedFromAllPayments > 0
-    ? capturedFromAllPayments
-    : getTripCapturedPenceForAudit({
-      paymentCapturedPence: paymentCaptured > 0 ? paymentCaptured : null,
-      tripCaptureAmountPence: row.capture_amount_pence,
-    });
-  const refunded = Math.max(0, row.refund_amount_pence ?? 0);
-  const settlementTotal = computeSettlementTotalPence(row);
+  const sessionsMapPresent = context.paymentSessionByTripId != null;
+  const session = context.paymentSessionByTripId?.get(row.id) ?? null;
+
+  // Hard ownership: customer capture ONLY from Payment Sessions.
+  // Never invent from legacy payments or trips.capture_amount_pence.
+  const captured = session?.captured_amount_pence != null && session.captured_amount_pence > 0
+    ? session.captured_amount_pence
+    : null;
+
   const method = String(row.payment_method ?? "").toLowerCase();
   const isCash = method === "cash" || method.includes("cash");
-  // Digital customer paid = confirmed capture only (Payment Sessions / payments). Never invent from fare.
+  const payment_evidence_status = isCash
+    ? "CASH" as const
+    : !sessionsMapPresent
+    ? "PAYMENT_EVIDENCE_UNAVAILABLE" as const
+    : session == null
+    ? "NO_PAYMENT_SESSION" as const
+    : "PAYMENT_SESSIONS" as const;
+
+  // Refunds: Payment Sessions only — never trip fallback invent.
+  const refunded = !sessionsMapPresent || session == null
+    ? null
+    : Math.max(0, session.refunded_amount_pence ?? 0);
+  const settlementTotal = computeSettlementTotalPence(row);
+  // Digital customer paid = confirmed PS capture only. Never invent £0 from missing evidence.
   const customerPaid = isCash
     ? settlementTotal
-    : (captured != null && Number.isFinite(captured) && captured > 0 ? captured : 0);
+    : (captured != null ? captured : null);
   const grossFarePence = Math.max(0, Number(row.gross_fare_pence ?? row.commissionable_fare_pence ?? 0));
   const finalFarePence = Math.max(0, Number(row.final_fare_pence ?? 0));
   const discountPence = Math.max(0, grossFarePence - finalFarePence);
@@ -734,37 +791,56 @@ export function mapTripToFinancialAuditRow(
     ? [row.driver.first_name, row.driver.last_name].filter(Boolean).join(" ").trim() || null
     : null;
 
+  // Badge derivation may see PS capture via payment.captured — never trip invent.
+  const paymentForStatus = {
+    status: payment?.status ?? session?.status ?? null,
+    provider_status: payment?.provider_status ?? null,
+    captured_amount_pence: captured,
+    stripe_payment_intent_id: payment?.stripe_payment_intent_id ?? null,
+    provider_available_on: payment?.provider_available_on ?? null,
+  };
+
   const statuses = deriveTripFinancialAuditStatuses({
     trip: row,
-    payment,
+    payment: paymentForStatus,
     payouts: context.payoutsByTripId.get(row.id) ?? [],
     ledger,
   });
 
   const statusInput = {
     trip: row,
-    payment,
+    payment: paymentForStatus,
     payouts: context.payoutsByTripId.get(row.id) ?? [],
     ledger,
   };
 
-  const outstanding = computeAuditOutstandingPence({
-    settlement_pence: settlementTotal,
-    captured_pence: captured,
-    outstanding_balance_pence: row.outstanding_balance_pence,
-  });
-  const captureMismatch = computeAuditCaptureMismatch({
-    payment_method: row.payment_method ?? null,
-    settlement_pence: settlementTotal,
-    captured_pence: captured,
-    outstanding_balance_pence: row.outstanding_balance_pence,
-    payment_coverage_status: row.payment_coverage_status ?? null,
-  });
+  // Outstanding only when capture known — do not invent £0 as confirmed capture for GREEN.
+  const outstanding = captured == null
+    ? Math.max(0, row.outstanding_balance_pence ?? settlementTotal)
+    : computeAuditOutstandingPence({
+      settlement_pence: settlementTotal,
+      captured_pence: captured,
+      outstanding_balance_pence: row.outstanding_balance_pence,
+    });
+  const captureMismatch = isCash
+    ? false
+    : (captured == null
+      ? true
+      : computeAuditCaptureMismatch({
+        payment_method: row.payment_method ?? null,
+        settlement_pence: settlementTotal,
+        captured_pence: captured,
+        outstanding_balance_pence: row.outstanding_balance_pence,
+        payment_coverage_status: row.payment_coverage_status ?? null,
+      }));
 
-  const driverNet = tripDriverNetPenceForAudit(row, ledger);
+  // Expected driver net = trip settlement snapshot. Actual wallet = ledger TRIP_EARNING_NET.
+  const expectedDriverNet = tripDriverNetPence(row);
+  const walletEarning = sumTripWalletEarningCreditPence(ledger);
+  const walletCredit = walletEarning.credit_pence;
   const debtRecovered = getTripDebtRecoveredPence(ledger);
   const availablePayoutCreated = getTripAvailablePayoutCreatedPence({
-    driverNetPence: driverNet,
+    driverNetPence: expectedDriverNet,
     debtRecoveredPence: debtRecovered,
   });
 
@@ -773,6 +849,115 @@ export function mapTripToFinancialAuditRow(
     payment?.stripe_payment_intent_id ??
     tripPayments.find((p) => p.stripe_payment_intent_id)?.stripe_payment_intent_id ??
     null;
+
+  const tipPence = Math.max(0, Number(row.tip_pence ?? row.tip_amount_pence ?? 0));
+  const airportPence = Math.max(0, Number(row.airport_charge_pence ?? 0));
+  const rideFarePence = Math.max(
+    0,
+    Number(row.commissionable_fare_pence ?? row.gross_fare_pence ?? 0),
+  );
+  // Provider fee: Payment Sessions only — never trip fee invent.
+  const sessionFee = session?.provider_processing_fee_pence;
+  const processingFeePence = sessionsMapPresent
+    ? (sessionFee == null ? null : Math.max(0, Number(sessionFee)))
+    : null;
+  const sessionFeeStatusRaw = String(session?.fee_status ?? "").toUpperCase();
+  const fee_status = !sessionsMapPresent || session == null
+    ? null
+    : (processingFeePence == null
+      || sessionFeeStatusRaw === "PENDING"
+      || sessionFeeStatusRaw === "UNAVAILABLE"
+      || sessionFeeStatusRaw === "PENDING_PROVIDER_FEE"
+      ? "PENDING_PROVIDER_FEE" as const
+      : "CONFIRMED" as const);
+  const authorisedPence = session?.authorised_amount_pence != null
+    ? Math.max(0, session.authorised_amount_pence)
+    : null;
+  const releasedPence = session?.released_amount_pence != null
+    ? Math.max(0, session.released_amount_pence)
+    : null;
+  const grossCommission = tripGrossCommissionPence(row);
+  const onecabNet = onecabNetFromSessionFee({
+    gross_commission_pence: grossCommission,
+    provider_processing_fee_pence: processingFeePence,
+    sessionsMapPresent,
+  });
+
+  const finalFarePenceForVariance = Math.max(0, Number(row.final_fare_pence ?? 0));
+  const finalCustomerFarePence = finalFarePenceForVariance > 0 ? finalFarePenceForVariance : null;
+  const captureVariance = captureVariancePence({
+    captured_pence: captured,
+    final_customer_fare_pence: finalCustomerFarePence,
+  });
+  const variancePence = settlementTotal == null || captured == null
+    ? null
+    : settlementTotal - captured;
+  const walletVariancePence = expectedDriverNet == null || walletCredit == null
+    ? null
+    : walletCredit - expectedDriverNet;
+
+  const provider_state = session?.provider_state ?? null;
+  const provider_verified_at = session?.provider_state_verified_at ?? null;
+  const provider_verification_status = sessionsMapPresent && session != null
+    ? classifyProviderVerificationStatus({
+      provider_state,
+      provider_verified_at,
+    })
+    : null;
+
+  const capture_reconciliation_status = classifyCaptureReconciliation({
+    isCash,
+    paymentEvidenceStatus: payment_evidence_status,
+    captured_pence: captured,
+    final_customer_fare_pence: finalCustomerFarePence,
+    authorised_pence: authorisedPence,
+    provider_verification_status,
+    tripCompleted: true,
+  });
+  const release_reconciliation_status = classifyReleaseReconciliation({
+    authorised_pence: authorisedPence,
+    captured_pence: captured,
+    released_pence: releasedPence,
+  });
+  const refund_reconciliation_status = classifyRefundReconciliation({
+    refunded_pence: refunded,
+  });
+  const walletEvidenceAvailable = context.ledgerByTripId != null;
+  const wallet_reconciliation_status = classifyWalletReconciliation({
+    walletEvidenceAvailable,
+    expected_driver_net_pence: expectedDriverNet,
+    actual_wallet_credit_pence: walletCredit,
+    duplicate_wallet_credit: walletEarning.entry_count > 1,
+  });
+  const payoutItems = context.payoutsByTripId.get(row.id) ?? [];
+  const payoutEvidenceAvailable = context.payoutsByTripId != null;
+  const payoutAmount = payoutItems.reduce(
+    (s, p) => s + Math.max(0, Number(p.driver_amount_pence ?? p.amount_pence ?? 0)),
+    0,
+  );
+  const payout_reconciliation_status = classifyPayoutReconciliation({
+    payoutEvidenceAvailable,
+    payout_status_label: statuses.driver_payout.label,
+    payout_amount_pence: payoutAmount > 0 ? payoutAmount : null,
+    eligible_amount_pence: availablePayoutCreated,
+  });
+  const payoutVariance = availablePayoutCreated == null || payoutAmount <= 0
+    ? null
+    : payoutAmount - availablePayoutCreated;
+
+  const warnings: string[] = [];
+  if (payment_evidence_status === "PAYMENT_EVIDENCE_UNAVAILABLE") {
+    warnings.push("PAYMENT_EVIDENCE_UNAVAILABLE");
+  }
+  if (payment_evidence_status === "NO_PAYMENT_SESSION") {
+    warnings.push("NO_PAYMENT_SESSION");
+  }
+  if (provider_verification_status === "STALE") {
+    warnings.push("PROVIDER_VERIFICATION_PENDING");
+  }
+  if (!walletEvidenceAvailable) warnings.push("WALLET_EVIDENCE_UNAVAILABLE");
+  if (!payoutEvidenceAvailable) warnings.push("PAYOUT_EVIDENCE_UNAVAILABLE");
+  if (fee_status === "PENDING_PROVIDER_FEE") warnings.push("PROVIDER_FEE_PENDING");
 
   const reconciliation_status = deriveTripReconciliationBadge({
     capture_mismatch: captureMismatch,
@@ -783,28 +968,14 @@ export function mapTripToFinancialAuditRow(
     financial_outcome: row.financial_outcome ?? null,
     trip_status: row.status ?? null,
     payment_status: row.payment_status ?? null,
+    capture_reconciliation_status,
+    wallet_reconciliation_status,
+    payout_reconciliation_status,
+    fee_status,
   });
 
   const capture_status = deriveTripCaptureStatusLabel(statusInput, captureMismatch);
-
-  const tipPence = Math.max(0, Number(row.tip_pence ?? row.tip_amount_pence ?? 0));
-  const airportPence = Math.max(0, Number(row.airport_charge_pence ?? 0));
-  const rideFarePence = Math.max(
-    0,
-    Number(row.commissionable_fare_pence ?? row.gross_fare_pence ?? 0),
-  );
-  const feeRaw = row.provider_fee_pence ?? row.stripe_processing_fee_pence;
-  const processingFeePence = feeRaw == null ? null : Math.max(0, Number(feeRaw));
-  const fee_status = processingFeePence == null
-    ? "PENDING_PROVIDER_FEE" as const
-    : "CONFIRMED" as const;
-  const authorisedPence = row.capture_amount_pence == null
-    ? null
-    : Math.max(0, Number(row.capture_amount_pence));
-  const variancePence = settlementTotal == null || captured == null
-    ? null
-    : settlementTotal - captured;
-  const walletCredit = availablePayoutCreated;
+  const paymentMethod = session?.payment_method ?? row.payment_method ?? null;
 
   return {
     trip_id: row.id,
@@ -814,24 +985,29 @@ export function mapTripToFinancialAuditRow(
     driver_id: row.driver_id ?? null,
     customer_name: row.passenger_name?.trim() || null,
     driver_name: driverName,
-    payment_method: row.payment_method ?? null,
+    payment_method: paymentMethod,
+    service_area_id: row.service_area_id ?? null,
     stripe_payment_intent_id: paymentIntentId,
+    payment_session_id: session?.payment_session_id ?? null,
     customer_paid_pence: customerPaid,
     gross_fare_pence: grossFarePence,
     discount_pence: discountPence,
     final_fare_pence: finalFarePence,
+    final_customer_fare_pence: finalCustomerFarePence,
     settlement_total_pence: settlementTotal,
     captured_pence: captured,
     refunded_pence: refunded,
-    net_customer_payment_pence: Math.max(0, customerPaid - refunded),
+    net_customer_payment_pence: customerPaid == null || refunded == null
+      ? null
+      : Math.max(0, customerPaid - refunded),
     outstanding_pence: outstanding,
     capture_mismatch: captureMismatch,
-    driver_net_pence: driverNet,
+    driver_net_pence: expectedDriverNet,
     debt_recovered_pence: debtRecovered,
     available_payout_created_pence: availablePayoutCreated,
-    onecab_gross_commission_pence: tripGrossCommissionPence(row),
+    onecab_gross_commission_pence: grossCommission,
     processing_fee_pence: processingFeePence,
-    onecab_net_pence: tripOnecabNetPence(row),
+    onecab_net_pence: onecabNet,
     driver_payout: statuses.driver_payout,
     onecab_commission: statuses.onecab_commission,
     provider: statuses.provider,
@@ -848,10 +1024,26 @@ export function mapTripToFinancialAuditRow(
     airport_charge_pence: airportPence,
     tip_pence: tipPence,
     authorised_pence: authorisedPence,
-    released_pence: null,
+    released_pence: releasedPence,
     fee_status,
     wallet_credit_pence: walletCredit,
     variance_pence: variancePence,
+    capture_variance_pence: captureVariance,
+    wallet_variance_pence: walletVariancePence,
+    payout_variance_pence: payoutVariance,
+    payout_amount_pence: payoutAmount > 0 ? payoutAmount : null,
+    capture_reconciliation_status,
+    release_reconciliation_status,
+    refund_reconciliation_status,
+    wallet_reconciliation_status,
+    payout_reconciliation_status,
+    wallet_status: wallet_reconciliation_status,
+    payment_evidence_status,
+    provider_state,
+    provider_verified_at,
+    provider_verification_status,
+    warnings,
+    settlement_formula_version: "fr_trip_audit_v1",
     currency_code: row.service_area_id && context.currencyCodeByServiceAreaId
       ? (context.currencyCodeByServiceAreaId.get(row.service_area_id) ?? context.defaultCurrencyCode ?? null)
       : (context.defaultCurrencyCode ?? null),
@@ -882,6 +1074,7 @@ export function buildTripFinancialAuditContext(args: {
     stripe_payout_id?: string | null;
     stripe_transfer_id?: string | null;
   }>;
+  paymentSessions?: PaymentSessionMoneyRow[];
   currencyCodeByServiceAreaId?: Map<string, string>;
   defaultCurrencyCode?: string | null;
 }): TripFinancialAuditContext {
@@ -935,25 +1128,35 @@ export function buildTripFinancialAuditContext(args: {
     ledgerByTripId.set(entry.related_trip_id, list);
   }
 
+  const paymentSessionByTripId = args.paymentSessions
+    ? buildPaymentSessionMoneyByTrip(args.paymentSessions)
+    : undefined;
+
   return {
     paymentByTripId,
     paymentsByTripId,
     payoutsByTripId,
     ledgerByTripId,
+    paymentSessionByTripId,
     currencyCodeByServiceAreaId: args.currencyCodeByServiceAreaId,
     defaultCurrencyCode: args.defaultCurrencyCode ?? null,
   };
 }
 
-export function sumCommissionableFromTrips(rows: TripAuditSourceRow[]): number {
+export function sumCommissionableFromTrips(
+  rows: TripAuditSourceRow[],
+  paymentByTrip?: Map<string, number>,
+): number {
   let total = 0;
   for (const row of rows) {
-    const captured = Math.max(0, row.capture_amount_pence ?? 0);
+    const method = String(row.payment_method ?? "").toLowerCase();
+    const isCash = method === "cash" || method.includes("cash");
+    const captured = confirmedCapturePence(paymentByTrip?.get(row.id));
     const tip = Math.max(0, row.tip_pence ?? row.tip_amount_pence ?? 0);
     const airport = Math.max(0, row.airport_charge_pence ?? 0);
     const passThrough = Math.max(0, row.other_pass_through_charges_pence ?? 0);
     const refunded = Math.max(0, row.refund_amount_pence ?? 0);
-    if (captured > 0) {
+    if (captured != null && captured > 0) {
       total += commissionableRevenueFromCaptured({
         capturedPence: captured,
         tipPence: tip,
@@ -961,9 +1164,10 @@ export function sumCommissionableFromTrips(rows: TripAuditSourceRow[]): number {
         passThroughPence: passThrough,
         refundedPence: refunded,
       });
-    } else {
+    } else if (isCash) {
       total += commissionableRevenuePence(row);
     }
+    // Digital without Payment Sessions capture: do not invent from trip.capture_amount_pence.
   }
   return total;
 }

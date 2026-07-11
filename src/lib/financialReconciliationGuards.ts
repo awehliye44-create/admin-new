@@ -5,8 +5,8 @@ const EMPTY_LEDGER_CHECK = {
   expected_sum_pence: 0,
   variance_pence: 0,
   delta_pence: 0,
-  balanced: true,
-  status: 'BALANCED' as const,
+  balanced: false,
+  status: 'RECONCILIATION_MISMATCH' as const,
   card_customer_revenue_pence: 0,
   card_driver_payable_pence: 0,
   onecab_card_commission_pence: 0,
@@ -40,20 +40,20 @@ export function safeReconciliationCheck(
       onecab_gross_commission_pence: 0,
       provider_processing_fee_pence: 0,
       adjustments_pence: 0,
-      balanced: true,
-      status: 'BALANCED',
+      balanced: false,
+      status: 'RECONCILIATION_MISMATCH',
     };
   }
   return {
     ...check,
     card_reconciliation: check.card_reconciliation ?? { ...EMPTY_LEDGER_CHECK },
-    balanced: check.balanced ?? true,
-    status: check.status ?? 'BALANCED',
+    balanced: check.balanced ?? false,
+    status: check.status ?? 'RECONCILIATION_MISMATCH',
   };
 }
 
 export function safeReconciliationStatus(summary: FinanceReconciliationSummary | null | undefined): string {
-  return safeReconciliationCheck(summary).status ?? 'BALANCED';
+  return safeReconciliationCheck(summary).status ?? 'RECONCILIATION_MISMATCH';
 }
 
 export function safeCustomerRevenue(summary: FinanceReconciliationSummary | null | undefined) {

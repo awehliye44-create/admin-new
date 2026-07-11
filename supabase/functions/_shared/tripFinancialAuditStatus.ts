@@ -132,9 +132,8 @@ function hasRefundStatus(input: TripAuditStatusInput): boolean {
 }
 
 function capturedPence(input: TripAuditStatusInput): number {
-  const tripCaptured = Math.max(0, input.trip.capture_amount_pence ?? 0);
-  const paymentCaptured = Math.max(0, input.payment?.captured_amount_pence ?? 0);
-  return Math.max(tripCaptured, paymentCaptured);
+  // Never invent from trips.capture_amount_pence — Payment Sessions / payment evidence only.
+  return Math.max(0, input.payment?.captured_amount_pence ?? 0);
 }
 
 function isFullyRefunded(input: TripAuditStatusInput): boolean {
@@ -300,13 +299,17 @@ export function deriveTripFinancialAuditStatuses(
 /** Per-trip reconciliation badge — informational only; never used to filter trip list. */
 export function deriveTripReconciliationBadge(args: {
   capture_mismatch: boolean;
-  captured_pence: number;
-  refunded_pence: number;
+  captured_pence: number | null;
+  refunded_pence: number | null;
   settlement_total_pence: number;
   provider: TripAuditStatusBadge;
   financial_outcome?: string | null;
   trip_status?: string | null;
   payment_status?: string | null;
+  capture_reconciliation_status?: string | null;
+  wallet_reconciliation_status?: string | null;
+  payout_reconciliation_status?: string | null;
+  fee_status?: string | null;
 }): TripAuditStatusBadge {
   const outcome = norm(args.financial_outcome);
   const tripStatus = norm(args.trip_status);
@@ -318,11 +321,59 @@ export function deriveTripReconciliationBadge(args: {
   ) {
     return { label: "Cancelled", tone: "gray" };
   }
-  if (args.captured_pence > 0 && args.refunded_pence >= args.captured_pence) {
+  const captureStatus = String(args.capture_reconciliation_status ?? "");
+  const walletStatus = String(args.wallet_reconciliation_status ?? "");
+  const payoutStatus = String(args.payout_reconciliation_status ?? "");
+  if (
+    captureStatus === "PAYMENT_SESSION_CAPTURE_MISMATCH"
+    || captureStatus === "CAPTURE_SHORTFALL"
+    || captureStatus === "OVERCAPTURE"
+    || captureStatus === "CAPTURE_MISSING"
+    || captureStatus === "NO_PAYMENT_SESSION"
+  ) {
+    return {
+      label: captureStatus === "PAYMENT_SESSION_CAPTURE_MISMATCH"
+        ? "PAYMENT_SESSION_CAPTURE_MISMATCH"
+        : "Mismatch",
+      tone: "red",
+    };
+  }
+  if (
+    walletStatus === "WALLET_CREDIT_MISSING"
+    || walletStatus === "WALLET_OVER_CREDIT"
+    || walletStatus === "WALLET_UNDER_CREDIT"
+    || walletStatus === "DUPLICATE_WALLET_CREDIT"
+  ) {
+    return { label: "Wallet Mismatch", tone: "red" };
+  }
+  if (
+    payoutStatus === "PAYOUT_MISMATCH"
+    || payoutStatus === "PAYOUT_FAILED"
+    || payoutStatus === "DUPLICATE_PAYOUT_RISK"
+  ) {
+    return { label: "Payout Mismatch", tone: "red" };
+  }
+  if (args.captured_pence != null && args.captured_pence > 0
+    && args.refunded_pence != null && args.refunded_pence >= args.captured_pence) {
     return { label: "Refunded", tone: "red" };
   }
   if (args.capture_mismatch) {
     return { label: "Mismatch", tone: "red" };
+  }
+  if (
+    captureStatus === "PROVIDER_VERIFICATION_PENDING"
+    || captureStatus === "CAPTURE_PENDING"
+    || captureStatus === "PAYMENT_EVIDENCE_UNAVAILABLE"
+    || walletStatus === "WALLET_EVIDENCE_UNAVAILABLE"
+    || payoutStatus === "PAYOUT_EVIDENCE_UNAVAILABLE"
+    || args.fee_status === "PENDING_PROVIDER_FEE"
+    || args.fee_status === "PENDING"
+    || args.fee_status === "UNAVAILABLE"
+  ) {
+    return { label: "Evidence Pending", tone: "yellow" };
+  }
+  if (args.captured_pence == null) {
+    return { label: "Pending Capture", tone: "yellow" };
   }
   const providerLabel = norm(args.provider.label);
   if (includesAny(providerLabel, ["pending capture", "requires_capture", "authorized", "processing"])) {
@@ -331,10 +382,21 @@ export function deriveTripReconciliationBadge(args: {
   if (
     includesAny(providerLabel, ["awaiting", "pending"])
     || args.provider.tone === "yellow"
+    || payoutStatus === "PAYOUT_SCHEDULED"
+    || payoutStatus === "PAYOUT_PROCESSING"
   ) {
     return { label: "Pending Settlement", tone: "yellow" };
   }
-  return { label: "Balanced", tone: "green" };
+  // GREEN only when capture matched and wallet evidence agrees (or pending with £0 expected).
+  if (
+    captureStatus === "MATCHED"
+    && (walletStatus === "WALLET_MATCHED" || walletStatus === "WALLET_CREDIT_PENDING")
+    && payoutStatus !== "PAYOUT_MISMATCH"
+  ) {
+    return { label: "Balanced", tone: "green" };
+  }
+  // Never invent Balanced when classifiers disagree or are absent.
+  return { label: "Review Required", tone: "yellow" };
 }
 
 export function deriveTripCaptureStatusLabel(

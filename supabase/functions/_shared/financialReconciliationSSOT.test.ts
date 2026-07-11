@@ -6,6 +6,8 @@ import {
   computePaymentMethodLedgerMetrics,
   computeSSOTMetrics,
   driverRemainingLiabilityPence,
+  isTripPaymentCaptureConfirmed,
+  mergePaymentSessionsIntoCaptureRows,
   netPlatformRevenuePence,
   sumCustomerRevenuePence,
   totalCommissionEarnedPence,
@@ -18,7 +20,7 @@ Deno.test("customer revenue prefers payments over trips", () => {
     trips: [{ capture_amount_pence: 3000, final_fare_pence: 3000 } as import("./financialReconciliationSSOT.ts").TripSSOTRow],
   });
   assertEquals(r.total_pence, 5000);
-  assertEquals(r.source, "payments_captured");
+  assertEquals(r.source, "payment_sessions_captured");
 });
 
 Deno.test("cash reconciliation does not double-count adjustments", () => {
@@ -218,4 +220,63 @@ Deno.test("completed card trip without capture does not increase reconciled comm
 Deno.test("tripProviderProcessingFeePence prefers provider_fee_pence", () => {
   assertEquals(tripProviderProcessingFeePence({ provider_fee_pence: 99, stripe_processing_fee_pence: 10 }), 99);
   assertEquals(tripProviderProcessingFeePence({ provider_fee_pence: 0, stripe_processing_fee_pence: 10 }), 10);
+});
+
+Deno.test("mergePaymentSessionsIntoCaptureRows ignores legacy payments invent", () => {
+  const merged = mergePaymentSessionsIntoCaptureRows({
+    paymentSessions: [{ trip_id: "t1", captured_amount_pence: 480, status: "captured" }],
+    legacyPayments: [{ trip_id: "t2", captured_amount_pence: 9999, status: "captured" }],
+  });
+  assertEquals(merged.rows.length, 1);
+  assertEquals(merged.rows[0].captured_amount_pence, 480);
+  assertEquals(merged.source, "payment_sessions_captured");
+});
+
+Deno.test("isTripPaymentCaptureConfirmed never uses trips.capture_amount_pence", () => {
+  const trip = {
+    id: "t1",
+    capture_amount_pence: 780,
+    commission_pence: 0,
+    stripe_processing_fee_pence: null,
+    onecab_net_pence: null,
+    driver_net_pence: null,
+    gross_fare_pence: null,
+    final_fare_pence: null,
+    commissionable_fare_pence: null,
+  } as import("./financialReconciliationSSOT.ts").TripSSOTRow;
+  assertEquals(isTripPaymentCaptureConfirmed(trip, new Map()), false);
+  assertEquals(isTripPaymentCaptureConfirmed(trip, new Map([["t1", 480]])), true);
+});
+
+Deno.test("computeSSOTMetrics consumes session fee and capture — ignores trip capture invent", () => {
+  const m = computeSSOTMetrics({
+    payments: [{ trip_id: "t1", captured_amount_pence: 480, status: "captured" }],
+    trips: [{
+      id: "t1",
+      payment_method: "card",
+      payment_status: "captured",
+      commission_pence: 72,
+      stripe_processing_fee_pence: 99,
+      provider_fee_pence: 99,
+      driver_net_pence: 408,
+      capture_amount_pence: 0,
+      gross_fare_pence: 480,
+      final_fare_pence: 480,
+      onecab_net_pence: null,
+      commissionable_fare_pence: 480,
+    } as import("./financialReconciliationSSOT.ts").TripSSOTRow],
+    ledger: [],
+    providerAvailableBalancePence: 0,
+    providerPendingBalancePence: 0,
+    paymentSessions: [{
+      trip_id: "t1",
+      captured_amount_pence: 480,
+      provider_processing_fee_pence: 25,
+      refunded_amount_pence: 0,
+      status: "captured",
+    }],
+  });
+  assertEquals(m.total_customer_revenue_pence, 480);
+  assertEquals(m.provider_processing_fee_pence, 25);
+  assertEquals(m.customer_revenue_source, "payment_sessions_captured");
 });

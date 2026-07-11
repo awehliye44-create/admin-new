@@ -30,6 +30,7 @@ function KpiCard({ label, value, subtitle }: { label: string; value: string | nu
 export function FinancialReconciliationOverviewTab({
   ssot,
   platformKpis,
+  auditOverviewKpis,
   money,
   currencyGroups,
   serviceAreaGateways,
@@ -39,6 +40,24 @@ export function FinancialReconciliationOverviewTab({
 }: {
   ssot: FinancialReconciliationSSOTResult;
   platformKpis?: PlatformReconciliationKpis | null;
+  auditOverviewKpis?: {
+    completed_trip_fare_total_pence: number;
+    confirmed_provider_captured_total_pence: number;
+    refunded_total_pence: number;
+    provider_fee_total_pence: number;
+    onecab_gross_commission_pence: number;
+    onecab_net_commission_pence: number | null;
+    driver_net_total_pence: number;
+    wallet_credits_total_pence: number;
+    payouts_completed_pence: number;
+    capture_shortfall_pence: number;
+    overcapture_pence: number;
+    missing_wallet_credits_count: number;
+    payout_mismatches_count: number;
+    balanced_trips_count: number;
+    unresolved_mismatches_count: number;
+    trip_count: number;
+  } | null;
   money: FinanceMoneyFormat;
   currencyGroups?: Array<{
     currency_code: string;
@@ -56,11 +75,13 @@ export function FinancialReconciliationOverviewTab({
 }) {
   const fmt = money.fmt;
   const kpisUnavailable = platformKpis == null;
+  const o = auditOverviewKpis;
 
   return (
     <div className="space-y-4">
       <PaymentHoldsFinanceAlertSummary />
       <p className="text-xs text-muted-foreground">
+        Audit totals only — customer capture from Payment Sessions, wallet from Driver Wallet Ledger, payouts from Payout Ledger.
         Bank transfer lifecycle:{' '}
         <Link to={payoutLedgerUrl()} className="underline">
           Open Payout Ledger
@@ -79,8 +100,29 @@ export function FinancialReconciliationOverviewTab({
       <div className="flex items-center gap-2">
         <FinanceSSOTBadge badge={ssot.badge} />
         <span className="text-xs text-muted-foreground">
-          Payment provider integrity audit — verifies platform balances match ledger sync. Trip money is on Trip History.
+          Financial Reconciliation compares authoritative SSOTs. It never owns payment, wallet, or payout truth.
         </span>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <KpiCard label="Completed trip fare total" value={o ? fmt(o.completed_trip_fare_total_pence) : '—'} />
+        <KpiCard label="Confirmed provider captured" value={o ? fmt(o.confirmed_provider_captured_total_pence) : '—'} />
+        <KpiCard label="Refunded total" value={o ? fmt(o.refunded_total_pence) : '—'} />
+        <KpiCard label="Provider fee total" value={o ? fmt(o.provider_fee_total_pence) : '—'} />
+        <KpiCard label="ONECAB gross commission" value={o ? fmt(o.onecab_gross_commission_pence) : '—'} />
+        <KpiCard
+          label="ONECAB net commission"
+          value={o?.onecab_net_commission_pence == null ? 'Pending fee' : fmt(o.onecab_net_commission_pence)}
+        />
+        <KpiCard label="Driver net total" value={o ? fmt(o.driver_net_total_pence) : '—'} />
+        <KpiCard label="Wallet credits total" value={o ? fmt(o.wallet_credits_total_pence) : '—'} />
+        <KpiCard label="Payouts completed" value={o ? fmt(o.payouts_completed_pence) : '—'} />
+        <KpiCard label="Capture shortfall" value={o ? fmt(o.capture_shortfall_pence) : '—'} />
+        <KpiCard label="Overcapture" value={o ? fmt(o.overcapture_pence) : '—'} />
+        <KpiCard label="Missing wallet credits" value={o?.missing_wallet_credits_count ?? '—'} />
+        <KpiCard label="Payout mismatches" value={o?.payout_mismatches_count ?? '—'} />
+        <KpiCard label="Balanced trips" value={o?.balanced_trips_count ?? '—'} />
+        <KpiCard label="Unresolved mismatches" value={o?.unresolved_mismatches_count ?? '—'} />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
@@ -89,28 +131,26 @@ export function FinancialReconciliationOverviewTab({
           value={ssot.summary?.reconciliation_check?.status ?? '—'}
         />
         <KpiCard
-          label="Customer payable"
-          value={fmt(ssot.summary?.customer_revenue?.total_customer_revenue_pence)}
-          subtitle="Gross customer revenue (period)"
-        />
-        <KpiCard
-          label="Customer captured"
+          label="Period customer captured (SSOT)"
           value={fmt(ssot.summary?.customer_revenue?.card_customer_revenue_pence)}
-          subtitle="Card captured"
+          subtitle="Payment Sessions captures"
         />
         <KpiCard
-          label="Provider fees"
+          label="Period provider fees (SSOT)"
           value={fmt(ssot.summary?.onecab_money?.provider_processing_fee_pence)}
         />
         <KpiCard
-          label="Commission"
+          label="Period commission (SSOT)"
           value={fmt(ssot.summary?.onecab_money?.onecab_gross_commission_pence)}
-          subtitle={ssot.summary?.onecab_money?.onecab_commission_status_label}
         />
         <KpiCard
-          label="Driver payable"
+          label="Period driver payable (SSOT)"
           value={fmt(ssot.summary?.driver_money?.card_driver_payable_pence)}
-          subtitle={`Wallet ${fmt(ssot.summary?.driver_money?.driver_wallet_balance_pence)}`}
+        />
+        <KpiCard
+          label="Ledger wallet balance"
+          value={fmt(ssot.summary?.driver_money?.driver_wallet_balance_pence)}
+          subtitle="From driver_wallet_ledger"
         />
       </div>
 

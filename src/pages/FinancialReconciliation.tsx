@@ -37,14 +37,15 @@ import {
 
 const FR_TABS = [
   'overview',
-  'drivers',
   'trips',
-  'alerts',
+  'drivers',
   'mismatches',
   'shortfall',
   'missing_captures',
   'missing_releases',
-  'recovery',
+  'wallet_mismatches',
+  'payout_mismatches',
+  'alerts',
   'history',
 ] as const;
 type FrTab = (typeof FR_TABS)[number];
@@ -234,6 +235,9 @@ function FinancialReconciliationPage() {
   if (searchParams.get('tab') === 'connect-balance' || searchParams.get('tab') === 'stripe') {
     return <Navigate to="/financial-reconciliation?tab=overview" replace />;
   }
+  if (searchParams.get('tab') === 'recovery') {
+    return <Navigate to="/financial-reconciliation?tab=shortfall" replace />;
+  }
 
   const lastSyncedLabel = lastSyncedAt
     ? formatFinanceDateSafe(lastSyncedAt, 'dd MMM yyyy HH:mm:ss')
@@ -421,14 +425,15 @@ function FinancialReconciliationPage() {
         <Tabs value={frTab} onValueChange={(v) => setFrTab(v as FrTab)}>
           <TabsList className="flex flex-wrap h-auto gap-1">
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="drivers">Drivers</TabsTrigger>
             <TabsTrigger value="trips">Trips ({tripAuditRows.length})</TabsTrigger>
-            <TabsTrigger value="alerts">Alerts</TabsTrigger>
+            <TabsTrigger value="drivers">Drivers</TabsTrigger>
             <TabsTrigger value="mismatches">Mismatches</TabsTrigger>
-            <TabsTrigger value="shortfall">Shortfall</TabsTrigger>
+            <TabsTrigger value="shortfall">Shortfalls</TabsTrigger>
             <TabsTrigger value="missing_captures">Missing Captures</TabsTrigger>
             <TabsTrigger value="missing_releases">Missing Releases</TabsTrigger>
-            <TabsTrigger value="recovery">Recovery Queue</TabsTrigger>
+            <TabsTrigger value="wallet_mismatches">Wallet Mismatches</TabsTrigger>
+            <TabsTrigger value="payout_mismatches">Payout Mismatches</TabsTrigger>
+            <TabsTrigger value="alerts">Alerts</TabsTrigger>
             <TabsTrigger value="history">Resolved History</TabsTrigger>
           </TabsList>
 
@@ -437,6 +442,7 @@ function FinancialReconciliationPage() {
               <FinancialReconciliationOverviewTab
                 ssot={ssot}
                 platformKpis={data?.platform_kpis}
+                auditOverviewKpis={data?.audit_overview_kpis}
                 money={money}
                 currencyGroups={data?.currency_groups}
                 serviceAreaGateways={data?.service_area_payment_gateways}
@@ -603,14 +609,15 @@ function FinancialReconciliationPage() {
             )}
           </TabsContent>
 
-          <TabsContent value="recovery" className="mt-4">
-            {frTab === 'recovery' && (
-              <FinancePanelErrorBoundary panelName="Recovery Queue">
+          <TabsContent value="wallet_mismatches" className="mt-4">
+            {frTab === 'wallet_mismatches' && (
+              <FinancePanelErrorBoundary panelName="Wallet Mismatches">
                 <div className="space-y-4">
                   <Alert>
-                    <AlertTitle>Recovery queue (read-only)</AlertTitle>
+                    <AlertTitle>Wallet mismatches (read-only)</AlertTitle>
                     <AlertDescription>
-                      Outstanding / recovery-flagged trip audits. Execute recovery on Payment Sessions — this page never edits money.
+                      Driver net vs wallet credit variance. Credits are owned by Driver Wallet Ledger — open Wallet to investigate.
+                      Financial Reconciliation never creates or alters wallet entries.
                     </AlertDescription>
                   </Alert>
                   <FinancialReconciliationTripsTab
@@ -621,7 +628,32 @@ function FinancialReconciliationPage() {
                     lastSyncedAt={lastSyncedAt}
                     isRefreshing={isFinanceRefreshing}
                     onRefresh={() => void handleRefreshFinance()}
-                    mode="recovery"
+                    mode="wallet_mismatches"
+                  />
+                </div>
+              </FinancePanelErrorBoundary>
+            )}
+          </TabsContent>
+
+          <TabsContent value="payout_mismatches" className="mt-4">
+            {frTab === 'payout_mismatches' && (
+              <FinancePanelErrorBoundary panelName="Payout Mismatches">
+                <div className="space-y-4">
+                  <Alert>
+                    <AlertTitle>Payout mismatches (read-only)</AlertTitle>
+                    <AlertDescription>
+                      Trip payout badge failures / mismatches. Execution is owned by Payout Ledger — this page never executes transfers.
+                    </AlertDescription>
+                  </Alert>
+                  <FinancialReconciliationTripsTab
+                    rows={tripAuditRows}
+                    money={money}
+                    readOnly={readOnly}
+                    ssotBadge={ssotBadge}
+                    lastSyncedAt={lastSyncedAt}
+                    isRefreshing={isFinanceRefreshing}
+                    onRefresh={() => void handleRefreshFinance()}
+                    mode="payout_mismatches"
                   />
                 </div>
               </FinancePanelErrorBoundary>

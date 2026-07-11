@@ -18,13 +18,24 @@ import { formatNullablePence } from '@/lib/formatNullablePence';
 import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
 import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
+import {
+  exportFrAuditCsv,
+  exportFrAuditExcel,
+  exportFrAuditPdf,
+} from '@/lib/financialReconciliationAuditExport';
 import type { FinanceMoneyFormat } from '@/hooks/useFinanceReconciliationMoney';
 import type { TripFinancialAuditRow } from '@/hooks/useFinanceReconciliation';
 import type { FinanceDataSourceBadge } from '@/hooks/useFinancialReconciliationSSOT';
-import { Search } from 'lucide-react';
+import { Download, FileSpreadsheet, Printer, Search } from 'lucide-react';
 import { reconciliationBadgeVariant } from '@/lib/financeTripReconciliationBadge';
 
 function providerStatusLabel(row: TripFinancialAuditRow): string {
+  if (row.provider_state) {
+    const verified = row.provider_verification_status
+      ? ` — ${row.provider_verification_status}`
+      : '';
+    return `${row.provider_state}${verified}`;
+  }
   return row.provider?.label ?? row.provider_status ?? '—';
 }
 
@@ -40,7 +51,9 @@ type FinancialReconciliationTripsTabProps = {
   initialTripCode?: string | null;
   onInitialTripConsumed?: () => void;
   /** When set, only show matching audit rows (display filter — no money math). */
-  mode?: 'all' | 'mismatches' | 'resolved' | 'shortfall' | 'missing_captures' | 'missing_releases' | 'recovery';
+  mode?: 'all' | 'mismatches' | 'resolved' | 'shortfall' | 'missing_captures' | 'missing_releases' | 'recovery' | 'wallet_mismatches' | 'payout_mismatches';
+  serviceAreaLabel?: string;
+  periodLabel?: string;
 };
 
 export function FinancialReconciliationTripsTab({
@@ -55,6 +68,8 @@ export function FinancialReconciliationTripsTab({
   initialTripCode = null,
   onInitialTripConsumed,
   mode = 'all',
+  serviceAreaLabel = 'all',
+  periodLabel,
 }: FinancialReconciliationTripsTabProps) {
   const [search, setSearch] = useState('');
   const [drawerTrip, setDrawerTrip] = useState<TripFinancialAuditRow | null>(null);
@@ -66,8 +81,14 @@ export function FinancialReconciliationTripsTab({
       return rows.filter((r) =>
         r.capture_mismatch
         || String(r.reconciliation_status?.tone ?? '').toLowerCase() === 'error'
+        || String(r.reconciliation_status?.tone ?? '').toLowerCase() === 'red'
         || String(r.reconciliation_status?.label ?? '').toLowerCase().includes('mismatch')
-        || String(r.reconciliation_status?.label ?? '').toLowerCase().includes('pending'),
+        || String(r.capture_reconciliation_status ?? '').includes('SHORTFALL')
+        || String(r.capture_reconciliation_status ?? '').includes('MISSING')
+        || String(r.wallet_reconciliation_status ?? '').includes('MISSING')
+        || String(r.wallet_reconciliation_status ?? '').includes('OVER')
+        || String(r.wallet_reconciliation_status ?? '').includes('UNDER')
+        || String(r.payout_reconciliation_status ?? '').includes('MISMATCH'),
       );
     }
     if (mode === 'resolved') {
@@ -77,31 +98,53 @@ export function FinancialReconciliationTripsTab({
       );
     }
     if (mode === 'shortfall') {
-      return rows.filter((r) => Number(r.outstanding_pence ?? 0) > 0);
+      return rows.filter((r) =>
+        r.capture_reconciliation_status === 'CAPTURE_SHORTFALL'
+        || (r.capture_variance_pence != null && r.capture_variance_pence < 0)
+        || (r.outstanding_pence != null && r.outstanding_pence > 0),
+      );
     }
     if (mode === 'missing_captures') {
       return rows.filter((r) => {
-        const label = `${r.reconciliation_status?.label ?? ''} ${r.provider?.label ?? ''} ${r.capture_status ?? ''}`.toLowerCase();
-        return r.capture_mismatch
-          || (r.captured_pence == null && Number(r.customer_paid_pence ?? r.authorised_pence ?? 0) > 0)
-          || label.includes('missing capture')
-          || label.includes('pending capture')
-          || label.includes('uncaptured');
+        const method = String(r.payment_method ?? '').toLowerCase();
+        if (method === 'cash' || method.includes('cash')) return false;
+        return r.capture_reconciliation_status === 'CAPTURE_MISSING'
+          || r.capture_reconciliation_status === 'CAPTURE_PENDING'
+          || r.capture_reconciliation_status === 'PAYMENT_SESSION_CAPTURE_MISMATCH'
+          || r.captured_pence == null
+          || r.capture_mismatch;
       });
     }
     if (mode === 'missing_releases') {
+      return rows.filter((r) =>
+        r.release_reconciliation_status === 'RELEASE_PENDING'
+        || r.release_reconciliation_status === 'RELEASE_SHORTFALL'
+        || r.release_reconciliation_status === 'RELEASE_AMOUNT_UNKNOWN',
+      );
+    }
+    if (mode === 'wallet_mismatches') {
       return rows.filter((r) => {
-        const label = `${r.reconciliation_status?.label ?? ''} ${r.provider?.label ?? ''}`.toLowerCase();
-        return (Number(r.authorised_pence ?? 0) > 0 && r.released_pence == null && r.captured_pence == null)
-          || label.includes('missing release')
-          || label.includes('unreleased');
+        const status = String(r.wallet_reconciliation_status ?? '');
+        return status.includes('MISSING')
+          || status.includes('OVER')
+          || status.includes('UNDER')
+          || status.includes('DUPLICATE')
+          || (r.wallet_variance_pence != null && r.wallet_variance_pence !== 0);
+      });
+    }
+    if (mode === 'payout_mismatches') {
+      return rows.filter((r) => {
+        const status = String(r.payout_reconciliation_status ?? '');
+        return status.includes('MISMATCH')
+          || status.includes('FAILED')
+          || status.includes('DUPLICATE');
       });
     }
     if (mode === 'recovery') {
       return rows.filter((r) => {
         const label = `${r.reconciliation_status?.label ?? ''} ${r.financial_outcome ?? ''}`.toLowerCase();
-        return Number(r.debt_recovered_pence ?? 0) > 0
-          || Number(r.outstanding_pence ?? 0) > 0
+        return (r.debt_recovered_pence != null && r.debt_recovered_pence > 0)
+          || (r.outstanding_pence != null && r.outstanding_pence > 0)
           || label.includes('recovery');
       });
     }
@@ -117,7 +160,8 @@ export function FinancialReconciliationTripsTab({
       const customer = row.customer_name?.toLowerCase() ?? '';
       const driver = row.driver_name?.toLowerCase() ?? '';
       const pi = row.stripe_payment_intent_id?.toLowerCase() ?? '';
-      return code.includes(q) || id.includes(q) || customer.includes(q) || driver.includes(q) || pi.includes(q);
+      const session = row.payment_session_id?.toLowerCase() ?? '';
+      return code.includes(q) || id.includes(q) || customer.includes(q) || driver.includes(q) || pi.includes(q) || session.includes(q);
     });
   }, [scopedRows, search]);
 
@@ -134,6 +178,20 @@ export function FinancialReconciliationTripsTab({
     }
   }, [initialTripId, initialTripCode, rows, onInitialTripConsumed]);
 
+  const exportMeta = {
+    generatedAt: new Date().toISOString(),
+    sourceSsot: 'Financial Reconciliation audit (Payment Sessions + trip settlement + Driver Wallet Ledger + Payout Ledger)',
+    serviceArea: serviceAreaLabel,
+    currency: money.currencyCode ?? 'GBP',
+    formulaVersion: 'fr_trip_audit_v1',
+    unresolvedMismatches: filtered.filter((r) =>
+      r.capture_mismatch
+      || String(r.reconciliation_status?.tone ?? '').toLowerCase() === 'red'
+      || String(r.reconciliation_status?.tone ?? '').toLowerCase() === 'error',
+    ).length,
+    periodLabel,
+  };
+
   return (
     <div className="space-y-4">
       <FinancialReconciliationRefreshBar
@@ -149,15 +207,48 @@ export function FinancialReconciliationTripsTab({
         <div className="relative max-w-md flex-1">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search trip code, customer, driver, PI…"
+            placeholder="Search trip code, customer, driver, session, PI…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
           />
         </div>
-        <p className="text-xs text-muted-foreground">
-          {filtered.length} trip{filtered.length === 1 ? '' : 's'}
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs text-muted-foreground">
+            {filtered.length} trip{filtered.length === 1 ? '' : 's'}
+          </p>
+          {!readOnly && filtered.length > 0 ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => exportFrAuditCsv(filtered, exportMeta)}
+              >
+                <Download className="mr-1 h-3.5 w-3.5" />
+                CSV
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => exportFrAuditExcel(filtered, exportMeta)}
+              >
+                <FileSpreadsheet className="mr-1 h-3.5 w-3.5" />
+                Excel
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => exportFrAuditPdf()}
+              >
+                <Printer className="mr-1 h-3.5 w-3.5" />
+                PDF
+              </Button>
+            </>
+          ) : null}
+        </div>
       </div>
 
       {filtered.length === 0 ? (
@@ -170,27 +261,29 @@ export function FinancialReconciliationTripsTab({
             <TableHeader>
               <TableRow>
                 <TableHead>Trip ID</TableHead>
-                <TableHead>Completed</TableHead>
-                <TableHead className="text-right">Customer Fare</TableHead>
-                <TableHead className="text-right">Ride Fare</TableHead>
-                <TableHead className="text-right">Airport</TableHead>
-                <TableHead className="text-right">Tips</TableHead>
+                <TableHead>Completed At</TableHead>
+                <TableHead>Customer</TableHead>
+                <TableHead>Driver</TableHead>
+                <TableHead>Service Area</TableHead>
+                <TableHead>Payment Session</TableHead>
                 <TableHead>Provider</TableHead>
-                <TableHead>Payment status</TableHead>
+                <TableHead>Payment Method</TableHead>
+                <TableHead className="text-right">Final Customer Fare</TableHead>
                 <TableHead className="text-right">Authorised</TableHead>
                 <TableHead className="text-right">Captured</TableHead>
                 <TableHead className="text-right">Released</TableHead>
                 <TableHead className="text-right">Refunded</TableHead>
-                <TableHead className="text-right">Provider fee</TableHead>
-                <TableHead>Fee status</TableHead>
-                <TableHead className="text-right">Gross commission</TableHead>
-                <TableHead className="text-right">Net commission</TableHead>
+                <TableHead className="text-right">Provider Fee</TableHead>
+                <TableHead>Fee Status</TableHead>
+                <TableHead className="text-right">ONECAB Gross</TableHead>
+                <TableHead className="text-right">ONECAB Net</TableHead>
                 <TableHead className="text-right">Driver Net</TableHead>
                 <TableHead className="text-right">Wallet Credit</TableHead>
-                <TableHead>Settlement</TableHead>
-                <TableHead>Payout</TableHead>
-                <TableHead className="text-right">Variance</TableHead>
-                <TableHead>Reconciliation</TableHead>
+                <TableHead>Payout Status</TableHead>
+                <TableHead className="text-right">Capture Variance</TableHead>
+                <TableHead className="text-right">Wallet Variance</TableHead>
+                <TableHead className="text-right">Payout Variance</TableHead>
+                <TableHead>Reconciliation Status</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -204,24 +297,23 @@ export function FinancialReconciliationTripsTab({
                       {row.trip_code ?? row.trip_id.slice(0, 8)}
                     </TableCell>
                     <TableCell className="text-xs whitespace-nowrap">{formatFinanceDateSafe(row.date)}</TableCell>
-                    <TableCell className="text-right text-xs whitespace-nowrap">
-                      {fmt(row.settlement_total_pence ?? row.customer_paid_pence, ccy)}
+                    <TableCell className="text-xs whitespace-nowrap">{row.customer_name ?? '—'}</TableCell>
+                    <TableCell className="text-xs whitespace-nowrap">{row.driver_name ?? '—'}</TableCell>
+                    <TableCell className="font-mono text-[10px] whitespace-nowrap">
+                      {row.service_area_id ? row.service_area_id.slice(0, 8) : '—'}
                     </TableCell>
-                    <TableCell className="text-right text-xs whitespace-nowrap">
-                      {formatNullablePence(row.ride_fare_pence ?? row.gross_fare_pence, ccy)}
-                    </TableCell>
-                    <TableCell className="text-right text-xs whitespace-nowrap">
-                      {formatNullablePence(row.airport_charge_pence, ccy)}
-                    </TableCell>
-                    <TableCell className="text-right text-xs whitespace-nowrap">
-                      {formatNullablePence(row.tip_pence, ccy)}
+                    <TableCell className="font-mono text-[10px] whitespace-nowrap">
+                      {row.payment_session_id ? row.payment_session_id.slice(0, 8) : '—'}
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-[10px] whitespace-nowrap">
                         {providerStatusLabel(row)}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-xs">{row.payment_status ?? row.payment_method ?? '—'}</TableCell>
+                    <TableCell className="text-xs">{row.payment_method ?? '—'}</TableCell>
+                    <TableCell className="text-right text-xs whitespace-nowrap">
+                      {formatNullablePence(row.final_customer_fare_pence ?? row.final_fare_pence, ccy)}
+                    </TableCell>
                     <TableCell className="text-right text-xs whitespace-nowrap">
                       {formatNullablePence(row.authorised_pence, ccy)}
                     </TableCell>
@@ -254,32 +346,33 @@ export function FinancialReconciliationTripsTab({
                       {formatNullablePence(row.driver_net_pence, ccy)}
                     </TableCell>
                     <TableCell className="text-right text-xs whitespace-nowrap">
-                      {formatNullablePence(
-                        row.wallet_credit_pence ?? row.available_payout_created_pence,
-                        ccy,
-                      )}
+                      {formatNullablePence(row.wallet_credit_pence, ccy)}
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-[10px] whitespace-nowrap">
-                        {row.driver_payout?.label ?? row.driver_payout_status ?? '—'}
+                        {row.payout_reconciliation_status
+                          ?? row.driver_payout?.label
+                          ?? row.driver_payout_status
+                          ?? '—'}
                       </Badge>
                     </TableCell>
-                    <TableCell>
-                      {row.driver_id ? (
-                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" asChild>
-                          <Link to={payoutLedgerUrl({ driverId: row.driver_id })}>Payout</Link>
-                        </Button>
-                      ) : '—'}
+                    <TableCell className="text-right text-xs whitespace-nowrap">
+                      {formatNullablePence(row.capture_variance_pence, ccy)}
                     </TableCell>
                     <TableCell className="text-right text-xs whitespace-nowrap">
-                      {formatNullablePence(row.variance_pence, ccy)}
+                      {formatNullablePence(row.wallet_variance_pence, ccy)}
+                    </TableCell>
+                    <TableCell className="text-right text-xs whitespace-nowrap">
+                      {formatNullablePence(row.payout_variance_pence, ccy)}
                     </TableCell>
                     <TableCell>
                       <Badge
                         variant={reconciliationBadgeVariant(recon?.tone)}
                         className="text-[10px] whitespace-nowrap"
                       >
-                        {recon?.label ?? (row.capture_mismatch ? 'Mismatch' : 'Balanced')}
+                        {recon?.label
+                          ?? row.capture_reconciliation_status
+                          ?? (row.capture_mismatch ? 'Mismatch' : 'Review Required')}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -293,13 +386,21 @@ export function FinancialReconciliationTripsTab({
                           View
                         </Button>
                         <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" asChild>
-                          <Link to={paymentSessionsUrl({ tripId: row.trip_id })}>
+                          <Link to={paymentSessionsUrl({
+                            paymentSessionId: row.payment_session_id,
+                            tripId: row.trip_id,
+                          })}>
                             Payment Sessions
                           </Link>
                         </Button>
                         {row.driver_id ? (
                           <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" asChild>
                             <Link to={driverWalletLedgerUrl(row.driver_id)}>Wallet</Link>
+                          </Button>
+                        ) : null}
+                        {row.driver_id ? (
+                          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" asChild>
+                            <Link to={payoutLedgerUrl({ driverId: row.driver_id })}>Payout</Link>
                           </Button>
                         ) : null}
                       </div>
@@ -334,15 +435,20 @@ export function FinancialReconciliationTripsTab({
                     </DriverWalletLedgerLink>
                   ) : (drawerTrip.driver_name ?? '—')}
                 </div>
-                <div><span className="text-muted-foreground">Captured:</span> {fmt(drawerTrip.captured_pence, drawerTrip.currency_code)}</div>
-                <div><span className="text-muted-foreground">Refunded:</span> {fmt(drawerTrip.refunded_pence, drawerTrip.currency_code)}</div>
-                <div><span className="text-muted-foreground">Driver net:</span> {fmt(drawerTrip.driver_net_pence, drawerTrip.currency_code)}</div>
-                <div><span className="text-muted-foreground">Net commission:</span> {fmt(drawerTrip.onecab_net_pence, drawerTrip.currency_code)}</div>
-                <div><span className="text-muted-foreground">Payout:</span> {drawerTrip.driver_payout?.label ?? '—'}</div>
-                <div><span className="text-muted-foreground">Provider:</span> {drawerTrip.provider?.label ?? '—'}</div>
+                <div><span className="text-muted-foreground">Payment session:</span> {drawerTrip.payment_session_id ?? '—'}</div>
+                <div><span className="text-muted-foreground">Provider verified:</span> {formatFinanceDateSafe(drawerTrip.provider_verified_at)}</div>
+                <div><span className="text-muted-foreground">Captured:</span> {formatNullablePence(drawerTrip.captured_pence, drawerTrip.currency_code)}</div>
+                <div><span className="text-muted-foreground">Refunded:</span> {formatNullablePence(drawerTrip.refunded_pence, drawerTrip.currency_code)}</div>
+                <div><span className="text-muted-foreground">Driver net:</span> {formatNullablePence(drawerTrip.driver_net_pence, drawerTrip.currency_code)}</div>
+                <div><span className="text-muted-foreground">Wallet credit:</span> {formatNullablePence(drawerTrip.wallet_credit_pence, drawerTrip.currency_code)}</div>
+                <div><span className="text-muted-foreground">Capture status:</span> {drawerTrip.capture_reconciliation_status ?? '—'}</div>
+                <div><span className="text-muted-foreground">Warnings:</span> {(drawerTrip.warnings ?? []).join(', ') || '—'}</div>
               </div>
               <Button asChild>
-                <Link to={paymentSessionsUrl({ tripId: drawerTrip.trip_id })}>
+                <Link to={paymentSessionsUrl({
+                  paymentSessionId: drawerTrip.payment_session_id,
+                  tripId: drawerTrip.trip_id,
+                })}>
                   Open Payment Sessions for this trip
                 </Link>
               </Button>

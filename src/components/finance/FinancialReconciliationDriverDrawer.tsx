@@ -512,7 +512,7 @@ export function FinancialReconciliationDriverDrawer({
                         <TableCell className="font-mono">{row.trip_code ?? row.trip_id.slice(0, 8)}</TableCell>
                         <TableCell>{row.customer_name ?? '—'}</TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {fmt(row.captured_pence ?? row.customer_paid_pence)}
+                          {formatNullablePence(row.captured_pence, row.currency_code)}
                         </TableCell>
                         <TableCell>{providerLabel(row)}</TableCell>
                         <TableCell>

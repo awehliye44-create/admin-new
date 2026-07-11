@@ -287,11 +287,14 @@ export interface TripFinancialAuditRow {
   customer_name: string | null;
   driver_name: string | null;
   payment_method: string | null;
+  service_area_id?: string | null;
   stripe_payment_intent_id?: string | null;
+  payment_session_id?: string | null;
   customer_paid_pence: number | null;
   gross_fare_pence?: number | null;
   discount_pence?: number | null;
   final_fare_pence?: number | null;
+  final_customer_fare_pence?: number | null;
   settlement_total_pence?: number | null;
   captured_pence: number | null;
   refunded_pence: number | null;
@@ -328,6 +331,27 @@ export interface TripFinancialAuditRow {
   fee_status?: 'PENDING_PROVIDER_FEE' | 'CONFIRMED' | null;
   wallet_credit_pence?: number | null;
   variance_pence?: number | null;
+  capture_variance_pence?: number | null;
+  wallet_variance_pence?: number | null;
+  payout_variance_pence?: number | null;
+  payout_amount_pence?: number | null;
+  capture_reconciliation_status?: string | null;
+  release_reconciliation_status?: string | null;
+  refund_reconciliation_status?: string | null;
+  wallet_reconciliation_status?: string | null;
+  payout_reconciliation_status?: string | null;
+  wallet_status?: string | null;
+  provider_state?: string | null;
+  provider_verified_at?: string | null;
+  provider_verification_status?: 'VERIFIED' | 'STALE' | 'UNKNOWN' | null;
+  warnings?: string[];
+  settlement_formula_version?: string | null;
+  payment_evidence_status?:
+    | 'PAYMENT_SESSIONS'
+    | 'NO_PAYMENT_SESSION'
+    | 'PAYMENT_EVIDENCE_UNAVAILABLE'
+    | 'CASH'
+    | null;
 }
 
 export interface LegacyManualReviewItem {
@@ -389,6 +413,24 @@ export interface FinanceReconciliationResponse {
   }>;
   finance_reconciliation_summary?: FinanceReconciliationSummary;
   platform_kpis?: PlatformReconciliationKpis | null;
+  audit_overview_kpis?: {
+    completed_trip_fare_total_pence: number;
+    confirmed_provider_captured_total_pence: number;
+    refunded_total_pence: number;
+    provider_fee_total_pence: number;
+    onecab_gross_commission_pence: number;
+    onecab_net_commission_pence: number | null;
+    driver_net_total_pence: number;
+    wallet_credits_total_pence: number;
+    payouts_completed_pence: number;
+    capture_shortfall_pence: number;
+    overcapture_pence: number;
+    missing_wallet_credits_count: number;
+    payout_mismatches_count: number;
+    balanced_trips_count: number;
+    unresolved_mismatches_count: number;
+    trip_count: number;
+  } | null;
   trip_financial_audit?: TripFinancialAuditRow[];
   trips?: TripFinancialAuditRow[];
   mismatches?: TripFinancialAuditRow[];
