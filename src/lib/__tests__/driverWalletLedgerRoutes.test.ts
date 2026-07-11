@@ -5,23 +5,24 @@ describe('driverWalletLedgerRoutes SSOT tabs', () => {
   it('canonicalises legacy slugs to production hard-rule tabs', () => {
     expect(parseDriverWalletLedgerTab('ledger')).toBe('transactions');
     expect(parseDriverWalletLedgerTab('debt')).toBe('debt_recovery');
-    expect(parseDriverWalletLedgerTab('payout_allocations')).toBe('payouts');
-    expect(parseDriverWalletLedgerTab('adjustments')).toBe('transactions');
-    expect(parseDriverWalletLedgerTab('history')).toBe('transactions');
-    expect(parseDriverWalletLedgerTab('drivers')).toBe('overview');
+    expect(parseDriverWalletLedgerTab('payout_allocations')).toBe('overview');
+    expect(parseDriverWalletLedgerTab('payouts')).toBe('overview');
+    expect(parseDriverWalletLedgerTab('downloads')).toBe('statements');
+    expect(parseDriverWalletLedgerTab(null)).toBe('drivers');
   });
 
   it('keeps canonical tabs stable', () => {
+    expect(parseDriverWalletLedgerTab('drivers')).toBe('drivers');
     expect(parseDriverWalletLedgerTab('overview')).toBe('overview');
+    expect(parseDriverWalletLedgerTab('settlement')).toBe('settlement');
     expect(parseDriverWalletLedgerTab('transactions')).toBe('transactions');
-    expect(parseDriverWalletLedgerTab('payouts')).toBe('payouts');
     expect(parseDriverWalletLedgerTab('debt_recovery')).toBe('debt_recovery');
     expect(parseDriverWalletLedgerTab('statements')).toBe('statements');
-    expect(parseDriverWalletLedgerTab('downloads')).toBe('downloads');
   });
 
   it('builds urls with canonical tab', () => {
     expect(driverWalletLedgerUrl('d1', 'ledger')).toContain('tab=transactions');
     expect(driverWalletLedgerUrl('d1', 'debt')).toContain('tab=debt_recovery');
+    expect(driverWalletLedgerUrl('d1', 'overview')).toContain('tab=overview');
   });
 });

@@ -16,6 +16,7 @@ import {
 } from '@/lib/driverWalletLedgerFilters';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { ledgerAuditTypeLabel } from '@/lib/driverWalletLedgerRoutes';
+import { canonicalDriverWalletTxType } from '@/lib/driverWalletTransactionTypes';
 import { Download, Printer, Search } from 'lucide-react';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { formatNullablePence } from '@/lib/formatNullablePence';
@@ -45,6 +46,7 @@ export function FinanceLedgerPanel({
   driverId,
   initialFilter = 'driver_earnings',
   hideFilterTabs = false,
+  variant = 'default',
 }: {
   serviceFilter: ServiceAreaFinanceSelection;
   periodFrom?: string;
@@ -52,6 +54,8 @@ export function FinanceLedgerPanel({
   driverId: string;
   initialFilter?: DriverWalletLedgerFilter;
   hideFilterTabs?: boolean;
+  /** driver_wallet: Credit/Debit + canonical Type enum columns. */
+  variant?: 'default' | 'driver_wallet';
 }) {
   const [filter, setFilter] = useState<DriverWalletLedgerFilter>(initialFilter);
 
@@ -90,26 +94,22 @@ export function FinanceLedgerPanel({
   }, [rows, search]);
 
   const exportRows = () => {
-    const records = filteredRows.map((r) => ({
-      date: r.created_at,
-      trip_id: r.trip_code ?? r.trip_id,
-      customer: r.customer_name,
-      driver: r.driver_name,
-      reference: r.ledger_reference,
-      type: r.type_label,
-      amount_pence: r.amount_pence,
-      running_balance_pence: r.running_balance_pence ?? null,
-      status: r.status,
-      evidence: r.evidence,
-      notes: r.notes,
-    }));
-    downloadCsv(`driver-wallet-statement-${driverId.slice(0, 8)}.csv`, records);
-  };
-
-  const exportExcel = () => {
-    downloadRecordsAsExcel(
-      `driver-wallet-statement-${driverId.slice(0, 8)}`,
-      filteredRows.map((r) => ({
+    const records = filteredRows.map((r) => {
+      const credit = r.amount_pence > 0 ? r.amount_pence : null;
+      const debit = r.amount_pence < 0 ? Math.abs(r.amount_pence) : null;
+      if (variant === 'driver_wallet') {
+        return {
+          date: r.created_at,
+          reference: r.ledger_reference,
+          trip_id: r.trip_code ?? r.trip_id,
+          description: r.description ?? r.notes,
+          credit_pence: credit,
+          debit_pence: debit,
+          running_balance_pence: r.running_balance_pence ?? null,
+          type: canonicalDriverWalletTxType(r.type),
+        };
+      }
+      return {
         date: r.created_at,
         trip_id: r.trip_code ?? r.trip_id,
         customer: r.customer_name,
@@ -121,10 +121,47 @@ export function FinanceLedgerPanel({
         status: r.status,
         evidence: r.evidence,
         notes: r.notes,
-      })),
+      };
+    });
+    downloadCsv(`driver-wallet-statement-${driverId.slice(0, 8)}.csv`, records);
+  };
+
+  const exportExcel = () => {
+    const records = filteredRows.map((r) => {
+      if (variant === 'driver_wallet') {
+        return {
+          date: r.created_at,
+          reference: r.ledger_reference,
+          trip_id: r.trip_code ?? r.trip_id,
+          description: r.description ?? r.notes,
+          credit_pence: r.amount_pence > 0 ? r.amount_pence : null,
+          debit_pence: r.amount_pence < 0 ? Math.abs(r.amount_pence) : null,
+          running_balance_pence: r.running_balance_pence ?? null,
+          type: canonicalDriverWalletTxType(r.type),
+        };
+      }
+      return {
+        date: r.created_at,
+        trip_id: r.trip_code ?? r.trip_id,
+        customer: r.customer_name,
+        driver: r.driver_name,
+        reference: r.ledger_reference,
+        type: r.type_label,
+        amount_pence: r.amount_pence,
+        running_balance_pence: r.running_balance_pence ?? null,
+        status: r.status,
+        evidence: r.evidence,
+        notes: r.notes,
+      };
+    });
+    downloadRecordsAsExcel(
+      `driver-wallet-statement-${driverId.slice(0, 8)}`,
+      records,
       'Driver Statement',
     );
   };
+
+  const isWallet = variant === 'driver_wallet';
 
   return (
     <div className="space-y-4">
@@ -186,64 +223,114 @@ export function FinanceLedgerPanel({
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date</TableHead>
-                    <TableHead>Trip ID</TableHead>
-                    <TableHead>Customer</TableHead>
-                    <TableHead>Driver</TableHead>
                     <TableHead>Reference</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead>Trip ID</TableHead>
+                    {isWallet ? <TableHead>Description</TableHead> : (
+                      <>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>Driver</TableHead>
+                      </>
+                    )}
+                    {!isWallet ? <TableHead>Type</TableHead> : null}
+                    {isWallet ? (
+                      <>
+                        <TableHead className="text-right">Credit</TableHead>
+                        <TableHead className="text-right">Debit</TableHead>
+                      </>
+                    ) : (
+                      <TableHead className="text-right">Amount</TableHead>
+                    )}
                     <TableHead className="text-right">Running Balance</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Evidence</TableHead>
-                    <TableHead>Notes</TableHead>
+                    {isWallet ? <TableHead>Type</TableHead> : null}
+                    {!isWallet ? (
+                      <>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Evidence</TableHead>
+                        <TableHead>Notes</TableHead>
+                      </>
+                    ) : null}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredRows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={isWallet ? 8 : 11} className="text-center text-muted-foreground py-8">
                         No ledger rows found for this filter.
                       </TableCell>
                     </TableRow>
                   ) : (
                     filteredRows.map((row) => {
                       const isRecoveryDebit = isAdminDebtRecoveryDebit(row.type, row.amount_pence);
+                      const credit = row.amount_pence > 0 ? row.amount_pence : null;
+                      const debit = row.amount_pence < 0 ? Math.abs(row.amount_pence) : null;
                       return (
                         <TableRow key={row.id}>
                           <TableCell className="whitespace-nowrap text-xs">
                             {format(new Date(row.created_at), 'dd MMM yyyy HH:mm')}
+                          </TableCell>
+                          <TableCell className="text-xs font-mono" title={row.ledger_reference ?? undefined}>
+                            {row.ledger_reference?.slice(0, 8) ?? '—'}
                           </TableCell>
                           <TableCell className="text-xs font-mono">
                             {row.trip_id
                               ? getTripDisplayId({ trip_code: row.trip_code, id: row.trip_id })
                               : '—'}
                           </TableCell>
-                          <TableCell className="text-xs">{row.customer_name ?? '—'}</TableCell>
-                          <TableCell className="text-xs">{row.driver_name ?? '—'}</TableCell>
-                          <TableCell className="text-xs font-mono" title={row.ledger_reference ?? undefined}>
-                            {row.ledger_reference?.slice(0, 8) ?? '—'}
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            <span className={isRecoveryDebit ? 'text-red-400 font-medium' : undefined}>
-                              {ledgerAuditTypeLabel(row.type ?? row.type_label)}
-                            </span>
-                            <Badge variant="outline" className={`ml-1 text-[10px] ${partyBadgeClass(row.party)}`}>
-                              {row.party}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className={`text-xs text-right font-medium ${row.amount_pence >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                            {formatPence(row.amount_pence, row.currency)}
-                          </TableCell>
+                          {isWallet ? (
+                            <TableCell className="text-xs text-muted-foreground max-w-[220px] truncate" title={row.description ?? row.notes ?? undefined}>
+                              {row.description ?? row.notes ?? '—'}
+                            </TableCell>
+                          ) : (
+                            <>
+                              <TableCell className="text-xs">{row.customer_name ?? '—'}</TableCell>
+                              <TableCell className="text-xs">{row.driver_name ?? '—'}</TableCell>
+                            </>
+                          )}
+                          {!isWallet ? (
+                            <TableCell className="text-xs">
+                              <span className={isRecoveryDebit ? 'text-red-400 font-medium' : undefined}>
+                                {ledgerAuditTypeLabel(row.type ?? row.type_label)}
+                              </span>
+                              <Badge variant="outline" className={`ml-1 text-[10px] ${partyBadgeClass(row.party)}`}>
+                                {row.party}
+                              </Badge>
+                            </TableCell>
+                          ) : null}
+                          {isWallet ? (
+                            <>
+                              <TableCell className="text-xs text-right font-medium text-emerald-400 tabular-nums">
+                                {credit != null ? formatPence(credit, row.currency) : '—'}
+                              </TableCell>
+                              <TableCell className="text-xs text-right font-medium text-red-400 tabular-nums">
+                                {debit != null ? formatPence(debit, row.currency) : '—'}
+                              </TableCell>
+                            </>
+                          ) : (
+                            <TableCell className={`text-xs text-right font-medium ${row.amount_pence >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {formatPence(row.amount_pence, row.currency)}
+                            </TableCell>
+                          )}
                           <TableCell className="text-xs text-right tabular-nums">
                             {formatNullablePence(row.running_balance_pence, row.currency)}
                           </TableCell>
-                          <TableCell className="text-xs">{row.status ?? '—'}</TableCell>
-                          <TableCell className="text-xs font-mono max-w-[140px] truncate" title={row.evidence ?? undefined}>
-                            {row.evidence ?? '—'}
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground max-w-[180px] truncate" title={row.notes ?? undefined}>
-                            {row.notes ?? '—'}
-                          </TableCell>
+                          {isWallet ? (
+                            <TableCell className="text-xs">
+                              <span className={isRecoveryDebit ? 'text-red-400 font-medium' : undefined}>
+                                {canonicalDriverWalletTxType(row.type)}
+                              </span>
+                            </TableCell>
+                          ) : null}
+                          {!isWallet ? (
+                            <>
+                              <TableCell className="text-xs">{row.status ?? '—'}</TableCell>
+                              <TableCell className="text-xs font-mono max-w-[140px] truncate" title={row.evidence ?? undefined}>
+                                {row.evidence ?? '—'}
+                              </TableCell>
+                              <TableCell className="text-xs text-muted-foreground max-w-[180px] truncate" title={row.notes ?? undefined}>
+                                {row.notes ?? '—'}
+                              </TableCell>
+                            </>
+                          ) : null}
                         </TableRow>
                       );
                     })

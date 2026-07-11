@@ -61,6 +61,8 @@ export type DriverWalletPayoutSnapshot = {
   reconciliation_reasons: string[];
   wallet_balance_pence: number;
   recovery_debt_pence: number;
+  /** True when automatic payouts / cash-outs must freeze (mismatch, negative, or explicit block). */
+  payout_blocked: boolean;
 };
 
 export type ReconciliationStatus =
@@ -163,7 +165,7 @@ export function computeDriverWalletPayoutSnapshot(
   const instantEnabled = input.instant_payout_enabled_by_stripe !== false
     && input.early_cashout_enabled_by_service_area !== false;
 
-  const cashoutLimit = computeAvailableCashOutPence({
+  const cashoutLimitRaw = computeAvailableCashOutPence({
     stripe_connect_available_pence: stripeAvailable,
     stripe_instant_available_pence: input.stripe_connect_instant_available_pence,
     finance_cleared_pence: financeCleared,
@@ -206,6 +208,15 @@ export function computeDriverWalletPayoutSnapshot(
     status = "MISMATCH";
     reasons.push(`Failed payout £${(stuckProcessing / 100).toFixed(2)} stuck in processing/ready`);
   }
+  if (walletSigned < 0) {
+    reasons.push("Wallet balance negative — automatic payouts frozen until debt cleared");
+  }
+
+  // Hard rule: mismatch / negative wallet freezes automatic payout + cash-out.
+  const freezeAutomaticPayout = input.payout_blocked === true
+    || walletSigned < 0
+    || status !== "BALANCED";
+  const cashoutLimit = freezeAutomaticPayout ? 0 : cashoutLimitRaw;
 
   return {
     current_onecab_wallet_owed_pence: walletOwed,
@@ -223,5 +234,6 @@ export function computeDriverWalletPayoutSnapshot(
     reconciliation_reasons: reasons,
     wallet_balance_pence: walletSigned,
     recovery_debt_pence: recoveryDebt,
+    payout_blocked: freezeAutomaticPayout,
   };
 }

@@ -7,6 +7,7 @@ export type DriverWalletPeriodKpis = {
   last_week_earnings_pence: number;
   month_earnings_pence: number;
   last_month_earnings_pence: number;
+  quarter_earnings_pence?: number;
   year_earnings_pence: number;
   last_year_earnings_pence: number;
   lifetime_earnings_pence: number;
@@ -21,6 +22,24 @@ export type DriverWalletPeriodKpis = {
   timezone: 'Europe/London';
 };
 
+export type DriverWalletSettlementHistoryRow = {
+  settlement_id: string;
+  trip_id: string | null;
+  trip_code: string | null;
+  completed_at: string | null;
+  customer_name: string | null;
+  payment_provider: string | null;
+  payment_method: string | null;
+  customer_paid_pence: number | null;
+  provider_fee_pence: number | null;
+  platform_commission_pence: number | null;
+  driver_commission_percent: number | null;
+  driver_net_pence: number | null;
+  wallet_credit_pence: number | null;
+  settlement_status: string | null;
+  payment_session_id: string | null;
+};
+
 export type DriverWalletSsotRow = {
   driver_id: string;
   user_id: string | null;
@@ -30,6 +49,13 @@ export type DriverWalletSsotRow = {
   verification_status?: string | null;
   bank_account_last4?: string | null;
   payouts_enabled?: boolean | null;
+  driver_tier_name?: string | null;
+  commission_percent?: number | null;
+  service_area_id?: string | null;
+  service_area_name?: string | null;
+  payout_provider?: string | null;
+  next_scheduled_payout_at?: string | null;
+  wallet_status?: 'ACTIVE' | 'FROZEN' | 'NOT_CONNECTED' | 'RESTRICTED' | string | null;
   current_onecab_wallet_owed_pence: number;
   finance_cleared_amount_pence: number;
   included_in_payout_batch_amount_pence: number;
@@ -45,14 +71,22 @@ export type DriverWalletSsotRow = {
   reconciliation_status: string;
   reconciliation_reasons: string[];
   wallet_balance_pence: number;
+  payout_blocked?: boolean;
   last_payout_at: string | null;
   last_payout_amount_pence: number | null;
   last_synced_at: string | null;
   period_kpis?: DriverWalletPeriodKpis;
+  debt_recovery?: {
+    outstanding_debt_pence: number;
+    recovered_amount_pence: number;
+    remaining_debt_pence: number;
+    recovery_percent: number | null;
+  };
   payout_items?: Array<Record<string, unknown>>;
   early_cashouts?: Array<Record<string, unknown>>;
   stripe_connect_payouts?: Array<Record<string, unknown>>;
   settlements?: Array<Record<string, unknown>>;
+  settlement_history?: DriverWalletSettlementHistoryRow[];
   ledger_rows?: Array<Record<string, unknown>>;
   transfer_ledger_rows?: Array<Record<string, unknown>>;
 };

@@ -1,9 +1,13 @@
 export type DriverWalletLedgerTab =
+  | 'drivers'
   | 'overview'
+  | 'settlement'
   | 'transactions'
-  | 'payouts'
   | 'debt_recovery'
   | 'statements'
+  /** @deprecated bank transfers owned by Payout Ledger — aliases to overview */
+  | 'payouts'
+  /** @deprecated merged into statements */
   | 'downloads'
   /** @deprecated use transactions */
   | 'ledger'
@@ -11,12 +15,10 @@ export type DriverWalletLedgerTab =
   | 'debt'
   /** @deprecated use transactions */
   | 'adjustments'
-  /** @deprecated use payouts */
+  /** @deprecated use overview */
   | 'payout_allocations'
   /** @deprecated use transactions */
-  | 'history'
-  /** @deprecated use overview */
-  | 'drivers';
+  | 'history';
 
 /** @deprecated Legacy tab slugs */
 export type DriverWalletLedgerLegacyTab =
@@ -28,22 +30,22 @@ const LEGACY_TAB_ALIASES: Record<string, DriverWalletLedgerTab> = {
   accounting: 'overview',
   'connect-balance': 'overview',
   stripe: 'overview',
-  drivers: 'overview',
   ledger: 'transactions',
   adjustments: 'transactions',
   history: 'transactions',
   debt: 'debt_recovery',
-  payout_allocations: 'payouts',
-  payouts: 'payouts',
+  payout_allocations: 'overview',
+  payouts: 'overview',
+  downloads: 'statements',
 };
 
 const CANONICAL_TABS: DriverWalletLedgerTab[] = [
+  'drivers',
   'overview',
+  'settlement',
   'transactions',
-  'payouts',
   'debt_recovery',
   'statements',
-  'downloads',
 ];
 
 export function parseDriverWalletLedgerTab(value: string | null): DriverWalletLedgerTab {
@@ -53,7 +55,7 @@ export function parseDriverWalletLedgerTab(value: string | null): DriverWalletLe
   if (value && LEGACY_TAB_ALIASES[value]) {
     return LEGACY_TAB_ALIASES[value];
   }
-  return 'overview';
+  return 'drivers';
 }
 
 export function driverWalletLedgerUrl(
@@ -61,7 +63,7 @@ export function driverWalletLedgerUrl(
   tab: DriverWalletLedgerTab = 'overview',
 ): string {
   const canonical = parseDriverWalletLedgerTab(tab);
-  const params = new URLSearchParams({ driverId, tab: canonical });
+  const params = new URLSearchParams({ driverId, tab: canonical === 'drivers' ? 'overview' : canonical });
   return `/driver-wallet-ledger?${params.toString()}`;
 }
 

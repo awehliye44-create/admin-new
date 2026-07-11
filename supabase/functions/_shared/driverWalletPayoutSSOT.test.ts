@@ -64,6 +64,8 @@ Deno.test("local_only failed flags mismatch classification", () => {
     local_only_failed_payout_pence: 973,
   });
   assertEquals(snap.reconciliation_status, "LOCAL_ONLY");
+  assertEquals(snap.payout_blocked, true);
+  assertEquals(snap.cashout_limit_pence, 0);
 });
 
 Deno.test("ledger wallet higher than Stripe available is not a mismatch", () => {
@@ -78,4 +80,22 @@ Deno.test("ledger wallet higher than Stripe available is not a mismatch", () => 
   });
   assertEquals(snap.reconciliation_status, "BALANCED");
   assertEquals(snap.reconciliation_reasons.length, 0);
+  assertEquals(snap.payout_blocked, false);
+});
+
+Deno.test("mismatch freezes automatic payout and cash-out", () => {
+  const snap = computeDriverWalletPayoutSnapshot({
+    wallet_balance_pence: 500,
+    finance_cleared_pence: 500,
+    included_in_payout_batch_pence: 0,
+    stripe_connect_available_pence: 500,
+    stripe_connect_pending_pence: 0,
+    stripe_connect_instant_available_pence: 500,
+    stripe_paid_out_total_pence: 0,
+    recovery_debt_pence: 0,
+    ledger_debit_without_stripe_payout_pence: 100,
+  });
+  assertEquals(snap.reconciliation_status, "MISMATCH");
+  assertEquals(snap.payout_blocked, true);
+  assertEquals(snap.cashout_limit_pence, 0);
 });

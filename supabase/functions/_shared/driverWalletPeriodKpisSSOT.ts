@@ -13,6 +13,7 @@ export type DriverWalletPeriodKpis = {
   last_week_earnings_pence: number;
   month_earnings_pence: number;
   last_month_earnings_pence: number;
+  quarter_earnings_pence: number;
   year_earnings_pence: number;
   last_year_earnings_pence: number;
   lifetime_earnings_pence: number;
@@ -128,12 +129,21 @@ export function buildDriverWalletPeriodKpis(
   const yearStart = getLondonYearStart(now);
   const lastYearEnd = new Date(yearStart.getTime() - 1);
   const lastYearStart = getLondonYearStart(lastYearEnd);
+  // London calendar quarter start (Jan/Apr/Jul/Oct).
+  const { y, m } = getLondonCalendarParts(now);
+  const quarterMonth = Math.floor((m - 1) / 3) * 3 + 1;
+  const quarterProbe = new Date(Date.UTC(y, quarterMonth - 1, 1, 12, 0, 0));
+  const quarterLondonHour = Number(
+    new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "numeric", hour12: false }).format(quarterProbe),
+  );
+  const quarterStart = new Date(Date.UTC(y, quarterMonth - 1, 1, 0, 0, 0) - (quarterLondonHour - 12) * 60 * 60 * 1000);
 
   let today = 0;
   let week = 0;
   let lastWeek = 0;
   let month = 0;
   let lastMonth = 0;
+  let quarter = 0;
   let year = 0;
   let lastYear = 0;
   let lifetime = 0;
@@ -160,6 +170,7 @@ export function buildDriverWalletPeriodKpis(
         if (created >= lastWeekStart.getTime() && created <= lastWeekEnd.getTime()) lastWeek += amount;
         if (created >= monthStart.getTime()) month += amount;
         if (created >= lastMonthStart.getTime() && created <= lastMonthEnd.getTime()) lastMonth += amount;
+        if (created >= quarterStart.getTime()) quarter += amount;
         if (created >= yearStart.getTime()) year += amount;
         if (created >= lastYearStart.getTime() && created <= lastYearEnd.getTime()) lastYear += amount;
       }
@@ -173,6 +184,7 @@ export function buildDriverWalletPeriodKpis(
     last_week_earnings_pence: lastWeek,
     month_earnings_pence: month,
     last_month_earnings_pence: lastMonth,
+    quarter_earnings_pence: quarter,
     year_earnings_pence: year,
     last_year_earnings_pence: lastYear,
     lifetime_earnings_pence: lifetime,

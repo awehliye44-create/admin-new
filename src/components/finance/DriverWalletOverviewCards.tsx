@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react';
 import type { DriverWalletSsotRow } from '@/hooks/useDriverWalletSsot';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 import { Link } from 'react-router-dom';
+import { format } from 'date-fns';
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
 
 function Metric({
@@ -27,8 +28,7 @@ function Metric({
 }
 
 /**
- * Wallet Overview — display-only SSOT fields. No client settlement formulas.
- * Balance comes only from Driver Wallet Ledger SSOT — never from trip recalculation.
+ * Wallet Overview widgets — display-only SSOT fields. No client settlement formulas.
  */
 export function DriverWalletOverviewCards({
   driver,
@@ -54,7 +54,7 @@ export function DriverWalletOverviewCards({
   if (!driver && !driverId) {
     return (
       <p className="text-sm text-muted-foreground py-8">
-        Select a driver above to view Live Balance, Available, Pending, and period earnings from the wallet ledger.
+        Select a driver from the list to view Live Balance, Available, Pending, and period earnings.
       </p>
     );
   }
@@ -71,13 +71,25 @@ export function DriverWalletOverviewCards({
   const ccy = currencyCode;
   const kpis = driver.period_kpis;
   const fmt = (p: number | null | undefined) => formatNullablePence(p, ccy);
-  const payoutFrozen = driver.reconciliation_status !== 'BALANCED' || (driver.wallet_balance_pence ?? 0) < 0;
+  const payoutFrozen = driver.wallet_status === 'FROZEN'
+    || driver.payout_blocked === true
+    || (driver.wallet_balance_pence ?? 0) < 0;
+
+  const nextPayoutHint = driver.next_scheduled_payout_at
+    ? (() => {
+      try {
+        return format(new Date(driver.next_scheduled_payout_at), 'dd MMM yyyy');
+      } catch {
+        return undefined;
+      }
+    })()
+    : undefined;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant={driver.reconciliation_status === 'BALANCED' ? 'default' : 'destructive'}>
-          {driver.reconciliation_status ?? '—'}
+        <Badge variant={driver.wallet_status === 'ACTIVE' ? 'default' : 'destructive'}>
+          {driver.wallet_status ?? '—'}
         </Badge>
         {payoutFrozen ? (
           <Badge variant="destructive">Automatic payout frozen</Badge>
@@ -99,7 +111,7 @@ export function DriverWalletOverviewCards({
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <Metric
-          label="Live Balance"
+          label="Live Wallet Balance"
           value={fmt(driver.wallet_balance_pence)}
           hint="Ledger SSOT only — never calculated from trips"
         />
@@ -114,61 +126,38 @@ export function DriverWalletOverviewCards({
           hint="Cleared, not yet in payout batch"
         />
         <Metric
-          label="Upcoming Scheduled Payout"
-          value={fmt(driver.scheduled_payout_display_pence)}
-          hint="Next amount eligible for the configured payout day"
+          label="Outstanding Debt"
+          value={fmt(
+            driver.debt_recovery?.outstanding_debt_pence
+              ?? driver.recovery_debt_pence
+              ?? kpis?.outstanding_debt_pence,
+          )}
+          hint={
+            driver.debt_recovery
+              ? `Open remaining ${fmt(driver.debt_recovery.remaining_debt_pence)}`
+              : 'Lifetime debt created on wallet ledger'
+          }
         />
-        <Metric label="Today's Earnings" value={fmt(kpis?.today_earnings_pence)} />
-        <Metric label="This Week" value={fmt(kpis?.week_earnings_pence)} />
-        <Metric label="Last Week" value={fmt(kpis?.last_week_earnings_pence)} />
-        <Metric label="This Month" value={fmt(kpis?.month_earnings_pence)} />
-        <Metric label="Last Month" value={fmt(kpis?.last_month_earnings_pence)} />
-        <Metric label="This Year" value={fmt(kpis?.year_earnings_pence)} />
-        <Metric label="Last Year" value={fmt(kpis?.last_year_earnings_pence)} />
         <Metric label="Lifetime Earnings" value={fmt(kpis?.lifetime_earnings_pence)} />
-        <Metric label="Outstanding Debt" value={fmt(driver.recovery_debt_pence ?? kpis?.outstanding_debt_pence)} />
+        <Metric label="Annual Earnings" value={fmt(kpis?.year_earnings_pence)} />
+        <Metric label="Monthly Earnings" value={fmt(kpis?.month_earnings_pence)} />
+        <Metric label="Weekly Earnings" value={fmt(kpis?.week_earnings_pence)} />
+        <Metric label="Today's Earnings" value={fmt(kpis?.today_earnings_pence)} />
         <Metric
-          label="Platform Commission"
+          label="Commission Paid"
           value={fmt(kpis?.platform_commission_pence)}
           hint="From wallet ledger commission entries"
         />
         <Metric
-          label="Provider Fees (reference)"
-          value={fmt(kpis?.provider_fees_reference_pence)}
-          hint="Owned by Payment Sessions / Financial Reconciliation"
+          label="Wallet Adjustments"
+          value={fmt(kpis?.total_adjustments_pence)}
         />
         <Metric
-          label="Connected payout account"
-          value={driver.connected_account_id ? `${driver.connected_account_id.slice(0, 14)}…` : '—'}
-          hint="Stripe Connect — bank transfers on Payout Ledger"
-        />
-        <Metric label="Total Bonuses" value={fmt(kpis?.total_bonuses_pence)} />
-        <Metric label="Total Adjustments" value={fmt(kpis?.total_adjustments_pence)} />
-        <Metric
-          label="Trips Paid"
-          value={kpis?.trips_paid_count != null ? String(kpis.trips_paid_count) : '—'}
-        />
-        <Metric
-          label="Average Earnings per Trip"
-          value={fmt(kpis?.average_earnings_per_trip_pence)}
+          label="Next Scheduled Payout"
+          value={fmt(driver.scheduled_payout_display_pence)}
+          hint={nextPayoutHint}
         />
       </div>
-
-      <p className="text-xs text-muted-foreground">
-        Bank transfers and batch execution live on{' '}
-        <Link className="underline" to={payoutLedgerUrl({ driverId: driver.driver_id })}>
-          Payout Ledger
-        </Link>
-        {driver.included_in_payout_batch_amount_pence != null
-          || driver.scheduled_payout_display_pence != null
-          ? ` · in batch ${fmt(driver.included_in_payout_batch_amount_pence)} · scheduled ${fmt(driver.scheduled_payout_display_pence)}`
-          : ''}
-        . Debt recovery runs automatically on capture — future earnings reduce debt until zero, then normal payouts resume.
-      </p>
-
-      {driver.reconciliation_reasons?.length ? (
-        <p className="text-xs text-destructive">{driver.reconciliation_reasons[0]}</p>
-      ) : null}
     </div>
   );
 }

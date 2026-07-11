@@ -78,6 +78,42 @@ export function printFinanceReport(): void {
   window.print();
 }
 
+/** Open a print-ready PDF view of period-scoped ledger rows (no money math). */
+export function printFinanceRecords(
+  title: string,
+  rows: Array<Record<string, ExportCell>>,
+): void {
+  if (rows.length === 0 || typeof window === 'undefined') return;
+  const headers = Object.keys(rows[0]);
+  const escapeHtml = (v: ExportCell) =>
+    String(v ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  const thead = headers.map((h) => `<th>${escapeHtml(h)}</th>`).join('');
+  const tbody = rows
+    .map((r) => `<tr>${headers.map((h) => `<td>${escapeHtml(r[h])}</td>`).join('')}</tr>`)
+    .join('');
+  const html = `<!DOCTYPE html><html><head><title>${escapeHtml(title)}</title>
+<style>
+  body { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 11px; color: #111; margin: 24px; }
+  h1 { font-size: 16px; margin: 0 0 12px; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; vertical-align: top; }
+  th { background: #f4f4f4; }
+  @media print { body { margin: 0; } }
+</style></head><body>
+<h1>${escapeHtml(title)}</h1>
+<table><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>
+<script>window.onload=function(){window.print();}</script>
+</body></html>`;
+  const w = window.open('', '_blank', 'noopener,noreferrer,width=960,height=720');
+  if (!w) return;
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
+
 function triggerDownload(filename: string, body: string, mime: string): void {
   const blob = new Blob([body], { type: mime });
   const url = URL.createObjectURL(blob);

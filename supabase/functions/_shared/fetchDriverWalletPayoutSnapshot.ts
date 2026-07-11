@@ -16,6 +16,14 @@ import {
   buildDriverWalletPeriodKpis,
   type DriverWalletPeriodKpis,
 } from "./driverWalletPeriodKpisSSOT.ts";
+import {
+  buildSessionCaptureByTripId,
+  buildWalletEarningInputsFromPaymentSessions,
+} from "./driverWalletCaptureConsumeSSOT.ts";
+import { buildDriverWalletSettlementHistory } from "./driverWalletSettlementHistorySSOT.ts";
+import { buildDriverWalletDebtRecoveryKpis } from "./driverWalletDebtRecoverySSOT.ts";
+import { nextWeeklyPayoutDateIso } from "./payoutScheduleSSOT.ts";
+import { loadPayoutControlCentreSettings } from "./payoutControlCentreSettingsSSOT.ts";
 
 const TERMINAL_FAILED = new Set(["failed", "ledger_sync_failed", "failed_duplicate"]);
 const STUCK_SETTLEMENT = new Set(["PROCESSING", "READY", "PENDING", "AVAILABLE"]);
@@ -31,10 +39,26 @@ export type DriverWalletPayoutDetail = DriverWalletPayoutSnapshot & {
   payouts_enabled: boolean | null;
   last_payout_at: string | null;
   last_payout_amount_pence: number | null;
+  /** Wallet account identity — owned by Driver Wallet Ledger. */
+  driver_tier_name: string | null;
+  commission_percent: number | null;
+  service_area_id: string | null;
+  service_area_name: string | null;
+  payout_provider: string | null;
+  next_scheduled_payout_at: string | null;
+  wallet_status: "ACTIVE" | "FROZEN" | "NOT_CONNECTED" | "RESTRICTED";
   payout_items: Array<Record<string, unknown>>;
   early_cashouts: Array<Record<string, unknown>>;
   stripe_connect_payouts: Array<Record<string, unknown>>;
   settlements: Array<Record<string, unknown>>;
+  /** One row per completed trip settlement — consume-only display DTO. */
+  settlement_history: Array<Record<string, unknown>>;
+  debt_recovery: {
+    outstanding_debt_pence: number;
+    recovered_amount_pence: number;
+    remaining_debt_pence: number;
+    recovery_percent: number | null;
+  };
   ledger_rows: Array<Record<string, unknown>>;
   transfer_ledger_rows: Array<Record<string, unknown>>;
   last_synced_at: string | null;
@@ -54,7 +78,7 @@ export async function fetchDriverWalletPayoutSnapshot(
 
   const { data: driver } = await supabase
     .from("drivers")
-    .select("id, user_id, driver_code, first_name, last_name, stripe_account_id, payouts_enabled, charges_enabled, onboarding_complete, region_id")
+    .select("id, user_id, driver_code, first_name, last_name, stripe_account_id, payouts_enabled, charges_enabled, onboarding_complete, region_id, category_id, driver_categories(name)")
     .eq("id", args.driverId)
     .maybeSingle();
 
@@ -66,6 +90,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     payoutItemsRes,
     stripePayoutsRes,
     earlyCashoutsRes,
+    driverServiceAreaRes,
   ] = await Promise.all([
     supabase.from("driver_wallet_ledger").select("type, amount_pence, stripe_payout_id, created_at, related_trip_id")
       .eq("driver_id", args.driverId),
@@ -79,7 +104,7 @@ export async function fetchDriverWalletPayoutSnapshot(
       .order("created_at", { ascending: false })
       .limit(100),
     supabase.from("driver_earning_settlement")
-      .select("id, trip_id, settlement_status, settlement_lifecycle_status, allocated_to_payout, allocated_amount_pence, paid_in_payout_item_id, paid_in_batch_id, driver_wallet_ledger!inner(amount_pence)")
+      .select("id, trip_id, settlement_status, settlement_lifecycle_status, settled_at, allocated_to_payout, allocated_amount_pence, paid_in_payout_item_id, paid_in_batch_id, driver_wallet_ledger!inner(amount_pence)")
       .eq("driver_id", args.driverId),
     supabase.from("payout_items")
       .select("id, batch_id, status, settlement_status, net_driver_payout_pence, amount_pence, stripe_transfer_id, stripe_payout_id, failure_reason, created_at, updated_at")
@@ -96,6 +121,11 @@ export async function fetchDriverWalletPayoutSnapshot(
       .eq("driver_id", args.driverId)
       .order("created_at", { ascending: false })
       .limit(50),
+    supabase.from("driver_service_areas")
+      .select("service_area_id, service_areas(id, name, driver_payout_gateway, payment_provider)")
+      .eq("driver_id", args.driverId)
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   const ledger = fullLedgerRes.data ?? [];
@@ -108,50 +138,66 @@ export async function fetchDriverWalletPayoutSnapshot(
   const settlementTripIds = [...new Set(
     settlements.map((s) => String(s.trip_id ?? "")).filter(Boolean),
   )];
-  const tripCaptureById = new Map<string, {
-    capture_amount_pence: number | null;
-    payment_status: string | null;
-    final_customer_fare_pence: number | null;
+  const tripMetaById = new Map<string, {
     payment_method: string | null;
+    final_customer_fare_pence: number | null;
   }>();
+  const tripDetailById = new Map<string, Record<string, unknown>>();
+  const sessionByTripId = new Map<string, Record<string, unknown>>();
+  let sessionCaptureByTripId = new Map<string, number>();
   if (settlementTripIds.length > 0) {
-    const { data: tripRows } = await supabase
-      .from("trips")
-      .select("id, capture_amount_pence, payment_status, final_customer_fare_pence, payment_method")
-      .in("id", settlementTripIds);
-    for (const t of tripRows ?? []) {
-      tripCaptureById.set(String(t.id), {
-        capture_amount_pence: t.capture_amount_pence == null ? null : Number(t.capture_amount_pence),
-        payment_status: (t.payment_status as string | null) ?? null,
+    const [tripRowsRes, sessionRowsRes] = await Promise.all([
+      supabase
+        .from("trips")
+        .select(
+          "id, trip_code, completed_at, passenger_name, payment_status, final_customer_fare_pence, payment_method, payment_provider, provider_fee_pence, platform_commission_amount, driver_tier_commission_percent, driver_net_pence, payment_session_id",
+        )
+        .in("id", settlementTripIds),
+      supabase
+        .from("payment_sessions")
+        .select("id, trip_id, captured_amount_pence, payment_provider, payment_method, provider_processing_fee_pence")
+        .in("trip_id", settlementTripIds),
+    ]);
+    for (const t of tripRowsRes.data ?? []) {
+      tripMetaById.set(String(t.id), {
+        payment_method: (t.payment_method as string | null) ?? null,
         final_customer_fare_pence: t.final_customer_fare_pence == null
           ? null
           : Number(t.final_customer_fare_pence),
-        payment_method: (t.payment_method as string | null) ?? null,
       });
+      tripDetailById.set(String(t.id), t as Record<string, unknown>);
     }
+    for (const s of sessionRowsRes.data ?? []) {
+      const tripId = String(s.trip_id ?? "");
+      if (!tripId) continue;
+      // Prefer the session with a confirmed capture when multiple exist.
+      const existing = sessionByTripId.get(tripId);
+      const existingCap = Number(existing?.captured_amount_pence ?? 0);
+      const nextCap = Number(s.captured_amount_pence ?? 0);
+      if (!existing || nextCap > existingCap) {
+        sessionByTripId.set(tripId, s as Record<string, unknown>);
+      }
+    }
+    sessionCaptureByTripId = buildSessionCaptureByTripId(sessionRowsRes.data ?? []);
   }
 
-  const earningInputs: EarningSettlementInput[] = settlements.map((s) => {
-    const ledgerJoin = s.driver_wallet_ledger as { amount_pence?: number } | { amount_pence?: number }[] | null;
-    const ledgerAmt = Array.isArray(ledgerJoin)
-      ? Number(ledgerJoin[0]?.amount_pence ?? 0)
-      : Number(ledgerJoin?.amount_pence ?? 0);
-    const trip = tripCaptureById.get(String(s.trip_id ?? ""));
-    const capturedAmt = trip?.capture_amount_pence ?? null;
-    const captureOk = capturedAmt != null && Number.isFinite(capturedAmt) && capturedAmt > 0;
-    return {
-      amount_pence: Math.max(0, ledgerAmt),
-      settlement_status: s.settlement_status === "settled" ? "settled" : s.settlement_status === "failed" ? "failed" : "pending",
-      paid_in_batch_id: s.paid_in_batch_id as string | null,
-      allocated_to_payout: s.allocated_to_payout === true,
-      allocated_amount_pence: Number(s.allocated_amount_pence ?? 0),
-      trip_completed: true,
-      payment_captured: captureOk,
-      captured_amount_pence: capturedAmt,
-      required_customer_fare_pence: trip?.final_customer_fare_pence ?? null,
-      capture_mismatch_unresolved: !captureOk,
-      payment_method: trip?.payment_method ?? "card",
-    };
+  const earningInputs: EarningSettlementInput[] = buildWalletEarningInputsFromPaymentSessions({
+    settlements: settlements.map((s) => {
+      const ledgerJoin = s.driver_wallet_ledger as { amount_pence?: number } | { amount_pence?: number }[] | null;
+      const ledgerAmt = Array.isArray(ledgerJoin)
+        ? Number(ledgerJoin[0]?.amount_pence ?? 0)
+        : Number(ledgerJoin?.amount_pence ?? 0);
+      return {
+        trip_id: s.trip_id as string | null,
+        settlement_status: s.settlement_status as string | null,
+        paid_in_batch_id: s.paid_in_batch_id as string | null,
+        allocated_to_payout: s.allocated_to_payout === true,
+        allocated_amount_pence: Number(s.allocated_amount_pence ?? 0),
+        ledger_amount_pence: ledgerAmt,
+      };
+    }),
+    sessionCaptureByTripId,
+    tripMetaById,
   });
   const financeCleared = sumClearedSettlementBatchPence(earningInputs);
 
@@ -290,6 +336,113 @@ export async function fetchDriverWalletPayoutSnapshot(
     },
   );
 
+  const category = driver?.driver_categories as { name?: string } | null;
+  const tierName = category?.name ?? null;
+  const saJoin = driverServiceAreaRes.data?.service_areas as
+    | {
+      id?: string;
+      name?: string;
+      driver_payout_gateway?: string | null;
+      payment_provider?: string | null;
+    }
+    | {
+      id?: string;
+      name?: string;
+      driver_payout_gateway?: string | null;
+      payment_provider?: string | null;
+    }[]
+    | null;
+  const serviceArea = Array.isArray(saJoin) ? saJoin[0] ?? null : saJoin;
+  const serviceAreaId = serviceArea?.id
+    ?? (driverServiceAreaRes.data?.service_area_id as string | null)
+    ?? null;
+
+  let commissionPercent: number | null = null;
+  if (serviceAreaId && tierName) {
+    const { data: saTier } = await supabase
+      .from("service_area_driver_tiers")
+      .select("commission_percent")
+      .eq("service_area_id", serviceAreaId)
+      .ilike("tier_name", tierName)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (saTier?.commission_percent != null) {
+      commissionPercent = Number(saTier.commission_percent);
+    }
+  }
+
+  const settlement_history = buildDriverWalletSettlementHistory(
+    settlements.map((s) => {
+      const tripId = s.trip_id == null ? null : String(s.trip_id);
+      const ledgerJoin = s.driver_wallet_ledger as { amount_pence?: number } | { amount_pence?: number }[] | null;
+      const ledgerAmt = Array.isArray(ledgerJoin)
+        ? Number(ledgerJoin[0]?.amount_pence ?? 0)
+        : Number(ledgerJoin?.amount_pence ?? 0);
+      const trip = tripId ? tripDetailById.get(tripId) : null;
+      const session = tripId ? sessionByTripId.get(tripId) : null;
+      return {
+        settlement_id: String(s.id),
+        trip_id: tripId,
+        settlement_status: (s.settlement_status as string | null) ?? null,
+        settled_at: (s.settled_at as string | null) ?? null,
+        wallet_credit_pence: ledgerAmt,
+        trip: trip
+          ? {
+            trip_code: (trip.trip_code as string | null) ?? null,
+            completed_at: (trip.completed_at as string | null) ?? null,
+            passenger_name: (trip.passenger_name as string | null) ?? null,
+            payment_provider: (trip.payment_provider as string | null) ?? null,
+            payment_method: (trip.payment_method as string | null) ?? null,
+            provider_fee_pence: trip.provider_fee_pence == null ? null : Number(trip.provider_fee_pence),
+            platform_commission_amount: trip.platform_commission_amount == null
+              ? null
+              : Number(trip.platform_commission_amount),
+            driver_tier_commission_percent: trip.driver_tier_commission_percent == null
+              ? null
+              : Number(trip.driver_tier_commission_percent),
+            driver_net_pence: trip.driver_net_pence == null ? null : Number(trip.driver_net_pence),
+            payment_session_id: (trip.payment_session_id as string | null) ?? null,
+          }
+          : null,
+        payment_session: session
+          ? {
+            id: (session.id as string | null) ?? null,
+            payment_provider: (session.payment_provider as string | null) ?? null,
+            payment_method: (session.payment_method as string | null) ?? null,
+            captured_amount_pence: session.captured_amount_pence == null
+              ? null
+              : Number(session.captured_amount_pence),
+            provider_processing_fee_pence: session.provider_processing_fee_pence == null
+              ? null
+              : Number(session.provider_processing_fee_pence),
+          }
+          : null,
+      };
+    }),
+  );
+
+  const debt_recovery = buildDriverWalletDebtRecoveryKpis(ledger, recoveryDebt);
+
+  let walletStatus: DriverWalletPayoutDetail["wallet_status"] = "ACTIVE";
+  if (!driver?.stripe_account_id) walletStatus = "NOT_CONNECTED";
+  else if (snapshot.payout_blocked || walletBalance < 0 || snapshot.reconciliation_status !== "BALANCED") {
+    walletStatus = "FROZEN";
+  } else if (verificationStatus === "restricted" || verificationStatus === "pending") {
+    walletStatus = "RESTRICTED";
+  }
+
+  const payoutProvider = serviceArea?.driver_payout_gateway
+    ?? serviceArea?.payment_provider
+    ?? (driver?.stripe_account_id ? "stripe" : null);
+
+  const controlCentre = await loadPayoutControlCentreSettings(supabase, {
+    serviceAreaId,
+  });
+  const nextScheduledPayoutAt = nextWeeklyPayoutDateIso({
+    weeklyPayoutDay: controlCentre.weekly_payout_day,
+    timeZone: controlCentre.payout_timezone,
+  });
+
   return {
     ...snapshot,
     driver_id: args.driverId,
@@ -306,11 +459,20 @@ export async function fetchDriverWalletPayoutSnapshot(
     last_payout_amount_pence: lastPaidPayout
       ? Math.max(0, Number(lastPaidPayout.amount_pence ?? 0))
       : null,
+    driver_tier_name: tierName,
+    commission_percent: commissionPercent,
+    service_area_id: serviceAreaId,
+    service_area_name: serviceArea?.name ?? null,
+    payout_provider: payoutProvider,
+    next_scheduled_payout_at: nextScheduledPayoutAt,
+    wallet_status: walletStatus,
     period_kpis,
     payout_items: payoutItems,
     early_cashouts: earlyCashouts,
     stripe_connect_payouts: stripePayouts,
     settlements,
+    settlement_history,
+    debt_recovery,
     ledger_rows: recentLedger,
     transfer_ledger_rows: transferLedger,
     last_synced_at: syncedAt,

@@ -7,6 +7,30 @@ import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
 import type { FinancePeriod } from '@/lib/financePeriodFilter';
 
+const DEFAULT_PERIODS: Array<{ value: FinancePeriod; label: string }> = [
+  { value: 'today', label: 'Today' },
+  { value: 'yesterday', label: 'Yesterday' },
+  { value: 'week', label: 'This week' },
+  { value: 'last_week', label: 'Last week' },
+  { value: 'month', label: 'This month' },
+  { value: 'last_month', label: 'Last month' },
+  { value: 'quarter', label: 'Quarter' },
+  { value: 'year', label: 'This year' },
+  { value: 'last_year', label: 'Last year' },
+  { value: 'lifetime', label: 'Lifetime' },
+  { value: 'custom', label: 'Custom' },
+];
+
+/** Driver Wallet Statements — Daily / Weekly / Monthly / Quarterly / Annual / Custom. */
+const STATEMENT_PERIODS: Array<{ value: FinancePeriod; label: string }> = [
+  { value: 'today', label: 'Daily' },
+  { value: 'week', label: 'Weekly' },
+  { value: 'month', label: 'Monthly' },
+  { value: 'quarter', label: 'Quarterly' },
+  { value: 'year', label: 'Annual' },
+  { value: 'custom', label: 'Custom' },
+];
+
 export function FinancePeriodFilter({
   period,
   onPeriodChange,
@@ -14,6 +38,7 @@ export function FinancePeriodFilter({
   customTo,
   onCustomFromChange,
   onCustomToChange,
+  variant = 'default',
 }: {
   period: FinancePeriod;
   onPeriodChange: (period: FinancePeriod) => void;
@@ -21,7 +46,10 @@ export function FinancePeriodFilter({
   customTo?: Date;
   onCustomFromChange: (date: Date | undefined) => void;
   onCustomToChange: (date: Date | undefined) => void;
+  variant?: 'default' | 'statement';
 }) {
+  const periods = variant === 'statement' ? STATEMENT_PERIODS : DEFAULT_PERIODS;
+
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Tabs
@@ -35,17 +63,9 @@ export function FinancePeriodFilter({
         }}
       >
         <TabsList className="flex flex-wrap h-auto gap-1">
-          <TabsTrigger value="today">Today</TabsTrigger>
-          <TabsTrigger value="yesterday">Yesterday</TabsTrigger>
-          <TabsTrigger value="week">This week</TabsTrigger>
-          <TabsTrigger value="last_week">Last week</TabsTrigger>
-          <TabsTrigger value="month">This month</TabsTrigger>
-          <TabsTrigger value="last_month">Last month</TabsTrigger>
-          <TabsTrigger value="quarter">Quarter</TabsTrigger>
-          <TabsTrigger value="year">This year</TabsTrigger>
-          <TabsTrigger value="last_year">Last year</TabsTrigger>
-          <TabsTrigger value="lifetime">Lifetime</TabsTrigger>
-          <TabsTrigger value="custom">Custom</TabsTrigger>
+          {periods.map((p) => (
+            <TabsTrigger key={p.value} value={p.value}>{p.label}</TabsTrigger>
+          ))}
         </TabsList>
       </Tabs>
 
