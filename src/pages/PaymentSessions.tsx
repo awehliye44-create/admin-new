@@ -37,12 +37,10 @@ import type {
 } from '../../shared/adminPaymentSessionsSSOT';
 import { paymentSessionsUrl } from '../../shared/adminPaymentSessionsSSOT';
 import type { PaymentSessionPurpose } from '../../shared/paymentSessionPhase1SSOT';
-import { payoutLedgerUrl } from '../../shared/adminPayoutLedgerSSOT';
 import {
   financeReconciliationTripUrl,
   tripSettlementRecoverUrl,
 } from '@/lib/financialReconciliationRoutes';
-import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
 import { formatAgeMinutes, formatNullablePence } from '@/lib/formatNullablePence';
 import {
   DEFAULT_SERVICE_AREA_SELECTION,
@@ -126,7 +124,7 @@ function SessionActions({
       )}
       {row.trip_id && policy.can_open_trip !== false && (
         <Button asChild size="sm" variant="outline">
-          <Link to={tripSettlementRecoverUrl(row.trip_id, row.trip_code)}>Trip History</Link>
+          <Link to={tripSettlementRecoverUrl(row.trip_id, row.trip_code)}>Open completed trip</Link>
         </Button>
       )}
       {policy.can_open_reconciliation && row.trip_id && (
@@ -136,14 +134,6 @@ function SessionActions({
           </Link>
         </Button>
       )}
-      {row.driver_id && (
-        <Button asChild size="sm" variant="outline">
-          <Link to={driverWalletLedgerUrl(row.driver_id, 'overview')}>Driver Wallet</Link>
-        </Button>
-      )}
-      <Button asChild size="sm" variant="outline">
-        <Link to={payoutLedgerUrl({ driverId: row.driver_id })}>Payout Ledger</Link>
-      </Button>
       {policy.can_release && (
         <Button size="sm" disabled={busy} onClick={() => onAction(row, 'release')}>
           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Release hold'}
@@ -859,6 +849,7 @@ export default function PaymentSessions() {
                         <TableHead>Provider Fee</TableHead>
                         <TableHead>Fee Status</TableHead>
                         <TableHead>Provider State</TableHead>
+                        <TableHead>Verification Status</TableHead>
                         <TableHead>Session Status</TableHead>
                         <TableHead>Evidence Status</TableHead>
                         <TableHead>Age</TableHead>
@@ -980,12 +971,27 @@ export default function PaymentSessions() {
                               </TableCell>
                               <TableCell className="text-xs">
                                 <div className="font-medium">{row.provider_state ?? 'UNKNOWN'}</div>
-                                <div className="text-[10px] text-muted-foreground">
-                                  {row.provider_verification_status}
-                                  {row.provider_state_verified_at
-                                    ? ` · ${format(new Date(row.provider_state_verified_at), 'dd MMM HH:mm')}`
-                                    : ''}
-                                </div>
+                                {row.provider_state_label && (
+                                  <div className="text-[10px] text-muted-foreground">{row.provider_state_label}</div>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                <Badge
+                                  variant={
+                                    row.provider_verification_status === 'VERIFIED'
+                                      ? 'default'
+                                      : row.provider_verification_status === 'UNAVAILABLE'
+                                      ? 'destructive'
+                                      : 'secondary'
+                                  }
+                                >
+                                  {row.provider_verification_status ?? 'UNKNOWN'}
+                                </Badge>
+                                {row.provider_state_verified_at && (
+                                  <div className="mt-1 text-[10px] text-muted-foreground">
+                                    {format(new Date(row.provider_state_verified_at), 'dd MMM HH:mm')}
+                                  </div>
+                                )}
                               </TableCell>
                               <TableCell className="text-xs">
                                 <div className="font-medium">{row.session_status_label ?? row.session_status ?? '—'}</div>
@@ -1031,7 +1037,7 @@ export default function PaymentSessions() {
                             </TableRow>
                             {expandedId === key && (
                               <TableRow>
-                                <TableCell colSpan={22} className="bg-muted/40 text-xs">
+                                <TableCell colSpan={23} className="bg-muted/40 text-xs">
                                   <div className="space-y-3">
                                     <div>
                                       <div className="mb-1 font-medium">Session evidence</div>

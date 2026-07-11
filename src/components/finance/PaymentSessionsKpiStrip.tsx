@@ -94,8 +94,8 @@ export function PaymentSessionsKpiStrip({
       id: 'provider_fees',
       label: 'Provider Fees',
       value: formatNullablePence(summary.provider_fees_total_pence, currencyCode),
-      drill: { tab: 'provider_payments', provider_fees_pending: true },
-      hint: 'Confirmed fee amounts only',
+      drill: { tab: 'provider_payments' },
+      hint: 'ACTUAL fees only',
     },
   ];
 
