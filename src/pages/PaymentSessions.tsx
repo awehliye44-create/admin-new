@@ -50,10 +50,16 @@ import {
   type ServiceAreaFinanceSelection,
 } from '@/components/finance/ServiceAreaFinanceFilter';
 import { PaymentSessionsKpiStrip, type PaymentSessionsKpiDrill } from '@/components/finance/PaymentSessionsKpiStrip';
+import { PaymentSessionsCompletedTripsTable } from '@/components/finance/PaymentSessionsCompletedTripsTable';
+import { PaymentSessionsMatchingTable } from '@/components/finance/PaymentSessionsMatchingTable';
 import { toast } from 'sonner';
+import type { PaymentTripMatchStatus } from '../../shared/paymentSessionsTripMatchSSOT';
 
 const TABS: Array<{ id: AdminPaymentSessionsTab; label: string }> = [
   { id: 'overview', label: 'Overview' },
+  { id: 'provider_payments', label: 'Provider Payments' },
+  { id: 'completed_trips_paid', label: 'Completed Trips Paid' },
+  { id: 'payment_matching', label: 'Payment Matching' },
   { id: 'active_holds', label: 'Active Holds' },
   { id: 'captured', label: 'Captured' },
   { id: 'released', label: 'Released' },
@@ -199,6 +205,9 @@ export default function PaymentSessions() {
   );
   const [captureFailed, setCaptureFailed] = useState(searchParams.get('captureFailed') === '1');
   const [moneyAtRisk, setMoneyAtRisk] = useState(searchParams.get('moneyAtRisk') === '1');
+  const [matchStatus, setMatchStatus] = useState<PaymentTripMatchStatus | ''>(
+    (searchParams.get('matchStatus') as PaymentTripMatchStatus | null) ?? '',
+  );
   const [legacyEvidence, setLegacyEvidence] = useState(false);
   const [refreshProviderState, setRefreshProviderState] = useState(false);
   const [listOffset, setListOffset] = useState(0);
@@ -239,6 +248,7 @@ export default function PaymentSessions() {
     providerFeesPending,
     captureFailed,
     moneyAtRisk,
+    matchStatus,
     legacyEvidence,
   ]);
 
@@ -268,6 +278,7 @@ export default function PaymentSessions() {
       provider_fees_pending: providerFeesPending ? true : null,
       capture_failed: captureFailed ? true : null,
       money_at_risk: moneyAtRisk ? true : null,
+      match_status: matchStatus || null,
       legacy_evidence: legacyEvidence ? true : null,
       ...(refreshProviderState ? { refresh_provider_state: true as const } : {}),
     }),
@@ -294,6 +305,7 @@ export default function PaymentSessions() {
       providerFeesPending,
       captureFailed,
       moneyAtRisk,
+      matchStatus,
       legacyEvidence,
       refreshProviderState,
     ],
@@ -322,6 +334,7 @@ export default function PaymentSessions() {
     setRecoveryPending(Boolean(drill.recovery_pending));
     setReleaseFailed(Boolean(drill.release_failed));
     setMoneyAtRisk(Boolean(drill.money_at_risk));
+    setMatchStatus(drill.match_status ?? '');
     setListOffset(0);
     const params = new URLSearchParams(searchParams);
     params.set('tab', drill.tab);
@@ -335,6 +348,8 @@ export default function PaymentSessions() {
     else params.delete('releaseFailed');
     if (drill.money_at_risk) params.set('moneyAtRisk', '1');
     else params.delete('moneyAtRisk');
+    if (drill.match_status) params.set('matchStatus', drill.match_status);
+    else params.delete('matchStatus');
     setSearchParams(params, { replace: true });
   };
 
@@ -356,6 +371,7 @@ export default function PaymentSessions() {
     setProviderFeesPending(false);
     setCaptureFailed(false);
     setMoneyAtRisk(false);
+    setMatchStatus('');
     setLegacyEvidence(false);
     setListOffset(0);
     const params = new URLSearchParams(searchParams);
@@ -366,6 +382,7 @@ export default function PaymentSessions() {
     params.delete('recoveryPending');
     params.delete('releaseFailed');
     params.delete('moneyAtRisk');
+    params.delete('matchStatus');
     setSearchParams(params, { replace: true });
   };
 
@@ -387,6 +404,7 @@ export default function PaymentSessions() {
     || providerFeesPending
     || captureFailed
     || moneyAtRisk
+    || !!matchStatus
     || legacyEvidence;
 
   const runAction = useCallback(
@@ -463,11 +481,24 @@ export default function PaymentSessions() {
   );
 
   const rows = data?.rows ?? [];
+  const completedTripRows = data?.completed_trip_rows ?? [];
+  const matchingRows = data?.matching_rows ?? [];
   const summary = data?.summary;
-  const filteredTotal = data?.filtered_total ?? rows.length;
+  const filteredTotal = data?.filtered_total
+    ?? (tab === 'completed_trips_paid'
+      ? completedTripRows.length
+      : tab === 'payment_matching'
+      ? matchingRows.length
+      : rows.length);
   const hasMore = Boolean(data?.has_more);
   const pageStart = filteredTotal === 0 ? 0 : listOffset + 1;
-  const pageEnd = listOffset + rows.length;
+  const pageEnd = listOffset + (
+    tab === 'completed_trips_paid'
+      ? completedTripRows.length
+      : tab === 'payment_matching'
+      ? matchingRows.length
+      : rows.length
+  );
 
   return (
     <AdminLayout title="Payment Sessions (SSOT)">
@@ -684,6 +715,13 @@ export default function PaymentSessions() {
           </Alert>
         )}
 
+        {data?.trip_evidence_message && (
+          <Alert>
+            <AlertTitle>Trip evidence</AlertTitle>
+            <AlertDescription>{data.trip_evidence_message}</AlertDescription>
+          </Alert>
+        )}
+
         <PaymentSessionsKpiStrip
           summary={summary}
           currencyCode={serviceFilter.currencyCode ?? 'GBP'}
@@ -701,8 +739,25 @@ export default function PaymentSessions() {
             <TabsContent key={t.id} value={t.id} className="space-y-3">
               {t.id === 'overview' && (
                 <p className="text-sm text-muted-foreground">
-                  Stripe-like payment source of truth. Widgets above drill into filtered tabs.
+                  Stripe-like payment source of truth. Provider Payments owns provider amounts;
+                  Completed Trips Paid shows backend fares; Payment Matching compares them.
                   Financial Reconciliation audits these values — it never invents payment amounts.
+                </p>
+              )}
+              {t.id === 'provider_payments' && (
+                <p className="text-sm text-muted-foreground">
+                  Authoritative provider lifecycle. Never shows trip fare or authorised amount as captured.
+                </p>
+              )}
+              {t.id === 'completed_trips_paid' && (
+                <p className="text-sm text-muted-foreground">
+                  Completed ONECAB trips with canonical final fares from trip settlement fields.
+                  Does not own provider payment state.
+                </p>
+              )}
+              {t.id === 'payment_matching' && (
+                <p className="text-sm text-muted-foreground">
+                  Comparison only: expected capture (trip final fare) vs provider-confirmed capture.
                 </p>
               )}
               {t.id === 'captured' && (
@@ -736,8 +791,32 @@ export default function PaymentSessions() {
 
               {isLoading ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading payment sessions…
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading…
                 </div>
+              ) : t.id === 'completed_trips_paid' ? (
+                <PaymentSessionsCompletedTripsTable
+                  rows={completedTripRows}
+                  currencyCode={serviceFilter.currencyCode ?? 'GBP'}
+                />
+              ) : t.id === 'payment_matching' ? (
+                <PaymentSessionsMatchingTable
+                  rows={matchingRows}
+                  currencyCode={serviceFilter.currencyCode ?? 'GBP'}
+                  onInspectProvider={(orderId) => {
+                    void (async () => {
+                      setInspectingId(orderId);
+                      try {
+                        const snap = await inspectProvider.mutateAsync(orderId);
+                        setInspectSnapshots((prev) => ({ ...prev, [orderId]: snap }));
+                        toast.success('Provider evidence loaded');
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : 'Inspect failed');
+                      } finally {
+                        setInspectingId(null);
+                      }
+                    })();
+                  }}
+                />
               ) : rows.length === 0 ? (
                 <Alert>
                   <AlertTitle>No payment attempts match the selected filters.</AlertTitle>
@@ -1038,7 +1117,7 @@ export default function PaymentSessions() {
                   </Table>
                 </div>
               )}
-              {rows.length > 0 && (
+              {(rows.length > 0 || completedTripRows.length > 0 || matchingRows.length > 0) && (
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                   <span>
                     Showing {pageStart}–{pageEnd} of {filteredTotal}

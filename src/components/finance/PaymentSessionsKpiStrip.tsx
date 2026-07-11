@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import type { AdminPaymentSessionsTab } from '../../shared/adminPaymentSessionsSSOT';
-import type { AdminPaymentSessionsSummary } from '../../shared/adminPaymentSessionsSSOT';
+import type { AdminPaymentSessionsTab } from '../../../shared/adminPaymentSessionsSSOT';
+import type { AdminPaymentSessionsSummary } from '../../../shared/adminPaymentSessionsSSOT';
+import type { PaymentTripMatchStatus } from '../../../shared/paymentSessionsTripMatchSSOT';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 
 export type PaymentSessionsKpiDrill = {
@@ -10,6 +11,7 @@ export type PaymentSessionsKpiDrill = {
   recovery_pending?: boolean;
   release_failed?: boolean;
   money_at_risk?: boolean;
+  match_status?: PaymentTripMatchStatus;
 };
 
 type WidgetDef = {
@@ -34,16 +36,41 @@ export function PaymentSessionsKpiStrip({
 
   const widgets: WidgetDef[] = [
     {
-      id: 'total',
-      label: 'Total Sessions',
-      value: String(summary.total),
-      drill: { tab: 'history' },
+      id: 'provider_captured',
+      label: 'Provider Captured Total',
+      value: formatNullablePence(summary.provider_captured_total_pence, currencyCode),
+      drill: { tab: 'provider_payments' },
+      hint: 'Confirmed captures only',
     },
     {
-      id: 'captured',
-      label: 'Captured Payments',
-      value: String(summary.captured_count),
-      drill: { tab: 'captured' },
+      id: 'trip_fare_total',
+      label: 'Completed Trip Fare Total',
+      value: formatNullablePence(summary.completed_trip_fare_total_pence, currencyCode),
+      drill: { tab: 'completed_trips_paid' },
+    },
+    {
+      id: 'matched',
+      label: 'Matched Trips',
+      value: String(summary.matched_trips_count ?? 0),
+      drill: { tab: 'payment_matching', match_status: 'MATCHED' },
+    },
+    {
+      id: 'shortfall',
+      label: 'Capture Shortfall',
+      value: formatNullablePence(summary.capture_shortfall_pence, currencyCode),
+      drill: { tab: 'payment_matching', match_status: 'CAPTURE_SHORTFALL' },
+    },
+    {
+      id: 'overcapture',
+      label: 'Overcaptured Amount',
+      value: formatNullablePence(summary.overcaptured_amount_pence, currencyCode),
+      drill: { tab: 'payment_matching', match_status: 'OVERCAPTURE' },
+    },
+    {
+      id: 'missing_sessions',
+      label: 'Missing Payment Sessions',
+      value: String(summary.missing_payment_sessions_count ?? 0),
+      drill: { tab: 'payment_matching', match_status: 'NO_PAYMENT_SESSION' },
     },
     {
       id: 'active',
@@ -52,64 +79,28 @@ export function PaymentSessionsKpiStrip({
       drill: { tab: 'active_holds' },
     },
     {
-      id: 'released',
-      label: 'Released Holds',
-      value: String(summary.released_count),
+      id: 'released_buffer',
+      label: 'Released Buffer Total',
+      value: formatNullablePence(summary.released_buffer_total_pence, currencyCode),
       drill: { tab: 'released' },
     },
     {
-      id: 'refunded',
-      label: 'Refunded',
-      value: String(summary.refunded_count),
+      id: 'refunded_total',
+      label: 'Refunded Total',
+      value: formatNullablePence(summary.refunded_total_pence, currencyCode),
       drill: { tab: 'refunded' },
     },
     {
-      id: 'recovery',
-      label: 'Recovery Pending',
-      value: String(summary.recovery_pending_count ?? summary.failed_recovery_count),
-      drill: { tab: 'failed_recovery', recovery_pending: true },
-    },
-    {
-      id: 'fees_pending',
-      label: 'Provider Fees Pending',
-      value: String(summary.provider_fees_pending_count ?? 0),
-      drill: { tab: 'history', provider_fees_pending: true },
-      hint: 'Fee status PENDING only',
-    },
-    {
-      id: 'revenue',
-      label: 'Total Customer Revenue Captured',
-      value: formatNullablePence(summary.total_customer_revenue_captured_pence, currencyCode),
-      drill: { tab: 'captured' },
-      hint: 'SUM(confirmed captures) only',
-    },
-    {
-      id: 'authorised',
-      label: 'Total Authorised',
-      value: formatNullablePence(summary.total_authorised_pence, currencyCode),
-      drill: { tab: 'active_holds' },
-      hint: 'Active holds only',
-    },
-    {
-      id: 'success',
-      label: 'Capture Success Rate',
-      value: summary.capture_success_rate_pct == null
-        ? '—'
-        : `${summary.capture_success_rate_pct}%`,
-      drill: { tab: 'history', capture_failed: true },
-      hint: 'Drill shows capture failures / missing amounts',
-    },
-    {
-      id: 'risk',
-      label: 'Money At Risk',
-      value: formatNullablePence(summary.money_at_risk_pence, currencyCode),
-      drill: { tab: 'active_holds', money_at_risk: true },
-      hint: 'Non-green active authorisations',
+      id: 'provider_fees',
+      label: 'Provider Fees',
+      value: formatNullablePence(summary.provider_fees_total_pence, currencyCode),
+      drill: { tab: 'provider_payments', provider_fees_pending: true },
+      hint: 'Confirmed fee amounts only',
     },
   ];
 
   return (
-    <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+    <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
       {widgets.map((w) => (
         <button
           key={w.id}

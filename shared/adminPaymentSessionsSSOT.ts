@@ -5,6 +5,7 @@
 
 import type { PaymentSessionActionPolicy, PaymentSessionPurpose } from "./paymentSessionPhase1SSOT.ts";
 import type { PaymentHoldAttentionClass, PaymentHoldClassification } from "./paymentHoldReconciliation.ts";
+import type { PaymentTripMatchStatus } from "./paymentSessionsTripMatchSSOT.ts";
 
 export const ADMIN_PAYMENT_SESSIONS_FN = "admin-payment-sessions";
 
@@ -15,7 +16,10 @@ export type AdminPaymentSessionsTab =
   | "released"
   | "refunded"
   | "failed_recovery"
-  | "history";
+  | "history"
+  | "provider_payments"
+  | "completed_trips_paid"
+  | "payment_matching";
 
 export type AdminPaymentSessionsPageStatus =
   | "LIVE"
@@ -44,6 +48,8 @@ export type AdminPaymentSessionsListRequest = {
   capture_failed?: boolean | null;
   /** Widget drill: active holds that are not GREEN (Money At Risk). */
   money_at_risk?: boolean | null;
+  /** Widget drill: payment matching status filter. */
+  match_status?: PaymentTripMatchStatus | null;
   customer_id?: string | null;
   date_from?: string | null;
   date_to?: string | null;
@@ -131,6 +137,53 @@ export type AdminPaymentSessionsListRow = {
   page_status_hint?: AdminPaymentSessionsPageStatus | null;
 };
 
+/** Completed Trips Paid — one row = one completed trip (fare from trip SSOT, not React). */
+export type AdminPaymentSessionsCompletedTripRow = {
+  id: string;
+  trip_id: string;
+  trip_code: string | null;
+  completed_at: string | null;
+  customer_id: string | null;
+  customer_name: string | null;
+  driver_id: string | null;
+  driver_name: string | null;
+  service_area_id: string | null;
+  service_area_name: string | null;
+  /** Canonical trip final customer fare — never invent in UI. */
+  final_customer_fare_pence: number | null;
+  ride_fare_pence: number | null;
+  airport_charge_pence: number | null;
+  tips_pence: number | null;
+  /** Same as final customer fare when present (expected capture). */
+  expected_capture_pence: number | null;
+  payment_session_id: string | null;
+  payment_provider: string | null;
+  provider_captured_pence: number | null;
+  provider_released_pence: number | null;
+  shortfall_overcapture_pence: number | null;
+  match_status: PaymentTripMatchStatus;
+};
+
+/** Payment Matching — comparison-only rows. */
+export type AdminPaymentSessionsMatchingRow = {
+  id: string;
+  trip_id: string | null;
+  trip_code: string | null;
+  payment_session_id: string | null;
+  customer_name: string | null;
+  expected_capture_pence: number | null;
+  actual_capture_pence: number | null;
+  authorised_amount_pence: number | null;
+  released_amount_pence: number | null;
+  variance_pence: number | null;
+  shortfall_pence: number | null;
+  overcapture_pence: number | null;
+  match_status: PaymentTripMatchStatus;
+  provider_state: string | null;
+  provider_verification_status: "VERIFIED" | "STALE" | "UNKNOWN" | "UNAVAILABLE" | null;
+  provider_order_id: string | null;
+};
+
 /** Stripe-like KPI strip — all values owned by Payment Sessions edge (never client-summed). */
 export type AdminPaymentSessionsSummary = {
   total: number;
@@ -152,6 +205,16 @@ export type AdminPaymentSessionsSummary = {
   amber: number;
   green: number;
   unknown_count: number;
+  /** Provider vs completed-trip comparison widgets (backend-owned). */
+  provider_captured_total_pence: number | null;
+  completed_trip_fare_total_pence: number | null;
+  matched_trips_count: number;
+  capture_shortfall_pence: number | null;
+  overcaptured_amount_pence: number | null;
+  missing_payment_sessions_count: number;
+  released_buffer_total_pence: number | null;
+  refunded_total_pence: number | null;
+  provider_fees_total_pence: number | null;
 };
 
 export type AdminPaymentSessionsListResponse = {
@@ -159,6 +222,8 @@ export type AdminPaymentSessionsListResponse = {
   page_status: AdminPaymentSessionsPageStatus;
   tab: AdminPaymentSessionsTab;
   rows: AdminPaymentSessionsListRow[];
+  completed_trip_rows?: AdminPaymentSessionsCompletedTripRow[];
+  matching_rows?: AdminPaymentSessionsMatchingRow[];
   summary: AdminPaymentSessionsSummary;
   /** Total filtered rows for the active tab before limit/offset slice. */
   filtered_total?: number;
@@ -167,6 +232,7 @@ export type AdminPaymentSessionsListResponse = {
   offset?: number;
   error?: string;
   provider_verification_message?: string | null;
+  trip_evidence_message?: string | null;
 };
 
 export function paymentSessionsUrl(args?: {
@@ -180,6 +246,7 @@ export function paymentSessionsUrl(args?: {
   recoveryPending?: boolean;
   releaseFailed?: boolean;
   moneyAtRisk?: boolean;
+  matchStatus?: PaymentTripMatchStatus;
 }): string {
   const params = new URLSearchParams();
   if (args?.tab) params.set("tab", args.tab);
@@ -192,6 +259,7 @@ export function paymentSessionsUrl(args?: {
   if (args?.recoveryPending) params.set("recoveryPending", "1");
   if (args?.releaseFailed) params.set("releaseFailed", "1");
   if (args?.moneyAtRisk) params.set("moneyAtRisk", "1");
+  if (args?.matchStatus) params.set("matchStatus", args.matchStatus);
   const qs = params.toString();
   return qs ? `/payment-sessions?${qs}` : "/payment-sessions";
 }
