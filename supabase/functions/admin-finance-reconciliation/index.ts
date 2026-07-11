@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@14.21.0";
-import { computeSSOTMetrics, SSOT_VERSION } from "../_shared/financialReconciliationSSOT.ts";
+import { computeSSOTMetrics, mergePaymentSessionsIntoCaptureRows, SSOT_VERSION } from "../_shared/financialReconciliationSSOT.ts";
 import { fetchConnectMoneyMovementBundle } from "../_shared/connectMoneyMovementSSOT.ts";
 import { fetchPerDriverFinancialReconciliation } from "../_shared/perDriverFinancialReconciliation.ts";
 import {
@@ -579,11 +579,16 @@ serve(async (req) => {
     }> = [];
 
     if (tripIds.length > 0 && !summaryOnly) {
-      const [paymentsRes, payoutItemsRes, tripLedgerRes] = await Promise.all([
+      const [paymentsRes, paymentSessionsRes, payoutItemsRes, tripLedgerRes] = await Promise.all([
         supabase
           .from("payments")
           .select("captured_amount_pence, status, trip_id, provider_status, stripe_payment_intent_id, provider_available_on")
           .in("trip_id", tripIds),
+        supabase
+          .from("payment_sessions")
+          .select("trip_id, captured_amount_pence, status")
+          .in("trip_id", tripIds)
+          .not("captured_amount_pence", "is", null),
         supabase
           .from("payout_items")
           .select("trip_id, status, driver_amount_pence, amount_pence, batch_id")
@@ -593,12 +598,22 @@ serve(async (req) => {
           .select("related_trip_id, type, amount_pence, stripe_payout_id, stripe_transfer_id")
           .in("related_trip_id", tripIds),
       ]);
-      if (paymentsRes.error) {
+      if (paymentsRes.error && paymentSessionsRes.error) {
         console.warn("[admin-finance-reconciliation] payment evidence unavailable:", paymentsRes.error.message);
         paymentSessionsDownstream = "UNAVAILABLE";
         paymentRows = [];
       } else {
-        paymentRows = paymentsRes.data || [];
+        if (paymentSessionsRes.error) {
+          console.warn("[admin-finance-reconciliation] payment_sessions evidence unavailable:", paymentSessionsRes.error.message);
+          paymentSessionsDownstream = "UNAVAILABLE";
+        } else {
+          paymentSessionsDownstream = "OK";
+        }
+        const merged = mergePaymentSessionsIntoCaptureRows({
+          paymentSessions: paymentSessionsRes.data ?? [],
+          legacyPayments: paymentsRes.error ? [] : (paymentsRes.data || []),
+        });
+        paymentRows = merged.rows;
       }
       if (payoutItemsRes.error) {
         console.warn("[admin-finance-reconciliation] trip payout evidence unavailable:", payoutItemsRes.error.message);
@@ -621,16 +636,32 @@ serve(async (req) => {
         }));
       }
     } else if (tripIds.length > 0 && summaryOnly) {
-      const paymentsRes = await supabase
-        .from("payments")
-        .select("captured_amount_pence, status, trip_id, provider_status, stripe_payment_intent_id, provider_available_on")
-        .in("trip_id", tripIds);
-      if (paymentsRes.error) {
+      const [paymentsRes, paymentSessionsRes] = await Promise.all([
+        supabase
+          .from("payments")
+          .select("captured_amount_pence, status, trip_id, provider_status, stripe_payment_intent_id, provider_available_on")
+          .in("trip_id", tripIds),
+        supabase
+          .from("payment_sessions")
+          .select("trip_id, captured_amount_pence, status")
+          .in("trip_id", tripIds)
+          .not("captured_amount_pence", "is", null),
+      ]);
+      if (paymentsRes.error && paymentSessionsRes.error) {
         console.warn("[admin-finance-reconciliation] payment evidence unavailable:", paymentsRes.error.message);
         paymentSessionsDownstream = "UNAVAILABLE";
         paymentRows = [];
       } else {
-        paymentRows = paymentsRes.data || [];
+        if (paymentSessionsRes.error) {
+          paymentSessionsDownstream = "UNAVAILABLE";
+        } else {
+          paymentSessionsDownstream = "OK";
+        }
+        const merged = mergePaymentSessionsIntoCaptureRows({
+          paymentSessions: paymentSessionsRes.data ?? [],
+          legacyPayments: paymentsRes.error ? [] : (paymentsRes.data || []),
+        });
+        paymentRows = merged.rows;
       }
     }
 
@@ -951,17 +982,29 @@ serve(async (req) => {
       const todayTripIds = (todayTrips ?? []).map((t) => t.id as string);
       let todayPayments: Array<{ trip_id: string | null; captured_amount_pence: number | null; status: string | null }> = [];
       if (todayTripIds.length > 0) {
-        const { data: payData } = await supabase
-          .from("payments")
-          .select("trip_id, captured_amount_pence, status")
-          .in("trip_id", todayTripIds);
-        todayPayments = payData ?? [];
+        const [payData, sessionData] = await Promise.all([
+          supabase
+            .from("payments")
+            .select("trip_id, captured_amount_pence, status")
+            .in("trip_id", todayTripIds),
+          supabase
+            .from("payment_sessions")
+            .select("trip_id, captured_amount_pence, status")
+            .in("trip_id", todayTripIds)
+            .not("captured_amount_pence", "is", null),
+        ]);
+        todayPayments = mergePaymentSessionsIntoCaptureRows({
+          paymentSessions: sessionData.data ?? [],
+          legacyPayments: payData.data ?? [],
+        }).rows;
       }
       const capturedByTrip = new Map<string, number>();
       for (const p of todayPayments) {
         if (!p.trip_id) continue;
-        const cap = Math.max(0, Number(p.captured_amount_pence ?? 0));
-        capturedByTrip.set(p.trip_id, (capturedByTrip.get(p.trip_id) ?? 0) + cap);
+        if (p.captured_amount_pence == null) continue;
+        const cap = Number(p.captured_amount_pence);
+        if (!Number.isFinite(cap) || cap < 0) continue;
+        capturedByTrip.set(p.trip_id, (capturedByTrip.get(p.trip_id) ?? 0) + Math.round(cap));
       }
 
       const todayAuditRows = (todayTrips ?? []).map((t) => ({

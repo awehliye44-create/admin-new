@@ -20,12 +20,14 @@ import {
   sumDriverNetEarningsPence,
   sumOnecabGrossCommissionPence,
   sumProviderProcessingFeesPence,
+  mergePaymentSessionsIntoCaptureRows,
   type LedgerSSOTRow,
   type PaymentCaptureRow,
   type TripSSOTRow,
 } from "./financialReconciliationSSOT.ts";
 import { computeLedgerWalletBalancePence } from "./onecabFinanceLedger.ts";
 import { computePayoutEligibility } from "./payoutEligibilitySSOT.ts";
+import { loadPayoutControlCentreSettings } from "./payoutControlCentreSettingsSSOT.ts";
 import {
   computeFinanceClearedPenceFromSettlements,
   computeIncludedInPayoutBatchPence,
@@ -98,14 +100,30 @@ export function sumInFlightCashoutPence(rows: EarlyCashoutRow[]): number {
     .reduce((s, r) => s + Math.max(0, r.requested_cashout_pence ?? 0), 0);
 }
 
-export function nextWeeklyPayoutDateIso(): string {
+const WEEKDAY_TO_JS: Record<string, number> = {
+  sunday: 0,
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6,
+};
+
+/** Next weekly payout calendar date in the configured timezone (default Europe/London). */
+export function nextWeeklyPayoutDateIso(args?: {
+  weeklyPayoutDay?: string | null;
+  timeZone?: string | null;
+}): string {
+  const tz = String(args?.timeZone ?? "Europe/London").trim() || "Europe/London";
+  const targetDow = WEEKDAY_TO_JS[String(args?.weeklyPayoutDay ?? "monday").toLowerCase()] ?? 1;
   const now = new Date();
-  const london = new Date(now.toLocaleString("en-US", { timeZone: "Europe/London" }));
-  const day = london.getDay();
-  const daysUntilWednesday = (3 - day + 7) % 7 || 7;
-  london.setDate(london.getDate() + daysUntilWednesday);
-  london.setHours(0, 0, 0, 0);
-  return london.toISOString();
+  const local = new Date(now.toLocaleString("en-US", { timeZone: tz }));
+  const day = local.getDay();
+  const daysUntil = (targetDow - day + 7) % 7 || 7;
+  local.setDate(local.getDate() + daysUntil);
+  local.setHours(0, 0, 0, 0);
+  return local.toISOString();
 }
 
 export function buildPayoutGateReasons(args: {
@@ -201,6 +219,8 @@ export function computePerDriverSSOT(args: {
   stripeConnectPayouts?: Array<{ amount_pence?: number | null; status?: string | null }>;
   /** Wallet-ledger payout path (Revolut manual bank transfer). */
   manualProviderPayout?: boolean;
+  weeklyPayoutDay?: string | null;
+  payoutTimeZone?: string | null;
 }): PerDriverSSOT {
   const sourceTier = args.sourceTier ?? "LIVE";
   const driverGross = sumDriverGrossEarningsPence(args.trips);
@@ -289,7 +309,10 @@ export function computePerDriverSSOT(args: {
     driver_pending_payout_pence: pendingPayout,
     driver_wallet_balance_pence: walletBalance,
     driver_debt_pence: driverDebt,
-    next_payout_date: nextWeeklyPayoutDateIso(),
+    next_payout_date: nextWeeklyPayoutDateIso({
+      weeklyPayoutDay: args.weeklyPayoutDay,
+      timeZone: args.payoutTimeZone,
+    }),
     reconciliation_status: reconciliation.status,
     reconciliation_scope: reconciliation.reconciliation_scope,
     digital_net_customer_revenue_pence: reconciliation.digital_net_customer_revenue_pence,
@@ -321,12 +344,13 @@ export async function fetchPerDriverFinancialReconciliation(
 
   const { data: driverRow, error: driverErr } = await supabase
     .from("drivers")
-    .select("id, region_id")
+    .select("id, region_id, service_area_id")
     .eq("id", driverId)
     .maybeSingle();
   if (driverErr || !driverRow) throw new Error("Driver not found");
 
   const regionId = args.regionId ?? driverRow.region_id ?? null;
+  const serviceAreaId = (driverRow as { service_area_id?: string | null }).service_area_id ?? null;
 
   let peerDriverIds = [driverId];
   if (regionId) {
@@ -405,11 +429,21 @@ export async function fetchPerDriverFinancialReconciliation(
   const tripIds = allTrips.map((t) => (t as { id?: string }).id).filter(Boolean) as string[];
   let paymentRows: PaymentCaptureRow[] = [];
   if (tripIds.length > 0) {
-    const { data: payments } = await supabase
-      .from("payments")
-      .select("captured_amount_pence, status, trip_id")
-      .in("trip_id", tripIds);
-    paymentRows = payments ?? [];
+    const [paymentsRes, sessionsRes] = await Promise.all([
+      supabase
+        .from("payments")
+        .select("captured_amount_pence, status, trip_id")
+        .in("trip_id", tripIds),
+      supabase
+        .from("payment_sessions")
+        .select("trip_id, captured_amount_pence, status")
+        .in("trip_id", tripIds)
+        .not("captured_amount_pence", "is", null),
+    ]);
+    paymentRows = mergePaymentSessionsIntoCaptureRows({
+      paymentSessions: sessionsRes.data ?? [],
+      legacyPayments: paymentsRes.data ?? [],
+    }).rows;
   }
 
   const liabilities: Record<string, number> = {};
@@ -436,6 +470,10 @@ export async function fetchPerDriverFinancialReconciliation(
         (item.status === "completed" && !item.ledger_entry_id && !!item.stripe_payout_id)),
   );
 
+  const controlCentre = await loadPayoutControlCentreSettings(supabase, {
+    serviceAreaId,
+  });
+
   return computePerDriverSSOT({
     driverId,
     regionId,
@@ -452,5 +490,7 @@ export async function fetchPerDriverFinancialReconciliation(
     activePayoutItems: activePayoutResult.data ?? [],
     stripeConnectPayouts: stripePayoutsResult.data ?? [],
     manualProviderPayout: args.manualProviderPayout,
+    weeklyPayoutDay: controlCentre.weekly_payout_day,
+    payoutTimeZone: controlCentre.payout_timezone,
   });
 }

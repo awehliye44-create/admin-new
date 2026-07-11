@@ -175,7 +175,7 @@ export default function PaymentSessions() {
   const tab = parseTab(searchParams.get('tab'));
   const paymentSessionId = searchParams.get('paymentSessionId');
   const providerOrderId = searchParams.get('providerOrderId');
-  const tripId = searchParams.get('tripId');
+  const tripIdParam = searchParams.get('tripId');
   const customerIdParam = searchParams.get('customerId');
 
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(
@@ -189,6 +189,7 @@ export default function PaymentSessions() {
   const [sessionStatus, setSessionStatus] = useState('');
   const [providerState, setProviderState] = useState('');
   const [customerId, setCustomerId] = useState(customerIdParam ?? '');
+  const [tripIdFilter, setTripIdFilter] = useState(tripIdParam ?? '');
   const [hasTrip, setHasTrip] = useState<TriState>('all');
   const [activeHold, setActiveHold] = useState(false);
   const [releaseFailed, setReleaseFailed] = useState(searchParams.get('releaseFailed') === '1');
@@ -209,14 +210,18 @@ export default function PaymentSessions() {
     if (customerIdParam) setCustomerId(customerIdParam);
   }, [customerIdParam]);
 
+  useEffect(() => {
+    if (tripIdParam) setTripIdFilter(tripIdParam);
+  }, [tripIdParam]);
+
   const request = useMemo(
     () => ({
       tab,
       payment_session_id: paymentSessionId,
       provider_order_id: providerOrderId,
-      trip_id: tripId,
+      trip_id: tripIdFilter.trim() || null,
       customer_id: customerId.trim() || null,
-      limit: 100,
+      limit: tab === 'history' || tab === 'overview' ? 500 : 100,
       date_from: dateFrom || null,
       date_to: dateTo || null,
       service_area_id: serviceFilter.serviceAreaId,
@@ -238,7 +243,7 @@ export default function PaymentSessions() {
       tab,
       paymentSessionId,
       providerOrderId,
-      tripId,
+      tripIdFilter,
       customerId,
       dateFrom,
       dateTo,
@@ -304,6 +309,7 @@ export default function PaymentSessions() {
     setSessionStatus('');
     setProviderState('');
     setCustomerId('');
+    setTripIdFilter('');
     setHasTrip('all');
     setActiveHold(false);
     setReleaseFailed(false);
@@ -313,6 +319,7 @@ export default function PaymentSessions() {
     setLegacyEvidence(false);
     const params = new URLSearchParams(searchParams);
     params.delete('customerId');
+    params.delete('tripId');
     params.delete('providerFeesPending');
     params.delete('captureFailed');
     params.delete('recoveryPending');
@@ -330,6 +337,7 @@ export default function PaymentSessions() {
     || !!sessionStatus.trim()
     || !!providerState.trim()
     || !!customerId.trim()
+    || !!tripIdFilter.trim()
     || hasTrip !== 'all'
     || activeHold
     || releaseFailed
@@ -553,6 +561,15 @@ export default function PaymentSessions() {
             />
           </div>
           <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Trip ID</Label>
+            <Input
+              value={tripIdFilter}
+              onChange={(e) => setTripIdFilter(e.target.value)}
+              placeholder="trip uuid"
+              className="w-[220px] font-mono text-xs"
+            />
+          </div>
+          <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Has trip</Label>
             <Select value={hasTrip} onValueChange={(v) => setHasTrip(v as TriState)}>
               <SelectTrigger className="w-[120px]">
@@ -675,7 +692,7 @@ export default function PaymentSessions() {
                   <AlertTitle>No payment attempts match the selected filters.</AlertTitle>
                   <AlertDescription>
                     Try Overview or History, or clear deep-link filters.
-                    {paymentSessionId || providerOrderId || tripId || hasLocalFilters ? (
+                    {paymentSessionId || providerOrderId || tripIdFilter || hasLocalFilters ? (
                       <>
                         {' '}
                         <Link

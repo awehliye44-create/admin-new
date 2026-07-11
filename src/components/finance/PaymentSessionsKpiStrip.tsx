@@ -77,7 +77,7 @@ export function PaymentSessionsKpiStrip({
     },
     {
       id: 'revenue',
-      label: 'Customer Revenue Captured',
+      label: 'Total Customer Revenue Captured',
       value: formatNullablePence(summary.total_customer_revenue_captured_pence, currencyCode),
       drill: { tab: 'captured' },
       hint: 'SUM(confirmed captures) only',
@@ -87,6 +87,7 @@ export function PaymentSessionsKpiStrip({
       label: 'Total Authorised',
       value: formatNullablePence(summary.total_authorised_pence, currencyCode),
       drill: { tab: 'active_holds' },
+      hint: 'Active holds only',
     },
     {
       id: 'success',
@@ -102,6 +103,7 @@ export function PaymentSessionsKpiStrip({
       label: 'Money At Risk',
       value: formatNullablePence(summary.money_at_risk_pence, currencyCode),
       drill: { tab: 'active_holds' },
+      hint: 'Non-green active authorisations',
     },
   ];
 

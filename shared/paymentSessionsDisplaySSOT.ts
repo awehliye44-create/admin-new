@@ -8,6 +8,7 @@ export type PaymentSessionsCanonicalStatus =
   | "CAPTURE_PENDING"
   | "CAPTURED"
   | "CAPTURED_EVIDENCE_PENDING"
+  | "CAPTURE_FAILED"
   | "RELEASED"
   | "CANCELLED"
   | "REFUNDED"
@@ -106,13 +107,17 @@ export function mapCanonicalSessionStatus(input: PaymentSessionsDisplayInput): P
 
   if (raw === "completed_pending_capture") return "CAPTURE_PENDING";
 
+  // CANCELLED is distinct from RELEASED (spec status vocabulary).
   if (
-    providerReleased
-    || raw === "released"
-    || raw === "cancelled"
-    || input.released_at
+    raw === "cancelled"
+    || upper(input.provider_state) === "CANCELLED"
+    || upper(input.provider_state) === "CANCELED"
   ) {
-    return providerReleased && upper(input.provider_state) === "REVERTED" ? "RELEASED" : "RELEASED";
+    return "CANCELLED";
+  }
+
+  if (providerReleased || raw === "released" || input.released_at) {
+    return "RELEASED";
   }
 
   if (
@@ -122,6 +127,15 @@ export function mapCanonicalSessionStatus(input: PaymentSessionsDisplayInput): P
     || isProviderAuthorisedState(input.provider_state)
   ) {
     return "AUTHORISED";
+  }
+
+  if (
+    raw.includes("capture_fail")
+    || raw === "capture_failed"
+    || (raw.includes("fail") && raw.includes("capture"))
+    || (upper(input.provider_state) === "FAILED" && input.captured_amount_pence == null)
+  ) {
+    return "CAPTURE_FAILED";
   }
 
   if (raw.includes("fail") || upper(input.provider_state) === "FAILED") return "FAILED";
@@ -134,6 +148,8 @@ export function sessionStatusLabel(status: PaymentSessionsCanonicalStatus): stri
       return "CAPTURED EVIDENCE PENDING";
     case "CAPTURE_PENDING":
       return "CAPTURE PENDING";
+    case "CAPTURE_FAILED":
+      return "CAPTURE FAILED";
     case "PARTIALLY_REFUNDED":
       return "PARTIALLY REFUNDED";
     default:
@@ -336,22 +352,25 @@ export function rowBelongsInCapturedTab(row: {
   return row.attention_class === "CAPTURED";
 }
 
+/** Released tab = released holds only — never Cancelled (Cancelled stays in History). */
 export function rowBelongsInReleasedTab(row: {
   released_at?: string | null;
   released_amount_pence?: number | null;
   provider_state?: string | null;
   attention_class?: string | null;
   session_status?: string | null;
+  session_status_display?: string | null;
 }): boolean {
-  if (row.released_at) return true;
-  if (isProviderReleasedState(row.provider_state)) return true;
-  if (
-    row.attention_class === "RESOLVED_PROVIDER_CANCELLED"
-    || row.attention_class === "RESOLVED_PROVIDER_REVERTED"
-  ) {
-    return true;
+  const display = upper(row.session_status_display);
+  const provider = upper(row.provider_state);
+  if (display === "CANCELLED" || provider === "CANCELLED" || provider === "CANCELED") {
+    return false;
   }
-  return Boolean(row.session_status && /releas|cancel/i.test(row.session_status));
+  if (row.attention_class === "RESOLVED_PROVIDER_CANCELLED") return false;
+  if (row.released_at) return true;
+  if (provider === "REVERTED") return true;
+  if (row.attention_class === "RESOLVED_PROVIDER_REVERTED") return true;
+  return Boolean(row.session_status && /releas/i.test(row.session_status) && !/cancel/i.test(row.session_status));
 }
 
 export function rowBelongsInRefundedTab(row: {
@@ -366,7 +385,7 @@ export function rowBelongsInRefundedTab(row: {
   return row.attention_class === "REFUNDED";
 }
 
-/** Active Holds = live authorisations only — never captured / released / refunded / cancelled. */
+/** Active Holds = all live authorisations — never captured / released / refunded / cancelled. */
 export function rowBelongsInActiveHoldsTab(row: {
   in_active_queue?: boolean;
   classification?: string | null;
@@ -376,6 +395,8 @@ export function rowBelongsInActiveHoldsTab(row: {
   refunded_at?: string | null;
   attention_class?: string | null;
   captured_amount_pence?: number | null;
+  authorised_amount_pence?: number | null;
+  session_status_display?: string | null;
 }): boolean {
   if (row.captured_at || isProviderCapturedState(row.provider_state)) return false;
   if (row.captured_amount_pence != null) return false;
@@ -389,7 +410,22 @@ export function rowBelongsInActiveHoldsTab(row: {
   ) {
     return false;
   }
-  return Boolean(row.in_active_queue && row.classification !== "GREEN");
+  const display = upper(row.session_status_display);
+  if (
+    display === "CAPTURED"
+    || display === "RELEASED"
+    || display === "CANCELLED"
+    || display === "REFUNDED"
+    || display === "PARTIALLY_REFUNDED"
+    || display === "CAPTURE_FAILED"
+  ) {
+    return false;
+  }
+  // Include healthy trip-linked auths (OK_ACTIVE_TRIP / GREEN) — not attention-queue only.
+  if (isProviderAuthorisedState(row.provider_state)) return true;
+  if (display === "AUTHORISED" || display === "CAPTURE_PENDING") return true;
+  if (row.in_active_queue) return true;
+  return row.authorised_amount_pence != null && Number(row.authorised_amount_pence) > 0;
 }
 
 /** Confirmed capture amount for revenue KPIs — never invent £0 from null. */

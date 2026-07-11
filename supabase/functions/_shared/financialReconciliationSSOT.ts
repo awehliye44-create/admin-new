@@ -1,11 +1,10 @@
 /**
- * Financial Reconciliation SSOT — canonical finance calculation engine.
+ * Financial Reconciliation SSOT — audit/reconcile engine.
  *
- * Financial Reconciliation is the source of truth for calculations and reporting.
- * It calculates from canonical backend sources; it is NOT the raw data store.
+ * Payment Sessions owns customer payment amounts (authorised / captured / released /
+ * refunded / fees). FR consumes those values and must never invent or recalculate them.
  *
- * Canonical sources:
- * - payments (customer revenue)
+ * Other canonical sources:
  * - trips (commission, driver earnings)
  * - driver_wallet_ledger (paid out, adjustments)
  * - provider balance API (digital positions only)
@@ -86,6 +85,7 @@ export const CAPTURED_PAYMENT_STATUSES = new Set(["captured", "paid", "succeeded
 export const CAPTURE_CONFIRMED_TRIP_PAYMENT_STATUSES = CAPTURED_PAYMENT_STATUSES;
 
 export type CustomerRevenueSourceLabel =
+  | "payment_sessions_captured"
   | "payments_captured"
   | "expected_pending_stripe_confirmation"
   | "trips_capture_fallback_pending"
@@ -96,6 +96,53 @@ export type PaymentCaptureRow = {
   status: string | null;
   trip_id?: string | null;
 };
+
+/** Confirmed capture only — never invent £0 from null (Payment Sessions SSOT rule). */
+export function confirmedCapturePence(amount: number | null | undefined): number | null {
+  if (amount == null) return null;
+  const n = Number(amount);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n);
+}
+
+/**
+ * Prefer Payment Sessions confirmed captures per trip; legacy `payments` only for
+ * trips with no session capture evidence. Never invent amounts.
+ */
+export function mergePaymentSessionsIntoCaptureRows(args: {
+  paymentSessions: Array<{
+    trip_id?: string | null;
+    captured_amount_pence?: number | null;
+    status?: string | null;
+  }>;
+  legacyPayments: PaymentCaptureRow[];
+}): { rows: PaymentCaptureRow[]; source: CustomerRevenueSourceLabel } {
+  const byTrip = new Map<string, number>();
+  for (const s of args.paymentSessions) {
+    if (!s.trip_id) continue;
+    const amt = confirmedCapturePence(s.captured_amount_pence);
+    if (amt == null) continue;
+    byTrip.set(s.trip_id, (byTrip.get(s.trip_id) ?? 0) + amt);
+  }
+
+  const rows: PaymentCaptureRow[] = [];
+  const covered = new Set<string>();
+  for (const [trip_id, captured_amount_pence] of byTrip) {
+    rows.push({ trip_id, captured_amount_pence, status: "captured" });
+    covered.add(trip_id);
+  }
+  for (const p of args.legacyPayments) {
+    if (!p.trip_id || covered.has(p.trip_id)) continue;
+    if (!CAPTURED_PAYMENT_STATUSES.has(String(p.status ?? "").toLowerCase())) continue;
+    if (confirmedCapturePence(p.captured_amount_pence) == null) continue;
+    rows.push(p);
+  }
+
+  return {
+    rows,
+    source: byTrip.size > 0 ? "payment_sessions_captured" : "payments_captured",
+  };
+}
 
 export type TripSSOTRow = {
   id?: string | null;
@@ -199,30 +246,30 @@ export function tripDriverGrossEarningsPence(row: TripSSOTRow): number {
   return fare + pickupWaiting + stopWaiting + tips + airport + passThrough;
 }
 
-/** 1. Total customer revenue — captured payments only (reconciled). */
+/** 1. Total customer revenue — confirmed captures only (Payment Sessions preferred upstream). */
 export function sumCustomerRevenuePence(args: {
   payments: PaymentCaptureRow[];
   trips: TripSSOTRow[];
 }): { total_pence: number; source: CustomerRevenueSourceLabel } {
   const fromPayments = args.payments
     .filter((p) => CAPTURED_PAYMENT_STATUSES.has(String(p.status ?? "").toLowerCase()))
-    .reduce((s, p) => s + Math.max(0, p.captured_amount_pence ?? 0), 0);
+    .reduce((s, p) => {
+      const amt = confirmedCapturePence(p.captured_amount_pence);
+      return amt == null ? s : s + amt;
+    }, 0);
 
-  if (fromPayments > 0) {
-    return { total_pence: fromPayments, source: "payments_captured" };
-  }
-
-  return { total_pence: 0, source: "payments_captured" };
+  return { total_pence: fromPayments, source: "payments_captured" };
 }
 
-/** Expected revenue from completed card trips awaiting Stripe capture confirmation. */
+/** Expected revenue from completed card trips awaiting capture confirmation — no fare invention. */
 export function sumPendingStripeConfirmationRevenuePence(args: {
   pendingTrips: TripSSOTRow[];
 }): number {
   return args.pendingTrips.reduce((s, t) => {
     const tip = Math.max(0, t.tip_pence ?? t.tip_amount_pence ?? 0);
-    const fare = Math.max(0, t.final_fare_pence ?? t.commissionable_fare_pence ?? t.capture_amount_pence ?? 0);
-    return s + fare + tip;
+    // Only trip capture field — never final_fare / commissionable_fare as customer revenue.
+    const capture = confirmedCapturePence(t.capture_amount_pence) ?? 0;
+    return s + capture + tip;
   }, 0);
 }
 
@@ -258,7 +305,8 @@ export function sumCapturedPaymentsByTripId(
   for (const p of payments) {
     if (!p.trip_id) continue;
     if (!CAPTURED_PAYMENT_STATUSES.has(String(p.status ?? "").toLowerCase())) continue;
-    const cap = Math.max(0, p.captured_amount_pence ?? 0);
+    const cap = confirmedCapturePence(p.captured_amount_pence);
+    if (cap == null) continue;
     byTrip.set(p.trip_id, (byTrip.get(p.trip_id) ?? 0) + cap);
   }
   return byTrip;
@@ -272,7 +320,10 @@ export function sumDigitalCustomerRevenuePence(args: {
   return args.payments
     .filter((p) => p.trip_id && args.digitalTripIds.has(p.trip_id))
     .filter((p) => CAPTURED_PAYMENT_STATUSES.has(String(p.status ?? "").toLowerCase()))
-    .reduce((s, p) => s + Math.max(0, p.captured_amount_pence ?? 0), 0);
+    .reduce((s, p) => {
+      const amt = confirmedCapturePence(p.captured_amount_pence);
+      return amt == null ? s : s + amt;
+    }, 0);
 }
 
 export function sumDigitalNetCustomerRevenuePence(args: {
