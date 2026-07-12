@@ -174,20 +174,16 @@ export function RevolutBusinessOAuthPanel() {
               {authUrl}
             </a>
             <p className="text-muted-foreground">
-              Matches certificate redirect: <code className="break-all">{gaps?.redirect_uri ?? diag?.redirect_uri ?? "https://admin.onecab.net/auth/revolut/callback"}</code>
-            </p>
-            <p className="text-muted-foreground">
-              Optional later: switch Revolut redirect to Edge{" "}
-              <code className="break-all">{gaps?.edge_callback_uri ?? "…/admin-revolut-business-oauth-callback"}</code>
+              Matches certificate redirect: <code className="break-all">{gaps?.redirect_uri ?? diag?.redirect_uri ?? "https://adminonecab.net/auth/revolut/callback"}</code>
             </p>
           </div>
         )}
 
         <div className="rounded-md border p-3 space-y-2">
-          <div className="font-medium text-sm">Manual code exchange (closes admin.onecab.net 404 gap)</div>
+          <div className="font-medium text-sm">Manual code exchange (fallback)</div>
           <p className="text-xs text-muted-foreground">
-            After Enable access / Authorise, if the browser shows a 404, copy the <code>code</code> query
-            value from the address bar and paste it here within ~2 minutes.
+            Normal path: Revolut redirects to <code>https://adminonecab.net/auth/revolut/callback</code>.
+            If that fails, copy the <code>code</code> from the address bar and paste it here within ~2 minutes.
           </p>
           <div className="flex flex-wrap gap-2">
             <Input
