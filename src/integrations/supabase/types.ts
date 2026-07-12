@@ -13180,6 +13180,7 @@ export type Database = {
           currency_code: string | null
           customer_payment_gateway: string | null
           distance_unit: string | null
+          driver_id_prefix: string
           driver_payout_gateway: string | null
           early_cashout_enabled: boolean
           geo_boundary: Json | null
@@ -13194,6 +13195,7 @@ export type Database = {
           stops_waiting_charges: Json | null
           timezone: string | null
           tips_enabled: boolean
+          trip_id_prefix: string
           updated_at: string
         }
         Insert: {
@@ -13205,6 +13207,7 @@ export type Database = {
           currency_code?: string | null
           customer_payment_gateway?: string | null
           distance_unit?: string | null
+          driver_id_prefix: string
           driver_payout_gateway?: string | null
           early_cashout_enabled?: boolean
           geo_boundary?: Json | null
@@ -13219,6 +13222,7 @@ export type Database = {
           stops_waiting_charges?: Json | null
           timezone?: string | null
           tips_enabled?: boolean
+          trip_id_prefix: string
           updated_at?: string
         }
         Update: {
@@ -13230,6 +13234,7 @@ export type Database = {
           currency_code?: string | null
           customer_payment_gateway?: string | null
           distance_unit?: string | null
+          driver_id_prefix?: string
           driver_payout_gateway?: string | null
           early_cashout_enabled?: boolean
           geo_boundary?: Json | null
@@ -13244,6 +13249,7 @@ export type Database = {
           stops_waiting_charges?: Json | null
           timezone?: string | null
           tips_enabled?: boolean
+          trip_id_prefix?: string
           updated_at?: string
         }
         Relationships: [
