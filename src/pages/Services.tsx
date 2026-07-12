@@ -565,9 +565,12 @@ export default function Services() {
 
   const openEditDialog = (area: ServiceArea) => {
     setSelectedArea(area);
+    const anyArea = area as any;
     setFormData({ 
       name: area.name, 
       code: area.code || '',
+      trip_id_prefix: (anyArea.trip_id_prefix || area.code || '').toUpperCase(),
+      driver_id_prefix: (anyArea.driver_id_prefix || area.code || '').toUpperCase(),
       country: area.country || '',
       timezone: area.timezone || 'Europe/London',
       region_id: area.region_id, 
@@ -577,6 +580,7 @@ export default function Services() {
     setActiveTab('details');
     setIsEditDialogOpen(true);
   };
+
 
   const openViewDialog = (area: ServiceArea) => {
     setSelectedArea(area);
