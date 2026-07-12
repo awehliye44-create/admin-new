@@ -53,8 +53,10 @@ type ScheduleRow = {
 
 export function CompanyTransfersPayeesSection({
   serviceAreaId,
+  focus = 'all',
 }: {
   serviceAreaId?: string | null;
+  focus?: 'all' | 'payees' | 'schedules';
 }) {
   const queryClient = useQueryClient();
   const [showPayeeForm, setShowPayeeForm] = useState(false);
@@ -171,18 +173,37 @@ export function CompanyTransfersPayeesSection({
     return map;
   }, [payeesQuery.data]);
 
+  const schedulesByPayee = useMemo(() => {
+    const map = new Map<string, ScheduleRow>();
+    for (const s of schedulesQuery.data ?? []) {
+      if (!map.has(s.payee_id)) map.set(s.payee_id, s);
+    }
+    return map;
+  }, [schedulesQuery.data]);
+
   return (
     <div className="space-y-6">
+      {(focus === 'all' || focus === 'payees') && (
       <div className="flex flex-wrap gap-2">
         <Button size="sm" onClick={() => setShowPayeeForm((v) => !v)}>
           <Plus className="h-4 w-4 mr-2" /> {showPayeeForm ? 'Hide' : 'Add payee'}
         </Button>
+        {(focus === 'all' || focus === 'schedules') && (
+        <Button size="sm" variant="outline" onClick={() => setShowScheduleForm((v) => !v)}>
+          {showScheduleForm ? 'Hide schedule form' : 'Add automatic payment'}
+        </Button>
+        )}
+      </div>
+      )}
+      {focus === 'schedules' && (
+      <div className="flex flex-wrap gap-2">
         <Button size="sm" variant="outline" onClick={() => setShowScheduleForm((v) => !v)}>
           {showScheduleForm ? 'Hide schedule form' : 'Add automatic payment'}
         </Button>
       </div>
+      )}
 
-      {showPayeeForm ? (
+      {(focus === 'all' || focus === 'payees') && showPayeeForm ? (
         <Card>
           <CardHeader><CardTitle className="text-base">Add company payee</CardTitle></CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
@@ -213,6 +234,7 @@ export function CompanyTransfersPayeesSection({
         </Card>
       ) : null}
 
+      {(focus === 'all' || focus === 'payees') && (
       <Card>
         <CardHeader><CardTitle className="text-base">Payees</CardTitle></CardHeader>
         <CardContent>
@@ -229,11 +251,15 @@ export function CompanyTransfersPayeesSection({
                   <TableHead>Masked account</TableHead>
                   <TableHead>Currency</TableHead>
                   <TableHead>Verification</TableHead>
+                  <TableHead>Automatic payment</TableHead>
+                  <TableHead>Next payment</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(payeesQuery.data ?? []).map((p) => (
+                {(payeesQuery.data ?? []).map((p) => {
+                  const sched = schedulesByPayee.get(p.id);
+                  return (
                   <TableRow key={p.id}>
                     <TableCell>
                       <div className="font-medium">{p.display_name}</div>
@@ -243,16 +269,20 @@ export function CompanyTransfersPayeesSection({
                     <TableCell className="font-mono text-xs">{p.masked_account}</TableCell>
                     <TableCell className="text-xs">{p.currency}</TableCell>
                     <TableCell><Badge variant="outline">{p.account_verification_status}</Badge></TableCell>
+                    <TableCell className="text-xs">{sched ? `${sched.frequency}${sched.paused ? ' · PAUSED' : ''}` : '—'}</TableCell>
+                    <TableCell className="text-xs">{sched?.next_run_at_local ?? '—'}</TableCell>
                     <TableCell className="text-xs">{p.paused ? 'PAUSED' : p.active ? 'ACTIVE' : 'INACTIVE'}</TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}
         </CardContent>
       </Card>
+      )}
 
-      {showScheduleForm ? (
+      {(focus === 'all' || focus === 'schedules') && showScheduleForm ? (
         <Card>
           <CardHeader><CardTitle className="text-base">Automatic payment</CardTitle></CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
@@ -314,6 +344,7 @@ export function CompanyTransfersPayeesSection({
         </Card>
       ) : null}
 
+      {(focus === 'all' || focus === 'schedules') && (
       <Card>
         <CardHeader><CardTitle className="text-base">Automatic payments</CardTitle></CardHeader>
         <CardContent>
@@ -349,6 +380,7 @@ export function CompanyTransfersPayeesSection({
           )}
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }

@@ -12,6 +12,8 @@ import {
   computeCompanyPayeeNextRun,
   evaluateAutomaticCompanyPaymentGates,
   buildSchedulePeriodKey,
+  buildAutomaticPeriodPayableDraft,
+  assertTransferStatusTransition,
 } from "../../../shared/companyPayeeScheduleSSOT";
 import {
   encryptCompanyPayeeSecret,
@@ -139,6 +141,34 @@ describe("company payee schedule SSOT", () => {
       timezone: "Europe/London",
     });
     expect(key).toBe("D:2026-07-14");
+  });
+
+  it("staff salary schedule creates one payable draft per period", () => {
+    const draft = buildAutomaticPeriodPayableDraft({
+      schedule_id: "s1",
+      schedule_period_key: "D:2026-07-14",
+      payee_id: "p1",
+      amount_pence: 100_00,
+      category: "STAFF_SALARY",
+    });
+    expect(draft.status).toBe("DRAFT");
+    expect(draft.execution_mode).toBe("DRAFT_FOR_APPROVAL");
+    expect(draft.idempotency_key).toBe("sched:s1:D:2026-07-14");
+    const again = buildAutomaticPeriodPayableDraft({
+      schedule_id: "s1",
+      schedule_period_key: "D:2026-07-14",
+      payee_id: "p1",
+      amount_pence: 100_00,
+      category: "STAFF_SALARY",
+    });
+    expect(again.idempotency_key).toBe(draft.idempotency_key);
+  });
+
+  it("failed transfer cannot become completed; revert requires completed", () => {
+    expect(assertTransferStatusTransition({ from: "FAILED", to: "COMPLETED" }))
+      .toEqual({ ok: false, reason: "FAILED_CANNOT_BECOME_COMPLETED" });
+    expect(assertTransferStatusTransition({ from: "PAID", to: "REVERTED" }).ok).toBe(true);
+    expect(assertTransferStatusTransition({ from: "DRAFT", to: "REVERTED" }).ok).toBe(false);
   });
 
   it("gates block insufficient funds and unverified payee", () => {

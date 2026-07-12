@@ -203,6 +203,55 @@ export function computeCompanyPayeeNextRun(args: {
   };
 }
 
+/** One payable draft identity per schedule period — never double-create. */
+export function buildAutomaticPeriodPayableDraft(args: {
+  schedule_id: string;
+  schedule_period_key: string;
+  payee_id: string;
+  amount_pence: number;
+  category: string;
+  currency?: string;
+}): {
+  schedule_id: string;
+  schedule_period_key: string;
+  payee_id: string;
+  amount_pence: number;
+  category: string;
+  currency: string;
+  status: "DRAFT";
+  execution_mode: "DRAFT_FOR_APPROVAL";
+  idempotency_key: string;
+} {
+  const amount = Math.round(Number(args.amount_pence));
+  if (!(amount > 0)) throw new Error("AMOUNT_INVALID");
+  return {
+    schedule_id: args.schedule_id,
+    schedule_period_key: args.schedule_period_key,
+    payee_id: args.payee_id,
+    amount_pence: amount,
+    category: args.category,
+    currency: String(args.currency ?? "GBP").toUpperCase(),
+    status: "DRAFT",
+    execution_mode: "DRAFT_FOR_APPROVAL",
+    idempotency_key: `sched:${args.schedule_id}:${args.schedule_period_key}`,
+  };
+}
+
+export function assertTransferStatusTransition(args: {
+  from: string;
+  to: string;
+}): { ok: boolean; reason: string | null } {
+  const from = String(args.from).toUpperCase();
+  const to = String(args.to).toUpperCase();
+  if (from === "FAILED" && (to === "COMPLETED" || to === "PAID")) {
+    return { ok: false, reason: "FAILED_CANNOT_BECOME_COMPLETED" };
+  }
+  if (to === "REVERTED" && !["PAID", "COMPLETED"].includes(from)) {
+    return { ok: false, reason: "REVERT_REQUIRES_COMPLETED" };
+  }
+  return { ok: true, reason: null };
+}
+
 export type AutomaticPaymentGateResult =
   | { ok: true }
   | { ok: false; status: string };

@@ -3,7 +3,7 @@
  * Money source: COMPANY_BALANCE / APPROVED_COMPANY_PAYABLE. Never driver wallet.
  */
 import { useMemo, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, Loader2, Plus, Printer } from 'lucide-react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -28,18 +28,20 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { supabase } from '@/integrations/supabase/client';
 import { downloadCsv, printPayoutReceipt } from '@/lib/financeExport';
 import { formatNullablePence } from '@/lib/formatNullablePence';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CompanyTransfersPayeesSection } from '@/components/finance/CompanyTransfersPayeesSection';
 import {
+  ADMIN_COMPANY_PAYEES_FN,
   ADMIN_COMPANY_TRANSFER_FN,
   type CompanyOutgoingTransferRow,
 } from '../../../shared/adminPayoutLedgerSSOT';
 import type { CompanyBalanceSnapshot } from '../../../shared/companyBalanceSSOT';
 import { COMPANY_BALANCE_ERROR } from '../../../shared/companyBalanceSSOT';
+import type { CompanyPayeePublicDto } from '../../../shared/companyPayeeSSOT';
 import {
   COMPANY_TRANSFER_CATEGORIES,
   COMPANY_TRANSFER_MONEY_SOURCES,
@@ -111,47 +113,80 @@ export function PayoutLedgerCompanyTransfersPanel({
   const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: true });
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
+    payee_id: '',
     recipient_name: '',
     recipient_type: 'STAFF',
-    category: 'STAFF_REIMBURSEMENT',
+    category: 'STAFF_SALARY',
     money_source: 'COMPANY_BALANCE',
     source_account: '',
     destination_account: '',
     amount_pence: '',
+    approved_amount_pence: '',
     currency: 'GBP',
     purpose: '',
+    payment_reference: '',
+    scheduled_at: '',
     service_area_id: serviceAreaId ?? '',
     cost_centre: '',
-    provider: 'manual',
+    provider: 'revolut_business',
     notes: '',
     attachment_url: '',
+  });
+
+  const payeesQuery = useQuery({
+    queryKey: ['admin-company-payees', serviceAreaId],
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke(ADMIN_COMPANY_PAYEES_FN, {
+        body: { action: 'list_payees', service_area_id: serviceAreaId ?? null },
+      });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error ?? 'List payees failed');
+      return (data.payees ?? []) as CompanyPayeePublicDto[];
+    },
+    enabled: !failedOnly,
   });
 
   const createMutation = useMutation({
     mutationFn: async () => {
       const amountPence = Math.round(Number(form.amount_pence));
+      const approvedPence = form.approved_amount_pence.trim()
+        ? Math.round(Number(form.approved_amount_pence))
+        : amountPence;
       if (!Number.isFinite(amountPence) || amountPence <= 0) {
         throw new Error('Enter amount in pence (backend SSOT units)');
+      }
+      if (!Number.isFinite(approvedPence) || approvedPence <= 0) {
+        throw new Error('Enter approved amount in pence');
+      }
+      if (!form.payee_id && !form.recipient_name.trim()) {
+        throw new Error('Select a saved payee or enter recipient name');
       }
       const idempotencyKey = `manual:${crypto.randomUUID()}`;
       const { data, error } = await supabase.functions.invoke(ADMIN_COMPANY_TRANSFER_FN, {
         body: {
           action: 'create',
-          recipient_name: form.recipient_name,
-          recipient_type: form.recipient_type,
+          payee_id: form.payee_id || null,
+          recipient_name: form.payee_id ? undefined : form.recipient_name,
+          recipient_type: form.payee_id ? undefined : form.recipient_type,
           category: form.category,
           money_source:
-            form.category === 'STAFF_REIMBURSEMENT' || form.category === 'STAFF_SALARY'
+            form.category === 'STAFF_REIMBURSEMENT'
+            || form.category === 'STAFF_SALARY'
+            || form.category === 'DIRECTOR_SALARY'
               ? 'COMPANY_BALANCE'
               : form.money_source,
           source_account: form.source_account || null,
           destination_account: form.destination_account || null,
           amount_pence: amountPence,
+          approved_amount_pence: approvedPence,
           currency: form.currency || 'GBP',
           purpose: form.purpose,
+          payment_reference: form.payment_reference || null,
+          scheduled_at: form.scheduled_at ? new Date(form.scheduled_at).toISOString() : null,
+          execution_mode: 'DRAFT_FOR_APPROVAL',
           service_area_id: form.service_area_id || serviceAreaId || null,
           cost_centre: form.cost_centre || null,
-          provider: form.provider || null,
+          provider: form.provider || 'revolut_business',
           notes: form.notes || null,
           attachment_url: form.attachment_url || null,
           idempotency_key: idempotencyKey,
@@ -214,6 +249,17 @@ export function PayoutLedgerCompanyTransfersPanel({
     [transfers],
   );
 
+  const awaitingApproval = useMemo(
+    () => transfers.filter((t) => ['AWAITING_APPROVAL', 'DRAFT'].includes(String(t.status))),
+    [transfers],
+  );
+  const historyTransfers = useMemo(
+    () => transfers.filter((t) =>
+      ['PAID', 'COMPLETED', 'FAILED', 'CANCELLED', 'DECLINED', 'REJECTED', 'REVERTED', 'FUNDING_UNAVAILABLE']
+        .includes(String(t.status))),
+    [transfers],
+  );
+
   const companyUnavailable =
     !companyBalance
     || companyBalance.status === 'UNAVAILABLE'
@@ -246,23 +292,85 @@ export function PayoutLedgerCompanyTransfersPanel({
         </TabsList>
 
         <TabsContent value="payees" className="space-y-4">
-          <CompanyTransfersPayeesSection serviceAreaId={serviceAreaId} />
+          <CompanyTransfersPayeesSection serviceAreaId={serviceAreaId} focus="payees" />
         </TabsContent>
 
         <TabsContent value="automatic" className="space-y-4">
-          <CompanyTransfersPayeesSection serviceAreaId={serviceAreaId} />
+          <CompanyTransfersPayeesSection serviceAreaId={serviceAreaId} focus="schedules" />
         </TabsContent>
 
         <TabsContent value="approvals" className="space-y-4">
           <p className="text-xs text-muted-foreground">
-            High-risk categories (director dividend/loan, company withdrawal, tax, regulatory) always require approval.
-            Requester cannot approve their own transfer.
+            High-risk categories always require approval. Requester cannot approve their own transfer.
           </p>
-          {/* Approvals reuse transfer table filtered below via pending statuses */}
+          {awaitingApproval.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No transfers awaiting approval.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Payee</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Amount</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {awaitingApproval.map((t) => (
+                  <TableRow key={t.id}>
+                    <TableCell className="text-xs">{t.recipient_name}</TableCell>
+                    <TableCell className="text-xs">{t.category}</TableCell>
+                    <TableCell className="text-xs tabular-nums">{formatNullablePence(t.amount_pence)}</TableCell>
+                    <TableCell><Badge variant="outline">{t.status}</Badge></TableCell>
+                    <TableCell className="space-x-1">
+                      <Button size="sm" variant="outline" onClick={() => actionMutation.mutate({ action: 'approve', transfer_id: t.id })}>Approve</Button>
+                      <Button size="sm" variant="ghost" onClick={() => {
+                        const reason = window.prompt('Rejection reason');
+                        if (!reason) return;
+                        actionMutation.mutate({ action: 'reject', transfer_id: t.id, reason });
+                      }}>Reject</Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </TabsContent>
 
         <TabsContent value="history" className="space-y-4">
-          <p className="text-xs text-muted-foreground">Completed / failed / cancelled company transfers.</p>
+          {historyTransfers.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No completed / failed history yet.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Ref</TableHead>
+                  <TableHead>Payee</TableHead>
+                  <TableHead>Amount</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Completed / failed</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {historyTransfers.map((t) => (
+                  <TableRow key={t.id}>
+                    <TableCell className="font-mono text-xs">{t.transfer_ref}</TableCell>
+                    <TableCell className="text-xs">{t.recipient_name}</TableCell>
+                    <TableCell className="text-xs tabular-nums">{formatNullablePence(t.amount_pence)}</TableCell>
+                    <TableCell><Badge variant="outline">{t.status}</Badge></TableCell>
+                    <TableCell className="text-xs">{shortDate(t.execution_at ?? t.last_attempt_at)}</TableCell>
+                    <TableCell>
+                      <Button size="sm" variant="ghost" onClick={() => openTransferReceipt(t)}>
+                        <Printer className="h-3.5 w-3.5 mr-1" /> PDF
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </TabsContent>
 
         <TabsContent value="transfers" className="space-y-4">
@@ -419,9 +527,44 @@ export function PayoutLedgerCompanyTransfersPanel({
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1 sm:col-span-2 text-xs text-muted-foreground">
-              Transfer ID is assigned by the backend on submit. Requested By is the signed-in admin.
-              Approved By / Provider Reference / Status / Execution Time are set by the approval and pay workflow.
+              Prefer a verified saved payee. Bank details stay encrypted server-side; UI shows masked accounts only.
+              Default mode DRAFT_FOR_APPROVAL — no live Revolut /pay from this form.
             </div>
+            <div className="space-y-1 sm:col-span-2">
+              <Label>Saved payee</Label>
+              <Select
+                value={form.payee_id || '__none__'}
+                onValueChange={(v) => {
+                  const payeeId = v === '__none__' ? '' : v;
+                  const payee = (payeesQuery.data ?? []).find((p) => p.id === payeeId);
+                  setForm((f) => ({
+                    ...f,
+                    payee_id: payeeId,
+                    recipient_name: payee?.display_name ?? f.recipient_name,
+                    recipient_type: payee?.payee_type ?? f.recipient_type,
+                    destination_account: payee?.masked_account ?? f.destination_account,
+                    currency: payee?.currency ?? f.currency,
+                    payment_reference: payee?.default_reference ?? f.payment_reference,
+                  }));
+                }}
+              >
+                <SelectTrigger><SelectValue placeholder="Select verified payee" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Manual recipient (legacy)</SelectItem>
+                  {(payeesQuery.data ?? []).map((p) => (
+                    <SelectItem
+                      key={p.id}
+                      value={p.id}
+                      disabled={p.account_verification_status !== 'VERIFIED' || p.paused || !p.active}
+                    >
+                      {p.display_name} · {p.masked_account} · {p.account_verification_status}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {!form.payee_id ? (
+              <>
             <div className="space-y-1">
               <Label>Recipient</Label>
               <Input
@@ -443,6 +586,8 @@ export function PayoutLedgerCompanyTransfersPanel({
                 </SelectContent>
               </Select>
             </div>
+              </>
+            ) : null}
             <div className="space-y-1">
               <Label>Category</Label>
               <Select
@@ -461,12 +606,12 @@ export function PayoutLedgerCompanyTransfersPanel({
               <Label>Money source</Label>
               <Select
                 value={
-                  form.category === 'STAFF_REIMBURSEMENT' || form.category === 'STAFF_SALARY'
+                  form.category === 'STAFF_REIMBURSEMENT' || form.category === 'STAFF_SALARY' || form.category === 'DIRECTOR_SALARY'
                     ? 'COMPANY_BALANCE'
                     : form.money_source
                 }
                 onValueChange={(v) => setForm((f) => ({ ...f, money_source: v }))}
-                disabled={form.category === 'STAFF_REIMBURSEMENT' || form.category === 'STAFF_SALARY'}
+                disabled={form.category === 'STAFF_REIMBURSEMENT' || form.category === 'STAFF_SALARY' || form.category === 'DIRECTOR_SALARY'}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -475,31 +620,53 @@ export function PayoutLedgerCompanyTransfersPanel({
                   ))}
                 </SelectContent>
               </Select>
-              {(form.category === 'STAFF_REIMBURSEMENT' || form.category === 'STAFF_SALARY') && (
-                <p className="text-[10px] text-muted-foreground">Staff salary/reimbursement must use COMPANY_BALANCE.</p>
-              )}
             </div>
             <div className="space-y-1">
-              <Label>Source account</Label>
+              <Label>Source Revolut account</Label>
               <Input
                 value={form.source_account}
                 onChange={(e) => setForm((f) => ({ ...f, source_account: e.target.value }))}
               />
             </div>
             <div className="space-y-1">
-              <Label>Destination account</Label>
+              <Label>Destination (masked)</Label>
               <Input
                 value={form.destination_account}
                 onChange={(e) => setForm((f) => ({ ...f, destination_account: e.target.value }))}
+                disabled={Boolean(form.payee_id)}
               />
             </div>
             <div className="space-y-1">
-              <Label>Amount (pence)</Label>
+              <Label>Requested amount (pence)</Label>
               <Input
                 inputMode="numeric"
                 value={form.amount_pence}
                 onChange={(e) => setForm((f) => ({ ...f, amount_pence: e.target.value }))}
                 placeholder="e.g. 25000 for £250"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Approved amount (pence)</Label>
+              <Input
+                inputMode="numeric"
+                value={form.approved_amount_pence}
+                onChange={(e) => setForm((f) => ({ ...f, approved_amount_pence: e.target.value }))}
+                placeholder="Defaults to requested"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Payment reference</Label>
+              <Input
+                value={form.payment_reference}
+                onChange={(e) => setForm((f) => ({ ...f, payment_reference: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Scheduled date/time</Label>
+              <Input
+                type="datetime-local"
+                value={form.scheduled_at}
+                onChange={(e) => setForm((f) => ({ ...f, scheduled_at: e.target.value }))}
               />
             </div>
             <div className="space-y-1">
