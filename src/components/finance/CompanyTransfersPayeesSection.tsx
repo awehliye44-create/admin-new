@@ -254,6 +254,7 @@ export function CompanyTransfersPayeesSection({
                   <TableHead>Automatic payment</TableHead>
                   <TableHead>Next payment</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
