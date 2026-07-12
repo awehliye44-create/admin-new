@@ -9,6 +9,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import AuthReset from "./pages/AuthReset";
+import RevolutBusinessOAuthCallback from "./pages/auth/RevolutBusinessOAuthCallback";
 import NotFound from "./pages/NotFound";
 import Dashboard from "./pages/Dashboard";
 import Dispatch from "./pages/Dispatch";
@@ -106,6 +107,7 @@ const App = () => (
             {/* Public Auth Routes */}
             <Route path="/auth" element={<Auth />} />
             <Route path="/auth/reset" element={<AuthReset />} />
+            <Route path="/auth/revolut/callback" element={<RevolutBusinessOAuthCallback />} />
             <Route path="/login" element={<Navigate to="/auth" replace />} />
             
             

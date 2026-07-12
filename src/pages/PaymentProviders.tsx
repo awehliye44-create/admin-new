@@ -6,6 +6,7 @@ import {
   PaymentProvidersCardsGrid,
   PaymentProvidersConfigurationReadiness,
 } from "@/components/integrations/PaymentProvidersSection";
+import { RevolutBusinessOAuthPanel } from "@/components/integrations/RevolutBusinessOAuthPanel";
 import { usePaymentProviders } from "@/hooks/usePaymentProviders";
 
 export default function PaymentProviders() {
@@ -37,6 +38,8 @@ export default function PaymentProviders() {
             activeProvider={activeProvider}
           />
         )}
+
+        <RevolutBusinessOAuthPanel />
 
         <PaymentProvidersCardsGrid />
 

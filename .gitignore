@@ -29,3 +29,15 @@ test-results/
 
 # Supabase CLI local cache (not source of truth)
 supabase/.temp/
+
+# Revolut Business API client credentials — NEVER commit private key or local secrets dir
+secrets/
+secrets/revolut-business/
+secrets/revolut-business/onecab-revolut-business-2048.key
+secrets/revolut-business/*.key
+secrets/revolut-business/*_private.pem
+secrets/revolut-business/*_private.key
+*.pem
+!**/public*.pem
+!**/public*.cer
+!**/public*.crt
