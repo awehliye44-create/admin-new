@@ -1203,8 +1203,76 @@ export default function Services() {
                   onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
                 />
               </div>
-              
+
               <div className="space-y-2">
+                <Label htmlFor="edit_code">Area Code</Label>
+                <Input
+                  id="edit_code"
+                  value={formData.code}
+                  onChange={(e) => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase().slice(0, 16) }))}
+                  maxLength={16}
+                  className="uppercase"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Internal service-area code used for filtering, reporting and configuration lookup.
+                </p>
+              </div>
+
+              <div className="rounded-md border border-border/60 bg-muted/30 p-4 space-y-4">
+                <div>
+                  <h4 className="text-sm font-semibold">Identifier Settings — SSOT</h4>
+                  <p className="text-xs text-muted-foreground">
+                    Separate prefixes control Trip ID and Driver ID generation. Changing these affects only future IDs.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit_trip_id_prefix">Trip ID Prefix *</Label>
+                    <Input
+                      id="edit_trip_id_prefix"
+                      value={formData.trip_id_prefix}
+                      onChange={(e) => setFormData(prev => ({ ...prev, trip_id_prefix: sanitizePrefix(e.target.value) }))}
+                      maxLength={8}
+                      className="uppercase"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Used by the backend to generate immutable trip references, for example MK-260712-001.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit_driver_id_prefix">Driver ID Prefix *</Label>
+                    <Input
+                      id="edit_driver_id_prefix"
+                      value={formData.driver_id_prefix}
+                      onChange={(e) => setFormData(prev => ({ ...prev, driver_id_prefix: sanitizePrefix(e.target.value) }))}
+                      maxLength={8}
+                      className="uppercase"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Used by the backend to generate immutable driver references, for example MK001.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border/60">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Trip ID preview</p>
+                    <p className="font-mono text-sm mt-1">
+                      {(formData.trip_id_prefix || 'XX')}-
+                      {new Date().toISOString().slice(2,10).replace(/-/g,'')}-001
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Driver ID preview</p>
+                    <p className="font-mono text-sm mt-1">
+                      {(formData.driver_id_prefix || 'XX')}001
+                    </p>
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Allowed format: 2–8 characters, uppercase letters and digits only. Must be unique across service areas.
+                </p>
+              </div>
+
                 <Label htmlFor="edit_region">Region</Label>
                 <Select
                   value={formData.region_id}
