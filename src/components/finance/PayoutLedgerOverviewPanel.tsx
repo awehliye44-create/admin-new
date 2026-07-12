@@ -129,9 +129,12 @@ export function PayoutLedgerOverviewPanel({
   }
 
   const companyReason =
-    companyBalance?.unavailable_reason
+    companyBalance?.status_code
+    ?? companyBalance?.unavailable_reason
     ?? (overview.company_balance_pence == null
       ? (overview.unavailable_reason?.includes('COMPANY')
+        || overview.unavailable_reason === 'ACCOUNT_NOT_CONFIGURED'
+        || overview.unavailable_reason === 'AUTHENTICATION_REQUIRED'
         ? overview.unavailable_reason
         : COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE)
       : null);

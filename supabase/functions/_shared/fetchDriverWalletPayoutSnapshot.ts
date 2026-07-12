@@ -55,6 +55,9 @@ export type DriverWalletPayoutDetail = Omit<
   service_area_name: string | null;
   payout_provider: string | null;
   next_scheduled_payout_at: string | null;
+  /** Backend-formatted local next run — never browser-local. */
+  next_scheduled_payout_local: string | null;
+  schedule_label: string | null;
   wallet_status: "ACTIVE" | "FROZEN" | "NOT_CONNECTED" | "RESTRICTED";
   payout_items: Array<Record<string, unknown>>;
   early_cashouts: Array<Record<string, unknown>>;
@@ -664,6 +667,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     local_processing_time: controlCentre.payout_processing_time,
   });
   const nextScheduledPayoutAt = schedule.next_run_at_utc;
+  const nextScheduledPayoutLocal = schedule.next_run_at_local;
 
   return {
     ...snapshot,
@@ -701,6 +705,8 @@ export async function fetchDriverWalletPayoutSnapshot(
     service_area_name: serviceArea?.name ?? null,
     payout_provider: payoutProvider,
     next_scheduled_payout_at: nextScheduledPayoutAt,
+    next_scheduled_payout_local: nextScheduledPayoutLocal,
+    schedule_label: schedule.schedule_label,
     wallet_status: walletStatus,
     period_kpis,
     payout_items: payoutItems,

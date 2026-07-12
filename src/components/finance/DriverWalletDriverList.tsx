@@ -56,6 +56,8 @@ function formatDateTime(iso: string | null | undefined): string {
 
 function formatNextPayout(row: DriverWalletSsotRow, currencyCode: string): string {
   const amount = formatNullablePence(row.scheduled_payout_display_pence, currencyCode);
+  const local = row.next_scheduled_payout_local;
+  if (local) return amount === '—' ? local : `${amount} · ${local}`;
   if (!row.next_scheduled_payout_at) return amount === '—' ? '—' : amount;
   try {
     return `${amount} · ${format(new Date(row.next_scheduled_payout_at), 'dd MMM')}`;

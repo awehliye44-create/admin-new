@@ -125,6 +125,8 @@ export type DriverPayoutAccountRow = {
   /** Display label for payout destination (manual bank / provider account). */
   payout_destination?: string | null;
   next_scheduled_at: string | null;
+  /** Backend-formatted local next run (Europe/London wall clock) — never browser-local. */
+  next_scheduled_local?: string | null;
   last_payout_at: string | null;
   last_payout_amount_pence: number | null;
   schedule_label: string | null;

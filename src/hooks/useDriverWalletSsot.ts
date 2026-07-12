@@ -55,6 +55,8 @@ export type DriverWalletSsotRow = {
   service_area_name?: string | null;
   payout_provider?: string | null;
   next_scheduled_payout_at?: string | null;
+  next_scheduled_payout_local?: string | null;
+  schedule_label?: string | null;
   wallet_status?: 'ACTIVE' | 'FROZEN' | 'NOT_CONNECTED' | 'RESTRICTED' | string | null;
   current_onecab_wallet_owed_pence: number;
   finance_cleared_amount_pence: number;

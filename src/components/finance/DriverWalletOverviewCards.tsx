@@ -75,15 +75,16 @@ export function DriverWalletOverviewCards({
     || driver.payout_blocked === true
     || (driver.wallet_balance_pence ?? 0) < 0;
 
-  const nextPayoutHint = driver.next_scheduled_payout_at
-    ? (() => {
-      try {
-        return format(new Date(driver.next_scheduled_payout_at), 'dd MMM yyyy');
-      } catch {
-        return undefined;
-      }
-    })()
-    : undefined;
+  const nextPayoutHint = driver.next_scheduled_payout_local
+    ?? (driver.next_scheduled_payout_at
+      ? (() => {
+        try {
+          return format(new Date(driver.next_scheduled_payout_at), 'dd MMM yyyy');
+        } catch {
+          return undefined;
+        }
+      })()
+      : undefined);
 
   return (
     <div className="space-y-4">

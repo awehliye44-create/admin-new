@@ -67,6 +67,8 @@ export type PerDriverSSOT = {
   /** abs(min(wallet_balance, 0)). */
   driver_debt_pence: number;
   next_payout_date: string | null;
+  /** Backend-formatted local next run — never browser-local. */
+  next_payout_local?: string | null;
   reconciliation_status: "BALANCED" | "RECONCILIATION_MISMATCH";
   reconciliation_scope: "digital_v3";
   digital_net_customer_revenue_pence: number;
@@ -101,7 +103,7 @@ export function sumInFlightCashoutPence(rows: EarlyCashoutRow[]): number {
 }
 
 /** Next weekly payout calendar date — re-exported from payoutScheduleSSOT. */
-export { nextWeeklyPayoutDateIso } from "./payoutScheduleSSOT.ts";
+export { nextWeeklyPayoutDateIso, computeNextWeeklyPayoutRun, buildPayoutScheduleDto } from "./payoutScheduleSSOT.ts";
 
 export function buildPayoutGateReasons(args: {
   reconciliationStatus: "BALANCED" | "RECONCILIATION_MISMATCH";
@@ -198,6 +200,7 @@ export function computePerDriverSSOT(args: {
   manualProviderPayout?: boolean;
   weeklyPayoutDay?: string | null;
   payoutTimeZone?: string | null;
+  localProcessingTime?: string | null;
 }): PerDriverSSOT {
   const sourceTier = args.sourceTier ?? "LIVE";
   const driverGross = sumDriverGrossEarningsPence(args.trips);
@@ -264,6 +267,11 @@ export function computePerDriverSSOT(args: {
     manualProviderPayout: args.manualProviderPayout,
   });
   const payoutBlockedReasons = payoutGate.payout_blocked_reasons;
+  const nextRun = computeNextWeeklyPayoutRun({
+    weeklyPayoutDay: args.weeklyPayoutDay,
+    timeZone: args.payoutTimeZone,
+    localProcessingTime: args.localProcessingTime ?? "12:00",
+  });
 
   return {
     driver_id: args.driverId,
@@ -286,10 +294,8 @@ export function computePerDriverSSOT(args: {
     driver_pending_payout_pence: pendingPayout,
     driver_wallet_balance_pence: walletBalance,
     driver_debt_pence: driverDebt,
-    next_payout_date: nextWeeklyPayoutDateIso({
-      weeklyPayoutDay: args.weeklyPayoutDay,
-      timeZone: args.payoutTimeZone,
-    }),
+    next_payout_date: nextRun.next_run_at_utc,
+    next_payout_local: nextRun.next_run_at_local,
     reconciliation_status: reconciliation.status,
     reconciliation_scope: reconciliation.reconciliation_scope,
     digital_net_customer_revenue_pence: reconciliation.digital_net_customer_revenue_pence,
@@ -468,5 +474,6 @@ export async function fetchPerDriverFinancialReconciliation(
     manualProviderPayout: args.manualProviderPayout,
     weeklyPayoutDay: controlCentre.weekly_payout_day,
     payoutTimeZone: controlCentre.payout_timezone,
+    localProcessingTime: controlCentre.payout_processing_time,
   });
 }

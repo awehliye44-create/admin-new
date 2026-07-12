@@ -217,7 +217,9 @@ export function PayoutLedgerCompanyTransfersPanel({
     || companyBalance.status === 'UNAVAILABLE'
     || companyBalance.company_available_for_transfer_pence == null;
   const companyUnavailableReason =
-    companyBalance?.unavailable_reason ?? COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE;
+    companyBalance?.status_code
+    ?? companyBalance?.unavailable_reason
+    ?? COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE;
 
   return (
     <div className="space-y-4">
@@ -255,7 +257,7 @@ export function PayoutLedgerCompanyTransfersPanel({
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Available for Transfer</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Available for Company Transfer</CardTitle></CardHeader>
           <CardContent className="space-y-1">
             {companyUnavailable ? (
               <>
@@ -295,7 +297,7 @@ export function PayoutLedgerCompanyTransfersPanel({
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Approved Payables</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Approved Company Payables</CardTitle></CardHeader>
           <CardContent className="text-xl font-semibold tabular-nums">
             {formatNullablePence(kpis?.approved_payables_pending_pence ?? companyBalance?.approved_company_payables_pence ?? null)}
           </CardContent>
@@ -313,7 +315,7 @@ export function PayoutLedgerCompanyTransfersPanel({
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Processing</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Processing Company Transfers</CardTitle></CardHeader>
           <CardContent className="text-xl font-semibold tabular-nums">
             {formatNullablePence(kpis?.processing_pence ?? null)}
           </CardContent>
@@ -343,6 +345,16 @@ export function PayoutLedgerCompanyTransfersPanel({
       ) : null}
 
       <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
+            toast.success('Refreshing company balance…');
+          }}
+        >
+          Refresh company balance
+        </Button>
         {!failedOnly && (
           <Button size="sm" onClick={() => setShowForm((v) => !v)} disabled={companyUnavailable}>
             <Plus className="h-4 w-4 mr-2" /> {showForm ? 'Hide form' : 'New company transfer'}

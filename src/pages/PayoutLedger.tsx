@@ -698,7 +698,7 @@ export default function PayoutLedger() {
                           {row.unavailable_reason ?? '—'}
                         </TableCell>
                         <TableCell className="text-xs tabular-nums">{row.eligible_entry_count ?? 0}</TableCell>
-                        <TableCell className="text-xs">{shortDate(row.next_scheduled_at)}</TableCell>
+                        <TableCell className="text-xs">{row.next_scheduled_local ?? row.next_scheduled_at ?? '—'}</TableCell>
                         <TableCell className="text-xs">{shortDate(row.last_payout_at)}</TableCell>
                         <TableCell className="text-xs">{row.schedule_label ?? '—'}</TableCell>
                         <TableCell className="text-xs"><Badge variant={row.paused ? 'destructive' : 'outline'}>{row.payout_status}</Badge></TableCell>
@@ -767,7 +767,7 @@ export default function PayoutLedger() {
                     {account?.unavailable_reason ? (
                       <div className="text-amber-700">Hold reason: {account.unavailable_reason}</div>
                     ) : null}
-                    <div>Next Scheduled: {shortDate(account?.next_scheduled_at)}</div>
+                    <div>Next Scheduled: {account?.next_scheduled_local ?? account?.next_scheduled_at ?? '—'}</div>
                     <div>Last Successful: {shortDate(account?.last_payout_at)} ({formatNullablePence(account?.last_payout_amount_pence ?? null)})</div>
                     <div>Schedule: {account?.schedule_label ?? '—'}</div>
                   </div>
