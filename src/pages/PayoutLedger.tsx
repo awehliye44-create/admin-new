@@ -38,6 +38,7 @@ import {
 } from '@/components/finance/PayoutLedgerActions';
 import { PayoutLedgerSettingsPanel } from '@/components/finance/PayoutLedgerSettingsPanel';
 import { PayoutLedgerCompanyTransfersPanel } from '@/components/finance/PayoutLedgerCompanyTransfersPanel';
+import { PayoutLedgerOverviewPanel } from '@/components/finance/PayoutLedgerOverviewPanel';
 import { useAdminPayoutLedger } from '@/hooks/useAdminPayoutLedger';
 import { supabase } from '@/integrations/supabase/client';
 import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
@@ -209,9 +210,14 @@ export default function PayoutLedger() {
   const companyBatches = data?.company_batches ?? [];
   const companyAuditRows = data?.company_audit_rows ?? [];
   const overview = data?.overview_summary;
+  const companyBalance = data?.company_balance ?? overview?.company_balance ?? null;
   const account = accountData?.accounts?.[0] ?? accounts.find((row) => row.driver_id === driverId) ?? null;
   const summary = data?.summary;
   const fleet = data?.fleet_summary;
+  const ledgerErrorCode = data?.error_code
+    ?? (error instanceof Error && /permission|403|401/i.test(error.message)
+      ? 'PAYOUT_LEDGER_PERMISSION_DENIED'
+      : null);
 
   useEffect(() => {
     if (topTab === 'settings') return;
@@ -358,80 +364,16 @@ export default function PayoutLedger() {
           </TabsList>
 
           <TabsContent value="overview" className="mt-4 space-y-4">
-            {isLoading ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> Loading overview...
-              </div>
-            ) : overview ? (
-              <>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => printFinanceRecords('ONECAB weekly payout report', [{
-                    report: 'weekly',
-                    driver_pending_pence: overview.driver_payouts_pending_pence,
-                    driver_scheduled_pence: overview.driver_payouts_scheduled_pence,
-                    driver_completed_today_pence: overview.driver_payouts_completed_today_pence,
-                    company_pending_pence: overview.company_transfers_pending_pence,
-                    company_completed_today_pence: overview.company_transfers_completed_today_pence,
-                    failed_transfers: overview.failed_transfers_count,
-                    awaiting_approval: overview.awaiting_approval_count,
-                    next_weekly_driver_payout_at: overview.next_scheduled_weekly_driver_payout_at,
-                    generated_at: new Date().toISOString(),
-                  }])}
-                >
-                  <Printer className="h-4 w-4 mr-2" /> Weekly report PDF
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => printFinanceRecords('ONECAB monthly payout report', [{
-                    report: 'monthly',
-                    driver_pending_pence: overview.driver_payouts_pending_pence,
-                    driver_scheduled_pence: overview.driver_payouts_scheduled_pence,
-                    driver_completed_today_pence: overview.driver_payouts_completed_today_pence,
-                    company_pending_pence: overview.company_transfers_pending_pence,
-                    company_completed_today_pence: overview.company_transfers_completed_today_pence,
-                    failed_transfers: overview.failed_transfers_count,
-                    awaiting_approval: overview.awaiting_approval_count,
-                    generated_at: new Date().toISOString(),
-                  }])}
-                >
-                  <Printer className="h-4 w-4 mr-2" /> Monthly report PDF
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => printFinanceRecords('ONECAB annual payout report', [{
-                    report: 'annual',
-                    driver_pending_pence: overview.driver_payouts_pending_pence,
-                    driver_scheduled_pence: overview.driver_payouts_scheduled_pence,
-                    driver_completed_today_pence: overview.driver_payouts_completed_today_pence,
-                    company_pending_pence: overview.company_transfers_pending_pence,
-                    company_completed_today_pence: overview.company_transfers_completed_today_pence,
-                    failed_transfers: overview.failed_transfers_count,
-                    awaiting_approval: overview.awaiting_approval_count,
-                    generated_at: new Date().toISOString(),
-                  }])}
-                >
-                  <Printer className="h-4 w-4 mr-2" /> Annual report PDF
-                </Button>
-              </div>
-              <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Driver Payouts Pending</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(overview.driver_payouts_pending_pence)}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Driver Payouts Scheduled</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(overview.driver_payouts_scheduled_pence)}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Driver Payouts Completed Today</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(overview.driver_payouts_completed_today_pence)}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Company Transfers Pending</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(overview.company_transfers_pending_pence)}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Company Transfers Completed Today</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(overview.company_transfers_completed_today_pence)}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Failed Transfers</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{overview.failed_transfers_count}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Awaiting Approval</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{overview.awaiting_approval_count}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Next Scheduled Weekly Driver Payout</CardTitle></CardHeader><CardContent className="text-sm font-semibold">{shortDate(overview.next_scheduled_weekly_driver_payout_at)}</CardContent></Card>
-              </div>
-              </>
-            ) : (
-              <Alert><AlertTitle>Overview unavailable</AlertTitle></Alert>
-            )}
+            <PayoutLedgerOverviewPanel
+              overview={overview}
+              companyBalance={companyBalance}
+              isLoading={isLoading}
+              isError={isError && !overview}
+              errorCode={ledgerErrorCode}
+              errorMessage={error instanceof Error ? error.message : error ? String(error) : null}
+              onRetry={() => void refetch()}
+              isFetching={isFetching}
+            />
           </TabsContent>
 
           <TabsContent value="company_transfers" className="mt-4">
@@ -439,6 +381,8 @@ export default function PayoutLedger() {
               transfers={companyTransfers}
               isLoading={isLoading}
               serviceAreaId={serviceFilter.serviceAreaId}
+              companyBalance={companyBalance}
+              kpis={data?.company_transfer_kpis ?? null}
             />
           </TabsContent>
 
@@ -448,6 +392,8 @@ export default function PayoutLedger() {
               isLoading={isLoading}
               failedOnly
               serviceAreaId={serviceFilter.serviceAreaId}
+              companyBalance={companyBalance}
+              kpis={data?.company_transfer_kpis ?? null}
             />
             {items.length > 0 && (
               <div className="space-y-2">

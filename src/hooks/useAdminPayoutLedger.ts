@@ -19,7 +19,17 @@ export function useAdminPayoutLedger(
         ADMIN_PAYOUT_LEDGER_FN,
         { body: request },
       );
-      if (error) throw error;
+      // Prefer body even when FunctionsHttpError wraps a structured DEGRADED payload.
+      if (data?.success && data.overview_summary) return data;
+      if (data?.success) return data;
+      if (error) {
+        const msg = error.message || 'Payout ledger list failed';
+        const enriched = new Error(msg) as Error & { error_code?: string };
+        enriched.error_code = data?.error_code ?? 'PAYOUT_LEDGER_API_UNAVAILABLE';
+        // If a partial body arrived with overview_summary, still use it.
+        if (data?.overview_summary) return data;
+        throw enriched;
+      }
       if (!data?.success) {
         throw new Error(data?.error ?? 'Payout ledger list failed');
       }

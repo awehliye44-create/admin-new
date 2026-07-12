@@ -4,6 +4,9 @@
  * Never owns customer payments, DWL balance math, or FR.
  */
 
+import type { CompanyBalanceSnapshot } from "./companyBalanceSSOT.ts";
+import type { PayoutLedgerOverviewDto } from "./payoutLedgerOverviewSSOT.ts";
+
 export const ADMIN_PAYOUT_LEDGER_FN = "admin-payout-ledger";
 export const ADMIN_COMPANY_TRANSFER_FN = "admin-company-outgoing-transfer";
 
@@ -154,16 +157,25 @@ export type AdminPayoutLedgerFleetSummary = {
   zero_batch_guard?: string | null;
 };
 
-/** Combined top Overview widgets — backend only, no React sums. */
-export type AdminPayoutLedgerOverviewSummary = {
-  driver_payouts_pending_pence: number;
-  driver_payouts_scheduled_pence: number;
-  driver_payouts_completed_today_pence: number;
-  company_transfers_pending_pence: number;
-  company_transfers_completed_today_pence: number;
-  failed_transfers_count: number;
-  awaiting_approval_count: number;
-  next_scheduled_weekly_driver_payout_at: string | null;
+/**
+ * Combined top Overview widgets — backend only, no React sums.
+ * Extends the PL Overview DTO; legacy aliases kept for older cards.
+ */
+export type AdminPayoutLedgerOverviewSummary = PayoutLedgerOverviewDto & {
+  /** @deprecated use driver_pending_pence / payout_scheduled_pence */
+  driver_payouts_pending_pence?: number;
+  /** @deprecated use payout_scheduled_pence */
+  driver_payouts_scheduled_pence?: number;
+  /** @deprecated use payout_paid_today_pence */
+  driver_payouts_completed_today_pence?: number;
+  /** @deprecated use company_payables_pending_pence */
+  company_transfers_pending_pence?: number;
+  /** @deprecated use company_transfers_paid_today_pence */
+  company_transfers_completed_today_pence?: number;
+  /** @deprecated use payout_failed_count + company_transfers_failed_count */
+  failed_transfers_count?: number;
+  /** @deprecated use company_awaiting_approval_count */
+  awaiting_approval_count?: number;
 };
 
 export type CompanyOutgoingTransferRow = {
@@ -264,6 +276,17 @@ export type AdminPayoutLedgerListResponse = {
   accounts?: DriverPayoutAccountRow[];
   fleet_summary?: AdminPayoutLedgerFleetSummary;
   overview_summary?: AdminPayoutLedgerOverviewSummary;
+  company_balance?: CompanyBalanceSnapshot;
+  /** Backend KPIs for Company Transfers tab — no React money sums. */
+  company_transfer_kpis?: {
+    awaiting_approval_count: number;
+    approved_payables_pending_pence: number;
+    processing_pence: number;
+    completed_month_pence: number;
+    failed_count: number;
+  };
+  /** Sanitised machine code when page_status is not LIVE. */
+  error_code?: string | null;
   company_transfers?: CompanyOutgoingTransferRow[];
   company_batches?: CompanyOutgoingBatchRow[];
   company_audit_rows?: CompanyOutgoingAuditRow[];

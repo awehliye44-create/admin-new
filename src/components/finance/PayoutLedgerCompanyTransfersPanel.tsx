@@ -36,6 +36,8 @@ import {
   ADMIN_COMPANY_TRANSFER_FN,
   type CompanyOutgoingTransferRow,
 } from '../../../shared/adminPayoutLedgerSSOT';
+import type { CompanyBalanceSnapshot } from '../../../shared/companyBalanceSSOT';
+import { COMPANY_BALANCE_ERROR } from '../../../shared/companyBalanceSSOT';
 import {
   COMPANY_TRANSFER_CATEGORIES,
   COMPANY_TRANSFER_MONEY_SOURCES,
@@ -87,11 +89,21 @@ export function PayoutLedgerCompanyTransfersPanel({
   isLoading,
   failedOnly = false,
   serviceAreaId = null,
+  companyBalance = null,
+  kpis = null,
 }: {
   transfers: CompanyOutgoingTransferRow[];
   isLoading: boolean;
   failedOnly?: boolean;
   serviceAreaId?: string | null;
+  companyBalance?: CompanyBalanceSnapshot | null;
+  kpis?: {
+    awaiting_approval_count: number;
+    approved_payables_pending_pence: number;
+    processing_pence: number;
+    completed_month_pence: number;
+    failed_count: number;
+  } | null;
 }) {
   const queryClient = useQueryClient();
   const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: true });
@@ -200,6 +212,13 @@ export function PayoutLedgerCompanyTransfersPanel({
     [transfers],
   );
 
+  const companyUnavailable =
+    !companyBalance
+    || companyBalance.status === 'UNAVAILABLE'
+    || companyBalance.company_available_for_transfer_pence == null;
+  const companyUnavailableReason =
+    companyBalance?.unavailable_reason ?? COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE;
+
   return (
     <div className="space-y-4">
       <Alert>
@@ -210,9 +229,84 @@ export function PayoutLedgerCompanyTransfersPanel({
         </AlertDescription>
       </Alert>
 
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">ONECAB Company Balance</CardTitle></CardHeader>
+          <CardContent className="space-y-1">
+            {companyUnavailable ? (
+              <>
+                <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
+                <div className="text-xs font-mono text-muted-foreground">{companyUnavailableReason}</div>
+              </>
+            ) : (
+              <div className="text-xl font-semibold tabular-nums">
+                {formatNullablePence(companyBalance?.company_ledger_balance_pence)}
+              </div>
+            )}
+            <div className="text-[11px] text-muted-foreground">Source: Company Balance SSOT</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Available for Transfer</CardTitle></CardHeader>
+          <CardContent className="space-y-1">
+            {companyUnavailable ? (
+              <>
+                <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
+                <div className="text-xs font-mono text-muted-foreground">{companyUnavailableReason}</div>
+              </>
+            ) : (
+              <div className="text-xl font-semibold tabular-nums">
+                {formatNullablePence(companyBalance?.company_available_for_transfer_pence)}
+              </div>
+            )}
+            <div className="text-[11px] text-muted-foreground">Source: Company Balance SSOT</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Approved Payables</CardTitle></CardHeader>
+          <CardContent className="text-xl font-semibold tabular-nums">
+            {formatNullablePence(kpis?.approved_payables_pending_pence ?? null)}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Awaiting Approval</CardTitle></CardHeader>
+          <CardContent className="text-xl font-semibold tabular-nums">
+            {kpis?.awaiting_approval_count ?? '—'}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Processing</CardTitle></CardHeader>
+          <CardContent className="text-xl font-semibold tabular-nums">
+            {formatNullablePence(kpis?.processing_pence ?? null)}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Completed This Month</CardTitle></CardHeader>
+          <CardContent className="text-xl font-semibold tabular-nums">
+            {formatNullablePence(kpis?.completed_month_pence ?? null)}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Failed Transfers</CardTitle></CardHeader>
+          <CardContent className="text-xl font-semibold tabular-nums">
+            {kpis?.failed_count ?? '—'}
+          </CardContent>
+        </Card>
+      </div>
+
+      {companyUnavailable && !failedOnly ? (
+        <Alert>
+          <AlertTitle>Funding unavailable</AlertTitle>
+          <AlertDescription>
+            New company transfers that spend COMPANY_BALANCE are blocked until a proven company cash source is wired.
+            Reason: {companyUnavailableReason}. This is not £0.00.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       <div className="flex flex-wrap gap-2">
         {!failedOnly && (
-          <Button size="sm" onClick={() => setShowForm((v) => !v)}>
+          <Button size="sm" onClick={() => setShowForm((v) => !v)} disabled={companyUnavailable}>
             <Plus className="h-4 w-4 mr-2" /> {showForm ? 'Hide form' : 'New company transfer'}
           </Button>
         )}
