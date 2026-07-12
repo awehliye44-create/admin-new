@@ -195,7 +195,8 @@ export function PayoutLedgerOverviewPanel({
           <MetricCard
             title="Next Scheduled Weekly Driver Payout"
             value={overview.next_run_at_local
-              ?? shortDate(overview.next_scheduled_weekly_driver_payout_at)}
+              ?? overview.payout_schedule?.next_run_at_local
+              ?? '—'}
             source="Payout Schedule SSOT"
           />
           <MetricCard

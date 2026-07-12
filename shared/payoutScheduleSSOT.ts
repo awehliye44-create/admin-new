@@ -255,14 +255,20 @@ export function buildPayoutScheduleDto(args: {
     currencyCode: args.currencyCode,
   });
   const frequency = String(args.frequency ?? "weekly").toLowerCase();
-  const weekly_day = String(args.weekly_day ?? "monday").toLowerCase();
+  // Never silently invent Monday — missing day = MISCONFIGURED until control-centre row loads.
+  const weeklyDayRaw = args.weekly_day != null ? String(args.weekly_day).trim().toLowerCase() : "";
+  const weekly_day = weeklyDayRaw || "";
   const local_processing_time = parseHm(args.local_processing_time);
   const localTime = `${String(local_processing_time.hour).padStart(2, "0")}:${String(local_processing_time.minute).padStart(2, "0")}`;
   const enabled = args.automatic_payouts_enabled !== false;
+  const dayConfigured = Boolean(weekly_day) && weekly_day in WEEKDAY_TO_JS;
 
   let schedule_status: PayoutScheduleStatus = "ACTIVE";
   if (!enabled) schedule_status = "PAUSED";
   if (frequency === "manual_only") schedule_status = "MANUAL_ONLY";
+  if (enabled && frequency !== "manual_only" && frequency !== "daily" && !dayConfigured) {
+    schedule_status = "MISCONFIGURED";
+  }
 
   let next_run_at_utc: string | null = null;
   let next_run_at_local: string | null = null;
@@ -310,11 +316,13 @@ export function buildPayoutScheduleDto(args: {
     timezone,
     automatic_payouts_enabled: enabled,
     frequency,
-    weekly_day,
+    weekly_day: dayConfigured ? weekly_day : (weekly_day || "unconfigured"),
     local_processing_time: localTime,
     next_run_at_utc,
     next_run_at_local,
-    schedule_label: buildPayoutScheduleLabel({ frequency, weeklyDay: weekly_day }),
+    schedule_label: dayConfigured
+      ? buildPayoutScheduleLabel({ frequency, weeklyDay: weekly_day })
+      : "Schedule not configured",
     schedule_status,
     schedule_version: PAYOUT_SCHEDULE_VERSION,
   };

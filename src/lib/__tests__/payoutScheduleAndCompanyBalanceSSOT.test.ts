@@ -65,6 +65,18 @@ describe("payout schedule SSOT", () => {
     expect(dto.next_run_at_utc).toBe("2026-07-14T11:00:00.000Z");
   });
 
+  it("DTO without weekly_day is MISCONFIGURED — never Weekly Monday", () => {
+    const dto = buildPayoutScheduleDto({
+      frequency: "weekly",
+      local_processing_time: "12:00",
+      currencyCode: "GBP",
+      serviceAreaTimezone: "Europe/London",
+    });
+    expect(dto.schedule_status).toBe("MISCONFIGURED");
+    expect(dto.schedule_label).toBe("Schedule not configured");
+    expect(dto.schedule_label.toLowerCase()).not.toContain("monday");
+  });
+
   it("DST: winter Tuesday 12:00 London is 12:00 UTC", () => {
     const utc = zonedWallTimeToUtc({
       year: 2026,

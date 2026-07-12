@@ -89,6 +89,22 @@ describe("company balance SSOT", () => {
 });
 
 describe("payout ledger overview partial failure", () => {
+  it("preserves ACCOUNT_NOT_CONFIGURED instead of collapsing to SOURCE_UNAVAILABLE", () => {
+    let dto = emptyPayoutLedgerOverviewDto({ status: "LIVE", unavailable_reason: null });
+    dto.unavailable_reason = null;
+    dto.section_errors = [];
+    dto.driver_wallet_total_pence = 1409;
+    dto.driver_available_pence = 1409;
+    dto.company_balance_pence = null;
+    dto.company_available_for_transfer_pence = null;
+    dto.section_errors.push("ACCOUNT_NOT_CONFIGURED");
+
+    dto = finalisePayoutLedgerOverviewStatus(dto);
+    expect(dto.status).toBe("PARTIAL");
+    expect(dto.unavailable_reason).toBe("ACCOUNT_NOT_CONFIGURED");
+    expect(dto.driver_available_pence).toBe(1409);
+  });
+
   it("keeps driver widgets when company balance is unavailable", () => {
     let dto = emptyPayoutLedgerOverviewDto({ status: "LIVE", unavailable_reason: null });
     dto.unavailable_reason = null;

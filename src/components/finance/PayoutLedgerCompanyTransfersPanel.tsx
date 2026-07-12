@@ -338,8 +338,10 @@ export function PayoutLedgerCompanyTransfersPanel({
         <Alert>
           <AlertTitle>Funding unavailable</AlertTitle>
           <AlertDescription>
-            New company transfers that spend COMPANY_BALANCE are blocked until a proven company cash source is wired.
-            Reason: {companyUnavailableReason}. This is not £0.00.
+            New company transfers that spend COMPANY_BALANCE are blocked until a proven Revolut Business
+            source account is configured (vault <span className="font-mono">merchant_id</span> +{' '}
+            <span className="font-mono">business_access_token</span>).
+            Reason: {companyUnavailableReason}. This is not £0.00 — Driver Wallet money is never used.
           </AlertDescription>
         </Alert>
       ) : null}

@@ -52,8 +52,7 @@ export function DriverWalletAccountHeader({
 
   const nextPayout = [
     formatNullablePence(driver.scheduled_payout_display_pence, currencyCode),
-    driver.next_scheduled_payout_local
-      ?? (driver.next_scheduled_payout_at ? fmtDate(driver.next_scheduled_payout_at) : null),
+    driver.next_scheduled_payout_local ?? null,
   ].filter(Boolean).join(' · ') || '—';
 
   return (

@@ -128,10 +128,22 @@ export function finalisePayoutLedgerOverviewStatus(
     unavailable_reason = PAYOUT_LEDGER_ERROR.DRIVER_WALLET_SOURCE_UNAVAILABLE;
   } else if (errors.length > 0 || !companyOk) {
     status = "PARTIAL";
-    unavailable_reason = errors.includes(PAYOUT_LEDGER_ERROR.COMPANY_BALANCE_SOURCE_UNAVAILABLE)
-      || !companyOk
-      ? PAYOUT_LEDGER_ERROR.COMPANY_BALANCE_SOURCE_UNAVAILABLE
-      : errors[0] ?? null;
+    // Preserve precise company status codes — never collapse ACCOUNT_NOT_CONFIGURED
+    // / AUTHENTICATION_REQUIRED / etc. into a generic SOURCE_UNAVAILABLE.
+    const companySpecific = errors.find((e) =>
+      e === "ACCOUNT_NOT_CONFIGURED"
+      || e === "AUTHENTICATION_REQUIRED"
+      || e === "CURRENCY_MISMATCH"
+      || e === "PROVIDER_UNAVAILABLE"
+      || e === "STALE_PROVIDER_EVIDENCE"
+      || e === "PENDING_SYNC"
+      || e === "TRANSFER_DISABLED"
+      || e === "COMPANY_BALANCE_PROVIDER_STUB_REJECTED"
+      || e === PAYOUT_LEDGER_ERROR.COMPANY_BALANCE_SOURCE_UNAVAILABLE
+      || e.startsWith("COMPANY_BALANCE_")
+    );
+    unavailable_reason = companySpecific
+      ?? (!companyOk ? PAYOUT_LEDGER_ERROR.COMPANY_BALANCE_SOURCE_UNAVAILABLE : (errors[0] ?? null));
   }
 
   return {
