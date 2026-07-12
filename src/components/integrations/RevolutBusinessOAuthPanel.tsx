@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -15,6 +16,7 @@ type Diag = {
   token_expires_at?: string | null;
   token_expires_in_seconds?: number | null;
   redirect_uri?: string;
+  jwt_iss?: string;
   oauth_scope?: string;
   live_payout_execution_enabled?: boolean;
   egress_public_ip?: string | null;
@@ -28,6 +30,9 @@ type Diag = {
   selected_source_account_id?: string | null;
   message?: string | null;
   authorization_url?: string;
+  edge_callback_uri?: string;
+  gaps?: Array<{ id: string; status: string; detail: string }>;
+  ready_for_enable_access?: boolean;
 };
 
 function formatPence(pence: number | null | undefined): string {
@@ -39,6 +44,8 @@ export function RevolutBusinessOAuthPanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [diag, setDiag] = useState<Diag | null>(null);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
+  const [gaps, setGaps] = useState<Diag | null>(null);
+  const [manualCode, setManualCode] = useState("");
 
   async function invoke(action: string, extra: Record<string, unknown> = {}) {
     setBusy(action);
@@ -66,16 +73,43 @@ export function RevolutBusinessOAuthPanel() {
     }
   }
 
+  async function runGapAudit() {
+    try {
+      const data = await invoke("gap_audit");
+      setGaps(data);
+      toast.success(data.ready_for_enable_access ? "Ready for Enable access" : "Gaps remain — see list");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gap audit failed");
+    }
+  }
+
   async function prepareAuth() {
     try {
       const data = await invoke("prepare");
       if (data.authorization_url) {
         setAuthUrl(data.authorization_url);
-        toast.success("Authorization URL ready — open it after Enable access");
+        toast.success("Authorization URL ready");
       }
-      await refreshDiagnostics();
+      await runGapAudit();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Prepare failed");
+    }
+  }
+
+  async function exchangeManualCode() {
+    const code = manualCode.trim();
+    if (!code) {
+      toast.error("Paste the Revolut authorization code first");
+      return;
+    }
+    try {
+      await invoke("exchange", { code });
+      setManualCode("");
+      toast.success("Tokens stored (no payouts)");
+      await refreshDiagnostics();
+      await runGapAudit();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Exchange failed");
     }
   }
 
@@ -100,6 +134,10 @@ export function RevolutBusinessOAuthPanel() {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => void runGapAudit()}>
+            {busy === "gap_audit" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Check gaps
+          </Button>
           <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => void refreshDiagnostics()}>
             {busy === "diagnostics" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Refresh diagnostics
@@ -110,6 +148,25 @@ export function RevolutBusinessOAuthPanel() {
           </Button>
         </div>
 
+        {gaps && (
+          <div className="rounded-md border p-3 space-y-2 text-xs">
+            <div className="flex flex-wrap gap-2 items-center">
+              <Badge variant={gaps.ready_for_enable_access ? "default" : "destructive"}>
+                {gaps.ready_for_enable_access ? "Ready for Enable access" : "Gaps open"}
+              </Badge>
+              <span className="text-muted-foreground">iss={gaps.jwt_iss}</span>
+            </div>
+            <ul className="space-y-1">
+              {(gaps.gaps ?? []).map((g) => (
+                <li key={g.id} className="flex gap-2">
+                  <Badge variant="outline">{g.status}</Badge>
+                  <span><span className="font-mono">{g.id}</span> — {g.detail}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {authUrl && (
           <div className="rounded-md border p-3 text-xs break-all space-y-2">
             <div className="font-medium text-sm">Authorization URL</div>
@@ -117,13 +174,34 @@ export function RevolutBusinessOAuthPanel() {
               {authUrl}
             </a>
             <p className="text-muted-foreground">
-              Before Enable access in Revolut, set OAuth redirect URI to:
-              {" "}
-              <code className="break-all">{diag?.redirect_uri ?? "https://thazislrdkjpvvghtvzo.supabase.co/functions/v1/admin-revolut-business-oauth-callback"}</code>
-              {" "}(JWT iss must match that host). Do not use admin.onecab.net — that host is Laravel, not this SPA.
+              Matches certificate redirect: <code className="break-all">{gaps?.redirect_uri ?? diag?.redirect_uri ?? "https://admin.onecab.net/auth/revolut/callback"}</code>
+            </p>
+            <p className="text-muted-foreground">
+              Optional later: switch Revolut redirect to Edge{" "}
+              <code className="break-all">{gaps?.edge_callback_uri ?? "…/admin-revolut-business-oauth-callback"}</code>
             </p>
           </div>
         )}
+
+        <div className="rounded-md border p-3 space-y-2">
+          <div className="font-medium text-sm">Manual code exchange (closes admin.onecab.net 404 gap)</div>
+          <p className="text-xs text-muted-foreground">
+            After Enable access / Authorise, if the browser shows a 404, copy the <code>code</code> query
+            value from the address bar and paste it here within ~2 minutes.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Input
+              value={manualCode}
+              onChange={(e) => setManualCode(e.target.value)}
+              placeholder="oa_prod_…"
+              className="max-w-md font-mono text-xs"
+            />
+            <Button size="sm" disabled={!!busy} onClick={() => void exchangeManualCode()}>
+              {busy === "exchange" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Exchange code
+            </Button>
+          </div>
+        </div>
 
         {diag && (
           <div className="space-y-3 text-sm">
