@@ -144,6 +144,8 @@ export default function Services() {
   const [formData, setFormData] = useState<{ 
     name: string; 
     code: string;
+    trip_id_prefix: string;
+    driver_id_prefix: string;
     country: string;
     timezone: string;
     region_id: string; 
@@ -152,6 +154,8 @@ export default function Services() {
   }>({ 
     name: '', 
     code: '',
+    trip_id_prefix: '',
+    driver_id_prefix: '',
     country: '',
     timezone: 'Europe/London',
     region_id: '', 
@@ -179,10 +183,16 @@ export default function Services() {
   const [isLoadingAssigned, setIsLoadingAssigned] = useState(false);
   const [removingDriverId, setRemovingDriverId] = useState<string | null>(null);
 
+  const PREFIX_REGEX = /^[A-Z0-9]{2,8}$/;
+  const sanitizePrefix = (v: string) =>
+    v.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+
   const resetFormData = () => {
     setFormData({
       name: '',
       code: '',
+      trip_id_prefix: '',
+      driver_id_prefix: '',
       country: '',
       timezone: 'Europe/London',
       region_id: regions[0]?.id || '',
@@ -190,6 +200,7 @@ export default function Services() {
       geo_boundary: null,
     });
   };
+
 
   const fetchData = async (isBackground = false) => {
     try {
@@ -283,6 +294,16 @@ export default function Services() {
       toast.error('Please enter an area code (e.g., NYC, LON, DXB)');
       return;
     }
+    const tripPrefix = sanitizePrefix(formData.trip_id_prefix);
+    const driverPrefix = sanitizePrefix(formData.driver_id_prefix);
+    if (!PREFIX_REGEX.test(tripPrefix)) {
+      toast.error('Trip ID Prefix must be 2–8 uppercase letters/digits');
+      return;
+    }
+    if (!PREFIX_REGEX.test(driverPrefix)) {
+      toast.error('Driver ID Prefix must be 2–8 uppercase letters/digits');
+      return;
+    }
     if (!formData.region_id) {
       toast.error('Please select a region');
       return;
@@ -302,12 +323,14 @@ export default function Services() {
         .insert({ 
           name: formData.name,
           code: formData.code.toUpperCase(),
+          trip_id_prefix: tripPrefix,
+          driver_id_prefix: driverPrefix,
           country: formData.country || null,
           timezone: formData.timezone,
           region_id: formData.region_id, 
           is_active: formData.is_active,
           geo_boundary: boundaryForDb,
-        })
+        } as any)
         .select(`*, region:regions(id, name, distance_unit, currency_code, timezone, status, geo_boundary)`)
         .single();
 
@@ -330,9 +353,20 @@ export default function Services() {
     }
   };
 
+
   const handleEdit = async () => {
     if (!selectedArea || !formData.name.trim()) {
       toast.error('Please enter a service area name');
+      return;
+    }
+    const tripPrefix = sanitizePrefix(formData.trip_id_prefix);
+    const driverPrefix = sanitizePrefix(formData.driver_id_prefix);
+    if (!PREFIX_REGEX.test(tripPrefix)) {
+      toast.error('Trip ID Prefix must be 2–8 uppercase letters/digits');
+      return;
+    }
+    if (!PREFIX_REGEX.test(driverPrefix)) {
+      toast.error('Driver ID Prefix must be 2–8 uppercase letters/digits');
       return;
     }
 
@@ -350,12 +384,14 @@ export default function Services() {
         .update({ 
           name: formData.name,
           code: formData.code.toUpperCase(),
+          trip_id_prefix: tripPrefix,
+          driver_id_prefix: driverPrefix,
           country: formData.country || null,
           timezone: formData.timezone,
           region_id: formData.region_id, 
           is_active: formData.is_active,
           geo_boundary: boundaryForDb,
-        })
+        } as any)
         .eq('id', selectedArea.id)
         .select(`*, region:regions(id, name, distance_unit, currency_code, timezone, status, geo_boundary)`)
         .single();
@@ -376,6 +412,7 @@ export default function Services() {
       setIsSaving(false);
     }
   };
+
 
   // ===== Assigned drivers management =====
   const openDriversDialog = async (area: ServiceArea) => {
@@ -541,9 +578,12 @@ export default function Services() {
 
   const openEditDialog = (area: ServiceArea) => {
     setSelectedArea(area);
+    const anyArea = area as any;
     setFormData({ 
       name: area.name, 
       code: area.code || '',
+      trip_id_prefix: (anyArea.trip_id_prefix || area.code || '').toUpperCase(),
+      driver_id_prefix: (anyArea.driver_id_prefix || area.code || '').toUpperCase(),
       country: area.country || '',
       timezone: area.timezone || 'Europe/London',
       region_id: area.region_id, 
@@ -553,6 +593,7 @@ export default function Services() {
     setActiveTab('details');
     setIsEditDialogOpen(true);
   };
+
 
   const openViewDialog = (area: ServiceArea) => {
     setSelectedArea(area);
@@ -941,20 +982,76 @@ export default function Services() {
                   <Label htmlFor="code">Area Code *</Label>
                   <Input
                     id="code"
-                    placeholder="e.g., LON, NYC, DXB"
+                    placeholder="e.g., LON-CENTRAL, NYC, DXB"
                     value={formData.code}
-                    onChange={(e) => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase().slice(0, 5) }))}
-                    maxLength={5}
+                    onChange={(e) => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase().slice(0, 16) }))}
+                    maxLength={16}
                     className="uppercase"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Trip IDs start with this code (e.g., {formData.code ? `${formData.code}-260609-XXX` : 'MK-260609-XXX'})
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Driver IDs start with this code (e.g., {formData.code ? `${formData.code}001` : 'MK001'})
+                    Internal service-area code used for filtering, reporting and configuration lookup.
                   </p>
                 </div>
               </div>
+
+              <div className="rounded-md border border-border/60 bg-muted/30 p-4 space-y-4">
+                <div>
+                  <h4 className="text-sm font-semibold">Identifier Settings — SSOT</h4>
+                  <p className="text-xs text-muted-foreground">
+                    Trip IDs and Driver IDs are generated by the backend from these prefixes. Each is stored as a
+                    separate field. Values may be the same but must remain independent.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="trip_id_prefix">Trip ID Prefix *</Label>
+                    <Input
+                      id="trip_id_prefix"
+                      placeholder="e.g., MK, LON, NBO, JKT"
+                      value={formData.trip_id_prefix}
+                      onChange={(e) => setFormData(prev => ({ ...prev, trip_id_prefix: sanitizePrefix(e.target.value) }))}
+                      maxLength={8}
+                      className="uppercase"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Used by the backend to generate immutable trip references, for example MK-260712-001.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="driver_id_prefix">Driver ID Prefix *</Label>
+                    <Input
+                      id="driver_id_prefix"
+                      placeholder="e.g., MK, LON, NBO, JKT"
+                      value={formData.driver_id_prefix}
+                      onChange={(e) => setFormData(prev => ({ ...prev, driver_id_prefix: sanitizePrefix(e.target.value) }))}
+                      maxLength={8}
+                      className="uppercase"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Used by the backend to generate immutable driver references, for example MK001.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border/60">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Trip ID preview</p>
+                    <p className="font-mono text-sm mt-1">
+                      {(formData.trip_id_prefix || 'XX')}-
+                      {new Date().toISOString().slice(2,10).replace(/-/g,'')}-001
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Driver ID preview</p>
+                    <p className="font-mono text-sm mt-1">
+                      {(formData.driver_id_prefix || 'XX')}001
+                    </p>
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Allowed format: 2–8 characters, uppercase letters and digits only. Must be unique across service areas.
+                </p>
+              </div>
+
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -1106,9 +1203,79 @@ export default function Services() {
                   onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
                 />
               </div>
-              
+
+              <div className="space-y-2">
+                <Label htmlFor="edit_code">Area Code</Label>
+                <Input
+                  id="edit_code"
+                  value={formData.code}
+                  onChange={(e) => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase().slice(0, 16) }))}
+                  maxLength={16}
+                  className="uppercase"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Internal service-area code used for filtering, reporting and configuration lookup.
+                </p>
+              </div>
+
+              <div className="rounded-md border border-border/60 bg-muted/30 p-4 space-y-4">
+                <div>
+                  <h4 className="text-sm font-semibold">Identifier Settings — SSOT</h4>
+                  <p className="text-xs text-muted-foreground">
+                    Separate prefixes control Trip ID and Driver ID generation. Changing these affects only future IDs.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit_trip_id_prefix">Trip ID Prefix *</Label>
+                    <Input
+                      id="edit_trip_id_prefix"
+                      value={formData.trip_id_prefix}
+                      onChange={(e) => setFormData(prev => ({ ...prev, trip_id_prefix: sanitizePrefix(e.target.value) }))}
+                      maxLength={8}
+                      className="uppercase"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Used by the backend to generate immutable trip references, for example MK-260712-001.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit_driver_id_prefix">Driver ID Prefix *</Label>
+                    <Input
+                      id="edit_driver_id_prefix"
+                      value={formData.driver_id_prefix}
+                      onChange={(e) => setFormData(prev => ({ ...prev, driver_id_prefix: sanitizePrefix(e.target.value) }))}
+                      maxLength={8}
+                      className="uppercase"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Used by the backend to generate immutable driver references, for example MK001.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border/60">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Trip ID preview</p>
+                    <p className="font-mono text-sm mt-1">
+                      {(formData.trip_id_prefix || 'XX')}-
+                      {new Date().toISOString().slice(2,10).replace(/-/g,'')}-001
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Driver ID preview</p>
+                    <p className="font-mono text-sm mt-1">
+                      {(formData.driver_id_prefix || 'XX')}001
+                    </p>
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Allowed format: 2–8 characters, uppercase letters and digits only. Must be unique across service areas.
+                </p>
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="edit_region">Region</Label>
+
                 <Select
                   value={formData.region_id}
                   onValueChange={(value) => {

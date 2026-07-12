@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.1"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -170,7 +170,7 @@ export type Database = {
       admin_payment_audit: {
         Row: {
           action: string
-          admin_user_id: string
+          admin_user_id: string | null
           amount_pence_after: number | null
           amount_pence_before: number | null
           created_at: string
@@ -179,14 +179,14 @@ export type Database = {
           metadata: Json | null
           provider: string | null
           provider_payment_id: string | null
-          reason: string
+          reason: string | null
           stripe_payment_intent_id: string | null
           stripe_refund_id: string | null
-          trip_id: string
+          trip_id: string | null
         }
         Insert: {
           action: string
-          admin_user_id: string
+          admin_user_id?: string | null
           amount_pence_after?: number | null
           amount_pence_before?: number | null
           created_at?: string
@@ -195,14 +195,14 @@ export type Database = {
           metadata?: Json | null
           provider?: string | null
           provider_payment_id?: string | null
-          reason: string
+          reason?: string | null
           stripe_payment_intent_id?: string | null
           stripe_refund_id?: string | null
-          trip_id: string
+          trip_id?: string | null
         }
         Update: {
           action?: string
-          admin_user_id?: string
+          admin_user_id?: string | null
           amount_pence_after?: number | null
           amount_pence_before?: number | null
           created_at?: string
@@ -211,10 +211,10 @@ export type Database = {
           metadata?: Json | null
           provider?: string | null
           provider_payment_id?: string | null
-          reason?: string
+          reason?: string | null
           stripe_payment_intent_id?: string | null
           stripe_refund_id?: string | null
-          trip_id?: string
+          trip_id?: string | null
         }
         Relationships: []
       }
@@ -1250,6 +1250,274 @@ export type Database = {
           usage_count?: number
         }
         Relationships: []
+      }
+      company_outgoing_batches: {
+        Row: {
+          batch_ref: string
+          batch_type: string
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          duration_ms: number | null
+          failed_count: number
+          id: string
+          provider: string | null
+          started_at: string | null
+          status: string
+          success_count: number
+          transfer_count: number
+        }
+        Insert: {
+          batch_ref: string
+          batch_type?: string
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          duration_ms?: number | null
+          failed_count?: number
+          id?: string
+          provider?: string | null
+          started_at?: string | null
+          status?: string
+          success_count?: number
+          transfer_count?: number
+        }
+        Update: {
+          batch_ref?: string
+          batch_type?: string
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          duration_ms?: number | null
+          failed_count?: number
+          id?: string
+          provider?: string | null
+          started_at?: string | null
+          status?: string
+          success_count?: number
+          transfer_count?: number
+        }
+        Relationships: []
+      }
+      company_outgoing_transfer_approvals: {
+        Row: {
+          approver_id: string
+          created_at: string
+          decision: string
+          id: string
+          reason: string | null
+          transfer_id: string
+        }
+        Insert: {
+          approver_id: string
+          created_at?: string
+          decision: string
+          id?: string
+          reason?: string | null
+          transfer_id: string
+        }
+        Update: {
+          approver_id?: string
+          created_at?: string
+          decision?: string
+          id?: string
+          reason?: string | null
+          transfer_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_outgoing_transfer_approvals_transfer_id_fkey"
+            columns: ["transfer_id"]
+            isOneToOne: false
+            referencedRelation: "company_outgoing_transfers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      company_outgoing_transfer_audit: {
+        Row: {
+          actor_id: string | null
+          amount_pence: number | null
+          approver_id: string | null
+          attachment_url: string | null
+          created_at: string
+          currency: string | null
+          event_type: string
+          id: string
+          metadata: Json
+          new_status: string | null
+          old_status: string | null
+          provider: string | null
+          provider_reference: string | null
+          reason: string | null
+          requester_id: string | null
+          transfer_id: string
+        }
+        Insert: {
+          actor_id?: string | null
+          amount_pence?: number | null
+          approver_id?: string | null
+          attachment_url?: string | null
+          created_at?: string
+          currency?: string | null
+          event_type: string
+          id?: string
+          metadata?: Json
+          new_status?: string | null
+          old_status?: string | null
+          provider?: string | null
+          provider_reference?: string | null
+          reason?: string | null
+          requester_id?: string | null
+          transfer_id: string
+        }
+        Update: {
+          actor_id?: string | null
+          amount_pence?: number | null
+          approver_id?: string | null
+          attachment_url?: string | null
+          created_at?: string
+          currency?: string | null
+          event_type?: string
+          id?: string
+          metadata?: Json
+          new_status?: string | null
+          old_status?: string | null
+          provider?: string | null
+          provider_reference?: string | null
+          reason?: string | null
+          requester_id?: string | null
+          transfer_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_outgoing_transfer_audit_transfer_id_fkey"
+            columns: ["transfer_id"]
+            isOneToOne: false
+            referencedRelation: "company_outgoing_transfers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      company_outgoing_transfers: {
+        Row: {
+          amount_pence: number
+          approval_count: number
+          approvals_required: number
+          approved_by: string | null
+          attachment_url: string | null
+          batch_id: string | null
+          category: string
+          cost_centre: string | null
+          created_at: string
+          currency: string
+          destination_account: string | null
+          execution_at: string | null
+          failure_reason: string | null
+          id: string
+          idempotency_key: string
+          last_attempt_at: string | null
+          metadata: Json
+          money_source: string
+          notes: string | null
+          provider: string | null
+          provider_error: string | null
+          provider_reference: string | null
+          purpose: string
+          recipient_name: string
+          recipient_type: string
+          requested_by: string | null
+          retry_count: number
+          service_area_id: string | null
+          source_account: string | null
+          status: string
+          transfer_ref: string
+          updated_at: string
+        }
+        Insert: {
+          amount_pence: number
+          approval_count?: number
+          approvals_required?: number
+          approved_by?: string | null
+          attachment_url?: string | null
+          batch_id?: string | null
+          category: string
+          cost_centre?: string | null
+          created_at?: string
+          currency?: string
+          destination_account?: string | null
+          execution_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          idempotency_key: string
+          last_attempt_at?: string | null
+          metadata?: Json
+          money_source: string
+          notes?: string | null
+          provider?: string | null
+          provider_error?: string | null
+          provider_reference?: string | null
+          purpose: string
+          recipient_name: string
+          recipient_type: string
+          requested_by?: string | null
+          retry_count?: number
+          service_area_id?: string | null
+          source_account?: string | null
+          status?: string
+          transfer_ref: string
+          updated_at?: string
+        }
+        Update: {
+          amount_pence?: number
+          approval_count?: number
+          approvals_required?: number
+          approved_by?: string | null
+          attachment_url?: string | null
+          batch_id?: string | null
+          category?: string
+          cost_centre?: string | null
+          created_at?: string
+          currency?: string
+          destination_account?: string | null
+          execution_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          idempotency_key?: string
+          last_attempt_at?: string | null
+          metadata?: Json
+          money_source?: string
+          notes?: string | null
+          provider?: string | null
+          provider_error?: string | null
+          provider_reference?: string | null
+          purpose?: string
+          recipient_name?: string
+          recipient_type?: string
+          requested_by?: string | null
+          retry_count?: number
+          service_area_id?: string | null
+          source_account?: string | null
+          status?: string
+          transfer_ref?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_outgoing_transfers_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "company_outgoing_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "company_outgoing_transfers_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       complaint_sequences: {
         Row: {
@@ -4295,76 +4563,97 @@ export type Database = {
           allocated_amount_pence: number
           allocated_at: string | null
           allocated_to_payout: boolean
+          amount_pence: number | null
           capture_time: string | null
           created_at: string
           driver_id: string
+          eligibility_status: string | null
           eligible_for_payout: boolean
+          formula_version: string | null
           id: string
+          idempotency_key: string | null
           ineligible_reason: string | null
           ledger_entry_id: string
           paid_at: string | null
           paid_in_batch_id: string | null
           paid_in_payout_item_id: string | null
           payment_id: string | null
+          payment_session_id: string | null
           settled_at: string | null
           settlement_lifecycle_status: string
           settlement_status: string
+          source: string | null
           stripe_available_on: string | null
           stripe_balance_tx_id: string | null
           stripe_charge_id: string | null
           stripe_transfer_id: string | null
           trip_id: string | null
           updated_at: string
+          verified_at: string | null
         }
         Insert: {
           allocated_amount_pence?: number
           allocated_at?: string | null
           allocated_to_payout?: boolean
+          amount_pence?: number | null
           capture_time?: string | null
           created_at?: string
           driver_id: string
+          eligibility_status?: string | null
           eligible_for_payout?: boolean
+          formula_version?: string | null
           id?: string
+          idempotency_key?: string | null
           ineligible_reason?: string | null
           ledger_entry_id: string
           paid_at?: string | null
           paid_in_batch_id?: string | null
           paid_in_payout_item_id?: string | null
           payment_id?: string | null
+          payment_session_id?: string | null
           settled_at?: string | null
           settlement_lifecycle_status?: string
           settlement_status?: string
+          source?: string | null
           stripe_available_on?: string | null
           stripe_balance_tx_id?: string | null
           stripe_charge_id?: string | null
           stripe_transfer_id?: string | null
           trip_id?: string | null
           updated_at?: string
+          verified_at?: string | null
         }
         Update: {
           allocated_amount_pence?: number
           allocated_at?: string | null
           allocated_to_payout?: boolean
+          amount_pence?: number | null
           capture_time?: string | null
           created_at?: string
           driver_id?: string
+          eligibility_status?: string | null
           eligible_for_payout?: boolean
+          formula_version?: string | null
           id?: string
+          idempotency_key?: string | null
           ineligible_reason?: string | null
           ledger_entry_id?: string
           paid_at?: string | null
           paid_in_batch_id?: string | null
           paid_in_payout_item_id?: string | null
           payment_id?: string | null
+          payment_session_id?: string | null
           settled_at?: string | null
           settlement_lifecycle_status?: string
           settlement_status?: string
+          source?: string | null
           stripe_available_on?: string | null
           stripe_balance_tx_id?: string | null
           stripe_charge_id?: string | null
           stripe_transfer_id?: string | null
           trip_id?: string | null
           updated_at?: string
+          verified_at?: string | null
         }
         Relationships: [
           {
@@ -4456,6 +4745,13 @@ export type Database = {
             columns: ["payment_id"]
             isOneToOne: false
             referencedRelation: "payments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_earning_settlement_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "payment_sessions"
             referencedColumns: ["id"]
           },
           {
@@ -9322,6 +9618,7 @@ export type Database = {
           payment_provider: string
           payment_status: string | null
           provider_order_id: string | null
+          resolution_reason: string | null
           resolved_at: string | null
           reversal_status: string
           service_area_id: string | null
@@ -9343,6 +9640,7 @@ export type Database = {
           payment_provider?: string
           payment_status?: string | null
           provider_order_id?: string | null
+          resolution_reason?: string | null
           resolved_at?: string | null
           reversal_status?: string
           service_area_id?: string | null
@@ -9364,6 +9662,7 @@ export type Database = {
           payment_provider?: string
           payment_status?: string | null
           provider_order_id?: string | null
+          resolution_reason?: string | null
           resolved_at?: string | null
           reversal_status?: string
           service_area_id?: string | null
@@ -9725,36 +10024,195 @@ export type Database = {
         }
         Relationships: []
       }
+      payment_session_authorisations: {
+        Row: {
+          authorised_amount_pence: number
+          authorised_at: string
+          captured_amount_pence: number | null
+          captured_at: string | null
+          created_at: string
+          cumulative_total_authorised_pence: number | null
+          id: string
+          idempotency_key: string | null
+          metadata: Json
+          payment_provider: string
+          payment_session_id: string
+          provider_authorisation_id: string | null
+          provider_order_id: string
+          provider_payment_id: string | null
+          provider_state: string | null
+          released_amount_pence: number | null
+          released_at: string | null
+          source: string | null
+          status: string
+          verified_at: string | null
+        }
+        Insert: {
+          authorised_amount_pence: number
+          authorised_at?: string
+          captured_amount_pence?: number | null
+          captured_at?: string | null
+          created_at?: string
+          cumulative_total_authorised_pence?: number | null
+          id?: string
+          idempotency_key?: string | null
+          metadata?: Json
+          payment_provider: string
+          payment_session_id: string
+          provider_authorisation_id?: string | null
+          provider_order_id: string
+          provider_payment_id?: string | null
+          provider_state?: string | null
+          released_amount_pence?: number | null
+          released_at?: string | null
+          source?: string | null
+          status?: string
+          verified_at?: string | null
+        }
+        Update: {
+          authorised_amount_pence?: number
+          authorised_at?: string
+          captured_amount_pence?: number | null
+          captured_at?: string | null
+          created_at?: string
+          cumulative_total_authorised_pence?: number | null
+          id?: string
+          idempotency_key?: string | null
+          metadata?: Json
+          payment_provider?: string
+          payment_session_id?: string
+          provider_authorisation_id?: string | null
+          provider_order_id?: string
+          provider_payment_id?: string | null
+          provider_state?: string | null
+          released_amount_pence?: number | null
+          released_at?: string | null
+          source?: string | null
+          status?: string
+          verified_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_session_authorisations_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "payment_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_session_refunds: {
+        Row: {
+          amount_pence: number
+          confirmed_at: string
+          created_at: string
+          currency: string
+          id: string
+          metadata: Json
+          payment_provider: string
+          payment_session_id: string
+          provider_payment_id: string | null
+          provider_refund_id: string
+          status: string
+          webhook_event_id: string | null
+        }
+        Insert: {
+          amount_pence: number
+          confirmed_at?: string
+          created_at?: string
+          currency?: string
+          id?: string
+          metadata?: Json
+          payment_provider: string
+          payment_session_id: string
+          provider_payment_id?: string | null
+          provider_refund_id: string
+          status?: string
+          webhook_event_id?: string | null
+        }
+        Update: {
+          amount_pence?: number
+          confirmed_at?: string
+          created_at?: string
+          currency?: string
+          id?: string
+          metadata?: Json
+          payment_provider?: string
+          payment_session_id?: string
+          provider_payment_id?: string | null
+          provider_refund_id?: string
+          status?: string
+          webhook_event_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_session_refunds_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "payment_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payment_sessions: {
         Row: {
           authorised_amount_pence: number | null
           authorised_at: string | null
           booking_snapshot: Json
           buffer_pence: number | null
+          captured_amount_pence: number | null
           captured_at: string | null
           client_action_id: string
           created_at: string
+          currency: string
           customer_id: string | null
           estimated_total_pence: number | null
           failure_reason: string | null
           fare_snapshot: Json
+          fee_status:
+            | Database["public"]["Enums"]["payment_session_fee_status"]
+            | null
+          hold_release_state: string | null
           hold_terminal_reason: string | null
           id: string
+          idempotency_key: string
           last_recovery_attempt_at: string | null
           last_release_attempt_at: string | null
           metadata: Json
           payment_method: string | null
           payment_provider: string
           platform_payment_method_id: string | null
+          provider_capture_id: string | null
+          provider_fee_confirmed_at: string | null
+          provider_fee_currency_snapshot: string | null
+          provider_fee_percentage_snapshot_pence: number | null
+          provider_fee_source: string | null
+          provider_fee_total_snapshot_pence: number | null
+          provider_fee_version_snapshot: string | null
+          provider_fixed_fee_snapshot_pence: number | null
+          provider_name_snapshot: string | null
           provider_order_id: string | null
           provider_payment_id: string | null
+          provider_processing_fee_pence: number | null
+          provider_refund_id: string | null
           provider_release_reference: string | null
+          provider_state: string | null
+          provider_state_verified_at: string | null
+          provider_state_verified_by: string | null
+          purpose: Database["public"]["Enums"]["payment_session_purpose"]
           recovery_attempt_count: number
+          refunded_amount_pence: number | null
+          refunded_at: string | null
           release_attempt_count: number
+          release_evidence_source: string | null
+          release_evidence_status: string | null
           release_failure_reason: string | null
+          release_verified_at: string | null
+          released_amount_pence: number | null
           released_at: string | null
           service_area_id: string
           status: Database["public"]["Enums"]["payment_session_status"]
+          total_authorised_amount_pence: number | null
           trip_id: string | null
           updated_at: string
           user_id: string
@@ -9764,30 +10222,59 @@ export type Database = {
           authorised_at?: string | null
           booking_snapshot?: Json
           buffer_pence?: number | null
+          captured_amount_pence?: number | null
           captured_at?: string | null
           client_action_id: string
           created_at?: string
+          currency?: string
           customer_id?: string | null
           estimated_total_pence?: number | null
           failure_reason?: string | null
           fare_snapshot?: Json
+          fee_status?:
+            | Database["public"]["Enums"]["payment_session_fee_status"]
+            | null
+          hold_release_state?: string | null
           hold_terminal_reason?: string | null
           id?: string
+          idempotency_key: string
           last_recovery_attempt_at?: string | null
           last_release_attempt_at?: string | null
           metadata?: Json
           payment_method?: string | null
           payment_provider?: string
           platform_payment_method_id?: string | null
+          provider_capture_id?: string | null
+          provider_fee_confirmed_at?: string | null
+          provider_fee_currency_snapshot?: string | null
+          provider_fee_percentage_snapshot_pence?: number | null
+          provider_fee_source?: string | null
+          provider_fee_total_snapshot_pence?: number | null
+          provider_fee_version_snapshot?: string | null
+          provider_fixed_fee_snapshot_pence?: number | null
+          provider_name_snapshot?: string | null
           provider_order_id?: string | null
           provider_payment_id?: string | null
+          provider_processing_fee_pence?: number | null
+          provider_refund_id?: string | null
           provider_release_reference?: string | null
+          provider_state?: string | null
+          provider_state_verified_at?: string | null
+          provider_state_verified_by?: string | null
+          purpose?: Database["public"]["Enums"]["payment_session_purpose"]
           recovery_attempt_count?: number
+          refunded_amount_pence?: number | null
+          refunded_at?: string | null
           release_attempt_count?: number
+          release_evidence_source?: string | null
+          release_evidence_status?: string | null
           release_failure_reason?: string | null
+          release_verified_at?: string | null
+          released_amount_pence?: number | null
           released_at?: string | null
           service_area_id: string
           status?: Database["public"]["Enums"]["payment_session_status"]
+          total_authorised_amount_pence?: number | null
           trip_id?: string | null
           updated_at?: string
           user_id: string
@@ -9797,30 +10284,59 @@ export type Database = {
           authorised_at?: string | null
           booking_snapshot?: Json
           buffer_pence?: number | null
+          captured_amount_pence?: number | null
           captured_at?: string | null
           client_action_id?: string
           created_at?: string
+          currency?: string
           customer_id?: string | null
           estimated_total_pence?: number | null
           failure_reason?: string | null
           fare_snapshot?: Json
+          fee_status?:
+            | Database["public"]["Enums"]["payment_session_fee_status"]
+            | null
+          hold_release_state?: string | null
           hold_terminal_reason?: string | null
           id?: string
+          idempotency_key?: string
           last_recovery_attempt_at?: string | null
           last_release_attempt_at?: string | null
           metadata?: Json
           payment_method?: string | null
           payment_provider?: string
           platform_payment_method_id?: string | null
+          provider_capture_id?: string | null
+          provider_fee_confirmed_at?: string | null
+          provider_fee_currency_snapshot?: string | null
+          provider_fee_percentage_snapshot_pence?: number | null
+          provider_fee_source?: string | null
+          provider_fee_total_snapshot_pence?: number | null
+          provider_fee_version_snapshot?: string | null
+          provider_fixed_fee_snapshot_pence?: number | null
+          provider_name_snapshot?: string | null
           provider_order_id?: string | null
           provider_payment_id?: string | null
+          provider_processing_fee_pence?: number | null
+          provider_refund_id?: string | null
           provider_release_reference?: string | null
+          provider_state?: string | null
+          provider_state_verified_at?: string | null
+          provider_state_verified_by?: string | null
+          purpose?: Database["public"]["Enums"]["payment_session_purpose"]
           recovery_attempt_count?: number
+          refunded_amount_pence?: number | null
+          refunded_at?: string | null
           release_attempt_count?: number
+          release_evidence_source?: string | null
+          release_evidence_status?: string | null
           release_failure_reason?: string | null
+          release_verified_at?: string | null
+          released_amount_pence?: number | null
           released_at?: string | null
           service_area_id?: string
           status?: Database["public"]["Enums"]["payment_session_status"]
+          total_authorised_amount_pence?: number | null
           trip_id?: string | null
           updated_at?: string
           user_id?: string
@@ -11095,6 +11611,154 @@ export type Database = {
         }
         Relationships: []
       }
+      provider_fee_adjustments: {
+        Row: {
+          adjustment_pence: number
+          confirmed_fee_pence: number
+          created_at: string
+          created_by: string | null
+          id: string
+          new_status: string
+          payment_session_id: string
+          previous_fee_pence: number
+          previous_status: string | null
+          provider_transaction_id: string | null
+          reason: string | null
+          trip_id: string | null
+        }
+        Insert: {
+          adjustment_pence: number
+          confirmed_fee_pence: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          new_status?: string
+          payment_session_id: string
+          previous_fee_pence: number
+          previous_status?: string | null
+          provider_transaction_id?: string | null
+          reason?: string | null
+          trip_id?: string | null
+        }
+        Update: {
+          adjustment_pence?: number
+          confirmed_fee_pence?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          new_status?: string
+          payment_session_id?: string
+          previous_fee_pence?: number
+          previous_status?: string | null
+          provider_transaction_id?: string | null
+          reason?: string | null
+          trip_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_fee_adjustments_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "payment_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_fee_adjustments_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_fee_adjustments_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_fee_adjustments_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      provider_fee_configurations: {
+        Row: {
+          card_origin: string | null
+          card_type: string | null
+          collection_provider: string
+          created_at: string
+          created_by: string | null
+          currency_code: string
+          effective_from: string
+          effective_to: string | null
+          fee_type: string
+          fixed_fee_pence: number
+          id: string
+          is_active: boolean
+          notes: string | null
+          payment_method: string
+          percentage_fee_bps: number
+          service_area_id: string | null
+          updated_at: string
+          vat_treatment: string | null
+          version: string
+        }
+        Insert: {
+          card_origin?: string | null
+          card_type?: string | null
+          collection_provider: string
+          created_at?: string
+          created_by?: string | null
+          currency_code?: string
+          effective_from?: string
+          effective_to?: string | null
+          fee_type?: string
+          fixed_fee_pence?: number
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          payment_method?: string
+          percentage_fee_bps?: number
+          service_area_id?: string | null
+          updated_at?: string
+          vat_treatment?: string | null
+          version: string
+        }
+        Update: {
+          card_origin?: string | null
+          card_type?: string | null
+          collection_provider?: string
+          created_at?: string
+          created_by?: string | null
+          currency_code?: string
+          effective_from?: string
+          effective_to?: string | null
+          fee_type?: string
+          fixed_fee_pence?: number
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          payment_method?: string
+          percentage_fee_bps?: number
+          service_area_id?: string | null
+          updated_at?: string
+          vat_treatment?: string | null
+          version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_fee_configurations_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       push_subscriptions: {
         Row: {
           created_at: string
@@ -11953,12 +12617,14 @@ export type Database = {
       service_area_communication_settings: {
         Row: {
           call_masking_enabled: boolean
+          config_version: number
           created_at: string
           currency: string
           default_method: Database["public"]["Enums"]["communication_default_method"]
           is_enabled: boolean
           masked_call_rate_per_minute_minor: number
           maximum_call_duration_seconds: number
+          outbound_caller_id: string | null
           service_area_id: string
           updated_at: string
           voip_enabled: boolean
@@ -11967,12 +12633,14 @@ export type Database = {
         }
         Insert: {
           call_masking_enabled?: boolean
+          config_version?: number
           created_at?: string
           currency?: string
           default_method?: Database["public"]["Enums"]["communication_default_method"]
           is_enabled?: boolean
           masked_call_rate_per_minute_minor?: number
           maximum_call_duration_seconds?: number
+          outbound_caller_id?: string | null
           service_area_id: string
           updated_at?: string
           voip_enabled?: boolean
@@ -11981,12 +12649,14 @@ export type Database = {
         }
         Update: {
           call_masking_enabled?: boolean
+          config_version?: number
           created_at?: string
           currency?: string
           default_method?: Database["public"]["Enums"]["communication_default_method"]
           is_enabled?: boolean
           masked_call_rate_per_minute_minor?: number
           maximum_call_duration_seconds?: number
+          outbound_caller_id?: string | null
           service_area_id?: string
           updated_at?: string
           voip_enabled?: boolean
@@ -12510,6 +13180,7 @@ export type Database = {
           currency_code: string | null
           customer_payment_gateway: string | null
           distance_unit: string | null
+          driver_id_prefix: string
           driver_payout_gateway: string | null
           early_cashout_enabled: boolean
           geo_boundary: Json | null
@@ -12524,6 +13195,7 @@ export type Database = {
           stops_waiting_charges: Json | null
           timezone: string | null
           tips_enabled: boolean
+          trip_id_prefix: string
           updated_at: string
         }
         Insert: {
@@ -12535,6 +13207,7 @@ export type Database = {
           currency_code?: string | null
           customer_payment_gateway?: string | null
           distance_unit?: string | null
+          driver_id_prefix: string
           driver_payout_gateway?: string | null
           early_cashout_enabled?: boolean
           geo_boundary?: Json | null
@@ -12549,6 +13222,7 @@ export type Database = {
           stops_waiting_charges?: Json | null
           timezone?: string | null
           tips_enabled?: boolean
+          trip_id_prefix: string
           updated_at?: string
         }
         Update: {
@@ -12560,6 +13234,7 @@ export type Database = {
           currency_code?: string | null
           customer_payment_gateway?: string | null
           distance_unit?: string | null
+          driver_id_prefix?: string
           driver_payout_gateway?: string | null
           early_cashout_enabled?: boolean
           geo_boundary?: Json | null
@@ -12574,6 +13249,7 @@ export type Database = {
           stops_waiting_charges?: Json | null
           timezone?: string | null
           tips_enabled?: boolean
+          trip_id_prefix?: string
           updated_at?: string
         }
         Relationships: [
@@ -18032,6 +18708,7 @@ export type Database = {
         Returns: Json
       }
       ack_timeout_sweep: { Args: never; Returns: undefined }
+      ack_timeout_sweep_has_work: { Args: never; Returns: boolean }
       adjust_merchant_credits: {
         Args: { _delta: number; _merchant_id: string; _notes?: string }
         Returns: Json
@@ -18260,6 +18937,10 @@ export type Database = {
       }
       assign_trip_number: {
         Args: { p_service_area_id: string; p_trip_id: string }
+        Returns: Json
+      }
+      audit_payment_session_amounts: {
+        Args: { p_session_id: string }
         Returns: Json
       }
       bearing_deg: {
@@ -18641,6 +19322,14 @@ export type Database = {
         Args: { p_ttl_seconds?: number }
         Returns: number
       }
+      expire_stale_drivers_guarded: {
+        Args: { p_ttl_seconds?: number }
+        Returns: number
+      }
+      expire_stale_drivers_has_work: {
+        Args: { p_ttl_seconds?: number }
+        Returns: boolean
+      }
       expire_stale_modification_requests: { Args: never; Returns: number }
       expire_stale_negotiations: { Args: never; Returns: Json }
       expire_stale_negotiations_guarded: { Args: never; Returns: Json }
@@ -19003,6 +19692,7 @@ export type Database = {
         }
         Returns: string
       }
+      invoke_weekly_payout_scheduler: { Args: never; Returns: undefined }
       is_active_driver_cancel_rematch_row: {
         Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
         Returns: boolean
@@ -19338,6 +20028,10 @@ export type Database = {
           updated_at: string
         }[]
       }
+      payment_session_action_policy: {
+        Args: { p_provider_verification?: Json; p_session_id: string }
+        Returns: Json
+      }
       payout_batch_kind_to_ledger_type: {
         Args: { p_kind: string }
         Returns: string
@@ -19554,6 +20248,10 @@ export type Database = {
       resolve_negotiation_rebroadcast_fare: {
         Args: { p_trip_id: string }
         Returns: Json
+      }
+      resolve_service_area_outbound_caller_id: {
+        Args: { p_service_area_id: string }
+        Returns: string
       }
       resolve_trip_service_area_from_pickup: {
         Args: {
@@ -19840,6 +20538,16 @@ export type Database = {
         | "captured"
         | "under_captured"
         | "capture_failed"
+      payment_session_fee_status:
+        | "ACTUAL"
+        | "ESTIMATED"
+        | "PENDING"
+        | "UNAVAILABLE"
+      payment_session_purpose:
+        | "RIDE_BOOKING"
+        | "SAVE_CARD"
+        | "PAYMENT_RECOVERY"
+        | "LEGACY_EVIDENCE"
       payment_session_status:
         | "pending_payment"
         | "payment_authorised"
@@ -19855,6 +20563,15 @@ export type Database = {
         | "released"
         | "orphan_authorisation"
         | "payment_shortfall"
+        | "migrated_evidence"
+        | "legacy_unknown"
+        | "ADDITIONAL_AUTHORISATION_REQUIRED"
+        | "ADDITIONAL_AUTHORISATION_PENDING"
+        | "ADDITIONAL_AUTHORISATION_CONFIRMED"
+        | "CAPTURE_LIMIT_EXCEEDED"
+        | "PARTIAL_CAPTURE_ONLY"
+        | "PAYMENT_RECOVERY_REQUIRED"
+        | "CAPTURE_CONFIRMED"
       staff_role:
         | "super_admin"
         | "admin"
@@ -20043,6 +20760,18 @@ export const Constants = {
         "under_captured",
         "capture_failed",
       ],
+      payment_session_fee_status: [
+        "ACTUAL",
+        "ESTIMATED",
+        "PENDING",
+        "UNAVAILABLE",
+      ],
+      payment_session_purpose: [
+        "RIDE_BOOKING",
+        "SAVE_CARD",
+        "PAYMENT_RECOVERY",
+        "LEGACY_EVIDENCE",
+      ],
       payment_session_status: [
         "pending_payment",
         "payment_authorised",
@@ -20058,6 +20787,15 @@ export const Constants = {
         "released",
         "orphan_authorisation",
         "payment_shortfall",
+        "migrated_evidence",
+        "legacy_unknown",
+        "ADDITIONAL_AUTHORISATION_REQUIRED",
+        "ADDITIONAL_AUTHORISATION_PENDING",
+        "ADDITIONAL_AUTHORISATION_CONFIRMED",
+        "CAPTURE_LIMIT_EXCEEDED",
+        "PARTIAL_CAPTURE_ONLY",
+        "PAYMENT_RECOVERY_REQUIRED",
+        "CAPTURE_CONFIRMED",
       ],
       staff_role: [
         "super_admin",
