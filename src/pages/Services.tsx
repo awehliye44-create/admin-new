@@ -144,6 +144,8 @@ export default function Services() {
   const [formData, setFormData] = useState<{ 
     name: string; 
     code: string;
+    trip_id_prefix: string;
+    driver_id_prefix: string;
     country: string;
     timezone: string;
     region_id: string; 
@@ -152,6 +154,8 @@ export default function Services() {
   }>({ 
     name: '', 
     code: '',
+    trip_id_prefix: '',
+    driver_id_prefix: '',
     country: '',
     timezone: 'Europe/London',
     region_id: '', 
@@ -179,10 +183,16 @@ export default function Services() {
   const [isLoadingAssigned, setIsLoadingAssigned] = useState(false);
   const [removingDriverId, setRemovingDriverId] = useState<string | null>(null);
 
+  const PREFIX_REGEX = /^[A-Z0-9]{2,8}$/;
+  const sanitizePrefix = (v: string) =>
+    v.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+
   const resetFormData = () => {
     setFormData({
       name: '',
       code: '',
+      trip_id_prefix: '',
+      driver_id_prefix: '',
       country: '',
       timezone: 'Europe/London',
       region_id: regions[0]?.id || '',
@@ -190,6 +200,7 @@ export default function Services() {
       geo_boundary: null,
     });
   };
+
 
   const fetchData = async (isBackground = false) => {
     try {
