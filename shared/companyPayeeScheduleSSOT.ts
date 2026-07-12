@@ -268,6 +268,8 @@ export function evaluateAutomaticCompanyPaymentGates(args: {
   company_available_for_transfer_pence: number | null;
   duplicate_period_exists: boolean;
   currency_match: boolean;
+  payable_approved?: boolean;
+  prior_transfer_same_payable?: boolean;
 }): AutomaticPaymentGateResult {
   if (!args.schedule_automatic_enabled) return { ok: false, status: "SCHEDULE_DISABLED" };
   if (args.schedule_paused) return { ok: false, status: "SCHEDULE_PAUSED" };
@@ -290,6 +292,8 @@ export function evaluateAutomaticCompanyPaymentGates(args: {
     return { ok: false, status: "FUNDING_UNAVAILABLE" };
   }
   if (args.duplicate_period_exists) return { ok: false, status: "DUPLICATE_SCHEDULE_PERIOD" };
+  if (args.prior_transfer_same_payable) return { ok: false, status: "PRIOR_TRANSFER_EXISTS" };
+  if (args.payable_approved === false) return { ok: false, status: "PAYABLE_NOT_APPROVED" };
   if (!args.currency_match) return { ok: false, status: "CURRENCY_MISMATCH" };
   return { ok: true };
 }

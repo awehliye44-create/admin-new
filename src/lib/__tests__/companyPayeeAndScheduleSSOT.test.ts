@@ -224,6 +224,26 @@ describe("approval + funding", () => {
     })).toEqual({ ok: false, reason: "REQUESTER_CANNOT_SELF_APPROVE" });
   });
 
+  it("direct transfer forbidden for high-risk and over cap", async () => {
+    const { assertDirectTransferAllowed } = await import("../companyOutgoingTransferApprovalSSOT");
+    expect(assertDirectTransferAllowed({
+      execution_mode: "DIRECT_TRANSFER",
+      category: "DIRECTOR_DIVIDEND",
+      amount_pence: 100,
+    })).toEqual({ ok: false, status: "DIRECT_TRANSFER_FORBIDDEN_HIGH_RISK" });
+    expect(assertDirectTransferAllowed({
+      execution_mode: "DIRECT_TRANSFER",
+      category: "STAFF_SALARY",
+      amount_pence: 50_000,
+      direct_max_pence: 10_000,
+    })).toEqual({ ok: false, status: "DIRECT_TRANSFER_AMOUNT_EXCEEDS_CAP" });
+    expect(assertDirectTransferAllowed({
+      execution_mode: "DRAFT_FOR_APPROVAL",
+      category: "DIRECTOR_DIVIDEND",
+      amount_pence: 50_000,
+    }).ok).toBe(true);
+  });
+
   it("high-risk categories are flagged", () => {
     expect(isHighRiskCompanyTransferCategory("DIRECTOR_LOAN")).toBe(true);
     expect(isHighRiskCompanyTransferCategory("STAFF_SALARY")).toBe(false);

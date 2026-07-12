@@ -893,6 +893,36 @@ export function PayoutLedgerCompanyTransfersPanel({
                         Mark paid
                       </Button>
                     )}
+                    {['APPROVED', 'SCHEDULED'].includes(String(t.status)) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={actionMutation.isPending}
+                        onClick={() => {
+                          actionMutation.mutate({
+                            action: 'execute',
+                            transfer_id: t.id,
+                            execute_live: false,
+                          });
+                        }}
+                      >
+                        Process (preview)
+                      </Button>
+                    )}
+                    {!['PAID', 'COMPLETED', 'CANCELLED', 'REVERTED'].includes(String(t.status)) && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={actionMutation.isPending}
+                        onClick={() => {
+                          const reason = window.prompt('Cancel reason');
+                          if (!reason) return;
+                          actionMutation.mutate({ action: 'cancel', transfer_id: t.id, reason });
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    )}
                     <Button size="sm" variant="ghost" onClick={() => openTransferReceipt(t)}>
                       <Printer className="h-3.5 w-3.5 mr-1" /> PDF
                     </Button>

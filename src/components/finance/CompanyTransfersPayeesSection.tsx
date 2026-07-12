@@ -272,6 +272,25 @@ export function CompanyTransfersPayeesSection({
                     <TableCell className="text-xs">{sched ? `${sched.frequency}${sched.paused ? ' · PAUSED' : ''}` : '—'}</TableCell>
                     <TableCell className="text-xs">{sched?.next_run_at_local ?? '—'}</TableCell>
                     <TableCell className="text-xs">{p.paused ? 'PAUSED' : p.active ? 'ACTIVE' : 'INACTIVE'}</TableCell>
+                    <TableCell>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={async () => {
+                          const { data, error } = await supabase.functions.invoke(ADMIN_COMPANY_PAYEES_FN, {
+                            body: { action: 'pause_payee', payee_id: p.id, paused: !p.paused },
+                          });
+                          if (error || !data?.success) {
+                            toast.error(error?.message ?? data?.error ?? 'Pause failed');
+                            return;
+                          }
+                          toast.success(p.paused ? 'Payee resumed' : 'Payee paused');
+                          void queryClient.invalidateQueries({ queryKey: ['admin-company-payees'] });
+                        }}
+                      >
+                        {p.paused ? 'Resume' : 'Pause'}
+                      </Button>
+                    </TableCell>
                   </TableRow>
                   );
                 })}
