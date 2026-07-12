@@ -31,37 +31,43 @@
     .err { color: #fca5a5; }
     a { color: #93c5fd; }
   </style>
+</head>
+<body>
+  <div class="card" id="card">
+    <h1 id="title">Revolut Business authorization</h1>
+    <p id="msg">Completing authorization on the server…</p>
+    <p id="extra" class="muted">
+      Access tokens are never shown in the browser. No payouts or transfers are executed.
+    </p>
+  </div>
   <script>
     (function () {
       var EDGE =
         "https://thazislrdkjpvvghtvzo.supabase.co/functions/v1/admin-revolut-business-oauth-callback";
-      var PAYMENT_PROVIDERS = "https://adminonecab.net/payment-providers";
+      var PAYMENT_PROVIDERS = "/payment-providers";
 
       function sanitize(value, maxLen) {
         var s = String(value || "").replace(/[\u0000-\u001f\u007f]/g, "").trim();
         if (s.length > maxLen) s = s.slice(0, maxLen);
-        // Never surface token-like material if a provider echoes it.
         if (/access_token|refresh_token|Bearer\s|BEGIN (RSA )?PRIVATE KEY/i.test(s)) {
           return "authorization_failed";
         }
         return s;
       }
 
-      function showError(title, detail) {
-        document.addEventListener("DOMContentLoaded", function () {
-          var titleEl = document.getElementById("title");
-          var msgEl = document.getElementById("msg");
-          var extraEl = document.getElementById("extra");
-          if (titleEl) titleEl.textContent = title;
-          if (msgEl) {
-            msgEl.className = "err";
-            msgEl.textContent = detail;
-          }
-          if (extraEl) {
-            extraEl.innerHTML =
-              '<a href="' + PAYMENT_PROVIDERS + '?revolut_business=error">Back to Payment Providers</a>';
-          }
-        });
+      function showError(detail) {
+        var titleEl = document.getElementById("title");
+        var msgEl = document.getElementById("msg");
+        var extraEl = document.getElementById("extra");
+        if (titleEl) titleEl.textContent = "Authorization failed";
+        if (msgEl) {
+          msgEl.className = "err";
+          msgEl.textContent = detail;
+        }
+        if (extraEl) {
+          extraEl.innerHTML =
+            '<a href="' + PAYMENT_PROVIDERS + '?revolut_business=error">Back to Payment Providers</a>';
+        }
       }
 
       var params = new URLSearchParams(window.location.search || "");
@@ -73,33 +79,22 @@
       if (oauthError) {
         var detail = oauthError;
         if (oauthErrorDescription) detail += " — " + oauthErrorDescription;
-        showError("Authorization failed", detail);
+        showError(detail);
         return;
       }
 
       if (!code) {
         showError(
-          "Authorization incomplete",
           "Missing authorization code from Revolut. Return to Payment Providers and start Enable access again."
         );
         return;
       }
 
-      // Forward code/state to the Edge exchange. Tokens never enter this page.
       var q = new URLSearchParams();
       q.set("code", code);
       if (state) q.set("state", state);
       window.location.replace(EDGE + "?" + q.toString());
     })();
   </script>
-</head>
-<body>
-  <div class="card">
-    <h1 id="title">Revolut Business authorization</h1>
-    <p id="msg">Completing authorization on the server…</p>
-    <p id="extra" class="muted">
-      Access tokens are never shown in the browser. No payouts or transfers are executed.
-    </p>
-  </div>
 </body>
 </html>
