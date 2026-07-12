@@ -37,17 +37,22 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          GITHUB_PAGES: "true"
+          # Apex custom domain adminonecab.net — site root (not /admin-new/)
+          GITHUB_PAGES: ""
           VITE_SUPABASE_URL: https://thazislrdkjpvvghtvzo.supabase.co
           VITE_SUPABASE_PUBLISHABLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRoYXppc2xyZGtqcHZ2Z2h0dnpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc4NzA1MjIsImV4cCI6MjA4MzQ0NjUyMn0.pXaycIz1t7JXuItyqvjNNrFsZpsaXbB5bV1OWSQLbWM
           VITE_SUPABASE_PROJECT_ID: thazislrdkjpvvghtvzo
 
-      - name: SPA fallback for client-side routing
-        run: cp dist/index.html dist/404.html
+      - name: SPA fallback + custom domain
+        run: |
+          cp dist/index.html dist/404.html
+          printf 'adminonecab.net\n' > dist/CNAME
+          test -f dist/auth/revolut/callback/index.html
 
       - name: Deploy to gh-pages branch
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist
+          cname: adminonecab.net
           commit_message: "deploy: admin panel ${{ github.sha }}"

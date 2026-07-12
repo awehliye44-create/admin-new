@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>Revolut Business authorization</title>
+  <style>
+    body {
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+      background: #0b1220;
+      color: #e2e8f0;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .card {
+      max-width: 28rem;
+      width: 100%;
+      border: 1px solid #1e293b;
+      border-radius: 0.75rem;
+      background: #0f172a;
+      padding: 1.5rem;
+    }
+    h1 { font-size: 1.125rem; margin: 0 0 0.5rem; }
+    p { margin: 0.5rem 0; line-height: 1.45; font-size: 0.925rem; color: #cbd5e1; }
+    .muted { color: #94a3b8; font-size: 0.85rem; }
+    .err { color: #fca5a5; }
+    a { color: #93c5fd; }
+  </style>
+  <script>
+    (function () {
+      var EDGE =
+        "https://thazislrdkjpvvghtvzo.supabase.co/functions/v1/admin-revolut-business-oauth-callback";
+      var PAYMENT_PROVIDERS = "https://adminonecab.net/payment-providers";
+
+      function sanitize(value, maxLen) {
+        var s = String(value || "").replace(/[\u0000-\u001f\u007f]/g, "").trim();
+        if (s.length > maxLen) s = s.slice(0, maxLen);
+        // Never surface token-like material if a provider echoes it.
+        if (/access_token|refresh_token|Bearer\s|BEGIN (RSA )?PRIVATE KEY/i.test(s)) {
+          return "authorization_failed";
+        }
+        return s;
+      }
+
+      function showError(title, detail) {
+        document.addEventListener("DOMContentLoaded", function () {
+          var titleEl = document.getElementById("title");
+          var msgEl = document.getElementById("msg");
+          var extraEl = document.getElementById("extra");
+          if (titleEl) titleEl.textContent = title;
+          if (msgEl) {
+            msgEl.className = "err";
+            msgEl.textContent = detail;
+          }
+          if (extraEl) {
+            extraEl.innerHTML =
+              '<a href="' + PAYMENT_PROVIDERS + '?revolut_business=error">Back to Payment Providers</a>';
+          }
+        });
+      }
+
+      var params = new URLSearchParams(window.location.search || "");
+      var code = sanitize(params.get("code"), 512);
+      var state = sanitize(params.get("state"), 256);
+      var oauthError = sanitize(params.get("error"), 128);
+      var oauthErrorDescription = sanitize(params.get("error_description"), 240);
+
+      if (oauthError) {
+        var detail = oauthError;
+        if (oauthErrorDescription) detail += " — " + oauthErrorDescription;
+        showError("Authorization failed", detail);
+        return;
+      }
+
+      if (!code) {
+        showError(
+          "Authorization incomplete",
+          "Missing authorization code from Revolut. Return to Payment Providers and start Enable access again."
+        );
+        return;
+      }
+
+      // Forward code/state to the Edge exchange. Tokens never enter this page.
+      var q = new URLSearchParams();
+      q.set("code", code);
+      if (state) q.set("state", state);
+      window.location.replace(EDGE + "?" + q.toString());
+    })();
+  </script>
+</head>
+<body>
+  <div class="card">
+    <h1 id="title">Revolut Business authorization</h1>
+    <p id="msg">Completing authorization on the server…</p>
+    <p id="extra" class="muted">
+      Access tokens are never shown in the browser. No payouts or transfers are executed.
+    </p>
+  </div>
+</body>
+</html>
