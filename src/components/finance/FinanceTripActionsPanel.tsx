@@ -142,8 +142,7 @@ export function FinanceTripActionsPanel({
     { key: 'cancel_authorisation', label: 'Cancel Authorisation', icon: <XCircle className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onCancelAuthorisation, variant: 'destructive' },
     { key: 'void_payment', label: 'Void Payment (before capture)', icon: <XCircle className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onCancelAuthorisation, variant: 'destructive' },
     { key: 'request_extra_payment', label: 'Request Extra Payment', icon: <PlusCircle className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onRequestExtraPayment },
-    { key: 'resync_stripe', label: 'Resync Provider', icon: <RefreshCw className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onResyncStripe },
-    { key: 'refresh_stripe', label: 'Refresh Live Provider Data', icon: <RefreshCw className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onResyncStripe },
+    // Stripe sync/refresh retired from active finance — omit live controls
     { key: 'repair_settlement', label: 'Repair Settlement', icon: <Wrench className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onRepairSettlement },
     { key: 'recalculate_settlement', label: 'Recalculate Settlement', icon: <Calculator className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onRecalculateSettlement },
     { key: 'retry_settlement', label: 'Retry Settlement', icon: <RefreshCw className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onRepairSettlement },

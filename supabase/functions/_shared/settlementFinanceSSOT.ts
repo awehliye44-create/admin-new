@@ -1,5 +1,8 @@
 /**
- * Finance-cleared amounts from driver_earning_settlement — never max(wallet, 0).
+ * Finance-cleared amounts from driver_earning_settlement companions.
+ * DES is audit metadata — Revolut eligibility is canonical via
+ * fetchDriverPayoutEligibility (DWL + Payment Sessions). This helper remains
+ * for FR/legacy consumers that still join DES rows.
  */
 import {
   sumEligibleEarningPence,

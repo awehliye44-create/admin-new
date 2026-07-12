@@ -14,15 +14,12 @@ export type ManualPayoutDriverFlags = {
   payouts_enabled?: boolean | null;
 };
 
-/** True when Provider onboarding is finished and payouts are live. */
+/** True when driver payouts are enabled for non-Stripe adapters (Revolut / bank transfer). */
 export function isDriverStripeOnboardingComplete(
   driver: ManualPayoutDriverFlags,
 ): boolean {
-  return (
-    Boolean(driver.stripe_account_id) &&
-    Boolean(driver.onboarding_complete) &&
-    Boolean(driver.payouts_enabled)
-  );
+  // P0: Stripe Connect onboarding is not required for payout eligibility.
+  return Boolean(driver.payouts_enabled !== false);
 }
 
 export type ManualPayoutSsotSnapshot = {
@@ -56,16 +53,15 @@ export function formatPayoutEligibilityStatus(args: {
   inFlightPayout?: boolean;
 }): string {
   const { driver, ssot } = args;
-  const connected = Boolean(driver.stripe_account_id) && Boolean(driver.onboarding_complete);
+  const connected = driver.payouts_enabled !== false;
 
-  if (!connected) return 'Not Connected';
-  if (!driver.payouts_enabled) return 'Connected — Payout Not Enabled';
+  if (!connected) return 'Payouts Paused';
   if (ssot.ledger_sync_missing) return 'Blocked — Ledger Sync Missing';
   if ((ssot.driver_wallet_balance_pence ?? 0) < 0) return 'Blocked — Driver In Debt';
   if (ssot.payout_blocked) return 'Blocked — Payout Hold';
   if (args.inFlightPayout) return 'Blocked — Payout In Flight';
   if (ssot.driver_available_now_pence <= 0) {
-    return 'Connected — No SSOT Available Balance';
+    return 'No SSOT Available Balance';
   }
   if (hasSoftPayoutWarning(ssot)) return 'Eligible — Finance Review Warning';
   return 'Eligible';
@@ -78,8 +74,7 @@ export function canManualPayout(args: {
   inFlightPayout?: boolean;
 }): boolean {
   const { driver, ssot } = args;
-  const connected = Boolean(driver.stripe_account_id) && Boolean(driver.onboarding_complete);
-  const payoutEligible = connected && Boolean(driver.payouts_enabled);
+  const payoutEligible = driver.payouts_enabled !== false;
 
   return (
     payoutEligible &&

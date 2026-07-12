@@ -135,7 +135,7 @@ export function DriverWalletDriverList({
                 <TableHead className="text-right">Outstanding Debt</TableHead>
                 <TableHead>Next Scheduled Payout</TableHead>
                 <TableHead>Last Payout</TableHead>
-                <TableHead>Connected Account Status</TableHead>
+                <TableHead>Payout Destination Status</TableHead>
                 <TableHead>Wallet Status</TableHead>
                 <TableHead className="w-[52px]">Actions</TableHead>
               </TableRow>

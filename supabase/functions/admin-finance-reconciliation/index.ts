@@ -1,8 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import Stripe from "https://esm.sh/stripe@14.21.0";
 import { computeSSOTMetrics, mergePaymentSessionsIntoCaptureRows, sumCapturedPaymentsByTripId, SSOT_VERSION, type PaymentSessionMoneyRow } from "../_shared/financialReconciliationSSOT.ts";
-import { fetchConnectMoneyMovementBundle } from "../_shared/connectMoneyMovementSSOT.ts";
 import { fetchPerDriverFinancialReconciliation } from "../_shared/perDriverFinancialReconciliation.ts";
 import {
   buildFinanceReconciliationSummary,
@@ -43,7 +41,7 @@ import {
 } from "../_shared/financeReconciliationTripQuery.ts";
 
 const PAYMENT_SESSION_MONEY_SELECT =
-  "id, trip_id, status, payment_method, captured_amount_pence, authorised_amount_pence, total_authorised_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_state, provider_state_verified_at, metadata";
+  "id, trip_id, status, payment_method, captured_amount_pence, authorised_amount_pence, total_authorised_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_state, provider_state_verified_at, release_evidence_status, release_evidence_source, release_verified_at, metadata";
 
 const TRIP_AUDIT_SELECT = `
         id,
@@ -712,43 +710,10 @@ serve(async (req) => {
 
     // FR must not call Revolut/Stripe balance APIs to create a second payment truth.
     // Provider balance refresh belongs to Payment Sessions / Payout Ledger.
-    let stripeAvailablePence = 0;
-    let stripePendingPence = 0;
-    let stripeBalanceError: string | null = "PROVIDER_BALANCE_NOT_QUERIED_BY_FR";
-    let moneyMovement = undefined;
-
-    const useStripeConnectEvidence = false;
-
-    if (useStripeConnectEvidence && stripeSecretKey) {
-      try {
-        const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
-        if (!summaryOnly && scopeHeavyStripe) {
-          const mm = await withTimeout(
-            "connect_money_movement",
-            STRIPE_SECTION_TIMEOUT_MS,
-            fetchConnectMoneyMovementBundle({
-              supabase,
-              stripe,
-              currency,
-              regionId: resolvedRegionId,
-              serviceAreaId: serviceAreaId ?? null,
-              periodFrom,
-              periodTo,
-            }),
-          );
-          if (mm && typeof mm === "object" && "__timeout" in mm) {
-            stripeBalanceError = stripeBalanceError ?? "connect_money_movement_timeout";
-            moneyMovement = undefined;
-          } else {
-            moneyMovement = mm;
-          }
-        }
-      } catch (e) {
-        stripeBalanceError = stripeBalanceError ?? (e as Error).message;
-      }
-    } else if (useStripeConnectEvidence && !stripeSecretKey) {
-      stripeBalanceError = stripeBalanceError ?? "STRIPE_SECRET_KEY not configured";
-    }
+    const stripeAvailablePence = 0;
+    const stripePendingPence = 0;
+    const stripeBalanceError: string | null = "PROVIDER_BALANCE_NOT_QUERIED_BY_FR";
+    const moneyMovement = undefined;
 
     if (driverId) {
       const perDriver = await fetchPerDriverFinancialReconciliation(supabase, {
@@ -1043,15 +1008,12 @@ serve(async (req) => {
         captured_pence: capturedByTrip.get(t.id as string) ?? 0,
       }));
 
-      const stripeClient = useStripeConnectEvidence && stripeSecretKey
-        ? new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" })
-        : null;
       const kpisResult = await withTimeout(
         "platform_kpis",
         STRIPE_SECTION_TIMEOUT_MS,
         fetchRegionPlatformKpis(supabase, {
           regionId: resolvedRegionId,
-          stripe: stripeClient,
+          stripe: null,
           todayAuditRows,
         }),
       );
@@ -1163,6 +1125,8 @@ serve(async (req) => {
       overcapture_pence: psCustomerMoney.overcapture_pence,
       missing_captures_count: psCustomerMoney.missing_captures_count,
       missing_releases_count: psCustomerMoney.missing_releases_count,
+      airport_charges_total_pence: psCustomerMoney.airport_charges_total_pence,
+      driver_tips_total_pence: psCustomerMoney.driver_tips_total_pence,
     };
 
     return new Response(JSON.stringify({

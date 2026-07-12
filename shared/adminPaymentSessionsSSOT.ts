@@ -98,6 +98,10 @@ export type AdminPaymentSessionsListRow = {
   provider_state: string | null;
   provider_state_label: string | null;
   provider_state_verified_at: string | null;
+  /** Slice 1 — residual release evidence after partial capture. */
+  release_evidence_status: string | null;
+  release_evidence_source: string | null;
+  release_verified_at: string | null;
   provider_verification_status: "VERIFIED" | "STALE" | "UNKNOWN" | "UNAVAILABLE";
   session_status: string | null;
   session_status_display: string | null;
@@ -228,6 +232,12 @@ export type AdminPaymentSessionsSummary = {
   released_buffer_total_pence: number | null;
   refunded_total_pence: number | null;
   provider_fees_total_pence: number | null;
+  /** SUM trip gross ONECAB commission (settlement) — backend only. */
+  gross_onecab_commission_pence: number | null;
+  /** Gross − provider fees — backend only; fees are never ONECAB revenue. */
+  net_onecab_commission_pence: number | null;
+  /** SUM trip driver_net_pence — backend only. */
+  driver_net_total_pence: number | null;
 };
 
 export type AdminPaymentSessionsListResponse = {

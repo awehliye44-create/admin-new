@@ -4,6 +4,7 @@ import { z } from "https://esm.sh/zod@3.23.8";
 import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
 import { adminLegacyStripeSyncFromProvider } from "../_shared/adminLegacyStripeTripPayment.ts";
 import { resolveTripPaymentProvider } from "../_shared/tripPaymentProviderSSOT.ts";
+import { assertStripeMutationAllowed } from "../_shared/stripeRuntimeDisabled.ts";
 
 const InputSchema = z.object({
   trip_id: z.string().uuid(),
@@ -13,6 +14,9 @@ const InputSchema = z.object({
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
+    const retired = assertStripeMutationAllowed(corsHeaders, "admin-sync-trip-payment-from-stripe");
+    if (retired) return retired;
+
     const gate = await requireAdmin(req);
     if (!gate.ok) return gate.response;
 

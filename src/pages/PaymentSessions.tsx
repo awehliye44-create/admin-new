@@ -575,7 +575,7 @@ export default function PaymentSessions() {
               <SelectContent>
                 <SelectItem value="all">All</SelectItem>
                 <SelectItem value="revolut">revolut</SelectItem>
-                <SelectItem value="stripe">stripe</SelectItem>
+                <SelectItem value="stripe">stripe — archived legacy</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -730,7 +730,7 @@ export default function PaymentSessions() {
             <TabsContent key={t.id} value={t.id} className="space-y-3">
               {t.id === 'overview' && (
                 <p className="text-sm text-muted-foreground">
-                  Stripe-like payment source of truth. Provider Payments owns provider amounts;
+                  Payment Sessions are the customer payment source of truth. Provider Payments owns provider amounts;
                   Completed Trips Paid shows backend fares; Payment Matching compares them.
                   Financial Reconciliation audits these values — it never invents payment amounts.
                 </p>
@@ -950,7 +950,8 @@ export default function PaymentSessions() {
                                 )}
                               </TableCell>
                               <TableCell className="text-xs">
-                                {row.released_at && row.released_amount_pence == null
+                                {row.release_evidence_status === 'AMOUNT_UNCONFIRMED'
+                                  || (row.released_at && row.released_amount_pence == null)
                                   ? 'AMOUNT_UNCONFIRMED'
                                   : formatNullablePence(row.released_amount_pence)}
                                 {row.released_at && (

@@ -4,6 +4,19 @@
  */
 
 import { readPersistedCaptureBreakdown } from "../../../shared/paymentSessionsCaptureBreakdownSSOT.ts";
+import {
+  evaluateFrSettlementCaptureIdentity,
+  isFrTripFullyBalanced,
+  resolveFrTripAuditStatus,
+  FR_TRIP_AUDIT_STATUS,
+} from "../../../shared/frConsumeOnlySSOT.ts";
+
+export {
+  evaluateFrSettlementCaptureIdentity as evaluateSettlementCaptureIdentity,
+  isFrTripFullyBalanced as isTripAuditFullyBalanced,
+  resolveFrTripAuditStatus,
+  FR_TRIP_AUDIT_STATUS,
+};
 
 export type CaptureReconciliationStatus =
   | "MATCHED"
@@ -15,14 +28,18 @@ export type CaptureReconciliationStatus =
   | "NO_PAYMENT_SESSION"
   | "PROVIDER_VERIFICATION_PENDING"
   | "PAYMENT_SESSION_CAPTURE_MISMATCH"
+  | "CAPTURE_MISMATCH"
   | "PAYMENT_EVIDENCE_UNAVAILABLE";
 
 export type ReleaseReconciliationStatus =
   | "RELEASE_MATCHED"
   | "RELEASE_PENDING"
   | "RELEASE_AMOUNT_UNKNOWN"
+  | "RELEASE_AMOUNT_UNCONFIRMED"
+  | "MISSING_RELEASE"
   | "RELEASE_SHORTFALL"
-  | "OVERRELEASE";
+  | "OVERRELEASE"
+  | "RELEASE_NOT_REQUIRED";
 
 export type RefundReconciliationStatus =
   | "REFUND_MATCHED"
@@ -110,12 +127,39 @@ export function classifyCaptureReconciliation(args: {
   return "CAPTURE_AMOUNT_UNKNOWN";
 }
 
-/** expected_release = authorised − captured; never invent when either side unknown. */
+/**
+ * expected_release = authorised − captured (audit only).
+ * Consumes Payment Sessions release_evidence_status when present.
+ * Never treats NULL released amount as £0.
+ */
 export function classifyReleaseReconciliation(args: {
   authorised_pence: number | null;
   captured_pence: number | null;
   released_pence: number | null;
+  release_evidence_status?: string | null;
 }): ReleaseReconciliationStatus {
+  const evidence = String(args.release_evidence_status ?? "").toUpperCase();
+  if (evidence === "NOT_REQUIRED") return "RELEASE_NOT_REQUIRED";
+  if (evidence === "AMOUNT_UNCONFIRMED") return "RELEASE_AMOUNT_UNCONFIRMED";
+  if (evidence === "CONFIRMED" && args.released_pence != null) {
+    if (args.authorised_pence == null || args.captured_pence == null) {
+      return "RELEASE_MATCHED";
+    }
+    const expected = Math.max(0, args.authorised_pence - args.captured_pence);
+    if (expected === 0) return "RELEASE_MATCHED";
+    const variance = args.released_pence - expected;
+    if (Math.abs(variance) <= TOLERANCE_PENCE) return "RELEASE_MATCHED";
+    if (variance < 0) return "RELEASE_SHORTFALL";
+    return "OVERRELEASE";
+  }
+  if (
+    evidence === "PENDING_PROVIDER_CONFIRMATION"
+    || evidence === "PROVIDER_STATE_UNAVAILABLE"
+    || evidence === "FAILED"
+  ) {
+    return "RELEASE_PENDING";
+  }
+
   if (args.authorised_pence == null || args.captured_pence == null) {
     return "RELEASE_AMOUNT_UNKNOWN";
   }
@@ -124,7 +168,8 @@ export function classifyReleaseReconciliation(args: {
     if (args.released_pence == null || args.released_pence === 0) return "RELEASE_MATCHED";
     return "OVERRELEASE";
   }
-  if (args.released_pence == null) return "RELEASE_PENDING";
+  // Residual expected but no confirmed release amount → MISSING_RELEASE (Slice 5).
+  if (args.released_pence == null) return "MISSING_RELEASE";
   const variance = args.released_pence - expected;
   if (Math.abs(variance) <= TOLERANCE_PENCE) return "RELEASE_MATCHED";
   if (variance < 0) return "RELEASE_SHORTFALL";
@@ -221,47 +266,42 @@ export function onecabNetFromSessionFee(args: {
   provider_processing_fee_pence: number | null;
   sessionsMapPresent: boolean;
 }): number | null {
-  if (!args.sessionsMapPresent) {
-    return Math.max(0, args.gross_commission_pence);
-  }
+  // Unknown fee is not £0 — never invent onecab_net = gross.
+  if (!args.sessionsMapPresent) return null;
   if (args.provider_processing_fee_pence == null) return null;
   return Math.max(0, args.gross_commission_pence - args.provider_processing_fee_pence);
 }
 
-/** Trip is fully balanced only when capture + wallet agree and payout is not inconsistent. */
-export function isTripAuditFullyBalanced(args: {
-  capture_reconciliation_status?: string | null;
-  wallet_reconciliation_status?: string | null;
-  payout_reconciliation_status?: string | null;
-  fee_status?: string | null;
-}): boolean {
-  const captureOk = args.capture_reconciliation_status === "MATCHED";
-  const walletOk =
-    args.wallet_reconciliation_status === "WALLET_MATCHED"
-    || args.wallet_reconciliation_status === "WALLET_CREDIT_PENDING";
-  const payoutBad =
-    args.payout_reconciliation_status === "PAYOUT_MISMATCH"
-    || args.payout_reconciliation_status === "PAYOUT_FAILED"
-    || args.payout_reconciliation_status === "DUPLICATE_PAYOUT_RISK";
-  const feeBlocks =
-    args.fee_status === "PENDING_PROVIDER_FEE"
-    || args.fee_status === "PENDING"
-    || args.fee_status === "UNAVAILABLE";
-  return captureOk && walletOk && !payoutBad && !feeBlocks;
-}
+/** @deprecated Use isFrTripFullyBalanced / evaluateFrSettlementCaptureIdentity (re-exported). */
 
 export type FrAuditOverviewKpis = {
   /** Payment Sessions expected capture (Completed Trips Paid) — never raw trip fare. */
   completed_trip_fare_total_pence: number;
   confirmed_provider_captured_total_pence: number;
-  refunded_total_pence: number;
+  /** Sum of PS authorised amounts (nullable rows skipped). */
+  total_authorised_pence: number;
+  /** Audit-only expected residual = max(0, auth − capture) when both known. */
+  expected_released_pence: number;
+  /** Provider-confirmed released only (NULL never counted as £0). */
   released_total_pence: number;
+  release_amount_unconfirmed_count: number;
+  refunded_total_pence: number;
+  waiting_charges_total_pence: number;
   provider_fee_total_pence: number;
   onecab_gross_commission_pence: number;
   onecab_net_commission_pence: number | null;
   driver_net_total_pence: number;
   wallet_credits_total_pence: number;
   payouts_completed_pence: number;
+  /** Non-commissionable — Payment Sessions capture breakdown. */
+  airport_charges_total_pence: number;
+  /** Non-commissionable — Payment Sessions capture breakdown. */
+  driver_tips_total_pence: number;
+  commissionable_fare_total_pence: number;
+  /** Exact: captured − (driver_net + gross_commission + airport + tips). Null when not evaluable. */
+  settlement_identity_variance_pence: number | null;
+  settlement_identity_balanced: boolean;
+  unallocated_pence: number | null;
   /** PS classification CAPTURE_SHORTFALL / UNEXPLAINED_SHORTFALL only. */
   capture_shortfall_pence: number;
   /** PS classification UNEXPLAINED_OVERCAPTURE only — never waiting charges. */
@@ -270,6 +310,7 @@ export type FrAuditOverviewKpis = {
   missing_releases_count: number;
   missing_wallet_credits_count: number;
   payout_mismatches_count: number;
+  wallet_mismatches_count: number;
   balanced_trips_count: number;
   unresolved_mismatches_count: number;
   trip_count: number;
@@ -312,7 +353,10 @@ function isMissingCaptureRow(row: {
 function isMissingReleaseRow(row: {
   release_reconciliation_status?: string | null;
 }): boolean {
-  return row.release_reconciliation_status === "RELEASE_PENDING"
+  // AMOUNT_UNCONFIRMED = residual proven gone, amount not explicit — counted separately.
+  // NOT_REQUIRED / MATCHED = closed.
+  return row.release_reconciliation_status === "MISSING_RELEASE"
+    || row.release_reconciliation_status === "RELEASE_PENDING"
     || row.release_reconciliation_status === "RELEASE_SHORTFALL"
     || row.release_reconciliation_status === "RELEASE_AMOUNT_UNKNOWN";
 }
@@ -329,6 +373,7 @@ export function buildFrAuditOverviewKpis(
     final_customer_fare_pence?: number | null;
     settlement_total_pence?: number | null;
     captured_pence?: number | null;
+    authorised_pence?: number | null;
     refunded_pence?: number | null;
     released_pence?: number | null;
     processing_fee_pence?: number | null;
@@ -336,6 +381,12 @@ export function buildFrAuditOverviewKpis(
     onecab_net_pence?: number | null;
     driver_net_pence?: number | null;
     wallet_credit_pence?: number | null;
+    airport_charge_pence?: number | null;
+    tip_pence?: number | null;
+    tips_pence?: number | null;
+    commissionable_fare_pence?: number | null;
+    pickup_waiting_charge_pence?: number | null;
+    stop_waiting_charge_pence?: number | null;
     capture_variance_pence?: number | null;
     capture_classification?: string | null;
     capture_reconciliation_status?: string | null;
@@ -351,6 +402,8 @@ export function buildFrAuditOverviewKpis(
 ): FrAuditOverviewKpis {
   let fare = 0;
   let captured = 0;
+  let authorised = 0;
+  let expectedReleased = 0;
   let refunded = 0;
   let released = 0;
   let fees = 0;
@@ -359,24 +412,36 @@ export function buildFrAuditOverviewKpis(
   let netKnown = true;
   let driverNet = 0;
   let walletCredits = 0;
+  let airportTotal = 0;
+  let tipsTotal = 0;
+  let waitingTotal = 0;
+  let commissionableTotal = 0;
   let payoutsCompleted = 0;
   let shortfall = 0;
   let overcapture = 0;
   let missingCaptures = 0;
   let missingReleases = 0;
+  let releaseUnconfirmed = 0;
   let missingWallet = 0;
   let payoutMismatch = 0;
+  let walletMismatch = 0;
   let balanced = 0;
   let unresolved = 0;
+  let identityVariance = 0;
+  let identityEvaluable = true;
 
   for (const row of rows) {
-    // Completed Trips Paid Total ≡ Payment Sessions expected capture only.
-    // Never invent from trip final_fare / settlement.
     if (row.ps_expected_capture_pence != null) {
       fare += Math.max(0, row.ps_expected_capture_pence);
     }
     if (row.captured_pence != null && row.captured_pence > 0) {
       captured += row.captured_pence;
+    }
+    if (row.authorised_pence != null && row.authorised_pence > 0) {
+      authorised += row.authorised_pence;
+    }
+    if (row.authorised_pence != null && row.captured_pence != null) {
+      expectedReleased += Math.max(0, row.authorised_pence - row.captured_pence);
     }
     if (row.refunded_pence != null) refunded += Math.max(0, row.refunded_pence);
     if (row.released_pence != null) released += Math.max(0, row.released_pence);
@@ -388,20 +453,46 @@ export function buildFrAuditOverviewKpis(
     else netSum += Math.max(0, row.onecab_net_pence);
     if (row.driver_net_pence != null) driverNet += Math.max(0, row.driver_net_pence);
     if (row.wallet_credit_pence != null) walletCredits += Math.max(0, row.wallet_credit_pence);
+    if (row.airport_charge_pence != null) airportTotal += Math.max(0, row.airport_charge_pence);
+    const tip = row.tips_pence ?? row.tip_pence;
+    if (tip != null) tipsTotal += Math.max(0, tip);
+    waitingTotal += Math.max(0, Number(row.pickup_waiting_charge_pence ?? 0))
+      + Math.max(0, Number(row.stop_waiting_charge_pence ?? 0));
+    if (row.commissionable_fare_pence != null) {
+      commissionableTotal += Math.max(0, row.commissionable_fare_pence);
+    } else if (row.driver_net_pence != null && row.onecab_gross_commission_pence != null) {
+      commissionableTotal += Math.max(0, row.driver_net_pence + row.onecab_gross_commission_pence);
+    }
     if (String(row.payout_reconciliation_status ?? "") === "PAYOUT_PAID") {
       payoutsCompleted += Math.max(0, Number(row.payout_amount_pence ?? 0));
     }
+    const identity = evaluateFrSettlementCaptureIdentity({
+      captured_pence: row.captured_pence,
+      driver_net_pence: row.driver_net_pence,
+      commission_pence: row.onecab_gross_commission_pence,
+      airport_charge_pence: row.airport_charge_pence,
+      tips_pence: tip,
+    });
+    if (!identity.evaluable || identity.variance_pence == null) identityEvaluable = false;
+    else identityVariance += identity.variance_pence;
+
     const cv = row.capture_variance_pence;
-    // Only PS unexplained shortfall / overcapture — waiting charges are MATCHED.
-    if (isPsCaptureShortfall(row) && cv != null && cv < 0) {
-      shortfall += Math.abs(cv);
-    }
-    if (isPsUnexplainedOvercapture(row) && cv != null && cv > 0) {
-      overcapture += cv;
-    }
+    if (isPsCaptureShortfall(row) && cv != null && cv < 0) shortfall += Math.abs(cv);
+    if (isPsUnexplainedOvercapture(row) && cv != null && cv > 0) overcapture += cv;
     if (isMissingCaptureRow(row)) missingCaptures += 1;
     if (isMissingReleaseRow(row)) missingReleases += 1;
+    if (row.release_reconciliation_status === "RELEASE_AMOUNT_UNCONFIRMED") {
+      releaseUnconfirmed += 1;
+    }
     if (row.wallet_reconciliation_status === "WALLET_CREDIT_MISSING") missingWallet += 1;
+    if (
+      row.wallet_reconciliation_status === "WALLET_CREDIT_MISSING"
+      || row.wallet_reconciliation_status === "WALLET_OVER_CREDIT"
+      || row.wallet_reconciliation_status === "WALLET_UNDER_CREDIT"
+      || row.wallet_reconciliation_status === "DUPLICATE_WALLET_CREDIT"
+    ) {
+      walletMismatch += 1;
+    }
     if (
       row.payout_reconciliation_status === "PAYOUT_MISMATCH"
       || row.payout_reconciliation_status === "PAYOUT_FAILED"
@@ -409,7 +500,10 @@ export function buildFrAuditOverviewKpis(
     ) {
       payoutMismatch += 1;
     }
-    if (isTripAuditFullyBalanced(row)) {
+    if (isFrTripFullyBalanced({
+      ...row,
+      settlement_identity_balanced: identity.balanced,
+    })) {
       balanced += 1;
     } else if (
       row.capture_mismatch
@@ -417,7 +511,10 @@ export function buildFrAuditOverviewKpis(
       || row.capture_reconciliation_status === "OVERCAPTURE"
       || row.capture_reconciliation_status === "CAPTURE_MISSING"
       || row.capture_reconciliation_status === "PAYMENT_SESSION_CAPTURE_MISMATCH"
+      || row.capture_reconciliation_status === "CAPTURE_MISMATCH"
       || row.capture_reconciliation_status === "NO_PAYMENT_SESSION"
+      || row.release_reconciliation_status === "MISSING_RELEASE"
+      || row.release_reconciliation_status === "RELEASE_AMOUNT_UNCONFIRMED"
       || row.wallet_reconciliation_status === "WALLET_CREDIT_MISSING"
       || row.wallet_reconciliation_status === "WALLET_OVER_CREDIT"
       || row.wallet_reconciliation_status === "WALLET_UNDER_CREDIT"
@@ -425,28 +522,42 @@ export function buildFrAuditOverviewKpis(
       || row.payout_reconciliation_status === "PAYOUT_MISMATCH"
       || row.payout_reconciliation_status === "PAYOUT_FAILED"
       || row.payout_reconciliation_status === "DUPLICATE_PAYOUT_RISK"
+      || identity.balanced === false
     ) {
       unresolved += 1;
     }
   }
 
+  const identityBalanced = identityEvaluable && identityVariance === 0 && rows.length > 0;
+
   return {
     completed_trip_fare_total_pence: fare,
     confirmed_provider_captured_total_pence: captured,
-    refunded_total_pence: refunded,
+    total_authorised_pence: authorised,
+    expected_released_pence: expectedReleased,
     released_total_pence: released,
+    release_amount_unconfirmed_count: releaseUnconfirmed,
+    refunded_total_pence: refunded,
+    waiting_charges_total_pence: waitingTotal,
     provider_fee_total_pence: fees,
     onecab_gross_commission_pence: gross,
     onecab_net_commission_pence: netKnown ? netSum : null,
     driver_net_total_pence: driverNet,
     wallet_credits_total_pence: walletCredits,
     payouts_completed_pence: payoutsCompleted,
+    airport_charges_total_pence: airportTotal,
+    driver_tips_total_pence: tipsTotal,
+    commissionable_fare_total_pence: commissionableTotal,
+    settlement_identity_variance_pence: identityEvaluable ? identityVariance : null,
+    settlement_identity_balanced: identityBalanced,
+    unallocated_pence: identityEvaluable ? identityVariance : null,
     capture_shortfall_pence: shortfall,
     overcapture_pence: overcapture,
     missing_captures_count: missingCaptures,
     missing_releases_count: missingReleases,
     missing_wallet_credits_count: missingWallet,
     payout_mismatches_count: payoutMismatch,
+    wallet_mismatches_count: walletMismatch,
     balanced_trips_count: balanced,
     unresolved_mismatches_count: unresolved,
     trip_count: rows.length,
@@ -468,6 +579,7 @@ export function buildFrCustomerMoneyKpisFromPaymentSessions(
     provider_processing_fee_pence?: number | null;
     fee_status?: string | null;
     provider_state?: string | null;
+    release_evidence_status?: string | null;
     metadata?: Record<string, unknown> | null;
   }>,
 ): Pick<
@@ -481,6 +593,8 @@ export function buildFrCustomerMoneyKpisFromPaymentSessions(
   | "overcapture_pence"
   | "missing_captures_count"
   | "missing_releases_count"
+  | "airport_charges_total_pence"
+  | "driver_tips_total_pence"
 > {
   let fare = 0;
   let captured = 0;
@@ -491,6 +605,8 @@ export function buildFrCustomerMoneyKpisFromPaymentSessions(
   let overcapture = 0;
   let missingCaptures = 0;
   let missingReleases = 0;
+  let airportTotal = 0;
+  let tipsTotal = 0;
 
   for (const s of sessions) {
     const capRaw = s.captured_amount_pence;
@@ -524,14 +640,23 @@ export function buildFrCustomerMoneyKpisFromPaymentSessions(
       }
     }
 
-    // Missing release ← Payment Sessions auth/capture/release fields only.
+    // Missing release ← actionable residual without confirmed amount (Slice 5).
+    // AMOUNT_UNCONFIRMED is evidence-pending amount, not missing release action.
     const releaseStatus = classifyReleaseReconciliation({
       authorised_pence: authorised,
       captured_pence: cap,
       released_pence: releasedAmt,
+      release_evidence_status: s.release_evidence_status != null
+        ? String(s.release_evidence_status)
+        : null,
     });
     if (
-      (releaseStatus === "RELEASE_PENDING" || releaseStatus === "RELEASE_SHORTFALL")
+      (
+        releaseStatus === "MISSING_RELEASE"
+        || releaseStatus === "RELEASE_PENDING"
+        || releaseStatus === "RELEASE_SHORTFALL"
+        || releaseStatus === "RELEASE_AMOUNT_UNKNOWN"
+      )
       && authorised != null
       && cap != null
       && authorised > cap
@@ -551,6 +676,12 @@ export function buildFrCustomerMoneyKpisFromPaymentSessions(
     const breakdown = readPersistedCaptureBreakdown(s.metadata ?? null);
     if (breakdown?.expected_capture_pence != null) {
       fare += Math.max(0, breakdown.expected_capture_pence);
+    }
+    if (breakdown?.airport_charge_pence != null) {
+      airportTotal += Math.max(0, breakdown.airport_charge_pence);
+    }
+    if (breakdown?.tip_pence != null) {
+      tipsTotal += Math.max(0, breakdown.tip_pence);
     }
     if (
       breakdown?.capture_classification === "CAPTURE_SHORTFALL"
@@ -577,5 +708,7 @@ export function buildFrCustomerMoneyKpisFromPaymentSessions(
     overcapture_pence: overcapture,
     missing_captures_count: missingCaptures,
     missing_releases_count: missingReleases,
+    airport_charges_total_pence: airportTotal,
+    driver_tips_total_pence: tipsTotal,
   };
 }

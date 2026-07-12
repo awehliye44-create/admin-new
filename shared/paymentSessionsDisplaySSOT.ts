@@ -3,19 +3,11 @@
  * Pure; no React money math. Amounts come from Phase 1A columns only.
  */
 
-import {
-  isCaptureEvidenceMismatch,
-  isCapturedComplete,
-  isValidConfirmedCapturePence,
-} from "./paymentCaptureEvidenceSSOT.ts";
-
 export type PaymentSessionsCanonicalStatus =
   | "AUTHORISED"
   | "CAPTURE_PENDING"
   | "CAPTURED"
-  | "CAPTURED_COMPLETE"
   | "CAPTURED_EVIDENCE_PENDING"
-  | "CAPTURE_EVIDENCE_MISMATCH"
   | "CAPTURE_FAILED"
   | "RELEASED"
   | "CANCELLED"
@@ -27,8 +19,6 @@ export type PaymentSessionsCanonicalStatus =
 export type PaymentSessionsEvidenceStatus =
   | "COMPLETE"
   | "CAPTURE_AMOUNT_MISSING"
-  | "CAPTURE_ZERO_INVALID"
-  | "CAPTURE_AMOUNT_MISMATCH"
   | "AMOUNT_UNCONFIRMED"
   | "PENDING_PROVIDER_FEE"
   | "INCOMPLETE";
@@ -54,10 +44,6 @@ export type PaymentSessionsDisplayInput = {
   refunded_at?: string | null;
   hold_classification?: string | null;
   classification?: "GREEN" | "AMBER" | "RED" | null;
-  /** Expected capture (trip final fare) — optional for complete/mismatch checks. */
-  expected_capture_pence?: number | null;
-  /** Live/provider-confirmed capture shown separately when local is invalid. */
-  provider_confirmed_capture_pence?: number | null;
 };
 
 export type PaymentSessionsDisplayResult = {
@@ -115,24 +101,7 @@ export function mapCanonicalSessionStatus(input: PaymentSessionsDisplayInput): P
   }
 
   if (providerCaptured || input.captured_at || raw === "captured") {
-    if (isCaptureEvidenceMismatch({
-      providerState: input.provider_state,
-      localCapturedAmountPence: input.captured_amount_pence,
-      expectedCapturePence: input.expected_capture_pence,
-    })) {
-      return "CAPTURE_EVIDENCE_MISMATCH";
-    }
-    if (!isValidConfirmedCapturePence(input.captured_amount_pence)) {
-      return "CAPTURED_EVIDENCE_PENDING";
-    }
-    if (isCapturedComplete({
-      providerState: input.provider_state,
-      capturedAmountPence: input.captured_amount_pence,
-      capturedAt: input.captured_at,
-      expectedCapturePence: input.expected_capture_pence,
-    })) {
-      return "CAPTURED_COMPLETE";
-    }
+    if (input.captured_amount_pence == null) return "CAPTURED_EVIDENCE_PENDING";
     return "CAPTURED";
   }
 
@@ -175,12 +144,8 @@ export function mapCanonicalSessionStatus(input: PaymentSessionsDisplayInput): P
 
 export function sessionStatusLabel(status: PaymentSessionsCanonicalStatus): string {
   switch (status) {
-    case "CAPTURED_COMPLETE":
-      return "CAPTURED COMPLETE";
     case "CAPTURED_EVIDENCE_PENDING":
       return "CAPTURED EVIDENCE PENDING";
-    case "CAPTURE_EVIDENCE_MISMATCH":
-      return "CAPTURE EVIDENCE MISMATCH";
     case "CAPTURE_PENDING":
       return "CAPTURE PENDING";
     case "CAPTURE_FAILED":
@@ -196,43 +161,12 @@ export function derivePaymentSessionsEvidenceStatus(
   input: PaymentSessionsDisplayInput,
 ): { status: PaymentSessionsEvidenceStatus; label: string } {
   const providerCaptured = isProviderCapturedState(input.provider_state);
-  const localRaw = input.captured_amount_pence == null
-    ? null
-    : Number(input.captured_amount_pence);
-
-  if (
-    (providerCaptured || input.captured_at)
-    && localRaw != null
-    && Number.isFinite(localRaw)
-    && localRaw <= 0
-  ) {
-    return {
-      status: "CAPTURE_ZERO_INVALID",
-      label: "Not recorded locally (zero capture invalid)",
-    };
-  }
-
-  if ((providerCaptured || input.captured_at) && !isValidConfirmedCapturePence(input.captured_amount_pence)) {
+  if ((providerCaptured || input.captured_at) && input.captured_amount_pence == null) {
     return {
       status: "CAPTURE_AMOUNT_MISSING",
       label: "Captured amount not recorded",
     };
   }
-
-  const providerConfirmed = input.provider_confirmed_capture_pence == null
-    ? null
-    : Number(input.provider_confirmed_capture_pence);
-  if (
-    isValidConfirmedCapturePence(providerConfirmed)
-    && isValidConfirmedCapturePence(input.captured_amount_pence)
-    && Math.round(providerConfirmed) !== Math.round(Number(input.captured_amount_pence))
-  ) {
-    return {
-      status: "CAPTURE_AMOUNT_MISMATCH",
-      label: "Local capture differs from provider",
-    };
-  }
-
   if (input.released_at && input.released_amount_pence == null) {
     return { status: "AMOUNT_UNCONFIRMED", label: "Released amount unconfirmed" };
   }
@@ -242,14 +176,14 @@ export function derivePaymentSessionsEvidenceStatus(
   const fee = upper(input.fee_status);
   if (
     (providerCaptured || input.captured_at)
-    && isValidConfirmedCapturePence(input.captured_amount_pence)
+    && input.captured_amount_pence != null
     && (fee === "PENDING" || (input.fee_status == null && input.provider_processing_fee_pence == null))
   ) {
     return { status: "PENDING_PROVIDER_FEE", label: "Pending provider fee" };
   }
   if (
     (providerCaptured || input.captured_at)
-    && isValidConfirmedCapturePence(input.captured_amount_pence)
+    && input.captured_amount_pence != null
   ) {
     return { status: "COMPLETE", label: "COMPLETE" };
   }
@@ -295,16 +229,6 @@ export function derivePaymentSessionsReconciliation(
   evidence: PaymentSessionsEvidenceStatus,
   canonical: PaymentSessionsCanonicalStatus,
 ): { reconciliation_status: string; classification: "GREEN" | "AMBER" | "RED" } {
-  if (
-    evidence === "CAPTURE_ZERO_INVALID"
-    || evidence === "CAPTURE_AMOUNT_MISMATCH"
-    || canonical === "CAPTURE_EVIDENCE_MISMATCH"
-  ) {
-    return {
-      reconciliation_status: "CAPTURE_EVIDENCE_MISMATCH",
-      classification: "RED",
-    };
-  }
   if (evidence === "CAPTURE_AMOUNT_MISSING") {
     return {
       reconciliation_status: "ATTENTION_CAPTURE_AMOUNT_MISSING",
@@ -343,7 +267,7 @@ export function derivePaymentSessionsReconciliation(
     };
   }
 
-  if ((canonical === "CAPTURED" || canonical === "CAPTURED_COMPLETE") && evidence === "COMPLETE") {
+  if (canonical === "CAPTURED" && evidence === "COMPLETE") {
     return {
       reconciliation_status: "OK_CAPTURED",
       classification: "GREEN",
@@ -411,7 +335,7 @@ export function buildPaymentSessionsDisplay(
   };
 }
 
-/** Tab membership — Captured = confirmed captures only (amount > 0). Stripe Payments style. */
+/** Tab membership — Captured = confirmed captures only (amount present). Stripe Payments style. */
 export function rowBelongsInCapturedTab(row: {
   captured_at?: string | null;
   captured_amount_pence?: number | null;
@@ -419,7 +343,10 @@ export function rowBelongsInCapturedTab(row: {
   provider_verification_status?: string | null;
   attention_class?: string | null;
 }): boolean {
-  if (!isValidConfirmedCapturePence(row.captured_amount_pence)) return false;
+  if (row.captured_amount_pence == null || !Number.isFinite(Number(row.captured_amount_pence))) {
+    return false;
+  }
+  if (Number(row.captured_amount_pence) < 0) return false;
   if (row.captured_at) return true;
   if (isProviderCapturedState(row.provider_state)) return true;
   return row.attention_class === "CAPTURED";
@@ -429,6 +356,7 @@ export function rowBelongsInCapturedTab(row: {
 export function rowBelongsInReleasedTab(row: {
   released_at?: string | null;
   released_amount_pence?: number | null;
+  release_evidence_status?: string | null;
   provider_state?: string | null;
   attention_class?: string | null;
   session_status?: string | null;
@@ -436,11 +364,18 @@ export function rowBelongsInReleasedTab(row: {
 }): boolean {
   const display = upper(row.session_status_display);
   const provider = upper(row.provider_state);
+  const evidence = upper(row.release_evidence_status);
   if (display === "CANCELLED" || provider === "CANCELLED" || provider === "CANCELED") {
     return false;
   }
   if (row.attention_class === "RESOLVED_PROVIDER_CANCELLED") return false;
   if (row.released_at) return true;
+  if (
+    evidence === "CONFIRMED"
+    || evidence === "AMOUNT_UNCONFIRMED"
+  ) {
+    return true;
+  }
   if (provider === "REVERTED") return true;
   if (row.attention_class === "RESOLVED_PROVIDER_REVERTED") return true;
   return Boolean(row.session_status && /releas/i.test(row.session_status) && !/cancel/i.test(row.session_status));
@@ -516,7 +451,7 @@ export function formatCapturedAmountDisplay(args: {
   captured_amount_pence: number | null | undefined;
   currencyFormatter: (pence: number | null) => string;
 }): string {
-  if (!isValidConfirmedCapturePence(args.captured_amount_pence)) {
+  if (confirmedCapturedRevenuePence({ captured_amount_pence: args.captured_amount_pence }) == null) {
     return "Not recorded locally";
   }
   return args.currencyFormatter(Math.round(Number(args.captured_amount_pence)));
@@ -544,5 +479,4 @@ export function sumReleasedBufferTotalPence(
   }
   return releasedBuffer;
 }
-
 

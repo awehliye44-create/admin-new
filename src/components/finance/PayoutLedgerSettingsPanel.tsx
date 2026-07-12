@@ -328,7 +328,7 @@ export function PayoutLedgerSettingsPanel({
             onChange={setOverrideDriverId}
             regionId={serviceFilter.regionId}
             serviceAreaId={serviceFilter.serviceAreaId}
-            stripeConnectOnly
+            stripeConnectOnly={false}
           />
           {overrideDriverId && (
             <div className="flex items-center justify-between gap-3 rounded-md border p-3">
@@ -338,9 +338,9 @@ export function PayoutLedgerSettingsPanel({
                   {overrideDriver?.driver_code
                     ?? [overrideDriver?.first_name, overrideDriver?.last_name].filter(Boolean).join(' ')
                     ?? overrideDriverId}
-                  {overrideDriver?.stripe_account_id
-                    ? ` · ${String(overrideDriver.stripe_account_id).slice(0, 14)}…`
-                    : ' · no connected account'}
+                  {overrideDriver?.payouts_enabled === false
+                    ? ' · automatic payouts paused'
+                    : ' · payouts via Driver Wallet Ledger'}
                   {overrideLoading ? ' · loading…' : ''}
                 </p>
               </div>
@@ -495,7 +495,7 @@ export function PayoutLedgerSettingsPanel({
           </div>
           <div className="flex items-center justify-between gap-3 rounded-md border p-3 sm:col-span-2">
             <div>
-              <Label>Stripe instant payouts flag</Label>
+              <Label>Instant payouts flag (legacy)</Label>
               <p className="text-xs text-muted-foreground">Persisted setting — provider capability gate</p>
             </div>
             <Switch
@@ -551,7 +551,7 @@ export function PayoutLedgerSettingsPanel({
           <div className="space-y-1.5">
             <Label>Supported providers</Label>
             <Input
-              value={get('company_transfer_supported_providers', 'manual,revolut,stripe')}
+              value={get('company_transfer_supported_providers', 'manual,revolut')}
               onChange={(e) => set('company_transfer_supported_providers', e.target.value)}
             />
           </div>

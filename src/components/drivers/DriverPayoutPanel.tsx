@@ -84,12 +84,15 @@ export function DriverPayoutPanel({
     driver_payout_gateway?: string | null;
     customer_payment_gateway?: string | null;
   } | null | undefined;
-  const payoutGateway =
-    serviceArea?.payment_provider ??
+  const payoutGatewayRaw =
     serviceArea?.driver_payout_gateway ??
+    serviceArea?.payment_provider ??
     serviceArea?.customer_payment_gateway ??
-    "stripe";
-  const usesStripe = payoutGateway === "stripe";
+    null;
+  const payoutGateway = String(payoutGatewayRaw ?? "").toLowerCase() === "stripe"
+    ? "revolut"
+    : (payoutGatewayRaw ?? "revolut");
+  const usesStripe = false; // Stripe Connect payouts retired from active finance
   const region = data?.region;
   const destinations = (data?.destinations ?? []) as Array<{
     id?: string;

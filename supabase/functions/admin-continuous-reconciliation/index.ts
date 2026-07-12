@@ -1,11 +1,9 @@
 /**
- * Continuous reconciliation — compare Stripe objects vs backend records.
- * Never silently mutates money; writes evidence only unless repair_mode=true.
+ * Continuous reconciliation — compare wallet/payout SSOT vs backend records.
+ * P0: Stripe Connect sync retired; snapshots use Driver Wallet Ledger only.
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
-import Stripe from "https://esm.sh/stripe@14.21.0";
 import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
-import { syncStripeConnectPayoutsForRegion } from "../_shared/stripeConnectPayoutSync.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -74,17 +72,11 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
-    if (!stripeKey) throw new Error("STRIPE_SECRET_KEY not configured");
-
     const supabase = createClient(supabaseUrl, serviceKey);
-    const stripe = new Stripe(stripeKey, { apiVersion: "2023-10-16" });
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
     const regionId = body.region_id as string | undefined;
 
-    if (regionId) {
-      await syncStripeConnectPayoutsForRegion({ supabase, stripe, regionId });
-    }
+    // P0 Stripe retirement: never sync Connect payouts or pass Stripe client into snapshots.
 
     let driversQuery = supabase
       .from("drivers")
@@ -98,7 +90,7 @@ Deno.serve(async (req) => {
     for (const d of drivers ?? []) {
       const snap = await fetchDriverWalletPayoutSnapshot(supabase, {
         driverId: d.id,
-        stripe,
+        stripe: null,
       });
 
       let classification: ReconciliationRow["classification"] = "matched";

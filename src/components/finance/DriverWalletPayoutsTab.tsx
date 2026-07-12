@@ -132,8 +132,8 @@ export function DriverWalletPayoutsTab({
           </p>
           <div className="grid gap-2 grid-cols-2 lg:grid-cols-3 text-foreground text-xs">
             <div>
-              <p className="text-muted-foreground">Connected account</p>
-              <p className="font-mono">{driver.connected_account_id ?? '—'}</p>
+              <p className="text-muted-foreground">Payout destination</p>
+              <p className="font-mono">{driver.connected_account_id ?? 'Manual bank'}</p>
             </div>
             <div>
               <p className="text-muted-foreground">Verification</p>
@@ -147,7 +147,7 @@ export function DriverWalletPayoutsTab({
             </div>
             <div>
               <p className="text-muted-foreground">Provider</p>
-              <p className="font-semibold">{driver.connected_account_id ? 'stripe' : '—'}</p>
+              <p className="font-semibold">{driver.payout_provider ?? 'revolut'}</p>
             </div>
             <div>
               <p className="text-muted-foreground">Last payout</p>

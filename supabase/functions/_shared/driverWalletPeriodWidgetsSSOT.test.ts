@@ -48,7 +48,6 @@ Deno.test("empty period zeros; account balances unchanged in response builder", 
       available_balance_pence: 1058,
       pending_balance_pence: 0,
       outstanding_debt_pence: 0,
-      annual_driver_earnings_pence: 0,
     },
     ledger: [
       { type: "TRIP_EARNING_NET", amount_pence: 500, related_trip_id: "old", created_at: "2026-07-01T10:00:00Z" },
@@ -90,7 +89,6 @@ Deno.test("live update after completed trip credit", () => {
       available_balance_pence: 572,
       pending_balance_pence: 0,
       outstanding_debt_pence: 0,
-      annual_driver_earnings_pence: 0,
     },
     ledger: [
       { type: "TRIP_EARNING_NET", amount_pence: 572, related_trip_id: "t0", created_at: "2026-07-08T10:00:00Z" },
@@ -105,7 +103,6 @@ Deno.test("live update after completed trip credit", () => {
       available_balance_pence: 1058,
       pending_balance_pence: 0,
       outstanding_debt_pence: 0,
-      annual_driver_earnings_pence: 0,
     },
     ledger: [
       { type: "TRIP_EARNING_NET", amount_pence: 572, related_trip_id: "t0", created_at: "2026-07-08T10:00:00Z" },

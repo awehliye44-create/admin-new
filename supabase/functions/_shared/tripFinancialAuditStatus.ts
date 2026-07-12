@@ -307,6 +307,7 @@ export function deriveTripReconciliationBadge(args: {
   trip_status?: string | null;
   payment_status?: string | null;
   capture_reconciliation_status?: string | null;
+  release_reconciliation_status?: string | null;
   wallet_reconciliation_status?: string | null;
   payout_reconciliation_status?: string | null;
   fee_status?: string | null;
@@ -326,6 +327,7 @@ export function deriveTripReconciliationBadge(args: {
   const payoutStatus = String(args.payout_reconciliation_status ?? "");
   if (
     captureStatus === "PAYMENT_SESSION_CAPTURE_MISMATCH"
+    || captureStatus === "CAPTURE_MISMATCH"
     || captureStatus === "CAPTURE_SHORTFALL"
     || captureStatus === "OVERCAPTURE"
     || captureStatus === "CAPTURE_MISSING"
@@ -333,10 +335,22 @@ export function deriveTripReconciliationBadge(args: {
   ) {
     return {
       label: captureStatus === "PAYMENT_SESSION_CAPTURE_MISMATCH"
-        ? "PAYMENT_SESSION_CAPTURE_MISMATCH"
+        || captureStatus === "CAPTURE_MISMATCH"
+        ? "CAPTURE_MISMATCH"
         : "Mismatch",
       tone: "red",
     };
+  }
+  const releaseStatus = String(args.release_reconciliation_status ?? "");
+  if (releaseStatus === "RELEASE_AMOUNT_UNCONFIRMED") {
+    return { label: "RELEASE_AMOUNT_UNCONFIRMED", tone: "yellow" };
+  }
+  if (
+    releaseStatus === "MISSING_RELEASE"
+    || releaseStatus === "RELEASE_PENDING"
+    || releaseStatus === "RELEASE_SHORTFALL"
+  ) {
+    return { label: "MISSING_RELEASE", tone: "yellow" };
   }
   if (
     walletStatus === "WALLET_CREDIT_MISSING"
@@ -387,16 +401,20 @@ export function deriveTripReconciliationBadge(args: {
   ) {
     return { label: "Pending Settlement", tone: "yellow" };
   }
-  // GREEN only when capture matched and wallet evidence agrees (or pending with £0 expected).
+  // GREEN only when capture matched AND wallet matched — never WALLET_CREDIT_PENDING.
   if (
     captureStatus === "MATCHED"
-    && (walletStatus === "WALLET_MATCHED" || walletStatus === "WALLET_CREDIT_PENDING")
+    && walletStatus === "WALLET_MATCHED"
     && payoutStatus !== "PAYOUT_MISMATCH"
+    && releaseStatus !== "MISSING_RELEASE"
+    && releaseStatus !== "RELEASE_AMOUNT_UNCONFIRMED"
+    && releaseStatus !== "RELEASE_PENDING"
+    && releaseStatus !== "RELEASE_SHORTFALL"
   ) {
-    return { label: "Balanced", tone: "green" };
+    return { label: "BALANCED", tone: "green" };
   }
   // Never invent Balanced when classifiers disagree or are absent.
-  return { label: "Review Required", tone: "yellow" };
+  return { label: "PARTIAL", tone: "yellow" };
 }
 
 export function deriveTripCaptureStatusLabel(

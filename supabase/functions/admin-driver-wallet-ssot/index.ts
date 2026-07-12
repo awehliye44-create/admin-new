@@ -1,10 +1,11 @@
 /**
  * Admin Driver Wallet SSOT — per-driver snapshot from distinct sources.
+ * P0: No live Stripe Connect reads. Drivers listed without stripe_account_id filter.
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
-import Stripe from "https://esm.sh/stripe@14.21.0";
 import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
 import { fetchDriverWalletSummary } from "../_shared/fetchDriverWalletSummary.ts";
+import { isStripeRuntimeDisabled } from "../_shared/stripeRuntimeDisabled.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -23,7 +24,6 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
     const supabase = createClient(supabaseUrl, serviceKey);
 
     const authHeader = req.headers.get("Authorization");
@@ -76,7 +76,11 @@ Deno.serve(async (req) => {
     );
     const offset = Math.max(0, Number(body.offset ?? url.searchParams.get("offset") ?? 0));
 
-    const stripe = stripeKey ? new Stripe(stripeKey, { apiVersion: "2023-10-16" }) : null;
+    // P0: never pass a live Stripe client into wallet SSOT.
+    const stripe = null;
+    if (!isStripeRuntimeDisabled()) {
+      console.warn("[admin-driver-wallet-ssot] Stripe runtime re-enabled — Connect reads still withheld from DWL/FR");
+    }
 
     if (driverId && mode === "wallet_summary") {
       if (!periodFrom || !periodTo) {
@@ -100,27 +104,59 @@ Deno.serve(async (req) => {
     if (driverId) {
       const detail = await fetchDriverWalletPayoutSnapshot(supabase, {
         driverId: String(driverId),
-        stripe,
+        stripe: null,
       });
       return new Response(JSON.stringify({ success: true, driver: detail }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
+    // P0: list drivers with wallet activity OR active payout destination — not stripe_account_id.
     let countQuery = supabase
       .from("drivers")
       .select("id", { count: "exact", head: true })
-      .not("stripe_account_id", "is", null);
+      .eq("is_active", true);
 
     if (regionId) countQuery = countQuery.eq("region_id", regionId);
 
     const { count: totalCount, error: countErr } = await countQuery;
-    if (countErr) throw countErr;
+    if (countErr) {
+      // Fallback if is_active missing: list all in region without Connect filter.
+      let fallbackCount = supabase.from("drivers").select("id", { count: "exact", head: true });
+      if (regionId) fallbackCount = fallbackCount.eq("region_id", regionId);
+      const fb = await fallbackCount;
+      if (fb.error) throw countErr;
+
+      let driversQuery = supabase
+        .from("drivers")
+        .select("id, driver_code, user_id, region_id")
+        .order("driver_code", { ascending: true })
+        .range(offset, offset + limit - 1);
+      if (regionId) driversQuery = driversQuery.eq("region_id", regionId);
+      const { data: drivers, error: driversErr } = await driversQuery;
+      if (driversErr) throw driversErr;
+      const rows = [];
+      for (const d of drivers ?? []) {
+        rows.push(await fetchDriverWalletPayoutSnapshot(supabase, {
+          driverId: d.id,
+          stripe: null,
+        }));
+      }
+      return new Response(JSON.stringify({
+        success: true,
+        drivers: rows,
+        total: fb.count ?? rows.length,
+        limit,
+        offset,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     let driversQuery = supabase
       .from("drivers")
-      .select("id, driver_code, user_id, stripe_account_id, region_id")
-      .not("stripe_account_id", "is", null)
+      .select("id, driver_code, user_id, region_id")
+      .eq("is_active", true)
       .order("driver_code", { ascending: true })
       .range(offset, offset + limit - 1);
 
@@ -133,7 +169,7 @@ Deno.serve(async (req) => {
     for (const d of drivers ?? []) {
       rows.push(await fetchDriverWalletPayoutSnapshot(supabase, {
         driverId: d.id,
-        stripe,
+        stripe: null,
       }));
     }
 

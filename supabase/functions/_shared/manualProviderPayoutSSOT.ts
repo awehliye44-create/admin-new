@@ -13,7 +13,8 @@ export function isManualBankPayoutProvider(provider: string | null | undefined):
 }
 
 export function isLiveDriverPayoutProvider(provider: string | null | undefined): boolean {
-  return Boolean(provider && ["stripe", "revolut"].includes(provider.trim().toLowerCase()));
+  // Stripe is retired from active payouts — only Revolut / manual bank are live.
+  return Boolean(provider && ["revolut"].includes(provider.trim().toLowerCase()));
 }
 
 /** Wallet-ledger eligibility for manual provider payouts (no Stripe Connect allocation). */
@@ -28,16 +29,25 @@ export function manualProviderEligiblePence(args: {
   return Math.max(0, wallet - inFlight);
 }
 
-function providerFromServiceArea(area: {
+/**
+ * Resolve driver payout provider for a service area.
+ * Prefer driver_payout_gateway — never let legacy payment_provider='stripe' override Revolut payouts.
+ */
+export function providerFromServiceArea(area: {
   payment_provider?: string | null;
   driver_payout_gateway?: string | null;
   customer_payment_gateway?: string | null;
 }): string | null {
-  return (
-    (area.payment_provider as string | null)
-    ?? (area.driver_payout_gateway as string | null)
-    ?? (area.customer_payment_gateway as string | null)
-  );
+  const payoutGw = String(area.driver_payout_gateway ?? "").trim().toLowerCase();
+  if (payoutGw && payoutGw !== "stripe") return payoutGw;
+  if (payoutGw === "stripe") {
+    // Retired — fall through; never return stripe as active payout provider.
+  }
+  const payment = String(area.payment_provider ?? "").trim().toLowerCase();
+  if (payment && payment !== "stripe") return payment;
+  const customer = String(area.customer_payment_gateway ?? "").trim().toLowerCase();
+  if (customer && customer !== "stripe") return customer;
+  return null;
 }
 
 export async function resolveRegionPayoutProvider(

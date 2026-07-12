@@ -54,12 +54,12 @@ describe('manualPayoutGate', () => {
     ).toBe(false);
   });
 
-  it('allows manual payout when SSOT gates pass', () => {
+  it('allows manual payout without Stripe Connect account when SSOT gates pass', () => {
     expect(
       canManualPayout({
         driver: {
-          stripe_account_id: 'acct',
-          onboarding_complete: true,
+          stripe_account_id: null,
+          onboarding_complete: false,
           payouts_enabled: true,
         },
         ssot: { ...baseSsot, driver_available_now_pence: 500 },
@@ -90,24 +90,24 @@ describe('manualPayoutGate', () => {
     ).toBe('Blocked — Driver In Debt');
   });
 
-  it('labels eligibility when connected but no SSOT balance', () => {
+  it('labels eligibility when payouts enabled but no SSOT balance', () => {
     expect(
       formatPayoutEligibilityStatus({
         driver: {
-          stripe_account_id: 'acct',
-          onboarding_complete: true,
+          stripe_account_id: null,
+          onboarding_complete: false,
           payouts_enabled: true,
         },
         ssot: baseSsot,
       }),
-    ).toBe('Connected — No SSOT Available Balance');
+    ).toBe('No SSOT Available Balance');
   });
 
-  it('isDriverStripeOnboardingComplete requires account, onboarding, and payouts', () => {
+  it('isDriverStripeOnboardingComplete follows payouts_enabled only (Stripe retired)', () => {
     expect(
       isDriverStripeOnboardingComplete({
-        stripe_account_id: 'acct_1',
-        onboarding_complete: true,
+        stripe_account_id: null,
+        onboarding_complete: false,
         payouts_enabled: true,
       }),
     ).toBe(true);
@@ -115,13 +115,6 @@ describe('manualPayoutGate', () => {
       isDriverStripeOnboardingComplete({
         stripe_account_id: 'acct_1',
         onboarding_complete: true,
-        payouts_enabled: false,
-      }),
-    ).toBe(false);
-    expect(
-      isDriverStripeOnboardingComplete({
-        stripe_account_id: null,
-        onboarding_complete: false,
         payouts_enabled: false,
       }),
     ).toBe(false);

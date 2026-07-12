@@ -10,6 +10,7 @@ import {
 } from "../_shared/revolutOrders.ts";
 import { adminLegacyStripeCapture } from "../_shared/adminLegacyStripeTripPayment.ts";
 import { resolveTripPaymentProvider, tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
+import { assertStripeMutationAllowed } from "../_shared/stripeRuntimeDisabled.ts";
 
 const InputSchema = z.object({
   trip_id: z.string().uuid(),
@@ -39,17 +40,12 @@ serve(async (req) => {
     const provider = resolveTripPaymentProvider(trip);
 
     if (provider === "stripe") {
-      const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
-      if (!stripeKey) return jsonResponse({ error: "STRIPE_SECRET_KEY not configured" }, 500);
-      const result = await adminLegacyStripeCapture({
-        supabase: gate.supabase,
-        userId: gate.userId,
-        trip,
-        amountPence: amount_pence,
-        reason,
-        stripeKey,
-      });
-      return jsonResponse(result);
+      const retired = assertStripeMutationAllowed(corsHeaders, "admin-capture-trip-payment");
+      if (retired) return retired;
+      return jsonResponse({
+        error: "Stripe is permanently retired from active ONECAB finance.",
+        error_code: "STRIPE_RETIRED",
+      }, 422);
     }
 
     const orderId = tripProviderOrderId(trip);

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
+import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -29,17 +29,14 @@ function resolvePageSize(override?: number): number {
 
 function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
   if (status === 'BALANCED') return 'default';
-  if (status === 'LOCAL_ONLY' || status === 'STRIPE_ONLY') return 'secondary';
-  return 'destructive';
-}
-
-function formatDateTime(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  try {
-    return format(new Date(iso), 'dd MMM yyyy HH:mm');
-  } catch {
-    return iso;
+  if (
+    status === 'PROVIDER_BALANCE_UNAVAILABLE'
+    || status === 'PENDING_SYNC'
+    || status === 'ACCOUNT_UNVERIFIED'
+  ) {
+    return 'secondary';
   }
+  return 'destructive';
 }
 
 function driverLabel(row: Pick<DriverWalletSsotRow, 'driver_code' | 'driver_name' | 'driver_id'>): string {
@@ -47,6 +44,7 @@ function driverLabel(row: Pick<DriverWalletSsotRow, 'driver_code' | 'driver_name
   if (row.driver_code) return row.driver_code;
   return row.driver_id.slice(0, 8);
 }
+
 
 export function DriverWalletSsotPanel({
   currencyCode,
@@ -105,12 +103,18 @@ export function DriverWalletSsotPanel({
     setDrawerOpen(true);
   };
 
+
   const fallbackMoney: FinanceMoneyFormat = money ?? {
     fmt: (p, ccy) => formatMoneyMinor(p ?? 0, ccy ?? currencyCode ?? 'GBP'),
     currencyCode: currencyCode ?? 'GBP',
     currencySymbol: currencyCode ?? 'GBP',
     currencyMinorUnit: 2,
     isMixedCurrency: false,
+  };
+
+  const tripsUrl = (driverId: string) => {
+    const params = new URLSearchParams({ tab: 'trips', driverId });
+    return `/financial-reconciliation?${params.toString()}`;
   };
 
   return (
@@ -120,7 +124,7 @@ export function DriverWalletSsotPanel({
           <div>
             <CardTitle className="text-base">Drivers</CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
-              Click a driver to open payment history — Provider-like detail drawer. Digital payouts only.
+              Per-driver Financial Reconciliation — Driver Wallet vs canonical payable. Legacy Connect is retired.
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
@@ -136,9 +140,18 @@ export function DriverWalletSsotPanel({
               <TableHeader>
                 <TableRow>
                   <TableHead>Driver</TableHead>
-                  <TableHead className="text-right">Available in Provider</TableHead>
-                  <TableHead className="text-right">Scheduled Payout</TableHead>
-                  <TableHead>Last Provider Payout</TableHead>
+                  <TableHead>Driver Code</TableHead>
+                  <TableHead>Service Area</TableHead>
+                  <TableHead className="text-right">Expected Driver Payable</TableHead>
+                  <TableHead className="text-right">Actual Wallet Trip Credits</TableHead>
+                  <TableHead className="text-right">Wallet Adjustments</TableHead>
+                  <TableHead className="text-right">Debt Recovery</TableHead>
+                  <TableHead className="text-right">Payouts Debited</TableHead>
+                  <TableHead className="text-right">Current Wallet Balance</TableHead>
+                  <TableHead className="text-right">Available for Payout</TableHead>
+                  <TableHead className="text-right">Pending Balance</TableHead>
+                  <TableHead className="text-right">Wallet Variance</TableHead>
+                  <TableHead className="text-right">Payout Variance</TableHead>
                   <TableHead>Reconciliation Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -146,8 +159,8 @@ export function DriverWalletSsotPanel({
               <TableBody>
                 {rows.length === 0 && !isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                      No drivers with Connect accounts in this region.
+                    <TableCell colSpan={15} className="text-center text-muted-foreground py-8">
+                      No drivers with payout accounts in this region.
                     </TableCell>
                   </TableRow>
                 ) : null}
@@ -158,23 +171,30 @@ export function DriverWalletSsotPanel({
                     onClick={() => openDriverDrawer(row)}
                   >
                     <TableCell>
-                      <div className="font-medium">{driverLabel(row)}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {row.driver_code ?? row.driver_id.slice(0, 8)}
-                      </div>
+                      <div className="font-medium whitespace-nowrap">{driverLabel(row)}</div>
                     </TableCell>
-                    <TableCell className="text-right">{fmt(row.stripe_connect_available_pence)}</TableCell>
-                    <TableCell className="text-right">
-                      {fmt(row.scheduled_payout_display_pence ?? row.included_in_payout_batch_amount_pence)}
+                    <TableCell className="text-xs font-mono text-muted-foreground whitespace-nowrap">
+                      {row.driver_code ?? row.driver_id.slice(0, 8)}
                     </TableCell>
                     <TableCell className="text-xs whitespace-nowrap">
-                      {row.last_payout_at ? (
-                        <>
-                          <div>{fmt(row.last_payout_amount_pence)}</div>
-                          <div className="text-muted-foreground">{formatDateTime(row.last_payout_at)}</div>
-                        </>
-                      ) : '—'}
+                      {row.service_area_name ?? serviceAreaName ?? '—'}
                     </TableCell>
+                    <TableCell className="text-right tabular-nums">{fmt(row.expected_payable_pence)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmt(row.actual_wallet_trip_credits_pence)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmt(row.wallet_adjustments_pence ?? 0)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmt(row.debt_recovery_pence ?? 0)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmt(row.payouts_debited_pence ?? 0)}</TableCell>
+                    <TableCell className="text-right tabular-nums font-medium">
+                      {fmt(row.current_wallet_balance_pence ?? row.wallet_balance_pence)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {fmt(row.available_for_payout_pence ?? row.cashout_limit_pence)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {fmt(row.pending_balance_pence ?? row.period_kpis?.pending_earnings_pence)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{fmt(row.wallet_variance_pence)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmt(row.payout_variance_pence)}</TableCell>
                     <TableCell>
                       <Badge
                         variant={statusVariant(row.reconciliation_status)}
@@ -189,14 +209,22 @@ export function DriverWalletSsotPanel({
                       ) : null}
                     </TableCell>
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex justify-end gap-1">
-                        <Button variant="default" size="sm" onClick={() => openDriverDrawer(row)}>
-                          Payments
+                      <div className="flex flex-wrap justify-end gap-1 max-w-[280px]">
+                        <Button variant="outline" size="sm" asChild>
+                          <Link to={tripsUrl(row.driver_id)}>Open Trips</Link>
                         </Button>
                         <Button variant="outline" size="sm" asChild>
                           <Link to={driverWalletLedgerUrl(row.driver_id, 'overview')}>
-                            Ledger
+                            Open Driver Wallet
                           </Link>
+                        </Button>
+                        <Button variant="outline" size="sm" asChild>
+                          <Link to={payoutLedgerUrl({ driverId: row.driver_id })}>
+                            Open Payout Ledger
+                          </Link>
+                        </Button>
+                        <Button variant="default" size="sm" onClick={() => openDriverDrawer(row)}>
+                          View Reconciliation Evidence
                         </Button>
                       </div>
                     </TableCell>
@@ -236,7 +264,7 @@ export function DriverWalletSsotPanel({
               </div>
             </div>
           ) : total > 0 ? (
-            <p className="text-xs text-muted-foreground mt-3">{total} driver{total === 1 ? '' : 's'} with Connect</p>
+            <p className="text-xs text-muted-foreground mt-3">{total} driver{total === 1 ? '' : 's'}</p>
           ) : null}
         </CardContent>
       </Card>

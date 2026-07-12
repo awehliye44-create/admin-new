@@ -40,7 +40,7 @@ export const AUTO_ENABLE_WHEN_ADAPTER_SUPPORTS: readonly OnecabCustomerPaymentMe
  */
 export const SERVICE_AREA_PROVIDER_ROUTING_EXAMPLES = {
   "milton-keynes": { collection: "revolut", payout: "revolut" },
-  london: { collection: "stripe", payout: "stripe" },
+  london: { collection: "unavailable", payout: "unavailable" },  // Stripe retired
   kenya: { collection: "flutterwave", payout: "flutterwave" },
   ghana: { collection: "paystack", payout: "paystack" },
   somalia: { collection: "waafi", payout: "waafi", mobile_wallet: "evc_plus" },

@@ -410,7 +410,7 @@ export async function fetchConnectMoneyMovementBundle(args: {
     const lifetimeVolume = await sumLifetimeVolumePence(args.supabase, driver.id);
     const onecabLiabilityPence = walletByDriver.get(driver.id) ?? 0;
     const recoveryDebt = recoveryByDriver.get(driver.id) ?? 0;
-    const actualBalance = snapshot.available_pence;
+    const actualBalance = snapshot.available_pence ?? 0;
     const balanceDiff = actualBalance - onecabLiabilityPence;
 
     const acctStatus: MoneyMovementReconciliationStatus =

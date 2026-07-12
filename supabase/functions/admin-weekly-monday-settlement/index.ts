@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import Stripe from "https://esm.sh/stripe@14.21.0";
 import { fetchPerDriverFinancialReconciliation } from "../_shared/perDriverFinancialReconciliation.ts";
 import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
 import {
@@ -22,9 +21,12 @@ import {
   assertAllocationEqualsAmount,
   evaluatePayoutEligibilityGate,
 } from "../_shared/payoutAllocationEligibilitySSOT.ts";
+import { planEligibleLedgerAllocations } from "../_shared/payoutLedgerHandoffSSOT.ts";
 import { resolvePayoutTransferAmountPence } from "../_shared/payoutLedgerConsumeDwlSSOT.ts";
 import { toDbBatchStatus, toDbItemStatus } from "../_shared/payoutCanonicalStatusSSOT.ts";
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
+import { shouldBlockZeroValuePayoutBatch } from "../_shared/driverPayoutEligibilitySSOT.ts";
+import { fetchDriverPayoutEligibility } from "../_shared/fetchDriverPayoutEligibility.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -49,24 +51,13 @@ type AllocationLine = {
   amount_pence: number;
 };
 
-async function allocateTripEarningCredits(args: {
+async function allocateEligibleLedgerCredits(args: {
   supabase: ReturnType<typeof createClient>;
-  driverId: string;
+  eligibleEntries: Array<{ ledger_entry_id: string; amount_pence: number }>;
   payoutItemId: string;
   amountPence: number;
 }): Promise<{ allocations_written: number }> {
-  const { data: credits, error: creditsError } = await args.supabase
-    .from("driver_wallet_ledger")
-    .select("id, amount_pence, created_at")
-    .eq("driver_id", args.driverId)
-    .eq("type", "TRIP_EARNING_NET")
-    .gt("amount_pence", 0)
-    .order("created_at", { ascending: true })
-    .limit(500);
-
-  if (creditsError) throw creditsError;
-  const creditRows = credits ?? [];
-  const creditIds = creditRows.map((row) => String(row.id));
+  const creditIds = args.eligibleEntries.map((row) => String(row.ledger_entry_id)).filter(Boolean);
   const allocatedByLedger = new Map<string, number>();
 
   if (creditIds.length > 0) {
@@ -85,17 +76,11 @@ async function allocateTripEarningCredits(args: {
     }
   }
 
-  let remaining = Math.max(0, Math.round(args.amountPence));
-  const lines: AllocationLine[] = [];
-  for (const row of creditRows) {
-    if (remaining <= 0) break;
-    const ledgerId = String(row.id);
-    const available = Math.max(0, Number(row.amount_pence ?? 0) - (allocatedByLedger.get(ledgerId) ?? 0));
-    const slice = Math.min(available, remaining);
-    if (slice <= 0) continue;
-    lines.push({ ledger_entry_id: ledgerId, amount_pence: slice });
-    remaining -= slice;
-  }
+  const lines: AllocationLine[] = planEligibleLedgerAllocations({
+    eligible_entries: args.eligibleEntries,
+    already_allocated_by_ledger: allocatedByLedger,
+    amount_pence: args.amountPence,
+  });
 
   assertAllocationEqualsAmount(lines, args.amountPence);
 
@@ -116,6 +101,7 @@ async function allocateTripEarningCredits(args: {
  * Skips hard-blocked drivers only; soft warnings are included.
  * dry_run: simulate without DB writes. Never executes Stripe transfers.
  * scheduled=true (pg_cron): service-role/cron auth; soft-skips wrong day/time; idempotent per run_date.
+ * Zero-batch hard rule: never create batch/item/allocation when nobody is eligible.
  */
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -125,7 +111,6 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
@@ -321,12 +306,7 @@ serve(async (req) => {
 
     let stripeAvailablePence = 0;
     let stripePendingPence = 0;
-    if (!verificationMode && !manualProviderPayout && stripeSecretKey) {
-      const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
-      const balance = await stripe.balance.retrieve();
-      stripeAvailablePence = balance.available.find((b: { currency: string; amount: number }) => b.currency === "gbp")?.amount ?? 0;
-      stripePendingPence = balance.pending.find((b: { currency: string; amount: number }) => b.currency === "gbp")?.amount ?? 0;
-    }
+    // P0 Slice 8: Stripe platform balance never retrieved for weekly settlement (always 0).
 
     let driverQuery = supabase
       .from("drivers")
@@ -368,7 +348,11 @@ serve(async (req) => {
       }
     }
 
-    if (!verificationMode) {
+    async function ensureBatchId(): Promise<string> {
+      if (batchId) return batchId;
+      if (verificationMode) {
+        throw new Error("ensureBatchId called in verification mode");
+      }
       const { data: batch, error: batchError } = await supabase
         .from("payout_batches")
         .insert({
@@ -385,6 +369,7 @@ serve(async (req) => {
 
       if (batchError) throw batchError;
       batchId = batch.id;
+      return batchId;
     }
 
     const results: DriverResult[] = [];
@@ -412,10 +397,13 @@ serve(async (req) => {
       }
 
       const idempotencyKey = `weekly:${serviceAreaId ?? regionId ?? driver.service_area_id ?? driver.region_id ?? "global"}:${runDate}:${driver.id}`;
-      const walletSnap = await fetchDriverWalletPayoutSnapshot(supabase, {
-        driverId: driver.id,
-        currency: "gbp",
-      });
+      const [walletSnap, payoutEligibility] = await Promise.all([
+        fetchDriverWalletPayoutSnapshot(supabase, {
+          driverId: driver.id,
+          currency: "gbp",
+        }),
+        fetchDriverPayoutEligibility(supabase, { driver_id: driver.id }),
+      ]);
       let ssot: Awaited<ReturnType<typeof fetchPerDriverFinancialReconciliation>> | null = null;
       try {
         ssot = await fetchPerDriverFinancialReconciliation(supabase, {
@@ -433,7 +421,8 @@ serve(async (req) => {
         });
       }
 
-      const availableBalancePence = Math.max(0, Number(walletSnap.cashout_limit_pence ?? 0));
+      // PL consumes DWL available — never recalculate availability here.
+      const availableBalancePence = Math.max(0, Number(payoutEligibility.available_balance_pence ?? 0));
       const payoutAmountRaw = resolvePayoutTransferAmountPence({
         available_balance_pence: availableBalancePence,
         min_payout_pence: controlCentre.payout_min_pence,
@@ -456,10 +445,16 @@ serve(async (req) => {
         ),
       });
       const payoutAmount = policy.amount_pence;
+      // Revolut/manual: destination ready when payouts enabled (bank mark-paid path).
+      // Legacy Connect ID is evidence only — never required for active Revolut payouts.
+      const destinationReady = manualProviderPayout
+        ? driver.payouts_enabled !== false
+        : Boolean(walletSnap.connected_account_id);
       const eligibility = evaluatePayoutEligibilityGate({
         amount_pence: payoutAmount,
         available_balance_pence: availableBalancePence,
-        connected_account: manualProviderPayout || Boolean(walletSnap.connected_account_id),
+        connected_account: destinationReady,
+        payout_destination_ready: destinationReady,
         payouts_paused: driver.payouts_enabled === false,
         min_threshold_pence: controlCentre.payout_min_pence,
         currency: "GBP",
@@ -504,10 +499,11 @@ serve(async (req) => {
         continue;
       }
 
+      const ensuredBatchId = await ensureBatchId();
       const { data: item, error: itemError } = await supabase
         .from("payout_items")
         .insert({
-          batch_id: batchId,
+          batch_id: ensuredBatchId,
           driver_id: driver.id,
           amount_pence: payoutAmount,
           net_driver_payout_pence: payoutAmount,
@@ -518,8 +514,9 @@ serve(async (req) => {
             payout_provider: regionPayoutProvider,
             manual_provider_payout: manualProviderPayout,
             idempotency_key: idempotencyKey,
-            available_balance_source: "driver_wallet_ledger.cashout_limit_pence",
+            available_balance_source: "driver_wallet_ledger.available_balance_pence",
             available_balance_pence: availableBalancePence,
+            eligible_entry_count: payoutEligibility.eligible_entries.length,
             dwl_wallet_balance_pence: walletSnap.wallet_balance_pence,
             payout_warning_reasons: frWarningReasons,
             payout_blocked_reasons: frBlockedReasons,
@@ -545,9 +542,9 @@ serve(async (req) => {
       }
 
       try {
-        await allocateTripEarningCredits({
+        await allocateEligibleLedgerCredits({
           supabase,
-          driverId: driver.id,
+          eligibleEntries: payoutEligibility.eligible_entries,
           payoutItemId: item.id,
           amountPence: payoutAmount,
         });
@@ -588,13 +585,20 @@ serve(async (req) => {
       batchStatus = toDbBatchStatus("FAILED");
     }
 
-    // Hard rule: never leave a £0 FAILED/BLOCKED batch when nobody was eligible.
-    if (!verificationMode && batchId && successCount === 0 && totalAmount <= 0) {
-      await supabase.from("payout_batches").delete().eq("id", batchId);
+    // Hard rule: never create/leave a £0 batch when nobody was eligible.
+    const zeroGuard = shouldBlockZeroValuePayoutBatch({
+      eligible_driver_count: successCount,
+      total_available_pence: totalAmount,
+    });
+    if (!verificationMode && zeroGuard.block) {
+      if (batchId) {
+        await supabase.from("payout_batches").delete().eq("id", batchId);
+      }
       return new Response(JSON.stringify({
         success: true,
         skipped: true,
-        error_code: "NO_ELIGIBLE_PAYOUTS",
+        error_code: zeroGuard.error_code,
+        zero_batch_guard: zeroGuard.error_code,
         message: "No eligible payouts — batch not created",
         batch_id: null,
         batch_status: null,
@@ -632,6 +636,7 @@ serve(async (req) => {
       payout_provider: regionPayoutProvider,
       manual_provider_payout: manualProviderPayout,
       stripe_execution_disabled: !stripeExecutionEnabled && !manualProviderPayout,
+      zero_batch_guard: null,
       message: verificationMode ? PAYOUT_VERIFICATION_MODE_MESSAGE : undefined,
       batch_id: batchId,
       batch_status: batchStatus,

@@ -322,46 +322,16 @@ function ProviderCard({
           <div className="rounded-lg border bg-muted/30 p-3 space-y-2 text-sm">
             <p className="font-medium flex items-center gap-2">
               <Shield className="h-4 w-4" />
-              Provider technical configuration
+              Archived provider (read-only)
             </p>
-            <div className="grid gap-1.5">
-              <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground shrink-0">Publishable key</span>
-                <code className="text-xs">{provider.secrets.publishable_key ?? "—"}</code>
-              </div>
-              <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground shrink-0">Secret key</span>
-                <code className="text-xs">{provider.secrets.secret_key ?? "—"}</code>
-              </div>
-              <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground shrink-0">Webhook secret</span>
-                <code className="text-xs">{provider.secrets.webhook_secret ?? "—"}</code>
-              </div>
-              <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground shrink-0">Webhook URL</span>
-                <code className="text-xs break-all text-right">{provider.webhook_endpoint_url}</code>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Connect enabled</span>
-                <span>{provider.connect_enabled === false ? "No" : "Yes"}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Apple Pay enabled</span>
-                <span>{provider.apple_pay_enabled ? "Yes" : "No"}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Google Pay enabled</span>
-                <span>{provider.google_pay_enabled ? "Yes" : "No"}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Health status</span>
-                {webhookBadge(provider.webhook_status)}
-              </div>
-            </div>
+            <p className="text-muted-foreground">
+              Stripe credentials are retained for rollback and historical verification only.
+              API keys and webhook secrets are not shown.
+            </p>
           </div>
         )}
 
-        {provider.webhook_health && (
+        {!isStripe && provider.webhook_health && (
           <div className="rounded-lg border p-3 space-y-3">
             <p className="font-medium flex items-center gap-2 text-sm">
               <Webhook className="h-4 w-4" />
@@ -429,6 +399,16 @@ function ProviderCard({
         )}
 
         <div className="flex flex-wrap items-center gap-4 pt-2 border-t">
+          {isStripe ? (
+            <div className="rounded-md border border-dashed p-3 text-sm space-y-1 w-full">
+              <p className="font-medium">Stripe — Archived Legacy</p>
+              <p className="text-muted-foreground">Status: Retired</p>
+              <p className="text-muted-foreground">New transactions: Disabled</p>
+              <p className="text-muted-foreground">Historical evidence: Preserved</p>
+              <p className="text-muted-foreground">Actions: None</p>
+            </div>
+          ) : (
+            <>
           <div className="flex items-center gap-2">
             <Switch
               checked={provider.is_primary}
@@ -451,8 +431,11 @@ function ProviderCard({
             />
             <Label className="text-sm">{provider.mode === "live" ? "Live" : "Test"}</Label>
           </div>
+            </>
+          )}
         </div>
 
+        {!isStripe && (
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={onEditSecrets}>
             Edit secrets
@@ -462,6 +445,7 @@ function ProviderCard({
             Test connection
           </Button>
         </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -538,6 +522,8 @@ export function PaymentProvidersCardsGrid() {
   }
 
   const providers = data?.providers ?? [];
+  const activeProviders = providers.filter((p) => p.provider !== "stripe");
+  const archivedProviders = providers.filter((p) => p.provider === "stripe");
 
   return (
     <div className="space-y-4">
@@ -545,10 +531,8 @@ export function PaymentProvidersCardsGrid() {
         <div>
           <h2 className="text-lg font-semibold">Payment Providers</h2>
           <p className="text-sm text-muted-foreground">
-            Store provider credentials and webhook secrets now. Adding keys does not make a provider live —
-            only Provider has a live booking adapter today. Other providers return{" "}
-            <code className="text-xs">{PROVIDER_NOT_IMPLEMENTED_CODE}</code> until adapter, webhook
-            processing, sandbox testing, and production approval are complete.
+            Active customer payments use Revolut only. Stripe is retired from active ONECAB finance
+            and listed under Archived Providers with no action controls.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()}>
@@ -558,7 +542,7 @@ export function PaymentProvidersCardsGrid() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        {providers.map((provider) => (
+        {activeProviders.map((provider) => (
           <ProviderCard
             key={provider.provider}
             provider={provider}
@@ -648,6 +632,26 @@ export function PaymentProvidersCardsGrid() {
         ))}
       </div>
 
+      {archivedProviders.length > 0 && (
+        <div className="space-y-3 pt-2">
+          <h3 className="text-base font-semibold">Archived Providers</h3>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {archivedProviders.map((provider) => (
+              <ProviderCard
+                key={provider.provider}
+                provider={provider}
+                isTesting={false}
+                onToggleEnabled={() => {}}
+                onTogglePrimary={() => {}}
+                onToggleMode={() => {}}
+                onTest={() => {}}
+                onEditSecrets={() => {}}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {secretsProvider && (
         <SecretsDialog
           provider={secretsProvider}
@@ -694,7 +698,7 @@ export function PaymentProvidersSection() {
   }
 
   const globalWarnings = data?.global_warnings ?? [];
-  const activeProvider = data?.active_provider ?? "stripe";
+  const activeProvider = data?.active_provider ?? "unavailable";
 
   return (
     <div className="space-y-6">

@@ -91,7 +91,7 @@ export function DriverWalletCommissionTab({
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
-        Provider transaction fees are external costs paid to Revolut / Stripe — not ONECAB revenue.
+        Provider transaction fees are external costs paid to the payment provider — not ONECAB revenue.
         Net ONECAB Commission = Gross ONECAB Commission − Provider Fee.
       </p>
 

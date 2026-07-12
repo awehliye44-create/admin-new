@@ -74,7 +74,6 @@ export function derivePaymentActionAvailability(input: TripPaymentActionInput): 
   const canRefund = input.actionsAllowed?.can_refund ?? (digital && captured > 0 && refundable > 0 && !tripCancelled);
   const canPartialRefund = input.actionsAllowed?.can_partial_refund ?? canRefund;
   const canCancelAuth = input.actionsAllowed?.can_cancel_authorisation ?? (digital && isUncaptured && !tripCancelled);
-  const canSync = input.actionsAllowed?.can_sync_stripe ?? (digital && hasPi);
 
   return {
     capture: canCapture ? enabled() : disabled(
@@ -97,8 +96,8 @@ export function derivePaymentActionAvailability(input: TripPaymentActionInput): 
         : captured <= 0 ? 'Nothing captured to refund'
           : 'Partial refund not available',
     ),
-    resync_stripe: canSync ? enabled() : disabled('No Provider PaymentIntent to sync'),
-    refresh_stripe: canSync ? enabled() : disabled('No Provider PaymentIntent to refresh'),
+    resync_stripe: disabled('Stripe sync retired — historical evidence only'),
+    refresh_stripe: disabled('Stripe refresh retired — historical evidence only'),
     repair_settlement: digital && hasCharge
       ? enabled()
       : disabled('Settlement repair requires a captured digital payment'),

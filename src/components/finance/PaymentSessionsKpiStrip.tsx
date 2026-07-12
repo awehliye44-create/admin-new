@@ -98,6 +98,27 @@ export function PaymentSessionsKpiStrip({
       drill: { tab: 'provider_payments' },
       hint: 'ACTUAL fees only',
     },
+    {
+      id: 'gross_onecab_commission',
+      label: 'ONECAB Gross Commission',
+      value: formatNullablePence(summary.gross_onecab_commission_pence, currencyCode),
+      drill: { tab: 'completed_trips_paid' },
+      hint: 'Trip settlement — before provider fees',
+    },
+    {
+      id: 'net_onecab_commission',
+      label: 'ONECAB Net Commission',
+      value: formatNullablePence(summary.net_onecab_commission_pence, currencyCode),
+      drill: { tab: 'completed_trips_paid' },
+      hint: 'Gross − provider fees',
+    },
+    {
+      id: 'driver_net_total',
+      label: 'Driver Net Total',
+      value: formatNullablePence(summary.driver_net_total_pence, currencyCode),
+      drill: { tab: 'completed_trips_paid' },
+      hint: 'Driver-owned trip settlement',
+    },
   ];
 
   return (

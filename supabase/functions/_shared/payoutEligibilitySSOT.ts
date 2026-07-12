@@ -35,7 +35,6 @@ export type PayoutEligibilityAggregateResult = {
 export type EarningSettlementInput = {
   amount_pence: number;
   payment_method?: string | null;
-  /** Customer collection provider — Revolut must not require Stripe settlement. */
   payment_provider?: string | null;
   settlement_status?: SettlementStatus | null;
   paid_in_batch_id?: string | null;
@@ -43,10 +42,6 @@ export type EarningSettlementInput = {
   allocated_amount_pence?: number;
   trip_completed?: boolean;
   payment_captured?: boolean;
-  /** Confirmed customer capture amount (pence). Required > 0 for digital payout eligibility. */
-  captured_amount_pence?: number | null;
-  required_customer_fare_pence?: number | null;
-  capture_mismatch_unresolved?: boolean;
 };
 
 export function remainingPayablePence(earning: EarningSettlementInput): number {
@@ -67,29 +62,18 @@ export function isCardPaymentMethod(method: string | null | undefined): boolean 
 export function isCardPaymentCaptured(args: {
   tripPaymentStatus?: string | null;
   paymentStatus?: string | null;
-  capturedAmountPence?: number | null;
-  captureMismatchUnresolved?: boolean;
 }): boolean {
-  if (args.captureMismatchUnresolved) return false;
-  const amt = args.capturedAmountPence == null ? null : Number(args.capturedAmountPence);
-  if (amt == null || !Number.isFinite(amt) || amt <= 0) return false;
   const pay = String(args.paymentStatus ?? "").toLowerCase();
   if (CAPTURED_PAYMENT_STATUSES.has(pay)) return true;
   const trip = String(args.tripPaymentStatus ?? "").toLowerCase();
   return CAPTURED_PAYMENT_STATUSES.has(trip);
 }
 
-/** Stripe Connect settlement is required only for Stripe-collected card earnings. */
+/** Stripe Connect settlement permanently retired — never required for eligibility. */
 export function requiresStripeSettlement(
-  paymentMethod: string | null | undefined,
-  paymentProvider?: string | null,
+  _paymentMethod: string | null | undefined,
+  _paymentProvider?: string | null,
 ): boolean {
-  if (!isCardPaymentMethod(paymentMethod)) return false;
-  const provider = String(paymentProvider ?? "").trim().toLowerCase();
-  // Revolut / manual bank collection: PS capture confirms eligibility — never Stripe Connect.
-  if (provider === "revolut") return false;
-  if (provider === "stripe" || provider === "") return true;
-  // Unknown non-stripe provider: do not invent a Stripe settlement gate.
   return false;
 }
 
@@ -159,19 +143,8 @@ export function isEarningEligibleForPayout(
   if (!isEarningPayableForPayout(earning)) return false;
   if (earning.trip_completed === false) return false;
   if (earning.payment_captured === false) return false;
-  if (earning.capture_mismatch_unresolved) return false;
 
   if (requiresStripeSettlement(earning.payment_method, earning.payment_provider)) {
-    const captured = earning.captured_amount_pence == null
-      ? null
-      : Number(earning.captured_amount_pence);
-    if (captured == null || !Number.isFinite(captured) || captured <= 0) return false;
-    const required = earning.required_customer_fare_pence == null
-      ? null
-      : Number(earning.required_customer_fare_pence);
-    if (required != null && Number.isFinite(required) && required > 0 && captured < required) {
-      return false;
-    }
     return earning.settlement_status === "settled";
   }
 
@@ -184,15 +157,6 @@ export function deriveIneligibleReason(earning: EarningSettlementInput): string 
   if (earning.allocated_to_payout) return "already_allocated";
   if (earning.trip_completed === false) return "trip_not_completed";
   if (earning.payment_captured === false) return "payment_not_captured";
-  if (earning.capture_mismatch_unresolved) return "capture_mismatch_unresolved";
-  if (requiresStripeSettlement(earning.payment_method, earning.payment_provider)) {
-    const captured = earning.captured_amount_pence == null
-      ? null
-      : Number(earning.captured_amount_pence);
-    if (captured == null || !Number.isFinite(captured) || captured <= 0) {
-      return "capture_amount_missing_or_zero";
-    }
-  }
   if (
     requiresStripeSettlement(earning.payment_method, earning.payment_provider)
     && earning.settlement_status !== "settled"
@@ -218,26 +182,6 @@ export function sumStripeSettledUnpaidPence(
 export function sumEligibleEarningPence(earnings: EarningSettlementInput[]): number {
   return earnings.reduce((sum, row) => {
     if (!isEarningEligibleForPayout(row)) return sum;
-    return sum + remainingPayablePence(row);
-  }, 0);
-}
-
-/** Finance Cleared — SUM(cleared settlement batches): settled, payable, capture-confirmed. */
-export function sumClearedSettlementBatchPence(earnings: EarningSettlementInput[]): number {
-  return earnings.reduce((sum, row) => {
-    if (!isEarningPayableForPayout(row)) return sum;
-    if (requiresStripeSettlement(row.payment_method, row.payment_provider)) {
-      if (row.settlement_status !== "settled") return sum;
-      // Payment Sessions confirmed capture only — never invent from trip/auth.
-      if (row.payment_captured === false) return sum;
-      if (row.capture_mismatch_unresolved) return sum;
-      const captured = row.captured_amount_pence == null
-        ? null
-        : Number(row.captured_amount_pence);
-      if (captured == null || !Number.isFinite(captured) || captured <= 0) return sum;
-    } else if (row.trip_completed === false || row.payment_captured === false) {
-      return sum;
-    }
     return sum + remainingPayablePence(row);
   }, 0);
 }

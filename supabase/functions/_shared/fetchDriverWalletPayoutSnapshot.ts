@@ -10,16 +10,16 @@ import {
   sumStripePaidOutFromConnectPayouts,
   type DriverWalletPayoutSnapshot,
 } from "./driverWalletPayoutSSOT.ts";
-import { sumClearedSettlementBatchPence, type EarningSettlementInput } from "./payoutEligibilitySSOT.ts";
-import { readConnectPayoutSnapshot, listInFlightConnectPayouts } from "./connectPayoutLockdown.ts";
+import {
+  computeFrDriverReconciliation,
+  type FrDriverReconciliationRow,
+  type ProviderAccountBalanceStatus,
+} from "./frDriverReconciliationSSOT.ts";
 import {
   buildDriverWalletPeriodKpis,
   type DriverWalletPeriodKpis,
 } from "./driverWalletPeriodKpisSSOT.ts";
-import {
-  buildSessionCaptureByTripId,
-  buildWalletEarningInputsFromPaymentSessions,
-} from "./driverWalletCaptureConsumeSSOT.ts";
+import { fetchDriverPayoutEligibility } from "./fetchDriverPayoutEligibility.ts";
 import { buildDriverWalletSettlementHistory } from "./driverWalletSettlementHistorySSOT.ts";
 import { buildDriverWalletDebtRecoveryKpis } from "./driverWalletDebtRecoverySSOT.ts";
 import { nextWeeklyPayoutDateIso } from "./payoutScheduleSSOT.ts";
@@ -33,7 +33,10 @@ import {
 const TERMINAL_FAILED = new Set(["failed", "ledger_sync_failed", "failed_duplicate"]);
 const STUCK_SETTLEMENT = new Set(["PROCESSING", "READY", "PENDING", "AVAILABLE"]);
 
-export type DriverWalletPayoutDetail = DriverWalletPayoutSnapshot & {
+export type DriverWalletPayoutDetail = Omit<
+  DriverWalletPayoutSnapshot,
+  "reconciliation_status" | "reconciliation_reasons"
+> & FrDriverReconciliationRow & {
   driver_id: string;
   user_id: string | null;
   driver_code: string | null;
@@ -77,6 +80,8 @@ export type DriverWalletPayoutDetail = DriverWalletPayoutSnapshot & {
   transfer_ledger_rows: Array<Record<string, unknown>>;
   last_synced_at: string | null;
   period_kpis: DriverWalletPeriodKpis;
+  /** Alias for provider account balance (reference-only). */
+  provider_account_balance_pence: number | null;
 };
 
 export async function fetchDriverWalletPayoutSnapshot(
@@ -105,6 +110,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     stripePayoutsRes,
     earlyCashoutsRes,
     driverServiceAreaRes,
+    payoutEligibility,
   ] = await Promise.all([
     supabase.from("driver_wallet_ledger").select("type, amount_pence, stripe_payout_id, created_at, related_trip_id")
       .eq("driver_id", args.driverId),
@@ -140,6 +146,7 @@ export async function fetchDriverWalletPayoutSnapshot(
       .eq("driver_id", args.driverId)
       .limit(1)
       .maybeSingle(),
+    fetchDriverPayoutEligibility(supabase, { driver_id: args.driverId }),
   ]);
 
   const ledger = fullLedgerRes.data ?? [];
@@ -159,7 +166,6 @@ export async function fetchDriverWalletPayoutSnapshot(
   }>();
   const tripDetailById = new Map<string, Record<string, unknown>>();
   const sessionByTripId = new Map<string, Record<string, unknown>>();
-  let sessionCaptureByTripId = new Map<string, number>();
   if (settlementTripIds.length > 0) {
     const [tripRowsRes, sessionRowsRes] = await Promise.all([
       supabase
@@ -196,7 +202,6 @@ export async function fetchDriverWalletPayoutSnapshot(
         sessionByTripId.set(tripId, s as Record<string, unknown>);
       }
     }
-    sessionCaptureByTripId = buildSessionCaptureByTripId(sessionRowsRes.data ?? []);
     for (const [tripId, session] of sessionByTripId) {
       const meta = tripMetaById.get(tripId);
       if (!meta) continue;
@@ -206,26 +211,10 @@ export async function fetchDriverWalletPayoutSnapshot(
       }
     }
   }
-
-  const earningInputs: EarningSettlementInput[] = buildWalletEarningInputsFromPaymentSessions({
-    settlements: settlements.map((s) => {
-      const ledgerJoin = s.driver_wallet_ledger as { amount_pence?: number } | { amount_pence?: number }[] | null;
-      const ledgerAmt = Array.isArray(ledgerJoin)
-        ? Number(ledgerJoin[0]?.amount_pence ?? 0)
-        : Number(ledgerJoin?.amount_pence ?? 0);
-      return {
-        trip_id: s.trip_id as string | null,
-        settlement_status: s.settlement_status as string | null,
-        paid_in_batch_id: s.paid_in_batch_id as string | null,
-        allocated_to_payout: s.allocated_to_payout === true,
-        allocated_amount_pence: Number(s.allocated_amount_pence ?? 0),
-        ledger_amount_pence: ledgerAmt,
-      };
-    }),
-    sessionCaptureByTripId,
-    tripMetaById,
-  });
-  const financeCleared = sumClearedSettlementBatchPence(earningInputs);
+  // Canonical cleared = eligibility eligible earnings only (DES optional — never DES fallback invent).
+  const financeCleared = Math.max(0, payoutEligibility.eligible_earnings_pence);
+  // Canonical pending = live − available (same as Payout Ledger). Never cleared−batch.
+  const canonicalPending = Math.max(0, payoutEligibility.pending_balance_pence);
 
   const payoutItems = payoutItemsRes.data ?? [];
   const includedBatch = sumIncludedInPayoutBatchPence(payoutItems);
@@ -242,20 +231,11 @@ export async function fetchDriverWalletPayoutSnapshot(
   let connectPending: number | null = null;
   let connectInstant: number | null = null;
   let connectInTransit: number | null = null;
-  if (args.stripe && driver?.stripe_account_id) {
-    try {
-      const snap = await readConnectPayoutSnapshot(args.stripe, driver.stripe_account_id, currency);
-      connectAvailable = snap.available_pence;
-      connectPending = snap.pending_pence;
-      connectInstant = snap.instant_available_pence;
-      const inFlightPayouts = await listInFlightConnectPayouts(args.stripe, driver.stripe_account_id);
-      connectInTransit = inFlightPayouts
-        .filter((p) => p.status === "in_transit")
-        .reduce((s, p) => s + Math.max(0, p.amount_pence), 0);
-    } catch {
-      // Stripe read failed — leave null
-    }
-  }
+  // P0: Provider Account Balance from Stripe Connect permanently retired from live finance.
+  // Never call stripe.balance.retrieve for FR / DWL / PL.
+  let providerBalanceStatus: ProviderAccountBalanceStatus = "NOT_APPLICABLE";
+  void args.stripe;
+  void currency;
 
   const stripePayoutIds = new Set(
     stripePayouts.map((r) => String(r.payout_id ?? "")).filter(Boolean),
@@ -294,14 +274,8 @@ export async function fetchDriverWalletPayoutSnapshot(
   }
 
   let providerAvailable: number | null = null;
-  if (args.stripe) {
-    try {
-      const bal = await args.stripe.balance.retrieve();
-      providerAvailable = bal.available.find((b) => b.currency === currency)?.amount ?? 0;
-    } catch {
-      providerAvailable = null;
-    }
-  }
+  // P0: platform Stripe balance retrieve retired from live DWL snapshot.
+  void providerAvailable;
 
   const saJoinEarly = driverServiceAreaRes.data?.service_areas as
     | {
@@ -318,11 +292,14 @@ export async function fetchDriverWalletPayoutSnapshot(
     }[]
     | null;
   const serviceAreaEarly = Array.isArray(saJoinEarly) ? saJoinEarly[0] ?? null : saJoinEarly;
-  const payoutProviderEarly = (
-    serviceAreaEarly?.driver_payout_gateway
-    ?? serviceAreaEarly?.payment_provider
-    ?? null
-  );
+  const payoutProviderEarlyRaw = serviceAreaEarly?.driver_payout_gateway
+    ?? (String(serviceAreaEarly?.payment_provider ?? "").toLowerCase() === "stripe"
+      ? null
+      : serviceAreaEarly?.payment_provider)
+    ?? null;
+  const payoutProviderEarly = String(payoutProviderEarlyRaw ?? "").toLowerCase() === "stripe"
+    ? null
+    : payoutProviderEarlyRaw;
   const inferredRevolut = [...tripMetaById.values()].some((m) =>
     String(m.payment_provider ?? "").toLowerCase() === "revolut"
   );
@@ -346,9 +323,14 @@ export async function fetchDriverWalletPayoutSnapshot(
     ledger_debit_without_stripe_payout_pence: ledgerWithoutStripe,
     local_only_failed_payout_pence: localFailed,
     failed_payout_stuck_processing_pence: stuckProcessing,
-    provider_platform_available_pence: providerAvailable,
+    provider_platform_available_pence: null,
     payout_provider: payoutProviderResolved,
   });
+
+  const canonicalAvailable = Math.max(
+    0,
+    snapshot.payout_blocked ? 0 : payoutEligibility.available_balance_pence,
+  );
 
   const driverName = driver
     ? `${String(driver.first_name ?? "").trim()} ${String(driver.last_name ?? "").trim()}`.trim() || null
@@ -370,10 +352,85 @@ export async function fetchDriverWalletPayoutSnapshot(
     .find((v) => v && v.length > 0) ?? null;
 
   let verificationStatus: string | null = null;
-  if (!driver?.stripe_account_id) verificationStatus = "not_connected";
-  else if (driver.payouts_enabled && driver.onboarding_complete) verificationStatus = "verified";
-  else if (driver.onboarding_complete || driver.charges_enabled) verificationStatus = "restricted";
-  else verificationStatus = "pending";
+  const isRevolutPayout = String(payoutProviderResolved ?? "").toLowerCase() === "revolut";
+  if (isRevolutPayout) {
+    // Manual bank / Revolut Business — Connect ID is not required.
+    if (driver?.payouts_enabled === false) verificationStatus = "restricted";
+    else if (driver?.payouts_enabled !== false) verificationStatus = "manual_bank";
+    else verificationStatus = "pending";
+  } else if (!driver?.stripe_account_id) {
+    verificationStatus = "not_set";
+  } else if (driver.payouts_enabled && driver.onboarding_complete) {
+    verificationStatus = "verified";
+  } else if (driver.onboarding_complete || driver.charges_enabled) {
+    verificationStatus = "restricted";
+  } else {
+    verificationStatus = "pending";
+  }
+
+  const settledTripsForFr: Array<{
+    trip_id: string | null;
+    driver_net_pence: number | null;
+    settlement_status?: string | null;
+  }> = [...tripDetailById.values()].map((trip) => ({
+    trip_id: String(trip.id ?? ""),
+    driver_net_pence: trip.driver_net_pence == null ? null : Number(trip.driver_net_pence),
+    settlement_status: "settled",
+  }));
+  if (settledTripsForFr.length === 0 && settlements.length > 0) {
+    for (const s of settlements) {
+      const tripId = s.trip_id == null ? null : String(s.trip_id);
+      const ledgerJoin = s.driver_wallet_ledger as { amount_pence?: number } | { amount_pence?: number }[] | null;
+      const ledgerAmt = Array.isArray(ledgerJoin)
+        ? Number(ledgerJoin[0]?.amount_pence ?? 0)
+        : Number(ledgerJoin?.amount_pence ?? 0);
+      settledTripsForFr.push({
+        trip_id: tripId,
+        driver_net_pence: Number.isFinite(ledgerAmt) ? ledgerAmt : null,
+        settlement_status: (s.settlement_status as string | null) ?? null,
+      });
+    }
+  }
+
+  // Revolut bank destination can verify without Connect.
+  const accountVerified = verificationStatus === "verified"
+    || (String(payoutProviderResolved ?? "").toLowerCase() === "revolut"
+      && driver?.payouts_enabled !== false);
+
+  if (
+    String(payoutProviderResolved ?? "").toLowerCase() === "revolut"
+    && providerBalanceStatus === "UNAVAILABLE"
+    && !driver?.stripe_account_id
+  ) {
+    providerBalanceStatus = "NOT_APPLICABLE";
+  }
+
+  const frRow = computeFrDriverReconciliation({
+    ledger: ledger.map((r) => ({
+      type: String(r.type ?? ""),
+      amount_pence: Number(r.amount_pence ?? 0),
+    })),
+    settledTrips: settledTripsForFr,
+    completedPayoutItems: payoutItems.map((p) => ({
+      status: (p.status as string | null) ?? null,
+      net_driver_payout_pence: p.net_driver_payout_pence == null
+        ? null
+        : Number(p.net_driver_payout_pence),
+      amount_pence: p.amount_pence == null ? null : Number(p.amount_pence),
+    })),
+    walletEvidenceAvailable: fullLedgerRes.error == null,
+    settlementEvidenceAvailable: settlementsRes.error == null,
+    identityMappingValid: Boolean(driver?.id),
+    accountVerified,
+    payout_provider: payoutProviderResolved,
+    finance_cleared_pence: financeCleared,
+    in_flight_cashout_pence: inFlight,
+    recovery_debt_pence: recoveryDebt,
+    payout_blocked: snapshot.payout_blocked,
+    provider_account_balance_pence: connectAvailable,
+    provider_account_balance_status: providerBalanceStatus,
+    pending_balance_pence: canonicalPending,
+  });
 
   const period_kpis = buildDriverWalletPeriodKpis(
     ledger.map((r) => ({
@@ -384,8 +441,8 @@ export async function fetchDriverWalletPayoutSnapshot(
     })),
     {
       recoveryDebtPence: recoveryDebt,
-      // Pending = finance-cleared not yet in a payout batch (backend SSOT fields).
-      pendingEarningsPence: Math.max(0, financeCleared - includedBatch),
+      // Slice 6: Pending = eligibility pending (live − available) — same as Payout Ledger.
+      pendingEarningsPence: canonicalPending,
     },
   );
 
@@ -568,16 +625,30 @@ export async function fetchDriverWalletPayoutSnapshot(
   const debt_recovery = buildDriverWalletDebtRecoveryKpis(ledger, recoveryDebt);
 
   let walletStatus: DriverWalletPayoutDetail["wallet_status"] = "ACTIVE";
-  if (!driver?.stripe_account_id) walletStatus = "NOT_CONNECTED";
-  else if (snapshot.payout_blocked || walletBalance < 0 || snapshot.reconciliation_status !== "BALANCED") {
+  if (
+    !isRevolutPayout
+    && !driver?.stripe_account_id
+    && String(payoutProviderResolved ?? "").toLowerCase() !== "revolut"
+  ) {
+    walletStatus = "NOT_CONNECTED";
+  } else if (
+    snapshot.payout_blocked
+    || walletBalance < 0
+    || frRow.reconciliation_status === "DRIVER_WALLET_MISMATCH"
+    || frRow.reconciliation_status === "PAYOUT_MISMATCH"
+    || frRow.reconciliation_status === "DRIVER_AND_PAYOUT_MISMATCH"
+  ) {
     walletStatus = "FROZEN";
   } else if (verificationStatus === "restricted" || verificationStatus === "pending") {
     walletStatus = "RESTRICTED";
   }
 
   const payoutProvider = serviceArea?.driver_payout_gateway
-    ?? serviceArea?.payment_provider
-    ?? (driver?.stripe_account_id ? "stripe" : null);
+    ?? (String(serviceArea?.payment_provider ?? "").toLowerCase() === "stripe"
+      ? null
+      : serviceArea?.payment_provider)
+    ?? null;
+  // P0: never infer payout provider from stripe_account_id; never prefer retired stripe payment_provider.
 
   const controlCentre = await loadPayoutControlCentreSettings(supabase, {
     serviceAreaId,
@@ -589,6 +660,20 @@ export async function fetchDriverWalletPayoutSnapshot(
 
   return {
     ...snapshot,
+    ...frRow,
+    // FR Drivers tab status — wallet vs payable, never Connect default BALANCED.
+    reconciliation_status: frRow.reconciliation_status,
+    reconciliation_reasons: [
+      ...(payoutEligibility.primary_hold_reason ? [payoutEligibility.primary_hold_reason] : []),
+      ...frRow.reconciliation_reasons,
+      ...snapshot.reconciliation_reasons.filter((r) =>
+        !frRow.reconciliation_reasons.includes(r)
+      ),
+    ].filter((r, i, arr) => arr.indexOf(r) === i),
+    stripe_connect_available_pence: frRow.provider_account_balance_pence,
+    provider_account_balance_pence: frRow.provider_account_balance_pence,
+    cashout_limit_pence: canonicalAvailable,
+    wallet_balance_pence: frRow.current_wallet_balance_pence ?? snapshot.wallet_balance_pence,
     driver_id: args.driverId,
     user_id: (driver?.user_id as string) ?? null,
     driver_code: (driver?.driver_code as string) ?? null,

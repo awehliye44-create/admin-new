@@ -54,6 +54,10 @@ export type DriverWalletPayoutSnapshot = {
   current_onecab_wallet_owed_pence: number;
   finance_cleared_amount_pence: number;
   included_in_payout_batch_amount_pence: number;
+  /**
+   * Provider Account Balance (Stripe Connect available) — reference only.
+   * null means UNAVAILABLE (never coerce to 0 for display/reconciliation).
+   */
   stripe_connect_available_pence: number | null;
   stripe_connect_pending_pence: number | null;
   stripe_in_transit_pence: number | null;
@@ -62,20 +66,37 @@ export type DriverWalletPayoutSnapshot = {
   scheduled_payout_display_pence: number | null;
   local_only_failed_payout_pence: number;
   failed_payout_stuck_processing_pence: number;
+  /**
+   * @deprecated Prefer fr_reconciliation_status from frDriverReconciliationSSOT.
+   * Kept for payout-freeze callers; no longer defaults Connect gaps to BALANCED for FR.
+   */
   reconciliation_status: ReconciliationStatus;
   reconciliation_reasons: string[];
+  /** Stripe Connect payout↔ledger evidence only — never Driver Wallet truth. */
+  provider_connect_audit_status: ProviderConnectAuditStatus;
   wallet_balance_pence: number;
   recovery_debt_pence: number;
   /** True when automatic payouts / cash-outs must freeze (mismatch, negative, or explicit block). */
   payout_blocked: boolean;
 };
 
+/** Legacy Connect evidence labels (payout freeze only — not FR Drivers BALANCED). */
 export type ReconciliationStatus =
   | "BALANCED"
   | "MISMATCH"
   | "LOCAL_ONLY"
   | "STRIPE_ONLY"
-  | "PROVIDER_NEGATIVE";
+  | "PROVIDER_NEGATIVE"
+  | "PROVIDER_BALANCE_UNAVAILABLE";
+
+export type ProviderConnectAuditStatus =
+  | "OK"
+  | "MISMATCH"
+  | "LOCAL_ONLY"
+  | "STRIPE_ONLY"
+  | "PROVIDER_NEGATIVE"
+  | "UNAVAILABLE"
+  | "NOT_APPLICABLE";
 
 const ACTIVE_BATCH_STATUSES = new Set(["pending", "processing"]);
 
@@ -218,11 +239,17 @@ export function computeDriverWalletPayoutSnapshot(
   const scheduledDisplay = includedBatch > 0 ? includedBatch : null;
 
   const reasons: string[] = [];
-  let status: ReconciliationStatus = "BALANCED";
+  let connectAudit: ProviderConnectAuditStatus = manualBank ? "NOT_APPLICABLE" : "OK";
+
+  // Provider Connect balance unknown — never treat as £0 for audit display.
+  if (!manualBank && stripeAvailable == null) {
+    connectAudit = "UNAVAILABLE";
+    reasons.push("Provider account balance unavailable (not £0.00)");
+  }
 
   const providerAvail = input.provider_platform_available_pence;
   if (!manualBank && typeof providerAvail === "number" && providerAvail < 0) {
-    status = "PROVIDER_NEGATIVE";
+    connectAudit = "PROVIDER_NEGATIVE";
     reasons.push("Stripe platform available balance is negative");
   }
 
@@ -231,22 +258,25 @@ export function computeDriverWalletPayoutSnapshot(
   const localFailed = Math.max(0, input.local_only_failed_payout_pence ?? 0);
   const stuckProcessing = Math.max(0, input.failed_payout_stuck_processing_pence ?? 0);
 
-  // Stripe Connect reconciliation evidence — never freezes Revolut/manual bank available.
+  // Stripe Connect payout evidence — freezes Stripe automatic payout only.
+  // Never determines Driver Wallet vs payable BALANCED (see frDriverReconciliationSSOT).
   if (!manualBank) {
     if (stripeWithoutLedger > 0) {
-      status = status === "BALANCED" ? "STRIPE_ONLY" : "MISMATCH";
+      connectAudit = connectAudit === "OK" || connectAudit === "UNAVAILABLE"
+        ? "STRIPE_ONLY"
+        : "MISMATCH";
       reasons.push(`Stripe payout £${(stripeWithoutLedger / 100).toFixed(2)} missing ledger debit`);
     }
     if (ledgerWithoutStripe > 0) {
-      status = "MISMATCH";
+      connectAudit = "MISMATCH";
       reasons.push(`Ledger debit £${(ledgerWithoutStripe / 100).toFixed(2)} missing Stripe payout`);
     }
     if (localFailed > 0) {
-      status = status === "BALANCED" ? "LOCAL_ONLY" : "MISMATCH";
+      connectAudit = connectAudit === "MISMATCH" ? "MISMATCH" : "LOCAL_ONLY";
       reasons.push(`Local failed payout £${(localFailed / 100).toFixed(2)} without Stripe evidence`);
     }
     if (stuckProcessing > 0) {
-      status = "MISMATCH";
+      connectAudit = "MISMATCH";
       reasons.push(`Failed payout £${(stuckProcessing / 100).toFixed(2)} stuck in processing/ready`);
     }
   }
@@ -254,12 +284,29 @@ export function computeDriverWalletPayoutSnapshot(
     reasons.push("Wallet balance negative — automatic payouts frozen until debt cleared");
   }
 
-  // Hard rule: mismatch / negative wallet freezes automatic payout + cash-out.
-  // Manual bank: only explicit block or negative wallet (never Stripe Connect mismatch).
+  // Hard rule: Connect evidence mismatch / negative wallet freezes Stripe automatic payout.
+  // Manual bank / Revolut: never freeze from Connect balance or Connect evidence.
+  const connectBlocksPayout = !manualBank
+    && connectAudit !== "OK"
+    && connectAudit !== "UNAVAILABLE"
+    && connectAudit !== "NOT_APPLICABLE";
   const freezeAutomaticPayout = input.payout_blocked === true
     || walletSigned < 0
-    || (!manualBank && status !== "BALANCED");
+    || connectBlocksPayout;
   const cashoutLimit = freezeAutomaticPayout ? 0 : cashoutLimitRaw;
+
+  // Legacy field: map Connect audit only — callers must use FR SSOT for Drivers tab.
+  const legacyStatus: ReconciliationStatus = connectAudit === "OK" || connectAudit === "NOT_APPLICABLE"
+    ? "BALANCED"
+    : connectAudit === "UNAVAILABLE"
+    ? "PROVIDER_BALANCE_UNAVAILABLE"
+    : connectAudit === "PROVIDER_NEGATIVE"
+    ? "PROVIDER_NEGATIVE"
+    : connectAudit === "LOCAL_ONLY"
+    ? "LOCAL_ONLY"
+    : connectAudit === "STRIPE_ONLY"
+    ? "STRIPE_ONLY"
+    : "MISMATCH";
 
   return {
     current_onecab_wallet_owed_pence: walletOwed,
@@ -273,8 +320,9 @@ export function computeDriverWalletPayoutSnapshot(
     scheduled_payout_display_pence: scheduledDisplay,
     local_only_failed_payout_pence: localFailed,
     failed_payout_stuck_processing_pence: stuckProcessing,
-    reconciliation_status: status,
+    reconciliation_status: legacyStatus,
     reconciliation_reasons: reasons,
+    provider_connect_audit_status: connectAudit,
     wallet_balance_pence: walletSigned,
     recovery_debt_pence: recoveryDebt,
     payout_blocked: freezeAutomaticPayout,

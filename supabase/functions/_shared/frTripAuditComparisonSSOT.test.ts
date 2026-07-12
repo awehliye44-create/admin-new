@@ -76,7 +76,7 @@ Deno.test("release/refund classifiers preserve unknown amounts", () => {
       captured_pence: 480,
       released_pence: null,
     }),
-    "RELEASE_PENDING",
+    "MISSING_RELEASE",
   );
   assertEquals(
     classifyReleaseReconciliation({
@@ -85,6 +85,33 @@ Deno.test("release/refund classifiers preserve unknown amounts", () => {
       released_pence: 300,
     }),
     "RELEASE_AMOUNT_UNKNOWN",
+  );
+  assertEquals(
+    classifyReleaseReconciliation({
+      authorised_pence: 780,
+      captured_pence: 480,
+      released_pence: null,
+      release_evidence_status: "AMOUNT_UNCONFIRMED",
+    }),
+    "RELEASE_AMOUNT_UNCONFIRMED",
+  );
+  assertEquals(
+    classifyReleaseReconciliation({
+      authorised_pence: 780,
+      captured_pence: 780,
+      released_pence: null,
+      release_evidence_status: "NOT_REQUIRED",
+    }),
+    "RELEASE_NOT_REQUIRED",
+  );
+  assertEquals(
+    classifyReleaseReconciliation({
+      authorised_pence: 780,
+      captured_pence: 480,
+      released_pence: 300,
+      release_evidence_status: "CONFIRMED",
+    }),
+    "RELEASE_MATCHED",
   );
   assertEquals(
     classifyRefundReconciliation({ refunded_pence: 0 }),
@@ -167,7 +194,7 @@ Deno.test("overview KPIs: MK-260708-008 waiting is not OVERCAPTURE; fare = PS ex
     {
       // Ride fare alone would wrongly be 680 — PS expected includes waiting.
       final_customer_fare_pence: 680,
-      final_fare_pence: 680,
+      final_fare_pence: 698,
       ps_expected_capture_pence: 698,
       captured_pence: 698,
       released_pence: 82,
@@ -180,10 +207,13 @@ Deno.test("overview KPIs: MK-260708-008 waiting is not OVERCAPTURE; fare = PS ex
       wallet_reconciliation_status: "WALLET_MATCHED",
       payout_reconciliation_status: "PAYOUT_NOT_DUE",
       capture_mismatch: false,
-      onecab_gross_commission_pence: 102,
-      onecab_net_pence: 75,
-      driver_net_pence: 578,
-      wallet_credit_pence: 578,
+      airport_charge_pence: 0,
+      tip_pence: 0,
+      // Waiting commissionable: round(698×15%)=105, driver net=593.
+      onecab_gross_commission_pence: 105,
+      onecab_net_pence: 78,
+      driver_net_pence: 593,
+      wallet_credit_pence: 593,
       reconciliation_status: { label: "Balanced", tone: "green" },
     },
   ]);
@@ -194,6 +224,8 @@ Deno.test("overview KPIs: MK-260708-008 waiting is not OVERCAPTURE; fare = PS ex
   assertEquals(k.overcapture_pence, 0);
   assertEquals(k.capture_shortfall_pence, 0);
   assertEquals(k.missing_captures_count, 0);
+  assertEquals(k.settlement_identity_balanced, true);
+  assertEquals(k.settlement_identity_variance_pence, 0);
   assertEquals(k.balanced_trips_count, 1);
 });
 

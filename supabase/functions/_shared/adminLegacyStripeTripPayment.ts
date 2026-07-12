@@ -1,10 +1,16 @@
 /**
- * Legacy Stripe trip payment admin ops — historical trips only (Phase 6 read-only migration).
+ * Legacy Stripe trip payment admin ops — historical trips only.
+ * P0: all mutation entry points hard-reject when Stripe runtime is disabled.
  */
 
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { tripStripePaymentIntentId, type TripProviderRow } from "./tripPaymentProviderSSOT.ts";
+import { assertStripeMutationAllowedOrThrow } from "./stripeRuntimeDisabled.ts";
+
+function assertLegacyStripeMutation(operation: string): void {
+  assertStripeMutationAllowedOrThrow(`adminLegacyStripe:${operation}`);
+}
 
 export async function adminLegacyStripeCapture(args: {
   supabase: SupabaseClient;
@@ -19,6 +25,7 @@ export async function adminLegacyStripeCapture(args: {
   reason: string;
   stripeKey: string;
 }) {
+  assertLegacyStripeMutation("capture");
   const paymentIntentId = tripStripePaymentIntentId(args.trip);
   if (!paymentIntentId) {
     throw new Error("Trip has no legacy Stripe PaymentIntent");
@@ -117,6 +124,7 @@ export async function adminLegacyStripeRefund(args: {
   reason: string;
   stripeKey: string;
 }) {
+  assertLegacyStripeMutation("refund");
   const paymentIntentId = tripStripePaymentIntentId(args.trip);
   if (!paymentIntentId) throw new Error("Trip has no legacy Stripe PaymentIntent");
 
@@ -194,6 +202,7 @@ export async function adminLegacyStripeCancel(args: {
   reason: string;
   stripeKey: string;
 }) {
+  assertLegacyStripeMutation("cancel");
   const paymentIntentId = tripStripePaymentIntentId(args.trip);
   if (!paymentIntentId) throw new Error("Trip has no legacy Stripe PaymentIntent");
 
@@ -245,6 +254,7 @@ export async function adminLegacyStripeSyncFromProvider(args: {
   trip: TripProviderRow & { id: string; commission_pence?: number | null };
   stripeKey: string;
 }) {
+  assertLegacyStripeMutation("sync");
   const paymentIntentId = tripStripePaymentIntentId(args.trip);
   if (!paymentIntentId) throw new Error("Trip has no legacy Stripe PaymentIntent");
 

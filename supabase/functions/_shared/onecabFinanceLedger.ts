@@ -8,11 +8,13 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 export const CAPTURED_PAYMENT_STATUSES = new Set(["captured", "paid", "succeeded"]);
 
-/** Ledger types excluded from wallet balance (reporting-only). */
+/** Ledger types excluded from wallet balance (informational / ONECAB-only — never driver money). */
 export const BALANCE_EXCLUDED_LEDGER_TYPES = [
   "PLATFORM_COMMISSION",
   "PLATFORM_COMMISSION_GROSS",
   "PLATFORM_COMMISSION_NET",
+  "COMPANY_COMMISSION",
+  "COMMISSION_REVERSAL",
   "PAYMENT_PROVIDER_FEE",
   "PAYMENT_PROVIDER_FEE_ADJUSTMENT",
   "PROVIDER_FEE_REVERSAL",

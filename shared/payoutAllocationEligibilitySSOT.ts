@@ -27,7 +27,13 @@ export type PayoutAllocation = {
 export type PayoutEligibilityGateInput = {
   amount_pence: number;
   available_balance_pence: number;
+  /**
+   * True when a payout destination is ready (manual bank / Revolut Business
+   * OR Stripe Connect). Not Stripe-Connect-only.
+   */
   connected_account: boolean;
+  /** @deprecated Prefer connected_account meaning "destination ready". */
+  payout_destination_ready?: boolean | null;
   payouts_paused?: boolean | null;
   min_threshold_pence?: number | null;
   currency?: string | null;
@@ -70,9 +76,13 @@ export function evaluatePayoutEligibilityGate(
   const currency = String(input.currency ?? "").trim().toUpperCase();
   const expected = String(input.expected_currency ?? "GBP").trim().toUpperCase();
 
+  const destinationReady = input.payout_destination_ready == null
+    ? Boolean(input.connected_account)
+    : Boolean(input.payout_destination_ready);
+
   if (amount <= 0) reasons.push("AMOUNT_NOT_POSITIVE");
   if (amount > available) reasons.push("AMOUNT_EXCEEDS_AVAILABLE_BALANCE");
-  if (!input.connected_account) reasons.push("CONNECTED_ACCOUNT_REQUIRED");
+  if (!destinationReady) reasons.push("PAYOUT_DESTINATION_REQUIRED");
   if (input.payouts_paused === true) reasons.push("PAYOUTS_PAUSED");
   if (amount > 0 && amount < min) reasons.push("BELOW_MIN_PAYOUT");
   if (!currency || currency !== expected) reasons.push("CURRENCY_MISMATCH");

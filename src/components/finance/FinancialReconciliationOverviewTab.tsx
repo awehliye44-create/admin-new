@@ -14,6 +14,8 @@ import {
 } from '@/components/finance/ServiceAreaGatewayStatusPanel';
 import { PaymentHoldsFinanceAlertSummary } from '@/components/finance/PaymentHoldsFinanceAlertSummary';
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
+import { useDriverWalletSsotAll } from '@/hooks/useDriverWalletSsot';
+import { aggregateFrDriverAuditOverview } from '@/lib/frDriverAuditOverviewSSOT';
 
 function KpiCard({ label, value, subtitle }: { label: string; value: string | number; subtitle?: string }) {
   return (
@@ -43,20 +45,31 @@ export function FinancialReconciliationOverviewTab({
   auditOverviewKpis?: {
     completed_trip_fare_total_pence: number;
     confirmed_provider_captured_total_pence: number;
+    total_authorised_pence?: number;
+    expected_released_pence?: number;
     refunded_total_pence: number;
     released_total_pence?: number;
+    release_amount_unconfirmed_count?: number;
+    waiting_charges_total_pence?: number;
     provider_fee_total_pence: number;
     onecab_gross_commission_pence: number;
     onecab_net_commission_pence: number | null;
     driver_net_total_pence: number;
     wallet_credits_total_pence: number;
     payouts_completed_pence: number;
+    airport_charges_total_pence?: number;
+    driver_tips_total_pence?: number;
+    commissionable_fare_total_pence?: number;
+    settlement_identity_variance_pence?: number | null;
+    settlement_identity_balanced?: boolean;
+    unallocated_pence?: number | null;
     capture_shortfall_pence: number;
     overcapture_pence: number;
     missing_captures_count?: number;
     missing_releases_count?: number;
     missing_wallet_credits_count: number;
     payout_mismatches_count: number;
+    wallet_mismatches_count?: number;
     balanced_trips_count: number;
     unresolved_mismatches_count: number;
     trip_count: number;
@@ -79,6 +92,30 @@ export function FinancialReconciliationOverviewTab({
   const fmt = money.fmt;
   const kpisUnavailable = platformKpis == null;
   const o = auditOverviewKpis;
+
+  const { data: driverRows = [] } = useDriverWalletSsotAll(null);
+  const driverAudit = aggregateFrDriverAuditOverview(
+    driverRows.map((d) => ({ reconciliation_status: d.reconciliation_status })),
+    { settlementIdentityBalanced: o?.settlement_identity_balanced === true },
+  );
+
+  const settlementLabel =
+    o == null
+      ? '—'
+      : o.settlement_identity_balanced === true
+      ? 'BALANCED'
+      : o.settlement_identity_variance_pence == null
+      ? 'PENDING_SYNC'
+      : `MISMATCH ${fmt(o.settlement_identity_variance_pence)}`;
+
+  const combinedOverviewStatus =
+    o?.settlement_identity_balanced === true && driverAudit.overview_driver_audit_status === 'BALANCED'
+      ? 'BALANCED'
+      : o?.settlement_identity_balanced === true && !driverAudit.driver_audit_complete
+      ? driverAudit.overview_driver_audit_status
+      : o?.settlement_identity_balanced !== true
+      ? ((o?.missing_releases_count ?? 0) > 0 ? 'MISSING_RELEASE' : 'PARTIAL')
+      : driverAudit.overview_driver_audit_status;
 
   return (
     <div className="space-y-4">
@@ -109,44 +146,81 @@ export function FinancialReconciliationOverviewTab({
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <KpiCard
-          label="Completed trips paid total"
-          value={o ? fmt(o.completed_trip_fare_total_pence) : '—'}
-          subtitle="Payment Sessions expected capture"
-        />
-        <KpiCard
-          label="Confirmed provider captured"
+          label="Customer Captured"
           value={o ? fmt(o.confirmed_provider_captured_total_pence) : '—'}
           subtitle="Payment Sessions"
         />
-        <KpiCard label="Refunded total" value={o ? fmt(o.refunded_total_pence) : '—'} subtitle="Payment Sessions" />
         <KpiCard
-          label="Released total"
+          label="Total Authorised"
+          value={o ? fmt(o.total_authorised_pence ?? 0) : '—'}
+          subtitle="Payment Sessions"
+        />
+        <KpiCard
+          label="Expected Released"
+          value={o ? fmt(o.expected_released_pence ?? 0) : '—'}
+          subtitle="Audit only (auth − capture)"
+        />
+        <KpiCard
+          label="Provider-Confirmed Released"
           value={o?.released_total_pence == null ? '—' : fmt(o.released_total_pence)}
           subtitle="Payment Sessions"
         />
-        <KpiCard label="Provider fee total" value={o ? fmt(o.provider_fee_total_pence) : '—'} subtitle="Payment Sessions" />
-        <KpiCard label="ONECAB gross commission" value={o ? fmt(o.onecab_gross_commission_pence) : '—'} />
         <KpiCard
-          label="ONECAB net commission"
+          label="Release Amount Unconfirmed"
+          value={o?.release_amount_unconfirmed_count ?? '—'}
+        />
+        <KpiCard label="Refunded" value={o ? fmt(o.refunded_total_pence) : '—'} subtitle="Payment Sessions" />
+        <KpiCard
+          label="Waiting Charges"
+          value={o ? fmt(o.waiting_charges_total_pence ?? 0) : '—'}
+          subtitle="Payment Sessions breakdown"
+        />
+        <KpiCard
+          label="Airport Charges"
+          value={o ? fmt(o.airport_charges_total_pence ?? 0) : '—'}
+          subtitle="Non-commissionable"
+        />
+        <KpiCard
+          label="Driver Tips"
+          value={o ? fmt(o.driver_tips_total_pence ?? 0) : '—'}
+          subtitle="Non-commissionable"
+        />
+        <KpiCard
+          label="Commissionable Fare"
+          value={o ? fmt(o.commissionable_fare_total_pence ?? 0) : '—'}
+        />
+        <KpiCard label="ONECAB Gross" value={o ? fmt(o.onecab_gross_commission_pence) : '—'} />
+        <KpiCard label="Provider Fees" value={o ? fmt(o.provider_fee_total_pence) : '—'} subtitle="Payment Sessions" />
+        <KpiCard
+          label="ONECAB Net"
           value={o?.onecab_net_commission_pence == null ? 'Pending fee' : fmt(o.onecab_net_commission_pence)}
         />
-        <KpiCard label="Driver net total" value={o ? fmt(o.driver_net_total_pence) : '—'} />
-        <KpiCard label="Wallet credits total" value={o ? fmt(o.wallet_credits_total_pence) : '—'} />
-        <KpiCard label="Payouts completed" value={o ? fmt(o.payouts_completed_pence) : '—'} />
+        <KpiCard label="Driver Net" value={o ? fmt(o.driver_net_total_pence) : '—'} />
+        <KpiCard label="Wallet Credits" value={o ? fmt(o.wallet_credits_total_pence) : '—'} />
         <KpiCard
-          label="Capture shortfall"
-          value={o ? fmt(o.capture_shortfall_pence) : '—'}
-          subtitle="Payment Sessions classification"
+          label="Unallocated"
+          value={
+            o?.unallocated_pence == null
+              ? '—'
+              : fmt(o.unallocated_pence)
+          }
+          subtitle="Settlement identity variance"
         />
         <KpiCard
-          label="Overcapture"
-          value={o ? fmt(o.overcapture_pence) : '—'}
-          subtitle="Payment Sessions classification"
+          label="Settlement identity"
+          value={settlementLabel}
+          subtitle="Captured = net + commission + airport + tips"
         />
-        <KpiCard label="Missing captures" value={o?.missing_captures_count ?? '—'} subtitle="Payment Sessions" />
-        <KpiCard label="Missing releases" value={o?.missing_releases_count ?? '—'} subtitle="Payment Sessions" />
-        <KpiCard label="Missing wallet credits" value={o?.missing_wallet_credits_count ?? '—'} />
-        <KpiCard label="Payout mismatches" value={o?.payout_mismatches_count ?? '—'} />
+        <KpiCard
+          label="Driver audit status"
+          value={combinedOverviewStatus}
+          subtitle="Per-driver wallet vs payable (no cross-driver netting)"
+        />
+        <KpiCard label="Drivers Balanced" value={driverAudit.drivers_balanced_count} />
+        <KpiCard label="Missing Captures" value={o?.missing_captures_count ?? '—'} />
+        <KpiCard label="Missing Releases" value={o?.missing_releases_count ?? '—'} />
+        <KpiCard label="Wallet Mismatches" value={o?.wallet_mismatches_count ?? driverAudit.driver_wallet_mismatches_count} />
+        <KpiCard label="Payout Mismatches" value={o?.payout_mismatches_count ?? '—'} />
         <KpiCard label="Balanced trips" value={o?.balanced_trips_count ?? '—'} />
         <KpiCard label="Unresolved mismatches" value={o?.unresolved_mismatches_count ?? '—'} />
       </div>
@@ -154,7 +228,12 @@ export function FinancialReconciliationOverviewTab({
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <KpiCard
           label="Reconciliation status"
-          value={ssot.summary?.reconciliation_check?.status ?? '—'}
+          value={combinedOverviewStatus}
+          subtitle={
+            ssot.summary?.reconciliation_check?.status
+              ? `Platform check: ${ssot.summary.reconciliation_check.status}`
+              : undefined
+          }
         />
         <KpiCard
           label="Period customer captured (SSOT)"

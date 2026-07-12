@@ -88,17 +88,10 @@ const PAYOUT_TYPES = new Set([
   "PAYOUT_REVERSAL",
 ]);
 
-/** Reporting-only — excluded from Net Wallet Movement / live balance. */
-const BALANCE_EXCLUDED_TYPES = new Set([
-  "PLATFORM_COMMISSION",
-  "PLATFORM_COMMISSION_GROSS",
-  "PLATFORM_COMMISSION_NET",
-  "COMPANY_COMMISSION",
-  "PAYMENT_PROVIDER_FEE",
-  "PAYMENT_PROVIDER_FEE_ADJUSTMENT",
-  "COMMISSION_REVERSAL",
-  "PROVIDER_FEE_REVERSAL",
-]);
+/** Reporting-only — excluded from Net Wallet Movement / live balance (Slice 6 SSOT). */
+import { BALANCE_EXCLUDED_LEDGER_TYPES } from "../../../shared/onecabFinanceLedger.ts";
+
+const BALANCE_EXCLUDED_TYPES = new Set<string>(BALANCE_EXCLUDED_LEDGER_TYPES);
 
 export function isLedgerRowInPeriod(
   createdAt: string | null | undefined,

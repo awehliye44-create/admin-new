@@ -744,13 +744,13 @@ export function DriverDetailsDialog({
                 <DriverPayoutPanel
                   driverId={driver.id}
                   regionId={driver.region_id}
-                  stripeAccountId={driver.stripe_account_id}
+                  stripeAccountId={null}
                   payoutsEnabled={driver.payouts_enabled}
-                  onboardingComplete={driver.onboarding_complete}
+                  onboardingComplete={true}
                   chargesEnabled={driver.charges_enabled}
                 />
 
-                {(!driver.onboarding_complete || !driver.stripe_account_id) && (
+                {false && (!driver.onboarding_complete || !driver.stripe_account_id) && (
                   <div className="p-4 border rounded-lg space-y-3">
                     <p className="text-sm text-muted-foreground">
                       Provider onboarding (Provider payout service areas only).

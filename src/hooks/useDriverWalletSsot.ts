@@ -75,6 +75,21 @@ export type DriverWalletSsotRow = {
   last_payout_at: string | null;
   last_payout_amount_pence: number | null;
   last_synced_at: string | null;
+  /** FR Drivers tab — backend SSOT fields (no client money math). */
+  expected_payable_pence?: number | null;
+  actual_wallet_trip_credits_pence?: number | null;
+  wallet_adjustments_pence?: number | null;
+  debt_recovery_pence?: number | null;
+  payouts_debited_pence?: number | null;
+  current_wallet_balance_pence?: number | null;
+  available_for_payout_pence?: number | null;
+  pending_balance_pence?: number | null;
+  provider_account_balance_pence?: number | null;
+  provider_account_balance_status?: 'AVAILABLE' | 'UNAVAILABLE' | 'NOT_APPLICABLE' | string | null;
+  wallet_variance_pence?: number | null;
+  payout_variance_pence?: number | null;
+  provider_balance_is_reference_only?: boolean;
+  provider_connect_audit_status?: string | null;
   period_kpis?: DriverWalletPeriodKpis;
   debt_recovery?: {
     outstanding_debt_pence: number;

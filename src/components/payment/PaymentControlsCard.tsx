@@ -350,8 +350,7 @@ export function PaymentControlsCard({
     ?? (state?.payment_provider === 'revolut'
       ? String(state?.provider_status ?? state?.stripe_status ?? '').toLowerCase() === 'authorised'
       : state?.stripe_status === 'requires_capture');
-  const canSyncStripe = state?.actions_allowed?.can_sync_stripe
-    ?? (state?.payment_provider === 'stripe' && !!state?.payment_intent_id);
+  const canSyncStripe = false;
   const isCancelled = state?.stripe_status === 'canceled' || String(state?.payment_status ?? '').includes('cancel');
   const hasCharge = !!state && (state.actions_allowed?.can_refund || state.actions_allowed?.can_partial_refund || state.captured_pence > 0);
   const refundable = state ? Math.max(0, state.refundable_pence ?? state.captured_pence - state.refunded_pence) : 0;

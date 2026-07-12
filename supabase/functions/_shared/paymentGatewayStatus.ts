@@ -17,7 +17,7 @@ import type { PaymentProviderId, ProviderEnvironment } from "./paymentProviders/
 export type GatewayRole = "customer" | "driver";
 
 /** Live adapters only — credentials alone do not make a provider production-ready. */
-const LIVE_PAYMENT_ADAPTERS = new Set<string>(["stripe", "revolut"]);
+const LIVE_PAYMENT_ADAPTERS = new Set<string>(["revolut"]);
 
 function isLivePaymentAdapter(provider: string | null | undefined): boolean {
   return Boolean(provider && LIVE_PAYMENT_ADAPTERS.has(provider));

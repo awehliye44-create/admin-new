@@ -83,6 +83,11 @@ export interface CommissionResult {
   driver_net_pence: number;
 }
 
+/**
+ * @deprecated Slice 4 — prefer calculateTripSettlement / calculateCanonicalSettlement.
+ * Gross-only helper kept for legacy call sites; does not strip airport.
+ * Callers that know airport must use tripSettlement SSOT instead.
+ */
 export async function calculateCommission(
   supabase: SupabaseClient,
   driverId: string,

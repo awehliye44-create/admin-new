@@ -11,7 +11,9 @@ import { usePaymentProviders } from "@/hooks/usePaymentProviders";
 export default function PaymentProviders() {
   const { data, isLoading } = usePaymentProviders();
   const globalWarnings = data?.global_warnings ?? [];
-  const activeProvider = data?.active_provider ?? "stripe";
+  const activeProvider = data?.active_provider === 'stripe'
+    ? 'unavailable'
+    : (data?.active_provider ?? 'revolut');
 
   return (
     <AdminLayout title="Payment Providers">

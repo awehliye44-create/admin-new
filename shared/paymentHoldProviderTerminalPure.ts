@@ -6,15 +6,28 @@ export function extractConfirmedReleaseAmountPence(
   providerPayload: Record<string, unknown> | null | undefined,
 ): number | null {
   if (!providerPayload) return null;
+  const asPence = (raw: unknown): number | null => {
+    if (raw == null) return null;
+    if (typeof raw === "object" && raw !== null && "value" in (raw as object)) {
+      const n = Number((raw as { value?: unknown }).value);
+      if (Number.isFinite(n) && n > 0) return Math.round(n);
+      return null;
+    }
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) return Math.round(n);
+    return null;
+  };
   const candidates = [
     providerPayload.cancelled_amount,
     providerPayload.canceled_amount,
+    providerPayload.released_amount,
+    providerPayload.amount_released,
     providerPayload.refunded_amount,
     providerPayload.amount_refunded,
   ];
   for (const c of candidates) {
-    const n = Number(c);
-    if (Number.isFinite(n) && n > 0) return Math.round(n);
+    const n = asPence(c);
+    if (n != null) return n;
   }
   return null;
 }

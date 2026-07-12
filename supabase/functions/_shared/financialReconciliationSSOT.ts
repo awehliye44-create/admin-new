@@ -111,6 +111,9 @@ export type PaymentSessionMoneyRow = {
   fee_status?: string | null;
   provider_state?: string | null;
   provider_state_verified_at?: string | null;
+  release_evidence_status?: string | null;
+  release_evidence_source?: string | null;
+  release_verified_at?: string | null;
   payment_method?: string | null;
   /** May include capture_breakdown owned by Payment Sessions. */
   metadata?: Record<string, unknown> | null;
@@ -126,6 +129,7 @@ export type PaymentSessionMoneyByTrip = {
   fee_status: string | null;
   provider_state: string | null;
   provider_state_verified_at: string | null;
+  release_evidence_status: string | null;
   payment_method: string | null;
   status: string | null;
   metadata?: Record<string, unknown> | null;
@@ -165,6 +169,7 @@ export function buildPaymentSessionMoneyByTrip(
     const feeStatus = s.fee_status ?? null;
     const providerState = s.provider_state ?? null;
     const providerVerifiedAt = s.provider_state_verified_at ?? null;
+    const releaseEvidenceStatus = s.release_evidence_status ?? null;
     const paymentMethod = s.payment_method ?? null;
     const metadata = (s.metadata && typeof s.metadata === "object")
       ? s.metadata as Record<string, unknown>
@@ -180,6 +185,7 @@ export function buildPaymentSessionMoneyByTrip(
         fee_status: feeStatus,
         provider_state: providerState,
         provider_state_verified_at: providerVerifiedAt,
+        release_evidence_status: releaseEvidenceStatus,
         payment_method: paymentMethod,
         status: s.status ?? null,
         metadata,
@@ -217,6 +223,9 @@ export function buildPaymentSessionMoneyByTrip(
       provider_state_verified_at: preferNewId
         ? providerVerifiedAt
         : (existing.provider_state_verified_at ?? providerVerifiedAt),
+      release_evidence_status: preferNewId
+        ? releaseEvidenceStatus
+        : (existing.release_evidence_status ?? releaseEvidenceStatus),
       payment_method: existing.payment_method ?? paymentMethod,
       status: s.status ?? existing.status,
       metadata: preferNewId ? metadata : (existing.metadata ?? metadata),
@@ -507,7 +516,7 @@ export function onecabNetCommissionPence(gross: number, providerFees: number): n
   return Math.max(0, gross - providerFees);
 }
 
-/** 8. Driver net earnings — capture-confirmed trips only */
+/** 8. Driver net earnings — stored trips.driver_net_pence only (never invent gross − commission). */
 export function sumDriverNetEarningsPence(
   trips: TripSSOTRow[],
   paymentByTrip?: Map<string, number>,
@@ -518,11 +527,14 @@ export function sumDriverNetEarningsPence(
     if (!isTripPaymentCaptureConfirmed(t, byTrip)) {
       return s;
     }
+    if (t.driver_net_pence == null) return s;
     const tripId = t.id ?? "";
     const refund = refundByTrip?.get(tripId)
       ?? Math.max(0, t.refund_amount_pence ?? 0);
     const captured = byTrip.get(tripId) ?? 0;
-    if (t.driver_net_pence != null) {
+    // Refunds: consume stored net; only ratio-adjust when capture evidence present and refund > 0.
+    // Never invent net from gross − commission.
+    if (refund > 0 && captured > 0) {
       const adjusted = applyRefundToTripAmounts({
         capturedPence: captured,
         refundPence: refund,
@@ -531,9 +543,7 @@ export function sumDriverNetEarningsPence(
       });
       return s + adjusted.driver_net_pence;
     }
-    const gross = tripDriverGrossEarningsPence(t);
-    const commission = Math.max(0, t.commission_pence ?? 0);
-    return s + Math.max(0, gross - commission);
+    return s + Math.max(0, t.driver_net_pence);
   }, 0);
 }
 
@@ -897,19 +907,29 @@ function buildLedgerSliceCheck(args: {
 
 export function buildSplitReconciliationCheck(args: {
   ledger: PaymentMethodLedgerMetrics;
+  airportChargesPence?: number;
+  driverTipsPence?: number;
   tolerancePence?: number;
 }) {
   const l = args.ledger;
+  // Hard identity: captured = driver_net + gross_commission + airport + tips (zero tolerance).
   const cardBase = buildLedgerSliceCheck({
     lhs: l.card_customer_revenue_pence,
-    rhsComponents: [l.card_driver_payable_pence, l.onecab_card_commission_pence],
-    tolerancePence: args.tolerancePence,
+    rhsComponents: [
+      l.card_driver_payable_pence,
+      l.onecab_card_commission_pence,
+      Math.max(0, args.airportChargesPence ?? 0),
+      Math.max(0, args.driverTipsPence ?? 0),
+    ],
+    tolerancePence: 0,
   });
   const card_reconciliation = {
     ...cardBase,
     card_customer_revenue_pence: l.card_customer_revenue_pence,
     card_driver_payable_pence: l.card_driver_payable_pence,
     onecab_card_commission_pence: l.onecab_card_commission_pence,
+    airport_charges_pence: Math.max(0, args.airportChargesPence ?? 0),
+    driver_tips_pence: Math.max(0, args.driverTipsPence ?? 0),
   };
   return {
     card_reconciliation,

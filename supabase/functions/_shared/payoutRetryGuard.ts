@@ -29,6 +29,8 @@ export async function readPlatformAvailablePence(
   stripe: Stripe,
   currency: string,
 ): Promise<number> {
+  const { assertStripeMutationAllowedOrThrow } = await import("./stripeRuntimeDisabled.ts");
+  assertStripeMutationAllowedOrThrow("payoutRetryGuard:readPlatformAvailablePence");
   const balance = await stripe.balance.retrieve();
   const ccy = currency.toLowerCase();
   const available = balance.available.find((b) => b.currency === ccy)?.amount ?? 0;

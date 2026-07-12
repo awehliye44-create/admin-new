@@ -13,7 +13,7 @@ import {
 } from "../_shared/paymentProviders/index.ts";
 import { loadPaymentProviderCredentialReadiness } from "../_shared/paymentProviderReadinessSSOT.ts";
 
-const LIVE_CUSTOMER_BOOKING_PROVIDERS = new Set<string>(["stripe", "revolut"]);
+const LIVE_CUSTOMER_BOOKING_PROVIDERS = new Set<string>(["revolut"]);
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -373,11 +373,13 @@ serve(async (req) => {
           .map((c) => buildProviderCard(supabase, c)),
       );
 
-      const active = providers.find((p) => p.is_primary && p.is_enabled) ?? providers.find((p) => p.provider === "stripe");
+      const active = providers.find((p) => p.is_primary && p.is_enabled && p.provider !== "stripe")
+        ?? providers.find((p) => p.is_enabled && p.provider === "revolut")
+        ?? null;
 
       return new Response(
         JSON.stringify({
-          active_provider: active?.provider ?? "stripe",
+          active_provider: active?.provider ?? "unavailable",
           providers,
           global_warnings: providers.flatMap((p) => p.warnings),
         }),

@@ -123,7 +123,7 @@ export function DriverWalletOverviewCards({
         <Metric
           label="Pending Balance"
           value={fmt(kpis?.pending_earnings_pence)}
-          hint="Cleared, not yet in payout batch"
+          hint="Held / not yet eligible — same as Payout Ledger (live − available)"
         />
         <Metric
           label="Outstanding Debt"

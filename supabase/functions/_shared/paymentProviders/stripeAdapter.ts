@@ -12,6 +12,7 @@ import type {
   WebhookVerifyResult,
 } from "./types.ts";
 import { STRIPE_STATEMENT_DESCRIPTOR } from "../stripeStatementDescriptor.ts";
+import { assertStripeMutationAllowedOrThrow } from "../stripeRuntimeDisabled.ts";
 
 export function createStripeAdapter(
   supabase: SupabaseClient,
@@ -20,6 +21,7 @@ export function createStripeAdapter(
   let stripeClient: Stripe | null = null;
 
   async function getStripe(): Promise<Stripe> {
+    assertStripeMutationAllowedOrThrow("stripeAdapter:getStripe");
     if (stripeClient) return stripeClient;
     const secrets = await getProviderSecrets(supabase, "stripe", environment);
     if (!secrets.secret_key) {

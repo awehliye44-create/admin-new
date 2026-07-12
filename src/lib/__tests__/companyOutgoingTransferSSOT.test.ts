@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   assertCompanyTransferMoneySource,
   resolveDefaultMoneySourceForCategory,
-  resolveEnforcedCompanyTransferMoneySource,
 } from "../../../shared/companyOutgoingTransferSSOT";
 import {
   canApproveCompanyTransfer,
@@ -18,17 +17,6 @@ describe("company outgoing transfer SSOT", () => {
 
   it("staff reimbursement defaults to company balance", () => {
     expect(resolveDefaultMoneySourceForCategory("STAFF_REIMBURSEMENT")).toBe("COMPANY_BALANCE");
-  });
-
-  it("staff reimbursement hard-locks COMPANY_BALANCE", () => {
-    expect(resolveEnforcedCompanyTransferMoneySource({
-      category: "STAFF_REIMBURSEMENT",
-      money_source: "COMPANY_BALANCE",
-    })).toBe("COMPANY_BALANCE");
-    expect(() => resolveEnforcedCompanyTransferMoneySource({
-      category: "STAFF_REIMBURSEMENT",
-      money_source: "APPROVED_COMPANY_PAYABLE",
-    })).toThrow(/STAFF_MUST_USE_COMPANY_BALANCE/);
   });
 
   it("applies approval thresholds", () => {

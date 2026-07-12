@@ -30,10 +30,10 @@ export const PROVIDER_MOBILE_WALLET_CATALOG: Record<string, MobileWalletMethodId
 };
 
 /** Providers with live customer booking adapters (card preauth or mobile collect). */
-export const LIVE_CUSTOMER_BOOKING_PROVIDERS = new Set<string>(["stripe", "revolut"]);
+export const LIVE_CUSTOMER_BOOKING_PROVIDERS = new Set<string>(["revolut"]);
 
-/** Providers with live driver payout adapters. */
-export const LIVE_DRIVER_PAYOUT_PROVIDERS = new Set<string>(["stripe", "revolut"]);
+/** Providers with live driver payout adapters. Stripe Connect is retired. */
+export const LIVE_DRIVER_PAYOUT_PROVIDERS = new Set<string>(["revolut"]);
 
 export const PROVIDER_NOT_IMPLEMENTED_CODE = "PROVIDER_NOT_IMPLEMENTED";
 

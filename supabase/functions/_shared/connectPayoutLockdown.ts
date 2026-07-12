@@ -8,11 +8,16 @@ export type ConnectPayoutScheduleSnapshot = {
   delay_days: number | null;
   automatic_payouts_enabled: boolean;
   payouts_enabled: boolean | null;
-  /** Stripe balance.available — standard payout schedule (display only). */
-  available_pence: number;
+  /**
+   * Stripe balance.available — Provider Account Balance reference only.
+   * null when the currency bucket is missing (never coerce to 0 for display).
+   */
+  available_pence: number | null;
   /** Stripe balance.instant_available — ONECAB execution cap (Instant Payout only). */
-  instant_available_pence: number;
-  pending_pence: number;
+  instant_available_pence: number | null;
+  pending_pence: number | null;
+  /** True when balance.retrieve succeeded for this connected account. */
+  balance_retrieved: boolean;
 };
 
 export type InFlightConnectPayout = {
@@ -32,16 +37,18 @@ export async function readConnectPayoutSnapshot(
   stripeAccountId: string,
   currency = "gbp",
 ): Promise<ConnectPayoutScheduleSnapshot> {
+  const { assertStripeMutationAllowedOrThrow } = await import("./stripeRuntimeDisabled.ts");
+  assertStripeMutationAllowedOrThrow("connectPayoutLockdown:readConnectPayoutSnapshot");
   const account = await stripe.accounts.retrieve(stripeAccountId);
   const schedule = account.settings?.payouts?.schedule;
   const balance = await stripe.balance.retrieve({ stripeAccount: stripeAccountId });
   const ccy = currency.toLowerCase();
-  const avail = balance.available.find((b) => b.currency === ccy)?.amount ?? 0;
-  const pend = balance.pending.find((b) => b.currency === ccy)?.amount ?? 0;
+  const availRow = balance.available.find((b) => b.currency === ccy);
+  const pendRow = balance.pending.find((b) => b.currency === ccy);
   const instantRows = (balance as Stripe.Balance & {
     instant_available?: Array<{ amount: number; currency: string }>;
   }).instant_available ?? [];
-  const instantAvail = instantRows.find((b) => b.currency === ccy)?.amount ?? 0;
+  const instantRow = instantRows.find((b) => b.currency === ccy);
   const interval = schedule?.interval ?? null;
 
   return {
@@ -50,9 +57,10 @@ export async function readConnectPayoutSnapshot(
     delay_days: schedule?.delay_days ?? null,
     automatic_payouts_enabled: isAutomaticPayoutSchedule(interval),
     payouts_enabled: account.payouts_enabled ?? null,
-    available_pence: avail,
-    instant_available_pence: instantAvail,
-    pending_pence: pend,
+    available_pence: availRow ? availRow.amount : null,
+    instant_available_pence: instantRow ? instantRow.amount : null,
+    pending_pence: pendRow ? pendRow.amount : null,
+    balance_retrieved: true,
   };
 }
 

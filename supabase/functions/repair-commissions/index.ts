@@ -1,8 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { calculateCommission } from "../_shared/commission.ts";
+import { getDriverCommissionPct } from "../_shared/commission.ts";
 import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
-import { buildTripAccounting } from "../_shared/tripAccounting.ts";
+import {
+  calculateTripSettlement,
+  SETTLEMENT_FORMULA_VERSION,
+} from "../_shared/tripSettlement.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -67,7 +70,7 @@ serve(async (req) => {
     // === Fetch completed trips ===
     let query = supabase
       .from('trips')
-      .select('id, driver_id, service_area_id, gross_fare_pence, final_fare_pence, airport_charge_pence, other_pass_through_charges_pence, commission_pence, driver_net_pence, payment_method, payment_status, currency_code, financial_outcome, completed_at, fare, tip_pence')
+      .select('id, driver_id, service_area_id, gross_fare_pence, final_fare_pence, capture_amount_pence, airport_charge_pence, other_pass_through_charges_pence, commission_pence, driver_net_pence, payment_method, payment_status, currency_code, financial_outcome, completed_at, fare, tip_pence, tip_amount_pence, driver_tier_commission_percent, commission_pct, settlement_formula_version')
       .eq('status', 'completed')
       .not('driver_id', 'is', null);
 
@@ -100,10 +103,6 @@ serve(async (req) => {
 
     for (const trip of trips) {
       const dId = trip.driver_id;
-      const finalFare = trip.final_fare_pence || trip.gross_fare_pence || 0;
-      const tipPence = trip.tip_pence || 0;
-      const airportPence = trip.airport_charge_pence || 0;
-      const passThroughPence = trip.other_pass_through_charges_pence || 0;
       const issues: string[] = [];
 
       // === Resolve correct currency from Region ===
@@ -129,12 +128,12 @@ serve(async (req) => {
       const missingOutcome = !trip.financial_outcome;
       if (missingOutcome) issues.push('missing financial_outcome');
 
-      // === Check commission ===
+      // === Check commission via canonical settlement (Slice 4) — never commission on gross ignoring airport ===
       const commissionCacheKey = `${dId}:${trip.service_area_id ?? 'unknown'}`;
       if (!commissionCache[commissionCacheKey]) {
         try {
-          const result = await calculateCommission(supabase, dId, 10000, trip.service_area_id);
-          commissionCache[commissionCacheKey] = { commission_pct: result.commission_pct };
+          const pct = await getDriverCommissionPct(supabase, dId, trip.service_area_id);
+          commissionCache[commissionCacheKey] = { commission_pct: pct };
         } catch {
           console.warn(`[repair-commissions] Could not get commission for driver ${dId} SA ${trip.service_area_id}, skipping`);
           continue;
@@ -142,15 +141,32 @@ serve(async (req) => {
       }
 
       const correctPct = commissionCache[commissionCacheKey].commission_pct;
-      const recomputed = await calculateCommission(supabase, dId, finalFare, trip.service_area_id);
-      const correctCommission = recomputed.commission_pence;
-      const correctNet = recomputed.driver_net_pence;
+      const tipPence = Math.max(0, Number(trip.tip_pence ?? trip.tip_amount_pence ?? 0));
+      const airportPence = Math.max(0, Number(trip.airport_charge_pence ?? 0));
+      const finalFare = Math.max(
+        0,
+        Number(trip.capture_amount_pence ?? 0) > 0
+          ? Math.max(0, Number(trip.capture_amount_pence) - tipPence)
+          : Number(trip.final_fare_pence || trip.gross_fare_pence || 0),
+      );
+      const settlement = calculateTripSettlement({
+        final_fare_pence: finalFare,
+        airport_charge_pence: airportPence,
+        tips_pence: tipPence,
+        driver_tier_commission_percent: correctPct,
+        stripe_fee_pence: 0,
+      });
+      const correctCommission = settlement.commission_pence;
+      const correctNet = settlement.driver_net_pence;
       const oldCommission = trip.commission_pence || 0;
       const oldDriverNet = trip.driver_net_pence || 0;
       const commissionDelta = correctCommission - oldCommission;
 
       if (commissionDelta !== 0) issues.push(`commission: ${oldCommission} → ${correctCommission}`);
       if (oldDriverNet !== correctNet) issues.push(`driver_net: ${oldDriverNet} → ${correctNet}`);
+      if (String(trip.settlement_formula_version ?? '') !== SETTLEMENT_FORMULA_VERSION) {
+        issues.push(`formula_version: ${trip.settlement_formula_version ?? 'null'} → ${SETTLEMENT_FORMULA_VERSION}`);
+      }
 
       // === Check for missing driver_wallet_ledger entries (SSOT) ===
       const { data: existingWalletEntries } = await supabase
@@ -173,11 +189,12 @@ serve(async (req) => {
       corrections.push({
         trip_id: trip.id,
         driver_id: dId,
-        gross_fare_pence: recomputed.commissionable_fare_pence,
+        gross_fare_pence: settlement.commissionable_fare_pence,
         old_commission_pence: oldCommission,
         correct_commission_pence: correctCommission,
         correct_driver_net_pence: correctNet,
         commission_pct: correctPct,
+        formula_version: SETTLEMENT_FORMULA_VERSION,
         delta_pence: commissionDelta,
         payment_method: trip.payment_method,
         completed_at: trip.completed_at,
@@ -192,6 +209,10 @@ serve(async (req) => {
         const tripUpdate: Record<string, unknown> = {
           commission_pence: correctCommission,
           driver_net_pence: correctNet,
+          commissionable_fare_pence: settlement.commissionable_fare_pence,
+          commission_pct: correctPct,
+          driver_tier_commission_percent: correctPct,
+          settlement_formula_version: SETTLEMENT_FORMULA_VERSION,
           updated_at: new Date().toISOString(),
         };
 

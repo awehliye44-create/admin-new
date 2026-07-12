@@ -299,7 +299,7 @@ export function FinancialReconciliationDriverDrawer({
                   </Badge>
                 </div>
                 <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1 text-xs text-muted-foreground">
-                  <span>Provider account: <span className="text-foreground font-mono">{driver?.connected_account_id ?? '—'}</span></span>
+                  <span>Payout destination: <span className="text-foreground font-mono">{driver?.connected_account_id ?? 'Manual bank'}</span></span>
                   <span>Service area: <span className="text-foreground">{serviceAreaName ?? '—'}</span></span>
                   <span>Currency: <span className="text-foreground">{currencyCode.toUpperCase()}</span></span>
                 </div>
@@ -447,9 +447,6 @@ export function FinancialReconciliationDriverDrawer({
                 <CardContent className="pt-4 pb-4">
                   <p className="text-sm font-medium">Why payout may not be scheduled</p>
                   <ul className="mt-2 space-y-1 text-xs text-muted-foreground list-disc pl-4">
-                    {(eligiblePayout == null || eligiblePayout <= 0) && driver?.stripe_connect_available_pence === 0 ? (
-                      <li>Platform Provider available is {fmt(0)} — awaiting Provider settlement</li>
-                    ) : null}
                     {(pendingBatch == null || pendingBatch <= 0) && eligiblePayout != null && eligiblePayout > 0 ? (
                       <li>Payout batch not yet created for cleared earnings</li>
                     ) : null}

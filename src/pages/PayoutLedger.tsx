@@ -68,7 +68,7 @@ const DRIVER_TABS: Array<{ id: AdminPayoutLedgerDriverTab; label: string }> = [
   { id: 'history', label: 'Payout History' },
   { id: 'transfers', label: 'Transfers' },
   { id: 'failures', label: 'Failures' },
-  { id: 'connected_account', label: 'Connected Account' },
+  { id: 'connected_account', label: 'Payout Destination' },
   { id: 'statements', label: 'Statements' },
   { id: 'audit_log', label: 'Audit Log' },
   { id: 'settings', label: 'Settings' },
@@ -622,20 +622,31 @@ export default function PayoutLedger() {
           <div className="space-y-4">
             {fleet && (
               <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Live Driver Wallet</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_live_wallet_pence ?? null)}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Available for Payout</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_available_pence)}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Scheduled</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_scheduled_pence)}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Processing</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_processing_pence)}</CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Pending / Held</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_pending_pence ?? null)}</CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Outstanding Debt</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_outstanding_debt_pence ?? null)}</CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Next Batch Amount</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.next_batch_amount_pence)}</CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Eligible Driver Count</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{fleet.eligible_driver_count ?? fleet.next_batch_driver_count}</CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Held Driver Count</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{fleet.held_driver_count ?? 0}</CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Scheduled Payouts</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{fleet.scheduled_payouts_count ?? 0} · {formatNullablePence(fleet.total_scheduled_pence)}</CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Processing Payouts</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{fleet.processing_payouts_count ?? 0} · {formatNullablePence(fleet.total_processing_pence)}</CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Completed Payouts</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{fleet.completed_payouts_count ?? 0}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Paid Today</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.paid_today_pence)}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Paid This Week</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.paid_week_pence)}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Paid This Month</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.paid_month_pence)}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Paid This Year</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.paid_year_pence)}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Failed Payouts</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{fleet.failed_count}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Paused Accounts</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{fleet.paused_accounts}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Unverified Accounts</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{fleet.unverified_accounts}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Next Batch Amount</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.next_batch_amount_pence)}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Next Batch Driver Count</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{fleet.next_batch_driver_count}</CardContent></Card>
               </div>
             )}
+
+            {fleet?.zero_batch_guard ? (
+              <Alert>
+                <AlertTitle>No eligible payouts</AlertTitle>
+                <AlertDescription>
+                  Zero-batch guard: <span className="font-mono">{fleet.zero_batch_guard}</span>. Next weekly batch will not be created until Available &gt; 0 for at least one driver.
+                </AlertDescription>
+              </Alert>
+            ) : null}
 
             {fleet && fleet.failed_count > 0 && items.length > 0 && (
               <Alert variant="destructive">
@@ -700,13 +711,14 @@ export default function PayoutLedger() {
                       <TableHead>Service Area</TableHead>
                       <TableHead>Tier</TableHead>
                       <TableHead>Provider</TableHead>
-                      <TableHead>Connected Account</TableHead>
+                      <TableHead>Payout Destination</TableHead>
                       <TableHead>Verification</TableHead>
                       <TableHead>Live Wallet</TableHead>
                       <TableHead>Available</TableHead>
                       <TableHead>Pending/Held</TableHead>
                       <TableHead>Debt</TableHead>
                       <TableHead>Hold Reason</TableHead>
+                      <TableHead>Eligible Entries</TableHead>
                       <TableHead>Next Scheduled</TableHead>
                       <TableHead>Last Payout</TableHead>
                       <TableHead>Schedule</TableHead>
@@ -728,15 +740,18 @@ export default function PayoutLedger() {
                         <TableCell className="text-xs">{row.service_area ?? '—'}</TableCell>
                         <TableCell className="text-xs">{row.tier ?? '—'}</TableCell>
                         <TableCell className="text-xs">{row.provider ?? '—'}</TableCell>
-                        <TableCell className="text-xs font-mono">{row.connected_account?.slice(0, 12) ?? '—'}</TableCell>
+                        <TableCell className="text-xs font-mono">
+                          {row.payout_destination ?? row.connected_account?.slice(0, 12) ?? '—'}
+                        </TableCell>
                         <TableCell className="text-xs">{row.verification ?? '—'}</TableCell>
                         <TableCell className="text-xs">{formatNullablePence(row.live_balance_pence ?? null)}</TableCell>
                         <TableCell className="text-xs font-semibold">{formatNullablePence(row.available_balance_pence)}</TableCell>
                         <TableCell className="text-xs">{formatNullablePence(row.pending_balance_pence)}</TableCell>
                         <TableCell className="text-xs">{formatNullablePence(row.debt_pence)}</TableCell>
                         <TableCell className="text-[10px] text-muted-foreground max-w-[140px]">
-                          {row.unavailable_reason ?? (row.available_balance_pence > 0 ? '—' : '—')}
+                          {row.unavailable_reason ?? '—'}
                         </TableCell>
+                        <TableCell className="text-xs tabular-nums">{row.eligible_entry_count ?? 0}</TableCell>
                         <TableCell className="text-xs">{shortDate(row.next_scheduled_at)}</TableCell>
                         <TableCell className="text-xs">{shortDate(row.last_payout_at)}</TableCell>
                         <TableCell className="text-xs">{row.schedule_label ?? '—'}</TableCell>
@@ -760,7 +775,7 @@ export default function PayoutLedger() {
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => openAccount(row, 'failures')}>Retry failed payout</DropdownMenuItem>
                               <DropdownMenuItem onClick={() => openAccount(row, 'connected_account')}>
-                                View connected account
+                                View payout destination
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={() => exportAccountStatement(row)}>
@@ -794,10 +809,11 @@ export default function PayoutLedger() {
                     <div>Driver Tier: {account?.tier ?? '—'}</div>
                     <div>Service Area: {account?.service_area ?? '—'}</div>
                     <div>Payout Provider: {account?.provider ?? '—'}</div>
-                    <div>Connected Account: <span className="font-mono text-foreground">{account?.connected_account ?? '—'}</span></div>
+                    <div>Payout Destination: <span className="font-mono text-foreground">{account?.payout_destination ?? account?.connected_account ?? '—'}</span></div>
                     <div>Account Verification: {account?.verification ?? '—'}</div>
-                    <div>Bank Account Status: {account?.connected_account ? (account.verification === 'verified' ? 'Ready' : 'Restricted') : 'Not connected'}</div>
+                    <div>Bank Account Status: {account?.verification === 'manual_bank' || account?.verification === 'connected' ? 'Ready' : 'Not set'}</div>
                     <div>Payout Status: {account?.payout_status ?? '—'}</div>
+                    <div>Eligible Entries: {account?.eligible_entry_count ?? 0}</div>
                     <div>Live Wallet: {formatNullablePence(account?.live_balance_pence ?? null)}</div>
                     <div>Wallet Available: {formatNullablePence(account?.available_balance_pence ?? null)}</div>
                     <div>Wallet Pending/Held: {formatNullablePence(account?.pending_balance_pence ?? null)}</div>
@@ -831,10 +847,10 @@ export default function PayoutLedger() {
 
               <TabsContent value="connected_account" className="mt-4">
                 <Card>
-                  <CardHeader><CardTitle className="text-base">Connected Account</CardTitle></CardHeader>
+                  <CardHeader><CardTitle className="text-base">Payout Destination</CardTitle></CardHeader>
                   <CardContent className="space-y-2 text-sm">
+                    <div>Destination: <span className="font-mono">{account?.payout_destination ?? account?.connected_account ?? '—'}</span></div>
                     <div>Provider: {account?.provider ?? '—'}</div>
-                    <div>Account: <span className="font-mono">{account?.connected_account ?? '—'}</span></div>
                     <div>Verification: {account?.verification ?? '—'}</div>
                     <div>Payouts: {account?.paused ? 'Paused' : 'Enabled'}</div>
                   </CardContent>

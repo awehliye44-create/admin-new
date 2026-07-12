@@ -116,6 +116,10 @@ export type DriverPayoutAccountRow = {
   debt_pence: number;
   /** Machine-readable hold when live > 0 and available = 0. */
   unavailable_reason?: string | null;
+  /** Count of eligibility-proven ledger credits included in available. */
+  eligible_entry_count?: number;
+  /** Display label for payout destination (manual bank / provider account). */
+  payout_destination?: string | null;
   next_scheduled_at: string | null;
   last_payout_at: string | null;
   last_payout_amount_pence: number | null;
@@ -125,7 +129,11 @@ export type DriverPayoutAccountRow = {
 };
 
 export type AdminPayoutLedgerFleetSummary = {
+  /** Σ live DWL balances for listed drivers. */
+  total_live_wallet_pence?: number;
   total_available_pence: number;
+  total_pending_pence?: number;
+  total_outstanding_debt_pence?: number;
   total_scheduled_pence: number;
   total_processing_pence: number;
   paid_today_pence: number;
@@ -137,6 +145,13 @@ export type AdminPayoutLedgerFleetSummary = {
   unverified_accounts: number;
   next_batch_amount_pence: number;
   next_batch_driver_count: number;
+  eligible_driver_count?: number;
+  held_driver_count?: number;
+  scheduled_payouts_count?: number;
+  processing_payouts_count?: number;
+  completed_payouts_count?: number;
+  /** Present when next batch must not be created. */
+  zero_batch_guard?: string | null;
 };
 
 /** Combined top Overview widgets — backend only, no React sums. */
@@ -203,8 +218,6 @@ export type CompanyOutgoingAuditRow = {
   created_at: string;
   transfer_id: string;
   actor_id: string | null;
-  requester_id: string | null;
-  approver_id: string | null;
   event_type: string;
   old_status: string | null;
   new_status: string | null;

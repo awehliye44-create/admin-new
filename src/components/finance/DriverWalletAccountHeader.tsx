@@ -77,8 +77,8 @@ export function DriverWalletAccountHeader({
           <Field label="Service Area" value={driver.service_area_name ?? '—'} />
           <Field label="Payout Provider" value={driver.payout_provider ?? '—'} />
           <Field
-            label="Connected Account Status"
-            value={driver.verification_status ?? (driver.connected_account_id ? 'connected' : 'not_connected')}
+            label="Payout Destination Status"
+            value={driver.verification_status ?? (driver.connected_account_id ? 'legacy_connect' : 'manual_bank')}
           />
           <Field label="Bank / Revolut Account" value={bankLabel} />
           <Field label="Next Scheduled Payout" value={nextPayout} />
