@@ -1273,7 +1273,9 @@ export default function Services() {
                 </p>
               </div>
 
+              <div className="space-y-2">
                 <Label htmlFor="edit_region">Region</Label>
+
                 <Select
                   value={formData.region_id}
                   onValueChange={(value) => {
