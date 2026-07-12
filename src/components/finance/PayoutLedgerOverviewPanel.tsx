@@ -54,10 +54,13 @@ function moneyOrUnavailable(
   pence: number | null | undefined,
   unavailableReason?: string | null,
 ): { value: string; reason?: string | null } {
-  if (pence == null || unavailableReason) {
+  // Unknown money must never render as £0. Prefer precise status codes over generic SOURCE_UNAVAILABLE.
+  if (pence == null) {
     return {
       value: 'UNAVAILABLE',
-      reason: unavailableReason ?? COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE,
+      reason: unavailableReason && unavailableReason !== COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE
+        ? unavailableReason
+        : (unavailableReason ?? 'ACCOUNT_NOT_CONFIGURED'),
     };
   }
   return { value: formatNullablePence(pence) };

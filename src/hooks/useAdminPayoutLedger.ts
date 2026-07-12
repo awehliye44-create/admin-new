@@ -36,7 +36,8 @@ export function useAdminPayoutLedger(
       return data;
     },
     enabled,
-    staleTime: 60_000,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
     refetchInterval: (query) => {
       if (!isAdminPageLiveActive()) return false;
       if (tab !== 'processing') return false;

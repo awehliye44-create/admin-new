@@ -219,7 +219,7 @@ export function PayoutLedgerCompanyTransfersPanel({
   const companyUnavailableReason =
     companyBalance?.status_code
     ?? companyBalance?.unavailable_reason
-    ?? COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE;
+    ?? 'ACCOUNT_NOT_CONFIGURED';
 
   return (
     <div className="space-y-4">
