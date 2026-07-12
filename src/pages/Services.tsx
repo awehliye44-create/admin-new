@@ -294,6 +294,16 @@ export default function Services() {
       toast.error('Please enter an area code (e.g., NYC, LON, DXB)');
       return;
     }
+    const tripPrefix = sanitizePrefix(formData.trip_id_prefix);
+    const driverPrefix = sanitizePrefix(formData.driver_id_prefix);
+    if (!PREFIX_REGEX.test(tripPrefix)) {
+      toast.error('Trip ID Prefix must be 2–8 uppercase letters/digits');
+      return;
+    }
+    if (!PREFIX_REGEX.test(driverPrefix)) {
+      toast.error('Driver ID Prefix must be 2–8 uppercase letters/digits');
+      return;
+    }
     if (!formData.region_id) {
       toast.error('Please select a region');
       return;
@@ -313,12 +323,14 @@ export default function Services() {
         .insert({ 
           name: formData.name,
           code: formData.code.toUpperCase(),
+          trip_id_prefix: tripPrefix,
+          driver_id_prefix: driverPrefix,
           country: formData.country || null,
           timezone: formData.timezone,
           region_id: formData.region_id, 
           is_active: formData.is_active,
           geo_boundary: boundaryForDb,
-        })
+        } as any)
         .select(`*, region:regions(id, name, distance_unit, currency_code, timezone, status, geo_boundary)`)
         .single();
 
@@ -340,6 +352,7 @@ export default function Services() {
       setIsSaving(false);
     }
   };
+
 
   const handleEdit = async () => {
     if (!selectedArea || !formData.name.trim()) {
