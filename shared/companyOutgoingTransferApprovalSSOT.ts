@@ -40,6 +40,8 @@ export function resolveCompanyTransferApprovalsRequired(
 export function canApproveCompanyTransfer(args: {
   requester_id: string | null | undefined;
   approver_id: string | null | undefined;
+  category?: string | null;
+  force_high_risk?: boolean;
 }): { ok: boolean; reason: string | null } {
   const requester = String(args.requester_id ?? "").trim();
   const approver = String(args.approver_id ?? "").trim();
@@ -48,4 +50,21 @@ export function canApproveCompanyTransfer(args: {
     return { ok: false, reason: "REQUESTER_CANNOT_SELF_APPROVE" };
   }
   return { ok: true, reason: null };
+}
+
+/** High-risk categories always require at least one independent approval. */
+export function resolveHighRiskApprovalRequirement(category: string | null | undefined): {
+  always_require_approval: boolean;
+  min_approvals: number;
+} {
+  const c = String(category ?? "").toUpperCase();
+  const high = [
+    "DIRECTOR_DIVIDEND",
+    "DIRECTOR_LOAN",
+    "COMPANY_WITHDRAWAL",
+    "TAX_PAYMENT",
+    "REGULATORY_PAYMENT",
+  ];
+  if (high.includes(c)) return { always_require_approval: true, min_approvals: 1 };
+  return { always_require_approval: false, min_approvals: 0 };
 }

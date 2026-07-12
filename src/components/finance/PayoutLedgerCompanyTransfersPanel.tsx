@@ -32,6 +32,8 @@ import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { supabase } from '@/integrations/supabase/client';
 import { downloadCsv, printPayoutReceipt } from '@/lib/financeExport';
 import { formatNullablePence } from '@/lib/formatNullablePence';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { CompanyTransfersPayeesSection } from '@/components/finance/CompanyTransfersPayeesSection';
 import {
   ADMIN_COMPANY_TRANSFER_FN,
   type CompanyOutgoingTransferRow,
@@ -229,8 +231,42 @@ export function PayoutLedgerCompanyTransfersPanel({
         <AlertDescription>
           Company transfers use ONECAB Company Balance or Approved Company Payables.
           Driver Wallet and Payment Sessions are never consumed here.
+          Saved payees store encrypted bank details; UI shows masked accounts only.
+          Live Revolut execution stays gated (execute_live) during validation.
         </AlertDescription>
       </Alert>
+
+      <Tabs defaultValue={failedOnly ? 'transfers' : 'transfers'}>
+        <TabsList className="flex flex-wrap h-auto gap-1">
+          <TabsTrigger value="transfers">Transfers</TabsTrigger>
+          {!failedOnly && <TabsTrigger value="payees">Payees</TabsTrigger>}
+          {!failedOnly && <TabsTrigger value="automatic">Automatic Payments</TabsTrigger>}
+          {!failedOnly && <TabsTrigger value="approvals">Approvals</TabsTrigger>}
+          <TabsTrigger value="history">History</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="payees" className="space-y-4">
+          <CompanyTransfersPayeesSection serviceAreaId={serviceAreaId} />
+        </TabsContent>
+
+        <TabsContent value="automatic" className="space-y-4">
+          <CompanyTransfersPayeesSection serviceAreaId={serviceAreaId} />
+        </TabsContent>
+
+        <TabsContent value="approvals" className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            High-risk categories (director dividend/loan, company withdrawal, tax, regulatory) always require approval.
+            Requester cannot approve their own transfer.
+          </p>
+          {/* Approvals reuse transfer table filtered below via pending statuses */}
+        </TabsContent>
+
+        <TabsContent value="history" className="space-y-4">
+          <p className="text-xs text-muted-foreground">Completed / failed / cancelled company transfers.</p>
+        </TabsContent>
+
+        <TabsContent value="transfers" className="space-y-4">
+      {/* existing body continues */}
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <Card>
@@ -700,6 +736,8 @@ export function PayoutLedgerCompanyTransfersPanel({
           </Table>
         </div>
       )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

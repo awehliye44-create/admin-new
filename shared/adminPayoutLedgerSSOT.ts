@@ -10,6 +10,7 @@ import type { PayoutScheduleDto } from "./payoutScheduleSSOT.ts";
 
 export const ADMIN_PAYOUT_LEDGER_FN = "admin-payout-ledger";
 export const ADMIN_COMPANY_TRANSFER_FN = "admin-company-outgoing-transfer";
+export const ADMIN_COMPANY_PAYEES_FN = "admin-company-payees";
 
 /** Top-level Payout Ledger page tabs (no new route). */
 export type AdminPayoutLedgerTopTab =
