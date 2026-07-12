@@ -18,6 +18,7 @@ export type WalletSettlementSourceRow = {
 
 export type WalletTripSettlementMeta = {
   payment_method?: string | null;
+  payment_provider?: string | null;
   /** Trip History settlement expected fare — not customer capture. */
   final_customer_fare_pence?: number | null;
 };
@@ -80,6 +81,7 @@ export function buildWalletEarningInputsFromPaymentSessions(args: {
       required_customer_fare_pence: trip?.final_customer_fare_pence ?? null,
       capture_mismatch_unresolved: cash ? false : !captureOk,
       payment_method: method,
+      payment_provider: trip?.payment_provider ?? null,
     };
   });
 }

@@ -702,9 +702,11 @@ export default function PayoutLedger() {
                       <TableHead>Provider</TableHead>
                       <TableHead>Connected Account</TableHead>
                       <TableHead>Verification</TableHead>
+                      <TableHead>Live Wallet</TableHead>
                       <TableHead>Available</TableHead>
-                      <TableHead>Pending</TableHead>
+                      <TableHead>Pending/Held</TableHead>
                       <TableHead>Debt</TableHead>
+                      <TableHead>Hold Reason</TableHead>
                       <TableHead>Next Scheduled</TableHead>
                       <TableHead>Last Payout</TableHead>
                       <TableHead>Schedule</TableHead>
@@ -728,9 +730,13 @@ export default function PayoutLedger() {
                         <TableCell className="text-xs">{row.provider ?? '—'}</TableCell>
                         <TableCell className="text-xs font-mono">{row.connected_account?.slice(0, 12) ?? '—'}</TableCell>
                         <TableCell className="text-xs">{row.verification ?? '—'}</TableCell>
+                        <TableCell className="text-xs">{formatNullablePence(row.live_balance_pence ?? null)}</TableCell>
                         <TableCell className="text-xs font-semibold">{formatNullablePence(row.available_balance_pence)}</TableCell>
                         <TableCell className="text-xs">{formatNullablePence(row.pending_balance_pence)}</TableCell>
                         <TableCell className="text-xs">{formatNullablePence(row.debt_pence)}</TableCell>
+                        <TableCell className="text-[10px] text-muted-foreground max-w-[140px]">
+                          {row.unavailable_reason ?? (row.available_balance_pence > 0 ? '—' : '—')}
+                        </TableCell>
                         <TableCell className="text-xs">{shortDate(row.next_scheduled_at)}</TableCell>
                         <TableCell className="text-xs">{shortDate(row.last_payout_at)}</TableCell>
                         <TableCell className="text-xs">{row.schedule_label ?? '—'}</TableCell>
@@ -792,9 +798,13 @@ export default function PayoutLedger() {
                     <div>Account Verification: {account?.verification ?? '—'}</div>
                     <div>Bank Account Status: {account?.connected_account ? (account.verification === 'verified' ? 'Ready' : 'Restricted') : 'Not connected'}</div>
                     <div>Payout Status: {account?.payout_status ?? '—'}</div>
+                    <div>Live Wallet: {formatNullablePence(account?.live_balance_pence ?? null)}</div>
                     <div>Wallet Available: {formatNullablePence(account?.available_balance_pence ?? null)}</div>
-                    <div>Wallet Pending: {formatNullablePence(account?.pending_balance_pence ?? null)}</div>
+                    <div>Wallet Pending/Held: {formatNullablePence(account?.pending_balance_pence ?? null)}</div>
                     <div>Outstanding Debt: {formatNullablePence(account?.debt_pence ?? null)}</div>
+                    {account?.unavailable_reason ? (
+                      <div className="text-amber-700">Hold reason: {account.unavailable_reason}</div>
+                    ) : null}
                     <div>Next Scheduled: {shortDate(account?.next_scheduled_at)}</div>
                     <div>Last Successful: {shortDate(account?.last_payout_at)} ({formatNullablePence(account?.last_payout_amount_pence ?? null)})</div>
                     <div>Schedule: {account?.schedule_label ?? '—'}</div>

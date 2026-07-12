@@ -588,6 +588,29 @@ serve(async (req) => {
       batchStatus = toDbBatchStatus("FAILED");
     }
 
+    // Hard rule: never leave a £0 FAILED/BLOCKED batch when nobody was eligible.
+    if (!verificationMode && batchId && successCount === 0 && totalAmount <= 0) {
+      await supabase.from("payout_batches").delete().eq("id", batchId);
+      return new Response(JSON.stringify({
+        success: true,
+        skipped: true,
+        error_code: "NO_ELIGIBLE_PAYOUTS",
+        message: "No eligible payouts — batch not created",
+        batch_id: null,
+        batch_status: null,
+        total_amount_pence: 0,
+        ready_count: 0,
+        blocked_count: blockedCount,
+        failed_count: failedCount,
+        warning_count: warningCount,
+        results,
+        payout_provider: regionPayoutProvider,
+        manual_provider_payout: manualProviderPayout,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (!verificationMode && batchId) {
       await supabase.from("payout_batches").update({
         status: batchStatus,

@@ -109,9 +109,13 @@ export type DriverPayoutAccountRow = {
   provider: string | null;
   connected_account: string | null;
   verification: string | null;
+  /** DWL live wallet balance — liability, not always payable. */
+  live_balance_pence?: number;
   available_balance_pence: number;
   pending_balance_pence: number;
   debt_pence: number;
+  /** Machine-readable hold when live > 0 and available = 0. */
+  unavailable_reason?: string | null;
   next_scheduled_at: string | null;
   last_payout_at: string | null;
   last_payout_amount_pence: number | null;

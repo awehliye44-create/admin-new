@@ -3,6 +3,7 @@ import {
   computeAvailableCashOutPence,
   computeCashoutLimitPence,
   computeDriverWalletPayoutSnapshot,
+  computeManualBankAvailablePence,
 } from "./driverWalletPayoutSSOT.ts";
 
 Deno.test("cashout limit is zero when Stripe instant is zero even if wallet owed", () => {
@@ -15,6 +16,60 @@ Deno.test("cashout limit is zero when Stripe instant is zero even if wallet owed
     }),
     0,
   );
+});
+
+Deno.test("Revolut manual bank available uses finance-cleared wallet — never Connect", () => {
+  assertEquals(
+    computeManualBankAvailablePence({
+      wallet_owed_pence: 986,
+      finance_cleared_pence: 986,
+      recovery_debt_pence: 0,
+    }),
+    986,
+  );
+  const snap = computeDriverWalletPayoutSnapshot({
+    wallet_balance_pence: 986,
+    finance_cleared_pence: 986,
+    included_in_payout_batch_pence: 0,
+    stripe_connect_available_pence: 0,
+    stripe_connect_pending_pence: 0,
+    stripe_paid_out_total_pence: 0,
+    recovery_debt_pence: 0,
+    payout_provider: "revolut",
+  });
+  assertEquals(snap.cashout_limit_pence, 986);
+  assertEquals(snap.wallet_balance_pence, 986);
+});
+
+Deno.test("Revolut available is zero when finance not cleared — with live wallet still positive", () => {
+  const snap = computeDriverWalletPayoutSnapshot({
+    wallet_balance_pence: 986,
+    finance_cleared_pence: 0,
+    included_in_payout_batch_pence: 0,
+    stripe_connect_available_pence: 0,
+    stripe_connect_pending_pence: 0,
+    stripe_paid_out_total_pence: 0,
+    recovery_debt_pence: 0,
+    payout_provider: "revolut",
+  });
+  assertEquals(snap.wallet_balance_pence, 986);
+  assertEquals(snap.cashout_limit_pence, 0);
+});
+
+Deno.test("Revolut ignores Stripe local_only mismatch freeze", () => {
+  const snap = computeDriverWalletPayoutSnapshot({
+    wallet_balance_pence: 408,
+    finance_cleared_pence: 408,
+    included_in_payout_batch_pence: 0,
+    stripe_connect_available_pence: 0,
+    stripe_connect_pending_pence: 0,
+    stripe_paid_out_total_pence: 0,
+    recovery_debt_pence: 0,
+    local_only_failed_payout_pence: 408,
+    payout_provider: "revolut",
+  });
+  assertEquals(snap.cashout_limit_pence, 408);
+  assertEquals(snap.reconciliation_status, "BALANCED");
 });
 
 Deno.test("scheduled payout display only from batch amount not wallet", () => {

@@ -154,6 +154,7 @@ export async function fetchDriverWalletPayoutSnapshot(
   )];
   const tripMetaById = new Map<string, {
     payment_method: string | null;
+    payment_provider: string | null;
     final_customer_fare_pence: number | null;
   }>();
   const tripDetailById = new Map<string, Record<string, unknown>>();
@@ -177,6 +178,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     for (const t of tripRowsRes.data ?? []) {
       tripMetaById.set(String(t.id), {
         payment_method: (t.payment_method as string | null) ?? null,
+        payment_provider: (t.payment_provider as string | null) ?? null,
         final_customer_fare_pence: t.final_customer_fare_pence == null
           ? null
           : Number(t.final_customer_fare_pence),
@@ -195,6 +197,14 @@ export async function fetchDriverWalletPayoutSnapshot(
       }
     }
     sessionCaptureByTripId = buildSessionCaptureByTripId(sessionRowsRes.data ?? []);
+    for (const [tripId, session] of sessionByTripId) {
+      const meta = tripMetaById.get(tripId);
+      if (!meta) continue;
+      const sessionProvider = (session.payment_provider as string | null) ?? null;
+      if (!meta.payment_provider && sessionProvider) {
+        tripMetaById.set(tripId, { ...meta, payment_provider: sessionProvider });
+      }
+    }
   }
 
   const earningInputs: EarningSettlementInput[] = buildWalletEarningInputsFromPaymentSessions({
@@ -293,6 +303,32 @@ export async function fetchDriverWalletPayoutSnapshot(
     }
   }
 
+  const saJoinEarly = driverServiceAreaRes.data?.service_areas as
+    | {
+      id?: string;
+      name?: string;
+      driver_payout_gateway?: string | null;
+      payment_provider?: string | null;
+    }
+    | {
+      id?: string;
+      name?: string;
+      driver_payout_gateway?: string | null;
+      payment_provider?: string | null;
+    }[]
+    | null;
+  const serviceAreaEarly = Array.isArray(saJoinEarly) ? saJoinEarly[0] ?? null : saJoinEarly;
+  const payoutProviderEarly = (
+    serviceAreaEarly?.driver_payout_gateway
+    ?? serviceAreaEarly?.payment_provider
+    ?? null
+  );
+  const inferredRevolut = [...tripMetaById.values()].some((m) =>
+    String(m.payment_provider ?? "").toLowerCase() === "revolut"
+  );
+  const payoutProviderResolved = payoutProviderEarly
+    ?? (inferredRevolut ? "revolut" : null);
+
   const snapshot = computeDriverWalletPayoutSnapshot({
     wallet_balance_pence: walletBalance,
     finance_cleared_pence: financeCleared,
@@ -311,6 +347,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     local_only_failed_payout_pence: localFailed,
     failed_payout_stuck_processing_pence: stuckProcessing,
     provider_platform_available_pence: providerAvailable,
+    payout_provider: payoutProviderResolved,
   });
 
   const driverName = driver
