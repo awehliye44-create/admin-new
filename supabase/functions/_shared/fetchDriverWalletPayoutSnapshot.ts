@@ -23,6 +23,7 @@ import { fetchDriverPayoutEligibility } from "./fetchDriverPayoutEligibility.ts"
 import { buildDriverWalletSettlementHistory } from "./driverWalletSettlementHistorySSOT.ts";
 import { buildDriverWalletDebtRecoveryKpis } from "./driverWalletDebtRecoverySSOT.ts";
 import { nextWeeklyPayoutDateIso } from "./payoutScheduleSSOT.ts";
+import { buildPayoutScheduleDto } from "./payoutScheduleSSOT.ts";
 import { loadPayoutControlCentreSettings } from "./payoutControlCentreSettingsSSOT.ts";
 import {
   attachRunningNetOnecabBalanceNewestFirst,
@@ -653,10 +654,16 @@ export async function fetchDriverWalletPayoutSnapshot(
   const controlCentre = await loadPayoutControlCentreSettings(supabase, {
     serviceAreaId,
   });
-  const nextScheduledPayoutAt = nextWeeklyPayoutDateIso({
-    weeklyPayoutDay: controlCentre.weekly_payout_day,
-    timeZone: controlCentre.payout_timezone,
+  const schedule = buildPayoutScheduleDto({
+    service_area_id: serviceAreaId,
+    serviceAreaTimezone: serviceArea?.timezone ?? null,
+    currencyCode: serviceArea?.currency_code ?? "GBP",
+    automatic_payouts_enabled: controlCentre.payouts_enabled,
+    frequency: controlCentre.payout_frequency,
+    weekly_day: controlCentre.weekly_payout_day,
+    local_processing_time: controlCentre.payout_processing_time,
   });
+  const nextScheduledPayoutAt = schedule.next_run_at_utc;
 
   return {
     ...snapshot,

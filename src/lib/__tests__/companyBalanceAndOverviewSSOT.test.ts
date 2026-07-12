@@ -82,7 +82,8 @@ describe("company balance SSOT", () => {
   it("audit lists revolut stub and forbids DWL as company balance", () => {
     const audit = auditCompanyBalanceSourceCandidates();
     expect(audit.some((a) => a.candidate === "driver_wallet_ledger" && !a.usable_for_company_balance)).toBe(true);
-    expect(audit.some((a) => a.candidate === "revolutAdapter.getBalance" && !a.usable_for_company_balance)).toBe(true);
+    expect(audit.some((a) => a.candidate.includes("revolutAdapter.getBalance") && !a.usable_for_company_balance)).toBe(true);
+    expect(audit.some((a) => a.candidate.includes("Business API") && a.usable_for_company_balance)).toBe(true);
     expect(audit.some((a) => a.candidate.includes("stripe") && !a.usable_for_company_balance)).toBe(true);
   });
 });

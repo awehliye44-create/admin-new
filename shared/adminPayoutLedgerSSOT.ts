@@ -6,6 +6,7 @@
 
 import type { CompanyBalanceSnapshot } from "./companyBalanceSSOT.ts";
 import type { PayoutLedgerOverviewDto } from "./payoutLedgerOverviewSSOT.ts";
+import type { PayoutScheduleDto } from "./payoutScheduleSSOT.ts";
 
 export const ADMIN_PAYOUT_LEDGER_FN = "admin-payout-ledger";
 export const ADMIN_COMPANY_TRANSFER_FN = "admin-company-outgoing-transfer";
@@ -176,6 +177,9 @@ export type AdminPayoutLedgerOverviewSummary = PayoutLedgerOverviewDto & {
   failed_transfers_count?: number;
   /** @deprecated use company_awaiting_approval_count */
   awaiting_approval_count?: number;
+  schedule_label?: string | null;
+  next_run_at_local?: string | null;
+  payout_schedule?: PayoutScheduleDto;
 };
 
 export type CompanyOutgoingTransferRow = {
@@ -277,6 +281,7 @@ export type AdminPayoutLedgerListResponse = {
   fleet_summary?: AdminPayoutLedgerFleetSummary;
   overview_summary?: AdminPayoutLedgerOverviewSummary;
   company_balance?: CompanyBalanceSnapshot;
+  payout_schedule?: PayoutScheduleDto;
   /** Backend KPIs for Company Transfers tab — no React money sums. */
   company_transfer_kpis?: {
     awaiting_approval_count: number;

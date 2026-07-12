@@ -191,8 +191,16 @@ export function PayoutLedgerOverviewPanel({
           <MetricCard title="Failed Driver Payouts" value={String(overview.payout_failed_count ?? '—')} source={payoutSource} />
           <MetricCard
             title="Next Scheduled Weekly Driver Payout"
-            value={shortDate(overview.next_scheduled_weekly_driver_payout_at)}
-            source="Payout Control Centre"
+            value={overview.next_run_at_local
+              ?? shortDate(overview.next_scheduled_weekly_driver_payout_at)}
+            source="Payout Schedule SSOT"
+          />
+          <MetricCard
+            title="Schedule"
+            value={overview.schedule_label
+              ?? overview.payout_schedule?.schedule_label
+              ?? '—'}
+            source="Payout Schedule SSOT"
           />
         </div>
       </div>

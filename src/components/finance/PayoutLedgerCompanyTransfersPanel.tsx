@@ -243,7 +243,15 @@ export function PayoutLedgerCompanyTransfersPanel({
                 {formatNullablePence(companyBalance?.company_ledger_balance_pence)}
               </div>
             )}
-            <div className="text-[11px] text-muted-foreground">Source: Company Balance SSOT</div>
+            <div className="text-[11px] text-muted-foreground">
+              Source: {companyBalance?.source_account_label ?? 'Company Balance SSOT'}
+              {companyBalance?.last_verified_at
+                ? ` · Verified ${new Date(companyBalance.last_verified_at).toLocaleString('en-GB')}`
+                : ''}
+            </div>
+            <div className="text-[11px] font-mono text-muted-foreground">
+              {companyBalance?.connection_status ?? companyBalance?.status_code ?? '—'}
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -263,9 +271,39 @@ export function PayoutLedgerCompanyTransfersPanel({
           </CardContent>
         </Card>
         <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Provider Available Cash</CardTitle></CardHeader>
+          <CardContent className="space-y-1">
+            {companyUnavailable ? (
+              <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
+            ) : (
+              <div className="text-xl font-semibold tabular-nums">
+                {formatNullablePence(companyBalance?.provider_available_balance_pence)}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Protected Driver Liabilities</CardTitle></CardHeader>
+          <CardContent className="text-xl font-semibold tabular-nums">
+            {formatNullablePence(companyBalance?.driver_liability_pence ?? null)}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Reserved Driver Payouts</CardTitle></CardHeader>
+          <CardContent className="text-xl font-semibold tabular-nums">
+            {formatNullablePence(companyBalance?.driver_payout_reserved_pence ?? null)}
+          </CardContent>
+        </Card>
+        <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm">Approved Payables</CardTitle></CardHeader>
           <CardContent className="text-xl font-semibold tabular-nums">
-            {formatNullablePence(kpis?.approved_payables_pending_pence ?? null)}
+            {formatNullablePence(kpis?.approved_payables_pending_pence ?? companyBalance?.approved_company_payables_pence ?? null)}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Operational Reserve</CardTitle></CardHeader>
+          <CardContent className="text-xl font-semibold tabular-nums">
+            {formatNullablePence(companyBalance?.operational_reserve_pence ?? null)}
           </CardContent>
         </Card>
         <Card>

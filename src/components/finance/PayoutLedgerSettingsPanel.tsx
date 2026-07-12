@@ -296,8 +296,8 @@ export function PayoutLedgerSettingsPanel({
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label>Processing time ({tz})</Label>
-            <Select value={get('payout_processing_time', '10:00')} onValueChange={(v) => set('payout_processing_time', v)}>
+            <Label>Processing time ({tz === 'UTC' ? 'Europe/London' : tz})</Label>
+            <Select value={get('payout_processing_time', '12:00')} onValueChange={(v) => set('payout_processing_time', v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {TIMES.map((t) => (
@@ -305,7 +305,9 @@ export function PayoutLedgerSettingsPanel({
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-[10px] text-muted-foreground">Service area timezone only — never browser local time.</p>
+            <p className="text-[10px] text-muted-foreground">
+              Service-area local wall time (IANA). Stored as HH:mm; backend converts to UTC via Europe/London for GBP areas — never browser local time, never labelled as UTC unless the timezone truly is UTC.
+            </p>
           </div>
           <div className="space-y-1.5">
             <Label>Minimum payout (pence)</Label>

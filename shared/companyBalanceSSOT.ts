@@ -9,34 +9,65 @@ export const COMPANY_BALANCE_ERROR = {
   PROVIDER_STUB_ZERO: "COMPANY_BALANCE_PROVIDER_STUB_REJECTED",
   FUNDING_UNAVAILABLE: "FUNDING_UNAVAILABLE",
   FORBIDDEN_DRIVER_WALLET: "FORBIDDEN_COMPANY_SOURCE_DRIVER_WALLET",
+  ACCOUNT_NOT_CONFIGURED: "ACCOUNT_NOT_CONFIGURED",
+  AUTHENTICATION_REQUIRED: "AUTHENTICATION_REQUIRED",
+  PROVIDER_UNAVAILABLE: "PROVIDER_UNAVAILABLE",
+  CURRENCY_MISMATCH: "CURRENCY_MISMATCH",
+  STALE_PROVIDER_EVIDENCE: "STALE_PROVIDER_EVIDENCE",
+  TRANSFER_DISABLED: "TRANSFER_DISABLED",
+  PENDING_SYNC: "PENDING_SYNC",
 } as const;
+
+export type CompanyBalanceStatusCode =
+  | "AVAILABLE"
+  | "PENDING_SYNC"
+  | "AUTHENTICATION_REQUIRED"
+  | "ACCOUNT_NOT_CONFIGURED"
+  | "CURRENCY_MISMATCH"
+  | "PROVIDER_UNAVAILABLE"
+  | "STALE_PROVIDER_EVIDENCE"
+  | "TRANSFER_DISABLED";
 
 export type CompanyBalanceEvidenceStatus =
   | "CONFIRMED"
   | "PARTIAL"
   | "NO_CANONICAL_SOURCE"
   | "PROVIDER_STUB"
-  | "UNVERIFIED";
+  | "UNVERIFIED"
+  | CompanyBalanceStatusCode;
 
 export type CompanyBalanceSnapshot = {
   status: "LIVE" | "PARTIAL" | "UNAVAILABLE";
+  status_code: CompanyBalanceStatusCode | typeof COMPANY_BALANCE_ERROR[keyof typeof COMPANY_BALANCE_ERROR];
   currency: string;
   service_area_id: string | null;
   generated_at: string;
+  last_verified_at: string | null;
+  source_account_id: string | null;
+  source_account_label: string | null;
+  connection_status: CompanyBalanceStatusCode;
   /** Internal ONECAB company ledger — null when no ledger source exists. */
   company_ledger_balance_pence: number | null;
   /** Confirmed Revolut Business / provider cash — null when not verified. */
   provider_cash_balance_pence: number | null;
+  provider_current_balance_pence: number | null;
+  provider_available_balance_pence: number | null;
+  driver_liability_pence: number | null;
+  driver_payout_reserved_pence: number | null;
+  customer_refund_reserved_pence: number | null;
+  approved_company_payables_pence: number | null;
+  operational_reserve_pence: number | null;
   /**
    * Safe transferable amount. Null when unknown.
    * Must never equal driver wallet liabilities.
    */
   company_available_for_transfer_pence: number | null;
+  /** @deprecated alias of approved_company_payables_pence */
   approved_payables_pending_pence: number | null;
   evidence_status: CompanyBalanceEvidenceStatus;
   unavailable_reason: string | null;
   source_label: string;
-  /** Explicit proof that DWL was not used. */
+  /** Explicit proof that DWL was not used as provider cash. */
   excludes_driver_wallet: true;
 };
 
@@ -59,13 +90,6 @@ export function auditCompanyBalanceSourceCandidates(): CompanyBalanceSourceAudit
       notes: "Tracks outgoing transfers; not a cash balance source.",
     },
     {
-      candidate: "company_outgoing_batches",
-      kind: "table",
-      exists: true,
-      usable_for_company_balance: false,
-      notes: "Batch metadata only.",
-    },
-    {
       candidate: "driver_wallet_ledger",
       kind: "table",
       exists: true,
@@ -73,11 +97,18 @@ export function auditCompanyBalanceSourceCandidates(): CompanyBalanceSourceAudit
       notes: "Driver liability domain — forbidden as company balance.",
     },
     {
-      candidate: "revolutAdapter.getBalance",
+      candidate: "revolutAdapter.getBalance (merchant stub)",
       kind: "adapter",
       exists: true,
       usable_for_company_balance: false,
-      notes: "Stub returns available_pence: 0 after Merchant orders probe — must not display as £0.",
+      notes: "Legacy stub returned available_pence: 0 — rejected.",
+    },
+    {
+      candidate: "revolut Business API GET /accounts",
+      kind: "provider",
+      exists: true,
+      usable_for_company_balance: true,
+      notes: "Requires business_access_token + REVOLUT_SOURCE_BUSINESS_ACCOUNT_ID (merchant_id).",
     },
     {
       candidate: "stripeAdapter.getBalance",
@@ -97,33 +128,78 @@ export function auditCompanyBalanceSourceCandidates(): CompanyBalanceSourceAudit
 }
 
 /**
+ * Safe transferable amount after protected liabilities / reserves.
+ * All inputs exact pence; null provider available → null result (never £0 invent).
+ */
+export function computeCompanyAvailableForTransferPence(args: {
+  provider_available_balance_pence: number | null;
+  driver_liability_pence?: number | null;
+  driver_payout_reserved_pence?: number | null;
+  customer_refund_reserved_pence?: number | null;
+  approved_company_payables_pence?: number | null;
+  operational_reserve_pence?: number | null;
+}): number | null {
+  if (args.provider_available_balance_pence == null) return null;
+  const protectedSum = Math.max(0, Number(args.driver_liability_pence ?? 0))
+    + Math.max(0, Number(args.driver_payout_reserved_pence ?? 0))
+    + Math.max(0, Number(args.customer_refund_reserved_pence ?? 0))
+    + Math.max(0, Number(args.approved_company_payables_pence ?? 0))
+    + Math.max(0, Number(args.operational_reserve_pence ?? 0));
+  return Math.max(0, args.provider_available_balance_pence - protectedSum);
+}
+
+/**
  * Resolve company balance from proven sources only.
- * Until a real ledger or Revolut Business cash endpoint is wired,
- * return UNAVAILABLE (never £0).
  */
 export function resolveCompanyBalanceSnapshot(args?: {
   service_area_id?: string | null;
   currency?: string | null;
   company_ledger_balance_pence?: number | null;
   provider_cash_balance_pence?: number | null;
+  provider_current_balance_pence?: number | null;
+  provider_available_balance_pence?: number | null;
   approved_payables_pending_pence?: number | null;
+  approved_company_payables_pence?: number | null;
+  driver_liability_pence?: number | null;
+  driver_payout_reserved_pence?: number | null;
+  customer_refund_reserved_pence?: number | null;
+  operational_reserve_pence?: number | null;
   provider_balance_is_stub?: boolean;
+  status_code?: CompanyBalanceStatusCode | string | null;
+  source_account_id?: string | null;
+  source_account_label?: string | null;
+  refresh_requested?: boolean;
   now?: Date;
 }): CompanyBalanceSnapshot {
   const generated_at = (args?.now ?? new Date()).toISOString();
   const currency = String(args?.currency ?? "GBP").toUpperCase() || "GBP";
   const service_area_id = args?.service_area_id ?? null;
+  const approved = args?.approved_company_payables_pence
+    ?? args?.approved_payables_pending_pence
+    ?? null;
 
   if (args?.provider_balance_is_stub) {
     return {
       status: "UNAVAILABLE",
+      status_code: COMPANY_BALANCE_ERROR.PROVIDER_STUB_ZERO,
       currency,
       service_area_id,
       generated_at,
+      last_verified_at: null,
+      source_account_id: args.source_account_id ?? null,
+      source_account_label: args.source_account_label ?? null,
+      connection_status: "PROVIDER_UNAVAILABLE",
       company_ledger_balance_pence: null,
       provider_cash_balance_pence: null,
+      provider_current_balance_pence: null,
+      provider_available_balance_pence: null,
+      driver_liability_pence: args.driver_liability_pence ?? null,
+      driver_payout_reserved_pence: args.driver_payout_reserved_pence ?? null,
+      customer_refund_reserved_pence: args.customer_refund_reserved_pence ?? null,
+      approved_company_payables_pence: approved,
+      operational_reserve_pence: args.operational_reserve_pence ?? null,
       company_available_for_transfer_pence: null,
-      approved_payables_pending_pence: args.approved_payables_pending_pence ?? null,
+      approved_payables_pending_pence: approved,
       evidence_status: "PROVIDER_STUB",
       unavailable_reason: COMPANY_BALANCE_ERROR.PROVIDER_STUB_ZERO,
       source_label: "Company Balance SSOT",
@@ -131,19 +207,64 @@ export function resolveCompanyBalanceSnapshot(args?: {
     };
   }
 
+  const statusCode = String(args?.status_code ?? "").trim() || null;
+  if (statusCode && statusCode !== "AVAILABLE") {
+    return {
+      status: "UNAVAILABLE",
+      status_code: statusCode,
+      currency,
+      service_area_id,
+      generated_at,
+      last_verified_at: null,
+      source_account_id: args?.source_account_id ?? null,
+      source_account_label: args?.source_account_label ?? null,
+      connection_status: (statusCode as CompanyBalanceStatusCode),
+      company_ledger_balance_pence: null,
+      provider_cash_balance_pence: null,
+      provider_current_balance_pence: null,
+      provider_available_balance_pence: null,
+      driver_liability_pence: args?.driver_liability_pence ?? null,
+      driver_payout_reserved_pence: args?.driver_payout_reserved_pence ?? null,
+      customer_refund_reserved_pence: args?.customer_refund_reserved_pence ?? null,
+      approved_company_payables_pence: approved,
+      operational_reserve_pence: args?.operational_reserve_pence ?? null,
+      company_available_for_transfer_pence: null,
+      approved_payables_pending_pence: approved,
+      evidence_status: statusCode as CompanyBalanceEvidenceStatus,
+      unavailable_reason: statusCode,
+      source_label: "Company Balance SSOT / Revolut Business",
+      excludes_driver_wallet: true,
+    };
+  }
+
   const ledger = args?.company_ledger_balance_pence ?? null;
-  const provider = args?.provider_cash_balance_pence ?? null;
+  const provider = args?.provider_available_balance_pence
+    ?? args?.provider_cash_balance_pence
+    ?? null;
+  const current = args?.provider_current_balance_pence ?? provider;
 
   if (ledger == null && provider == null) {
     return {
       status: "UNAVAILABLE",
+      status_code: COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE,
       currency,
       service_area_id,
       generated_at,
+      last_verified_at: null,
+      source_account_id: args?.source_account_id ?? null,
+      source_account_label: args?.source_account_label ?? null,
+      connection_status: "ACCOUNT_NOT_CONFIGURED",
       company_ledger_balance_pence: null,
       provider_cash_balance_pence: null,
+      provider_current_balance_pence: null,
+      provider_available_balance_pence: null,
+      driver_liability_pence: args?.driver_liability_pence ?? null,
+      driver_payout_reserved_pence: args?.driver_payout_reserved_pence ?? null,
+      customer_refund_reserved_pence: args?.customer_refund_reserved_pence ?? null,
+      approved_company_payables_pence: approved,
+      operational_reserve_pence: args?.operational_reserve_pence ?? null,
       company_available_for_transfer_pence: null,
-      approved_payables_pending_pence: args?.approved_payables_pending_pence ?? null,
+      approved_payables_pending_pence: approved,
       evidence_status: "NO_CANONICAL_SOURCE",
       unavailable_reason: COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE,
       source_label: "Company Balance SSOT",
@@ -151,24 +272,39 @@ export function resolveCompanyBalanceSnapshot(args?: {
     };
   }
 
-  // Safe transferable = min of confirmed sources when both present; else the one confirmed source.
-  let available: number | null = null;
-  if (ledger != null && provider != null) available = Math.min(ledger, provider);
-  else if (ledger != null) available = ledger;
-  else if (provider != null) available = provider;
+  const available = computeCompanyAvailableForTransferPence({
+    provider_available_balance_pence: provider,
+    driver_liability_pence: args?.driver_liability_pence,
+    driver_payout_reserved_pence: args?.driver_payout_reserved_pence,
+    customer_refund_reserved_pence: args?.customer_refund_reserved_pence,
+    approved_company_payables_pence: approved,
+    operational_reserve_pence: args?.operational_reserve_pence,
+  });
 
   return {
-    status: ledger != null && provider != null ? "LIVE" : "PARTIAL",
+    status: "LIVE",
+    status_code: "AVAILABLE",
     currency,
     service_area_id,
     generated_at,
-    company_ledger_balance_pence: ledger,
+    last_verified_at: generated_at,
+    source_account_id: args?.source_account_id ?? null,
+    source_account_label: args?.source_account_label ?? "Revolut Business",
+    connection_status: "AVAILABLE",
+    company_ledger_balance_pence: ledger ?? provider,
     provider_cash_balance_pence: provider,
+    provider_current_balance_pence: current,
+    provider_available_balance_pence: provider,
+    driver_liability_pence: args?.driver_liability_pence ?? null,
+    driver_payout_reserved_pence: args?.driver_payout_reserved_pence ?? null,
+    customer_refund_reserved_pence: args?.customer_refund_reserved_pence ?? null,
+    approved_company_payables_pence: approved,
+    operational_reserve_pence: args?.operational_reserve_pence ?? null,
     company_available_for_transfer_pence: available,
-    approved_payables_pending_pence: args?.approved_payables_pending_pence ?? null,
-    evidence_status: ledger != null && provider != null ? "CONFIRMED" : "PARTIAL",
+    approved_payables_pending_pence: approved,
+    evidence_status: "CONFIRMED",
     unavailable_reason: null,
-    source_label: "Company Balance SSOT",
+    source_label: "Company Balance SSOT / Revolut Business",
     excludes_driver_wallet: true,
   };
 }
@@ -187,10 +323,6 @@ export function formatCompanyBalancePence(
   return { kind: "amount", pence };
 }
 
-/**
- * Funding gate for company transfers — never allow company-balance spend
- * when the company balance source is unavailable.
- */
 export function assertCompanyTransferFundingAvailable(args: {
   money_source: string;
   company_balance: CompanyBalanceSnapshot;
@@ -213,7 +345,6 @@ export function assertCompanyTransferFundingAvailable(args: {
   }
 }
 
-/** Guard: driver wallet pence must never be copied into company available. */
 export function assertCompanyBalanceExcludesDriverWallet(args: {
   company_available_for_transfer_pence: number | null;
   driver_wallet_total_pence: number | null;
