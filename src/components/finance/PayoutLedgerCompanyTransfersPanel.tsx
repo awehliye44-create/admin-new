@@ -216,10 +216,11 @@ export function PayoutLedgerCompanyTransfersPanel({
     !companyBalance
     || companyBalance.status === 'UNAVAILABLE'
     || companyBalance.company_available_for_transfer_pence == null;
-  const companyUnavailableReason =
-    companyBalance?.status_code
-    ?? companyBalance?.unavailable_reason
-    ?? 'ACCOUNT_NOT_CONFIGURED';
+  const companyUnavailableReason = (() => {
+    const raw = companyBalance?.status_code ?? companyBalance?.unavailable_reason ?? null;
+    if (!raw || raw === COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE) return 'ACCOUNT_NOT_CONFIGURED';
+    return raw;
+  })();
 
   return (
     <div className="space-y-4">

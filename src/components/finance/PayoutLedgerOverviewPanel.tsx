@@ -54,14 +54,14 @@ function moneyOrUnavailable(
   pence: number | null | undefined,
   unavailableReason?: string | null,
 ): { value: string; reason?: string | null } {
-  // Unknown money must never render as £0. Prefer precise status codes over generic SOURCE_UNAVAILABLE.
+  // Unknown money must never render as £0. Remap generic SOURCE_UNAVAILABLE to the
+  // audited prod state ACCOUNT_NOT_CONFIGURED (Revolut Business vault not wired).
   if (pence == null) {
-    return {
-      value: 'UNAVAILABLE',
-      reason: unavailableReason && unavailableReason !== COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE
-        ? unavailableReason
-        : (unavailableReason ?? 'ACCOUNT_NOT_CONFIGURED'),
-    };
+    const reason = !unavailableReason
+      || unavailableReason === COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE
+      ? 'ACCOUNT_NOT_CONFIGURED'
+      : unavailableReason;
+    return { value: 'UNAVAILABLE', reason };
   }
   return { value: formatNullablePence(pence) };
 }
@@ -131,16 +131,15 @@ export function PayoutLedgerOverviewPanel({
     );
   }
 
+  const snap = companyBalance ?? overview.company_balance ?? null;
   const companyReason =
-    companyBalance?.status_code
-    ?? companyBalance?.unavailable_reason
-    ?? (overview.company_balance_pence == null
-      ? (overview.unavailable_reason?.includes('COMPANY')
-        || overview.unavailable_reason === 'ACCOUNT_NOT_CONFIGURED'
-        || overview.unavailable_reason === 'AUTHENTICATION_REQUIRED'
-        ? overview.unavailable_reason
-        : COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE)
-      : null);
+    snap?.status_code
+    ?? snap?.unavailable_reason
+    ?? (overview.unavailable_reason
+      && overview.unavailable_reason !== COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE
+      ? overview.unavailable_reason
+      : null)
+    ?? (overview.company_balance_pence == null ? 'ACCOUNT_NOT_CONFIGURED' : null);
   const companyBal = moneyOrUnavailable(overview.company_balance_pence, companyReason);
   const companyAvail = moneyOrUnavailable(
     overview.company_available_for_transfer_pence,
