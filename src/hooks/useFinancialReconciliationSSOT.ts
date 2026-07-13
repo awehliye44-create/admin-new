@@ -180,7 +180,7 @@ export function useFinancialReconciliationSSOT({
 
   const rawSummary = pickSummary(response);
   const summary =
-    rawSummary && (status === 'READ_ONLY' || status === 'DEGRADED_SNAPSHOT' || status === 'DEGRADED')
+    rawSummary && status === 'READ_ONLY'
       ? applyDegradedReconciliationSummary(rawSummary)
       : rawSummary;
 
