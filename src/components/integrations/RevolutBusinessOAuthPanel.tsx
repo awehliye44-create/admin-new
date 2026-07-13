@@ -72,8 +72,13 @@ export function RevolutBusinessOAuthPanel() {
   const [gaps, setGaps] = useState<Diag | null>(null);
   const [manualCode, setManualCode] = useState("");
 
-  async function invoke(action: string, extra: Record<string, unknown> = {}) {
-    setBusy(action);
+  async function invoke(
+    action: string,
+    extra: Record<string, unknown> = {},
+    opts?: { trackBusy?: boolean },
+  ) {
+    const trackBusy = opts?.trackBusy !== false;
+    if (trackBusy) setBusy(action);
     try {
       const { data, error } = await supabase.functions.invoke("admin-revolut-business-oauth", {
         body: { action, ...extra },
@@ -84,21 +89,27 @@ export function RevolutBusinessOAuthPanel() {
       }
       return data as Diag & { ok?: boolean; authorization_url?: string };
     } finally {
-      setBusy(null);
+      if (trackBusy) setBusy((current) => (current === action ? null : current));
     }
   }
 
-  const refreshDiagnostics = useCallback(async () => {
+  const refreshDiagnostics = useCallback(async (opts?: { silent?: boolean }) => {
     try {
-      const data = await invoke("diagnostics", { include_accounts: true, probe_egress: true });
+      // Never lock Connect behind diagnostics — relay probes can be slow.
+      const data = await invoke(
+        "diagnostics",
+        { include_accounts: true, probe_egress: false },
+        { trackBusy: !opts?.silent },
+      );
       setDiag(data);
+      if (!opts?.silent) toast.success("Diagnostics refreshed");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Diagnostics failed");
+      if (!opts?.silent) toast.error(err instanceof Error ? err.message : "Diagnostics failed");
     }
   }, []);
 
   useEffect(() => {
-    void refreshDiagnostics();
+    void refreshDiagnostics({ silent: true });
   }, [refreshDiagnostics]);
 
   async function runGapAudit() {
@@ -170,7 +181,7 @@ export function RevolutBusinessOAuthPanel() {
         <div className="flex flex-wrap gap-2">
           <Button
             size="sm"
-            disabled={!!busy}
+            disabled={busy === "connect"}
             onClick={() => void startOAuth("connect")}
           >
             {busy === "connect" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Link2 className="h-4 w-4 mr-1" />}
@@ -180,18 +191,23 @@ export function RevolutBusinessOAuthPanel() {
             <Button
               size="sm"
               variant="secondary"
-              disabled={!!busy}
+              disabled={busy === "reconnect"}
               onClick={() => void startOAuth("reconnect")}
             >
               {busy === "reconnect" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
               Reconnect Revolut Business
             </Button>
           )}
-          <Button size="sm" variant="outline" disabled={!!busy} onClick={() => void runGapAudit()}>
+          <Button size="sm" variant="outline" disabled={busy === "gap_audit"} onClick={() => void runGapAudit()}>
             {busy === "gap_audit" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Check gaps
           </Button>
-          <Button size="sm" variant="outline" disabled={!!busy} onClick={() => void refreshDiagnostics()}>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy === "diagnostics"}
+            onClick={() => void refreshDiagnostics()}
+          >
             {busy === "diagnostics" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Refresh diagnostics
           </Button>
