@@ -4,6 +4,7 @@ import { sumClearedSettlementBatchPence } from '../../../supabase/functions/_sha
 describe('sumClearedSettlementBatchPence', () => {
   it('includes only settled payable card earnings', () => {
     const total = sumClearedSettlementBatchPence([
+      // @ts-expect-error test literal has extra props
       {
         amount_pence: 500,
         payment_method: 'card',
