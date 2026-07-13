@@ -183,7 +183,7 @@ describe("company payee schedule SSOT", () => {
       company_available_for_transfer_pence: 500,
       duplicate_period_exists: false,
       currency_match: true,
-    }).status).toBe("FUNDING_UNAVAILABLE");
+    }) as { ok: false; status: string }).status).toBe("FUNDING_UNAVAILABLE");
 
     expect(evaluateAutomaticCompanyPaymentGates({
       payee_active: true,
