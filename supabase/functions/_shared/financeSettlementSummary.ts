@@ -557,6 +557,7 @@ export type TripFinancialAuditRow = {
     variance_reason: string | null;
     capture_classification: string;
   } | null;
+  settlement_identity_balanced?: boolean | null;
 };
 
 export type TripAuditSourceRow = TripFinanceRow & {
