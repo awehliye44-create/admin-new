@@ -174,7 +174,7 @@ export function useFinancialReconciliationSSOT({
   const response =
     status === 'LIVE' || status === 'PARTIAL'
       ? live.data ?? null
-      : status === 'READ_ONLY' || status === 'DEGRADED_SNAPSHOT' || status === 'DEGRADED'
+      : status === 'READ_ONLY'
         ? snapshot!.response
         : null;
 
