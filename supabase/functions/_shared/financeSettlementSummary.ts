@@ -1153,7 +1153,7 @@ export function mapTripToFinancialAuditRow(
     currency_code: row.service_area_id && context.currencyCodeByServiceAreaId
       ? (context.currencyCodeByServiceAreaId.get(row.service_area_id) ?? context.defaultCurrencyCode ?? null)
       : (context.defaultCurrencyCode ?? null),
-  };
+  } as TripFinancialAuditRow;
 }
 
 export function buildTripFinancialAuditContext(args: {
