@@ -64,7 +64,7 @@ export function ProviderFeeConfigPanel({
       const { data, error } = await supabase
         .from('provider_fee_configurations' as 'service_areas')
         .select('*')
-        .eq('service_area_id', serviceAreaId!)
+        .eq('service_area_id' as never, serviceAreaId!)
         .order('effective_from', { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as FeeConfigRow[];
@@ -85,9 +85,9 @@ export function ProviderFeeConfigPanel({
       await supabase
         .from('provider_fee_configurations' as 'service_areas')
         .update({ is_active: false, effective_to: new Date().toISOString() } as never)
-        .eq('service_area_id', serviceAreaId)
-        .eq('collection_provider', provider)
-        .eq('payment_method', method)
+        .eq('service_area_id' as never, serviceAreaId)
+        .eq('collection_provider' as never, provider)
+        .eq('payment_method' as never, method)
         .eq('is_active', true);
 
       const { error } = await supabase
