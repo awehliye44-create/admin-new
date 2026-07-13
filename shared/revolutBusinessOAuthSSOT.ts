@@ -159,6 +159,8 @@ export type RevolutBusinessDiagnosticsDto = {
   gbp_balance_pence: number | null;
   selected_source_account_id: string | null;
   selected_source_account_ok: boolean | null;
+  selected_source_account_label?: string | null;
+  selected_source_last_verified_at?: string | null;
   message: string | null;
 };
 
