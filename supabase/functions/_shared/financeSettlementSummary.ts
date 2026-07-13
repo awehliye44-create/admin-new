@@ -557,6 +557,7 @@ export type TripFinancialAuditRow = {
     variance_reason: string | null;
     capture_classification: string;
   } | null;
+  settlement_identity_balanced?: boolean | null;
 };
 
 export type TripAuditSourceRow = TripFinanceRow & {
@@ -1046,7 +1047,7 @@ export function mapTripToFinancialAuditRow(
     reconciliation_status = {
       ...reconciliation_status,
       label: "SETTLEMENT_MISMATCH",
-      tone: "error",
+      tone: "red",
     };
   }
 
@@ -1152,7 +1153,7 @@ export function mapTripToFinancialAuditRow(
     currency_code: row.service_area_id && context.currencyCodeByServiceAreaId
       ? (context.currencyCodeByServiceAreaId.get(row.service_area_id) ?? context.defaultCurrencyCode ?? null)
       : (context.defaultCurrencyCode ?? null),
-  };
+  } as TripFinancialAuditRow;
 }
 
 export function buildTripFinancialAuditContext(args: {

@@ -172,7 +172,7 @@ describe("company payee schedule SSOT", () => {
   });
 
   it("gates block insufficient funds and unverified payee", () => {
-    expect(evaluateAutomaticCompanyPaymentGates({
+    expect((evaluateAutomaticCompanyPaymentGates({
       payee_active: true,
       payee_paused: false,
       payee_verification_status: "VERIFIED",
@@ -183,9 +183,9 @@ describe("company payee schedule SSOT", () => {
       company_available_for_transfer_pence: 500,
       duplicate_period_exists: false,
       currency_match: true,
-    }).status).toBe("FUNDING_UNAVAILABLE");
+    }) as { ok: false; status: string }).status).toBe("FUNDING_UNAVAILABLE");
 
-    expect(evaluateAutomaticCompanyPaymentGates({
+    expect((evaluateAutomaticCompanyPaymentGates({
       payee_active: true,
       payee_paused: false,
       payee_verification_status: "UNVERIFIED",
@@ -196,7 +196,7 @@ describe("company payee schedule SSOT", () => {
       company_available_for_transfer_pence: 10_000,
       duplicate_period_exists: false,
       currency_match: true,
-    }).status).toBe("PAYEE_UNVERIFIED");
+    }) as { ok: false; status: string }).status).toBe("PAYEE_UNVERIFIED");
   });
 
   it("duplicate schedule period is blocked", () => {
@@ -225,7 +225,7 @@ describe("approval + funding", () => {
   });
 
   it("direct transfer forbidden for high-risk and over cap", async () => {
-    const { assertDirectTransferAllowed } = await import("../companyOutgoingTransferApprovalSSOT");
+    const { assertDirectTransferAllowed } = await import("../../../shared/companyOutgoingTransferApprovalSSOT");
     expect(assertDirectTransferAllowed({
       execution_mode: "DIRECT_TRANSFER",
       category: "DIRECTOR_DIVIDEND",

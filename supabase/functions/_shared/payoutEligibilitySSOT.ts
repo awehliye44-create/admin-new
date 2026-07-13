@@ -225,3 +225,5 @@ export function computePayoutAmountFromEligibleEarnings(
   }
   return afterHoldbacks;
 }
+
+export const sumClearedSettlementBatchPence = sumStripeSettledUnpaidPence;

@@ -27,7 +27,7 @@ export type ActivePayoutProvider =
 export function isStripeRuntimeDisabled(envGet?: (key: string) => string | undefined): boolean {
   const read = envGet ?? ((k: string) => {
     try {
-      return Deno.env.get(k) ?? undefined;
+      return (globalThis as { Deno?: { env: { get(k: string): string | undefined } } }).Deno?.env.get(k) ?? undefined;
     } catch {
       return undefined;
     }

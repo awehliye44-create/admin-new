@@ -541,8 +541,8 @@ export default function PayoutLedger() {
                         <TableRow key={row.id}>
                           <TableCell className="text-xs">{shortDate(row.created_at)}</TableCell>
                           <TableCell className="text-xs font-mono">{row.transfer_id.slice(0, 8)}</TableCell>
-                          <TableCell className="text-xs font-mono">{row.requester_id?.slice(0, 8) ?? '—'}</TableCell>
-                          <TableCell className="text-xs font-mono">{row.approver_id?.slice(0, 8) ?? '—'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.actor_id?.slice(0, 8) ?? '—'}</TableCell>
+                          <TableCell className="text-xs font-mono">—</TableCell>
                           <TableCell className="text-xs"><Badge variant="outline">{row.event_type}</Badge></TableCell>
                           <TableCell className="text-xs">{row.old_status ?? '—'} → {row.new_status ?? '—'}</TableCell>
                           <TableCell className="text-xs tabular-nums">{formatNullablePence(row.amount_pence)}</TableCell>

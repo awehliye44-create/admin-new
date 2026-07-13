@@ -28,7 +28,7 @@ describe('sumClearedSettlementBatchPence', () => {
         trip_completed: true,
         payment_captured: true,
       },
-    ]);
+    ] as unknown as Parameters<typeof sumClearedSettlementBatchPence>[0]);
     expect(total).toBe(700);
   });
 });

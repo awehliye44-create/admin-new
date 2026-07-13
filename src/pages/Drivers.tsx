@@ -216,7 +216,7 @@ export default function Drivers() {
         const [vehiclesRes, driverServiceAreasRes] = await Promise.all([
           supabase
             .from('vehicles')
-            .select('id, driver_id, make, model, registration, color, status, capacity, vehicle_type_id, rejection_reason')
+            .select('id, driver_id, make, model, year, license_plate, color, approval_status, is_primary, capacity, vehicle_type_id, rejection_reason')
             .in('driver_id', driverIds),
           supabase
             .from('driver_service_areas')

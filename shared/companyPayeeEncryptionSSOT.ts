@@ -26,7 +26,7 @@ async function deriveKeyBytes(): Promise<Uint8Array> {
 
 async function importAesKey(): Promise<CryptoKey> {
   const keyBytes = await deriveKeyBytes();
-  return crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  return crypto.subtle.importKey("raw", keyBytes.buffer as ArrayBuffer, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 
 function bytesToB64(bytes: Uint8Array): string {
@@ -44,7 +44,7 @@ function b64ToBytes(b64: string): Uint8Array {
     for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
     return out;
   }
-  return new Uint8Array(Buffer.from(b64, "base64"));
+  return new Uint8Array(Buffer.from(b64, "base64") as unknown as ArrayLike<number>);
 }
 
 export async function encryptCompanyPayeeSecret(plaintext: string): Promise<string> {
