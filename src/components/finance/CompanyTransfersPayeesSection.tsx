@@ -188,7 +188,7 @@ export function CompanyTransfersPayeesSection({
         <Button size="sm" onClick={() => setShowPayeeForm((v) => !v)}>
           <Plus className="h-4 w-4 mr-2" /> {showPayeeForm ? 'Hide' : 'Add payee'}
         </Button>
-        {(focus === 'all' || focus === 'schedules') && (
+        {focus === 'all' && (
         <Button size="sm" variant="outline" onClick={() => setShowScheduleForm((v) => !v)}>
           {showScheduleForm ? 'Hide schedule form' : 'Add automatic payment'}
         </Button>
