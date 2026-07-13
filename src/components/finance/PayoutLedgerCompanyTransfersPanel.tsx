@@ -260,6 +260,10 @@ export function PayoutLedgerCompanyTransfersPanel({
     [transfers],
   );
 
+  const companyBalanceLive =
+    Boolean(companyBalance)
+    && companyBalance!.status !== 'UNAVAILABLE'
+    && companyBalance!.company_ledger_balance_pence != null;
   const companyUnavailable =
     !companyBalance
     || companyBalance.status === 'UNAVAILABLE'
@@ -428,15 +432,15 @@ export function PayoutLedgerCompanyTransfersPanel({
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm">ONECAB Company Balance</CardTitle></CardHeader>
           <CardContent className="space-y-1">
-            {companyUnavailable ? (
+            {companyBalanceLive ? (
+              <div className="text-xl font-semibold tabular-nums">
+                {formatNullablePence(companyBalance?.company_ledger_balance_pence)}
+              </div>
+            ) : (
               <>
                 <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
                 <div className="text-xs font-mono text-muted-foreground">{companyUnavailableReason}</div>
               </>
-            ) : (
-              <div className="text-xl font-semibold tabular-nums">
-                {formatNullablePence(companyBalance?.company_ledger_balance_pence)}
-              </div>
             )}
             <div className="text-[11px] text-muted-foreground">
               Source: {companyBalance?.source_account_label ?? 'Company Balance SSOT'}
