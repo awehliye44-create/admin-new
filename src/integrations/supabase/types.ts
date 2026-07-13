@@ -1404,6 +1404,7 @@ export type Database = {
           amount_pence: number
           approval_count: number
           approvals_required: number
+          approved_amount_pence: number | null
           approved_by: string | null
           attachment_url: string | null
           batch_id: string | null
@@ -1413,21 +1414,37 @@ export type Database = {
           currency: string
           destination_account: string | null
           execution_at: string | null
+          execution_attempt: number
+          execution_mode: string
           failure_reason: string | null
           id: string
           idempotency_key: string
           last_attempt_at: string | null
+          last_provider_sync_at: string | null
           metadata: Json
           money_source: string
           notes: string | null
+          payee_id: string | null
+          payment_reference: string | null
           provider: string | null
+          provider_completed_at: string | null
+          provider_created_at: string | null
           provider_error: string | null
+          provider_failure_code: string | null
+          provider_failure_reason: string | null
           provider_reference: string | null
+          provider_state: string | null
+          provider_transaction_id: string | null
           purpose: string
           recipient_name: string
           recipient_type: string
           requested_by: string | null
           retry_count: number
+          revolut_counterparty_id: string | null
+          revolut_recipient_account_id: string | null
+          schedule_id: string | null
+          schedule_period_key: string | null
+          scheduled_at: string | null
           service_area_id: string | null
           source_account: string | null
           status: string
@@ -1438,6 +1455,7 @@ export type Database = {
           amount_pence: number
           approval_count?: number
           approvals_required?: number
+          approved_amount_pence?: number | null
           approved_by?: string | null
           attachment_url?: string | null
           batch_id?: string | null
@@ -1447,21 +1465,37 @@ export type Database = {
           currency?: string
           destination_account?: string | null
           execution_at?: string | null
+          execution_attempt?: number
+          execution_mode?: string
           failure_reason?: string | null
           id?: string
           idempotency_key: string
           last_attempt_at?: string | null
+          last_provider_sync_at?: string | null
           metadata?: Json
           money_source: string
           notes?: string | null
+          payee_id?: string | null
+          payment_reference?: string | null
           provider?: string | null
+          provider_completed_at?: string | null
+          provider_created_at?: string | null
           provider_error?: string | null
+          provider_failure_code?: string | null
+          provider_failure_reason?: string | null
           provider_reference?: string | null
+          provider_state?: string | null
+          provider_transaction_id?: string | null
           purpose: string
           recipient_name: string
           recipient_type: string
           requested_by?: string | null
           retry_count?: number
+          revolut_counterparty_id?: string | null
+          revolut_recipient_account_id?: string | null
+          schedule_id?: string | null
+          schedule_period_key?: string | null
+          scheduled_at?: string | null
           service_area_id?: string | null
           source_account?: string | null
           status?: string
@@ -1472,6 +1506,7 @@ export type Database = {
           amount_pence?: number
           approval_count?: number
           approvals_required?: number
+          approved_amount_pence?: number | null
           approved_by?: string | null
           attachment_url?: string | null
           batch_id?: string | null
@@ -1481,21 +1516,37 @@ export type Database = {
           currency?: string
           destination_account?: string | null
           execution_at?: string | null
+          execution_attempt?: number
+          execution_mode?: string
           failure_reason?: string | null
           id?: string
           idempotency_key?: string
           last_attempt_at?: string | null
+          last_provider_sync_at?: string | null
           metadata?: Json
           money_source?: string
           notes?: string | null
+          payee_id?: string | null
+          payment_reference?: string | null
           provider?: string | null
+          provider_completed_at?: string | null
+          provider_created_at?: string | null
           provider_error?: string | null
+          provider_failure_code?: string | null
+          provider_failure_reason?: string | null
           provider_reference?: string | null
+          provider_state?: string | null
+          provider_transaction_id?: string | null
           purpose?: string
           recipient_name?: string
           recipient_type?: string
           requested_by?: string | null
           retry_count?: number
+          revolut_counterparty_id?: string | null
+          revolut_recipient_account_id?: string | null
+          schedule_id?: string | null
+          schedule_period_key?: string | null
+          scheduled_at?: string | null
           service_area_id?: string | null
           source_account?: string | null
           status?: string
@@ -1511,7 +1562,223 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "company_outgoing_transfers_payee_id_fkey"
+            columns: ["payee_id"]
+            isOneToOne: false
+            referencedRelation: "company_payees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "company_outgoing_transfers_schedule_id_fkey"
+            columns: ["schedule_id"]
+            isOneToOne: false
+            referencedRelation: "company_payee_schedules"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "company_outgoing_transfers_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      company_payee_schedules: {
+        Row: {
+          approval_required: boolean
+          automatic_enabled: boolean
+          category: string
+          created_at: string
+          created_by: string | null
+          end_date: string | null
+          execution_mode: string
+          fixed_amount_pence: number | null
+          frequency: string
+          id: string
+          insufficient_funds_action: string
+          last_period_key: string | null
+          last_run_at: string | null
+          local_processing_time: string
+          maximum_amount_pence: number | null
+          monthly_day: number | null
+          next_run_at: string | null
+          next_run_at_local: string | null
+          paused: boolean
+          payee_id: string
+          payment_reference_template: string | null
+          schedule_version: string
+          start_date: string | null
+          timezone: string
+          updated_at: string
+          updated_by: string | null
+          use_approved_payable_amount: boolean
+          weekly_day: string | null
+        }
+        Insert: {
+          approval_required?: boolean
+          automatic_enabled?: boolean
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          end_date?: string | null
+          execution_mode?: string
+          fixed_amount_pence?: number | null
+          frequency: string
+          id?: string
+          insufficient_funds_action?: string
+          last_period_key?: string | null
+          last_run_at?: string | null
+          local_processing_time?: string
+          maximum_amount_pence?: number | null
+          monthly_day?: number | null
+          next_run_at?: string | null
+          next_run_at_local?: string | null
+          paused?: boolean
+          payee_id: string
+          payment_reference_template?: string | null
+          schedule_version?: string
+          start_date?: string | null
+          timezone?: string
+          updated_at?: string
+          updated_by?: string | null
+          use_approved_payable_amount?: boolean
+          weekly_day?: string | null
+        }
+        Update: {
+          approval_required?: boolean
+          automatic_enabled?: boolean
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          end_date?: string | null
+          execution_mode?: string
+          fixed_amount_pence?: number | null
+          frequency?: string
+          id?: string
+          insufficient_funds_action?: string
+          last_period_key?: string | null
+          last_run_at?: string | null
+          local_processing_time?: string
+          maximum_amount_pence?: number | null
+          monthly_day?: number | null
+          next_run_at?: string | null
+          next_run_at_local?: string | null
+          paused?: boolean
+          payee_id?: string
+          payment_reference_template?: string | null
+          schedule_version?: string
+          start_date?: string | null
+          timezone?: string
+          updated_at?: string
+          updated_by?: string | null
+          use_approved_payable_amount?: boolean
+          weekly_day?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_payee_schedules_payee_id_fkey"
+            columns: ["payee_id"]
+            isOneToOne: false
+            referencedRelation: "company_payees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      company_payees: {
+        Row: {
+          account_fingerprint: string
+          account_holder_name: string | null
+          account_number_encrypted: string | null
+          account_verification_status: string
+          active: boolean
+          approved_by: string | null
+          bank_name: string | null
+          country: string
+          created_at: string
+          created_by: string | null
+          currency: string
+          default_reference: string | null
+          display_name: string
+          email: string | null
+          iban_encrypted: string | null
+          id: string
+          legal_name: string
+          masked_account: string
+          metadata: Json
+          paused: boolean
+          payee_type: string
+          payment_purpose: string | null
+          phone: string | null
+          revolut_counterparty_id: string | null
+          revolut_recipient_account_id: string | null
+          service_area_id: string | null
+          sort_code_encrypted: string | null
+          updated_at: string
+        }
+        Insert: {
+          account_fingerprint: string
+          account_holder_name?: string | null
+          account_number_encrypted?: string | null
+          account_verification_status?: string
+          active?: boolean
+          approved_by?: string | null
+          bank_name?: string | null
+          country?: string
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          default_reference?: string | null
+          display_name: string
+          email?: string | null
+          iban_encrypted?: string | null
+          id?: string
+          legal_name: string
+          masked_account?: string
+          metadata?: Json
+          paused?: boolean
+          payee_type: string
+          payment_purpose?: string | null
+          phone?: string | null
+          revolut_counterparty_id?: string | null
+          revolut_recipient_account_id?: string | null
+          service_area_id?: string | null
+          sort_code_encrypted?: string | null
+          updated_at?: string
+        }
+        Update: {
+          account_fingerprint?: string
+          account_holder_name?: string | null
+          account_number_encrypted?: string | null
+          account_verification_status?: string
+          active?: boolean
+          approved_by?: string | null
+          bank_name?: string | null
+          country?: string
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          default_reference?: string | null
+          display_name?: string
+          email?: string | null
+          iban_encrypted?: string | null
+          id?: string
+          legal_name?: string
+          masked_account?: string
+          metadata?: Json
+          paused?: boolean
+          payee_type?: string
+          payment_purpose?: string | null
+          phone?: string | null
+          revolut_counterparty_id?: string | null
+          revolut_recipient_account_id?: string | null
+          service_area_id?: string | null
+          sort_code_encrypted?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_payees_service_area_id_fkey"
             columns: ["service_area_id"]
             isOneToOne: false
             referencedRelation: "service_areas"
