@@ -72,6 +72,8 @@ export function RevolutBusinessOAuthPanel() {
   const [gaps, setGaps] = useState<Diag | null>(null);
   const [manualCode, setManualCode] = useState("");
 
+  const [authUrl, setAuthUrl] = useState<string | null>(null);
+
   async function invoke(
     action: string,
     extra: Record<string, unknown> = {},
@@ -122,14 +124,31 @@ export function RevolutBusinessOAuthPanel() {
     }
   }
 
+  function navigateToRevolut(url: string) {
+    // Revolut blocks iframes (X-Frame-Options). Always leave embedded previews.
+    try {
+      if (window.top && window.top !== window.self) {
+        window.top.location.assign(url);
+        return;
+      }
+    } catch {
+      // cross-origin iframe — fall through
+    }
+    const opened = window.open(url, "_blank", "noopener,noreferrer");
+    if (!opened) {
+      window.location.assign(url);
+    }
+  }
+
   async function startOAuth(action: "connect" | "reconnect") {
     try {
       const data = await invoke(action);
       if (!data.authorization_url) {
         throw new Error("Authorization URL missing");
       }
-      toast.success("Redirecting to Revolut…");
-      window.location.assign(data.authorization_url);
+      setAuthUrl(data.authorization_url);
+      toast.success("Opening Revolut authorization…");
+      navigateToRevolut(data.authorization_url);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not start authorization");
       await runGapAudit();
@@ -212,6 +231,27 @@ export function RevolutBusinessOAuthPanel() {
             Refresh diagnostics
           </Button>
         </div>
+
+        {authUrl && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-50 p-3 space-y-2 text-sm">
+            <p className="font-medium text-amber-900">
+              If Revolut did not open, use this link (required outside Lovable preview)
+            </p>
+            <a
+              className="text-primary underline break-all text-xs"
+              href={authUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {authUrl}
+            </a>
+            <div>
+              <Button size="sm" variant="secondary" onClick={() => navigateToRevolut(authUrl)}>
+                Open Revolut in new tab
+              </Button>
+            </div>
+          </div>
+        )}
 
         {gaps && (
           <div className="rounded-md border p-3 space-y-2 text-xs">
