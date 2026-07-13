@@ -44,7 +44,7 @@ function b64ToBytes(b64: string): Uint8Array {
     for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
     return out;
   }
-  return new Uint8Array(Buffer.from(b64, "base64"));
+  return new Uint8Array(Buffer.from(b64, "base64") as unknown as ArrayLike<number>);
 }
 
 export async function encryptCompanyPayeeSecret(plaintext: string): Promise<string> {
