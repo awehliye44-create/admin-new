@@ -306,7 +306,7 @@ export function RevolutBusinessOAuthPanel() {
               placeholder="oa_prod_…"
               className="max-w-md font-mono text-xs"
             />
-            <Button size="sm" disabled={!!busy} onClick={() => void exchangeManualCode()}>
+            <Button size="sm" disabled={busy === "exchange"} onClick={() => void exchangeManualCode()}>
               {busy === "exchange" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Exchange code
             </Button>
