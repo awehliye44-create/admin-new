@@ -120,6 +120,68 @@ describe("SLICE A/H — payout ledger never invents money", () => {
     })).toBe(251);
   });
 
+  it("7b. Main £19.34 − liabilities £14.09 = ONECAB available £5.25 (not labelled company balance)", () => {
+    const snap = resolveCompanyBalanceSnapshot({
+      currency: "GBP",
+      provider_available_balance_pence: 1934,
+      provider_cash_balance_pence: 1934,
+      company_ledger_balance_pence: 1934,
+      source_account_id: "4fb5a28b-3797-e242-0040-62910ba9f9d4",
+      source_account_label: "Main (GBP …a9f9d4)",
+      driver_liability_pence: 1409,
+      driver_payout_reserved_pence: 0,
+      approved_company_payables_pence: 0,
+      operational_reserve_pence: null,
+      customer_refund_reserved_pence: null,
+      status_code: "AVAILABLE",
+    });
+    // Provider cash (= Revolut source account) must stay £19.34
+    expect(snap.provider_available_balance_pence).toBe(1934);
+    // Must NOT treat provider cash as ONECAB residual
+    expect(snap.company_available_for_transfer_pence).toBe(525);
+    expect(snap.company_available_for_transfer_pence).not.toBe(snap.provider_available_balance_pence);
+    expect(snap.driver_liability_pence).toBe(1409);
+    expect(snap.driver_payout_funding_status).toBe("FULLY_FUNDED");
+    expect(snap.funding_gap_pence).toBe(0);
+  });
+
+  it("7c. provider failure surfaces PROVIDER_BALANCE_UNAVAILABLE; liability stays non-zero", () => {
+    const snap = resolveCompanyBalanceSnapshot({
+      status_code: COMPANY_BALANCE_ERROR.PROVIDER_CONNECTION_UNAVAILABLE,
+      driver_liability_pence: 1409,
+    });
+    expect(snap.unavailable_reason).toBe(COMPANY_BALANCE_ERROR.PROVIDER_BALANCE_UNAVAILABLE);
+    expect(snap.provider_available_balance_pence).toBeNull();
+    expect(snap.driver_liability_pence).toBe(1409);
+    expect(snap.driver_liability_pence).not.toBe(0);
+  });
+
+  it("7d. changing source account changes provider cash only (liability unchanged)", () => {
+    const liability = 1409;
+    const main = resolveCompanyBalanceSnapshot({
+      provider_available_balance_pence: 1934,
+      source_account_id: "4fb5a28b-3797-e242-0040-62910ba9f9d4",
+      driver_liability_pence: liability,
+      driver_payout_reserved_pence: 0,
+      approved_company_payables_pence: 0,
+      status_code: "AVAILABLE",
+    });
+    const zeroGbp = resolveCompanyBalanceSnapshot({
+      provider_available_balance_pence: 0,
+      source_account_id: "101c224e-402f-e24d-0040-62fb44bc2714",
+      driver_liability_pence: liability,
+      driver_payout_reserved_pence: 0,
+      approved_company_payables_pence: 0,
+      status_code: "AVAILABLE",
+    });
+    expect(main.provider_available_balance_pence).toBe(1934);
+    expect(zeroGbp.provider_available_balance_pence).toBe(0);
+    expect(main.driver_liability_pence).toBe(liability);
+    expect(zeroGbp.driver_liability_pence).toBe(liability);
+    expect(main.company_available_for_transfer_pence).toBe(525);
+    expect(zeroGbp.company_available_for_transfer_pence).toBe(0);
+  });
+
   it("8. provider failure keeps driver widgets (PARTIAL) — does not crash overview", () => {
     let dto = emptyPayoutLedgerOverviewDto({ status: "LIVE", unavailable_reason: null });
     dto.unavailable_reason = null;

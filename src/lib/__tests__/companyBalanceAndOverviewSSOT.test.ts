@@ -149,3 +149,53 @@ describe("payout ledger overview partial failure", () => {
     expect(dto.status).toBe("PARTIAL");
   });
 });
+
+describe("P0 company funding labels / residual formula", () => {
+  it("£19.34 is provider cash; £5.25 is ONECAB available funds", () => {
+    const snap = resolveCompanyBalanceSnapshot({
+      currency: "GBP",
+      provider_available_balance_pence: 1934,
+      company_ledger_balance_pence: 1934,
+      source_account_id: "4fb5a28b-3797-e242-0040-62910ba9f9d4",
+      driver_liability_pence: 1409,
+      driver_payout_reserved_pence: 0,
+      approved_company_payables_pence: 0,
+      operational_reserve_pence: null,
+      status_code: "AVAILABLE",
+    });
+    expect(snap.provider_available_balance_pence).toBe(1934);
+    expect(snap.company_available_for_transfer_pence).toBe(525);
+    expect(snap.company_available_for_transfer_pence).not.toBe(1934);
+    expect(snap.driver_liability_pence).toBe(1409);
+    expect(snap.driver_payout_funding_status).toBe("FULLY_FUNDED");
+    expect(snap.funding_gap_pence).toBe(0);
+  });
+
+  it("provider failure → PROVIDER_BALANCE_UNAVAILABLE; liability not forced to £0", () => {
+    const snap = resolveCompanyBalanceSnapshot({
+      status_code: COMPANY_BALANCE_ERROR.PROVIDER_CONNECTION_UNAVAILABLE,
+      driver_liability_pence: 1409,
+    });
+    expect(snap.unavailable_reason).toBe(COMPANY_BALANCE_ERROR.PROVIDER_BALANCE_UNAVAILABLE);
+    expect(snap.driver_liability_pence).toBe(1409);
+  });
+
+  it("source change moves provider cash only", () => {
+    const a = resolveCompanyBalanceSnapshot({
+      provider_available_balance_pence: 1934,
+      source_account_id: "4fb5a28b-3797-e242-0040-62910ba9f9d4",
+      driver_liability_pence: 1409,
+      driver_payout_reserved_pence: 0,
+      status_code: "AVAILABLE",
+    });
+    const b = resolveCompanyBalanceSnapshot({
+      provider_available_balance_pence: 0,
+      source_account_id: "101c224e-402f-e24d-0040-62fb44bc2714",
+      driver_liability_pence: 1409,
+      driver_payout_reserved_pence: 0,
+      status_code: "AVAILABLE",
+    });
+    expect(a.provider_available_balance_pence).not.toBe(b.provider_available_balance_pence);
+    expect(a.driver_liability_pence).toBe(b.driver_liability_pence);
+  });
+});

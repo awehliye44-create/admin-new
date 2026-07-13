@@ -16,6 +16,8 @@ export const COMPANY_BALANCE_ERROR = {
   AUTHENTICATION_REQUIRED: "AUTHENTICATION_REQUIRED",
   PROVIDER_UNAVAILABLE: "PROVIDER_UNAVAILABLE",
   PROVIDER_CONNECTION_UNAVAILABLE: "PROVIDER_CONNECTION_UNAVAILABLE",
+  /** Preferred when selected Revolut source cash cannot be read. */
+  PROVIDER_BALANCE_UNAVAILABLE: "PROVIDER_BALANCE_UNAVAILABLE",
   CURRENCY_MISMATCH: "CURRENCY_MISMATCH",
   STALE_PROVIDER_EVIDENCE: "STALE_PROVIDER_EVIDENCE",
   BALANCE_STALE: "BALANCE_STALE",
@@ -23,6 +25,28 @@ export const COMPANY_BALANCE_ERROR = {
   TRANSFER_DISABLED: "TRANSFER_DISABLED",
   PENDING_SYNC: "PENDING_SYNC",
 } as const;
+
+/** Card / section labels — display only; never redefine money SSOT. */
+export const COMPANY_BALANCE_LABELS = {
+  REVOLUT_SOURCE_ACCOUNT_BALANCE: "Revolut Source Account Balance",
+  PROVIDER_AVAILABLE_CASH: "Provider Available Cash",
+  PROTECTED_DRIVER_LIABILITIES: "Protected Driver Liabilities",
+  RESERVED_DRIVER_PAYOUTS: "Reserved Driver Payouts",
+  APPROVED_COMPANY_PAYABLES: "Approved Company Payables",
+  OPERATIONAL_REFUND_RESERVE: "Operational / Refund Reserve",
+  ONECAB_AVAILABLE_COMPANY_FUNDS: "ONECAB Available Company Funds",
+  DRIVER_PAYOUT_FUNDING_STATUS: "Driver Payout Funding Status",
+  FUNDING_GAP: "Funding Gap",
+} as const;
+
+export const COMPANY_BALANCE_TOOLTIPS = {
+  REVOLUT_SOURCE_ACCOUNT_BALANCE:
+    "Total available cash in the selected Revolut Business account. This includes protected driver and company liabilities.",
+  ONECAB_AVAILABLE_COMPANY_FUNDS:
+    "Amount ONECAB may use after deducting driver liabilities, payout reservations, approved payables and configured reserves.",
+} as const;
+
+export type DriverPayoutFundingStatus = "FULLY_FUNDED" | "UNDERFUNDED" | "UNAVAILABLE";
 
 export type CompanyBalanceSectionStatus =
   | "AVAILABLE"
@@ -83,12 +107,17 @@ export type CompanyBalanceSnapshot = {
   approved_company_payables_pence: number | null;
   operational_reserve_pence: number | null;
   /**
-   * Safe transferable amount. Null when unknown.
+   * Safe transferable amount (= ONECAB available company funds). Null when unknown.
    * Must never equal driver wallet liabilities.
+   * Must never be labelled as the full Revolut source-account balance.
    */
   company_available_for_transfer_pence: number | null;
   /** @deprecated alias of approved_company_payables_pence */
   approved_payables_pending_pence: number | null;
+  /** Whether provider cash covers protected driver liabilities. */
+  driver_payout_funding_status: DriverPayoutFundingStatus;
+  /** max(0, protected liabilities − provider cash); null when either input unknown. */
+  funding_gap_pence: number | null;
   evidence_status: CompanyBalanceEvidenceStatus;
   unavailable_reason: string | null;
   source_label: string;
@@ -186,6 +215,30 @@ export function computeCompanyAvailableForTransferPence(args: {
   return Math.max(0, args.provider_available_balance_pence - protectedSum);
 }
 
+/** Provider cash covering protected driver liabilities (not company-transfer residual). */
+export function computeDriverPayoutFunding(args: {
+  provider_available_balance_pence: number | null;
+  driver_liability_pence: number | null;
+}): { status: DriverPayoutFundingStatus; gap_pence: number | null } {
+  if (args.provider_available_balance_pence == null || args.driver_liability_pence == null) {
+    return { status: "UNAVAILABLE", gap_pence: null };
+  }
+  const gap = Math.max(0, args.driver_liability_pence - args.provider_available_balance_pence);
+  return {
+    status: gap === 0 ? "FULLY_FUNDED" : "UNDERFUNDED",
+    gap_pence: gap,
+  };
+}
+
+/** Configured operational + refund reserves for display (unknown → 0 when provider live). */
+export function computeOperationalRefundReservePence(args: {
+  operational_reserve_pence?: number | null;
+  customer_refund_reserved_pence?: number | null;
+}): number {
+  return Math.max(0, Number(args.operational_reserve_pence ?? 0))
+    + Math.max(0, Number(args.customer_refund_reserved_pence ?? 0));
+}
+
 function sectionAmount(
   amount: number | null | undefined,
   opts?: { reason_code?: string | null; currency?: string; notConfigured?: boolean },
@@ -249,11 +302,26 @@ function connectionHealthFromCode(code: string | null): CompanyBalanceSectionSta
   if (
     code === COMPANY_BALANCE_ERROR.PROVIDER_UNAVAILABLE
     || code === COMPANY_BALANCE_ERROR.PROVIDER_CONNECTION_UNAVAILABLE
+    || code === COMPANY_BALANCE_ERROR.PROVIDER_BALANCE_UNAVAILABLE
     || code === COMPANY_BALANCE_ERROR.AUTHENTICATION_REQUIRED
   ) {
     return "ERROR";
   }
   return "UNAVAILABLE";
+}
+
+function fundingFields(
+  provider: number | null | undefined,
+  liability: number | null | undefined,
+): Pick<CompanyBalanceSnapshot, "driver_payout_funding_status" | "funding_gap_pence"> {
+  const funding = computeDriverPayoutFunding({
+    provider_available_balance_pence: provider ?? null,
+    driver_liability_pence: liability ?? null,
+  });
+  return {
+    driver_payout_funding_status: funding.status,
+    funding_gap_pence: funding.gap_pence,
+  };
 }
 
 /**
@@ -321,6 +389,7 @@ export function resolveCompanyBalanceSnapshot(args?: {
       operational_reserve_pence: args.operational_reserve_pence ?? null,
       company_available_for_transfer_pence: null,
       approved_payables_pending_pence: approved,
+      ...fundingFields(null, args.driver_liability_pence ?? null),
       evidence_status: "PROVIDER_STUB",
       unavailable_reason: COMPANY_BALANCE_ERROR.PROVIDER_STUB_ZERO,
       source_label: "Company Balance SSOT",
@@ -329,7 +398,11 @@ export function resolveCompanyBalanceSnapshot(args?: {
     };
   }
 
-  const statusCode = String(args?.status_code ?? "").trim() || null;
+  const statusCodeRaw = String(args?.status_code ?? "").trim() || null;
+  const statusCode = statusCodeRaw === COMPANY_BALANCE_ERROR.PROVIDER_UNAVAILABLE
+    || statusCodeRaw === COMPANY_BALANCE_ERROR.PROVIDER_CONNECTION_UNAVAILABLE
+    ? COMPANY_BALANCE_ERROR.PROVIDER_BALANCE_UNAVAILABLE
+    : statusCodeRaw;
   if (statusCode && statusCode !== "AVAILABLE") {
     const notConfigured =
       statusCode === COMPANY_BALANCE_ERROR.SOURCE_ACCOUNT_NOT_CONFIGURED
@@ -368,6 +441,7 @@ export function resolveCompanyBalanceSnapshot(args?: {
       operational_reserve_pence: args?.operational_reserve_pence ?? null,
       company_available_for_transfer_pence: null,
       approved_payables_pending_pence: approved,
+      ...fundingFields(null, args?.driver_liability_pence ?? null),
       evidence_status: statusCode as CompanyBalanceEvidenceStatus,
       unavailable_reason: statusCode,
       source_label: "Company Balance SSOT / Revolut Business",
@@ -418,6 +492,7 @@ export function resolveCompanyBalanceSnapshot(args?: {
       operational_reserve_pence: args?.operational_reserve_pence ?? null,
       company_available_for_transfer_pence: null,
       approved_payables_pending_pence: approved,
+      ...fundingFields(null, args?.driver_liability_pence ?? null),
       evidence_status: "NO_CANONICAL_SOURCE",
       unavailable_reason: reason,
       source_label: "Company Balance SSOT",
@@ -457,6 +532,7 @@ export function resolveCompanyBalanceSnapshot(args?: {
     source_account_label: args?.source_account_label ?? "Revolut Business",
     connection_status: "AVAILABLE",
     connection_health: "AVAILABLE",
+    // Legacy mirror of provider cash — never label this as ONECAB Company Balance in UI.
     company_ledger_balance_pence: ledger ?? provider,
     provider_cash_balance_pence: provider,
     provider_current_balance_pence: current,
@@ -468,6 +544,7 @@ export function resolveCompanyBalanceSnapshot(args?: {
     operational_reserve_pence: args?.operational_reserve_pence ?? null,
     company_available_for_transfer_pence: available,
     approved_payables_pending_pence: approved,
+    ...fundingFields(provider, args?.driver_liability_pence ?? null),
     evidence_status: "CONFIRMED",
     unavailable_reason: null,
     source_label: "Company Balance SSOT / Revolut Business",

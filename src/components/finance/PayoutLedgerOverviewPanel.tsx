@@ -6,12 +6,24 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 import type { AdminPayoutLedgerOverviewSummary } from '../../../shared/adminPayoutLedgerSSOT';
 import type { CompanyBalanceSnapshot } from '../../../shared/companyBalanceSSOT';
-import { COMPANY_BALANCE_ERROR } from '../../../shared/companyBalanceSSOT';
+import {
+  COMPANY_BALANCE_ERROR,
+  COMPANY_BALANCE_LABELS,
+  COMPANY_BALANCE_TOOLTIPS,
+  computeDriverPayoutFunding,
+  computeOperationalRefundReservePence,
+} from '../../../shared/companyBalanceSSOT';
 import { PAYOUT_LEDGER_ERROR } from '../../../shared/payoutLedgerOverviewSSOT';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { Info, Loader2, RefreshCw } from 'lucide-react';
 
 function shortDate(value: string | null | undefined): string {
   if (!value) return '—';
@@ -24,16 +36,30 @@ function MetricCard({
   value,
   source,
   unavailableReason,
+  tooltip,
 }: {
   title: string;
   value: string;
   source: string;
   unavailableReason?: string | null;
+  tooltip?: string | null;
 }) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm">{title}</CardTitle>
+        <CardTitle className="text-sm flex items-center gap-1.5">
+          <span>{title}</span>
+          {tooltip ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button type="button" className="text-muted-foreground hover:text-foreground" aria-label={`${title} info`}>
+                  <Info className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs text-xs">{tooltip}</TooltipContent>
+            </Tooltip>
+          ) : null}
+        </CardTitle>
       </CardHeader>
       <CardContent className="space-y-1">
         {unavailableReason ? (
@@ -62,6 +88,12 @@ function moneyOrUnavailable(
       || reason === COMPANY_BALANCE_ERROR.ACCOUNT_NOT_CONFIGURED
     ) {
       reason = COMPANY_BALANCE_ERROR.SOURCE_ACCOUNT_NOT_CONFIGURED;
+    }
+    if (
+      reason === COMPANY_BALANCE_ERROR.PROVIDER_UNAVAILABLE
+      || reason === COMPANY_BALANCE_ERROR.PROVIDER_CONNECTION_UNAVAILABLE
+    ) {
+      reason = COMPANY_BALANCE_ERROR.PROVIDER_BALANCE_UNAVAILABLE;
     }
     return { value: 'UNAVAILABLE', reason };
   }
@@ -141,19 +173,83 @@ export function PayoutLedgerOverviewPanel({
       && overview.unavailable_reason !== COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE
       ? overview.unavailable_reason
       : null)
-    ?? (overview.company_balance_pence == null ? COMPANY_BALANCE_ERROR.SOURCE_ACCOUNT_NOT_CONFIGURED : null);
-  const companyBal = moneyOrUnavailable(overview.company_balance_pence, companyReason);
-  const companyAvail = moneyOrUnavailable(
-    overview.company_available_for_transfer_pence,
+    ?? (snap?.provider_available_balance_pence == null
+      && overview.company_balance_pence == null
+      ? COMPANY_BALANCE_ERROR.SOURCE_ACCOUNT_NOT_CONFIGURED
+      : null);
+
+  const providerReason = (() => {
+    const raw = companyReason;
+    if (
+      raw === COMPANY_BALANCE_ERROR.PROVIDER_UNAVAILABLE
+      || raw === COMPANY_BALANCE_ERROR.PROVIDER_CONNECTION_UNAVAILABLE
+    ) {
+      return COMPANY_BALANCE_ERROR.PROVIDER_BALANCE_UNAVAILABLE;
+    }
+    return raw;
+  })();
+
+  // £19.34-style provider cash — never labelled ONECAB Company Balance.
+  const providerCash = moneyOrUnavailable(
+    snap?.provider_available_balance_pence
+      ?? snap?.provider_cash_balance_pence
+      ?? null,
+    providerReason,
+  );
+  const liability = moneyOrUnavailable(
+    snap?.driver_liability_pence ?? overview.driver_wallet_total_pence,
+    snap?.sections?.driver_liabilities?.reason_code
+      ?? (
+        (snap?.driver_liability_pence ?? overview.driver_wallet_total_pence) == null
+          ? COMPANY_BALANCE_ERROR.DRIVER_LIABILITY_QUERY_FAILED
+          : null
+      ),
+  );
+  const reservedPence = snap?.driver_payout_reserved_pence
+    ?? (
+      snap?.status === 'LIVE' || overview.payout_scheduled_pence != null
+        ? ((overview.payout_scheduled_pence ?? 0) + (overview.payout_processing_pence ?? 0))
+        : null
+    );
+  const reserved = moneyOrUnavailable(
+    reservedPence,
+    snap?.sections?.reserved_driver_payouts?.reason_code,
+  );
+
+  const payablesPence = snap?.approved_company_payables_pence
+    ?? overview.company_payables_pending_pence
+    ?? 0;
+  const reservePence = computeOperationalRefundReservePence({
+    operational_reserve_pence: snap?.operational_reserve_pence,
+    customer_refund_reserved_pence: snap?.customer_refund_reserved_pence,
+  });
+  const onecabFunds = moneyOrUnavailable(
+    snap?.company_available_for_transfer_pence
+      ?? overview.company_available_for_transfer_pence,
     companyReason,
+  );
+  const funding = snap?.driver_payout_funding_status && snap.funding_gap_pence != null
+    ? { status: snap.driver_payout_funding_status, gap_pence: snap.funding_gap_pence }
+    : computeDriverPayoutFunding({
+      provider_available_balance_pence:
+        snap?.provider_available_balance_pence ?? snap?.provider_cash_balance_pence ?? null,
+      driver_liability_pence:
+        snap?.driver_liability_pence ?? overview.driver_wallet_total_pence ?? null,
+    });
+  const fundingGap = moneyOrUnavailable(
+    funding.gap_pence,
+    funding.status === 'UNAVAILABLE' ? 'FUNDING_STATUS_UNAVAILABLE' : null,
   );
 
   const driverSource = overview.sources?.driver_wallet ?? 'Driver Wallet Ledger SSOT';
   const payoutSource = overview.sources?.driver_payouts ?? 'payout_items';
-  const companySource = overview.sources?.company_balance ?? 'Company Balance SSOT';
   const companyTxSource = overview.sources?.company_transfers ?? 'company_outgoing_transfers';
+  const providerSource = snap?.source_account_label
+    ? `Selected Revolut Business source account`
+    : 'Selected Revolut Business source account';
 
   return (
+    <TooltipProvider>
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant={overview.status === 'LIVE' ? 'default' : 'secondary'}>
@@ -173,7 +269,7 @@ export function PayoutLedgerOverviewPanel({
         <Alert>
           <AlertTitle>Partial overview</AlertTitle>
           <AlertDescription>
-            Driver payout widgets are live. Company balance is unavailable
+            Driver payout widgets are live. Provider / company funding may be incomplete
             {companyReason ? ` (${companyReason})` : ''}. Driver wallet money is not used as company money.
           </AlertDescription>
         </Alert>
@@ -214,24 +310,55 @@ export function PayoutLedgerOverviewPanel({
       </div>
 
       <div>
-        <h3 className="text-sm font-medium mb-2">Company transfers</h3>
+        <h3 className="text-sm font-medium mb-2">Company funding</h3>
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           <MetricCard
-            title="ONECAB Company Balance"
-            value={companyBal.value}
-            source={companySource}
-            unavailableReason={companyBal.reason}
+            title={COMPANY_BALANCE_LABELS.REVOLUT_SOURCE_ACCOUNT_BALANCE}
+            value={providerCash.value}
+            source={providerSource}
+            unavailableReason={providerCash.reason}
+            tooltip={COMPANY_BALANCE_TOOLTIPS.REVOLUT_SOURCE_ACCOUNT_BALANCE}
           />
           <MetricCard
-            title="Available for Company Transfer"
-            value={companyAvail.value}
-            source={companySource}
-            unavailableReason={companyAvail.reason}
+            title={COMPANY_BALANCE_LABELS.PROTECTED_DRIVER_LIABILITIES}
+            value={liability.value}
+            source={driverSource}
+            unavailableReason={liability.reason}
           />
           <MetricCard
-            title="Approved Company Payables"
-            value={formatNullablePence(overview.company_payables_pending_pence)}
+            title={COMPANY_BALANCE_LABELS.RESERVED_DRIVER_PAYOUTS}
+            value={reserved.value}
+            source={payoutSource}
+            unavailableReason={reserved.reason}
+          />
+          <MetricCard
+            title={COMPANY_BALANCE_LABELS.APPROVED_COMPANY_PAYABLES}
+            value={formatNullablePence(payablesPence)}
             source={companyTxSource}
+          />
+          <MetricCard
+            title={COMPANY_BALANCE_LABELS.OPERATIONAL_REFUND_RESERVE}
+            value={formatNullablePence(reservePence)}
+            source="Company Balance SSOT"
+          />
+          <MetricCard
+            title={COMPANY_BALANCE_LABELS.ONECAB_AVAILABLE_COMPANY_FUNDS}
+            value={onecabFunds.value}
+            source="Company Balance SSOT"
+            unavailableReason={onecabFunds.reason}
+            tooltip={COMPANY_BALANCE_TOOLTIPS.ONECAB_AVAILABLE_COMPANY_FUNDS}
+          />
+          <MetricCard
+            title={COMPANY_BALANCE_LABELS.DRIVER_PAYOUT_FUNDING_STATUS}
+            value={funding.status === 'UNAVAILABLE' ? 'UNAVAILABLE' : funding.status}
+            source="Company Balance SSOT"
+            unavailableReason={funding.status === 'UNAVAILABLE' ? 'FUNDING_STATUS_UNAVAILABLE' : null}
+          />
+          <MetricCard
+            title={COMPANY_BALANCE_LABELS.FUNDING_GAP}
+            value={fundingGap.value}
+            source="Company Balance SSOT"
+            unavailableReason={fundingGap.reason}
           />
           <MetricCard
             title="Company Transfers Processing"
@@ -256,5 +383,6 @@ export function PayoutLedgerOverviewPanel({
         </div>
       </div>
     </div>
+    </TooltipProvider>
   );
 }

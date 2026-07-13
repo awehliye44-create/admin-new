@@ -260,10 +260,6 @@ export function PayoutLedgerCompanyTransfersPanel({
     [transfers],
   );
 
-  const companyBalanceLive =
-    Boolean(companyBalance)
-    && companyBalance!.status !== 'UNAVAILABLE'
-    && companyBalance!.company_ledger_balance_pence != null;
   const companyUnavailable =
     !companyBalance
     || companyBalance.status === 'UNAVAILABLE'
@@ -331,7 +327,8 @@ export function PayoutLedgerCompanyTransfersPanel({
       <Alert>
         <AlertTitle>Company money only</AlertTitle>
         <AlertDescription>
-          Company transfers use ONECAB Company Balance or Approved Company Payables.
+          Company transfers use ONECAB Available Company Funds or Approved Company Payables.
+          Revolut source-account cash is provider cash and is not wholly ONECAB-owned.
           Driver Wallet and Payment Sessions are never consumed here.
           Saved payees store encrypted bank details; UI shows masked accounts only.
           Live Revolut execution stays gated (execute_live) during validation.
@@ -430,25 +427,11 @@ export function PayoutLedgerCompanyTransfersPanel({
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">ONECAB Company Balance</CardTitle></CardHeader>
-          <CardContent className="space-y-1">
-            {companyBalanceLive ? (
-              <div className="text-xl font-semibold tabular-nums">
-                {formatNullablePence(companyBalance?.company_ledger_balance_pence)}
-              </div>
-            ) : (
-              <>
-                <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
-                <div className="text-xs font-mono text-muted-foreground">{companyUnavailableReason}</div>
-              </>
-            )}
-            <div className="text-[11px] text-muted-foreground">
-              Source: {companyBalance?.source_account_label ?? 'Company Balance SSOT'}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Provider Available Cash</CardTitle></CardHeader>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm" title="Total available cash in the selected Revolut Business account. This includes protected driver and company liabilities.">
+              Revolut Source Account Balance
+            </CardTitle>
+          </CardHeader>
           <CardContent className="space-y-1">
             {providerSection.kind === 'unavailable' ? (
               <>
@@ -460,6 +443,9 @@ export function PayoutLedgerCompanyTransfersPanel({
                 {formatNullablePence(providerSection.pence)}
               </div>
             )}
+            <div className="text-[11px] text-muted-foreground">
+              Source: Selected Revolut Business source account
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -523,7 +509,14 @@ export function PayoutLedgerCompanyTransfersPanel({
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Available for Company Transfer</CardTitle></CardHeader>
+          <CardHeader className="pb-2">
+            <CardTitle
+              className="text-sm"
+              title="Amount ONECAB may use after deducting driver liabilities, payout reservations, approved payables and configured reserves."
+            >
+              ONECAB Available Company Funds
+            </CardTitle>
+          </CardHeader>
           <CardContent className="space-y-1">
             {availableSection.kind === 'unavailable' ? (
               <>
