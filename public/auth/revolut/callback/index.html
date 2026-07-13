@@ -30,6 +30,7 @@
     .muted { color: #94a3b8; font-size: 0.85rem; }
     .err { color: #fca5a5; }
     a { color: #93c5fd; }
+    code { word-break: break-all; font-size: 0.75rem; }
   </style>
 </head>
 <body>
@@ -93,7 +94,24 @@
       var q = new URLSearchParams();
       q.set("code", code);
       if (state) q.set("state", state);
-      window.location.replace(EDGE + "?" + q.toString());
+      var target = EDGE + "?" + q.toString();
+
+      // If Edge/relay hangs, surface a recovery path instead of spinning forever.
+      setTimeout(function () {
+        var msgEl = document.getElementById("msg");
+        var extraEl = document.getElementById("extra");
+        if (!msgEl || msgEl.className === "err") return;
+        msgEl.textContent =
+          "Still waiting on the server. The fixed-IP relay may be down. Copy the code below and use Payment Providers → Exchange code.";
+        if (extraEl) {
+          extraEl.innerHTML =
+            "<p class=\"muted\">Authorization code (paste in admin):</p>" +
+            "<p><code>" + code + "</code></p>" +
+            '<p><a href="' + PAYMENT_PROVIDERS + '">Open Payment Providers</a></p>';
+        }
+      }, 10000);
+
+      window.location.replace(target);
     })();
   </script>
 </body>
