@@ -172,7 +172,7 @@ describe("company payee schedule SSOT", () => {
   });
 
   it("gates block insufficient funds and unverified payee", () => {
-    expect(evaluateAutomaticCompanyPaymentGates({
+    expect((evaluateAutomaticCompanyPaymentGates({
       payee_active: true,
       payee_paused: false,
       payee_verification_status: "VERIFIED",
@@ -185,7 +185,7 @@ describe("company payee schedule SSOT", () => {
       currency_match: true,
     }) as { ok: false; status: string }).status).toBe("FUNDING_UNAVAILABLE");
 
-    expect(evaluateAutomaticCompanyPaymentGates({
+    expect((evaluateAutomaticCompanyPaymentGates({
       payee_active: true,
       payee_paused: false,
       payee_verification_status: "UNVERIFIED",
@@ -196,7 +196,7 @@ describe("company payee schedule SSOT", () => {
       company_available_for_transfer_pence: 10_000,
       duplicate_period_exists: false,
       currency_match: true,
-    }).status).toBe("PAYEE_UNVERIFIED");
+    }) as { ok: false; status: string }).status).toBe("PAYEE_UNVERIFIED");
   });
 
   it("duplicate schedule period is blocked", () => {
