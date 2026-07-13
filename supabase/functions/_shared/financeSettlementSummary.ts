@@ -1046,7 +1046,7 @@ export function mapTripToFinancialAuditRow(
     reconciliation_status = {
       ...reconciliation_status,
       label: "SETTLEMENT_MISMATCH",
-      tone: "error",
+      tone: "red",
     };
   }
 
