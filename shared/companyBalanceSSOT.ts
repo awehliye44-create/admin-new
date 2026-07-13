@@ -211,7 +211,7 @@ export function resolveCompanyBalanceSnapshot(args?: {
   if (statusCode && statusCode !== "AVAILABLE") {
     return {
       status: "UNAVAILABLE",
-      status_code: statusCode,
+      status_code: statusCode as CompanyBalanceStatusCode,
       currency,
       service_area_id,
       generated_at,
