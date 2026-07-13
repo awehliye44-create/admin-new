@@ -225,7 +225,7 @@ describe("approval + funding", () => {
   });
 
   it("direct transfer forbidden for high-risk and over cap", async () => {
-    const { assertDirectTransferAllowed } = await import("../companyOutgoingTransferApprovalSSOT");
+    const { assertDirectTransferAllowed } = await import("../../../shared/companyOutgoingTransferApprovalSSOT");
     expect(assertDirectTransferAllowed({
       execution_mode: "DIRECT_TRANSFER",
       category: "DIRECTOR_DIVIDEND",
