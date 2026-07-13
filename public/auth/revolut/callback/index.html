@@ -46,6 +46,7 @@
       var EDGE =
         "https://thazislrdkjpvvghtvzo.supabase.co/functions/v1/admin-revolut-business-oauth-callback";
       var PAYMENT_PROVIDERS = "/payment-providers";
+      var EXCHANGE_TIMEOUT_MS = 14000;
 
       function sanitize(value, maxLen) {
         var s = String(value || "").replace(/[\u0000-\u001f\u007f]/g, "").trim();
@@ -56,18 +57,29 @@
         return s;
       }
 
-      function showError(detail) {
+      function showError(detail, codeForPaste) {
         var titleEl = document.getElementById("title");
         var msgEl = document.getElementById("msg");
         var extraEl = document.getElementById("extra");
-        if (titleEl) titleEl.textContent = "Authorization failed";
+        if (titleEl) titleEl.textContent = "Authorization incomplete";
         if (msgEl) {
           msgEl.className = "err";
           msgEl.textContent = detail;
         }
         if (extraEl) {
-          extraEl.innerHTML =
-            '<a href="' + PAYMENT_PROVIDERS + '?revolut_business=error">Back to Payment Providers</a>';
+          var html =
+            '<p class="muted"><a href="' +
+            PAYMENT_PROVIDERS +
+            '?revolut_business=error&reason=revolut_business_relay_unreachable">Back to Payment Providers</a></p>';
+          if (codeForPaste) {
+            html =
+              '<p class="muted">Authorization code (optional — only useful after the relay is back up):</p>' +
+              "<p><code>" +
+              codeForPaste +
+              "</code></p>" +
+              html;
+          }
+          extraEl.innerHTML = html;
         }
       }
 
@@ -94,24 +106,50 @@
       var q = new URLSearchParams();
       q.set("code", code);
       if (state) q.set("state", state);
+      q.set("format", "json");
       var target = EDGE + "?" + q.toString();
 
-      // If Edge/relay hangs, surface a recovery path instead of spinning forever.
-      setTimeout(function () {
-        var msgEl = document.getElementById("msg");
-        var extraEl = document.getElementById("extra");
-        if (!msgEl || msgEl.className === "err") return;
-        msgEl.textContent =
-          "Still waiting on the server. The fixed-IP relay may be down. Copy the code below and use Payment Providers → Exchange code.";
-        if (extraEl) {
-          extraEl.innerHTML =
-            "<p class=\"muted\">Authorization code (paste in admin):</p>" +
-            "<p><code>" + code + "</code></p>" +
-            '<p><a href="' + PAYMENT_PROVIDERS + '">Open Payment Providers</a></p>';
-        }
-      }, 10000);
+      var controller = new AbortController();
+      var timer = setTimeout(function () {
+        controller.abort();
+      }, EXCHANGE_TIMEOUT_MS);
 
-      window.location.replace(target);
+      fetch(target, {
+        method: "GET",
+        signal: controller.signal,
+        credentials: "omit",
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      })
+        .then(function (res) {
+          return res.json().then(function (body) {
+            return { res: res, body: body || {} };
+          }).catch(function () {
+            return { res: res, body: {} };
+          });
+        })
+        .then(function (result) {
+          clearTimeout(timer);
+          var redirectTo = result.body && result.body.redirect_to;
+          if (typeof redirectTo === "string" && /^https:\/\/adminonecab\.net\//.test(redirectTo)) {
+            window.location.replace(redirectTo);
+            return;
+          }
+          var reason =
+            (result.body && result.body.reason) ||
+            "Server did not complete authorization. The fixed-IP relay may be down (port 8787).";
+          showError(String(reason), code);
+        })
+        .catch(function (err) {
+          clearTimeout(timer);
+          var aborted = err && (err.name === "AbortError" || /abort/i.test(String(err.message || "")));
+          showError(
+            aborted
+              ? "Timed out waiting for the server. The fixed-IP relay at 63.186.194.116:8787 is unreachable."
+              : "Could not reach the authorization server. Bring the relay up, then try Connect again.",
+            code
+          );
+        });
     })();
   </script>
 </body>

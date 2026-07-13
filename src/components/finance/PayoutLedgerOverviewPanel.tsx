@@ -54,13 +54,15 @@ function moneyOrUnavailable(
   pence: number | null | undefined,
   unavailableReason?: string | null,
 ): { value: string; reason?: string | null } {
-  // Unknown money must never render as £0. Remap generic SOURCE_UNAVAILABLE to the
-  // audited prod state ACCOUNT_NOT_CONFIGURED (Revolut Business vault not wired).
+  // Unknown money must never render as £0.
   if (pence == null) {
-    const reason = !unavailableReason
-      || unavailableReason === COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE
-      ? 'ACCOUNT_NOT_CONFIGURED'
-      : unavailableReason;
+    let reason = unavailableReason ?? COMPANY_BALANCE_ERROR.SOURCE_ACCOUNT_NOT_CONFIGURED;
+    if (
+      reason === COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE
+      || reason === COMPANY_BALANCE_ERROR.ACCOUNT_NOT_CONFIGURED
+    ) {
+      reason = COMPANY_BALANCE_ERROR.SOURCE_ACCOUNT_NOT_CONFIGURED;
+    }
     return { value: 'UNAVAILABLE', reason };
   }
   return { value: formatNullablePence(pence) };
@@ -139,7 +141,7 @@ export function PayoutLedgerOverviewPanel({
       && overview.unavailable_reason !== COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE
       ? overview.unavailable_reason
       : null)
-    ?? (overview.company_balance_pence == null ? 'ACCOUNT_NOT_CONFIGURED' : null);
+    ?? (overview.company_balance_pence == null ? COMPANY_BALANCE_ERROR.SOURCE_ACCOUNT_NOT_CONFIGURED : null);
   const companyBal = moneyOrUnavailable(overview.company_balance_pence, companyReason);
   const companyAvail = moneyOrUnavailable(
     overview.company_available_for_transfer_pence,

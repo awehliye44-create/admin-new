@@ -276,6 +276,8 @@ export type AdminPayoutLedgerAuditRow = {
 
 export type AdminPayoutLedgerListResponse = {
   success: boolean;
+  /** Alias of success for Slice A structured contract. */
+  ok?: boolean;
   page_status: AdminPayoutLedgerPageStatus;
   tab: AdminPayoutLedgerTab;
   items: AdminPayoutLedgerItemRow[];
@@ -295,6 +297,29 @@ export type AdminPayoutLedgerListResponse = {
   };
   /** Sanitised machine code when page_status is not LIVE. */
   error_code?: string | null;
+  /** Company Transfers remain display-only while LIVE_PAYOUT is disabled. */
+  company_transfers_read_only?: boolean;
+  live_payout_execution_enabled?: boolean;
+  /** Root-level section statuses (Slice E). */
+  sections?: NonNullable<CompanyBalanceSnapshot["sections"]>;
+  provider_balance?: CompanyBalanceSnapshot["sections"] extends infer S
+    ? S extends { provider_balance: infer P } ? P : never
+    : never;
+  driver_liabilities?: CompanyBalanceSnapshot["sections"] extends infer S
+    ? S extends { driver_liabilities: infer P } ? P : never
+    : never;
+  reserved_driver_payouts?: CompanyBalanceSnapshot["sections"] extends infer S
+    ? S extends { reserved_driver_payouts: infer P } ? P : never
+    : never;
+  approved_company_payables?: CompanyBalanceSnapshot["sections"] extends infer S
+    ? S extends { approved_company_payables: infer P } ? P : never
+    : never;
+  operational_reserve?: CompanyBalanceSnapshot["sections"] extends infer S
+    ? S extends { operational_reserve: infer P } ? P : never
+    : never;
+  company_transfer_available?: CompanyBalanceSnapshot["sections"] extends infer S
+    ? S extends { company_transfer_available: infer P } ? P : never
+    : never;
   company_transfers?: CompanyOutgoingTransferRow[];
   company_batches?: CompanyOutgoingBatchRow[];
   company_audit_rows?: CompanyOutgoingAuditRow[];

@@ -266,9 +266,61 @@ export function PayoutLedgerCompanyTransfersPanel({
     || companyBalance.company_available_for_transfer_pence == null;
   const companyUnavailableReason = (() => {
     const raw = companyBalance?.status_code ?? companyBalance?.unavailable_reason ?? null;
-    if (!raw || raw === COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE) return 'ACCOUNT_NOT_CONFIGURED';
+    if (!raw || raw === COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE) {
+      return COMPANY_BALANCE_ERROR.SOURCE_ACCOUNT_NOT_CONFIGURED;
+    }
+    if (raw === COMPANY_BALANCE_ERROR.ACCOUNT_NOT_CONFIGURED) {
+      return COMPANY_BALANCE_ERROR.SOURCE_ACCOUNT_NOT_CONFIGURED;
+    }
     return raw;
   })();
+
+  const sectionValue = (
+    amount: number | null | undefined,
+    section?: { status?: string; reason_code?: string | null } | null,
+    fallbackReason?: string | null,
+  ) => {
+    if (amount != null) {
+      return { kind: 'amount' as const, pence: amount };
+    }
+    const reason = section?.reason_code
+      ?? (section?.status === 'NOT_CONFIGURED' ? (fallbackReason ?? 'NOT_CONFIGURED') : null)
+      ?? (section?.status === 'ERROR' ? (fallbackReason ?? 'ERROR') : null)
+      ?? fallbackReason
+      ?? companyUnavailableReason;
+    return { kind: 'unavailable' as const, reason };
+  };
+
+  const providerSection = sectionValue(
+    companyBalance?.provider_available_balance_pence,
+    companyBalance?.sections?.provider_balance,
+    companyUnavailableReason,
+  );
+  const liabilitySection = sectionValue(
+    companyBalance?.driver_liability_pence,
+    companyBalance?.sections?.driver_liabilities,
+    'DRIVER_LIABILITY_QUERY_FAILED',
+  );
+  const reservedSection = sectionValue(
+    companyBalance?.driver_payout_reserved_pence,
+    companyBalance?.sections?.reserved_driver_payouts,
+    'RESERVED_DRIVER_PAYOUTS_QUERY_FAILED',
+  );
+  const payablesSection = sectionValue(
+    kpis?.approved_payables_pending_pence ?? companyBalance?.approved_company_payables_pence,
+    companyBalance?.sections?.approved_company_payables,
+    'APPROVED_COMPANY_PAYABLES_UNAVAILABLE',
+  );
+  const reserveSection = sectionValue(
+    companyBalance?.operational_reserve_pence,
+    companyBalance?.sections?.operational_reserve,
+    'OPERATIONAL_RESERVE_NOT_CONFIGURED',
+  );
+  const availableSection = sectionValue(
+    companyBalance?.company_available_for_transfer_pence,
+    companyBalance?.sections?.company_transfer_available,
+    companyUnavailableReason,
+  );
 
   return (
     <div className="space-y-4">
@@ -324,12 +376,8 @@ export function PayoutLedgerCompanyTransfersPanel({
                     <TableCell className="text-xs tabular-nums">{formatNullablePence(t.amount_pence)}</TableCell>
                     <TableCell><Badge variant="outline">{t.status}</Badge></TableCell>
                     <TableCell className="space-x-1">
-                      <Button size="sm" variant="outline" onClick={() => actionMutation.mutate({ action: 'approve', transfer_id: t.id })}>Approve</Button>
-                      <Button size="sm" variant="ghost" onClick={() => {
-                        const reason = window.prompt('Rejection reason');
-                        if (!reason) return;
-                        actionMutation.mutate({ action: 'reject', transfer_id: t.id, reason });
-                      }}>Reject</Button>
+                      <Button size="sm" variant="outline" disabled title="Read-only while LIVE_PAYOUT_EXECUTION_ENABLED=false">Approve</Button>
+                      <Button size="sm" variant="ghost" disabled title="Read-only while LIVE_PAYOUT_EXECUTION_ENABLED=false">Reject</Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -392,65 +440,159 @@ export function PayoutLedgerCompanyTransfersPanel({
             )}
             <div className="text-[11px] text-muted-foreground">
               Source: {companyBalance?.source_account_label ?? 'Company Balance SSOT'}
-              {companyBalance?.last_verified_at
-                ? ` · Verified ${new Date(companyBalance.last_verified_at).toLocaleString('en-GB')}`
-                : ''}
             </div>
-            <div className="text-[11px] font-mono text-muted-foreground">
-              {companyBalance?.connection_status ?? companyBalance?.status_code ?? '—'}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Available for Company Transfer</CardTitle></CardHeader>
-          <CardContent className="space-y-1">
-            {companyUnavailable ? (
-              <>
-                <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
-                <div className="text-xs font-mono text-muted-foreground">{companyUnavailableReason}</div>
-              </>
-            ) : (
-              <div className="text-xl font-semibold tabular-nums">
-                {formatNullablePence(companyBalance?.company_available_for_transfer_pence)}
-              </div>
-            )}
-            <div className="text-[11px] text-muted-foreground">Source: Company Balance SSOT</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm">Provider Available Cash</CardTitle></CardHeader>
           <CardContent className="space-y-1">
-            {companyUnavailable ? (
-              <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
+            {providerSection.kind === 'unavailable' ? (
+              <>
+                <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
+                <div className="text-xs font-mono text-muted-foreground">{providerSection.reason}</div>
+              </>
             ) : (
               <div className="text-xl font-semibold tabular-nums">
-                {formatNullablePence(companyBalance?.provider_available_balance_pence)}
+                {formatNullablePence(providerSection.pence)}
               </div>
             )}
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm">Protected Driver Liabilities</CardTitle></CardHeader>
-          <CardContent className="text-xl font-semibold tabular-nums">
-            {formatNullablePence(companyBalance?.driver_liability_pence ?? null)}
+          <CardContent className="space-y-1">
+            {liabilitySection.kind === 'unavailable' ? (
+              <>
+                <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
+                <div className="text-xs font-mono text-muted-foreground">{liabilitySection.reason}</div>
+              </>
+            ) : (
+              <div className="text-xl font-semibold tabular-nums">
+                {formatNullablePence(liabilitySection.pence)}
+              </div>
+            )}
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm">Reserved Driver Payouts</CardTitle></CardHeader>
-          <CardContent className="text-xl font-semibold tabular-nums">
-            {formatNullablePence(companyBalance?.driver_payout_reserved_pence ?? null)}
+          <CardContent className="space-y-1">
+            {reservedSection.kind === 'unavailable' ? (
+              <>
+                <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
+                <div className="text-xs font-mono text-muted-foreground">{reservedSection.reason}</div>
+              </>
+            ) : (
+              <div className="text-xl font-semibold tabular-nums">
+                {formatNullablePence(reservedSection.pence)}
+              </div>
+            )}
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm">Approved Company Payables</CardTitle></CardHeader>
-          <CardContent className="text-xl font-semibold tabular-nums">
-            {formatNullablePence(kpis?.approved_payables_pending_pence ?? companyBalance?.approved_company_payables_pence ?? null)}
+          <CardContent className="space-y-1">
+            {payablesSection.kind === 'unavailable' ? (
+              <>
+                <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
+                <div className="text-xs font-mono text-muted-foreground">{payablesSection.reason}</div>
+              </>
+            ) : (
+              <div className="text-xl font-semibold tabular-nums">
+                {formatNullablePence(payablesSection.pence)}
+              </div>
+            )}
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm">Operational Reserve</CardTitle></CardHeader>
-          <CardContent className="text-xl font-semibold tabular-nums">
-            {formatNullablePence(companyBalance?.operational_reserve_pence ?? null)}
+          <CardContent className="space-y-1">
+            {reserveSection.kind === 'unavailable' ? (
+              <>
+                <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
+                <div className="text-xs font-mono text-muted-foreground">{reserveSection.reason}</div>
+              </>
+            ) : (
+              <div className="text-xl font-semibold tabular-nums">
+                {formatNullablePence(reserveSection.pence)}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Available for Company Transfer</CardTitle></CardHeader>
+          <CardContent className="space-y-1">
+            {availableSection.kind === 'unavailable' ? (
+              <>
+                <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
+                <div className="text-xs font-mono text-muted-foreground">{availableSection.reason}</div>
+              </>
+            ) : (
+              <div className="text-xl font-semibold tabular-nums">
+                {formatNullablePence(availableSection.pence)}
+              </div>
+            )}
+            <div className="text-[11px] text-muted-foreground">Source: Company Balance SSOT</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Selected Source Account</CardTitle></CardHeader>
+          <CardContent className="space-y-1">
+            {companyBalance?.source_account_id ? (
+              <>
+                <div className="text-sm font-semibold truncate">
+                  {companyBalance.source_account_label ?? 'Revolut Business'}
+                </div>
+                <div className="text-xs font-mono text-muted-foreground">
+                  …{companyBalance.source_account_id.slice(-8)}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
+                <div className="text-xs font-mono text-muted-foreground">
+                  {COMPANY_BALANCE_ERROR.SOURCE_ACCOUNT_NOT_CONFIGURED}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Last Provider Sync</CardTitle></CardHeader>
+          <CardContent className="space-y-1">
+            {companyBalance?.last_provider_sync_at || companyBalance?.last_verified_at ? (
+              <div className="text-sm tabular-nums">
+                {new Date(
+                  companyBalance.last_provider_sync_at ?? companyBalance.last_verified_at!,
+                ).toLocaleString('en-GB')}
+              </div>
+            ) : (
+              <>
+                <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
+                <div className="text-xs font-mono text-muted-foreground">BALANCE_STALE</div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Connection Health</CardTitle></CardHeader>
+          <CardContent className="space-y-1">
+            {companyBalance?.connection_health || companyBalance?.connection_status ? (
+              <>
+                <div className="text-sm font-semibold">
+                  {companyBalance.connection_health ?? companyBalance.connection_status}
+                </div>
+                <div className="text-xs font-mono text-muted-foreground">
+                  {companyBalance.connection_status ?? companyBalance.status_code ?? companyUnavailableReason}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
+                <div className="text-xs font-mono text-muted-foreground">
+                  {COMPANY_BALANCE_ERROR.PROVIDER_CONNECTION_UNAVAILABLE}
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -479,13 +621,20 @@ export function PayoutLedgerCompanyTransfersPanel({
         </Card>
       </div>
 
+      <Alert>
+        <AlertTitle>Company Transfers read-only</AlertTitle>
+        <AlertDescription>
+          LIVE_PAYOUT_EXECUTION_ENABLED=false. Balance, payees, approvals and history are display-only.
+          No Pay Now, Revolut /pay, counterparty creation, wallet debit, or batch execution in this slice.
+        </AlertDescription>
+      </Alert>
+
       {companyUnavailable && !failedOnly ? (
         <Alert>
           <AlertTitle>Funding unavailable</AlertTitle>
           <AlertDescription>
-            New company transfers that spend COMPANY_BALANCE are blocked until a proven Revolut Business
-            source account is configured (vault <span className="font-mono">merchant_id</span> +{' '}
-            <span className="font-mono">business_access_token</span>).
+            New company transfers that spend COMPANY_BALANCE are blocked until a Revolut Business
+            source account is selected via Payment Providers → Use as source.
             Reason: {companyUnavailableReason}. This is not £0.00 — Driver Wallet money is never used.
           </AlertDescription>
         </Alert>
@@ -503,8 +652,8 @@ export function PayoutLedgerCompanyTransfersPanel({
           Refresh company balance
         </Button>
         {!failedOnly && (
-          <Button size="sm" onClick={() => setShowForm((v) => !v)} disabled={companyUnavailable}>
-            <Plus className="h-4 w-4 mr-2" /> {showForm ? 'Hide form' : 'New company transfer'}
+          <Button size="sm" disabled title="Company Transfers remain read-only while LIVE_PAYOUT_EXECUTION_ENABLED=false">
+            <Plus className="h-4 w-4 mr-2" /> New company transfer (disabled)
           </Button>
         )}
         <Button
@@ -520,7 +669,7 @@ export function PayoutLedgerCompanyTransfersPanel({
         </Button>
       </div>
 
-      {showForm && !failedOnly && (
+      {false && showForm && !failedOnly && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Create company transfer</CardTitle>
@@ -789,15 +938,7 @@ export function PayoutLedgerCompanyTransfersPanel({
                   <TableCell className="text-xs">{t.retry_count}</TableCell>
                   <TableCell className="text-xs">{shortDate(t.last_attempt_at)}</TableCell>
                   <TableCell className="text-xs space-x-1">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={actionMutation.isPending}
-                      onClick={() => {
-                        if (!window.confirm(`Retry ${t.transfer_ref}?`)) return;
-                        actionMutation.mutate({ action: 'retry', transfer_id: t.id });
-                      }}
-                    >
+                    <Button size="sm" variant="outline" disabled title="Read-only while LIVE_PAYOUT_EXECUTION_ENABLED=false">
                       Retry
                     </Button>
                     <Button size="sm" variant="ghost" onClick={() => openTransferReceipt(t)}>
@@ -846,83 +987,21 @@ export function PayoutLedgerCompanyTransfersPanel({
                   </TableCell>
                   <TableCell className="text-xs font-mono">{t.provider_reference ?? '—'}</TableCell>
                   <TableCell className="text-xs space-x-1">
-                    {t.status === 'AWAITING_APPROVAL' && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={actionMutation.isPending}
-                          onClick={() => {
-                            if (!window.confirm(`Approve ${t.transfer_ref} for ${formatNullablePence(t.amount_pence)}?`)) return;
-                            actionMutation.mutate({ action: 'approve', transfer_id: t.id });
-                          }}
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={actionMutation.isPending}
-                          onClick={() => {
-                            const reason = window.prompt('Rejection reason');
-                            if (!reason) return;
-                            actionMutation.mutate({ action: 'reject', transfer_id: t.id, reason });
-                          }}
-                        >
-                          Reject
-                        </Button>
-                      </>
-                    )}
-                    {t.status === 'APPROVED' && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={actionMutation.isPending}
-                        onClick={() => {
-                          const provider_reference = window.prompt('Provider reference (required)');
-                          if (!provider_reference) return;
-                          if (!window.confirm(`Mark ${t.transfer_ref} paid with ref ${provider_reference}?`)) return;
-                          actionMutation.mutate({
-                            action: 'mark_paid',
-                            transfer_id: t.id,
-                            provider: t.provider || 'manual',
-                            provider_reference,
-                          });
-                        }}
-                      >
-                        Mark paid
-                      </Button>
-                    )}
-                    {['APPROVED', 'SCHEDULED'].includes(String(t.status)) && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={actionMutation.isPending}
-                        onClick={() => {
-                          actionMutation.mutate({
-                            action: 'execute',
-                            transfer_id: t.id,
-                            execute_live: false,
-                          });
-                        }}
-                      >
-                        Process (preview)
-                      </Button>
-                    )}
-                    {!['PAID', 'COMPLETED', 'CANCELLED', 'REVERTED'].includes(String(t.status)) && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={actionMutation.isPending}
-                        onClick={() => {
-                          const reason = window.prompt('Cancel reason');
-                          if (!reason) return;
-                          actionMutation.mutate({ action: 'cancel', transfer_id: t.id, reason });
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    )}
+                    <Button size="sm" variant="outline" disabled title="Read-only while LIVE_PAYOUT_EXECUTION_ENABLED=false">
+                      Approve
+                    </Button>
+                    <Button size="sm" variant="ghost" disabled title="Read-only while LIVE_PAYOUT_EXECUTION_ENABLED=false">
+                      Reject
+                    </Button>
+                    <Button size="sm" variant="outline" disabled title="Read-only while LIVE_PAYOUT_EXECUTION_ENABLED=false">
+                      Mark paid
+                    </Button>
+                    <Button size="sm" variant="outline" disabled title="Read-only while LIVE_PAYOUT_EXECUTION_ENABLED=false">
+                      Process
+                    </Button>
+                    <Button size="sm" variant="ghost" disabled title="Read-only while LIVE_PAYOUT_EXECUTION_ENABLED=false">
+                      Cancel
+                    </Button>
                     <Button size="sm" variant="ghost" onClick={() => openTransferReceipt(t)}>
                       <Printer className="h-3.5 w-3.5 mr-1" /> PDF
                     </Button>

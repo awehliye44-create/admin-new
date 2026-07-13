@@ -9,23 +9,46 @@ export const COMPANY_BALANCE_ERROR = {
   PROVIDER_STUB_ZERO: "COMPANY_BALANCE_PROVIDER_STUB_REJECTED",
   FUNDING_UNAVAILABLE: "FUNDING_UNAVAILABLE",
   FORBIDDEN_DRIVER_WALLET: "FORBIDDEN_COMPANY_SOURCE_DRIVER_WALLET",
+  /** Preferred code when no Use-as-source account is selected. */
+  SOURCE_ACCOUNT_NOT_CONFIGURED: "SOURCE_ACCOUNT_NOT_CONFIGURED",
+  /** @deprecated Prefer SOURCE_ACCOUNT_NOT_CONFIGURED */
   ACCOUNT_NOT_CONFIGURED: "ACCOUNT_NOT_CONFIGURED",
   AUTHENTICATION_REQUIRED: "AUTHENTICATION_REQUIRED",
   PROVIDER_UNAVAILABLE: "PROVIDER_UNAVAILABLE",
+  PROVIDER_CONNECTION_UNAVAILABLE: "PROVIDER_CONNECTION_UNAVAILABLE",
   CURRENCY_MISMATCH: "CURRENCY_MISMATCH",
   STALE_PROVIDER_EVIDENCE: "STALE_PROVIDER_EVIDENCE",
+  BALANCE_STALE: "BALANCE_STALE",
+  DRIVER_LIABILITY_QUERY_FAILED: "DRIVER_LIABILITY_QUERY_FAILED",
   TRANSFER_DISABLED: "TRANSFER_DISABLED",
   PENDING_SYNC: "PENDING_SYNC",
 } as const;
+
+export type CompanyBalanceSectionStatus =
+  | "AVAILABLE"
+  | "UNAVAILABLE"
+  | "STALE"
+  | "NOT_CONFIGURED"
+  | "ERROR";
+
+export type CompanyBalanceSectionAmount = {
+  status: CompanyBalanceSectionStatus;
+  amount_pence: number | null;
+  currency?: string;
+  reason_code?: string | null;
+};
 
 export type CompanyBalanceStatusCode =
   | "AVAILABLE"
   | "PENDING_SYNC"
   | "AUTHENTICATION_REQUIRED"
+  | "SOURCE_ACCOUNT_NOT_CONFIGURED"
   | "ACCOUNT_NOT_CONFIGURED"
   | "CURRENCY_MISMATCH"
   | "PROVIDER_UNAVAILABLE"
+  | "PROVIDER_CONNECTION_UNAVAILABLE"
   | "STALE_PROVIDER_EVIDENCE"
+  | "BALANCE_STALE"
   | "TRANSFER_DISABLED";
 
 export type CompanyBalanceEvidenceStatus =
@@ -43,9 +66,11 @@ export type CompanyBalanceSnapshot = {
   service_area_id: string | null;
   generated_at: string;
   last_verified_at: string | null;
+  last_provider_sync_at: string | null;
   source_account_id: string | null;
   source_account_label: string | null;
   connection_status: CompanyBalanceStatusCode;
+  connection_health: CompanyBalanceSectionStatus;
   /** Internal ONECAB company ledger — null when no ledger source exists. */
   company_ledger_balance_pence: number | null;
   /** Confirmed Revolut Business / provider cash — null when not verified. */
@@ -69,6 +94,15 @@ export type CompanyBalanceSnapshot = {
   source_label: string;
   /** Explicit proof that DWL was not used as provider cash. */
   excludes_driver_wallet: true;
+  /** Per-section status — never invent £0 for missing sections. */
+  sections?: {
+    provider_balance: CompanyBalanceSectionAmount;
+    driver_liabilities: CompanyBalanceSectionAmount;
+    reserved_driver_payouts: CompanyBalanceSectionAmount;
+    approved_company_payables: CompanyBalanceSectionAmount;
+    operational_reserve: CompanyBalanceSectionAmount;
+    company_transfer_available: CompanyBalanceSectionAmount;
+  };
 };
 
 export type CompanyBalanceSourceAudit = {
@@ -129,7 +163,8 @@ export function auditCompanyBalanceSourceCandidates(): CompanyBalanceSourceAudit
 
 /**
  * Safe transferable amount after protected liabilities / reserves.
- * All inputs exact pence; null provider available → null result (never £0 invent).
+ * All inputs exact pence; null provider or unknown liability/reserved → null (never invent).
+ * Unconfigured operational reserve (null) deducts 0 — section still shows NOT_CONFIGURED in UI.
  */
 export function computeCompanyAvailableForTransferPence(args: {
   provider_available_balance_pence: number | null;
@@ -140,12 +175,85 @@ export function computeCompanyAvailableForTransferPence(args: {
   operational_reserve_pence?: number | null;
 }): number | null {
   if (args.provider_available_balance_pence == null) return null;
+  // Explicit null = section query failed / unknown — do not invent £0 deductions.
+  if (args.driver_liability_pence === null) return null;
+  if (args.driver_payout_reserved_pence === null) return null;
   const protectedSum = Math.max(0, Number(args.driver_liability_pence ?? 0))
     + Math.max(0, Number(args.driver_payout_reserved_pence ?? 0))
     + Math.max(0, Number(args.customer_refund_reserved_pence ?? 0))
     + Math.max(0, Number(args.approved_company_payables_pence ?? 0))
     + Math.max(0, Number(args.operational_reserve_pence ?? 0));
   return Math.max(0, args.provider_available_balance_pence - protectedSum);
+}
+
+function sectionAmount(
+  amount: number | null | undefined,
+  opts?: { reason_code?: string | null; currency?: string; notConfigured?: boolean },
+): CompanyBalanceSectionAmount {
+  if (amount == null) {
+    return {
+      status: opts?.notConfigured ? "NOT_CONFIGURED" : "UNAVAILABLE",
+      amount_pence: null,
+      currency: opts?.currency,
+      reason_code: opts?.reason_code ?? null,
+    };
+  }
+  return {
+    status: "AVAILABLE",
+    amount_pence: amount,
+    currency: opts?.currency,
+    reason_code: null,
+  };
+}
+
+function buildSections(args: {
+  currency: string;
+  provider: number | null;
+  driver_liability_pence: number | null;
+  driver_payout_reserved_pence: number | null;
+  approved: number | null;
+  operational_reserve_pence: number | null;
+  available: number | null;
+  provider_reason?: string | null;
+  notConfigured?: boolean;
+}): NonNullable<CompanyBalanceSnapshot["sections"]> {
+  return {
+    provider_balance: sectionAmount(args.provider, {
+      currency: args.currency,
+      reason_code: args.provider_reason,
+      notConfigured: args.notConfigured,
+    }),
+    driver_liabilities: sectionAmount(args.driver_liability_pence, { currency: args.currency }),
+    reserved_driver_payouts: sectionAmount(args.driver_payout_reserved_pence, { currency: args.currency }),
+    approved_company_payables: sectionAmount(args.approved, { currency: args.currency }),
+    operational_reserve: sectionAmount(args.operational_reserve_pence, { currency: args.currency }),
+    company_transfer_available: sectionAmount(args.available, {
+      currency: args.currency,
+      reason_code: args.available == null ? args.provider_reason : null,
+      notConfigured: args.notConfigured,
+    }),
+  };
+}
+
+function connectionHealthFromCode(code: string | null): CompanyBalanceSectionStatus {
+  if (!code || code === "AVAILABLE") return "AVAILABLE";
+  if (
+    code === COMPANY_BALANCE_ERROR.SOURCE_ACCOUNT_NOT_CONFIGURED
+    || code === COMPANY_BALANCE_ERROR.ACCOUNT_NOT_CONFIGURED
+  ) {
+    return "NOT_CONFIGURED";
+  }
+  if (code === COMPANY_BALANCE_ERROR.STALE_PROVIDER_EVIDENCE || code === COMPANY_BALANCE_ERROR.BALANCE_STALE) {
+    return "STALE";
+  }
+  if (
+    code === COMPANY_BALANCE_ERROR.PROVIDER_UNAVAILABLE
+    || code === COMPANY_BALANCE_ERROR.PROVIDER_CONNECTION_UNAVAILABLE
+    || code === COMPANY_BALANCE_ERROR.AUTHENTICATION_REQUIRED
+  ) {
+    return "ERROR";
+  }
+  return "UNAVAILABLE";
 }
 
 /**
@@ -168,6 +276,7 @@ export function resolveCompanyBalanceSnapshot(args?: {
   status_code?: CompanyBalanceStatusCode | string | null;
   source_account_id?: string | null;
   source_account_label?: string | null;
+  last_provider_sync_at?: string | null;
   refresh_requested?: boolean;
   now?: Date;
 }): CompanyBalanceSnapshot {
@@ -179,6 +288,16 @@ export function resolveCompanyBalanceSnapshot(args?: {
     ?? null;
 
   if (args?.provider_balance_is_stub) {
+    const sections = buildSections({
+      currency,
+      provider: null,
+      driver_liability_pence: args.driver_liability_pence ?? null,
+      driver_payout_reserved_pence: args.driver_payout_reserved_pence ?? null,
+      approved,
+      operational_reserve_pence: args.operational_reserve_pence ?? null,
+      available: null,
+      provider_reason: COMPANY_BALANCE_ERROR.PROVIDER_STUB_ZERO,
+    });
     return {
       status: "UNAVAILABLE",
       status_code: COMPANY_BALANCE_ERROR.PROVIDER_STUB_ZERO,
@@ -186,9 +305,11 @@ export function resolveCompanyBalanceSnapshot(args?: {
       service_area_id,
       generated_at,
       last_verified_at: null,
+      last_provider_sync_at: null,
       source_account_id: args.source_account_id ?? null,
       source_account_label: args.source_account_label ?? null,
       connection_status: "PROVIDER_UNAVAILABLE",
+      connection_health: "ERROR",
       company_ledger_balance_pence: null,
       provider_cash_balance_pence: null,
       provider_current_balance_pence: null,
@@ -204,11 +325,26 @@ export function resolveCompanyBalanceSnapshot(args?: {
       unavailable_reason: COMPANY_BALANCE_ERROR.PROVIDER_STUB_ZERO,
       source_label: "Company Balance SSOT",
       excludes_driver_wallet: true,
+      sections,
     };
   }
 
   const statusCode = String(args?.status_code ?? "").trim() || null;
   if (statusCode && statusCode !== "AVAILABLE") {
+    const notConfigured =
+      statusCode === COMPANY_BALANCE_ERROR.SOURCE_ACCOUNT_NOT_CONFIGURED
+      || statusCode === COMPANY_BALANCE_ERROR.ACCOUNT_NOT_CONFIGURED;
+    const sections = buildSections({
+      currency,
+      provider: null,
+      driver_liability_pence: args?.driver_liability_pence ?? null,
+      driver_payout_reserved_pence: args?.driver_payout_reserved_pence ?? null,
+      approved,
+      operational_reserve_pence: args?.operational_reserve_pence ?? null,
+      available: null,
+      provider_reason: statusCode,
+      notConfigured,
+    });
     return {
       status: "UNAVAILABLE",
       status_code: statusCode as CompanyBalanceStatusCode,
@@ -216,9 +352,11 @@ export function resolveCompanyBalanceSnapshot(args?: {
       service_area_id,
       generated_at,
       last_verified_at: null,
+      last_provider_sync_at: args?.last_provider_sync_at ?? null,
       source_account_id: args?.source_account_id ?? null,
       source_account_label: args?.source_account_label ?? null,
       connection_status: (statusCode as CompanyBalanceStatusCode),
+      connection_health: connectionHealthFromCode(statusCode),
       company_ledger_balance_pence: null,
       provider_cash_balance_pence: null,
       provider_current_balance_pence: null,
@@ -234,6 +372,7 @@ export function resolveCompanyBalanceSnapshot(args?: {
       unavailable_reason: statusCode,
       source_label: "Company Balance SSOT / Revolut Business",
       excludes_driver_wallet: true,
+      sections,
     };
   }
 
@@ -244,16 +383,30 @@ export function resolveCompanyBalanceSnapshot(args?: {
   const current = args?.provider_current_balance_pence ?? provider;
 
   if (ledger == null && provider == null) {
+    const reason = COMPANY_BALANCE_ERROR.SOURCE_ACCOUNT_NOT_CONFIGURED;
+    const sections = buildSections({
+      currency,
+      provider: null,
+      driver_liability_pence: args?.driver_liability_pence ?? null,
+      driver_payout_reserved_pence: args?.driver_payout_reserved_pence ?? null,
+      approved,
+      operational_reserve_pence: args?.operational_reserve_pence ?? null,
+      available: null,
+      provider_reason: reason,
+      notConfigured: true,
+    });
     return {
       status: "UNAVAILABLE",
-      status_code: COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE,
+      status_code: reason,
       currency,
       service_area_id,
       generated_at,
       last_verified_at: null,
+      last_provider_sync_at: null,
       source_account_id: args?.source_account_id ?? null,
       source_account_label: args?.source_account_label ?? null,
-      connection_status: "ACCOUNT_NOT_CONFIGURED",
+      connection_status: "SOURCE_ACCOUNT_NOT_CONFIGURED",
+      connection_health: "NOT_CONFIGURED",
       company_ledger_balance_pence: null,
       provider_cash_balance_pence: null,
       provider_current_balance_pence: null,
@@ -266,9 +419,10 @@ export function resolveCompanyBalanceSnapshot(args?: {
       company_available_for_transfer_pence: null,
       approved_payables_pending_pence: approved,
       evidence_status: "NO_CANONICAL_SOURCE",
-      unavailable_reason: COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE,
+      unavailable_reason: reason,
       source_label: "Company Balance SSOT",
       excludes_driver_wallet: true,
+      sections,
     };
   }
 
@@ -281,6 +435,16 @@ export function resolveCompanyBalanceSnapshot(args?: {
     operational_reserve_pence: args?.operational_reserve_pence,
   });
 
+  const sections = buildSections({
+    currency,
+    provider,
+    driver_liability_pence: args?.driver_liability_pence ?? null,
+    driver_payout_reserved_pence: args?.driver_payout_reserved_pence ?? null,
+    approved,
+    operational_reserve_pence: args?.operational_reserve_pence ?? null,
+    available,
+  });
+
   return {
     status: "LIVE",
     status_code: "AVAILABLE",
@@ -288,9 +452,11 @@ export function resolveCompanyBalanceSnapshot(args?: {
     service_area_id,
     generated_at,
     last_verified_at: generated_at,
+    last_provider_sync_at: args?.last_provider_sync_at ?? generated_at,
     source_account_id: args?.source_account_id ?? null,
     source_account_label: args?.source_account_label ?? "Revolut Business",
     connection_status: "AVAILABLE",
+    connection_health: "AVAILABLE",
     company_ledger_balance_pence: ledger ?? provider,
     provider_cash_balance_pence: provider,
     provider_current_balance_pence: current,
@@ -306,6 +472,7 @@ export function resolveCompanyBalanceSnapshot(args?: {
     unavailable_reason: null,
     source_label: "Company Balance SSOT / Revolut Business",
     excludes_driver_wallet: true,
+    sections,
   };
 }
 

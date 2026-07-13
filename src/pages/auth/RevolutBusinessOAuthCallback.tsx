@@ -62,8 +62,52 @@ export default function RevolutBusinessOAuthCallback() {
     const q = new URLSearchParams();
     q.set("code", code);
     if (state) q.set("state", state);
-    // Server-side exchange + vault persist; redirect back to Payment Providers.
-    window.location.replace(`${EDGE_CALLBACK}?${q.toString()}`);
+    q.set("format", "json");
+    const target = `${EDGE_CALLBACK}?${q.toString()}`;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 14_000);
+
+    // JSON bridge avoids cross-origin 302 Location opacity and hanging location.replace.
+    void fetch(target, {
+      method: "GET",
+      signal: controller.signal,
+      credentials: "omit",
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    })
+      .then(async (res) => {
+        window.clearTimeout(timer);
+        const body = (await res.json().catch(() => ({}))) as {
+          redirect_to?: string;
+          reason?: string;
+        };
+        const redirectTo = body.redirect_to;
+        if (typeof redirectTo === "string" && /^https:\/\/adminonecab\.net\//.test(redirectTo)) {
+          window.location.replace(redirectTo);
+          return;
+        }
+        setStatus("error");
+        setMessage(
+          body.reason ||
+            "Server did not complete authorization. The fixed-IP relay may be down (port 8787).",
+        );
+      })
+      .catch((err: unknown) => {
+        window.clearTimeout(timer);
+        const aborted =
+          err instanceof Error && (err.name === "AbortError" || /abort/i.test(err.message));
+        setStatus("error");
+        setMessage(
+          aborted
+            ? "Timed out waiting for the server. The fixed-IP relay at 63.186.194.116:8787 is unreachable."
+            : "Could not reach the authorization server. Bring the relay up, then try Connect again.",
+        );
+      });
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, [code, state, errorText]);
 
   return (

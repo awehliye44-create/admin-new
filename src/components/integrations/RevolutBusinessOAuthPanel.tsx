@@ -303,8 +303,17 @@ export function RevolutBusinessOAuthPanel() {
               <DiagRow label="OAuth connected" value={String(!!diag.oauth_connected)} />
               <DiagRow label="Token valid" value={String(!!diag.token_valid)} />
               <DiagRow label="Token expires at" value={diag.token_expires_at ?? "—"} />
-              <DiagRow label="GBP source account" value={diag.gbp_source_account_id ?? "—"} mono />
-              <DiagRow label="GBP balance" value={formatPence(diag.gbp_balance_pence)} />
+              <DiagRow
+                label="Selected source account"
+                value={diag.selected_source_account_id
+                  ? `${diag.selected_source_account_id}${diag.selected_source_account_ok === false ? " (not in /accounts)" : ""}`
+                  : "SOURCE_ACCOUNT_NOT_CONFIGURED"}
+                mono
+              />
+              <DiagRow
+                label="Selected source balance"
+                value={diag.selected_source_account_id ? formatPence(diag.gbp_balance_pence) : "UNAVAILABLE"}
+              />
               <DiagRow label="Redirect URI" value={diag.redirect_uri ?? "https://adminonecab.net/auth/revolut/callback"} mono />
             </div>
 

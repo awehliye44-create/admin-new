@@ -131,11 +131,14 @@ export function finalisePayoutLedgerOverviewStatus(
     // Preserve precise company status codes — never collapse ACCOUNT_NOT_CONFIGURED
     // / AUTHENTICATION_REQUIRED / etc. into a generic SOURCE_UNAVAILABLE.
     const companySpecific = errors.find((e) =>
-      e === "ACCOUNT_NOT_CONFIGURED"
+      e === "SOURCE_ACCOUNT_NOT_CONFIGURED"
+      || e === "ACCOUNT_NOT_CONFIGURED"
       || e === "AUTHENTICATION_REQUIRED"
       || e === "CURRENCY_MISMATCH"
       || e === "PROVIDER_UNAVAILABLE"
+      || e === "PROVIDER_CONNECTION_UNAVAILABLE"
       || e === "STALE_PROVIDER_EVIDENCE"
+      || e === "BALANCE_STALE"
       || e === "PENDING_SYNC"
       || e === "TRANSFER_DISABLED"
       || e === "COMPANY_BALANCE_PROVIDER_STUB_REJECTED"

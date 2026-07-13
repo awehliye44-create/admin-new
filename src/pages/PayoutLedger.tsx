@@ -349,10 +349,18 @@ export default function PayoutLedger() {
           </div>
         </div>
 
-        {error && topTab !== 'settings' && (
+        {error && topTab !== 'settings' && data?.page_status !== 'PARTIAL' && data?.page_status !== 'DEGRADED' && (
           <Alert variant="destructive">
             <AlertTitle>Payout Ledger failed to load</AlertTitle>
             <AlertDescription>{error instanceof Error ? error.message : String(error)}</AlertDescription>
+          </Alert>
+        )}
+        {!error && data?.page_status === 'PARTIAL' && data?.error_code && topTab !== 'settings' && (
+          <Alert>
+            <AlertTitle>Payout Ledger partial</AlertTitle>
+            <AlertDescription>
+              Some sections are unavailable ({data.error_code}). Other tabs remain readable.
+            </AlertDescription>
           </Alert>
         )}
 

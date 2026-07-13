@@ -19,7 +19,7 @@ describe("company balance SSOT", () => {
     expect(snap.status).toBe("UNAVAILABLE");
     expect(snap.company_ledger_balance_pence).toBeNull();
     expect(snap.company_available_for_transfer_pence).toBeNull();
-    expect(snap.unavailable_reason).toBe(COMPANY_BALANCE_ERROR.SOURCE_UNAVAILABLE);
+    expect(snap.unavailable_reason).toBe(COMPANY_BALANCE_ERROR.SOURCE_ACCOUNT_NOT_CONFIGURED);
     expect(snap.excludes_driver_wallet).toBe(true);
   });
 

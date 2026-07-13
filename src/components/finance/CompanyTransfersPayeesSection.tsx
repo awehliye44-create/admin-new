@@ -185,25 +185,25 @@ export function CompanyTransfersPayeesSection({
     <div className="space-y-6">
       {(focus === 'all' || focus === 'payees') && (
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" onClick={() => setShowPayeeForm((v) => !v)}>
-          <Plus className="h-4 w-4 mr-2" /> {showPayeeForm ? 'Hide' : 'Add payee'}
+        <Button size="sm" disabled title="Read-only while LIVE_PAYOUT_EXECUTION_ENABLED=false">
+          <Plus className="h-4 w-4 mr-2" /> Add payee (disabled)
         </Button>
-        {focus === 'all' && (
-        <Button size="sm" variant="outline" onClick={() => setShowScheduleForm((v) => !v)}>
-          {showScheduleForm ? 'Hide schedule form' : 'Add automatic payment'}
+        {(focus === 'all' || focus === 'schedules') && (
+        <Button size="sm" variant="outline" disabled title="Read-only while LIVE_PAYOUT_EXECUTION_ENABLED=false">
+          Add automatic payment (disabled)
         </Button>
         )}
       </div>
       )}
       {focus === 'schedules' && (
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" onClick={() => setShowScheduleForm((v) => !v)}>
-          {showScheduleForm ? 'Hide schedule form' : 'Add automatic payment'}
+        <Button size="sm" variant="outline" disabled title="Read-only while LIVE_PAYOUT_EXECUTION_ENABLED=false">
+          Add automatic payment (disabled)
         </Button>
       </div>
       )}
 
-      {(focus === 'all' || focus === 'payees') && showPayeeForm ? (
+      {false && (focus === 'all' || focus === 'payees') && showPayeeForm ? (
         <Card>
           <CardHeader><CardTitle className="text-base">Add company payee</CardTitle></CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
@@ -302,7 +302,7 @@ export function CompanyTransfersPayeesSection({
       </Card>
       )}
 
-      {(focus === 'all' || focus === 'schedules') && showScheduleForm ? (
+      {(focus === 'all' || focus === 'schedules') && false && showScheduleForm ? (
         <Card>
           <CardHeader><CardTitle className="text-base">Automatic payment</CardTitle></CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
