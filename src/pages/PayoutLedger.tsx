@@ -1,6 +1,6 @@
 import { Link, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
-import { ArrowLeft, Download, Loader2, MoreHorizontal, Printer, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Download, Info, Loader2, MoreHorizontal, Printer, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
@@ -25,6 +25,18 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
+  LEGACY_MONDAY_BATCH_UI_TOOLTIP,
+  compareBatchesForAdminDisplay,
+  isLegacyMondayBatchKind,
+  payoutBatchKindUiLabel,
+} from '../../shared/weeklyDriverPayoutBatchWorkflowSSOT';
 import {
   DEFAULT_SERVICE_AREA_SELECTION,
   ServiceAreaFinanceFilter,
@@ -108,23 +120,54 @@ function shortDate(value: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? '—' : format(date, 'dd MMM HH:mm');
 }
 
-/** Admin display for Slice 5+ — never show paid for execution-disabled batches. */
+/** Admin display for Slice 5/6 — never show paid for reserved / execution-disabled. */
 function batchStatusDisplay(b: {
   status: string;
   status_label?: string | null;
 }): string {
   if (b.status_label?.trim()) return b.status_label.trim();
-  if (String(b.status).toUpperCase() === 'BLOCKED_EXECUTION_DISABLED') {
+  const s = String(b.status).toUpperCase();
+  if (s === 'FUNDS_RESERVED_EXECUTION_DISABLED') {
+    return 'Funds reserved — execution disabled';
+  }
+  if (s === 'BLOCKED_EXECUTION_DISABLED') {
     return 'Execution disabled';
   }
   return b.status;
 }
 
 function itemStatusDisplay(status: string): string {
-  if (String(status).toUpperCase() === 'BLOCKED_EXECUTION_DISABLED') {
+  const s = String(status).toUpperCase();
+  if (s === 'RESERVED' || s === 'RESERVING') {
+    return 'Funds reserved — execution disabled';
+  }
+  if (s === 'BLOCKED_EXECUTION_DISABLED') {
     return 'Execution disabled';
   }
   return status;
+}
+
+/** UI-only kind label; DB `kind` stays WEEKLY_MONDAY for legacy rows. */
+function BatchKindCell({ kind }: { kind: string | null | undefined }) {
+  const label = payoutBatchKindUiLabel(kind);
+  if (!isLegacyMondayBatchKind(kind)) {
+    return <span className="text-xs">{label}</span>;
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 text-xs text-left hover:underline"
+          aria-label={`${label}. ${LEGACY_MONDAY_BATCH_UI_TOOLTIP}`}
+        >
+          {label}
+          <Info className="h-3 w-3 text-muted-foreground shrink-0" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs text-xs">{LEGACY_MONDAY_BATCH_UI_TOOLTIP}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 function statementRecords(items: AdminPayoutLedgerItemRow[]) {
@@ -222,7 +265,10 @@ export default function PayoutLedger() {
   );
   const { data: accountData } = useAdminPayoutLedger(accountRequest, Boolean(driverId));
   const items = data?.items ?? [];
-  const batches = data?.batches ?? [];
+  const batches = useMemo(
+    () => [...(data?.batches ?? [])].sort(compareBatchesForAdminDisplay),
+    [data?.batches],
+  );
   const accounts = data?.accounts ?? [];
   const auditRows = data?.audit_rows ?? [];
   const companyTransfers = data?.company_transfers ?? [];
@@ -237,7 +283,6 @@ export default function PayoutLedger() {
     ?? (error instanceof Error && /permission|403|401/i.test(error.message)
       ? 'PAYOUT_LEDGER_PERMISSION_DENIED'
       : null);
-
   useEffect(() => {
     if (topTab === 'settings') return;
     const channel = supabase
@@ -322,6 +367,7 @@ export default function PayoutLedger() {
 
   return (
     <AdminLayout title="Payout Ledger (SSOT)">
+      <TooltipProvider>
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="space-y-1">
@@ -335,7 +381,16 @@ export default function PayoutLedger() {
               {summary && (
                 <>
                   <Badge variant="outline">Processing: {summary.processing_count}</Badge>
-                  <Badge variant="destructive">Failed: {summary.failed_count}</Badge>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge variant="destructive" className="cursor-help">
+                        Failed payout items: {summary.failed_count}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs text-xs">
+                      Counts failed payout items (driver-level), not failed historical batches in Batch History.
+                    </TooltipContent>
+                  </Tooltip>
                   <Badge variant="secondary">Paid: {formatNullablePence(summary.total_paid_pence)}</Badge>
                 </>
               )}
@@ -530,7 +585,7 @@ export default function PayoutLedger() {
                         </TableCell>
                         <TableCell className="text-xs">{b.eligible_driver_count ?? b.total_drivers ?? '—'}</TableCell>
                         <TableCell className="text-xs">{formatNullablePence(b.total_amount_pence)}</TableCell>
-                        <TableCell className="text-xs">{b.kind}</TableCell>
+                        <TableCell><BatchKindCell kind={b.kind} /></TableCell>
                         <TableCell className="text-xs">{b.paid_claim ? 'Yes' : 'No'}</TableCell>
                         <TableCell className="text-xs"><Badge variant="outline">{batchStatusDisplay(b)}</Badge></TableCell>
                       </TableRow>
@@ -600,6 +655,7 @@ export default function PayoutLedger() {
               <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Live Driver Wallet</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_live_wallet_pence ?? null)}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Available for Payout</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_available_pence)}</CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Reserved Driver Payouts</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_reserved_pence ?? fleet.total_pending_pence ?? null)}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Pending / Held</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_pending_pence ?? null)}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Outstanding Debt</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_outstanding_debt_pence ?? null)}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Next Batch Amount</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.next_batch_amount_pence)}</CardContent></Card>
@@ -611,7 +667,24 @@ export default function PayoutLedger() {
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Paid Today</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.paid_today_pence)}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Paid This Week</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.paid_week_pence)}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Paid This Month</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.paid_month_pence)}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Failed Payouts</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{fleet.failed_count}</CardContent></Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-1.5">
+                      Failed payout items
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button type="button" className="text-muted-foreground" aria-label="Failed payout items info">
+                            <Info className="h-3.5 w-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-xs">
+                          Counts failed payout items (driver-level). A historical FAILED batch in Batch History is separate and is not included here.
+                        </TooltipContent>
+                      </Tooltip>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="text-xl font-semibold tabular-nums">{fleet.failed_count}</CardContent>
+                </Card>
               </div>
             )}
 
@@ -659,7 +732,7 @@ export default function PayoutLedger() {
                           <TableCell className="text-xs font-mono max-w-[200px] truncate" title={b.schedule_occurrence_key ?? undefined}>
                             {b.schedule_occurrence_key ?? b.scheduled_local_at ?? b.run_date}
                           </TableCell>
-                          <TableCell className="text-xs">{b.kind}</TableCell>
+                          <TableCell><BatchKindCell kind={b.kind} /></TableCell>
                           <TableCell className="text-xs"><Badge variant="outline">{batchStatusDisplay(b)}</Badge></TableCell>
                           <TableCell className="text-xs">{b.eligible_driver_count ?? b.total_drivers ?? '—'}</TableCell>
                           <TableCell className="text-xs">{formatNullablePence(b.total_amount_pence)}</TableCell>
@@ -902,7 +975,24 @@ export default function PayoutLedger() {
                         <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Pending</CardTitle></CardHeader><CardContent className="text-xl font-semibold">{summary.pending_count}</CardContent></Card>
                         <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Processing</CardTitle></CardHeader><CardContent className="text-xl font-semibold">{summary.processing_count}</CardContent></Card>
                         <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Paid Week</CardTitle></CardHeader><CardContent className="text-xl font-semibold">{formatNullablePence(summary.total_paid_week_pence)}</CardContent></Card>
-                        <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Failed</CardTitle></CardHeader><CardContent className="text-xl font-semibold">{summary.failed_count}</CardContent></Card>
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm flex items-center gap-1.5">
+                              Failed payout items
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button type="button" className="text-muted-foreground" aria-label="Failed payout items info">
+                                    <Info className="h-3.5 w-3.5" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-xs text-xs">
+                                  Counts failed payout items for this driver, not failed historical batches.
+                                </TooltipContent>
+                              </Tooltip>
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent className="text-xl font-semibold">{summary.failed_count}</CardContent>
+                        </Card>
                       </div>
                     )}
 
@@ -926,7 +1016,7 @@ export default function PayoutLedger() {
                                 <TableCell className="text-xs font-mono max-w-[200px] truncate" title={b.schedule_occurrence_key ?? undefined}>
                                   {b.schedule_occurrence_key ?? b.scheduled_local_at ?? b.run_date}
                                 </TableCell>
-                                <TableCell className="text-xs">{b.kind}</TableCell>
+                                <TableCell><BatchKindCell kind={b.kind} /></TableCell>
                                 <TableCell className="text-xs"><Badge variant="outline">{batchStatusDisplay(b)}</Badge></TableCell>
                                 <TableCell className="text-xs">{b.eligible_driver_count ?? b.total_drivers ?? '—'}</TableCell>
                                 <TableCell className="text-xs">{formatNullablePence(b.total_amount_pence)}</TableCell>
@@ -952,6 +1042,7 @@ export default function PayoutLedger() {
           </TabsContent>
         </Tabs>
       </div>
+      </TooltipProvider>
     </AdminLayout>
   );
 }

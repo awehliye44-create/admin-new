@@ -310,6 +310,17 @@ export async function fetchDriverWalletPayoutSnapshot(
   const payoutProviderResolved = payoutProviderEarly
     ?? (inferredRevolut ? "revolut" : null);
 
+  let reservedPayout = 0;
+  try {
+    const { data: reservedRaw } = await supabase.rpc(
+      "driver_wallet_active_reservation_pence",
+      { p_driver_id: args.driverId },
+    );
+    reservedPayout = Math.max(0, Number(reservedRaw ?? 0));
+  } catch {
+    reservedPayout = 0;
+  }
+
   const snapshot = computeDriverWalletPayoutSnapshot({
     wallet_balance_pence: walletBalance,
     finance_cleared_pence: financeCleared,
@@ -321,6 +332,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     stripe_paid_out_total_pence: stripePaidOut,
     recovery_debt_pence: recoveryDebt,
     in_flight_cashout_pence: inFlight,
+    reserved_payout_pence: reservedPayout,
     payout_blocked: walletBalance < 0 || driver?.payouts_enabled === false,
     instant_payout_enabled_by_stripe: driver?.charges_enabled !== false,
     stripe_payout_without_ledger_debit_pence: stripeWithoutLedger,

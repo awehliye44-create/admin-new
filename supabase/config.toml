@@ -61,6 +61,9 @@ verify_jwt = false
 [functions.admin-weekly-monday-settlement]
 verify_jwt = false
 
+[functions.admin-reserve-driver-payout-batch]
+verify_jwt = false
+
 [functions.admin-payout-ledger]
 verify_jwt = false
 

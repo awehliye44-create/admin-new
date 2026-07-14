@@ -291,7 +291,12 @@ export function PayoutLedgerOverviewPanel({
           <MetricCard title="Paid Today" value={formatNullablePence(overview.payout_paid_today_pence)} source={payoutSource} />
           <MetricCard title="Paid This Week" value={formatNullablePence(overview.payout_paid_week_pence)} source={payoutSource} />
           <MetricCard title="Paid This Month" value={formatNullablePence(overview.payout_paid_month_pence)} source={payoutSource} />
-          <MetricCard title="Failed Driver Payouts" value={String(overview.payout_failed_count ?? '—')} source={payoutSource} />
+          <MetricCard
+            title="Failed payout items"
+            value={String(overview.payout_failed_count ?? '—')}
+            source={payoutSource}
+            tooltip="Counts failed payout items (driver-level). Does not count historical FAILED batches in Batch History."
+          />
           <MetricCard
             title="Next Scheduled Weekly Driver Payout"
             value={overview.next_run_at_local

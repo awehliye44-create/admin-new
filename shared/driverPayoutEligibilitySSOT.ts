@@ -99,6 +99,8 @@ export type AggregateDriverPayoutEligibilityInput = {
   live_balance_pence: number;
   outstanding_debt_pence?: number;
   in_flight_cashout_pence?: number;
+  /** ACTIVE Slice 6 DRIVER_PAYOUT reservations (hold, not a debit). */
+  reserved_payout_pence?: number;
   payouts_enabled?: boolean | null;
   payout_provider_available?: boolean | null;
   account_verified?: boolean | null;
@@ -238,6 +240,7 @@ export function aggregateDriverPayoutEligibility(
   const live = Math.round(Number(input.live_balance_pence ?? 0));
   const debt = Math.max(0, Math.round(Number(input.outstanding_debt_pence ?? 0)));
   const inFlight = Math.max(0, Math.round(Number(input.in_flight_cashout_pence ?? 0)));
+  const reserved = Math.max(0, Math.round(Number(input.reserved_payout_pence ?? 0)));
 
   const eligible_entries: EligiblePayoutEntry[] = [];
   const held_entries: HeldPayoutEntry[] = [];
@@ -339,7 +342,10 @@ export function aggregateDriverPayoutEligibility(
     }
   }
 
-  let available = Math.max(0, Math.min(Math.max(0, live), eligibleSum) - debt - inFlight);
+  let available = Math.max(
+    0,
+    Math.min(Math.max(0, live), eligibleSum) - debt - inFlight - reserved,
+  );
 
   // Debt recovery can wipe available even when entries are otherwise eligible.
   let primary: DriverPayoutEligibilityResult["primary_hold_reason"] = null;

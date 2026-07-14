@@ -5,6 +5,10 @@ import { describe, expect, it } from "vitest";
 import {
   ADMIN_EXECUTION_DISABLED_LABEL,
   LEGACY_WEEKLY_MONDAY_KIND,
+  LEGACY_MONDAY_BATCH_UI_LABEL,
+  payoutBatchKindUiLabel,
+  compareBatchesForAdminDisplay,
+  isLegacyMondayBatchKind,
   SLICE5_BATCH_STATUS,
   SLICE5_ITEM_STATUS,
   WEEKLY_PAYOUT_BATCH_KIND,
@@ -92,6 +96,15 @@ describe("Slice 5 — weekly payout batch workflow", () => {
       automatic_payouts_enabled: true,
     });
     expect(dto.schedule_label.toLowerCase()).not.toContain("monday");
+    expect(isLegacyMondayBatchKind("WEEKLY_MONDAY")).toBe(true);
+    expect(payoutBatchKindUiLabel("WEEKLY_MONDAY")).toBe(LEGACY_MONDAY_BATCH_UI_LABEL);
+    expect(payoutBatchKindUiLabel("WEEKLY_SCHEDULED")).toBe("WEEKLY_SCHEDULED");
+    expect(
+      compareBatchesForAdminDisplay(
+        { kind: "WEEKLY_MONDAY", created_at: "2026-07-20" },
+        { kind: "WEEKLY_SCHEDULED", created_at: "2026-07-14" },
+      ),
+    ).toBeGreaterThan(0);
   });
 
   it("3. Correct UTC conversion for BST and GMT", () => {

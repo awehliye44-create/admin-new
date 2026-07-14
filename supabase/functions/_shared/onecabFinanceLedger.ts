@@ -19,6 +19,9 @@ export const BALANCE_EXCLUDED_LEDGER_TYPES = [
   "PAYMENT_PROVIDER_FEE_ADJUSTMENT",
   "PROVIDER_FEE_REVERSAL",
   "CASH_TRIP_EARNING",
+  // Slice 6: hold/release audit rows must not change live wallet balance.
+  "PAYOUT_RESERVATION_HOLD",
+  "PAYOUT_RESERVATION_RELEASE",
 ] as const;
 
 /** Reporting-only types excluded from wallet balance (Phase 3A.4). COMMISSION_RECOVERED is included in wallet. */

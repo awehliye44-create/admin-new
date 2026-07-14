@@ -53,6 +53,16 @@ export async function fetchDriverPayoutEligibility(
     (s, r) => s + Math.max(0, Number(r.requested_cashout_pence ?? 0)),
     0,
   );
+  let reservedPayout = 0;
+  try {
+    const { data: reservedRaw } = await supabase.rpc(
+      "driver_wallet_active_reservation_pence",
+      { p_driver_id: args.driver_id },
+    );
+    reservedPayout = Math.max(0, Number(reservedRaw ?? 0));
+  } catch {
+    reservedPayout = 0;
+  }
 
   const earningRows = ledger.filter((r) =>
     PAYOUT_ELIGIBLE_LEDGER_TYPES.has(String(r.type ?? "").toUpperCase())
@@ -212,6 +222,7 @@ export async function fetchDriverPayoutEligibility(
     live_balance_pence: live,
     outstanding_debt_pence: debt,
     in_flight_cashout_pence: inFlight,
+    reserved_payout_pence: reservedPayout,
     payouts_enabled: payoutsEnabled,
     payout_provider_available: true,
     // Revolut manual bank: account is valid when payouts are enabled (no Connect required).

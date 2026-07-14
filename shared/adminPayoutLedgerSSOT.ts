@@ -140,6 +140,8 @@ export type AdminPayoutLedgerFleetSummary = {
   total_live_wallet_pence?: number;
   total_available_pence: number;
   total_pending_pence?: number;
+  /** Σ ACTIVE payout reservations (Slice 6 holds) — never label as paid. */
+  total_reserved_pence?: number;
   total_outstanding_debt_pence?: number;
   total_scheduled_pence: number;
   total_processing_pence: number;

@@ -15,11 +15,51 @@ export const WEEKLY_PAYOUT_BATCH_KIND = "WEEKLY_SCHEDULED" as const;
 /** Legacy kind — retired from active scheduler writes. */
 export const LEGACY_WEEKLY_MONDAY_KIND = "WEEKLY_MONDAY" as const;
 
+/** UI-only labels — never rewrite DB `kind`. */
+export const LEGACY_MONDAY_BATCH_UI_LABEL = "Legacy Monday batch";
+export const LEGACY_MONDAY_BATCH_UI_TOOLTIP =
+  "Historical batch created before the Tuesday schedule SSOT migration.";
+
+export function isLegacyMondayBatchKind(kind: string | null | undefined): boolean {
+  return String(kind ?? "").toUpperCase() === LEGACY_WEEKLY_MONDAY_KIND;
+}
+
+export function isCanonicalScheduledBatchKind(kind: string | null | undefined): boolean {
+  return String(kind ?? "").toUpperCase() === WEEKLY_PAYOUT_BATCH_KIND;
+}
+
+/** Display label for batch kind. Preserves raw DB value for unknown kinds. */
+export function payoutBatchKindUiLabel(kind: string | null | undefined): string {
+  if (isLegacyMondayBatchKind(kind)) return LEGACY_MONDAY_BATCH_UI_LABEL;
+  if (kind == null || String(kind).trim() === "") return "—";
+  return String(kind);
+}
+
+/**
+ * Sort key for admin lists: canonical WEEKLY_SCHEDULED first, legacy Monday last.
+ * Does not mutate stored rows.
+ */
+export function compareBatchesForAdminDisplay(
+  a: { kind?: string | null; created_at?: string | null },
+  b: { kind?: string | null; created_at?: string | null },
+): number {
+  const rank = (kind: string | null | undefined) => {
+    if (isCanonicalScheduledBatchKind(kind)) return 0;
+    if (isLegacyMondayBatchKind(kind)) return 2;
+    return 1;
+  };
+  const byKind = rank(a.kind) - rank(b.kind);
+  if (byKind !== 0) return byKind;
+  return String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""));
+}
+
 export const SLICE5_BATCH_STATUS = {
   DRAFT: "DRAFT",
   ELIGIBILITY_SNAPSHOTTED: "ELIGIBILITY_SNAPSHOTTED",
   ITEMS_CREATED: "ITEMS_CREATED",
   BLOCKED_EXECUTION_DISABLED: "BLOCKED_EXECUTION_DISABLED",
+  /** Slice 6 terminal — funds held, provider submission still disabled. */
+  FUNDS_RESERVED_EXECUTION_DISABLED: "FUNDS_RESERVED_EXECUTION_DISABLED",
   FAILED: "FAILED",
 } as const;
 
@@ -29,6 +69,8 @@ export type Slice5BatchStatus =
 export const SLICE5_ITEM_STATUS = {
   CREATED: "CREATED",
   VALIDATED: "VALIDATED",
+  RESERVING: "RESERVING",
+  RESERVED: "RESERVED",
   BLOCKED_EXECUTION_DISABLED: "BLOCKED_EXECUTION_DISABLED",
   INELIGIBLE: "INELIGIBLE",
   FAILED: "FAILED",
@@ -46,6 +88,9 @@ export const CONFLICTING_ACTIVE_ITEM_STATUSES = new Set([
   "processing",
   "CREATED",
   "VALIDATED",
+  "RESERVING",
+  "RESERVED",
+  "BLOCKED_EXECUTION_DISABLED",
   "READY",
   "SCHEDULED",
   "PROCESSING",
@@ -56,6 +101,7 @@ export const CONFLICTING_ACTIVE_ITEM_STATUSES = new Set([
 ]);
 
 export const ADMIN_EXECUTION_DISABLED_LABEL = "Execution disabled";
+export const ADMIN_FUNDS_RESERVED_LABEL = "Funds reserved — execution disabled";
 
 export type ScheduleSettingsSnapshot = {
   payouts_enabled: boolean;
@@ -552,6 +598,9 @@ export function assertNoActiveMondayHardcode(text: string): boolean {
 }
 
 export function adminBatchStatusLabel(status: string): string {
+  if (status === SLICE5_BATCH_STATUS.FUNDS_RESERVED_EXECUTION_DISABLED) {
+    return ADMIN_FUNDS_RESERVED_LABEL;
+  }
   if (status === SLICE5_BATCH_STATUS.BLOCKED_EXECUTION_DISABLED) {
     return ADMIN_EXECUTION_DISABLED_LABEL;
   }
