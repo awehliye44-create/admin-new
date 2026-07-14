@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>Revolut Business authorization</title>
+  <style>
+    body {
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+      background: #0b1220;
+      color: #e2e8f0;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .card {
+      max-width: 28rem;
+      width: 100%;
+      border: 1px solid #1e293b;
+      border-radius: 0.75rem;
+      background: #0f172a;
+      padding: 1.5rem;
+    }
+    h1 { font-size: 1.125rem; margin: 0 0 0.5rem; }
+    p { margin: 0.5rem 0; line-height: 1.45; font-size: 0.925rem; color: #cbd5e1; }
+    .muted { color: #94a3b8; font-size: 0.85rem; }
+    .err { color: #fca5a5; }
+    a { color: #93c5fd; }
+    code { word-break: break-all; font-size: 0.75rem; }
+  </style>
+</head>
+<body>
+  <div class="card" id="card">
+    <h1 id="title">Revolut Business authorization</h1>
+    <p id="msg">Completing authorization on the server…</p>
+    <p id="extra" class="muted">
+      Access tokens are never shown in the browser. No payouts or transfers are executed.
+    </p>
+  </div>
+  <script>
+    (function () {
+      var EDGE =
+        "https://thazislrdkjpvvghtvzo.supabase.co/functions/v1/admin-revolut-business-oauth-callback";
+      var PAYMENT_PROVIDERS = "/payment-providers";
+      var EXCHANGE_TIMEOUT_MS = 14000;
+
+      function sanitize(value, maxLen) {
+        var s = String(value || "").replace(/[\u0000-\u001f\u007f]/g, "").trim();
+        if (s.length > maxLen) s = s.slice(0, maxLen);
+        if (/access_token|refresh_token|Bearer\s|BEGIN (RSA )?PRIVATE KEY/i.test(s)) {
+          return "authorization_failed";
+        }
+        return s;
+      }
+
+      function showError(detail, codeForPaste) {
+        var titleEl = document.getElementById("title");
+        var msgEl = document.getElementById("msg");
+        var extraEl = document.getElementById("extra");
+        if (titleEl) titleEl.textContent = "Authorization incomplete";
+        if (msgEl) {
+          msgEl.className = "err";
+          msgEl.textContent = detail;
+        }
+        if (extraEl) {
+          var html =
+            '<p class="muted"><a href="' +
+            PAYMENT_PROVIDERS +
+            '?revolut_business=error&reason=revolut_business_relay_unreachable">Back to Payment Providers</a></p>';
+          if (codeForPaste) {
+            html =
+              '<p class="muted">Authorization code (optional — only useful after the relay is back up):</p>' +
+              "<p><code>" +
+              codeForPaste +
+              "</code></p>" +
+              html;
+          }
+          extraEl.innerHTML = html;
+        }
+      }
+
+      var params = new URLSearchParams(window.location.search || "");
+      var code = sanitize(params.get("code"), 512);
+      var state = sanitize(params.get("state"), 256);
+      var oauthError = sanitize(params.get("error"), 128);
+      var oauthErrorDescription = sanitize(params.get("error_description"), 240);
+
+      if (oauthError) {
+        var detail = oauthError;
+        if (oauthErrorDescription) detail += " — " + oauthErrorDescription;
+        showError(detail);
+        return;
+      }
+
+      if (!code) {
+        showError(
+          "Missing authorization code from Revolut. Return to Payment Providers and tap Connect Revolut Business."
+        );
+        return;
+      }
+
+      var q = new URLSearchParams();
+      q.set("code", code);
+      if (state) q.set("state", state);
+      q.set("format", "json");
+      var target = EDGE + "?" + q.toString();
+
+      var controller = new AbortController();
+      var timer = setTimeout(function () {
+        controller.abort();
+      }, EXCHANGE_TIMEOUT_MS);
+
+      fetch(target, {
+        method: "GET",
+        signal: controller.signal,
+        credentials: "omit",
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      })
+        .then(function (res) {
+          return res.json().then(function (body) {
+            return { res: res, body: body || {} };
+          }).catch(function () {
+            return { res: res, body: {} };
+          });
+        })
+        .then(function (result) {
+          clearTimeout(timer);
+          var redirectTo = result.body && result.body.redirect_to;
+          if (typeof redirectTo === "string" && /^https:\/\/adminonecab\.net\//.test(redirectTo)) {
+            window.location.replace(redirectTo);
+            return;
+          }
+          var reason =
+            (result.body && result.body.reason) ||
+            "Server did not complete authorization. The fixed-IP relay may be down (port 8787).";
+          showError(String(reason), code);
+        })
+        .catch(function (err) {
+          clearTimeout(timer);
+          var aborted = err && (err.name === "AbortError" || /abort/i.test(String(err.message || "")));
+          showError(
+            aborted
+              ? "Timed out waiting for the server. The fixed-IP relay at 63.186.194.116:8787 is unreachable."
+              : "Could not reach the authorization server. Bring the relay up, then try Connect again.",
+            code
+          );
+        });
+    })();
+  </script>
+</body>
+</html>
