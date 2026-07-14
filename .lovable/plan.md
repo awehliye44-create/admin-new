@@ -1,102 +1,71 @@
-# Digital-Only Enforcement — ONECAB (Admin project)
+# P0 — Driver Document Expiry SSOT (Canonical Fix)
 
-This project is the **Admin panel**. Customer app and Driver app live in separate projects; changes there must be made in those repos. This plan enforces the rule inside Admin + shared backend (edge functions + DB constraints) that this repo owns.
+## Root-cause evidence (Ahmed Osman MK0001, 14 Jul 2026)
 
-## Scope in this repo
+| Doc type | Row id | Status | Expiry | Days expired |
+|---|---|---|---|---|
+| phv_license | d01e6c60… | approved | 2026-07-11 | 3 |
+| phv_license | a3f19d68… | approved | 2026-07-03 | 11 (duplicate) |
+| dvla_driving_license | 99d9ea67… | approved | 2026-07-09 | 5 |
+| phd_badge | 77ec783c… | approved | 2026-07-03 | 11 |
 
-1. **Backend hard rule (DB + edge functions)** — reject any new trip/booking whose `payment_method` is cash. Historical rows stay untouched.
-2. **Admin UI purge** — remove cash from all active operational surfaces (booking creation, dispatch, fare tools, service-area payment method configuration).
-3. **Finance surfaces** — exclude cash from current Financial Reconciliation totals, alerts, wallet, settlement, payouts, debt recovery. Cash rows in Trip History stay as "Historical legacy trip" (already implemented via `isHistoricalLegacyCashTrip`).
-4. **Deletions** — permanently delete cash-only code paths (per user's cleanup policy). No commented fallbacks.
+**Why Admin shows Expired and Driver App doesn't visibly show it:**
+1. Driver App `DocumentUpload.tsx` renders the expired badge (orange) **but** the status icon stays green (`getStatusIcon(doc.status)` uses raw `status='approved'`), and `stats.approved` counts expired docs → screen reads as compliant.
+2. `useDocumentTypes` ignores `service_area_document_rules`; expiry is recomputed client-side with `new Date()` (no TZ/SSOT).
+3. `.find()` on duplicate rows per slug is non-deterministic (no `is_current` concept).
+4. Admin uses `src/lib/driverDocumentCompliance.ts` (Europe/London SSOT). Driver App has its own duplicated logic.
 
-Out of scope: Customer App and Driver App code (separate projects — user must apply the same rule there).
+## Fix — one backend SSOT, both apps consume it
 
-## Changes
+### 1. Database migration (this Supabase, shared by both apps)
 
-### 1. Database (migration)
+- Add columns to `public.documents`:
+  - `is_current boolean not null default true`
+  - `superseded_by uuid null references public.documents(id) on delete set null`
+- Trigger `trg_documents_mark_superseded`: on insert/update of a `(driver_id, document_type)` row, set older approved rows for the same pair to `is_current=false`, `superseded_by=new.id`.
+- Backfill: for every `(driver_id, document_type)` group, keep only latest `updated_at` as current.
+- SECURITY DEFINER view `public.driver_document_compliance_ssot` (`security_invoker=off`, `security_barrier=true`) joining `drivers` × `document_types` × `documents` and returning per required doc-type:
+  - `driver_id`, `document_type_id`, `document_type_key`, `display_name`
+  - `document_id`, `approval_status`, `expiry_date`
+  - `expiry_status` ∈ (`missing`, `pending`, `approved_valid`, `expiring_soon`, `expired`, `rejected`, `superseded`) — computed with Europe/London calendar (`(expiry_date AT TIME ZONE 'Europe/London')::date`)
+  - `days_until_expiry`, `is_required`, `is_current`, `is_superseded`, `blocks_online`, `replacement_document_id`, `last_updated_at`
+- RPC `public.get_driver_document_compliance(_driver_id uuid default null)` — returns SSOT rows for the caller's canonical driver (resolves via `drivers.user_id = auth.uid()`) or, for admin/staff, any driver.
+- Grants: `EXECUTE` to `authenticated`; `SELECT` on view to `authenticated` (RLS via wrapper).
 
-- Add CHECK constraint on `public.trips.payment_method`:
-  - New rows must satisfy `payment_method IN ('card','wallet','apple_pay','google_pay','revolut')` (aligned with `StripeDigitalPaymentMethodType` used in `useServiceAreaPaymentMethods`).
-  - Implemented as a **BEFORE INSERT trigger** (not a CHECK constraint on the column) so historical `cash` rows remain valid and only new inserts are blocked. Follows project rule "validation triggers over CHECK".
-- Add same trigger on `public.ride_offers` / `public.trip_change_requests` if they carry `payment_method`.
-- Remove `'cash'` from `public.region_payment_methods` / `public.service_area_payment_methods` active seed rows (data update via insert tool, not migration).
+### 2. Admin UI (this repo)
 
-### 2. Admin edge functions
+- `src/components/documents/*` and any driver-detail doc panel: split ambiguous "Status" into two columns:
+  - **Review status**: Approved / Pending / Rejected
+  - **Validity status**: Valid / Expiring soon (n days) / Expired (n days ago) / N/A
+- Consume the new RPC instead of ad-hoc queries where possible; keep `driverDocumentCompliance.ts` as a thin wrapper that now trusts server `expiry_status`.
 
-Audit and update these to reject cash on new writes:
-- `create-payment-intent`
-- `admin-request-extra-payment`
-- `admin-capture-trip-payment`, `admin-cancel-trip-payment`, `admin-refund-trip-payment`
-- Any booking-creation function (admin manual dispatch)
-- `record-financial-outcome` — exclude cash from new ledger entries; historical cash never generates new commission/debt-recovery entries.
+### 3. Driver App patch (handed off, separate repo)
 
-Delete (do not stub):
-- Cash-only debt recovery paths in wallet ledger writers (`DEBT_RECOVERY` from cash cannot be created for new trips; existing rows preserved).
-- Cash shortfall computation on new trips.
+Produce `docs/DRIVER_APP_DOCUMENT_SSOT_PATCH.md` with copy-pasteable diffs:
+- Replace `DocumentUpload.tsx` merge/filter logic with a call to `supabase.rpc('get_driver_document_compliance')`.
+- Delete client-side `isExpired` / `new Date()` comparisons.
+- Fix `getStatusIcon` to switch on server `expiry_status` (`expired` → red AlertCircle, `expiring_soon` → orange, etc.).
+- Fix `stats` to derive from `expiry_status` (`Approved` count excludes expired).
+- Add an "Expired" stat card and reorder list: Expired → Rejected → Missing → Expiring soon → Pending → Valid.
+- Update `useDriverApproval.ts` to consume the RPC (delete duplicate expiry math).
+- **User applies the patch** in the Driver App project (Lovable cross-project is read-only).
 
-### 3. Admin UI
+### 4. Evidence & tests
 
-**Booking / Dispatch:**
-- Remove `cash` option from any admin "new booking" or "dispatch" form.
-- Remove cash filter chips from Trips / Dispatch pages.
+- SQL audit script under `scripts/sql/driver-document-ssot-audit.sql` (dupes, non-canonical driver_id, orphan document rows).
+- Vitest in this repo covering: approved+valid, approved+expiring, approved+expired, rejected, missing, pending replacement, expired+valid replacement, TZ boundary at 23:59 London.
+- `docs/DRIVER_DOCUMENT_SSOT_ROOTCAUSE_2026-07-14.md` — full root-cause + before/after evidence for MK0001.
 
-**Service Area config:**
-- `ServiceAreaPaymentConfig` / `useServiceAreaPaymentMethods` already digital-only (`StripeDigitalPaymentMethodType`). Verify no cash toggle remains; delete any residual.
+## Acceptance
 
-**Finance pages:**
-- Financial Reconciliation totals: exclude `payment_method='cash'` from all current-period aggregations (KPIs, drivers tab, trips tab, alerts).
-- Wallet / Payouts / Settlement: exclude cash from current calculations.
-- Trip History: keep the existing "Historical legacy trip — read-only" treatment; remove any remaining cash-specific action buttons on historical rows (view-only).
+- Admin driver-detail doc list shows Ahmed's PHV / DVLA / PHD as Approved (review) + Expired (validity), with days-expired.
+- New RPC returns 3 `expired` rows for Ahmed; running the RPC as Ahmed (via Driver App) returns the same list.
+- After Driver App patch is applied there, expired docs show a red icon and "Expired X days ago", not a green check.
+- Duplicate `phv_license` row is marked `is_current=false`.
+- `can_go_online` (server-computed) is `false` for Ahmed until renewals are uploaded and approved.
 
-**Alerts / debt:**
-- Remove cash-outstanding alert rules from active detection.
+## Out of scope (explicit)
 
-### 4. Historical cash trips (unchanged behaviour)
-
-- Continue to render as "Historical legacy trip" via existing `isHistoricalLegacyCashTrip` / `historicalLegacyTripPaymentLabel` helpers.
-- Not counted in current reconciliation, wallet, or payouts.
-- No shortfall banners (already fixed).
-
-## Technical details
-
-**Trigger sketch:**
-
-```sql
-create or replace function public.enforce_digital_only_payment_method()
-returns trigger language plpgsql as $$
-begin
-  if new.payment_method is not null
-     and lower(new.payment_method) not in ('card','wallet','apple_pay','google_pay','revolut')
-  then
-    raise exception 'ONECAB is digital-only: payment_method % is not allowed for new trips', new.payment_method
-      using errcode = 'check_violation';
-  end if;
-  return new;
-end$$;
-
-create trigger trg_trips_digital_only
-  before insert on public.trips
-  for each row execute function public.enforce_digital_only_payment_method();
-```
-
-**Files likely touched (Admin repo):**
-- `supabase/migrations/*` (new trigger migration)
-- `supabase/functions/create-payment-intent/index.ts`
-- `supabase/functions/admin-request-extra-payment/index.ts`
-- `supabase/functions/record-financial-outcome/index.ts`
-- `src/pages/FinancialReconciliation.tsx` + `src/components/finance/*` (cash exclusion in aggregations, remove cash filters)
-- `src/pages/TripHistory.tsx` (verify no cash action buttons on historical rows)
-- Any admin "new booking / dispatch" component that still lists `cash`
-- Delete: cash-shortfall helpers, cash debt-recovery writers scoped to new trips
-
-## Verification
-
-- Attempt to insert a `payment_method='cash'` trip → DB rejects.
-- Admin booking form does not offer cash.
-- Financial Reconciliation totals unchanged when only historical cash exists in range (they are excluded).
-- Trip History still shows historical cash rows labelled "Historical legacy trip", no shortfall, no actions.
-- Search: `rg -n "'cash'|\"cash\"" src/ supabase/functions/` returns only historical/read-only references.
-
-## Out-of-scope reminder
-
-Customer App and Driver App enforcement must be done in their own repos. This plan only covers Admin + shared backend in this repo.
+- I cannot push commits into the ONECAB Driver repo; that patch is handed off as a document.
+- No change to auth/session behaviour — expired docs block GO Online only, they do not sign the driver out.
+- No hardcoding of the three flagged documents; the fix is data-driven across all required types.
