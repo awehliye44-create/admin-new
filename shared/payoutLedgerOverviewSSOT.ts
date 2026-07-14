@@ -24,6 +24,9 @@ export type PayoutLedgerOverviewDto = {
 
   driver_wallet_total_pence: number | null;
   driver_available_pence: number | null;
+  /** ACTIVE driver_payout_reservations — not a permanent debit. */
+  driver_reserved_pence: number | null;
+  /** Other non-reservation pending/holds only (excludes ACTIVE reservations). */
   driver_pending_pence: number | null;
   driver_debt_pence: number | null;
   eligible_driver_count: number | null;
@@ -76,6 +79,7 @@ export function emptyPayoutLedgerOverviewDto(args?: {
     generated_at: (args?.now ?? new Date()).toISOString(),
     driver_wallet_total_pence: null,
     driver_available_pence: null,
+    driver_reserved_pence: null,
     driver_pending_pence: null,
     driver_debt_pence: null,
     eligible_driver_count: null,

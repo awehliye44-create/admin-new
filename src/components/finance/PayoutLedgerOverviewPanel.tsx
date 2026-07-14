@@ -205,16 +205,17 @@ export function PayoutLedgerOverviewPanel({
           : null
       ),
   );
-  const reservedPence = snap?.driver_payout_reserved_pence
-    ?? (
-      snap?.status === 'LIVE' || overview.payout_scheduled_pence != null
-        ? ((overview.payout_scheduled_pence ?? 0) + (overview.payout_processing_pence ?? 0))
-        : null
-    );
+  // Canonical Slice 6 reserved = ACTIVE driver_payout_reservations (same as Driver Payouts tab).
+  const reservedPence = overview.driver_reserved_pence
+    ?? snap?.driver_payout_reserved_pence
+    ?? null;
   const reserved = moneyOrUnavailable(
     reservedPence,
-    snap?.sections?.reserved_driver_payouts?.reason_code,
+    snap?.sections?.reserved_driver_payouts?.reason_code
+      ?? (reservedPence == null ? 'RESERVED_DRIVER_PAYOUTS_QUERY_FAILED' : null),
   );
+  const reservedSource =
+    'driver_payout_reservations ACTIVE / Driver Wallet Ledger SSOT';
 
   const payablesPence = snap?.approved_company_payables_pence
     ?? overview.company_payables_pending_pence
@@ -280,15 +281,30 @@ export function PayoutLedgerOverviewPanel({
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           <MetricCard title="Total Live Driver Wallet" value={formatNullablePence(overview.driver_wallet_total_pence)} source={driverSource} />
           <MetricCard title="Total Available for Payout" value={formatNullablePence(overview.driver_available_pence)} source={driverSource} />
-          <MetricCard title="Total Pending / Held" value={formatNullablePence(overview.driver_pending_pence)} source={driverSource} />
+          <MetricCard
+            title="Reserved Driver Payouts"
+            value={formatNullablePence(overview.driver_reserved_pence)}
+            source={reservedSource}
+          />
+          <MetricCard
+            title="Other Pending / Held"
+            value={formatNullablePence(overview.driver_pending_pence)}
+            source={driverSource}
+            tooltip="Non-reservation holds only. Active payout reservations are counted under Reserved Driver Payouts."
+          />
           <MetricCard title="Total Outstanding Debt" value={formatNullablePence(overview.driver_debt_pence)} source={driverSource} />
+          <MetricCard title="Paid Today" value={formatNullablePence(overview.payout_paid_today_pence)} source={payoutSource} />
           <MetricCard title="Eligible Drivers" value={String(overview.eligible_driver_count ?? '—')} source={driverSource} />
-          <MetricCard title="Held Drivers" value={String(overview.held_driver_count ?? '—')} source={driverSource} />
+          <MetricCard
+            title="Held Drivers"
+            value={String(overview.held_driver_count ?? '—')}
+            source={driverSource}
+            tooltip="Drivers whose available payout is currently held by an active payout reservation or another valid payout hold."
+          />
           <MetricCard title="Next Batch Amount" value={formatNullablePence(overview.next_driver_batch_amount_pence)} source={driverSource} />
           <MetricCard title="Next Batch Drivers" value={String(overview.next_driver_batch_count ?? '—')} source={driverSource} />
           <MetricCard title="Scheduled Driver Payouts" value={formatNullablePence(overview.payout_scheduled_pence)} source={payoutSource} />
           <MetricCard title="Processing Driver Payouts" value={formatNullablePence(overview.payout_processing_pence)} source={payoutSource} />
-          <MetricCard title="Paid Today" value={formatNullablePence(overview.payout_paid_today_pence)} source={payoutSource} />
           <MetricCard title="Paid This Week" value={formatNullablePence(overview.payout_paid_week_pence)} source={payoutSource} />
           <MetricCard title="Paid This Month" value={formatNullablePence(overview.payout_paid_month_pence)} source={payoutSource} />
           <MetricCard
@@ -333,7 +349,7 @@ export function PayoutLedgerOverviewPanel({
           <MetricCard
             title={COMPANY_BALANCE_LABELS.RESERVED_DRIVER_PAYOUTS}
             value={reserved.value}
-            source={payoutSource}
+            source={reservedSource}
             unavailableReason={reserved.reason}
           />
           <MetricCard

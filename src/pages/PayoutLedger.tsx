@@ -655,8 +655,20 @@ export default function PayoutLedger() {
               <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Live Driver Wallet</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_live_wallet_pence ?? null)}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Available for Payout</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_available_pence)}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Reserved Driver Payouts</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_reserved_pence ?? fleet.total_pending_pence ?? null)}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Pending / Held</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_pending_pence ?? null)}</CardContent></Card>
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">Reserved Driver Payouts</CardTitle></CardHeader>
+                  <CardContent className="space-y-1">
+                    <div className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_reserved_pence ?? null)}</div>
+                    <div className="text-[11px] text-muted-foreground">Source: driver_payout_reservations ACTIVE / Driver Wallet Ledger SSOT</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">Other Pending / Held</CardTitle></CardHeader>
+                  <CardContent className="space-y-1">
+                    <div className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_pending_pence ?? null)}</div>
+                    <div className="text-[11px] text-muted-foreground">Source: Driver Wallet Ledger SSOT (excludes ACTIVE reservations)</div>
+                  </CardContent>
+                </Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Outstanding Debt</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_outstanding_debt_pence ?? null)}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Next Batch Amount</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.next_batch_amount_pence)}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Eligible Driver Count</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{fleet.eligible_driver_count ?? fleet.next_batch_driver_count}</CardContent></Card>
