@@ -220,7 +220,7 @@ export function RevolutBusinessOAuthPanel() {
 
   async function selectSource(account: GbpAccount) {
     const gate = canSelectAsSource(account);
-    if (!gate.ok) {
+    if (gate.ok === false) {
       toast.error(gate.reason);
       return;
     }
