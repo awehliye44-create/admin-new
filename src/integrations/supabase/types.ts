@@ -5574,9 +5574,13 @@ export type Database = {
       driver_payout_destinations: {
         Row: {
           account_holder_name: string | null
+          account_last4: string | null
+          account_number_encrypted: string | null
           archived_at: string | null
+          country_code: string | null
           created_at: string
           currency_code: string | null
+          destination_fingerprint: string | null
           destination_identifier_encrypted: string | null
           destination_label: string | null
           destination_last4: string | null
@@ -5585,18 +5589,37 @@ export type Database = {
           driver_id: string
           id: string
           is_active: boolean
+          linkage_version: number | null
+          masked_account_number: string | null
           masked_sort_code: string | null
           provider: string
+          provider_counterparty_id: string | null
+          provider_error_code: string | null
+          provider_error_message_safe: string | null
+          provider_idempotency_key: string | null
+          provider_last_checked_at: string | null
+          provider_link_status: string | null
+          provider_recipient_account_id: string | null
+          provider_sync_status: string | null
+          provider_synced_at: string | null
+          provider_verification_status: string | null
           service_area_id: string | null
+          sort_code_encrypted: string | null
           sort_code_last2: string | null
           updated_at: string
           verification_status: string
+          verified_at: string | null
+          verified_by: string | null
         }
         Insert: {
           account_holder_name?: string | null
+          account_last4?: string | null
+          account_number_encrypted?: string | null
           archived_at?: string | null
+          country_code?: string | null
           created_at?: string
           currency_code?: string | null
+          destination_fingerprint?: string | null
           destination_identifier_encrypted?: string | null
           destination_label?: string | null
           destination_last4?: string | null
@@ -5605,18 +5628,37 @@ export type Database = {
           driver_id: string
           id?: string
           is_active?: boolean
+          linkage_version?: number | null
+          masked_account_number?: string | null
           masked_sort_code?: string | null
           provider: string
+          provider_counterparty_id?: string | null
+          provider_error_code?: string | null
+          provider_error_message_safe?: string | null
+          provider_idempotency_key?: string | null
+          provider_last_checked_at?: string | null
+          provider_link_status?: string | null
+          provider_recipient_account_id?: string | null
+          provider_sync_status?: string | null
+          provider_synced_at?: string | null
+          provider_verification_status?: string | null
           service_area_id?: string | null
+          sort_code_encrypted?: string | null
           sort_code_last2?: string | null
           updated_at?: string
           verification_status?: string
+          verified_at?: string | null
+          verified_by?: string | null
         }
         Update: {
           account_holder_name?: string | null
+          account_last4?: string | null
+          account_number_encrypted?: string | null
           archived_at?: string | null
+          country_code?: string | null
           created_at?: string
           currency_code?: string | null
+          destination_fingerprint?: string | null
           destination_identifier_encrypted?: string | null
           destination_label?: string | null
           destination_last4?: string | null
@@ -5625,12 +5667,27 @@ export type Database = {
           driver_id?: string
           id?: string
           is_active?: boolean
+          linkage_version?: number | null
+          masked_account_number?: string | null
           masked_sort_code?: string | null
           provider?: string
+          provider_counterparty_id?: string | null
+          provider_error_code?: string | null
+          provider_error_message_safe?: string | null
+          provider_idempotency_key?: string | null
+          provider_last_checked_at?: string | null
+          provider_link_status?: string | null
+          provider_recipient_account_id?: string | null
+          provider_sync_status?: string | null
+          provider_synced_at?: string | null
+          provider_verification_status?: string | null
           service_area_id?: string | null
+          sort_code_encrypted?: string | null
           sort_code_last2?: string | null
           updated_at?: string
           verification_status?: string
+          verified_at?: string | null
+          verified_by?: string | null
         }
         Relationships: [
           {
@@ -12315,6 +12372,71 @@ export type Database = {
         }
         Relationships: []
       }
+      revolut_business_source_accounts: {
+        Row: {
+          account_name: string | null
+          account_status: string | null
+          created_at: string
+          currency: string
+          id: string
+          is_active: boolean
+          is_default_payout_source: boolean
+          last_available_balance_pence: number | null
+          last_balance_pence: number | null
+          last_provider_sync_at: string | null
+          last_verified_at: string | null
+          provider: string
+          revolut_account_id: string
+          service_area_id: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          account_name?: string | null
+          account_status?: string | null
+          created_at?: string
+          currency?: string
+          id?: string
+          is_active?: boolean
+          is_default_payout_source?: boolean
+          last_available_balance_pence?: number | null
+          last_balance_pence?: number | null
+          last_provider_sync_at?: string | null
+          last_verified_at?: string | null
+          provider?: string
+          revolut_account_id: string
+          service_area_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          account_name?: string | null
+          account_status?: string | null
+          created_at?: string
+          currency?: string
+          id?: string
+          is_active?: boolean
+          is_default_payout_source?: boolean
+          last_available_balance_pence?: number | null
+          last_balance_pence?: number | null
+          last_provider_sync_at?: string | null
+          last_verified_at?: string | null
+          provider?: string
+          revolut_account_id?: string
+          service_area_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "revolut_business_source_accounts_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       revolut_merchant_payouts: {
         Row: {
           amount_minor: number
@@ -18296,6 +18418,7 @@ export type Database = {
         Row: {
           account_holder_name: string | null
           archived_at: string | null
+          country_code: string | null
           created_at: string | null
           currency_code: string | null
           destination_identifier_encrypted: string | null
@@ -18304,16 +18427,25 @@ export type Database = {
           driver_id: string | null
           id: string | null
           is_active: boolean | null
+          masked_account_number: string | null
           masked_sort_code: string | null
+          provider_counterparty_id: string | null
+          provider_error_code: string | null
           provider_key: string | null
+          provider_recipient_account_id: string | null
+          provider_synced_at: string | null
+          provider_verification_status: string | null
           service_area_id: string | null
           sort_code_last2: string | null
           updated_at: string | null
           verification_status: string | null
+          verified_at: string | null
+          verified_by: string | null
         }
         Insert: {
           account_holder_name?: string | null
           archived_at?: string | null
+          country_code?: string | null
           created_at?: string | null
           currency_code?: string | null
           destination_identifier_encrypted?: string | null
@@ -18322,16 +18454,25 @@ export type Database = {
           driver_id?: string | null
           id?: string | null
           is_active?: boolean | null
+          masked_account_number?: string | null
           masked_sort_code?: string | null
+          provider_counterparty_id?: string | null
+          provider_error_code?: string | null
           provider_key?: string | null
+          provider_recipient_account_id?: string | null
+          provider_synced_at?: string | null
+          provider_verification_status?: string | null
           service_area_id?: string | null
           sort_code_last2?: string | null
           updated_at?: string | null
           verification_status?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
         }
         Update: {
           account_holder_name?: string | null
           archived_at?: string | null
+          country_code?: string | null
           created_at?: string | null
           currency_code?: string | null
           destination_identifier_encrypted?: string | null
@@ -18340,12 +18481,20 @@ export type Database = {
           driver_id?: string | null
           id?: string | null
           is_active?: boolean | null
+          masked_account_number?: string | null
           masked_sort_code?: string | null
+          provider_counterparty_id?: string | null
+          provider_error_code?: string | null
           provider_key?: string | null
+          provider_recipient_account_id?: string | null
+          provider_synced_at?: string | null
+          provider_verification_status?: string | null
           service_area_id?: string | null
           sort_code_last2?: string | null
           updated_at?: string | null
           verification_status?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
         }
         Relationships: [
           {

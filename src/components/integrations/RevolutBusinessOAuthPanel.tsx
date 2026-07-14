@@ -220,7 +220,7 @@ export function RevolutBusinessOAuthPanel() {
 
   async function selectSource(account: GbpAccount) {
     const gate = canSelectAsSource(account);
-    if (!gate.ok) {
+    if (gate.ok === false) {
       toast.error(gate.reason);
       return;
     }
@@ -470,7 +470,7 @@ export function RevolutBusinessOAuthPanel() {
                           </div>
                           <div className="text-muted-foreground font-mono break-all">{a.id}</div>
                           <div className="tabular-nums">{formatPence(a.balance_pence)} · {a.currency ?? "GBP"}</div>
-                          {!gate.ok && !isActive && (
+                          {gate.ok === false && !isActive && (
                             <div className="text-amber-700">{gate.reason}</div>
                           )}
                         </div>
@@ -483,7 +483,7 @@ export function RevolutBusinessOAuthPanel() {
                             size="sm"
                             variant="outline"
                             disabled={busy === "select_source_account" || !gate.ok}
-                            title={!gate.ok ? gate.reason : "Use as source"}
+                            title={gate.ok === false ? gate.reason : "Use as source"}
                             onClick={() => void selectSource(a)}
                           >
                             {busy === "select_source_account" ? (

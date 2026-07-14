@@ -188,7 +188,7 @@ export function CompanyTransfersPayeesSection({
         <Button size="sm" disabled title="Read-only while LIVE_PAYOUT_EXECUTION_ENABLED=false">
           <Plus className="h-4 w-4 mr-2" /> Add payee (disabled)
         </Button>
-        {(focus === 'all' || focus === 'schedules') && (
+        {focus === 'all' && (
         <Button size="sm" variant="outline" disabled title="Read-only while LIVE_PAYOUT_EXECUTION_ENABLED=false">
           Add automatic payment (disabled)
         </Button>
