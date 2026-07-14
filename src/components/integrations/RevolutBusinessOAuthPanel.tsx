@@ -45,7 +45,9 @@ type Diag = {
   redirect_uri?: string;
   jwt_iss?: string;
   oauth_scope?: string;
+  oauth_scopes_granted?: string[];
   live_payout_execution_enabled?: boolean;
+  payment_execution_blocked?: boolean;
   relay?: RelayDiag;
   egress_public_ip?: string | null;
   egress_ip_fixed_proven?: boolean;
@@ -256,10 +258,10 @@ export function RevolutBusinessOAuthPanel() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Revolut Business API (read-only)</CardTitle>
+        <CardTitle className="text-base">Revolut Business API (READ,WRITE,PAY consent)</CardTitle>
         <CardDescription>
           OAuth consent and company-balance diagnostics via fixed-IP relay ({diag?.relay?.whitelist_ip ?? "63.186.194.116"}).
-          Live payouts stay disabled. Tokens never appear in this UI.
+          Connect requests READ,WRITE,PAY. Live payouts stay OFF and payment execution stays BLOCKED until a later unlock. Tokens never appear in this UI.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -345,7 +347,15 @@ export function RevolutBusinessOAuthPanel() {
               <Badge variant={diag.live_payout_execution_enabled ? "destructive" : "secondary"}>
                 live payouts: {diag.live_payout_execution_enabled ? "ON" : "OFF"}
               </Badge>
-              <Badge variant="outline">scope: {diag.oauth_scope ?? "READ"}</Badge>
+              <Badge variant={(diag.payment_execution_blocked ?? !diag.live_payout_execution_enabled) ? "secondary" : "destructive"}>
+                payment execution: {(diag.payment_execution_blocked ?? !diag.live_payout_execution_enabled) ? "BLOCKED" : "UNLOCKED"}
+              </Badge>
+              <Badge variant="outline">requested: {diag.oauth_scope ?? "READ,WRITE,PAY"}</Badge>
+              <Badge variant="outline">
+                granted: {(diag.oauth_scopes_granted ?? []).length > 0
+                  ? diag.oauth_scopes_granted!.join(",")
+                  : "none (awaiting consent)"}
+              </Badge>
               {diag.oauth_connected && (
                 <Badge variant="default">OAuth connected</Badge>
               )}

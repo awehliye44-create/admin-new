@@ -1,7 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { CreditCard, History, MapPin } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 
 type DriverPayoutPanelProps = {
@@ -14,6 +16,28 @@ type DriverPayoutPanelProps = {
   chargesEnabled?: boolean | null;
 };
 
+type DestinationRow = {
+  id?: string;
+  provider?: string;
+  destination_type?: string | null;
+  destination_label?: string | null;
+  destination_last4?: string | null;
+  masked_sort_code?: string | null;
+  masked_account_number?: string | null;
+  account_holder_name?: string | null;
+  verification_status?: string | null;
+  provider_counterparty_id?: string | null;
+  provider_recipient_account_id?: string | null;
+  provider_link_status?: string | null;
+  provider_sync_status?: string | null;
+  provider_synced_at?: string | null;
+  provider_last_checked_at?: string | null;
+  provider_error_code?: string | null;
+  provider_error_message_safe?: string | null;
+  is_active?: boolean | null;
+  updated_at?: string | null;
+};
+
 export function DriverPayoutPanel({
   driverId,
   serviceAreaId,
@@ -23,6 +47,8 @@ export function DriverPayoutPanel({
   onboardingComplete,
   chargesEnabled,
 }: DriverPayoutPanelProps) {
+  const queryClient = useQueryClient();
+
   const { data, isLoading } = useQuery({
     queryKey: ["driver-payout-panel", driverId],
     queryFn: async () => {
@@ -53,7 +79,7 @@ export function DriverPayoutPanel({
         supabase
           .from("driver_payout_destinations")
           .select(
-            "id, provider, destination_type, destination_label, destination_last4, account_holder_name, is_active, updated_at",
+            "id, provider, destination_type, destination_label, destination_last4, masked_sort_code, masked_account_number, account_holder_name, verification_status, provider_counterparty_id, provider_recipient_account_id, provider_link_status, provider_sync_status, provider_synced_at, provider_last_checked_at, provider_error_code, provider_error_message_safe, is_active, updated_at",
           )
           .eq("driver_id", driverId)
           .eq("is_active", true)
@@ -78,6 +104,65 @@ export function DriverPayoutPanel({
     enabled: Boolean(driverId),
   });
 
+  const adminAction = useMutation({
+    mutationFn: async (action: "verify" | "reject" | "disable") => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Admin session required");
+
+      const destination = (data?.destinations as DestinationRow[] | undefined)?.[0];
+      const res = await supabase.functions.invoke("admin-verify-driver-payout-destination", {
+        body: {
+          action,
+          driver_id: driverId,
+          destination_id: destination?.id,
+        },
+      });
+      if (res.error) throw res.error;
+      if (res.data?.success !== true) {
+        throw new Error(res.data?.error ?? "Admin action failed");
+      }
+      return res.data;
+    },
+    onSuccess: (_result, action) => {
+      toast.success(
+        action === "verify"
+          ? "Destination verified (MANUAL_VERIFIED)"
+          : action === "reject"
+          ? "Destination rejected"
+          : "Destination disabled",
+      );
+      void queryClient.invalidateQueries({ queryKey: ["driver-payout-panel", driverId] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : "Admin action failed");
+    },
+  });
+
+  const syncProvider = useMutation({
+    mutationFn: async () => {
+      const res = await supabase.functions.invoke("admin-sync-driver-payout-provider-linkage", {
+        body: { driver_ids: [driverId] },
+      });
+      if (res.error) throw res.error;
+      if (res.data?.success !== true) {
+        throw new Error(res.data?.error ?? "Provider sync failed");
+      }
+      return res.data;
+    },
+    onSuccess: (result) => {
+      const row = Array.isArray(result?.results) ? result.results[0] : null;
+      const status = row?.provider_link_status ?? result?.verdict ?? "updated";
+      toast.message("Provider sync finished", {
+        description: String(status),
+      });
+      void queryClient.invalidateQueries({ queryKey: ["driver-payout-panel", driverId] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : "Provider sync failed");
+    },
+  });
+
   const serviceArea = data?.serviceArea as {
     name?: string | null;
     payment_provider?: string | null;
@@ -94,18 +179,11 @@ export function DriverPayoutPanel({
     : (payoutGatewayRaw ?? "revolut");
   const usesStripe = false; // Stripe Connect payouts retired from active finance
   const region = data?.region;
-  const destinations = (data?.destinations ?? []) as Array<{
-    id?: string;
-    provider?: string;
-    destination_type?: string | null;
-    destination_label?: string | null;
-    destination_last4?: string | null;
-    account_holder_name?: string | null;
-    updated_at?: string | null;
-  }>;
-  const destination = destinations.find((row) => row.provider === payoutGateway) ?? null;
+  const destinations = (data?.destinations ?? []) as DestinationRow[];
+  const destination = destinations.find((row) => row.provider === payoutGateway) ?? destinations[0] ?? null;
   const staleOtherProvider = destinations.find((row) => row.provider && row.provider !== payoutGateway) ?? null;
   const providerMismatch = Boolean(!usesStripe && !destination && staleOtherProvider);
+  const verificationStatus = String(destination?.verification_status ?? "").toUpperCase() || null;
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading payout settings…</p>;
@@ -180,13 +258,123 @@ export function DriverPayoutPanel({
               </p>
               <p>
                 <span className="text-muted-foreground">Masked:</span>{" "}
-                {destination.destination_label ?? `****${destination.destination_last4 ?? ""}`}
+                {destination.destination_label
+                  ?? destination.masked_account_number
+                  ?? `****${destination.destination_last4 ?? ""}`}
               </p>
+              {destination.masked_sort_code ? (
+                <p>
+                  <span className="text-muted-foreground">Sort code:</span>{" "}
+                  {destination.masked_sort_code}
+                </p>
+              ) : null}
+              <p>
+                <span className="text-muted-foreground">Status:</span>{" "}
+                {verificationStatus ?? "PENDING_VERIFICATION"}
+              </p>
+              <div className="pt-1 space-y-0.5 text-xs">
+                <p>Destination saved: Yes</p>
+                <p>
+                  Manual verification:{" "}
+                  {verificationStatus === "MANUAL_VERIFIED" || verificationStatus === "PROVIDER_VERIFIED"
+                    ? "Verified"
+                    : "Pending"}
+                </p>
+                <p>
+                  Revolut counterparty:{" "}
+                  {destination.provider_counterparty_id ? "Linked" : "Not linked"}
+                </p>
+                <p>
+                  Recipient account:{" "}
+                  {destination.provider_recipient_account_id ? "Linked" : "Not linked"}
+                </p>
+                <p>
+                  Provider readiness:{" "}
+                  {destination.provider_link_status === "PROVIDER_VERIFIED"
+                    ? "Ready"
+                    : destination.provider_link_status === "BLOCKED_BY_OAUTH_SCOPE"
+                    ? "Blocked — OAuth WRITE required"
+                    : destination.provider_link_status === "CONFLICT"
+                    ? "Conflict — review required"
+                    : (destination.provider_link_status ?? "Not linked")}
+                </p>
+                {destination.provider_last_checked_at ? (
+                  <p className="text-muted-foreground">
+                    Last provider sync{" "}
+                    {format(new Date(destination.provider_last_checked_at), "MMM d, yyyy HH:mm")}
+                  </p>
+                ) : null}
+                {destination.provider_error_code ? (
+                  <p className="text-amber-700">
+                    Safe error: {destination.provider_error_code}
+                    {destination.provider_error_message_safe
+                      ? ` — ${destination.provider_error_message_safe}`
+                      : ""}
+                  </p>
+                ) : null}
+              </div>
               {destination.updated_at ? (
                 <p className="text-xs text-muted-foreground">
                   Last changed {format(new Date(destination.updated_at), "MMM d, yyyy HH:mm")}
                 </p>
               ) : null}
+              <div className="flex flex-wrap gap-2 pt-2">
+                <Button
+                  size="sm"
+                  disabled={adminAction.isPending || verificationStatus === "MANUAL_VERIFIED"}
+                  onClick={() => adminAction.mutate("verify")}
+                >
+                  Verify destination
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={adminAction.isPending || verificationStatus === "REJECTED"}
+                  onClick={() => adminAction.mutate("reject")}
+                >
+                  Reject destination
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={adminAction.isPending || verificationStatus === "DISABLED"}
+                  onClick={() => adminAction.mutate("disable")}
+                >
+                  Disable destination
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={syncProvider.isPending}
+                  onClick={() => syncProvider.mutate()}
+                >
+                  Sync with Revolut
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={syncProvider.isPending}
+                  onClick={() => syncProvider.mutate()}
+                >
+                  Retry provider linkage
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={destination.provider_link_status !== "CONFLICT"}
+                  onClick={() => {
+                    toast.message("Review conflict", {
+                      description:
+                        "Multiple Revolut counterparties matched this bank destination. Resolve in Revolut Business before re-sync. No payment will be sent.",
+                    });
+                  }}
+                >
+                  Review conflict
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground pt-1">
+                Verify marks MANUAL_VERIFIED only. Sync attempts Revolut linkage (no payment). Never shows full sort code or account number.
+              </p>
             </div>
           ) : (
             <p className="text-destructive">

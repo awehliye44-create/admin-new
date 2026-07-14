@@ -55,6 +55,15 @@ verify_jwt = false
 [functions.admin-payout-batches]
 verify_jwt = false
 
+[functions.admin-weekly-payout-scheduler]
+verify_jwt = false
+
+[functions.admin-weekly-monday-settlement]
+verify_jwt = false
+
+[functions.admin-payout-ledger]
+verify_jwt = false
+
 [functions.admin-finance-settlement-summary]
 verify_jwt = false
 

@@ -108,6 +108,25 @@ function shortDate(value: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? '—' : format(date, 'dd MMM HH:mm');
 }
 
+/** Admin display for Slice 5+ — never show paid for execution-disabled batches. */
+function batchStatusDisplay(b: {
+  status: string;
+  status_label?: string | null;
+}): string {
+  if (b.status_label?.trim()) return b.status_label.trim();
+  if (String(b.status).toUpperCase() === 'BLOCKED_EXECUTION_DISABLED') {
+    return 'Execution disabled';
+  }
+  return b.status;
+}
+
+function itemStatusDisplay(status: string): string {
+  if (String(status).toUpperCase() === 'BLOCKED_EXECUTION_DISABLED') {
+    return 'Execution disabled';
+  }
+  return status;
+}
+
 function statementRecords(items: AdminPayoutLedgerItemRow[]) {
   return items.map((r) => ({
     batch_id: r.batch_id,
@@ -434,12 +453,15 @@ export default function PayoutLedger() {
                       scope: 'driver',
                       batch_id: b.id,
                       execution_time: b.created_at,
+                      occurrence: b.schedule_occurrence_key ?? b.scheduled_local_at ?? null,
+                      eligible_drivers: b.eligible_driver_count ?? b.total_drivers,
                       transfer_count: b.total_drivers,
-                      success_count: b.successful_payouts,
+                      success_count: b.paid_claim === false ? 0 : b.successful_payouts,
                       failed_count: b.failed_payouts,
                       provider: b.kind,
                       duration_ms: null,
-                      status: b.status,
+                      status: batchStatusDisplay(b),
+                      paid_claim: b.paid_claim ?? false,
                     })),
                   ]);
                 }}
@@ -491,12 +513,11 @@ export default function PayoutLedger() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Batch ID</TableHead>
-                      <TableHead>Execution Time</TableHead>
-                      <TableHead>Transfer Count</TableHead>
-                      <TableHead>Success Count</TableHead>
-                      <TableHead>Failed Count</TableHead>
-                      <TableHead>Provider</TableHead>
-                      <TableHead>Duration</TableHead>
+                      <TableHead>Occurrence</TableHead>
+                      <TableHead>Eligible</TableHead>
+                      <TableHead>Total</TableHead>
+                      <TableHead>Kind</TableHead>
+                      <TableHead>Paid claim</TableHead>
                       <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -504,13 +525,14 @@ export default function PayoutLedger() {
                     {batches.map((b) => (
                       <TableRow key={b.id}>
                         <TableCell className="text-xs font-mono">{b.id.slice(0, 8)}</TableCell>
-                        <TableCell className="text-xs">{shortDate(b.created_at)}</TableCell>
-                        <TableCell className="text-xs">{b.total_drivers ?? '—'}</TableCell>
-                        <TableCell className="text-xs">{b.successful_payouts ?? '—'}</TableCell>
-                        <TableCell className="text-xs">{b.failed_payouts ?? '—'}</TableCell>
+                        <TableCell className="text-xs font-mono max-w-[220px] truncate" title={b.schedule_occurrence_key ?? undefined}>
+                          {b.schedule_occurrence_key ?? b.scheduled_local_at ?? '—'}
+                        </TableCell>
+                        <TableCell className="text-xs">{b.eligible_driver_count ?? b.total_drivers ?? '—'}</TableCell>
+                        <TableCell className="text-xs">{formatNullablePence(b.total_amount_pence)}</TableCell>
                         <TableCell className="text-xs">{b.kind}</TableCell>
-                        <TableCell className="text-xs">—</TableCell>
-                        <TableCell className="text-xs"><Badge variant="outline">{b.status}</Badge></TableCell>
+                        <TableCell className="text-xs">{b.paid_claim ? 'Yes' : 'No'}</TableCell>
+                        <TableCell className="text-xs"><Badge variant="outline">{batchStatusDisplay(b)}</Badge></TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -623,10 +645,10 @@ export default function PayoutLedger() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Created</TableHead>
-                        <TableHead>Run date</TableHead>
+                        <TableHead>Occurrence</TableHead>
                         <TableHead>Kind</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead>Drivers</TableHead>
+                        <TableHead>Eligible</TableHead>
                         <TableHead>Total</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -634,10 +656,12 @@ export default function PayoutLedger() {
                       {batches.map((b) => (
                         <TableRow key={b.id}>
                           <TableCell className="text-xs">{shortDate(b.created_at)}</TableCell>
-                          <TableCell className="text-xs">{b.run_date}</TableCell>
+                          <TableCell className="text-xs font-mono max-w-[200px] truncate" title={b.schedule_occurrence_key ?? undefined}>
+                            {b.schedule_occurrence_key ?? b.scheduled_local_at ?? b.run_date}
+                          </TableCell>
                           <TableCell className="text-xs">{b.kind}</TableCell>
-                          <TableCell className="text-xs"><Badge variant="outline">{b.status}</Badge></TableCell>
-                          <TableCell className="text-xs">{b.total_drivers ?? '—'}</TableCell>
+                          <TableCell className="text-xs"><Badge variant="outline">{batchStatusDisplay(b)}</Badge></TableCell>
+                          <TableCell className="text-xs">{b.eligible_driver_count ?? b.total_drivers ?? '—'}</TableCell>
                           <TableCell className="text-xs">{formatNullablePence(b.total_amount_pence)}</TableCell>
                         </TableRow>
                       ))}
@@ -888,10 +912,10 @@ export default function PayoutLedger() {
                           <TableHeader>
                             <TableRow>
                               <TableHead>Created</TableHead>
-                              <TableHead>Run date</TableHead>
+                              <TableHead>Occurrence</TableHead>
                               <TableHead>Kind</TableHead>
                               <TableHead>Status</TableHead>
-                              <TableHead>Drivers</TableHead>
+                              <TableHead>Eligible</TableHead>
                               <TableHead>Total</TableHead>
                             </TableRow>
                           </TableHeader>
@@ -899,10 +923,12 @@ export default function PayoutLedger() {
                             {batches.map((b) => (
                               <TableRow key={b.id}>
                                 <TableCell className="text-xs">{shortDate(b.created_at)}</TableCell>
-                                <TableCell className="text-xs">{b.run_date}</TableCell>
+                                <TableCell className="text-xs font-mono max-w-[200px] truncate" title={b.schedule_occurrence_key ?? undefined}>
+                                  {b.schedule_occurrence_key ?? b.scheduled_local_at ?? b.run_date}
+                                </TableCell>
                                 <TableCell className="text-xs">{b.kind}</TableCell>
-                                <TableCell className="text-xs"><Badge variant="outline">{b.status}</Badge></TableCell>
-                                <TableCell className="text-xs">{b.total_drivers ?? '—'}</TableCell>
+                                <TableCell className="text-xs"><Badge variant="outline">{batchStatusDisplay(b)}</Badge></TableCell>
+                                <TableCell className="text-xs">{b.eligible_driver_count ?? b.total_drivers ?? '—'}</TableCell>
                                 <TableCell className="text-xs">{formatNullablePence(b.total_amount_pence)}</TableCell>
                               </TableRow>
                             ))}
@@ -981,7 +1007,7 @@ function PayoutItemsTable({
               <TableCell className="text-xs">{shortDate(row.paid_at)}</TableCell>
               <TableCell className="text-xs">{row.provider ?? '—'}</TableCell>
               <TableCell className="text-xs font-mono">{row.provider_payout_id?.slice(0, 12) ?? '—'}</TableCell>
-              <TableCell className="text-xs"><Badge variant="outline">{row.status}</Badge></TableCell>
+              <TableCell className="text-xs"><Badge variant="outline">{itemStatusDisplay(row.status)}</Badge></TableCell>
               <TableCell className="text-xs max-w-[160px] truncate">{row.failure_reason ?? '—'}</TableCell>
               <TableCell>
                 <div className="flex flex-wrap gap-1">

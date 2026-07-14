@@ -286,7 +286,7 @@ export function PayoutLedgerSettingsPanel({
           </div>
           <div className="space-y-1.5">
             <Label>Weekly payout day</Label>
-            <Select value={get('weekly_payout_day', 'monday')} onValueChange={(v) => set('weekly_payout_day', v)}>
+            <Select value={get('weekly_payout_day', 'tuesday')} onValueChange={(v) => set('weekly_payout_day', v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {DAYS.map((d) => (
@@ -374,7 +374,7 @@ export function PayoutLedgerSettingsPanel({
               <div className="space-y-1.5">
                 <Label>Weekly payout day</Label>
                 <Select
-                  value={saDraft.weekly_payout_day || get('weekly_payout_day', 'monday')}
+                  value={saDraft.weekly_payout_day || get('weekly_payout_day', 'tuesday')}
                   onValueChange={(v) => setSaDraft((d) => ({ ...d, weekly_payout_day: v }))}
                 >
                   <SelectTrigger><SelectValue /></SelectTrigger>
@@ -388,7 +388,7 @@ export function PayoutLedgerSettingsPanel({
               <div className="space-y-1.5">
                 <Label>Processing time ({tz})</Label>
                 <Select
-                  value={saDraft.payout_processing_time || get('payout_processing_time', '10:00')}
+                  value={saDraft.payout_processing_time || get('payout_processing_time', '12:00')}
                   onValueChange={(v) => setSaDraft((d) => ({ ...d, payout_processing_time: v }))}
                 >
                   <SelectTrigger><SelectValue /></SelectTrigger>

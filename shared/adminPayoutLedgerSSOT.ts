@@ -254,6 +254,17 @@ export type AdminPayoutLedgerBatchRow = {
   run_date: string;
   kind: string;
   status: string;
+  /** Human status for UI (e.g. "Execution disabled"). Falls back to status. */
+  status_label?: string | null;
+  schedule_occurrence_key?: string | null;
+  schedule_id?: string | null;
+  scheduled_local_at?: string | null;
+  scheduled_utc_at?: string | null;
+  timezone?: string | null;
+  currency?: string | null;
+  eligible_driver_count?: number | null;
+  /** Always false for Slice 5 blocked batches — never claim paid. */
+  paid_claim?: boolean;
   total_drivers: number | null;
   total_amount_pence: number | null;
   successful_payouts: number | null;

@@ -46,8 +46,8 @@ export type PayoutControlCentreDecision = {
 const DEFAULTS: PayoutControlCentreSettings = {
   payouts_enabled: true,
   payout_frequency: "weekly",
-  weekly_payout_day: "monday",
-  payout_processing_time: "10:00",
+  weekly_payout_day: "tuesday",
+  payout_processing_time: "12:00",
   payout_timezone: "Europe/London",
   payout_min_pence: 0,
   payout_max_pence: null,

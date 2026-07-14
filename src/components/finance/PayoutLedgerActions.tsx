@@ -50,8 +50,9 @@ export function PayoutLedgerCreateWeeklyBatchButton({
     setCreatingBatch(true);
     const perf = startAdminPerformanceStep({ action_name: 'admin_run_payouts' });
     try {
-      const { data, error } = await supabase.functions.invoke('admin-weekly-monday-settlement', {
+      const { data, error } = await supabase.functions.invoke('admin-weekly-payout-scheduler', {
         body: {
+          force: true,
           region_id: regionId,
           ...(serviceAreaId ? { service_area_id: serviceAreaId } : {}),
         },
@@ -62,9 +63,10 @@ export function PayoutLedgerCreateWeeklyBatchButton({
       const total = data?.total_amount_pence == null
         ? null
         : Number(data.total_amount_pence);
+      const statusLabel = String(data?.batch_status_label ?? data?.admin_status_label ?? data?.batch_status ?? '');
       toast.success(
         data?.batch_id
-          ? `Weekly batch created (${data.ready_count ?? 0} driver(s)${total == null ? '' : `, ${formatNullablePence(total, currencyCode)}`})`
+          ? `Weekly batch ${data.reused ? 'reused' : 'created'} (${data.eligible_driver_count ?? data.ready_count ?? 0} driver(s)${total == null ? '' : `, ${formatNullablePence(total, currencyCode)}`})${statusLabel ? ` — ${statusLabel}` : ''}`
           : 'Weekly settlement completed',
       );
       void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });

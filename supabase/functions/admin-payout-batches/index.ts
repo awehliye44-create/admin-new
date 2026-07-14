@@ -126,7 +126,7 @@ serve(async (req) => {
 
     let batchQuery = supabase
       .from('payout_batches')
-      .select('id,kind,run_date,status,total_drivers,total_amount_pence,successful_payouts,failed_payouts,notes,created_at,completed_at', { count: 'exact' })
+      .select('id,kind,run_date,status,total_drivers,total_amount_pence,successful_payouts,failed_payouts,notes,created_at,completed_at,schedule_occurrence_key,schedule_id,scheduled_local_at,scheduled_utc_at,timezone,currency,eligible_driver_count,service_area_id', { count: 'exact' })
       .order('created_at', { ascending: false });
 
     if (kind) batchQuery = batchQuery.eq('kind', kind);
@@ -155,7 +155,7 @@ serve(async (req) => {
     const batchIds = batches.map(b => b.id);
     const { data: allItems } = batchIds.length > 0 ? await supabase
       .from('payout_items')
-      .select('id,batch_id,driver_id,amount_pence,status,stripe_transfer_id,stripe_payout_id,error_message,created_at,completed_at,drivers:driver_id(first_name,last_name,region_id)')
+      .select('id,batch_id,driver_id,amount_pence,status,execution_status,stripe_transfer_id,stripe_payout_id,error_message,created_at,completed_at,payout_destination_id,provider_request_id,wallet_snapshot_available_pence,drivers:driver_id(first_name,last_name,region_id)')
       .in('batch_id', batchIds) : { data: [] };
 
     const filteredRegionDriverIds = regionId
@@ -177,15 +177,26 @@ serve(async (req) => {
         kind: batch.kind,
         runDate: batch.run_date,
         status: batch.status,
+        statusLabel: String(batch.status) === 'BLOCKED_EXECUTION_DISABLED'
+          ? 'Execution disabled'
+          : batch.status,
+        scheduleOccurrenceKey: batch.schedule_occurrence_key ?? null,
+        scheduleId: batch.schedule_id ?? null,
+        scheduledLocalAt: batch.scheduled_local_at ?? null,
+        scheduledUtcAt: batch.scheduled_utc_at ?? null,
+        timezone: batch.timezone ?? null,
+        currency: batch.currency ?? null,
+        eligibleDriverCount: batch.eligible_driver_count ?? batch.total_drivers,
+        paidClaim: false,
         totalDrivers: regionId ? batchItems.length : batch.total_drivers,
         totalAmount: regionId
           ? batchItems.reduce((sum: number, item: any) => sum + (item.amount_pence || 0), 0)
           : batch.total_amount_pence,
         successfulPayouts: regionId
-          ? batchItems.filter((item: any) => item.status === 'completed').length
+          ? batchItems.filter((item: any) => item.status === 'completed' || item.status === 'PAID').length
           : batch.successful_payouts,
         failedPayouts: regionId
-          ? batchItems.filter((item: any) => item.status === 'failed').length
+          ? batchItems.filter((item: any) => item.status === 'failed' || item.status === 'FAILED').length
           : batch.failed_payouts,
         notes: batch.notes,
         createdAt: batch.created_at,
@@ -195,9 +206,13 @@ serve(async (req) => {
           driverId: item.driver_id,
           driverName: item.drivers ? `${item.drivers.first_name} ${item.drivers.last_name}` : null,
           amount: item.amount_pence,
-          status: item.status,
+          status: item.execution_status || item.status,
+          statusLabel: String(item.execution_status || item.status) === 'BLOCKED_EXECUTION_DISABLED'
+            ? 'Execution disabled'
+            : (item.execution_status || item.status),
           stripeTransferId: item.stripe_transfer_id,
           stripePayoutId: item.stripe_payout_id,
+          providerPaymentId: null,
           errorMessage: item.error_message,
           createdAt: item.created_at,
           completedAt: item.completed_at,

@@ -3,11 +3,11 @@
  * Token values never belong in DTOs returned to the browser.
  */
 
-export const REVOLUT_BUSINESS_OAUTH_VERSION = "revolut_business_oauth_ssot_v2";
+export const REVOLUT_BUSINESS_OAUTH_VERSION = "revolut_business_oauth_ssot_v4";
 
 /**
  * LIVE payout / company-transfer execution gate.
- * Default false — READ / display only until explicitly enabled in env.
+ * Default false — OAuth may request PAY scope for consent, but execution stays off until env unlock.
  */
 export function parseLivePayoutExecutionEnabled(
   envGet?: (key: string) => string | undefined | null,
@@ -93,12 +93,69 @@ export const REVOLUT_BUSINESS_TOKEN_URL_PROD =
 export const REVOLUT_BUSINESS_AUTHORIZE_BASE =
   "https://business.revolut.com/app-confirm";
 
-/** Read-only consent — never request WRITE for this authorization path. */
-export const REVOLUT_BUSINESS_OAUTH_SCOPE = "READ";
+/**
+ * Revolut Business consent scopes for Connect (authorize URL).
+ * Official format is comma-separated (see Revolut Business API docs: scope=READ,WRITE,PAY).
+ * Requesting PAY grants payment permission after user consent — it does NOT unlock /pay execution
+ * while LIVE_PAYOUT_EXECUTION_ENABLED=false and the relay denylist remains.
+ */
+export const REVOLUT_BUSINESS_OAUTH_SCOPE = "READ,WRITE,PAY";
+
+/**
+ * Pre-consent / unknown default for linkage capability checks.
+ * Never pretends WRITE/PAY are granted; vault/env SCOPES_GRANTED overrides after real consent.
+ * Never use REVOLUT_BUSINESS_OAUTH_SCOPE (requested) as a stand-in for granted capabilities.
+ */
+export const REVOLUT_BUSINESS_OAUTH_SCOPE_GRANTED_DEFAULT = "READ";
+
+/** Vault + optional edge-secret names for scopes actually granted post-exchange. */
+export const REVOLUT_BUSINESS_OAUTH_SCOPES_GRANTED_VAULT_NAMES = [
+  "business_oauth_scopes_granted",
+  "REVOLUT_BUSINESS_OAUTH_SCOPES_GRANTED",
+] as const;
+
+/** Allowed OAuth consent scopes (Revolut Business). PAYMENT is normalized to PAY. */
+export const REVOLUT_BUSINESS_OAUTH_SCOPE_ALLOWED = ["READ", "WRITE", "PAY"] as const;
+
+/** Rejected on Connect / consent URLs (alias handled separately). */
+export const REVOLUT_BUSINESS_OAUTH_SCOPE_FORBIDDEN = [] as const;
+
+export function parseRevolutBusinessGrantedScopes(
+  raw: string | null | undefined,
+): string[] {
+  const parts = String(raw ?? "")
+    .split(/[,\s]+/)
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean)
+    .map((s) => (s === "PAYMENT" ? "PAY" : s));
+  const uniq: string[] = [];
+  for (const p of parts) {
+    if (!uniq.includes(p)) uniq.push(p);
+  }
+  return uniq;
+}
+
+export function normalizeRevolutBusinessOAuthScope(scope: string): string {
+  const uniq = parseRevolutBusinessGrantedScopes(scope);
+  const allowed = new Set<string>(REVOLUT_BUSINESS_OAUTH_SCOPE_ALLOWED);
+  for (const part of uniq) {
+    if (!allowed.has(part)) {
+      throw new Error(`Revolut Business OAuth must not request ${part}`);
+    }
+  }
+  if (uniq.length === 0) return REVOLUT_BUSINESS_OAUTH_SCOPE;
+  // Stable Revolut order when the Connect default set is present.
+  if (
+    uniq.includes("READ") && uniq.includes("WRITE") && uniq.includes("PAY") && uniq.length === 3
+  ) {
+    return REVOLUT_BUSINESS_OAUTH_SCOPE;
+  }
+  return uniq.join(",");
+}
 
 /** Live ONECAB Business API certificate Client ID (not legacy/deleted certs). */
 export const REVOLUT_BUSINESS_CLIENT_ID_EXPECTED =
-  "v_a022DFm2pSNoOagzFKKZB0Y3FWB0bKrIvBJBv5RTY";
+  "nxcWDqtt6QzxEnnXCUhOw4fr8C7E1wX1WdMv6chwQNI";
 
 /** Revolut production IP whitelist — Lightsail static egress. */
 export const REVOLUT_BUSINESS_RELAY_WHITELIST_IP = "63.186.194.116";
@@ -147,8 +204,13 @@ export type RevolutBusinessDiagnosticsDto = {
   token_expires_in_seconds: number | null;
   redirect_uri: string;
   jwt_iss: string;
+  /** Scopes requested on Connect authorize URL (includes PAY for consent; not an execution unlock). */
   oauth_scope: string;
+  /** Scopes actually granted after exchange — from vault/token; empty before consent. */
+  oauth_scopes_granted: string[];
   live_payout_execution_enabled: boolean;
+  /** Always true while LIVE=false / relay denylist — PAY consent ≠ payment execution. */
+  payment_execution_blocked: boolean;
   relay: RevolutBusinessRelayDiagnostics;
   egress_public_ip: string | null;
   egress_ip_fixed_proven: boolean;
@@ -173,7 +235,9 @@ export function buildRevolutBusinessAuthorizationUrl(args: {
   const clientId = String(args.clientId ?? "").trim();
   if (!clientId) throw new Error("client_id required");
   const redirectUri = String(args.redirectUri ?? resolveRevolutBusinessRedirectUri()).trim();
-  const scope = String(args.scope ?? REVOLUT_BUSINESS_OAUTH_SCOPE).trim() || REVOLUT_BUSINESS_OAUTH_SCOPE;
+  const scope = normalizeRevolutBusinessOAuthScope(
+    String(args.scope ?? REVOLUT_BUSINESS_OAUTH_SCOPE).trim() || REVOLUT_BUSINESS_OAUTH_SCOPE,
+  );
   const url = new URL(REVOLUT_BUSINESS_AUTHORIZE_BASE);
   url.searchParams.set("client_id", clientId);
   url.searchParams.set("redirect_uri", redirectUri);
