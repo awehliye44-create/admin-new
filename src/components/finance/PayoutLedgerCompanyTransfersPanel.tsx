@@ -570,10 +570,26 @@ export function PayoutLedgerCompanyTransfersPanel({
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled
-                        title="LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED=false"
+                        disabled={
+                          !LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED || actionMutation.isPending
+                        }
+                        title={
+                          LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
+                            ? 'Execute company transfer'
+                            : 'LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED=false'
+                        }
+                        onClick={() => {
+                          if (!LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED) return;
+                          actionMutation.mutate({
+                            action: 'execute',
+                            transfer_id: t.id,
+                            execute_live: true,
+                          });
+                        }}
                       >
-                        Execute (disabled)
+                        {LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
+                          ? 'Execute'
+                          : 'Execute (disabled)'}
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => void viewEvidence(t.id)}>
                         Evidence
@@ -1340,10 +1356,26 @@ export function PayoutLedgerCompanyTransfersPanel({
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled
-                      title="LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED=false"
+                      disabled={
+                        !LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED || actionMutation.isPending
+                      }
+                      title={
+                        LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
+                          ? 'Execute company transfer'
+                          : 'LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED=false'
+                      }
+                      onClick={() => {
+                        if (!LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED) return;
+                        actionMutation.mutate({
+                          action: 'execute',
+                          transfer_id: t.id,
+                          execute_live: true,
+                        });
+                      }}
                     >
-                      Execute
+                      {LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
+                        ? 'Execute'
+                        : 'Execute (disabled)'}
                     </Button>
                     {!['PAID', 'COMPLETED', 'CANCELLED', 'REVERTED'].includes(String(t.status)) && (
                       <Button

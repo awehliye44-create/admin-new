@@ -5,9 +5,12 @@ import {
   COMPANY_TRANSFER_GATE_REASON,
   evaluateCompanyTransferExecutionGate,
   evaluateCompanyTransferFundingGate,
+  parseAdminSettingEnabled,
   parseLiveCompanyTransferExecutionEnabled,
+  resolveLiveCompanyTransferExecutionEnabledFailClosed,
   SLICE11_PROOF,
   assertCompanyTransferSelfApprovalPolicy,
+  fundingSnapshotsMatchForExecution,
 } from "../companyTransferLifecycleSSOT";
 
 function unavailableSnapshot() {
@@ -38,6 +41,36 @@ describe("companyTransferLifecycleSSOT Slice 11", () => {
     expect(parseLiveCompanyTransferExecutionEnabled((k) =>
       k === "LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED" ? "true" : undefined
     )).toBe(true);
+  });
+
+  it("fail-closed live flag requires BOTH env and admin_settings", () => {
+    expect(parseAdminSettingEnabled("false")).toBe(false);
+    expect(parseAdminSettingEnabled("true")).toBe(true);
+    expect(resolveLiveCompanyTransferExecutionEnabledFailClosed({
+      env_enabled: true,
+      admin_settings_enabled: false,
+    })).toBe(false);
+    expect(resolveLiveCompanyTransferExecutionEnabledFailClosed({
+      env_enabled: false,
+      admin_settings_enabled: true,
+    })).toBe(false);
+    expect(resolveLiveCompanyTransferExecutionEnabledFailClosed({
+      env_enabled: true,
+      admin_settings_enabled: true,
+    })).toBe(true);
+  });
+
+  it("funding snapshot match never implied as skip-live authority (helper only)", () => {
+    const a = unavailableSnapshot();
+    const b = { ...a, capture_phase: "PRE_EXECUTION" as const };
+    expect(fundingSnapshotsMatchForExecution({
+      approval_snapshot: a,
+      pre_execution_snapshot: b,
+    })).toBe(true);
+    expect(fundingSnapshotsMatchForExecution({
+      approval_snapshot: a,
+      pre_execution_snapshot: null,
+    })).toBe(false);
   });
 
   it("blocks approval when reserve not configured — required proof codes", () => {

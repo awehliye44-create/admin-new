@@ -86,13 +86,35 @@ export type CompanyTransferGateReasonCode =
 export const LIVE_COMPANY_TRANSFER_EXECUTION_ENV =
   "LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED" as const;
 
-/** Default false — Slice 11 safety mode. */
+/** admin_settings mirror key — fail-closed AND with env (both must be true). */
+export const LIVE_COMPANY_TRANSFER_EXECUTION_SETTING_KEY =
+  "live_company_transfer_execution_enabled" as const;
+
+/** Default false — Slice 11 safety mode (env string must be exactly "true"). */
 export function parseLiveCompanyTransferExecutionEnabled(
   envGet?: (key: string) => string | undefined | null,
 ): boolean {
   const read = envGet ?? (() => undefined);
   const v = String(read(LIVE_COMPANY_TRANSFER_EXECUTION_ENV) ?? "").trim().toLowerCase();
   return v === "true";
+}
+
+/** Parse admin_settings.setting_value (string/boolean/json-ish) as strict true. */
+export function parseAdminSettingEnabled(raw: unknown): boolean {
+  const v = String(raw ?? "false").replace(/^"|"$/g, "").trim().toLowerCase();
+  return v === "true" || v === "1" || v === "yes";
+}
+
+/**
+ * Live company transfer execution — fail-closed.
+ * Requires BOTH edge env AND admin_settings mirror to be true.
+ * Either missing/false ⇒ disabled (Slice 11 default).
+ */
+export function resolveLiveCompanyTransferExecutionEnabledFailClosed(args: {
+  env_enabled: boolean;
+  admin_settings_enabled: boolean;
+}): boolean {
+  return args.env_enabled === true && args.admin_settings_enabled === true;
 }
 
 /** Actions that may mutate ledger cash / provider payments — blocked in Slice 11. */
@@ -341,6 +363,12 @@ export function isCompanyTransferMoneyMovingAction(action: string): boolean {
   return COMPANY_TRANSFER_MONEY_MOVING_ACTIONS.has(String(action ?? "").trim());
 }
 
+/**
+ * Evidence helper — compare approval vs pre-execution snapshots.
+ * Live provider revalidation is always authoritative; a historical match must
+ * NEVER skip the live gate. Full equality wiring is reserved for the live
+ * execution slice (not Slice 11).
+ */
 export function fundingSnapshotsMatchForExecution(args: {
   approval_snapshot: CompanyTransferFundingSnapshot | null | undefined;
   pre_execution_snapshot: CompanyTransferFundingSnapshot | null | undefined;
