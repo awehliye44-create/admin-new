@@ -5908,6 +5908,236 @@ export type Database = {
           },
         ]
       }
+      driver_payout_payment_intents: {
+        Row: {
+          amount_pence: number
+          claim_token: string | null
+          claimed_at: string | null
+          created_at: string
+          currency: string
+          driver_id: string
+          execution_status: string
+          id: string
+          idempotency_key: string
+          last_provider_sync_at: string | null
+          payment_reference: string | null
+          payout_destination_id: string
+          payout_item_id: string
+          provider: string
+          provider_completed_at: string | null
+          provider_counterparty_id: string
+          provider_created_at: string | null
+          provider_failure_code: string | null
+          provider_failure_reason_safe: string | null
+          provider_payment_id: string | null
+          provider_recipient_account_id: string
+          provider_request_id: string
+          provider_state: string | null
+          request_fingerprint: string
+          source_account_id: string
+          submission_evidence_redacted: Json
+          updated_at: string
+        }
+        Insert: {
+          amount_pence: number
+          claim_token?: string | null
+          claimed_at?: string | null
+          created_at?: string
+          currency?: string
+          driver_id: string
+          execution_status?: string
+          id?: string
+          idempotency_key: string
+          last_provider_sync_at?: string | null
+          payment_reference?: string | null
+          payout_destination_id: string
+          payout_item_id: string
+          provider?: string
+          provider_completed_at?: string | null
+          provider_counterparty_id: string
+          provider_created_at?: string | null
+          provider_failure_code?: string | null
+          provider_failure_reason_safe?: string | null
+          provider_payment_id?: string | null
+          provider_recipient_account_id: string
+          provider_request_id: string
+          provider_state?: string | null
+          request_fingerprint: string
+          source_account_id: string
+          submission_evidence_redacted?: Json
+          updated_at?: string
+        }
+        Update: {
+          amount_pence?: number
+          claim_token?: string | null
+          claimed_at?: string | null
+          created_at?: string
+          currency?: string
+          driver_id?: string
+          execution_status?: string
+          id?: string
+          idempotency_key?: string
+          last_provider_sync_at?: string | null
+          payment_reference?: string | null
+          payout_destination_id?: string
+          payout_item_id?: string
+          provider?: string
+          provider_completed_at?: string | null
+          provider_counterparty_id?: string
+          provider_created_at?: string | null
+          provider_failure_code?: string | null
+          provider_failure_reason_safe?: string | null
+          provider_payment_id?: string | null
+          provider_recipient_account_id?: string
+          provider_request_id?: string
+          provider_state?: string | null
+          request_fingerprint?: string
+          source_account_id?: string
+          submission_evidence_redacted?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      driver_payout_reservations: {
+        Row: {
+          amount_pence: number
+          consumed_at: string | null
+          created_at: string
+          currency: string
+          driver_id: string
+          failure_code: string | null
+          hold_ledger_entry_id: string | null
+          id: string
+          idempotency_key: string
+          metadata: Json
+          payout_batch_id: string
+          payout_item_id: string
+          release_reason: string | null
+          released_at: string | null
+          reservation_fingerprint: string
+          reservation_type: string
+          reserved_at: string | null
+          status: string
+          updated_at: string
+          wallet_account_id: string
+        }
+        Insert: {
+          amount_pence: number
+          consumed_at?: string | null
+          created_at?: string
+          currency?: string
+          driver_id: string
+          failure_code?: string | null
+          hold_ledger_entry_id?: string | null
+          id?: string
+          idempotency_key: string
+          metadata?: Json
+          payout_batch_id: string
+          payout_item_id: string
+          release_reason?: string | null
+          released_at?: string | null
+          reservation_fingerprint: string
+          reservation_type?: string
+          reserved_at?: string | null
+          status?: string
+          updated_at?: string
+          wallet_account_id: string
+        }
+        Update: {
+          amount_pence?: number
+          consumed_at?: string | null
+          created_at?: string
+          currency?: string
+          driver_id?: string
+          failure_code?: string | null
+          hold_ledger_entry_id?: string | null
+          id?: string
+          idempotency_key?: string
+          metadata?: Json
+          payout_batch_id?: string
+          payout_item_id?: string
+          release_reason?: string | null
+          released_at?: string | null
+          reservation_fingerprint?: string
+          reservation_type?: string
+          reserved_at?: string | null
+          status?: string
+          updated_at?: string
+          wallet_account_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_payout_reservations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_reservations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_payout_reservations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_payout_reservations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_payout_reservations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_payout_reservations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_reservations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_reservations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_reservations_payout_batch_id_fkey"
+            columns: ["payout_batch_id"]
+            isOneToOne: false
+            referencedRelation: "payout_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_reservations_payout_item_id_fkey"
+            columns: ["payout_item_id"]
+            isOneToOne: false
+            referencedRelation: "payout_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_presence: {
         Row: {
           accuracy_m: number | null
@@ -11391,17 +11621,26 @@ export type Database = {
           completed_at: string | null
           created_at: string
           created_by: string | null
+          currency: string | null
+          eligible_driver_count: number | null
           failed_at: string | null
           failed_payouts: number | null
           failure_code: string | null
           failure_reason: string | null
+          frequency: string | null
           id: string
           kind: string
           notes: string | null
           provider_response: Json | null
           run_date: string
+          schedule_id: string | null
+          schedule_occurrence_key: string | null
+          scheduled_local_at: string | null
+          scheduled_utc_at: string | null
+          service_area_id: string | null
           status: string
           successful_payouts: number | null
+          timezone: string | null
           total_amount_pence: number | null
           total_drivers: number | null
           updated_at: string
@@ -11410,17 +11649,26 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
+          currency?: string | null
+          eligible_driver_count?: number | null
           failed_at?: string | null
           failed_payouts?: number | null
           failure_code?: string | null
           failure_reason?: string | null
+          frequency?: string | null
           id?: string
           kind: string
           notes?: string | null
           provider_response?: Json | null
           run_date?: string
+          schedule_id?: string | null
+          schedule_occurrence_key?: string | null
+          scheduled_local_at?: string | null
+          scheduled_utc_at?: string | null
+          service_area_id?: string | null
           status?: string
           successful_payouts?: number | null
+          timezone?: string | null
           total_amount_pence?: number | null
           total_drivers?: number | null
           updated_at?: string
@@ -11429,17 +11677,26 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
+          currency?: string | null
+          eligible_driver_count?: number | null
           failed_at?: string | null
           failed_payouts?: number | null
           failure_code?: string | null
           failure_reason?: string | null
+          frequency?: string | null
           id?: string
           kind?: string
           notes?: string | null
           provider_response?: Json | null
           run_date?: string
+          schedule_id?: string | null
+          schedule_occurrence_key?: string | null
+          scheduled_local_at?: string | null
+          scheduled_utc_at?: string | null
+          service_area_id?: string | null
           status?: string
           successful_payouts?: number | null
+          timezone?: string | null
           total_amount_pence?: number | null
           total_drivers?: number | null
           updated_at?: string
@@ -11536,12 +11793,15 @@ export type Database = {
           commission_pct: number | null
           completed_at: string | null
           created_at: string
+          currency: string | null
           driver_amount_pence: number | null
           driver_id: string
           driver_paid_out_pence: number | null
           driver_stripe_account_id: string | null
+          eligibility_snapshot: Json | null
           error_message: string | null
           excluded_from_auto_allocation: boolean
+          execution_status: string | null
           failed_at: string | null
           failed_payout_amount_pence: number | null
           failure_code: string | null
@@ -11549,6 +11809,7 @@ export type Database = {
           gross_amount_pence: number | null
           gross_payable_pence: number | null
           id: string
+          idempotency_key: string | null
           ledger_entry_id: string | null
           ledger_sync_error: string | null
           manual_review_reason: string | null
@@ -11556,8 +11817,12 @@ export type Database = {
           net_driver_payout_pence: number | null
           onecab_fee_pence: number | null
           payment_id: string | null
+          payout_destination_id: string | null
           payout_type: string | null
+          provider_counterparty_id: string | null
+          provider_recipient_account_id: string | null
           provider_reference: string | null
+          provider_request_id: string | null
           provider_response: Json | null
           provider_status: string | null
           return_ledger_entry_id: string | null
@@ -11574,6 +11839,8 @@ export type Database = {
           wallet_after_pence: number | null
           wallet_before_pence: number | null
           wallet_recalculated_at: string | null
+          wallet_snapshot_available_pence: number | null
+          wallet_snapshot_balance_pence: number | null
         }
         Insert: {
           amount_pence: number
@@ -11584,12 +11851,15 @@ export type Database = {
           commission_pct?: number | null
           completed_at?: string | null
           created_at?: string
+          currency?: string | null
           driver_amount_pence?: number | null
           driver_id: string
           driver_paid_out_pence?: number | null
           driver_stripe_account_id?: string | null
+          eligibility_snapshot?: Json | null
           error_message?: string | null
           excluded_from_auto_allocation?: boolean
+          execution_status?: string | null
           failed_at?: string | null
           failed_payout_amount_pence?: number | null
           failure_code?: string | null
@@ -11597,6 +11867,7 @@ export type Database = {
           gross_amount_pence?: number | null
           gross_payable_pence?: number | null
           id?: string
+          idempotency_key?: string | null
           ledger_entry_id?: string | null
           ledger_sync_error?: string | null
           manual_review_reason?: string | null
@@ -11604,8 +11875,12 @@ export type Database = {
           net_driver_payout_pence?: number | null
           onecab_fee_pence?: number | null
           payment_id?: string | null
+          payout_destination_id?: string | null
           payout_type?: string | null
+          provider_counterparty_id?: string | null
+          provider_recipient_account_id?: string | null
           provider_reference?: string | null
+          provider_request_id?: string | null
           provider_response?: Json | null
           provider_status?: string | null
           return_ledger_entry_id?: string | null
@@ -11622,6 +11897,8 @@ export type Database = {
           wallet_after_pence?: number | null
           wallet_before_pence?: number | null
           wallet_recalculated_at?: string | null
+          wallet_snapshot_available_pence?: number | null
+          wallet_snapshot_balance_pence?: number | null
         }
         Update: {
           amount_pence?: number
@@ -11632,12 +11909,15 @@ export type Database = {
           commission_pct?: number | null
           completed_at?: string | null
           created_at?: string
+          currency?: string | null
           driver_amount_pence?: number | null
           driver_id?: string
           driver_paid_out_pence?: number | null
           driver_stripe_account_id?: string | null
+          eligibility_snapshot?: Json | null
           error_message?: string | null
           excluded_from_auto_allocation?: boolean
+          execution_status?: string | null
           failed_at?: string | null
           failed_payout_amount_pence?: number | null
           failure_code?: string | null
@@ -11645,6 +11925,7 @@ export type Database = {
           gross_amount_pence?: number | null
           gross_payable_pence?: number | null
           id?: string
+          idempotency_key?: string | null
           ledger_entry_id?: string | null
           ledger_sync_error?: string | null
           manual_review_reason?: string | null
@@ -11652,8 +11933,12 @@ export type Database = {
           net_driver_payout_pence?: number | null
           onecab_fee_pence?: number | null
           payment_id?: string | null
+          payout_destination_id?: string | null
           payout_type?: string | null
+          provider_counterparty_id?: string | null
+          provider_recipient_account_id?: string | null
           provider_reference?: string | null
+          provider_request_id?: string | null
           provider_response?: Json | null
           provider_status?: string | null
           return_ledger_entry_id?: string | null
@@ -11670,6 +11955,8 @@ export type Database = {
           wallet_after_pence?: number | null
           wallet_before_pence?: number | null
           wallet_recalculated_at?: string | null
+          wallet_snapshot_available_pence?: number | null
+          wallet_snapshot_balance_pence?: number | null
         }
         Relationships: [
           {
@@ -19632,6 +19919,15 @@ export type Database = {
       }
     }
     Functions: {
+      abort_driver_payout_submission_claim: {
+        Args: {
+          p_claim_token: string
+          p_failure_code?: string
+          p_failure_reason_safe?: string
+          p_payout_item_id: string
+        }
+        Returns: Json
+      }
       accept_ride_offer: {
         Args: {
           p_allow_customer_counter?: boolean
@@ -19970,6 +20266,14 @@ export type Database = {
           previous_device_id: string
         }[]
       }
+      claim_driver_payout_submission: {
+        Args: {
+          p_claim_token?: string
+          p_payout_item_id: string
+          p_source_account_id: string
+        }
+        Returns: Json
+      }
       claim_trip_negotiation: {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
@@ -20258,6 +20562,22 @@ export type Database = {
         }
         Returns: Json
       }
+      driver_wallet_active_reservation_pence: {
+        Args: { p_driver_id: string }
+        Returns: number
+      }
+      driver_wallet_available_for_payout_pence: {
+        Args: { p_driver_id: string }
+        Returns: number
+      }
+      driver_wallet_live_balance_pence: {
+        Args: { p_driver_id: string }
+        Returns: number
+      }
+      driver_wallet_other_holds_pence: {
+        Args: { p_driver_id: string }
+        Returns: number
+      }
       enrich_ride_offer_presets: { Args: { p_trip_id: string }; Returns: Json }
       ensure_trip_stops_for_assignment: {
         Args: { p_trip_id: string }
@@ -20294,6 +20614,21 @@ export type Database = {
       }
       finalize_driver_early_cashout_paid: {
         Args: { p_cashout_id: string }
+        Returns: Json
+      }
+      finalize_driver_payout_submission: {
+        Args: {
+          p_claim_token: string
+          p_evidence_redacted?: Json
+          p_execution_status: string
+          p_payout_item_id: string
+          p_provider_created_at?: string
+          p_provider_failure_code?: string
+          p_provider_failure_reason_safe?: string
+          p_provider_payment_id?: string
+          p_provider_state?: string
+          p_release_reservation?: boolean
+        }
         Returns: Json
       }
       finalize_negotiated_fare: {
@@ -21194,12 +21529,28 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      refresh_driver_wallet_reservation_cache: {
+        Args: { p_driver_id: string }
+        Returns: undefined
+      }
+      release_driver_payout_reservation: {
+        Args: {
+          p_payout_item_id?: string
+          p_release_reason?: string
+          p_reservation_id?: string
+        }
+        Returns: Json
+      }
       release_trip_negotiation_lock: {
         Args: { p_next_status?: string; p_trip_id: string }
         Returns: undefined
       }
       repair_user_stale_auth_identities: {
         Args: { _user_id: string }
+        Returns: Json
+      }
+      reserve_driver_payout_item: {
+        Args: { p_payout_item_id: string }
         Returns: Json
       }
       reset_auth_user_email_unconfirmed: {

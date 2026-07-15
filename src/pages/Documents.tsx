@@ -65,6 +65,8 @@ interface Document {
   rejection_reason: string | null;
   reviewed_at: string | null;
   created_at: string;
+  is_current: boolean;
+  superseded_by: string | null;
   driver?: {
     id: string;
     first_name: string;
@@ -72,6 +74,7 @@ interface Document {
     phone: string;
   } | null;
 }
+
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
   pending: { label: 'Pending Review', color: 'bg-yellow-100 text-yellow-700', icon: Clock },
@@ -86,6 +89,8 @@ export default function Documents() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [includeSuperseded, setIncludeSuperseded] = useState(false);
+
 
   // Only show active document types for filtering
   const DOCUMENT_TYPES = useMemo(() =>
@@ -105,9 +110,10 @@ export default function Documents() {
   const [isSaving, setIsSaving] = useState(false);
 
   const { data: documents = [], isLoading } = useQuery({
-    queryKey: ['documents-review'],
+    queryKey: ['documents-review', includeSuperseded],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // SSOT: default to current documents only. Superseded rows are historical.
+      let query = supabase
         .from('documents')
         .select(`
           *,
@@ -115,6 +121,11 @@ export default function Documents() {
         `)
         .order('created_at', { ascending: false });
 
+      if (!includeSuperseded) {
+        query = query.eq('is_current', true);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       return (data || []) as Document[];
     },
@@ -122,6 +133,7 @@ export default function Documents() {
   });
 
   const refreshData = () => queryClient.invalidateQueries({ queryKey: ['documents-review'] });
+
 
   const handleReview = async () => {
     if (!selectedDocument || !reviewStatus) {
@@ -309,10 +321,18 @@ export default function Documents() {
                   ))}
                 </SelectContent>
               </Select>
+              <Button
+                variant={includeSuperseded ? 'default' : 'outline'}
+                onClick={() => setIncludeSuperseded((v) => !v)}
+                title="Toggle to include superseded/historical document rows"
+              >
+                {includeSuperseded ? 'Hiding history' : 'Show history'}
+              </Button>
               <Button variant="outline" onClick={refreshData} disabled={isLoading}>
                 <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
                 Refresh
               </Button>
+
             </div>
           </CardHeader>
           <CardContent>
@@ -362,11 +382,19 @@ export default function Documents() {
                         <TableCell>{getDocumentTypeLabel(doc.document_type)}</TableCell>
                         <TableCell className="font-medium">{doc.document_name}</TableCell>
                         <TableCell>
-                          <Badge variant="outline" className={statusConfig.color}>
-                            <StatusIcon className="h-3 w-3 mr-1" />
-                            {statusConfig.label}
-                          </Badge>
+                          <div className="flex flex-col gap-1">
+                            <Badge variant="outline" className={statusConfig.color}>
+                              <StatusIcon className="h-3 w-3 mr-1" />
+                              Review: {statusConfig.label}
+                            </Badge>
+                            {!doc.is_current && (
+                              <Badge variant="outline" className="bg-zinc-100 text-zinc-700 text-xs">
+                                Superseded
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
+
                         <TableCell>
                           {doc.expiry_date ? (
                             <div className={`flex items-center gap-1 ${expired ? 'text-red-600' : expiringSoon ? 'text-orange-600' : ''}`}>
