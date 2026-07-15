@@ -516,7 +516,7 @@ export default function PayoutLedger() {
                       provider: b.kind,
                       duration_ms: null,
                       status: batchStatusDisplay(b),
-                      paid_claim: b.paid_claim ?? false,
+                      paid_claim: String(b.paid_claim ?? false),
                     })),
                   ]);
                 }}
