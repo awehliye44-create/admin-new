@@ -552,21 +552,23 @@ export function itemIdempotencyKey(occurrenceKey: string, driverId: string): str
   return `${occurrenceKey}:${driverId}`;
 }
 
+function getDenoEnv(): { get(key: string): string | undefined } {
+  const g = globalThis as { Deno?: { env: { get(k: string): string | undefined } } };
+  return g.Deno?.env ?? { get: () => undefined };
+}
+
 export function isLivePayoutExecutionEnabled(
-  env: { get(key: string): string | undefined } = typeof Deno !== "undefined"
-    ? Deno.env
-    : { get: () => undefined },
+  env: { get(key: string): string | undefined } = getDenoEnv(),
 ): boolean {
   return (env.get("LIVE_PAYOUT_EXECUTION_ENABLED") ?? "false").trim().toLowerCase() === "true";
 }
 
 export function isRevolutPaymentTransportEnabled(
-  env: { get(key: string): string | undefined } = typeof Deno !== "undefined"
-    ? Deno.env
-    : { get: () => undefined },
+  env: { get(key: string): string | undefined } = getDenoEnv(),
 ): boolean {
   return (env.get("REVOLUT_PAYMENT_TRANSPORT_ENABLED") ?? "false").trim().toLowerCase() === "true";
 }
+
 
 /** Slice 5 stops here when either gate is off. */
 export function shouldBlockExecutionDisabled(env?: {
