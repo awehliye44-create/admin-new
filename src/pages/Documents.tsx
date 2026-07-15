@@ -321,10 +321,18 @@ export default function Documents() {
                   ))}
                 </SelectContent>
               </Select>
+              <Button
+                variant={includeSuperseded ? 'default' : 'outline'}
+                onClick={() => setIncludeSuperseded((v) => !v)}
+                title="Toggle to include superseded/historical document rows"
+              >
+                {includeSuperseded ? 'Hiding history' : 'Show history'}
+              </Button>
               <Button variant="outline" onClick={refreshData} disabled={isLoading}>
                 <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
                 Refresh
               </Button>
+
             </div>
           </CardHeader>
           <CardContent>
