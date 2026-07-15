@@ -110,9 +110,10 @@ export default function Documents() {
   const [isSaving, setIsSaving] = useState(false);
 
   const { data: documents = [], isLoading } = useQuery({
-    queryKey: ['documents-review'],
+    queryKey: ['documents-review', includeSuperseded],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // SSOT: default to current documents only. Superseded rows are historical.
+      let query = supabase
         .from('documents')
         .select(`
           *,
@@ -120,6 +121,11 @@ export default function Documents() {
         `)
         .order('created_at', { ascending: false });
 
+      if (!includeSuperseded) {
+        query = query.eq('is_current', true);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       return (data || []) as Document[];
     },
@@ -127,6 +133,7 @@ export default function Documents() {
   });
 
   const refreshData = () => queryClient.invalidateQueries({ queryKey: ['documents-review'] });
+
 
   const handleReview = async () => {
     if (!selectedDocument || !reviewStatus) {
