@@ -60,12 +60,13 @@ describe("SLICE A/H — payout ledger never invents money", () => {
       driver_payout_reserved_pence: 0,
       approved_company_payables_pence: 0,
       operational_reserve_pence: 0,
+      classified_company_cash_pence: 10_000,
       status_code: "AVAILABLE",
     });
     expect(snap.provider_available_balance_pence).toBe(274);
     expect(snap.driver_liability_pence).toBe(1409);
     expect(snap.provider_available_balance_pence).not.toBe(snap.driver_liability_pence);
-    expect(snap.company_available_for_transfer_pence).toBe(0); // max(0, 274-1409)
+    expect(snap.company_available_for_transfer_pence).toBe(0); // max(0, min(eligible=0, …))
     expect(snap.sections?.provider_balance).toEqual({
       status: "AVAILABLE",
       amount_pence: 274,
@@ -85,10 +86,11 @@ describe("SLICE A/H — payout ledger never invents money", () => {
       driver_payout_reserved_pence: 0,
       approved_company_payables_pence: 0,
       operational_reserve_pence: 0,
+      classified_company_cash_pence: 251,
       status_code: "AVAILABLE",
     });
     expect(snap.provider_available_balance_pence).toBe(1660);
-    expect(snap.company_available_for_transfer_pence).toBe(251); // 1660 - 1409
+    expect(snap.company_available_for_transfer_pence).toBe(251); // min(251, 251)
     expect(snap.source_account_label).toContain("Other GBP");
   });
 
@@ -117,6 +119,7 @@ describe("SLICE A/H — payout ledger never invents money", () => {
       driver_payout_reserved_pence: 0,
       approved_company_payables_pence: 0,
       operational_reserve_pence: 0,
+      classified_company_cash_pence: 251,
     })).toBe(251);
   });
 
@@ -168,6 +171,7 @@ describe("SLICE A/H — payout ledger never invents money", () => {
       driver_payout_reserved_pence: 0,
       approved_company_payables_pence: 0,
       operational_reserve_pence: 0,
+      classified_company_cash_pence: 525,
       status_code: "AVAILABLE",
     });
     const zeroGbp = resolveCompanyBalanceSnapshot({
@@ -177,6 +181,7 @@ describe("SLICE A/H — payout ledger never invents money", () => {
       driver_payout_reserved_pence: 0,
       approved_company_payables_pence: 0,
       operational_reserve_pence: 0,
+      classified_company_cash_pence: 525,
       status_code: "AVAILABLE",
     });
     expect(main.provider_available_balance_pence).toBe(1934);
@@ -229,6 +234,7 @@ describe("SLICE A/H — payout ledger never invents money", () => {
       driver_liability_pence: null,
       driver_payout_reserved_pence: 0,
       operational_reserve_pence: 0,
+      classified_company_cash_pence: 251,
     })).toBeNull();
     // Fail-closed when operational reserve is NOT_CONFIGURED.
     expect(computeCompanyAvailableForTransferPence({
@@ -236,12 +242,14 @@ describe("SLICE A/H — payout ledger never invents money", () => {
       driver_liability_pence: 1409,
       driver_payout_reserved_pence: null,
       operational_reserve_pence: null,
+      classified_company_cash_pence: 251,
     })).toBeNull();
     expect(computeCompanyAvailableForTransferPence({
       provider_available_balance_pence: 1660,
       driver_liability_pence: 1409,
       driver_payout_reserved_pence: 1409,
       operational_reserve_pence: 0,
+      classified_company_cash_pence: 251,
     })).toBe(251);
   });
 

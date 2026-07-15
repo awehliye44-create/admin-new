@@ -5,12 +5,12 @@ import {
   computeNextWeeklyPayoutRun,
   resolvePayoutTimezone,
   zonedWallTimeToUtc,
-} from "../../../shared/payoutScheduleSSOT";
+} from "../payoutScheduleSSOT";
 import {
   computeCompanyAvailableForTransferPence,
   resolveCompanyBalanceSnapshot,
   COMPANY_BALANCE_ERROR,
-} from "../../../shared/companyBalanceSSOT";
+} from "../companyBalanceSSOT";
 
 describe("payout schedule SSOT", () => {
   it("builds Weekly Tuesday label from control-centre day", () => {

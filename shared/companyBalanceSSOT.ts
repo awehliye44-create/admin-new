@@ -2,7 +2,17 @@
  * Company Balance SSOT — company-owned money only.
  * Never consume Driver Wallet live/available/pending/debt.
  * Never invent provider cash as £0 when evidence is missing.
+ *
+ * Slice 10 final available uses safer transferable_base:
+ *   min(eligible_company_cash, classified_company_cash) − operational_reserve
+ * Unclassified / RECONCILIATION_REQUIRED cash is never transferable.
  */
+
+import {
+  computeEligibleCompanyCashPence,
+  computeFinalCompanyAvailablePence,
+  OPERATIONAL_RESERVE_ERROR,
+} from "./companyOperationalReserveSSOT.ts";
 
 export const COMPANY_BALANCE_ERROR = {
   SOURCE_UNAVAILABLE: "COMPANY_BALANCE_SOURCE_UNAVAILABLE",
@@ -128,17 +138,25 @@ export type CompanyBalanceSnapshot = {
   approved_company_payables_pence: number | null;
   operational_reserve_pence: number | null;
   /**
-   * Safe transferable amount (= ONECAB available company funds). Null when unknown
-   * or when operational reserve is NOT_CONFIGURED (fail-closed).
-   * Must never equal driver wallet liabilities.
-   * Must never be labelled as the full Revolut source-account balance.
+   * Safe transferable amount (= final_company_available_pence / ONECAB available).
+   * Null when unknown, operational reserve NOT_CONFIGURED, or classified cash missing.
+   * Must never equal driver wallet liabilities / source / unclassified residual.
    */
   company_available_for_transfer_pence: number | null;
   /**
-   * Provisional residual = source − liabilities − payables (− customer refund if set).
-   * Present even when operational reserve is NOT_CONFIGURED — never mislabelled as final.
+   * Alias of company_available_for_transfer_pence (Slice 10 naming).
+   * Present on snapshot for gate consumers; always equal when either set.
+   */
+  final_company_available_pence?: number | null;
+  /**
+   * Provisional residual = source − liabilities − payables (− customer refund if set)
+   * = eligible_company_cash. Present even when reserve NOT_CONFIGURED — never final.
    */
   company_available_before_operational_reserve_pence: number | null;
+  /** Slice 10: recognised classified funding only (excludes UNATTRIBUTED). */
+  classified_company_cash_pence?: number | null;
+  /** Slice 10: min(eligible, classified) before reserve deduction. */
+  transferable_base_pence?: number | null;
   /** @deprecated alias of approved_company_payables_pence */
   approved_payables_pending_pence: number | null;
   /** Whether provider cash covers protected driver liabilities. */
@@ -218,7 +236,7 @@ export function auditCompanyBalanceSourceCandidates(): CompanyBalanceSourceAudit
 }
 
 /**
- * Provisional residual before operational reserve (disclosure when reserve not configured):
+ * Provisional residual before operational reserve (= eligible_company_cash):
  *   max(0, revolut_source − liabilities − approved_payables − customer_refund)
  */
 export function computeCompanyAvailableBeforeOperationalReservePence(args: {
@@ -227,20 +245,18 @@ export function computeCompanyAvailableBeforeOperationalReservePence(args: {
   customer_refund_reserved_pence?: number | null;
   approved_company_payables_pence?: number | null;
 }): number | null {
-  if (args.provider_available_balance_pence == null) return null;
-  if (args.driver_liability_pence === null) return null;
-  const protectedSum = Math.max(0, Number(args.driver_liability_pence ?? 0))
-    + Math.max(0, Number(args.customer_refund_reserved_pence ?? 0))
-    + Math.max(0, Number(args.approved_company_payables_pence ?? 0));
-  return Math.max(0, args.provider_available_balance_pence - protectedSum);
+  return computeEligibleCompanyCashPence(args);
 }
 
 /**
- * ONECAB available company funds (authoritative, fail-closed):
- *   max(0, revolut_source − protected_driver_liabilities − operational_refund_reserve − approved_payables)
+ * ONECAB available company funds (authoritative, fail-closed — Slice 10):
+ *   eligible = max(0, source − liabilities − payables)
+ *   transferable_base = min(eligible, classified_company_cash)
+ *   final = max(0, transferable_base − operational_reserve)
  *
  * Active reserved payouts are already inside live liability — do NOT subtract again.
- * Unconfigured operational reserve (null) → null final available (NOT silent £0).
+ * Unconfigured operational reserve (null) → null (NOT silent £0).
+ * Missing classified cash → null (unclassified excluded from transferable).
  */
 export function computeCompanyAvailableForTransferPence(args: {
   provider_available_balance_pence: number | null;
@@ -250,20 +266,29 @@ export function computeCompanyAvailableForTransferPence(args: {
   customer_refund_reserved_pence?: number | null;
   approved_company_payables_pence?: number | null;
   operational_reserve_pence?: number | null;
+  /** Required Slice 10 — recognised net commission + other classified funding. */
+  classified_company_cash_pence?: number | null;
 }): number | null {
+  void args.driver_payout_reserved_pence;
   if (args.provider_available_balance_pence == null) return null;
-  // Explicit null = section query failed / unknown — do not invent £0 deductions.
   if (args.driver_liability_pence === null) return null;
-  // Fail-closed: missing reserve must not claim remaining cash is company-owned.
   if (args.operational_reserve_pence === null || args.operational_reserve_pence === undefined) {
     return null;
   }
-  void args.driver_payout_reserved_pence;
-  const protectedSum = Math.max(0, Number(args.driver_liability_pence ?? 0))
-    + Math.max(0, Number(args.customer_refund_reserved_pence ?? 0))
-    + Math.max(0, Number(args.approved_company_payables_pence ?? 0))
-    + Math.max(0, Number(args.operational_reserve_pence ?? 0));
-  return Math.max(0, args.provider_available_balance_pence - protectedSum);
+  if (args.classified_company_cash_pence == null) {
+    return null;
+  }
+  const eligible = computeEligibleCompanyCashPence({
+    provider_available_balance_pence: args.provider_available_balance_pence,
+    driver_liability_pence: args.driver_liability_pence,
+    customer_refund_reserved_pence: args.customer_refund_reserved_pence,
+    approved_company_payables_pence: args.approved_company_payables_pence,
+  });
+  return computeFinalCompanyAvailablePence({
+    eligible_company_cash_pence: eligible,
+    classified_company_cash_pence: args.classified_company_cash_pence,
+    operational_reserve_pence: args.operational_reserve_pence,
+  });
 }
 
 /** Provider cash covering protected driver liabilities (not company-transfer residual). */
@@ -391,6 +416,8 @@ export function resolveCompanyBalanceSnapshot(args?: {
   driver_payout_reserved_pence?: number | null;
   customer_refund_reserved_pence?: number | null;
   operational_reserve_pence?: number | null;
+  /** Slice 10 classified funding (excludes UNATTRIBUTED / RECONCILIATION_REQUIRED). */
+  classified_company_cash_pence?: number | null;
   provider_balance_is_stub?: boolean;
   status_code?: CompanyBalanceStatusCode | string | null;
   source_account_id?: string | null;
@@ -561,6 +588,7 @@ export function resolveCompanyBalanceSnapshot(args?: {
     customer_refund_reserved_pence: args?.customer_refund_reserved_pence,
     approved_company_payables_pence: approved,
   });
+  const classified = args?.classified_company_cash_pence ?? null;
   const available = computeCompanyAvailableForTransferPence({
     provider_available_balance_pence: provider,
     driver_liability_pence: args?.driver_liability_pence,
@@ -568,8 +596,13 @@ export function resolveCompanyBalanceSnapshot(args?: {
     customer_refund_reserved_pence: args?.customer_refund_reserved_pence,
     approved_company_payables_pence: approved,
     operational_reserve_pence: args?.operational_reserve_pence,
+    classified_company_cash_pence: classified,
   });
   const reserveMissing = args?.operational_reserve_pence == null;
+  const classifiedMissing = classified == null;
+  const transferableBase = !classifiedMissing && beforeReserve != null
+    ? Math.min(beforeReserve, classified)
+    : null;
 
   const sections = buildSections({
     currency,
@@ -585,7 +618,7 @@ export function resolveCompanyBalanceSnapshot(args?: {
       status: "NOT_CONFIGURED",
       amount_pence: null,
       currency,
-      reason_code: "OPERATIONAL_RESERVE_NOT_CONFIGURED",
+      reason_code: OPERATIONAL_RESERVE_ERROR.NOT_CONFIGURED,
     };
   }
   if (reserveMissing) {
@@ -593,7 +626,14 @@ export function resolveCompanyBalanceSnapshot(args?: {
       status: "UNAVAILABLE",
       amount_pence: null,
       currency,
-      reason_code: "OPERATIONAL_RESERVE_NOT_CONFIGURED",
+      reason_code: OPERATIONAL_RESERVE_ERROR.NOT_CONFIGURED,
+    };
+  } else if (classifiedMissing) {
+    sections.company_transfer_available = {
+      status: "UNAVAILABLE",
+      amount_pence: null,
+      currency,
+      reason_code: OPERATIONAL_RESERVE_ERROR.CLASSIFIED_CASH_UNAVAILABLE,
     };
   }
 
@@ -620,7 +660,10 @@ export function resolveCompanyBalanceSnapshot(args?: {
     approved_company_payables_pence: approved,
     operational_reserve_pence: args?.operational_reserve_pence ?? null,
     company_available_for_transfer_pence: available,
+    final_company_available_pence: available,
     company_available_before_operational_reserve_pence: beforeReserve,
+    classified_company_cash_pence: classified,
+    transferable_base_pence: transferableBase,
     approved_payables_pending_pence: approved,
     ...fundingFields(provider, args?.driver_liability_pence ?? null),
     evidence_status: "CONFIRMED",
@@ -657,12 +700,28 @@ export function assertCompanyTransferFundingAvailable(args: {
   if (source !== "COMPANY_BALANCE" && source !== "APPROVED_COMPANY_PAYABLE") {
     throw new Error(COMPANY_BALANCE_ERROR.FUNDING_UNAVAILABLE);
   }
-  if (args.company_balance.status === "UNAVAILABLE"
-    || args.company_balance.company_available_for_transfer_pence == null) {
+  // Slice 10: only final_company_available / company_available_for_transfer (never source/gross).
+  const finalAvailable = args.company_balance.final_company_available_pence
+    ?? args.company_balance.company_available_for_transfer_pence;
+  if (args.company_balance.status === "UNAVAILABLE" || finalAvailable == null) {
+    const reserveReason = args.company_balance.sections?.company_transfer_available?.reason_code
+      ?? args.company_balance.sections?.operational_reserve?.reason_code
+      ?? null;
+    // Surface reserve-gate codes; other unavailable reasons collapse to FUNDING_UNAVAILABLE.
+    if (
+      reserveReason
+      && (
+        reserveReason.startsWith("OPERATIONAL_RESERVE_")
+        || reserveReason === OPERATIONAL_RESERVE_ERROR.CLASSIFIED_CASH_UNAVAILABLE
+        || reserveReason === OPERATIONAL_RESERVE_ERROR.TRANSFER_BLOCKED
+      )
+    ) {
+      throw new Error(reserveReason);
+    }
     throw new Error(COMPANY_BALANCE_ERROR.FUNDING_UNAVAILABLE);
   }
   const amount = args.amount_pence == null ? null : Number(args.amount_pence);
-  if (amount != null && amount > args.company_balance.company_available_for_transfer_pence) {
+  if (amount != null && amount > finalAvailable) {
     throw new Error(COMPANY_BALANCE_ERROR.FUNDING_UNAVAILABLE);
   }
 }

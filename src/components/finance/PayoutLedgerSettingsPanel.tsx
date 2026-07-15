@@ -20,6 +20,13 @@ import {
 import { toast } from 'sonner';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { DriverSelector } from '@/components/finance/DriverSelector';
+import {
+  RESERVE_MODE,
+  RESERVE_POLICY_STATUS,
+  validateReservePolicyDraft,
+  type ReserveMode,
+  type ReservePolicyStatus,
+} from '../../../shared/companyOperationalReserveSSOT';
 
 const SETTING_KEYS = [
   'payouts_enabled',
@@ -166,38 +173,102 @@ export function PayoutLedgerSettingsPanel({
     if (settings) setDraft(settings);
   }, [settings]);
 
-  const { data: reserveRow } = useQuery({
-    queryKey: ['company-operational-refund-reserve'],
+  type ReserveRow = {
+    id: string;
+    service_area_id: string | null;
+    currency: string;
+    reserve_mode: ReserveMode;
+    reserve_amount_pence: number | null;
+    reserve_percentage_bps: number | null;
+    minimum_reserve_pence: number | null;
+    effective_from: string | null;
+    effective_to: string | null;
+    status: ReservePolicyStatus;
+    audit_note: string | null;
+    updated_at: string;
+  };
+
+  const { data: reservePolicies = [], refetch: refetchReserves } = useQuery({
+    queryKey: ['company-operational-refund-reserves', serviceFilter.serviceAreaId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('admin_settings')
-        .select('setting_key, setting_value')
-        .eq('setting_key', 'company_operational_refund_reserve')
-        .maybeSingle();
+      let q = supabase
+        .from('company_operational_refund_reserves')
+        .select('*')
+        .order('updated_at', { ascending: false })
+        .limit(20);
+      if (serviceFilter.serviceAreaId) {
+        q = q.or(`service_area_id.eq.${serviceFilter.serviceAreaId},service_area_id.is.null`);
+      }
+      const { data, error } = await q;
       if (error) throw error;
-      return data;
+      return (data ?? []) as ReserveRow[];
     },
-    staleTime: 30_000,
+    staleTime: 15_000,
   });
-  const [reserveDraft, setReserveDraft] = useState('');
-  const [reserveConfigured, setReserveConfigured] = useState(false);
+
+  const activeReserve = reservePolicies.find((r) => r.status === 'ACTIVE') ?? null;
+  const draftReserve = reservePolicies.find((r) => r.status === 'DRAFT') ?? null;
+  const currentReserve = activeReserve ?? draftReserve ?? reservePolicies[0] ?? null;
+
+  const [reserveMode, setReserveMode] = useState<ReserveMode>(RESERVE_MODE.FIXED_AMOUNT);
+  const [reserveAmount, setReserveAmount] = useState('');
+  const [reserveBps, setReserveBps] = useState('');
+  const [reserveMinimum, setReserveMinimum] = useState('0');
+  const [reserveEffectiveFrom, setReserveEffectiveFrom] = useState(
+    () => new Date().toISOString().slice(0, 10),
+  );
+  const [reserveAuditNote, setReserveAuditNote] = useState('');
+
   useEffect(() => {
-    if (!reserveRow?.setting_value) {
-      setReserveDraft('');
-      setReserveConfigured(false);
+    if (!currentReserve) {
+      setReserveMode(RESERVE_MODE.FIXED_AMOUNT);
+      setReserveAmount('');
+      setReserveBps('');
+      setReserveMinimum('0');
       return;
     }
-    try {
-      const raw = reserveRow.setting_value;
-      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      const configured = Boolean(parsed?.configured);
-      setReserveConfigured(configured);
-      setReserveDraft(configured && parsed?.amount_pence != null ? String(parsed.amount_pence) : '');
-    } catch {
-      setReserveConfigured(false);
-      setReserveDraft('');
+    setReserveMode(currentReserve.reserve_mode);
+    setReserveAmount(
+      currentReserve.reserve_amount_pence != null ? String(currentReserve.reserve_amount_pence) : '',
+    );
+    setReserveBps(
+      currentReserve.reserve_percentage_bps != null
+        ? String(currentReserve.reserve_percentage_bps)
+        : '',
+    );
+    setReserveMinimum(String(currentReserve.minimum_reserve_pence ?? 0));
+    if (currentReserve.effective_from) {
+      setReserveEffectiveFrom(String(currentReserve.effective_from).slice(0, 10));
     }
-  }, [reserveRow]);
+    setReserveAuditNote(currentReserve.audit_note ?? '');
+  }, [currentReserve?.id, currentReserve?.updated_at]);
+
+  const invalidateReserveQueries = () => {
+    void queryClient.invalidateQueries({ queryKey: ['company-operational-refund-reserves'] });
+    void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
+    void refetchReserves();
+  };
+
+  async function writeReserveAudit(args: {
+    reserve_id: string | null;
+    action: string;
+    from_status: string | null;
+    to_status: string | null;
+    payload: Record<string, unknown>;
+    note?: string;
+  }) {
+    const { data: auth } = await supabase.auth.getUser();
+    await supabase.from('company_operational_reserve_audit').insert({
+      reserve_id: args.reserve_id,
+      action: args.action,
+      actor_id: auth.user?.id ?? null,
+      from_status: args.from_status,
+      to_status: args.to_status,
+      payload: args.payload,
+      note: args.note ?? 'Config only — no money movement',
+      money_moved: false,
+    });
+  }
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -214,45 +285,175 @@ export function PayoutLedgerSettingsPanel({
     onError: (err: Error) => toast.error(err.message),
   });
 
-  const reserveSave = useMutation({
+  const reserveSaveDraft = useMutation({
     mutationFn: async () => {
-      const amount = reserveDraft.trim() === '' ? null : Number(reserveDraft);
-      if (amount != null && (!Number.isFinite(amount) || amount < 0)) {
-        throw new Error('Reserve amount must be a non-negative integer pence value');
-      }
-      if (amount == null) {
-        const { error } = await supabase
-          .from('admin_settings')
-          .delete()
-          .eq('setting_key', 'company_operational_refund_reserve');
-        if (error) throw error;
-        return;
-      }
+      const currency = (serviceFilter.currencyCode ?? 'GBP').toUpperCase();
+      const amountPence = reserveAmount.trim() === '' ? null : Number(reserveAmount);
+      const bps = reserveBps.trim() === '' ? null : Number(reserveBps);
+      const minimum = reserveMinimum.trim() === '' ? 0 : Number(reserveMinimum);
+      const validated = validateReservePolicyDraft({
+        reserve_mode: reserveMode,
+        reserve_amount_pence: amountPence,
+        reserve_percentage_bps: bps,
+        minimum_reserve_pence: minimum,
+        currency,
+      });
+      if (!validated.ok) throw new Error(validated.message);
+
       const payload = {
-        configured: true,
-        amount_pence: Math.round(amount),
-        percent_bps: null,
-        currency: 'GBP',
         service_area_id: serviceFilter.serviceAreaId,
-        effective_from: new Date().toISOString().slice(0, 10),
-        audit_note: 'Configured via Payout Ledger settings (no money movement)',
+        currency,
+        reserve_mode: reserveMode,
+        reserve_amount_pence: reserveMode === RESERVE_MODE.FIXED_AMOUNT
+          ? Math.round(Number(amountPence))
+          : null,
+        reserve_percentage_bps: reserveMode === RESERVE_MODE.PERCENTAGE
+          ? Math.round(Number(bps))
+          : null,
+        minimum_reserve_pence: Math.round(minimum),
+        effective_from: new Date(`${reserveEffectiveFrom}T00:00:00.000Z`).toISOString(),
+        effective_to: null as string | null,
+        status: RESERVE_POLICY_STATUS.DRAFT,
+        audit_note: reserveAuditNote.trim()
+          || 'Draft via Payout Ledger settings (no money movement)',
+        updated_at: new Date().toISOString(),
       };
-      const { error } = await supabase.from('admin_settings').upsert(
-        {
-          setting_key: 'company_operational_refund_reserve',
-          setting_value: payload as unknown as string,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'setting_key' },
-      );
+
+      if (draftReserve?.id) {
+        const { error } = await supabase
+          .from('company_operational_refund_reserves')
+          .update(payload)
+          .eq('id', draftReserve.id)
+          .eq('status', 'DRAFT');
+        if (error) throw error;
+        await writeReserveAudit({
+          reserve_id: draftReserve.id,
+          action: 'UPDATE_DRAFT',
+          from_status: 'DRAFT',
+          to_status: 'DRAFT',
+          payload,
+        });
+        return draftReserve.id;
+      }
+
+      const { data: inserted, error } = await supabase
+        .from('company_operational_refund_reserves')
+        .insert(payload)
+        .select('id')
+        .single();
       if (error) throw error;
+      await writeReserveAudit({
+        reserve_id: inserted.id,
+        action: 'SAVE_DRAFT',
+        from_status: null,
+        to_status: 'DRAFT',
+        payload,
+      });
+      return inserted.id as string;
     },
     onSuccess: () => {
-      toast.success('Operational reserve setting saved (no money moved)');
-      void queryClient.invalidateQueries({ queryKey: ['company-operational-refund-reserve'] });
-      void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
+      toast.success('Reserve draft saved (no money moved)');
+      invalidateReserveQueries();
     },
     onError: (err: Error) => toast.error(err.message),
+  });
+
+  const reserveActivate = useMutation({
+    mutationFn: async () => {
+      const targetId = draftReserve?.id ?? currentReserve?.id;
+      if (!targetId) throw new Error('Save a draft before activating');
+      const confirmed = window.confirm(
+        'Activate this Operational / Refund Reserve policy?\n\n'
+          + 'This unlocks ONECAB Available Company Funds using the safer transferable base. '
+          + 'It does NOT move money, create reservations, or execute transfers.',
+      );
+      if (!confirmed) throw new Error('Activation cancelled');
+
+      // Demote any other ACTIVE for same SA+currency first (unique index).
+      if (activeReserve && activeReserve.id !== targetId) {
+        const { error: disableErr } = await supabase
+          .from('company_operational_refund_reserves')
+          .update({
+            status: 'DISABLED',
+            disabled_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', activeReserve.id);
+        if (disableErr) throw disableErr;
+        await writeReserveAudit({
+          reserve_id: activeReserve.id,
+          action: 'DISABLE',
+          from_status: 'ACTIVE',
+          to_status: 'DISABLED',
+          payload: { reason: 'replaced_by_activation' },
+        });
+      }
+
+      const { data: auth } = await supabase.auth.getUser();
+      const { error } = await supabase
+        .from('company_operational_refund_reserves')
+        .update({
+          status: 'ACTIVE',
+          approved_by: auth.user?.id ?? null,
+          activated_at: new Date().toISOString(),
+          disabled_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', targetId);
+      if (error) throw error;
+      await writeReserveAudit({
+        reserve_id: targetId,
+        action: 'ACTIVATE',
+        from_status: draftReserve?.status ?? currentReserve?.status ?? null,
+        to_status: 'ACTIVE',
+        payload: { confirmed: true },
+        note: 'Explicit activation confirmation — no money movement',
+      });
+    },
+    onSuccess: () => {
+      toast.success('Reserve activated (config only — no money moved)');
+      invalidateReserveQueries();
+    },
+    onError: (err: Error) => {
+      if (err.message !== 'Activation cancelled') toast.error(err.message);
+    },
+  });
+
+  const reserveDisable = useMutation({
+    mutationFn: async () => {
+      const targetId = activeReserve?.id ?? currentReserve?.id;
+      if (!targetId) throw new Error('No reserve policy to disable');
+      const confirmed = window.confirm(
+        'Disable this reserve policy?\n\n'
+          + 'Final ONECAB Available funds will return to UNAVAILABLE (fail-closed). '
+          + 'No money is moved.',
+      );
+      if (!confirmed) throw new Error('Disable cancelled');
+      const from = activeReserve?.status ?? currentReserve?.status ?? null;
+      const { error } = await supabase
+        .from('company_operational_refund_reserves')
+        .update({
+          status: 'DISABLED',
+          disabled_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', targetId);
+      if (error) throw error;
+      await writeReserveAudit({
+        reserve_id: targetId,
+        action: 'DISABLE',
+        from_status: from,
+        to_status: 'DISABLED',
+        payload: { confirmed: true },
+      });
+    },
+    onSuccess: () => {
+      toast.success('Reserve disabled — final available UNAVAILABLE (no money moved)');
+      invalidateReserveQueries();
+    },
+    onError: (err: Error) => {
+      if (err.message !== 'Disable cancelled') toast.error(err.message);
+    },
   });
 
   const cashoutMutation = useMutation({
@@ -667,33 +868,131 @@ export function PayoutLedgerSettingsPanel({
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-xs text-muted-foreground">
-            Configuring this setting does not move money. Absence leaves ONECAB Available Company Funds
-            UNAVAILABLE (fail-closed) and shows provisional residual under Before Operational Reserve.
-            Explicit amount £0.00 is a deliberate zero-reserve policy.
+            Backend SSOT only — configuration never moves money. Until an ACTIVE policy exists,
+            reserve is OPERATIONAL_RESERVE_NOT_CONFIGURED and final Available stays UNAVAILABLE
+            (fail-closed). Unclassified residual cash is never transferable.
           </p>
-          <div className="space-y-1.5 max-w-sm">
-            <Label>Reserve amount (pence, GBP)</Label>
-            <Input
-              type="number"
-              min={0}
-              value={reserveDraft}
-              onChange={(e) => setReserveDraft(e.target.value)}
-              placeholder="Leave empty = NOT_CONFIGURED"
-            />
+          <div className="text-xs font-mono rounded-md border p-2 space-y-1">
+            <div>
+              Gate:{' '}
+              {activeReserve
+                ? `ACTIVE · ${activeReserve.reserve_mode} · ${activeReserve.currency}`
+                : 'OPERATIONAL_RESERVE_NOT_CONFIGURED'}
+            </div>
+            {currentReserve ? (
+              <div>
+                Latest: {currentReserve.status} · id {currentReserve.id.slice(0, 8)}…
+                {currentReserve.reserve_mode === 'FIXED_AMOUNT'
+                  ? ` · ${currentReserve.reserve_amount_pence ?? 0}p`
+                  : ` · ${currentReserve.reserve_percentage_bps ?? 0} bps (min ${currentReserve.minimum_reserve_pence ?? 0}p)`}
+              </div>
+            ) : (
+              <div>No draft/active/disabled row for this service area yet.</div>
+            )}
           </div>
-          <div className="text-xs font-mono text-muted-foreground">
-            Current: {reserveConfigured
-              ? `${reserveDraft || '0'} pence (configured)`
-              : 'OPERATIONAL_RESERVE_NOT_CONFIGURED'}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Reserve type</Label>
+              <Select
+                value={reserveMode}
+                onValueChange={(v) => setReserveMode(v as ReserveMode)}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={RESERVE_MODE.FIXED_AMOUNT}>Fixed amount (pence)</SelectItem>
+                  <SelectItem value={RESERVE_MODE.PERCENTAGE}>Percentage of eligible cash</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Currency / service area</Label>
+              <div className="text-sm font-mono pt-2">
+                {(serviceFilter.currencyCode ?? 'GBP').toUpperCase()}
+                {serviceFilter.serviceAreaId
+                  ? ` · SA ${serviceFilter.serviceAreaId.slice(0, 8)}…`
+                  : ' · (select a service area)'}
+              </div>
+            </div>
+            {reserveMode === RESERVE_MODE.FIXED_AMOUNT ? (
+              <div className="space-y-1.5">
+                <Label>Reserve amount (pence)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={reserveAmount}
+                  onChange={(e) => setReserveAmount(e.target.value)}
+                  placeholder="e.g. 1"
+                />
+              </div>
+            ) : (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Reserve percentage (bps)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={reserveBps}
+                    onChange={(e) => setReserveBps(e.target.value)}
+                    placeholder="1000 = 10%"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Minimum reserve (pence)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={reserveMinimum}
+                    onChange={(e) => setReserveMinimum(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
+            <div className="space-y-1.5">
+              <Label>Effective from</Label>
+              <Input
+                type="date"
+                value={reserveEffectiveFrom}
+                onChange={(e) => setReserveEffectiveFrom(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>Audit note (optional)</Label>
+              <Input
+                value={reserveAuditNote}
+                onChange={(e) => setReserveAuditNote(e.target.value)}
+                placeholder="Config only — no money movement"
+              />
+            </div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={reserveSave.isPending}
-            onClick={() => reserveSave.mutate()}
-          >
-            {reserveSave.isPending ? 'Saving…' : 'Save reserve setting'}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={reserveSaveDraft.isPending || !serviceFilter.serviceAreaId}
+              onClick={() => reserveSaveDraft.mutate()}
+            >
+              {reserveSaveDraft.isPending ? 'Saving…' : 'Save draft'}
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              disabled={reserveActivate.isPending || (!draftReserve && !currentReserve)}
+              onClick={() => reserveActivate.mutate()}
+            >
+              {reserveActivate.isPending ? 'Activating…' : 'Activate'}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={reserveDisable.isPending || (!activeReserve && !currentReserve)}
+              onClick={() => reserveDisable.mutate()}
+            >
+              {reserveDisable.isPending ? 'Disabling…' : 'Disable'}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

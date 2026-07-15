@@ -141,7 +141,8 @@ describe("post-Slice-8 payout ledger company funding SSOT", () => {
       }),
     ).toBeNull();
 
-    // Configured reserve £0 is an explicit policy — final available = £5.25.
+    // Slice 10: ACTIVE reserve £0 + classified net commission → final = £1.72
+    // (unclassified £3.53 excluded from transferable_base).
     expect(
       computeCompanyAvailableForTransferPence({
         provider_available_balance_pence: REVOLUT_SOURCE_PENCE,
@@ -149,8 +150,9 @@ describe("post-Slice-8 payout ledger company funding SSOT", () => {
         driver_payout_reserved_pence: EXPECTED_RESERVED_PENCE,
         approved_company_payables_pence: 0,
         operational_reserve_pence: 0,
+        classified_company_cash_pence: EXPECTED_NET_COMMISSION_PENCE,
       }),
-    ).toBe(EXPECTED_AVAILABLE_PENCE);
+    ).toBe(EXPECTED_NET_COMMISSION_PENCE);
   });
 
   it("derives unclassified company cash as before_reserve − net commission (353)", () => {
@@ -164,12 +166,13 @@ describe("post-Slice-8 payout ledger company funding SSOT", () => {
     expect(unclassified?.amount_pence).toBe(EXPECTED_OTHER_COMPANY_CASH_PENCE);
     expect(unclassified?.label).toBe("Unclassified Company Cash");
     expect(unclassified?.status).toBe("RECONCILIATION_REQUIRED");
-    expect(unclassified?.amount_pence).not.toBe(EXPECTED_AVAILABLE_PENCE);
     expect(computeOtherCompanyOwnedCashPence({
       company_available_before_operational_reserve_pence: EXPECTED_AVAILABLE_PENCE,
       classified_sources: audit.filter((r) => r.kind !== "UNATTRIBUTED_CASH"),
       onecab_net_commission_available_pence: EXPECTED_NET_COMMISSION_PENCE,
     })).toBe(EXPECTED_OTHER_COMPANY_CASH_PENCE);
+    // £5.25 must appear only once as before-reserve — not duplicated as unclassified.
+    expect(unclassified?.amount_pence).not.toBe(EXPECTED_AVAILABLE_PENCE);
   });
 
   it("fail-closed: no unclassified residue when Payment Sessions net commission missing", () => {
@@ -177,6 +180,7 @@ describe("post-Slice-8 payout ledger company funding SSOT", () => {
       company_available_before_operational_reserve_pence: EXPECTED_AVAILABLE_PENCE,
       onecab_net_commission_available_pence: null,
     });
+    expect(audit.find((r) => r.kind === "NET_COMMISSION")).toBeUndefined();
     expect(audit.find((r) => r.kind === "UNATTRIBUTED_CASH")).toBeUndefined();
     expect(computeOtherCompanyOwnedCashPence({
       company_available_before_operational_reserve_pence: EXPECTED_AVAILABLE_PENCE,
