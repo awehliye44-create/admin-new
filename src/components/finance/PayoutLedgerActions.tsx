@@ -94,6 +94,100 @@ export function PayoutLedgerCreateWeeklyBatchButton({
   );
 }
 
+/** Slice 7 — submit RESERVED item to Revolut Business via validated payment transport. */
+export function PayoutLedgerSubmitProviderButton({
+  payoutItemId,
+  amountPence,
+  currencyCode = 'GBP',
+  driverLabel,
+  disabled = false,
+}: {
+  payoutItemId: string;
+  amountPence: number | null;
+  currencyCode?: string;
+  driverLabel?: string;
+  disabled?: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const submitTimeout = useCriticalButtonTimeout({
+    action: 'admin_submit_driver_payout_payment',
+    isPending: submitting,
+    onTimeout: () => {
+      setSubmitting(false);
+      toast.error(CRITICAL_BUTTON_TIMEOUT_MESSAGE);
+    },
+  });
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    const perf = startAdminPerformanceStep({
+      action_name: 'admin_submit_driver_payout_payment',
+      metadata: { payout_item_id: payoutItemId },
+    });
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-submit-driver-payout-payment', {
+        body: {
+          payout_item_id: payoutItemId,
+          confirm_submit: true,
+        },
+      });
+      if (error) throw error;
+      if (data?.error && data?.ok !== true) {
+        throw new Error(String(data.message ?? data.error));
+      }
+      perf.complete({ success: true });
+      const masked = data?.provider_payment_id_masked ?? '—';
+      const state = data?.provider_state ?? '—';
+      toast.success(
+        `Submitted to provider (${state}). Payment ${masked}. Wallet still reserved — debit not applied.`,
+      );
+      setOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
+      void queryClient.invalidateQueries({ queryKey: ['driver-wallet-ssot'] });
+    } catch (err) {
+      perf.complete({
+        success: false,
+        error_code: err instanceof Error ? err.message : 'submit_failed',
+      });
+      toast.error(err instanceof Error ? err.message : 'Provider submission failed');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <>
+      <Button size="sm" variant="default" disabled={disabled} onClick={() => setOpen(true)}>
+        Submit to provider
+      </Button>
+      <Dialog open={open} onOpenChange={(next) => !next && setOpen(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Submit payout to Revolut Business</DialogTitle>
+            <DialogDescription>
+              Submit {driverLabel ? `${driverLabel} ` : ''}
+              {formatNullablePence(amountPence, currencyCode)} once via validated payment transport.
+              Reservation stays active. Wallet is not permanently debited. Requires transport enabled
+              and live automatic execution disabled.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={submitTimeout.showSpinner}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleSubmit()} disabled={submitTimeout.showSpinner}>
+              {submitTimeout.showSpinner ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Confirm submit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 export function PayoutLedgerMarkPaidButton({
   payoutItemId,
   amountPence,

@@ -512,7 +512,7 @@ export function PayoutLedgerCompanyTransfersPanel({
           <CardHeader className="pb-2">
             <CardTitle
               className="text-sm"
-              title="Amount ONECAB may use after deducting driver liabilities, payout reservations, approved payables and configured reserves."
+              title="Amount ONECAB may use after deducting protected driver liabilities, approved payables and configured reserves. Active payout reservations are already inside live liabilities."
             >
               ONECAB Available Company Funds
             </CardTitle>
@@ -605,9 +605,21 @@ export function PayoutLedgerCompanyTransfersPanel({
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Completed This Month</CardTitle></CardHeader>
-          <CardContent className="text-xl font-semibold tabular-nums">
-            {formatNullablePence(kpis?.completed_month_pence ?? null)}
+          <CardHeader className="pb-2">
+            <CardTitle
+              className="text-sm"
+              title="Canonical driver payout executions with provider_state=completed in the Europe/London calendar month. Not company outgoing transfers."
+            >
+              Completed This Month
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            <div className="text-xl font-semibold tabular-nums">
+              {formatNullablePence(kpis?.completed_month_pence ?? null)}
+            </div>
+            <div className="text-[11px] text-muted-foreground">
+              Source: driver payout COMPLETED executions
+            </div>
           </CardContent>
         </Card>
         <Card>

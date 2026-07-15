@@ -46,6 +46,7 @@ import {
   PayoutLedgerCancelButton,
   PayoutLedgerCreateWeeklyBatchButton,
   PayoutLedgerMarkPaidButton,
+  PayoutLedgerSubmitProviderButton,
   PayoutLedgerRetryButton,
 } from '@/components/finance/PayoutLedgerActions';
 import { PayoutLedgerSettingsPanel } from '@/components/finance/PayoutLedgerSettingsPanel';
@@ -120,7 +121,7 @@ function shortDate(value: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? '—' : format(date, 'dd MMM HH:mm');
 }
 
-/** Admin display for Slice 5/6 — never show paid for reserved / execution-disabled. */
+/** Admin display for Slice 5/6/7 — never show Paid for reserved/submitted-not-debited. */
 function batchStatusDisplay(b: {
   status: string;
   status_label?: string | null;
@@ -129,6 +130,9 @@ function batchStatusDisplay(b: {
   const s = String(b.status).toUpperCase();
   if (s === 'FUNDS_RESERVED_EXECUTION_DISABLED') {
     return 'Funds reserved — execution disabled';
+  }
+  if (s === 'PROVIDER_SUBMISSION_PARTIAL' || s === 'PROVIDER_SUBMISSION_IN_PROGRESS') {
+    return 'Provider submission in progress';
   }
   if (s === 'BLOCKED_EXECUTION_DISABLED') {
     return 'Execution disabled';
@@ -139,12 +143,23 @@ function batchStatusDisplay(b: {
 function itemStatusDisplay(status: string): string {
   const s = String(status).toUpperCase();
   if (s === 'RESERVED' || s === 'RESERVING') {
-    return 'Funds reserved — execution disabled';
+    return 'Reserved';
   }
+  if (s === 'SUBMITTING') return 'Submitting to provider';
+  if (s === 'SUBMITTED') return 'Submitted to provider';
+  if (s === 'UNKNOWN') return 'Provider state unknown';
+  if (s === 'DECLINED') return 'Provider declined';
   if (s === 'BLOCKED_EXECUTION_DISABLED') {
     return 'Execution disabled';
   }
   return status;
+}
+
+function maskProviderRef(id: string | null | undefined): string {
+  const raw = String(id ?? '').trim();
+  if (!raw) return '—';
+  if (raw.length <= 8) return `${raw.slice(0, 2)}…`;
+  return `${raw.slice(0, 4)}…${raw.slice(-4)}`;
 }
 
 /** UI-only kind label; DB `kind` stays WEEKLY_MONDAY for legacy rows. */
@@ -406,7 +421,13 @@ export default function PayoutLedger() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <ServiceAreaFinanceFilter value={serviceFilter} onChange={setServiceFilter} />
+            <ServiceAreaFinanceFilter
+              value={serviceFilter}
+              onChange={setServiceFilter}
+              // Do not auto-pick Banadir/Jateng alphabetically — that scopes liability/reserved to £0
+              // while Revolut source cash still shows, looking like post-Slice-8 wallet wipe.
+              autoSelectFirstArea={false}
+            />
             {topTab === 'driver_payouts' && (
               <PayoutLedgerCreateWeeklyBatchButton
                 regionId={serviceFilter.regionId}
@@ -1088,17 +1109,22 @@ function PayoutItemsTable({
             <TableHead>Verification</TableHead>
             <TableHead>Bank</TableHead>
             <TableHead>Amount</TableHead>
-            <TableHead>Processed</TableHead>
-            <TableHead>Completed</TableHead>
-            <TableHead>Provider</TableHead>
-            <TableHead>Provider Ref</TableHead>
+            <TableHead>Reserved</TableHead>
+            <TableHead>Provider submission</TableHead>
+            <TableHead>Provider payment</TableHead>
+            <TableHead>Paid</TableHead>
+            <TableHead>Wallet debit</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Failure</TableHead>
             <TableHead>Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {items.map((row) => (
+          {items.map((row) => {
+            const status = String(row.status ?? '').toUpperCase();
+            const reserved = ['RESERVED', 'RESERVING', 'SUBMITTING', 'SUBMITTED', 'UNKNOWN'].includes(status);
+            const paid = Boolean(row.paid_at) || status === 'PAID' || status === 'COMPLETED';
+            return (
             <TableRow key={row.id}>
               <TableCell className="text-xs font-mono">{row.batch_id?.slice(0, 8) ?? '—'}</TableCell>
               <TableCell className="text-xs whitespace-nowrap">{shortDate(row.created_at)}</TableCell>
@@ -1106,10 +1132,11 @@ function PayoutItemsTable({
               <TableCell className="text-xs">{row.verification_status ?? '—'}</TableCell>
               <TableCell className="text-xs">{row.bank_account_last4 ? `•••• ${row.bank_account_last4}` : '—'}</TableCell>
               <TableCell className="text-xs">{formatNullablePence(row.net_bank_transfer_pence, row.currency)}</TableCell>
-              <TableCell className="text-xs whitespace-nowrap">{shortDate(row.processing_started_at)}</TableCell>
-              <TableCell className="text-xs">{shortDate(row.paid_at)}</TableCell>
-              <TableCell className="text-xs">{row.provider ?? '—'}</TableCell>
-              <TableCell className="text-xs font-mono">{row.provider_payout_id?.slice(0, 12) ?? '—'}</TableCell>
+              <TableCell className="text-xs">{reserved ? 'Reserved' : '—'}</TableCell>
+              <TableCell className="text-xs">{itemStatusDisplay(row.status)}</TableCell>
+              <TableCell className="text-xs font-mono">{maskProviderRef(row.provider_payout_id)}</TableCell>
+              <TableCell className="text-xs">{paid ? 'Paid' : 'Not paid'}</TableCell>
+              <TableCell className="text-xs">{paid ? 'Applied' : 'Not applied'}</TableCell>
               <TableCell className="text-xs"><Badge variant="outline">{itemStatusDisplay(row.status)}</Badge></TableCell>
               <TableCell className="text-xs max-w-[160px] truncate">{row.failure_reason ?? '—'}</TableCell>
               <TableCell>
@@ -1117,6 +1144,14 @@ function PayoutItemsTable({
                   <Button asChild size="sm" variant="outline">
                     <Link to={driverWalletLedgerUrl(row.driver_id, 'payout_allocations')}>View</Link>
                   </Button>
+                  {status === 'RESERVED' && (
+                    <PayoutLedgerSubmitProviderButton
+                      payoutItemId={row.id}
+                      amountPence={row.net_bank_transfer_pence}
+                      currencyCode={row.currency}
+                      driverLabel={row.driver_name ?? row.driver_id.slice(0, 8)}
+                    />
+                  )}
                   {!row.paid_at
                     && ['PENDING', 'SCHEDULED', 'PROCESSING', 'ON_HOLD', 'QUEUED'].includes(row.status)
                     && (
@@ -1133,7 +1168,8 @@ function PayoutItemsTable({
                 </div>
               </TableCell>
             </TableRow>
-          ))}
+            );
+          })}
         </TableBody>
       </Table>
     </div>

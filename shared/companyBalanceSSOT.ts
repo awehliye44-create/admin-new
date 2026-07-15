@@ -43,7 +43,7 @@ export const COMPANY_BALANCE_TOOLTIPS = {
   REVOLUT_SOURCE_ACCOUNT_BALANCE:
     "Total available cash in the selected Revolut Business account. This includes protected driver and company liabilities.",
   ONECAB_AVAILABLE_COMPANY_FUNDS:
-    "Amount ONECAB may use after deducting driver liabilities, payout reservations, approved payables and configured reserves.",
+    "Amount ONECAB may use after deducting protected driver liabilities, approved company payables and configured operational/refund reserves. Active payout reservations are already inside live liabilities — never subtract them again.",
 } as const;
 
 export type DriverPayoutFundingStatus = "FULLY_FUNDED" | "UNDERFUNDED" | "UNAVAILABLE";
@@ -191,13 +191,17 @@ export function auditCompanyBalanceSourceCandidates(): CompanyBalanceSourceAudit
 }
 
 /**
- * Safe transferable amount after protected liabilities / reserves.
- * All inputs exact pence; null provider or unknown liability/reserved → null (never invent).
+ * ONECAB available company funds (authoritative):
+ *   max(0, revolut_source − protected_driver_liabilities − operational_refund_reserve − approved_payables)
+ *
+ * Active reserved payouts are already inside live liability — do NOT subtract again.
+ * `driver_payout_reserved_pence` is accepted for display/callers but ignored in the deduction.
  * Unconfigured operational reserve (null) deducts 0 — section still shows NOT_CONFIGURED in UI.
  */
 export function computeCompanyAvailableForTransferPence(args: {
   provider_available_balance_pence: number | null;
   driver_liability_pence?: number | null;
+  /** Display-only — never deducted (subset of live liabilities). */
   driver_payout_reserved_pence?: number | null;
   customer_refund_reserved_pence?: number | null;
   approved_company_payables_pence?: number | null;
@@ -206,9 +210,8 @@ export function computeCompanyAvailableForTransferPence(args: {
   if (args.provider_available_balance_pence == null) return null;
   // Explicit null = section query failed / unknown — do not invent £0 deductions.
   if (args.driver_liability_pence === null) return null;
-  if (args.driver_payout_reserved_pence === null) return null;
+  void args.driver_payout_reserved_pence;
   const protectedSum = Math.max(0, Number(args.driver_liability_pence ?? 0))
-    + Math.max(0, Number(args.driver_payout_reserved_pence ?? 0))
     + Math.max(0, Number(args.customer_refund_reserved_pence ?? 0))
     + Math.max(0, Number(args.approved_company_payables_pence ?? 0))
     + Math.max(0, Number(args.operational_reserve_pence ?? 0));

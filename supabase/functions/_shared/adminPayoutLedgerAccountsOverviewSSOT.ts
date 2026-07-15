@@ -78,9 +78,10 @@ async function loadPayoutItemStatusTotals(supabase: AnySupabase): Promise<{
   processing_count: number;
   completed_count: number;
 }> {
+  // No paid_at column on payout_items — must use completed_at.
   const { data: items } = await supabase
     .from("payout_items")
-    .select("status, net_driver_payout_pence, amount_pence, created_at, updated_at, paid_at")
+    .select("status, net_driver_payout_pence, amount_pence, created_at, updated_at, completed_at, execution_status")
     .limit(2000);
 
   const SCHEDULED = new Set(["pending", "scheduled", "queued", "on_hold", "ready"]);
@@ -116,9 +117,9 @@ async function loadPayoutItemStatusTotals(supabase: AnySupabase): Promise<{
     } else if (PROCESSING.has(st)) {
       processing_pence += amt;
       processing_count += 1;
-    } else if (COMPLETED.has(st)) {
+    } else if (COMPLETED.has(st) || String(row.execution_status ?? "").toLowerCase() === "completed") {
       completed_count += 1;
-      const paidAt = new Date(String(row.paid_at ?? row.updated_at ?? row.created_at ?? 0));
+      const paidAt = new Date(String(row.completed_at ?? row.updated_at ?? row.created_at ?? 0));
       if (!Number.isNaN(paidAt.getTime())) {
         if (paidAt >= dayStart) paid_today_pence += amt;
         if (paidAt >= weekStart) paid_week_pence += amt;
@@ -233,10 +234,10 @@ export async function buildPayoutLedgerAccountsOverview(
         .in("driver_id", driverIds),
       supabase
         .from("payout_items")
-        .select("driver_id, paid_at, updated_at, net_driver_payout_pence, amount_pence, status")
+        .select("driver_id, completed_at, updated_at, net_driver_payout_pence, amount_pence, status")
         .in("driver_id", driverIds)
-        .in("status", ["completed", "paid", "succeeded"])
-        .order("paid_at", { ascending: false })
+        .in("status", ["completed", "COMPLETED", "paid", "succeeded"])
+        .order("completed_at", { ascending: false })
         .limit(500),
     ]);
     if (saRes.error) {
@@ -277,7 +278,7 @@ export async function buildPayoutLedgerAccountsOverview(
       const driverId = String(item.driver_id ?? "");
       if (!driverId || lastPayoutByDriver.has(driverId)) continue;
       lastPayoutByDriver.set(driverId, {
-        at: (item.paid_at as string | null) ?? (item.updated_at as string | null) ?? null,
+        at: (item.completed_at as string | null) ?? (item.updated_at as string | null) ?? null,
         amount_pence: Math.max(0, Number(item.net_driver_payout_pence ?? item.amount_pence ?? 0)),
       });
   }

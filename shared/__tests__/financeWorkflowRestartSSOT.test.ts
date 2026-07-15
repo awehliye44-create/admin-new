@@ -218,21 +218,22 @@ describe("SLICE A/H — payout ledger never invents money", () => {
     expect(snap.sections?.operational_reserve.status).not.toBe("AVAILABLE");
   });
 
-  it("null liability or reserved blocks available (never invent £0 deductions)", () => {
+  it("null liability blocks available; null reserved is display-only (never invent £0 liability)", () => {
     expect(computeCompanyAvailableForTransferPence({
       provider_available_balance_pence: 1660,
       driver_liability_pence: null,
       driver_payout_reserved_pence: 0,
     })).toBeNull();
+    // Reserved is already inside live liability — unknown reserved must not wipe available.
     expect(computeCompanyAvailableForTransferPence({
       provider_available_balance_pence: 1660,
       driver_liability_pence: 1409,
       driver_payout_reserved_pence: null,
-    })).toBeNull();
+    })).toBe(251);
     expect(computeCompanyAvailableForTransferPence({
       provider_available_balance_pence: 1660,
       driver_liability_pence: 1409,
-      driver_payout_reserved_pence: 0,
+      driver_payout_reserved_pence: 1409,
       operational_reserve_pence: null,
     })).toBe(251);
   });
