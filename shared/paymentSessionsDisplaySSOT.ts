@@ -457,6 +457,35 @@ export function formatCapturedAmountDisplay(args: {
   return args.currencyFormatter(Math.round(Number(args.captured_amount_pence)));
 }
 
+/**
+ * Slice 9 display bridge: DB enum remains AMOUNT_UNCONFIRMED (never invent amount).
+ * Operator-facing primary label aligns to MANUAL_REVIEW_REQUIRED.
+ */
+export function formatReleasedAmountDisplay(args: {
+  released_amount_pence: number | null | undefined;
+  released_at?: string | null;
+  release_evidence_status?: string | null;
+  currencyFormatter: (pence: number | null) => string;
+}): { primary: string; secondary: string | null } {
+  const evidence = String(args.release_evidence_status ?? "").toUpperCase();
+  const amountUnconfirmed =
+    evidence === "AMOUNT_UNCONFIRMED"
+    || Boolean(args.released_at && args.released_amount_pence == null);
+  if (amountUnconfirmed) {
+    return {
+      primary: "MANUAL_REVIEW_REQUIRED",
+      secondary: "DB: AMOUNT_UNCONFIRMED · amount NULL (fail-closed)",
+    };
+  }
+  if (args.released_amount_pence == null) {
+    return { primary: "—", secondary: null };
+  }
+  return {
+    primary: args.currencyFormatter(Math.round(Number(args.released_amount_pence))),
+    secondary: null,
+  };
+}
+
 /** Released Buffer Total — post-capture buffer releases only (never full uncaptured hold cancels). */
 export function sumReleasedBufferTotalPence(
   providerRows: Array<{

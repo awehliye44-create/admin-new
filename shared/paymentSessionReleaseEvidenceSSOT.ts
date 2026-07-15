@@ -42,6 +42,7 @@ export function extractOutstandingAuthorisationPence(
   if (!providerPayload) return null;
   const candidates = [
     providerPayload.outstanding_amount,
+    providerPayload.order_outstanding_amount,
     providerPayload.amount_outstanding,
     providerPayload.remaining_amount,
     providerPayload.authorised_amount_remaining,
@@ -55,6 +56,38 @@ export function extractOutstandingAuthorisationPence(
     }
     const n = Number(c);
     if (Number.isFinite(n) && n >= 0) return Math.round(n);
+  }
+  return null;
+}
+
+/** Provider-explicit authorised amount (order or nested payments[]) — never derived. */
+export function extractProviderAuthorisedAmountPence(
+  providerPayload: Record<string, unknown> | null | undefined,
+): number | null {
+  if (!providerPayload) return null;
+  const asPence = (raw: unknown): number | null => {
+    if (raw == null) return null;
+    if (typeof raw === "object" && raw !== null && "value" in (raw as object)) {
+      const n = Number((raw as { value?: unknown }).value);
+      if (Number.isFinite(n) && n > 0) return Math.round(n);
+      return null;
+    }
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) return Math.round(n);
+    return null;
+  };
+  for (const key of ["authorised_amount", "authorized_amount"]) {
+    const n = asPence(providerPayload[key]);
+    if (n != null) return n;
+  }
+  const payments = Array.isArray(providerPayload.payments) ? providerPayload.payments : [];
+  for (const p of payments) {
+    if (!p || typeof p !== "object") continue;
+    const payment = p as Record<string, unknown>;
+    for (const key of ["authorised_amount", "authorized_amount"]) {
+      const n = asPence(payment[key]);
+      if (n != null) return n;
+    }
   }
   return null;
 }

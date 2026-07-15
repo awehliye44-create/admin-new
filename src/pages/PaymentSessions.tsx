@@ -42,7 +42,10 @@ import {
   tripSettlementRecoverUrl,
 } from '@/lib/financialReconciliationRoutes';
 import { formatAgeMinutes, formatNullablePence } from '@/lib/formatNullablePence';
-import { formatCapturedAmountDisplay } from '../../shared/paymentSessionsDisplaySSOT';
+import {
+  formatCapturedAmountDisplay,
+  formatReleasedAmountDisplay,
+} from '../../shared/paymentSessionsDisplaySSOT';
 import {
   DEFAULT_SERVICE_AREA_SELECTION,
   ServiceAreaFinanceFilter,
@@ -950,10 +953,26 @@ export default function PaymentSessions() {
                                 )}
                               </TableCell>
                               <TableCell className="text-xs">
-                                {row.release_evidence_status === 'AMOUNT_UNCONFIRMED'
-                                  || (row.released_at && row.released_amount_pence == null)
-                                  ? 'AMOUNT_UNCONFIRMED'
-                                  : formatNullablePence(row.released_amount_pence)}
+                                {(() => {
+                                  const released = formatReleasedAmountDisplay({
+                                    released_amount_pence: row.released_amount_pence,
+                                    released_at: row.released_at,
+                                    release_evidence_status: row.release_evidence_status,
+                                    currencyFormatter: (p) => formatNullablePence(p),
+                                  });
+                                  return (
+                                    <>
+                                      <span className={released.secondary ? 'text-amber-800' : undefined}>
+                                        {released.primary}
+                                      </span>
+                                      {released.secondary && (
+                                        <div className="mt-1 text-[10px] text-muted-foreground">
+                                          {released.secondary}
+                                        </div>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                                 {row.released_at && (
                                   <div className="mt-1 text-[10px] text-muted-foreground">
                                     {format(new Date(row.released_at), 'dd MMM HH:mm')}
@@ -1083,6 +1102,14 @@ export default function PaymentSessions() {
                                             authorised_amount_pence: row.authorised_amount_pence,
                                             captured_amount_pence: row.captured_amount_pence,
                                             released_amount_pence: row.released_amount_pence,
+                                            release_evidence_status: row.release_evidence_status,
+                                            release_evidence_source: row.release_evidence_source,
+                                            release_display: formatReleasedAmountDisplay({
+                                              released_amount_pence: row.released_amount_pence,
+                                              released_at: row.released_at,
+                                              release_evidence_status: row.release_evidence_status,
+                                              currencyFormatter: (p) => formatNullablePence(p),
+                                            }),
                                             refunded_amount_pence: row.refunded_amount_pence,
                                             provider_processing_fee_pence: row.provider_processing_fee_pence,
                                             fee_status: row.fee_status,
