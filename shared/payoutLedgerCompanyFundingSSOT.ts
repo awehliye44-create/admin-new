@@ -23,6 +23,9 @@ export const SLICE8_FUNDING_PROOF = {
 export const PAYMENT_SESSIONS_NET_COMMISSION_SOURCE =
   "Payment Sessions SSOT · summary.net_onecab_commission_pence";
 
+/** Status on unclassified residue — never silently transferable as commission. */
+export const UNCLASSIFIED_COMPANY_CASH_STATUS = "RECONCILIATION_REQUIRED" as const;
+
 export type CompanyFundingClassificationKind =
   | "NET_COMMISSION"
   | "OPENING_BALANCE"
@@ -35,6 +38,7 @@ export type CompanyFundingClassifiedSource = {
   amount_pence: number;
   label: string;
   source: string;
+  status?: typeof UNCLASSIFIED_COMPANY_CASH_STATUS | null;
 };
 
 /** Sum classified canonical company-funding sources (excludes unattributed residue). */
@@ -50,13 +54,18 @@ export function computeClassifiedCompanyFundingSumPence(
 }
 
 /**
- * Other company-owned cash = before_reserve − classified canonical sources.
+ * Unclassified company cash = before_reserve − classified canonical sources.
+ * Fail-closed: never derive residue when Payment Sessions net commission is missing
+ * (avoids duplicating before_reserve as a second company-owned amount).
  * Unexplained residue is never labelled commission.
  */
 export function computeOtherCompanyOwnedCashPence(args: {
   company_available_before_operational_reserve_pence: number | null;
   classified_sources: ReadonlyArray<CompanyFundingClassifiedSource>;
+  /** Required — residue only when PS net commission is present. */
+  onecab_net_commission_available_pence?: number | null;
 }): number | null {
+  if (args.onecab_net_commission_available_pence == null) return null;
   const before = args.company_available_before_operational_reserve_pence;
   if (before == null) return null;
   const classified = computeClassifiedCompanyFundingSumPence(args.classified_sources);
@@ -110,13 +119,15 @@ export function buildCompanyFundingAuditRows(args: {
     company_available_before_operational_reserve_pence:
       args.company_available_before_operational_reserve_pence,
     classified_sources: rows,
+    onecab_net_commission_available_pence: args.onecab_net_commission_available_pence,
   });
   if (other != null && other > 0) {
     rows.push({
       kind: "UNATTRIBUTED_CASH",
       amount_pence: other,
-      label: "Other company-owned cash",
+      label: "Unclassified Company Cash",
       source: "Derived residue — not recognised as commission",
+      status: UNCLASSIFIED_COMPANY_CASH_STATUS,
     });
   }
   return rows;

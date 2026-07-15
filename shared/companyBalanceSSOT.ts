@@ -34,7 +34,9 @@ export const COMPANY_BALANCE_LABELS = {
   RESERVED_DRIVER_PAYOUTS: "Reserved Driver Payouts",
   APPROVED_COMPANY_PAYABLES: "Approved Company Payables",
   ONECAB_NET_COMMISSION_AVAILABLE: "ONECAB Net Commission Available",
-  OTHER_COMPANY_OWNED_CASH: "Other Company-Owned Cash",
+  /** @deprecated Prefer UNCLASSIFIED_COMPANY_CASH */
+  OTHER_COMPANY_OWNED_CASH: "Unclassified Company Cash",
+  UNCLASSIFIED_COMPANY_CASH: "Unclassified Company Cash",
   OPERATIONAL_REFUND_RESERVE: "Operational / Refund Reserve",
   ONECAB_AVAILABLE_COMPANY_FUNDS: "ONECAB Available Company Funds",
   ONECAB_CASH_AVAILABLE_BEFORE_OPERATIONAL_RESERVE:
@@ -53,7 +55,9 @@ export const COMPANY_BALANCE_TOOLTIPS = {
   ONECAB_NET_COMMISSION_AVAILABLE:
     "Recognised net commission from Payment Sessions SSOT only. Never recalculated from gross or provider fees on this page.",
   OTHER_COMPANY_OWNED_CASH:
-    "Residual company-owned cash after classified canonical funding sources. Unexplained cash is never labelled commission.",
+    "Unclassified residual company-owned cash after recognised Payment Sessions net commission. Never commission; status RECONCILIATION_REQUIRED until classified. Not silently transferable.",
+  UNCLASSIFIED_COMPANY_CASH:
+    "Unclassified residual company-owned cash after recognised Payment Sessions net commission. Never commission; status RECONCILIATION_REQUIRED until classified. Not silently transferable.",
 } as const;
 
 export const COMPANY_BALANCE_LABELS_EXTENDED = {

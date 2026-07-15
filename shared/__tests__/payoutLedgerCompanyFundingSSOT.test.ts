@@ -153,18 +153,37 @@ describe("post-Slice-8 payout ledger company funding SSOT", () => {
     ).toBe(EXPECTED_AVAILABLE_PENCE);
   });
 
-  it("derives other company-owned cash as before_reserve − net commission", () => {
+  it("derives unclassified company cash as before_reserve − net commission (353)", () => {
     const audit = buildCompanyFundingAuditRows({
       company_available_before_operational_reserve_pence: EXPECTED_AVAILABLE_PENCE,
       onecab_net_commission_available_pence: EXPECTED_NET_COMMISSION_PENCE,
     });
     expect(audit.find((r) => r.kind === "NET_COMMISSION")?.amount_pence)
       .toBe(EXPECTED_NET_COMMISSION_PENCE);
-    expect(audit.find((r) => r.kind === "UNATTRIBUTED_CASH")?.amount_pence)
-      .toBe(EXPECTED_OTHER_COMPANY_CASH_PENCE);
+    const unclassified = audit.find((r) => r.kind === "UNATTRIBUTED_CASH");
+    expect(unclassified?.amount_pence).toBe(EXPECTED_OTHER_COMPANY_CASH_PENCE);
+    expect(unclassified?.label).toBe("Unclassified Company Cash");
+    expect(unclassified?.status).toBe("RECONCILIATION_REQUIRED");
     expect(computeOtherCompanyOwnedCashPence({
       company_available_before_operational_reserve_pence: EXPECTED_AVAILABLE_PENCE,
       classified_sources: audit.filter((r) => r.kind !== "UNATTRIBUTED_CASH"),
+      onecab_net_commission_available_pence: EXPECTED_NET_COMMISSION_PENCE,
     })).toBe(EXPECTED_OTHER_COMPANY_CASH_PENCE);
+    // £5.25 must appear only once as before-reserve — not duplicated as unclassified.
+    expect(unclassified?.amount_pence).not.toBe(EXPECTED_AVAILABLE_PENCE);
+  });
+
+  it("fail-closed: no unclassified residue when Payment Sessions net commission missing", () => {
+    const audit = buildCompanyFundingAuditRows({
+      company_available_before_operational_reserve_pence: EXPECTED_AVAILABLE_PENCE,
+      onecab_net_commission_available_pence: null,
+    });
+    expect(audit.find((r) => r.kind === "NET_COMMISSION")).toBeUndefined();
+    expect(audit.find((r) => r.kind === "UNATTRIBUTED_CASH")).toBeUndefined();
+    expect(computeOtherCompanyOwnedCashPence({
+      company_available_before_operational_reserve_pence: EXPECTED_AVAILABLE_PENCE,
+      classified_sources: [],
+      onecab_net_commission_available_pence: null,
+    })).toBeNull();
   });
 });

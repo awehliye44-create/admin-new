@@ -20,6 +20,7 @@ import {
   COMPANY_BALANCE_LABELS,
   COMPANY_BALANCE_TOOLTIPS,
 } from '../../../shared/companyBalanceSSOT';
+import { UNCLASSIFIED_COMPANY_CASH_STATUS } from '../../../shared/payoutLedgerCompanyFundingSSOT';
 import { PAYOUT_LEDGER_ERROR } from '../../../shared/payoutLedgerOverviewSSOT';
 import { Info, Loader2, RefreshCw } from 'lucide-react';
 
@@ -36,6 +37,7 @@ function MetricCard({
   unavailableReason,
   tooltip,
   subtitle,
+  statusBadge,
 }: {
   title: string;
   value: string;
@@ -43,6 +45,7 @@ function MetricCard({
   unavailableReason?: string | null;
   tooltip?: string | null;
   subtitle?: string | null;
+  statusBadge?: string | null;
 }) {
   return (
     <Card>
@@ -70,6 +73,9 @@ function MetricCard({
         ) : (
           <div className="text-xl font-semibold tabular-nums">{value}</div>
         )}
+        {statusBadge && !unavailableReason ? (
+          <div className="text-xs font-mono text-amber-700">Status: {statusBadge}</div>
+        ) : null}
         {subtitle ? (
           <div className="text-[11px] text-muted-foreground">{subtitle}</div>
         ) : null}
@@ -247,17 +253,24 @@ export function PayoutLedgerOverviewPanel({
       ? 'PAYMENT_SESSIONS_NET_COMMISSION_UNAVAILABLE'
       : null,
   );
+  // Fail-closed: unclassified only when PS net commission is present (never clone before_reserve).
   const otherCompanyCash = moneyOrUnavailable(
-    overview.other_company_owned_cash_pence ?? null,
-    overview.other_company_owned_cash_pence == null
-      && overview.company_available_before_operational_reserve_pence == null
-      ? 'OTHER_COMPANY_CASH_UNAVAILABLE'
+    overview.onecab_net_commission_available_pence == null
+      ? null
+      : overview.other_company_owned_cash_pence ?? null,
+    overview.onecab_net_commission_available_pence == null
+      ? 'PAYMENT_SESSIONS_NET_COMMISSION_UNAVAILABLE'
       : overview.other_company_owned_cash_pence == null
-        ? 'OTHER_COMPANY_CASH_UNAVAILABLE'
+        ? 'UNCLASSIFIED_COMPANY_CASH_UNAVAILABLE'
         : null,
   );
+  const unclassifiedStatus = overview.onecab_net_commission_available_pence != null
+    && overview.other_company_owned_cash_pence != null
+    && overview.other_company_owned_cash_pence > 0
+    ? UNCLASSIFIED_COMPANY_CASH_STATUS
+    : null;
   const netCommissionSource = overview.sources?.payment_sessions_net_commission
-    ?? 'Payment Sessions SSOT';
+    ?? 'Payment Sessions SSOT · summary.net_onecab_commission_pence';
 
   const driverSource = overview.sources?.driver_wallet ?? 'Driver Wallet Ledger SSOT';
   const payoutSource = overview.sources?.driver_payouts ?? 'payout_items';
@@ -384,11 +397,12 @@ export function PayoutLedgerOverviewPanel({
             tooltip={COMPANY_BALANCE_TOOLTIPS.ONECAB_NET_COMMISSION_AVAILABLE}
           />
           <MetricCard
-            title={COMPANY_BALANCE_LABELS.OTHER_COMPANY_OWNED_CASH}
+            title={COMPANY_BALANCE_LABELS.UNCLASSIFIED_COMPANY_CASH}
             value={otherCompanyCash.value}
-            source="Company funding classification SSOT"
+            source="Company funding classification SSOT (before_reserve − net commission)"
             unavailableReason={otherCompanyCash.reason}
-            tooltip={COMPANY_BALANCE_TOOLTIPS.OTHER_COMPANY_OWNED_CASH}
+            tooltip={COMPANY_BALANCE_TOOLTIPS.UNCLASSIFIED_COMPANY_CASH}
+            statusBadge={unclassifiedStatus}
           />
           <MetricCard
             title={COMPANY_BALANCE_LABELS.ONECAB_CASH_AVAILABLE_BEFORE_OPERATIONAL_RESERVE}

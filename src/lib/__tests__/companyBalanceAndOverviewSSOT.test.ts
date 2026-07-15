@@ -151,7 +151,7 @@ describe("payout ledger overview partial failure", () => {
 });
 
 describe("P0 company funding labels / residual formula", () => {
-  it("£19.34 is provider cash; £5.25 is ONECAB available funds", () => {
+  it("£19.34 is provider cash; £5.25 is before-reserve; final available UNAVAILABLE without reserve", () => {
     const snap = resolveCompanyBalanceSnapshot({
       currency: "GBP",
       provider_available_balance_pence: 1934,
@@ -164,8 +164,10 @@ describe("P0 company funding labels / residual formula", () => {
       status_code: "AVAILABLE",
     });
     expect(snap.provider_available_balance_pence).toBe(1934);
-    expect(snap.company_available_for_transfer_pence).toBe(525);
-    expect(snap.company_available_for_transfer_pence).not.toBe(1934);
+    expect(snap.company_available_before_operational_reserve_pence).toBe(525);
+    // Fail-closed: reserve NOT_CONFIGURED → final company funds UNAVAILABLE (not silent £5.25).
+    expect(snap.company_available_for_transfer_pence).toBeNull();
+    expect(snap.sections?.operational_reserve?.status).toBe("NOT_CONFIGURED");
     expect(snap.driver_liability_pence).toBe(1409);
     expect(snap.driver_payout_funding_status).toBe("FULLY_FUNDED");
     expect(snap.funding_gap_pence).toBe(0);
