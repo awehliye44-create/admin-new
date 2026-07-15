@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { computeCompanyAvailableForTransferPence } from "../companyBalanceSSOT";
+import {
+  computeCompanyAvailableBeforeOperationalReservePence,
+  computeCompanyAvailableForTransferPence,
+} from "../companyBalanceSSOT";
 import {
   SLICE8_FUNDING_PROOF,
   sumActiveReservedDriverPayoutsPence,
@@ -112,7 +115,17 @@ describe("post-Slice-8 payout ledger company funding SSOT", () => {
   });
 
   it("ONECAB available subtracts liabilities once — not reserved again", () => {
-    // Post–Bosteyo truth: source £15.26 − liability £10.01 = £5.25
+    // Provisional (before reserve): source £15.26 − liability £10.01 = £5.25
+    expect(
+      computeCompanyAvailableBeforeOperationalReservePence({
+        provider_available_balance_pence: REVOLUT_SOURCE_PENCE,
+        driver_liability_pence: EXPECTED_LIABILITY_PENCE,
+        approved_company_payables_pence: 0,
+        customer_refund_reserved_pence: null,
+      }),
+    ).toBe(EXPECTED_AVAILABLE_PENCE);
+
+    // Fail-closed: NOT_CONFIGURED reserve → final available UNAVAILABLE (null).
     expect(
       computeCompanyAvailableForTransferPence({
         provider_available_balance_pence: REVOLUT_SOURCE_PENCE,
@@ -122,16 +135,16 @@ describe("post-Slice-8 payout ledger company funding SSOT", () => {
         operational_reserve_pence: null,
         customer_refund_reserved_pence: null,
       }),
-    ).toBe(EXPECTED_AVAILABLE_PENCE);
+    ).toBeNull();
 
-    // Null reserved must not block available (reserved is display-only).
+    // Configured reserve £0 is an explicit policy — final available = £5.25.
     expect(
       computeCompanyAvailableForTransferPence({
         provider_available_balance_pence: REVOLUT_SOURCE_PENCE,
         driver_liability_pence: EXPECTED_LIABILITY_PENCE,
-        driver_payout_reserved_pence: null,
+        driver_payout_reserved_pence: EXPECTED_RESERVED_PENCE,
         approved_company_payables_pence: 0,
-        operational_reserve_pence: null,
+        operational_reserve_pence: 0,
       }),
     ).toBe(EXPECTED_AVAILABLE_PENCE);
   });

@@ -166,6 +166,39 @@ export function PayoutLedgerSettingsPanel({
     if (settings) setDraft(settings);
   }, [settings]);
 
+  const { data: reserveRow } = useQuery({
+    queryKey: ['company-operational-refund-reserve'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('admin_settings')
+        .select('setting_key, setting_value')
+        .eq('setting_key', 'company_operational_refund_reserve')
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    staleTime: 30_000,
+  });
+  const [reserveDraft, setReserveDraft] = useState('');
+  const [reserveConfigured, setReserveConfigured] = useState(false);
+  useEffect(() => {
+    if (!reserveRow?.setting_value) {
+      setReserveDraft('');
+      setReserveConfigured(false);
+      return;
+    }
+    try {
+      const raw = reserveRow.setting_value;
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      const configured = Boolean(parsed?.configured);
+      setReserveConfigured(configured);
+      setReserveDraft(configured && parsed?.amount_pence != null ? String(parsed.amount_pence) : '');
+    } catch {
+      setReserveConfigured(false);
+      setReserveDraft('');
+    }
+  }, [reserveRow]);
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       for (const key of SETTING_KEYS) {
@@ -177,6 +210,47 @@ export function PayoutLedgerSettingsPanel({
     onSuccess: () => {
       toast.success('Payout settings saved');
       void queryClient.invalidateQueries({ queryKey: ['payout-ledger-settings'] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const reserveSave = useMutation({
+    mutationFn: async () => {
+      const amount = reserveDraft.trim() === '' ? null : Number(reserveDraft);
+      if (amount != null && (!Number.isFinite(amount) || amount < 0)) {
+        throw new Error('Reserve amount must be a non-negative integer pence value');
+      }
+      if (amount == null) {
+        const { error } = await supabase
+          .from('admin_settings')
+          .delete()
+          .eq('setting_key', 'company_operational_refund_reserve');
+        if (error) throw error;
+        return;
+      }
+      const payload = {
+        configured: true,
+        amount_pence: Math.round(amount),
+        percent_bps: null,
+        currency: 'GBP',
+        service_area_id: serviceFilter.serviceAreaId,
+        effective_from: new Date().toISOString().slice(0, 10),
+        audit_note: 'Configured via Payout Ledger settings (no money movement)',
+      };
+      const { error } = await supabase.from('admin_settings').upsert(
+        {
+          setting_key: 'company_operational_refund_reserve',
+          setting_value: payload as unknown as string,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'setting_key' },
+      );
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success('Operational reserve setting saved (no money moved)');
+      void queryClient.invalidateQueries({ queryKey: ['company-operational-refund-reserve'] });
+      void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -584,6 +658,42 @@ export function PayoutLedgerSettingsPanel({
               onCheckedChange={(v) => set('manual_payouts_enabled', v ? 'true' : 'false')}
             />
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Operational / Refund Reserve</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Configuring this setting does not move money. Absence leaves ONECAB Available Company Funds
+            UNAVAILABLE (fail-closed) and shows provisional residual under Before Operational Reserve.
+            Explicit amount £0.00 is a deliberate zero-reserve policy.
+          </p>
+          <div className="space-y-1.5 max-w-sm">
+            <Label>Reserve amount (pence, GBP)</Label>
+            <Input
+              type="number"
+              min={0}
+              value={reserveDraft}
+              onChange={(e) => setReserveDraft(e.target.value)}
+              placeholder="Leave empty = NOT_CONFIGURED"
+            />
+          </div>
+          <div className="text-xs font-mono text-muted-foreground">
+            Current: {reserveConfigured
+              ? `${reserveDraft || '0'} pence (configured)`
+              : 'OPERATIONAL_RESERVE_NOT_CONFIGURED'}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={reserveSave.isPending}
+            onClick={() => reserveSave.mutate()}
+          >
+            {reserveSave.isPending ? 'Saving…' : 'Save reserve setting'}
+          </Button>
         </CardContent>
       </Card>
 

@@ -121,13 +121,14 @@ function shortDate(value: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? '—' : format(date, 'dd MMM HH:mm');
 }
 
-/** Admin display for Slice 5/6/7 — never show Paid for reserved/submitted-not-debited. */
+/** Admin display for Slice 5–8 — never show Paid for reserved/submitted-not-debited. */
 function batchStatusDisplay(b: {
   status: string;
   status_label?: string | null;
 }): string {
   if (b.status_label?.trim()) return b.status_label.trim();
   const s = String(b.status).toUpperCase();
+  if (s === 'PARTIALLY_COMPLETED') return 'Partially completed';
   if (s === 'FUNDS_RESERVED_EXECUTION_DISABLED') {
     return 'Funds reserved — execution disabled';
   }
@@ -140,19 +141,22 @@ function batchStatusDisplay(b: {
   return b.status;
 }
 
-function itemStatusDisplay(status: string): string {
-  const s = String(status).toUpperCase();
-  if (s === 'RESERVED' || s === 'RESERVING') {
-    return 'Reserved';
-  }
-  if (s === 'SUBMITTING') return 'Submitting to provider';
-  if (s === 'SUBMITTED') return 'Submitted to provider';
-  if (s === 'UNKNOWN') return 'Provider state unknown';
-  if (s === 'DECLINED') return 'Provider declined';
-  if (s === 'BLOCKED_EXECUTION_DISABLED') {
-    return 'Execution disabled';
-  }
-  return status;
+function itemStatusDisplay(row: {
+  status: string;
+  display_status?: string | null;
+  display_status_label?: string | null;
+}): string {
+  if (row.display_status_label?.trim()) return row.display_status_label.trim();
+  const display = String(row.display_status ?? row.status).toUpperCase();
+  if (display === 'NOT_SUBMITTED') return 'Not submitted';
+  if (display === 'RESERVED' || display === 'RESERVING') return 'Reserved / not submitted';
+  if (display === 'SUBMITTING') return 'Submitting to provider';
+  if (display === 'SUBMITTED') return 'Submitted to provider';
+  if (display === 'COMPLETED' || display === 'PAID') return 'Completed';
+  if (display === 'UNKNOWN') return 'Provider state unknown';
+  if (display === 'DECLINED') return 'Provider declined';
+  if (display === 'BLOCKED_EXECUTION_DISABLED') return 'Execution disabled';
+  return row.status;
 }
 
 function maskProviderRef(id: string | null | undefined): string {
@@ -486,6 +490,7 @@ export default function PayoutLedger() {
               serviceAreaId={serviceFilter.serviceAreaId}
               companyBalance={companyBalance}
               kpis={data?.company_transfer_kpis ?? null}
+              emptyCopy={data?.company_transfers_empty_copy ?? null}
             />
           </TabsContent>
 
@@ -497,6 +502,7 @@ export default function PayoutLedger() {
               serviceAreaId={serviceFilter.serviceAreaId}
               companyBalance={companyBalance}
               kpis={data?.company_transfer_kpis ?? null}
+              emptyCopy={data?.company_transfers_empty_copy ?? null}
             />
             {items.length > 0 && (
               <div className="space-y-2">
@@ -615,13 +621,28 @@ export default function PayoutLedger() {
                 </Table>
               </div>
             </div>
+            {items.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium">Driver payout batch item details</h3>
+                <PayoutItemsTable items={items} exportRow={exportRow} />
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="audit_history" className="mt-4 space-y-3">
+            {items.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium">Driver payout items (audit view)</h3>
+                <PayoutItemsTable items={items} exportRow={exportRow} />
+              </div>
+            )}
             {companyAuditRows.length === 0 ? (
               <Alert>
                 <AlertTitle>No company transfer audit events yet</AlertTitle>
-                <AlertDescription>Append-only audit rows appear after create/approve/pay actions. Never deleted.</AlertDescription>
+                <AlertDescription>
+                  Append-only company transfer audit rows appear after create/approve/pay actions.
+                  Driver payouts are listed above and under Driver Payouts / Batch History — never under Company Transfers.
+                </AlertDescription>
               </Alert>
             ) : (
               <div className="overflow-x-auto rounded-md border">
@@ -1133,11 +1154,11 @@ function PayoutItemsTable({
               <TableCell className="text-xs">{row.bank_account_last4 ? `•••• ${row.bank_account_last4}` : '—'}</TableCell>
               <TableCell className="text-xs">{formatNullablePence(row.net_bank_transfer_pence, row.currency)}</TableCell>
               <TableCell className="text-xs">{reserved ? 'Reserved' : '—'}</TableCell>
-              <TableCell className="text-xs">{itemStatusDisplay(row.status)}</TableCell>
+              <TableCell className="text-xs">{itemStatusDisplay(row)}</TableCell>
               <TableCell className="text-xs font-mono">{maskProviderRef(row.provider_payout_id)}</TableCell>
               <TableCell className="text-xs">{paid ? 'Paid' : 'Not paid'}</TableCell>
               <TableCell className="text-xs">{paid ? 'Applied' : 'Not applied'}</TableCell>
-              <TableCell className="text-xs"><Badge variant="outline">{itemStatusDisplay(row.status)}</Badge></TableCell>
+              <TableCell className="text-xs"><Badge variant="outline">{itemStatusDisplay(row)}</Badge></TableCell>
               <TableCell className="text-xs max-w-[160px] truncate">{row.failure_reason ?? '—'}</TableCell>
               <TableCell>
                 <div className="flex flex-wrap gap-1">

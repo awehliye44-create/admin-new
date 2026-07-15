@@ -43,7 +43,16 @@ export const COMPANY_BALANCE_TOOLTIPS = {
   REVOLUT_SOURCE_ACCOUNT_BALANCE:
     "Total available cash in the selected Revolut Business account. This includes protected driver and company liabilities.",
   ONECAB_AVAILABLE_COMPANY_FUNDS:
-    "Amount ONECAB may use after deducting protected driver liabilities, approved company payables and configured operational/refund reserves. Active payout reservations are already inside live liabilities — never subtract them again.",
+    "Amount ONECAB may use after deducting protected driver liabilities, approved company payables and a configured operational/refund reserve. Active payout reservations are already inside live liabilities — never subtract them again. When the reserve is NOT_CONFIGURED, final company funds stay UNAVAILABLE (not silent £0).",
+  ONECAB_AVAILABLE_BEFORE_OPERATIONAL_RESERVE:
+    "Provisional residual after protected driver liabilities and approved payables only. Does not claim remaining cash is company-owned until an operational/refund reserve is configured.",
+} as const;
+
+export const COMPANY_BALANCE_LABELS_EXTENDED = {
+  ONECAB_AVAILABLE_BEFORE_OPERATIONAL_RESERVE:
+    "ONECAB Available Before Operational Reserve",
+  COMPLETED_DRIVER_PAYOUTS_THIS_MONTH: "Completed Driver Payouts This Month",
+  COMPLETED_COMPANY_TRANSFERS_THIS_MONTH: "Completed Company Transfers This Month",
 } as const;
 
 export type DriverPayoutFundingStatus = "FULLY_FUNDED" | "UNDERFUNDED" | "UNAVAILABLE";
@@ -107,11 +116,17 @@ export type CompanyBalanceSnapshot = {
   approved_company_payables_pence: number | null;
   operational_reserve_pence: number | null;
   /**
-   * Safe transferable amount (= ONECAB available company funds). Null when unknown.
+   * Safe transferable amount (= ONECAB available company funds). Null when unknown
+   * or when operational reserve is NOT_CONFIGURED (fail-closed).
    * Must never equal driver wallet liabilities.
    * Must never be labelled as the full Revolut source-account balance.
    */
   company_available_for_transfer_pence: number | null;
+  /**
+   * Provisional residual = source − liabilities − payables (− customer refund if set).
+   * Present even when operational reserve is NOT_CONFIGURED — never mislabelled as final.
+   */
+  company_available_before_operational_reserve_pence: number | null;
   /** @deprecated alias of approved_company_payables_pence */
   approved_payables_pending_pence: number | null;
   /** Whether provider cash covers protected driver liabilities. */
@@ -191,12 +206,29 @@ export function auditCompanyBalanceSourceCandidates(): CompanyBalanceSourceAudit
 }
 
 /**
- * ONECAB available company funds (authoritative):
+ * Provisional residual before operational reserve (disclosure when reserve not configured):
+ *   max(0, revolut_source − liabilities − approved_payables − customer_refund)
+ */
+export function computeCompanyAvailableBeforeOperationalReservePence(args: {
+  provider_available_balance_pence: number | null;
+  driver_liability_pence?: number | null;
+  customer_refund_reserved_pence?: number | null;
+  approved_company_payables_pence?: number | null;
+}): number | null {
+  if (args.provider_available_balance_pence == null) return null;
+  if (args.driver_liability_pence === null) return null;
+  const protectedSum = Math.max(0, Number(args.driver_liability_pence ?? 0))
+    + Math.max(0, Number(args.customer_refund_reserved_pence ?? 0))
+    + Math.max(0, Number(args.approved_company_payables_pence ?? 0));
+  return Math.max(0, args.provider_available_balance_pence - protectedSum);
+}
+
+/**
+ * ONECAB available company funds (authoritative, fail-closed):
  *   max(0, revolut_source − protected_driver_liabilities − operational_refund_reserve − approved_payables)
  *
  * Active reserved payouts are already inside live liability — do NOT subtract again.
- * `driver_payout_reserved_pence` is accepted for display/callers but ignored in the deduction.
- * Unconfigured operational reserve (null) deducts 0 — section still shows NOT_CONFIGURED in UI.
+ * Unconfigured operational reserve (null) → null final available (NOT silent £0).
  */
 export function computeCompanyAvailableForTransferPence(args: {
   provider_available_balance_pence: number | null;
@@ -210,6 +242,10 @@ export function computeCompanyAvailableForTransferPence(args: {
   if (args.provider_available_balance_pence == null) return null;
   // Explicit null = section query failed / unknown — do not invent £0 deductions.
   if (args.driver_liability_pence === null) return null;
+  // Fail-closed: missing reserve must not claim remaining cash is company-owned.
+  if (args.operational_reserve_pence === null || args.operational_reserve_pence === undefined) {
+    return null;
+  }
   void args.driver_payout_reserved_pence;
   const protectedSum = Math.max(0, Number(args.driver_liability_pence ?? 0))
     + Math.max(0, Number(args.customer_refund_reserved_pence ?? 0))
@@ -391,6 +427,7 @@ export function resolveCompanyBalanceSnapshot(args?: {
       approved_company_payables_pence: approved,
       operational_reserve_pence: args.operational_reserve_pence ?? null,
       company_available_for_transfer_pence: null,
+      company_available_before_operational_reserve_pence: null,
       approved_payables_pending_pence: approved,
       ...fundingFields(null, args.driver_liability_pence ?? null),
       evidence_status: "PROVIDER_STUB",
@@ -443,6 +480,7 @@ export function resolveCompanyBalanceSnapshot(args?: {
       approved_company_payables_pence: approved,
       operational_reserve_pence: args?.operational_reserve_pence ?? null,
       company_available_for_transfer_pence: null,
+      company_available_before_operational_reserve_pence: null,
       approved_payables_pending_pence: approved,
       ...fundingFields(null, args?.driver_liability_pence ?? null),
       evidence_status: statusCode as CompanyBalanceEvidenceStatus,
@@ -494,6 +532,7 @@ export function resolveCompanyBalanceSnapshot(args?: {
       approved_company_payables_pence: approved,
       operational_reserve_pence: args?.operational_reserve_pence ?? null,
       company_available_for_transfer_pence: null,
+      company_available_before_operational_reserve_pence: null,
       approved_payables_pending_pence: approved,
       ...fundingFields(null, args?.driver_liability_pence ?? null),
       evidence_status: "NO_CANONICAL_SOURCE",
@@ -504,6 +543,12 @@ export function resolveCompanyBalanceSnapshot(args?: {
     };
   }
 
+  const beforeReserve = computeCompanyAvailableBeforeOperationalReservePence({
+    provider_available_balance_pence: provider,
+    driver_liability_pence: args?.driver_liability_pence,
+    customer_refund_reserved_pence: args?.customer_refund_reserved_pence,
+    approved_company_payables_pence: approved,
+  });
   const available = computeCompanyAvailableForTransferPence({
     provider_available_balance_pence: provider,
     driver_liability_pence: args?.driver_liability_pence,
@@ -512,6 +557,7 @@ export function resolveCompanyBalanceSnapshot(args?: {
     approved_company_payables_pence: approved,
     operational_reserve_pence: args?.operational_reserve_pence,
   });
+  const reserveMissing = args?.operational_reserve_pence == null;
 
   const sections = buildSections({
     currency,
@@ -522,6 +568,22 @@ export function resolveCompanyBalanceSnapshot(args?: {
     operational_reserve_pence: args?.operational_reserve_pence ?? null,
     available,
   });
+  if (reserveMissing && sections.operational_reserve.amount_pence == null) {
+    sections.operational_reserve = {
+      status: "NOT_CONFIGURED",
+      amount_pence: null,
+      currency,
+      reason_code: "OPERATIONAL_RESERVE_NOT_CONFIGURED",
+    };
+  }
+  if (reserveMissing) {
+    sections.company_transfer_available = {
+      status: "UNAVAILABLE",
+      amount_pence: null,
+      currency,
+      reason_code: "OPERATIONAL_RESERVE_NOT_CONFIGURED",
+    };
+  }
 
   return {
     status: "LIVE",
@@ -546,6 +608,7 @@ export function resolveCompanyBalanceSnapshot(args?: {
     approved_company_payables_pence: approved,
     operational_reserve_pence: args?.operational_reserve_pence ?? null,
     company_available_for_transfer_pence: available,
+    company_available_before_operational_reserve_pence: beforeReserve,
     approved_payables_pending_pence: approved,
     ...fundingFields(provider, args?.driver_liability_pence ?? null),
     evidence_status: "CONFIRMED",

@@ -95,6 +95,7 @@ export function PayoutLedgerCompanyTransfersPanel({
   serviceAreaId = null,
   companyBalance = null,
   kpis = null,
+  emptyCopy = null,
 }: {
   transfers: CompanyOutgoingTransferRow[];
   isLoading: boolean;
@@ -105,9 +106,12 @@ export function PayoutLedgerCompanyTransfersPanel({
     awaiting_approval_count: number;
     approved_payables_pending_pence: number;
     processing_pence: number;
-    completed_month_pence: number;
+    completed_month_pence?: number;
+    completed_driver_payouts_month_pence?: number;
+    completed_company_transfers_month_pence?: number;
     failed_count: number;
   } | null;
+  emptyCopy?: string | null;
 }) {
   const queryClient = useQueryClient();
   const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: true });
@@ -318,9 +322,23 @@ export function PayoutLedgerCompanyTransfersPanel({
   );
   const availableSection = sectionValue(
     companyBalance?.company_available_for_transfer_pence,
-    companyBalance?.sections?.company_transfer_available,
-    companyUnavailableReason,
+    companyBalance?.sections?.company_transfer_available
+      ?? { status: 'UNAVAILABLE', reason_code: 'OPERATIONAL_RESERVE_NOT_CONFIGURED' },
+    companyBalance?.sections?.company_transfer_available?.reason_code
+      ?? 'OPERATIONAL_RESERVE_NOT_CONFIGURED',
   );
+  const beforeReserveSection = sectionValue(
+    companyBalance?.company_available_before_operational_reserve_pence ?? null,
+    null,
+    companyBalance?.company_available_before_operational_reserve_pence == null
+      ? 'BEFORE_RESERVE_UNAVAILABLE'
+      : null,
+  );
+  const completedDriverMonth =
+    kpis?.completed_driver_payouts_month_pence
+    ?? kpis?.completed_month_pence
+    ?? null;
+  const completedCompanyMonth = kpis?.completed_company_transfers_month_pence ?? 0;
 
   return (
     <div className="space-y-4">
@@ -494,12 +512,21 @@ export function PayoutLedgerCompanyTransfersPanel({
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Operational Reserve</CardTitle></CardHeader>
+          <CardHeader className="pb-2">
+            <CardTitle
+              className="text-sm"
+              title="Configured operational/refund reserve. Absence = OPERATIONAL_RESERVE_NOT_CONFIGURED — never invent £0."
+            >
+              Operational / Refund Reserve
+            </CardTitle>
+          </CardHeader>
           <CardContent className="space-y-1">
             {reserveSection.kind === 'unavailable' ? (
               <>
-                <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
-                <div className="text-xs font-mono text-muted-foreground">{reserveSection.reason}</div>
+                <div className="text-sm font-semibold text-amber-700">NOT_CONFIGURED</div>
+                <div className="text-xs font-mono text-muted-foreground">
+                  {reserveSection.reason ?? 'OPERATIONAL_RESERVE_NOT_CONFIGURED'}
+                </div>
               </>
             ) : (
               <div className="text-xl font-semibold tabular-nums">
@@ -512,7 +539,32 @@ export function PayoutLedgerCompanyTransfersPanel({
           <CardHeader className="pb-2">
             <CardTitle
               className="text-sm"
-              title="Amount ONECAB may use after deducting protected driver liabilities, approved payables and configured reserves. Active payout reservations are already inside live liabilities."
+              title="Provisional residual after liabilities and payables only. Not final company funds while reserve is NOT_CONFIGURED."
+            >
+              ONECAB Available Before Operational Reserve
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {beforeReserveSection.kind === 'unavailable' ? (
+              <>
+                <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
+                <div className="text-xs font-mono text-muted-foreground">{beforeReserveSection.reason}</div>
+              </>
+            ) : (
+              <div className="text-xl font-semibold tabular-nums">
+                {formatNullablePence(beforeReserveSection.pence)}
+              </div>
+            )}
+            <div className="text-[11px] text-muted-foreground">
+              Provisional — reserve not subtracted / not final company cash
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle
+              className="text-sm"
+              title="Final ONECAB funds after liabilities, approved payables and a configured operational reserve. UNAVAILABLE while reserve is NOT_CONFIGURED."
             >
               ONECAB Available Company Funds
             </CardTitle>
@@ -608,14 +660,14 @@ export function PayoutLedgerCompanyTransfersPanel({
           <CardHeader className="pb-2">
             <CardTitle
               className="text-sm"
-              title="Canonical driver payout executions with provider_state=completed in the Europe/London calendar month. Not company outgoing transfers."
+              title="Canonical driver payout executions with provider_state=completed in the Europe/London calendar month."
             >
-              Completed This Month
+              Completed Driver Payouts This Month
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-1">
             <div className="text-xl font-semibold tabular-nums">
-              {formatNullablePence(kpis?.completed_month_pence ?? null)}
+              {formatNullablePence(completedDriverMonth)}
             </div>
             <div className="text-[11px] text-muted-foreground">
               Source: driver payout COMPLETED executions
@@ -623,7 +675,20 @@ export function PayoutLedgerCompanyTransfersPanel({
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Failed Transfers</CardTitle></CardHeader>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Completed Company Transfers This Month</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            <div className="text-xl font-semibold tabular-nums">
+              {formatNullablePence(completedCompanyMonth)}
+            </div>
+            <div className="text-[11px] text-muted-foreground">
+              Source: company_outgoing_transfers only
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Failed Company Transfers</CardTitle></CardHeader>
           <CardContent className="text-xl font-semibold tabular-nums">
             {kpis?.failed_count ?? '—'}
           </CardContent>
@@ -918,7 +983,10 @@ export function PayoutLedgerCompanyTransfersPanel({
         <Alert>
           <AlertTitle>{failedOnly ? 'No failed company transfers' : 'No company transfers yet'}</AlertTitle>
           <AlertDescription>
-            Create a transfer above. Driver payouts stay on the Driver Payouts tab.
+            {failedOnly
+              ? 'Failed company transfers will appear here. Driver payouts stay on Driver Payouts and Batch History.'
+              : (emptyCopy
+                ?? 'No company transfers yet. Driver payouts are shown under Driver Payouts and Batch History.')}
           </AlertDescription>
         </Alert>
       ) : failedOnly ? (

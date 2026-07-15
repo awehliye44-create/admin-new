@@ -20,7 +20,6 @@ import {
   COMPANY_BALANCE_LABELS,
   COMPANY_BALANCE_TOOLTIPS,
   computeDriverPayoutFunding,
-  computeOperationalRefundReservePence,
 } from '../../../shared/companyBalanceSSOT';
 import { PAYOUT_LEDGER_ERROR } from '../../../shared/payoutLedgerOverviewSSOT';
 import { Info, Loader2, RefreshCw } from 'lucide-react';
@@ -220,14 +219,26 @@ export function PayoutLedgerOverviewPanel({
   const payablesPence = snap?.approved_company_payables_pence
     ?? overview.company_payables_pending_pence
     ?? 0;
-  const reservePence = computeOperationalRefundReservePence({
-    operational_reserve_pence: snap?.operational_reserve_pence,
-    customer_refund_reserved_pence: snap?.customer_refund_reserved_pence,
-  });
+  const reserveConfigured = snap?.operational_reserve_pence != null
+    && snap?.sections?.operational_reserve?.status === 'AVAILABLE';
+  const reserveCard = moneyOrUnavailable(
+    reserveConfigured ? snap?.operational_reserve_pence : null,
+    snap?.sections?.operational_reserve?.reason_code
+      ?? (reserveConfigured ? null : 'OPERATIONAL_RESERVE_NOT_CONFIGURED'),
+  );
+  const beforeReserve = moneyOrUnavailable(
+    snap?.company_available_before_operational_reserve_pence ?? null,
+    snap?.company_available_before_operational_reserve_pence == null
+      ? 'BEFORE_RESERVE_UNAVAILABLE'
+      : null,
+  );
   const onecabFunds = moneyOrUnavailable(
     snap?.company_available_for_transfer_pence
       ?? overview.company_available_for_transfer_pence,
-    companyReason,
+    snap?.sections?.company_transfer_available?.reason_code
+      ?? (snap?.company_available_for_transfer_pence == null
+        ? 'OPERATIONAL_RESERVE_NOT_CONFIGURED'
+        : companyReason),
   );
   const funding = snap?.driver_payout_funding_status && snap.funding_gap_pence != null
     ? { status: snap.driver_payout_funding_status, gap_pence: snap.funding_gap_pence }
@@ -306,7 +317,11 @@ export function PayoutLedgerOverviewPanel({
           <MetricCard title="Scheduled Driver Payouts" value={formatNullablePence(overview.payout_scheduled_pence)} source={payoutSource} />
           <MetricCard title="Processing Driver Payouts" value={formatNullablePence(overview.payout_processing_pence)} source={payoutSource} />
           <MetricCard title="Paid This Week" value={formatNullablePence(overview.payout_paid_week_pence)} source={payoutSource} />
-          <MetricCard title="Paid This Month" value={formatNullablePence(overview.payout_paid_month_pence)} source={payoutSource} />
+          <MetricCard
+            title="Completed Driver Payouts This Month"
+            value={formatNullablePence(overview.payout_paid_month_pence)}
+            source={payoutSource}
+          />
           <MetricCard
             title="Failed payout items"
             value={String(overview.payout_failed_count ?? '—')}
@@ -359,8 +374,17 @@ export function PayoutLedgerOverviewPanel({
           />
           <MetricCard
             title={COMPANY_BALANCE_LABELS.OPERATIONAL_REFUND_RESERVE}
-            value={formatNullablePence(reservePence)}
+            value={reserveCard.value}
             source="Company Balance SSOT"
+            unavailableReason={reserveCard.reason}
+            tooltip="Configured operational/refund reserve. NOT_CONFIGURED until an admin setting exists — never invent £0."
+          />
+          <MetricCard
+            title="ONECAB Available Before Operational Reserve"
+            value={beforeReserve.value}
+            source="Company Balance SSOT"
+            unavailableReason={beforeReserve.reason}
+            tooltip="Provisional residual after liabilities and payables. Not final company-owned cash while reserve is NOT_CONFIGURED."
           />
           <MetricCard
             title={COMPANY_BALANCE_LABELS.ONECAB_AVAILABLE_COMPANY_FUNDS}

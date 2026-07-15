@@ -89,6 +89,11 @@ export type AdminPayoutLedgerItemRow = {
   bank_account_last4: string | null;
   connected_account_id: string | null;
   status: string;
+  /** Canonical display status (NOT_SUBMITTED / COMPLETED / …). */
+  display_status?: string | null;
+  display_status_label?: string | null;
+  execution_status?: string | null;
+  reservation_status?: string | null;
   processing_started_at: string | null;
   paid_at: string | null;
   failure_reason: string | null;
@@ -140,8 +145,6 @@ export type AdminPayoutLedgerFleetSummary = {
   total_live_wallet_pence?: number;
   total_available_pence: number;
   total_pending_pence?: number;
-  /** Σ ACTIVE payout reservations (Slice 6 holds) — never label as paid. */
-  total_reserved_pence?: number;
   total_outstanding_debt_pence?: number;
   total_scheduled_pence: number;
   total_processing_pence: number;
@@ -305,9 +308,13 @@ export type AdminPayoutLedgerListResponse = {
     awaiting_approval_count: number;
     approved_payables_pending_pence: number;
     processing_pence: number;
+    /** @deprecated Prefer completed_driver_payouts_month_pence */
     completed_month_pence: number;
+    completed_driver_payouts_month_pence: number;
+    completed_company_transfers_month_pence: number;
     failed_count: number;
   };
+  company_transfers_empty_copy?: string;
   /** Sanitised machine code when page_status is not LIVE. */
   error_code?: string | null;
   /** Company Transfers remain display-only while LIVE_PAYOUT is disabled. */

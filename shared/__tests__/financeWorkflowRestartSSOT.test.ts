@@ -59,7 +59,7 @@ describe("SLICE A/H — payout ledger never invents money", () => {
       driver_liability_pence: 1409,
       driver_payout_reserved_pence: 0,
       approved_company_payables_pence: 0,
-      operational_reserve_pence: null,
+      operational_reserve_pence: 0,
       status_code: "AVAILABLE",
     });
     expect(snap.provider_available_balance_pence).toBe(274);
@@ -84,7 +84,7 @@ describe("SLICE A/H — payout ledger never invents money", () => {
       driver_liability_pence: 1409,
       driver_payout_reserved_pence: 0,
       approved_company_payables_pence: 0,
-      operational_reserve_pence: null,
+      operational_reserve_pence: 0,
       status_code: "AVAILABLE",
     });
     expect(snap.provider_available_balance_pence).toBe(1660);
@@ -116,11 +116,11 @@ describe("SLICE A/H — payout ledger never invents money", () => {
       driver_liability_pence: 1409,
       driver_payout_reserved_pence: 0,
       approved_company_payables_pence: 0,
-      operational_reserve_pence: null,
+      operational_reserve_pence: 0,
     })).toBe(251);
   });
 
-  it("7b. Main £19.34 − liabilities £14.09 = ONECAB available £5.25 (not labelled company balance)", () => {
+  it("7b. Main £19.34 − liabilities £14.09 = provisional £5.25; final UNAVAILABLE until reserve configured", () => {
     const snap = resolveCompanyBalanceSnapshot({
       currency: "GBP",
       provider_available_balance_pence: 1934,
@@ -137,9 +137,12 @@ describe("SLICE A/H — payout ledger never invents money", () => {
     });
     // Provider cash (= Revolut source account) must stay £19.34
     expect(snap.provider_available_balance_pence).toBe(1934);
-    // Must NOT treat provider cash as ONECAB residual
-    expect(snap.company_available_for_transfer_pence).toBe(525);
-    expect(snap.company_available_for_transfer_pence).not.toBe(snap.provider_available_balance_pence);
+    expect(snap.company_available_before_operational_reserve_pence).toBe(525);
+    // Fail-closed: NOT_CONFIGURED reserve must not claim £5.25 as final company funds
+    expect(snap.company_available_for_transfer_pence).toBeNull();
+    expect(snap.sections?.operational_reserve.status).toBe("NOT_CONFIGURED");
+    expect(snap.sections?.company_transfer_available.reason_code)
+      .toBe("OPERATIONAL_RESERVE_NOT_CONFIGURED");
     expect(snap.driver_liability_pence).toBe(1409);
     expect(snap.driver_payout_funding_status).toBe("FULLY_FUNDED");
     expect(snap.funding_gap_pence).toBe(0);
@@ -164,6 +167,7 @@ describe("SLICE A/H — payout ledger never invents money", () => {
       driver_liability_pence: liability,
       driver_payout_reserved_pence: 0,
       approved_company_payables_pence: 0,
+      operational_reserve_pence: 0,
       status_code: "AVAILABLE",
     });
     const zeroGbp = resolveCompanyBalanceSnapshot({
@@ -172,6 +176,7 @@ describe("SLICE A/H — payout ledger never invents money", () => {
       driver_liability_pence: liability,
       driver_payout_reserved_pence: 0,
       approved_company_payables_pence: 0,
+      operational_reserve_pence: 0,
       status_code: "AVAILABLE",
     });
     expect(main.provider_available_balance_pence).toBe(1934);
@@ -218,23 +223,25 @@ describe("SLICE A/H — payout ledger never invents money", () => {
     expect(snap.sections?.operational_reserve.status).not.toBe("AVAILABLE");
   });
 
-  it("null liability blocks available; null reserved is display-only (never invent £0 liability)", () => {
+  it("null liability or null reserve blocks available; null reserved is display-only", () => {
     expect(computeCompanyAvailableForTransferPence({
       provider_available_balance_pence: 1660,
       driver_liability_pence: null,
       driver_payout_reserved_pence: 0,
+      operational_reserve_pence: 0,
     })).toBeNull();
-    // Reserved is already inside live liability — unknown reserved must not wipe available.
+    // Fail-closed when operational reserve is NOT_CONFIGURED.
     expect(computeCompanyAvailableForTransferPence({
       provider_available_balance_pence: 1660,
       driver_liability_pence: 1409,
       driver_payout_reserved_pence: null,
-    })).toBe(251);
+      operational_reserve_pence: null,
+    })).toBeNull();
     expect(computeCompanyAvailableForTransferPence({
       provider_available_balance_pence: 1660,
       driver_liability_pence: 1409,
       driver_payout_reserved_pence: 1409,
-      operational_reserve_pence: null,
+      operational_reserve_pence: 0,
     })).toBe(251);
   });
 
