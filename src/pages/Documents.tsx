@@ -86,6 +86,8 @@ export default function Documents() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [includeSuperseded, setIncludeSuperseded] = useState(false);
+
 
   // Only show active document types for filtering
   const DOCUMENT_TYPES = useMemo(() =>
