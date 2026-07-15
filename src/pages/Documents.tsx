@@ -382,11 +382,19 @@ export default function Documents() {
                         <TableCell>{getDocumentTypeLabel(doc.document_type)}</TableCell>
                         <TableCell className="font-medium">{doc.document_name}</TableCell>
                         <TableCell>
-                          <Badge variant="outline" className={statusConfig.color}>
-                            <StatusIcon className="h-3 w-3 mr-1" />
-                            {statusConfig.label}
-                          </Badge>
+                          <div className="flex flex-col gap-1">
+                            <Badge variant="outline" className={statusConfig.color}>
+                              <StatusIcon className="h-3 w-3 mr-1" />
+                              Review: {statusConfig.label}
+                            </Badge>
+                            {!doc.is_current && (
+                              <Badge variant="outline" className="bg-zinc-100 text-zinc-700 text-xs">
+                                Superseded
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
+
                         <TableCell>
                           {doc.expiry_date ? (
                             <div className={`flex items-center gap-1 ${expired ? 'text-red-600' : expiringSoon ? 'text-orange-600' : ''}`}>
