@@ -199,6 +199,22 @@ describe("company payee schedule SSOT", () => {
     }) as { ok: false; status: string }).status).toBe("PAYEE_UNVERIFIED");
   });
 
+  it("Slice 10: null company available surfaces OPERATIONAL_RESERVE_NOT_CONFIGURED", () => {
+    expect(evaluateAutomaticCompanyPaymentGates({
+      payee_active: true,
+      payee_paused: false,
+      payee_verification_status: "VERIFIED",
+      revolut_counterparty_id: "cp",
+      schedule_paused: false,
+      schedule_automatic_enabled: true,
+      amount_pence: 100,
+      company_available_for_transfer_pence: null,
+      funding_block_reason: "OPERATIONAL_RESERVE_NOT_CONFIGURED",
+      duplicate_period_exists: false,
+      currency_match: true,
+    })).toEqual({ ok: false, status: "OPERATIONAL_RESERVE_NOT_CONFIGURED" });
+  });
+
   it("duplicate schedule period is blocked", () => {
     expect(evaluateAutomaticCompanyPaymentGates({
       payee_active: true,

@@ -266,6 +266,8 @@ export function evaluateAutomaticCompanyPaymentGates(args: {
   amount_pence: number;
   maximum_amount_pence?: number | null;
   company_available_for_transfer_pence: number | null;
+  /** Slice 10: surface OPERATIONAL_RESERVE_* / classified-cash reasons (not silent £0). */
+  funding_block_reason?: string | null;
   duplicate_period_exists: boolean;
   currency_match: boolean;
   payable_approved?: boolean;
@@ -286,7 +288,11 @@ export function evaluateAutomaticCompanyPaymentGates(args: {
     return { ok: false, status: "AMOUNT_EXCEEDS_CAP" };
   }
   if (args.company_available_for_transfer_pence == null) {
-    return { ok: false, status: "FUNDING_UNAVAILABLE" };
+    const reason = String(args.funding_block_reason ?? "").trim();
+    return {
+      ok: false,
+      status: reason || "FUNDING_UNAVAILABLE",
+    };
   }
   if (args.amount_pence > args.company_available_for_transfer_pence) {
     return { ok: false, status: "FUNDING_UNAVAILABLE" };

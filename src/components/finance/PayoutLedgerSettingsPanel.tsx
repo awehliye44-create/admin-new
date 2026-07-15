@@ -300,6 +300,7 @@ export function PayoutLedgerSettingsPanel({
       });
       if (!validated.ok) throw new Error(validated.message);
 
+      const { data: auth } = await supabase.auth.getUser();
       const payload = {
         service_area_id: serviceFilter.serviceAreaId,
         currency,
@@ -336,9 +337,13 @@ export function PayoutLedgerSettingsPanel({
         return draftReserve.id;
       }
 
+      const insertPayload = {
+        ...payload,
+        created_by: auth.user?.id ?? null,
+      };
       const { data: inserted, error } = await supabase
         .from('company_operational_refund_reserves')
-        .insert(payload)
+        .insert(insertPayload)
         .select('id')
         .single();
       if (error) throw error;
@@ -347,7 +352,7 @@ export function PayoutLedgerSettingsPanel({
         action: 'SAVE_DRAFT',
         from_status: null,
         to_status: 'DRAFT',
-        payload,
+        payload: insertPayload,
       });
       return inserted.id as string;
     },

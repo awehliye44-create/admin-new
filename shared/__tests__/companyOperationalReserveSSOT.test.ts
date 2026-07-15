@@ -311,4 +311,111 @@ describe("Slice 10 operational reserve SSOT", () => {
       classified_company_cash_pence: null,
     })).toBeNull();
   });
+
+  it("PERCENTAGE path: reserve from eligible, final from transferable_base only", () => {
+    const eligible = BEFORE_RESERVE_PENCE; // 525
+    const classified = NET_COMMISSION_PENCE; // 172
+    const reserve = computeOperationalReserveAmountPence({
+      policy: {
+        reserve_mode: RESERVE_MODE.PERCENTAGE,
+        reserve_amount_pence: null,
+        reserve_percentage_bps: 1000, // 10% → 53
+        minimum_reserve_pence: 0,
+      },
+      eligible_company_cash_pence: eligible,
+    });
+    expect(reserve).toBe(53);
+    // final = min(525,172) − 53 = 119 — never eligible−reserve (472) and never includes unclassified
+    expect(computeFinalCompanyAvailablePence({
+      eligible_company_cash_pence: eligible,
+      classified_company_cash_pence: classified,
+      operational_reserve_pence: reserve,
+    })).toBe(119);
+    expect(eligible - (reserve ?? 0)).toBe(472);
+    expect(BEFORE_RESERVE_PENCE - NET_COMMISSION_PENCE).toBe(UNCLASSIFIED_PENCE);
+  });
+
+  it("approved payables deducted once in eligible — not again in final", () => {
+    const source = 2000;
+    const liabilities = 1000;
+    const payables = 200;
+    const classified = 500;
+    const reserve = 50;
+    const eligible = computeEligibleCompanyCashPence({
+      provider_available_balance_pence: source,
+      driver_liability_pence: liabilities,
+      approved_company_payables_pence: payables,
+    });
+    expect(eligible).toBe(800); // 2000 − 1000 − 200
+    // Spec §6 safer: final = min(eligible, classified) − reserve = min(800,500) − 50 = 450
+    // Wrong double-subtract would be min(800,500) − payables − reserve = 250
+    expect(computeFinalCompanyAvailablePence({
+      eligible_company_cash_pence: eligible,
+      classified_company_cash_pence: classified,
+      operational_reserve_pence: reserve,
+    })).toBe(450);
+    expect(computeCompanyAvailableForTransferPence({
+      provider_available_balance_pence: source,
+      driver_liability_pence: liabilities,
+      approved_company_payables_pence: payables,
+      operational_reserve_pence: reserve,
+      classified_company_cash_pence: classified,
+    })).toBe(450);
+    expect(450).not.toBe(classified - payables - reserve);
+  });
+
+  it("transfer gate blocked with explicit OPERATIONAL_RESERVE_NOT_CONFIGURED (not silent zero)", () => {
+    const snap = resolveCompanyBalanceSnapshot({
+      currency: "GBP",
+      provider_available_balance_pence: SOURCE_PENCE,
+      driver_liability_pence: LIABILITY_PENCE,
+      driver_payout_reserved_pence: RESERVED_PENCE,
+      approved_company_payables_pence: 0,
+      operational_reserve_pence: null,
+      operational_reserve_reason_code: OPERATIONAL_RESERVE_ERROR.NOT_CONFIGURED,
+      classified_company_cash_pence: NET_COMMISSION_PENCE,
+      status_code: "AVAILABLE",
+    });
+    expect(snap.company_available_for_transfer_pence).toBeNull();
+    expect(snap.final_company_available_pence).toBeNull();
+    expect(snap.sections?.operational_reserve.status).toBe("NOT_CONFIGURED");
+    expect(snap.sections?.operational_reserve.reason_code)
+      .toBe(OPERATIONAL_RESERVE_ERROR.NOT_CONFIGURED);
+    expect(snap.sections?.company_transfer_available.status).toBe("UNAVAILABLE");
+    expect(snap.sections?.company_transfer_available.reason_code)
+      .toBe(OPERATIONAL_RESERVE_ERROR.NOT_CONFIGURED);
+    expect(snap.company_available_for_transfer_pence).not.toBe(0);
+
+    expect(() => assertCompanyTransferFundingAvailable({
+      money_source: "COMPANY_BALANCE",
+      company_balance: snap,
+      amount_pence: 1,
+    })).toThrow(OPERATIONAL_RESERVE_ERROR.NOT_CONFIGURED);
+  });
+
+  it("preserves QUERY_FAILED / STALE reserve reasons (fail-closed, explicit)", () => {
+    for (const code of [
+      OPERATIONAL_RESERVE_ERROR.QUERY_FAILED,
+      OPERATIONAL_RESERVE_ERROR.STALE,
+      OPERATIONAL_RESERVE_ERROR.CURRENCY_MISMATCH,
+    ] as const) {
+      const snap = resolveCompanyBalanceSnapshot({
+        currency: "GBP",
+        provider_available_balance_pence: SOURCE_PENCE,
+        driver_liability_pence: LIABILITY_PENCE,
+        operational_reserve_pence: null,
+        operational_reserve_reason_code: code,
+        classified_company_cash_pence: NET_COMMISSION_PENCE,
+        status_code: "AVAILABLE",
+      });
+      expect(snap.sections?.operational_reserve.reason_code).toBe(code);
+      expect(snap.sections?.company_transfer_available.reason_code).toBe(code);
+      expect(snap.company_available_for_transfer_pence).toBeNull();
+      expect(() => assertCompanyTransferFundingAvailable({
+        money_source: "COMPANY_BALANCE",
+        company_balance: snap,
+        amount_pence: 1,
+      })).toThrow(code);
+    }
+  });
 });

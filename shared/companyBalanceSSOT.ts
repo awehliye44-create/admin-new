@@ -416,6 +416,11 @@ export function resolveCompanyBalanceSnapshot(args?: {
   driver_payout_reserved_pence?: number | null;
   customer_refund_reserved_pence?: number | null;
   operational_reserve_pence?: number | null;
+  /**
+   * When operational_reserve_pence is null, preserve the loader/gate reason
+   * (NOT_CONFIGURED / QUERY_FAILED / STALE / …) instead of collapsing to silent zero.
+   */
+  operational_reserve_reason_code?: string | null;
   /** Slice 10 classified funding (excludes UNATTRIBUTED / RECONCILIATION_REQUIRED). */
   classified_company_cash_pence?: number | null;
   provider_balance_is_stub?: boolean;
@@ -603,6 +608,16 @@ export function resolveCompanyBalanceSnapshot(args?: {
   const transferableBase = !classifiedMissing && beforeReserve != null
     ? Math.min(beforeReserve, classified)
     : null;
+  const reserveReason = String(args?.operational_reserve_reason_code ?? "").trim()
+    || OPERATIONAL_RESERVE_ERROR.NOT_CONFIGURED;
+  const reserveSectionStatus =
+    reserveReason === OPERATIONAL_RESERVE_ERROR.QUERY_FAILED
+      || reserveReason === OPERATIONAL_RESERVE_ERROR.INVALID
+      || reserveReason === OPERATIONAL_RESERVE_ERROR.CURRENCY_MISMATCH
+      || reserveReason === OPERATIONAL_RESERVE_ERROR.SERVICE_AREA_MISMATCH
+      || reserveReason === OPERATIONAL_RESERVE_ERROR.STALE
+      ? "ERROR"
+      : "NOT_CONFIGURED";
 
   const sections = buildSections({
     currency,
@@ -615,10 +630,10 @@ export function resolveCompanyBalanceSnapshot(args?: {
   });
   if (reserveMissing && sections.operational_reserve.amount_pence == null) {
     sections.operational_reserve = {
-      status: "NOT_CONFIGURED",
+      status: reserveSectionStatus,
       amount_pence: null,
       currency,
-      reason_code: OPERATIONAL_RESERVE_ERROR.NOT_CONFIGURED,
+      reason_code: reserveReason,
     };
   }
   if (reserveMissing) {
@@ -626,7 +641,7 @@ export function resolveCompanyBalanceSnapshot(args?: {
       status: "UNAVAILABLE",
       amount_pence: null,
       currency,
-      reason_code: OPERATIONAL_RESERVE_ERROR.NOT_CONFIGURED,
+      reason_code: reserveReason,
     };
   } else if (classifiedMissing) {
     sections.company_transfer_available = {
